@@ -154,8 +154,8 @@ def drive(tid, a):
             cur = task.current(task.load(tid))
             target = Path(t["workdir"]) / cur["allowed"][0]
             try:
-                lo, hi, count = ans.apply(target, answer)
-                say(f"  applied the answer: lines {lo}-{hi} replaced by {count} line(s)")
+                count, summary = ans.apply(target, answer)
+                say(f"  applied the answer: {count} operation(s): {summary}")
             except (ans.BadAnswer, OSError) as e:
                 res = task.fail_attempt(tid, f"your answer was not used: {e}")
                 say(f"  harness check: FAILED - {res['why'][0]}")

@@ -163,7 +163,8 @@ def step_apply_group(t, harness_root, group, **kw):
             new_steps.append({"id": f"port-{group}-{pf.stem}-{Path(fname).name}-h{n}", "kind": "model",
                               "title": f"port hunk #{n} of {rel} into {fname}",
                               "packet": "fieldkit.buildh.firefox:packet_port",
-                              "check": "fieldkit.buildh.firefox:check_port", "allowed": [fname],
+                              "check": "fieldkit.buildh.firefox:check_port", "auto": "fieldkit.buildh.firefox:auto_port",
+                              "allowed": [fname],
                               "args": {"patch": rel, "file": fname, "hunk": hunks[n - 1]}})
         if res["missing"]:
             new_steps.append({"id": f"owner-{group}-{pf.stem}", "kind": "owner",
@@ -275,8 +276,9 @@ def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
     parts += [f"{i + 1:6}| {lines[i]}" for i in range(lo, hi)]
     if answer_mode:
         from .answer import INSTRUCTIONS
-        parts += ["", "DO: give the lines that make this change in " + file + ": the '+' lines present and the "
-                      "'-' lines gone, in the matching place. Keep the file's own style.", "", INSTRUCTIONS]
+        parts += ["", "DO: make this change in " + file + " with line operations: the '-' lines (or the lines "
+                      "that now hold the same settings) go, the '+' lines are added in the matching place. "
+                      "Touch nothing else.", "", INSTRUCTIONS]
     else:
         parts += ["", "DO: edit " + file + " so that the '+' lines are present and the '-' lines are gone, in the "
                                          "matching place. Change nothing else. Keep the file's own style."]
@@ -319,8 +321,8 @@ def collateral(before, after, hunk):
     # A line counts as the hunk's line when its CODE matches, ignoring a trailing // comment:
     # upstream may have edited the very line the patch changes (added a comment), and removing
     # that edited version is the port, not damage.
-    may_remove = collections.Counter(_code(l) for l in removed)
-    may_add = collections.Counter(_code(l) for l in added)
+    may_remove = collections.Counter(_key(l) for l in removed)
+    may_add = collections.Counter(_key(l) for l in added)
     gone, new = collections.Counter(), collections.Counter()
     sm = difflib.SequenceMatcher(None, [l.strip() for l in before], [l.strip() for l in after], autojunk=False)
     for op, i1, i2, j1, j2 in sm.get_opcodes():
@@ -330,10 +332,15 @@ def collateral(before, after, hunk):
             new.update(l.strip() for l in after[j1:j2] if l.strip())
     moved = gone & new                                          # the same line taken out and put back
     gone, new = gone - moved, new - moved
-    gone_code = collections.Counter({_code(k): n for k, n in gone.items()})
-    new_code = collections.Counter({_code(k): n for k, n in new.items()})
-    why = [f"you removed a line that is not part of the change: {k[:100]}" for k in (gone_code - may_remove)]
-    why += [f"you added a line that is not part of the change: {k[:100]}" for k in (new_code - may_add)]
+    gone_code, new_code, text = collections.Counter(), collections.Counter(), {}
+    for k, n in gone.items():
+        gone_code[_key(k)] += n
+        text.setdefault(("-", _key(k)), k)
+    for k, n in new.items():
+        new_code[_key(k)] += n
+        text.setdefault(("+", _key(k)), k)
+    why = [f"you removed a line that is not part of the change: {text[('-', k)][:100]}" for k in (gone_code - may_remove)]
+    why += [f"you added a line that is not part of the change: {text[('+', k)][:100]}" for k in (new_code - may_add)]
     return why
 
 
@@ -349,6 +356,91 @@ def _code(line):
         elif s.startswith("//", i) and i > 0:
             return s[:i].rstrip()
     return s
+
+
+_PREF = re.compile(r'\s*(pref|sticky_pref|lockPref|user_pref|defaultPref)\s*\(\s*"([^"]+)"')
+
+
+def _key(line):
+    """What makes two lines 'the same line': for a Firefox setting its function and name (upstream
+    may change the VALUE; live run 5 hunk #4: customIcon.enabled went false -> true in 155.0.1),
+    otherwise the code without a trailing // comment."""
+    m = _PREF.match(line)
+    return f"{m.group(1)}:{m.group(2)}" if m else _code(line)
+
+
+class Ambiguous(ValueError):
+    """The transplant cannot be done without judgement: the job goes to the model."""
+
+
+def change_blocks(hunk):
+    """The hunk as runs of changes: [(context line before or None, removed lines, added lines)]."""
+    blocks, cur, before = [], None, None
+    for l in hunk["lines"]:
+        tag, body = l[:1], l[1:]
+        if tag in "+-":
+            if cur is None:
+                cur = {"before": before, "-": [], "+": []}
+                blocks.append(cur)
+            cur[tag].append(body)
+        elif tag == " ":
+            cur, before = None, body
+    return blocks
+
+
+def transplant(lines, hunk, notes=None):
+    """Apply the hunk by finding its removed lines themselves, ignoring context that upstream changed.
+
+    Live run 5 (2026-09-30): GNU patch refused the hunk because Mozilla had rewritten the lines
+    AROUND it in 155.0.1, but every line it removes was still there, word for word and together,
+    in exactly one place. Gemma failed it nine times; this does it without a model. Refuses
+    (Ambiguous) the moment a block is missing or could sit in more than one place."""
+    out = list(lines)
+    keyed = [_key(l) for l in lines]
+    edits = []
+    for b in change_blocks(hunk):
+        R = [_key(x) for x in b["-"]]
+        if R:
+            hits = [i for i in range(len(keyed) - len(R) + 1) if keyed[i:i + len(R)] == R]
+            if len(hits) != 1:
+                raise Ambiguous(f"the removed lines are {'missing' if not hits else f'in {len(hits)} places'}")
+            for old, now in zip(b["-"], lines[hits[0]:hits[0] + len(R)]):
+                if notes is not None and old.strip() != now.strip():
+                    notes.append(f"upstream changed this line; removed as the patch intends: {now.strip()[:120]}"
+                                 f" (the patch expected: {old.strip()[:120]})")
+            edits.append((hits[0], len(R), b["+"]))
+        else:
+            if b["before"] is None or not b["before"].strip():
+                raise Ambiguous("an insertion with no distinctive line before it")
+            hits = [i for i, l in enumerate(keyed) if l == _key(b["before"])]
+            if len(hits) != 1:
+                raise Ambiguous(f"the line to insert after is {'missing' if not hits else f'in {len(hits)} places'}")
+            edits.append((hits[0] + 1, 0, b["+"]))
+    edits.sort(key=lambda e: e[0])
+    if any(a[0] + a[1] > b[0] for a, b in zip(edits, edits[1:])):
+        raise Ambiguous("two changes overlap")
+    for at, n, new in reversed(edits):
+        out[at:at + n] = new
+    return out
+
+
+def auto_port(t, s, patch, file, hunk, **kw):
+    """The harness's own attempt before a model is asked. -> {"ok", "why"}; writes the file only on success."""
+    target = Path(t["workdir"]) / file
+    if not target.is_file():
+        return {"ok": False, "why": [f"{file} does not exist"]}
+    raw = target.read_text(encoding="utf-8", errors="replace")
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    lines = raw.split(nl)
+    trailing = lines and lines[-1] == ""
+    body = lines[:-1] if trailing else lines
+    notes = []
+    try:
+        new = transplant(body, hunk, notes)
+    except Ambiguous as e:
+        return {"ok": False, "why": [str(e)]}
+    target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
+    return {"ok": True, "why": [], "notes": notes}
 
 
 def check_port(t, s, patch, file, hunk, **kw):

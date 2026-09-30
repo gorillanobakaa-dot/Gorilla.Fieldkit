@@ -22,8 +22,8 @@ def _w(p, text):
 
 
 PREFS_157 = "".join(f'pref("filler.{i}", {i});\n' for i in range(30)) + \
-    'pref("browser.startup.page", 1);\npref("toolkit.telemetry.enabled", true); // default since 157\n'
-# 157 moved the telemetry pref 30 lines down AND edited that very line: even fuzz 3 cannot apply the hunk
+    'pref("browser.startup.page", 1);\npref("datareporting.telemetry.enabled", true); // renamed in 157\n'
+# 157 moved the telemetry pref 30 lines down AND renamed it: neither patch nor the transplant may guess
 TELEMETRY_PATCH = """--- a/prefs.js
 +++ b/prefs.js
 @@ -1,3 +1,3 @@
@@ -88,11 +88,12 @@ def test_whole_workflow_script_does_the_easy_parts_model_gets_one_hunk(world):
     p = task.packet("ff")
     w = world / "work" / "157.0"
     assert p["step"].startswith("port-05.PREFS-telemetry")
-    assert "near line 32" in p["packet"] and "toolkit.telemetry.enabled" in p["packet"]
+    assert ("near line 31" in p["packet"] or "near line 32" in p["packet"]) and "toolkit.telemetry.enabled" in p["packet"]
     # a small model does the job
     prefs = w / "prefs.js"
-    prefs.write_text(prefs.read_text().replace('pref("toolkit.telemetry.enabled", true); // default since 157',
-                                               'pref("toolkit.telemetry.enabled", false);'), newline="\n")
+    prefs.write_text(prefs.read_text().replace('pref("browser.startup.page", 1);\n',
+                                               'pref("browser.startup.page", 1);\npref("toolkit.telemetry.enabled", false);\n'),
+                     newline="\n")
     assert task.submit("ff")["ok"]
     nxt = task.packet("ff")
     assert (w / "theme.css").read_text().count("purple") == 1             # the next group: applied by the script
@@ -122,7 +123,7 @@ def test_hunk_problems_counts_lines():
     hunk = firefox.parse_patch(TELEMETRY_PATCH)[0]["hunks"][0]
     before = PREFS_157.splitlines()
     assert firefox.hunk_problems(before, before, hunk)
-    after = ['pref("toolkit.telemetry.enabled", false);' if "telemetry" in l else l for l in before]
+    after = before + ['pref("toolkit.telemetry.enabled", false);']
     assert firefox.hunk_problems(before, after, hunk) == []
     assert firefox.already_upstream(after, hunk) and not firefox.already_upstream(before, hunk)
 
@@ -143,3 +144,22 @@ def test_collateral_allows_exactly_the_hunk():
     before = ['pref("a", 1);', 'pref("toolkit.telemetry.enabled", true);', 'pref("b", 2);']
     after = ['pref("a", 1);', 'pref("toolkit.telemetry.enabled", false);', 'pref("b", 2);']
     assert firefox.collateral(before, after, hunk) == []
+
+
+def test_transplant_does_the_real_run5_hunk_without_a_model():
+    """The hunk Gemma failed nine times: every removed line still exists together, so no model is needed."""
+    import json as _json
+    case = _json.loads((Path(__file__).parent / "data" / "run4_gemma_touchmode.json").read_text(encoding="utf-8"))
+    after = firefox.transplant(case["before"], case["hunk"])
+    assert firefox.hunk_problems(case["before"], after, case["hunk"]) == []
+    assert firefox.collateral(case["before"], after, case["hunk"]) == []
+    assert 'sticky_pref("browser.touchmode.auto", false);' in [l.strip() for l in after]     # Mozilla's line survives
+
+
+def test_transplant_refuses_when_it_would_have_to_guess():
+    hunk = firefox.parse_patch(TELEMETRY_PATCH)[0]["hunks"][0]
+    with pytest.raises(firefox.Ambiguous, match="missing"):
+        firefox.transplant(['pref("datareporting.telemetry.enabled", true);'], hunk)
+    twice = ['pref("toolkit.telemetry.enabled", true);'] * 2
+    with pytest.raises(firefox.Ambiguous, match="2 places"):
+        firefox.transplant(twice, hunk)

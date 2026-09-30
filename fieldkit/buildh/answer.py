@@ -1,37 +1,36 @@
-"""answer - the model writes its change as plain text in a fixed form; the harness applies it.
+"""answer - the model writes its change as short line operations; the harness applies them.
 
-Found in live run 3 (2026-09-30): given edit and submit tools, Gemma (gemma-4-e2b) made
-no tool call at all in two runs and wrote detailed reports of edits it never made
-("I modified lines 266 through 284 ..."). A model that small is reliable at producing
-text, not at driving tools. So the harness asks for text, and does the mechanical part:
+Live run 3 (2026-09-30): given edit and submit tools, Gemma (gemma-4-e2b) made no tool call
+and wrote reports of edits it never made. Live runs 4 and 5: asked to rewrite a whole block
+of lines, it dropped Mozilla's lines, put old ones back and duplicated others - a 4.6B model
+cannot copy 30 lines back faithfully. So the model never copies lines. It names them:
 
-    FROM LINE: 266
-    TO LINE: 284
-    NEW TEXT:
-    <<<
-    ...the lines that replace 266-284...
-    >>>
+    DELETE 744
+    DELETE 745-748
+    CHANGE 750: pref("browser.x", false);
+    INSERT AFTER 760: pref("browser.y", 1);
 
-Rules the parser enforces, so a sloppy answer is refused instead of guessed at:
-  - exactly one FROM/TO pair, whole numbers, FROM <= TO, inside the file;
-  - one NEW TEXT block between <<< and >>> (it may be empty: that deletes the lines);
-  - anything outside the form is ignored (the model may think aloud before it).
+Line numbers are the ones shown in the job. The harness applies the operations from the
+bottom up, so every number keeps meaning what the model saw. Enforced, so a sloppy answer
+is refused instead of guessed at:
+  - at least one operation; every number inside the file;
+  - no line touched by two operations;
+  - text outside the operation lines is ignored (the model may think aloud before them).
 """
 import re
 
-FORM = re.compile(r"FROM LINE:\s*(\d+)\s*\n\s*TO LINE:\s*(\d+)\s*\n\s*NEW TEXT:\s*\n<<<\n?(.*?)\n?>>>", re.S)
+OP = re.compile(r"^\s*(?:(DELETE)\s+(\d+)(?:\s*-\s*(\d+))?|(CHANGE)\s+(\d+)\s*:\s?(.*)|(INSERT AFTER)\s+(\d+)\s*:\s?(.*))\s*$")
 
-INSTRUCTIONS = """Answer in exactly this form and nothing after it:
+INSTRUCTIONS = """Answer with line operations, one per line, and nothing after them:
 
-FROM LINE: <first line number to replace>
-TO LINE: <last line number to replace>
-NEW TEXT:
-<<<
-<the lines that replace them, exactly as they must appear in the file>
->>>
+DELETE <n>                  remove line n
+DELETE <n>-<m>              remove lines n to m
+CHANGE <n>: <new text>      replace line n with the new text
+INSERT AFTER <n>: <text>    add a new line after line n
 
-Use the line numbers shown above. Keep every line you do not need to change.
-The harness applies your text to the file and checks it; your words are not checked."""
+Use the line numbers shown above. Do not copy lines you are not changing: every line you
+do not name stays exactly as it is. The harness applies your operations and checks the file;
+your words are not checked."""
 
 
 class BadAnswer(ValueError):
@@ -39,20 +38,38 @@ class BadAnswer(ValueError):
 
 
 def parse(text, n_lines):
-    found = FORM.findall(text or "")
-    if not found:
-        raise BadAnswer("no answer in the required form (FROM LINE / TO LINE / NEW TEXT between <<< and >>>)")
-    if len(found) > 1:
-        raise BadAnswer(f"{len(found)} answers given; give exactly one")
-    a, b, body = found[0]
-    lo, hi = int(a), int(b)
-    if not 1 <= lo <= hi <= n_lines:
-        raise BadAnswer(f"lines {lo}-{hi} are not inside the file (it has {n_lines} lines)")
-    return lo, hi, body.split("\n") if body else []
+    ops = []
+    for raw in (text or "").splitlines():
+        line = raw.strip().strip("`").strip()
+        m = OP.match(line)
+        if not m:
+            continue
+        if m.group(1):
+            lo = int(m.group(2))
+            hi = int(m.group(3) or lo)
+            ops.append(("delete", lo, hi, None))
+        elif m.group(4):
+            ops.append(("change", int(m.group(5)), int(m.group(5)), m.group(6)))
+        else:
+            ops.append(("insert", int(m.group(8)), int(m.group(8)), m.group(9)))
+    if not ops:
+        raise BadAnswer("no operations found (DELETE n / DELETE n-m / CHANGE n: text / INSERT AFTER n: text)")
+    touched = {}
+    for kind, lo, hi, _ in ops:
+        if not (1 <= lo <= hi <= n_lines) and not (kind == "insert" and lo == 0):
+            raise BadAnswer(f"{kind.upper()} {lo}{'-' + str(hi) if hi != lo else ''} is not inside the file "
+                            f"(it has {n_lines} lines)")
+        if kind == "insert":
+            continue
+        for n in range(lo, hi + 1):
+            if n in touched:
+                raise BadAnswer(f"line {n} is named by two operations; name each line once")
+            touched[n] = kind
+    return ops
 
 
 def apply(path, text):
-    """Apply one answer to the file at `path`. -> (from, to, lines written). Raises BadAnswer."""
+    """Apply the operations to the file at `path`. -> (count, summary). Raises BadAnswer."""
     with open(path, encoding="utf-8", errors="replace", newline="") as f:
         raw = f.read()
     nl = "\r\n" if "\r\n" in raw else "\n"
@@ -60,8 +77,15 @@ def apply(path, text):
     trailing = lines[-1] == ""
     if trailing:
         lines = lines[:-1]
-    lo, hi, new = parse(text, len(lines))
-    out = lines[:lo - 1] + new + lines[hi:]
+    ops = parse(text, len(lines))
+    # bottom-up, inserts after changes at the same line, so every number means what the model saw
+    for kind, lo, hi, body in sorted(ops, key=lambda o: (o[1], o[0] == "insert"), reverse=True):
+        if kind == "delete":
+            del lines[lo - 1:hi]
+        elif kind == "change":
+            lines[lo - 1] = body
+        else:
+            lines[lo:lo] = [body]
     with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(nl.join(out) + (nl if trailing else ""))
-    return lo, hi, len(new)
+        f.write(nl.join(lines) + (nl if trailing else ""))
+    return len(ops), "; ".join(f"{k} {lo}{'-' + str(hi) if hi != lo else ''}" for k, lo, hi, _ in ops)

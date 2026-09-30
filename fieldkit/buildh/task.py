@@ -152,6 +152,25 @@ def advance(task_id):
             journal(t, "done")
             return {"state": "DONE", "checkpoints": len(t["checkpoints"])}
         if s["kind"] == "model":
+            if s.get("auto") and not s.get("auto_tried"):
+                # the harness's own attempt first (e.g. a transplant); the model only gets
+                # what a script cannot do. The same check decides; a miss is put back.
+                s["auto_tried"] = True
+                res = _call(s["auto"], t, s, **(s.get("args") or {})) or {}
+                why = list(res.get("why") or [])
+                if res.get("ok"):
+                    changed = changed_files(t)
+                    outside = [c for c in changed if c not in set(s.get("allowed") or [])]
+                    chk = _call(s["check"], t, s, **(s.get("args") or {})) if not outside else {"ok": False}
+                    why = [] if chk.get("ok") and not outside else (outside and [f"changed {outside}"]) or chk.get("why", [])
+                if res.get("ok") and not why:
+                    s["status"], s["done_by"], s["notes"] = "done", "harness", res.get("notes") or []
+                    checkpoint(t, s["id"])
+                    journal(t, "auto-done", step=s["id"], notes=s["notes"])
+                    save(t)
+                    continue
+                revert_to_checkpoint(t)
+                journal(t, "auto-miss", step=s["id"], why=why)
             save(t)
             return {"state": "MODEL STEP", "step": s["id"]}
         if s["kind"] == "owner":                      # a decision no model should make
