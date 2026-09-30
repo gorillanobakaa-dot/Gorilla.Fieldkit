@@ -92,7 +92,11 @@ Release notes: [GitHub releases](https://github.com/gorillanobakaa-dot/Gorilla.F
 
 ## 1. Install
 
-You need Python 3.11 or newer and Git.
+**Step-by-step guide, for people and for developers: [INSTALL.md](INSTALL.md).** It shows how to
+ask your AI to install Fieldkit or do it yourself, where to put it, how to connect it to
+Gorilla OpenCode and LM Studio, and how to make a small model aware of it.
+
+The short version (Python 3.11 or newer and Git):
 
 ```
 git clone https://github.com/gorillanobakaa-dot/Gorilla.Fieldkit
@@ -111,6 +115,8 @@ To remove it: `python -m pip uninstall fieldkit`, then delete the folder. Fieldk
 nothing else on your computer.
 
 ## 2. Connect it to your AI helper
+
+Full steps, backups and checks: [INSTALL.md](INSTALL.md), steps 4 to 6.
 
 Fieldkit speaks MCP, the standard way AI helpers use outside tools. Your helper then sees
 six tools: `discover`, `describe`, `run`, `undo`, `next` and `readiness`.

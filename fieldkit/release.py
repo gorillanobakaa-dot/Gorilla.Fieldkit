@@ -180,6 +180,13 @@ def check(spec_path):
             gate("tag exported", False, str(e))
             return _result(spec, gates)
 
+        # Scan BEFORE the tests run: tests write logs and state into the tree, and the
+        # question is what gets published, not what a test run left behind (2026-09-30).
+        if spec.get("privacy", True):
+            found = privacy.scan_path(tree)
+            gate("privacy", not found, "clean" if not found else
+                 f"{sum(len(v) for v in found.values())} finding(s) in {len(found)} file(s)")
+
         for cmd in spec.get("tests") or []:
             rc, out = _sh(cmd, cwd=tree)
             last = (out.strip().splitlines() or [""])[-1]
@@ -187,10 +194,6 @@ def check(spec_path):
         if not spec.get("tests"):
             gate("tests", False, "the spec declares no tests: nothing proves the release works")
 
-        if spec.get("privacy", True):
-            found = privacy.scan_path(tree)
-            gate("privacy", not found, "clean" if not found else
-                 f"{sum(len(v) for v in found.values())} finding(s) in {len(found)} file(s)")
 
         for a in spec.get("artifacts") or []:
             if "path" in a:

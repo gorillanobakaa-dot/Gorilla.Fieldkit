@@ -185,3 +185,12 @@ def test_line_ending_conversion_does_not_fake_a_difference(tmp_path, github):
     github["repo"] = r
     res = release.check(_spec(tmp_path, r))
     assert res["clear"], release.lines(res)
+
+
+def test_privacy_scans_what_is_published_not_what_the_tests_wrote(tmp_path, repo, github):
+    """2026-09-30: the gate scanned the export AFTER running its tests, so test logs (which
+    carry home paths) failed a release whose published files were clean."""
+    writer = [sys.executable, "-c", "import pathlib; pathlib.Path('state').mkdir(); "
+              "pathlib.Path('state/run.log').write_text('/home/' + 'somebody/' + 'x')"]
+    r = release.check(_spec(tmp_path, repo, tests=[writer]))
+    assert next(g for g in r["gates"] if g["gate"] == "privacy")["ok"], release.lines(r)
