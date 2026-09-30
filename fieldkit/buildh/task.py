@@ -260,7 +260,7 @@ def unblock(task_id, step_id, how):
     t = load(task_id)
     s = next(x for x in t["steps"] if x["id"] == step_id)
     if how == "retry":
-        s["status"], s["attempts"] = "pending", 0
+        s["status"], s["attempts"], s["last_why"] = "pending", 0, None     # a fresh start carries no old advice
     elif how == "skip":
         s["status"] = "done"
         s["skipped_by_owner"] = True
