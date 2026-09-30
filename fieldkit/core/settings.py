@@ -61,8 +61,10 @@ def expand(value, local=None, strict=True):
     if not isinstance(value, str):
         return value
     local = local_settings() if local is None else local
+    depth = [0]
 
     def sub(m):
+        depth[0] += 1
         kind, arg = m.group(1), m.group(2)
         if kind == "HOME":
             return str(Path.home())
@@ -78,7 +80,8 @@ def expand(value, local=None, strict=True):
             for part in arg.split("."):
                 cur = cur.get(part) if isinstance(cur, dict) else None
             if cur is not None:
-                return str(cur)
+                # a local setting may use variables itself ("${DOCUMENTS}/Vault"): expand it too
+                return expand(str(cur), local, strict) if "${" in str(cur) and depth[0] < 5 else str(cur)
         if strict:
             raise SettingsError(f"cannot expand ${{{kind}{':' + arg if arg else ''}}}")
         return m.group(0)

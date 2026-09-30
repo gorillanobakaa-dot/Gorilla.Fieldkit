@@ -35,6 +35,8 @@
     fieldkit exam report
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
+    fieldkit build-harness latest|vault|start|approve|next|status|submit|unblock|log ...
+                                                 Firefox & kernel builds in small checked steps (see buildh/cli.py)
 
 Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets, failed stage).
 """
@@ -646,7 +648,30 @@ def build_parser():
     fr.add_argument("injector")
     fr.add_argument("--out")
     k.set_defaults(fn=cmd_kernel)
+
+    bh = sub.add_parser("build-harness", parents=[common],
+                        help="Firefox & kernel build harness: vault, checked steps, checkpoints")
+    bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
+                                       "unblock", "log"])
+    bh.add_argument("args", nargs="*")
+    bh.add_argument("--task")
+    bh.add_argument("--pin", help="start: a stable version instead of the latest (e.g. 155.0.1)")
+    bh.add_argument("--source", help="start: repository URL or local git path holding the release tag")
+    bh.add_argument("--budget", type=int, default=100_000, help="the model's context window, in tokens")
+    bh.add_argument("--workdir")
+    bh.add_argument("--version", help="vault verify/restore: a version other than the newest")
+    bh.add_argument("--note", help="submit: a note for the log")
+    bh.set_defaults(fn=cmd_build_harness)
     return ap
+
+
+def cmd_build_harness(a):
+    from .buildh import cli as bh, task
+    try:
+        return bh.run(a, lambda obj, human: _emit(obj, a.json, human))
+    except task.Refused as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
 
 
 def main(argv=None):

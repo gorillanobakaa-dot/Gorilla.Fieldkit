@@ -26,7 +26,8 @@ def test_handshake_list_and_call_over_stdio():
     assert [m["id"] for m in out] == [1, 2, 3, 4]                      # the notification got no reply
     assert out[0]["result"]["serverInfo"]["name"] == "fieldkit"
     names = {t["name"] for t in out[1]["result"]["tools"]}
-    assert {"discover", "describe", "run", "undo", "next", "readiness"} == names
+    assert {"discover", "describe", "run", "undo", "next", "readiness",
+            "build_harness_status", "build_harness_next", "build_harness_submit"} == names
     text = out[2]["result"]["content"][0]["text"]
     assert "office-scrub" in text and text.rstrip().splitlines()[-1].startswith("NEXT:")
     assert out[3]["error"]["code"] == -32601
@@ -43,3 +44,23 @@ def test_describe_a_real_card():
     text, err = mcp.call_tool("describe", {"tool": "office-scrub"})
     assert not err and "safety: reversible" in text and "file (str, required)" in text
     assert text.splitlines()[-1] == "NEXT: run it with mode=preview first."
+
+
+def test_build_harness_tools_offer_no_approval_and_every_call_is_recorded(tmp_path, monkeypatch):
+    import io
+    import json
+    from fieldkit import mcp
+    from fieldkit.buildh import task
+    monkeypatch.setattr(task, "STATE", tmp_path / "state")
+    names = [t["name"] for t in mcp.TOOLS]
+    assert {"build_harness_status", "build_harness_next", "build_harness_submit"} <= set(names)
+    assert not any("approve" in n or "unblock" in n for n in names)
+    rec = tmp_path / "rec.jsonl"
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+             "params": {"name": "build_harness_next", "arguments": {}}}]
+    out = io.StringIO()
+    mcp.serve(io.StringIO("\n".join(json.dumps(m) for m in msgs) + "\n"), out, recorder=rec)
+    reply = json.loads(out.getvalue().splitlines()[0])
+    assert "REFUSED: no build job" in reply["result"]["content"][0]["text"]
+    line = json.loads(rec.read_text(encoding="utf-8").splitlines()[0])
+    assert line["tool"] == "build_harness_next" and "REFUSED" in line["answer"]

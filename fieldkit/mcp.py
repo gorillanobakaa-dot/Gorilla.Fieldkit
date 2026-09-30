@@ -11,7 +11,9 @@ the command line: `fieldkit agent run TOOL --input k=v --approve`.
 Approval must come from a person, not from text a model produced.
 """
 import json
+import os
 import sys
+import time
 
 from . import __version__, agent
 from .core import next as nxt
@@ -37,7 +39,36 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"pipeline": {"type": "string"}}, "required": ["pipeline"]}},
     {"name": "readiness", "description": "How many tools are verified / tested / carded / draft.",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "build_harness_status", "description": "Where the current build job stands: steps done, the "
+     "current step, checkpoints. Call this first in a new chat.",
+     "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}}}},
+    {"name": "build_harness_next", "description": "Your ONE next job in the build: what to do, the only files "
+     "you may change, the text you need, and how it will be checked. Do only this job.",
+     "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}}}},
+    {"name": "build_harness_submit", "description": "Say the job is done. The harness checks your change; if it "
+     "fails, your change is put back and you get the reasons. Never claim it works yourself.",
+     "inputSchema": {"type": "object", "properties": {"task": {"type": "string"},
+                                                      "note": {"type": "string"}}}},
 ]
+
+
+RECORDER = None       # set by serve(): state/recorder/mcp-<date>.jsonl
+
+
+def record(tool, args, text, err, seconds):
+    """Flight recorder: every call the model makes, as one JSON line. Never raises."""
+    if RECORDER is None:
+        return
+    try:
+        RECORDER.parent.mkdir(parents=True, exist_ok=True)
+        with open(RECORDER, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "pid": os.getpid(), "tool": tool,
+                                "args": {k: (v if len(str(v)) < 2000 else str(v)[:2000] + "...")
+                                         for k, v in args.items()},
+                                "error": err, "seconds": round(seconds, 2), "answer": text[:4000],
+                                "answer_chars": len(text)}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 def _text(lines):
@@ -78,6 +109,9 @@ def call_tool(name, args):
             return _text(nxt.lines(d)), False
         if name == "readiness":
             return _text(readiness.lines(readiness.report())), False
+        if name.startswith("build_harness_"):
+            from .buildh import cli as bh
+            return bh.mcp_call(name, args)
         return f"no tool {name!r}", True
     except agent.Refused as e:
         return f"REFUSED: {e}", False
@@ -94,7 +128,9 @@ def handle(msg):
     elif method == "tools/list":
         result = {"tools": TOOLS}
     elif method == "tools/call":
+        t0 = time.time()
         text, err = call_tool(params.get("name"), params.get("arguments") or {})
+        record(params.get("name"), params.get("arguments") or {}, text, err, time.time() - t0)
         result = {"content": [{"type": "text", "text": text}], "isError": err}
     elif method == "ping":
         result = {}
@@ -105,7 +141,10 @@ def handle(msg):
     return None if mid is None else {"jsonrpc": "2.0", "id": mid, "result": result}
 
 
-def serve(stdin=None, stdout=None):
+def serve(stdin=None, stdout=None, recorder=None):
+    global RECORDER
+    from .core import settings
+    RECORDER = recorder or settings.ROOT / "state" / "recorder" / f"mcp-{time.strftime('%Y%m%d')}.jsonl"
     stdin, stdout = stdin or sys.stdin, stdout or sys.stdout
     for line in stdin:
         line = line.strip()

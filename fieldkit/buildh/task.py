@@ -1,0 +1,276 @@
+"""task - a long job cut into small checked steps, with a checkpoint after each one.
+
+Built for small models with small context windows. The model never holds the whole job:
+
+    start  -> a plan of steps (script steps and model steps)
+    approve (the owner; there is no way to approve over MCP)
+    next   -> script steps run by themselves; a model step comes back as ONE packet:
+              what to do, the only files it may change, the text it needs (trimmed to the
+              context budget), and how it will be checked
+    submit -> the harness runs the step's check, not the model:
+              pass: checkpoint (a git commit in the working copy), move on
+              fail: every change is put back to the last checkpoint, attempt n+1;
+                    after max_attempts the step is BLOCKED and waits for the owner
+    status / log
+
+Everything lives on disk (state/build-harness/<task>/), so a fresh chat with an empty
+context carries on from the last checkpoint. Every event goes to journal.jsonl, which the
+recorder reads.
+
+A step is a dict:
+    {id, kind: "script"|"model"|"owner", title,        owner: stops and waits for the owner
+     run:    "module:function"            script steps: does the work, may return {"add_steps": [...]}
+     packet: "module:function"            model steps: builds the packet text
+     check:  "module:function"            model steps: -> {"ok": bool, "why": [..]}
+     allowed: [relative paths]            model steps: the only files it may change
+     args: {...}, max_attempts: 3}
+Workflows (firefox.py, kernel.py) supply the steps.
+"""
+import hashlib
+import importlib
+import json
+import subprocess
+import time
+from pathlib import Path
+
+from ..core import settings
+
+STATE = settings.ROOT / "state" / "build-harness"
+CHARS_PER_TOKEN = 4                     # a deliberate over-estimate for code, so packets never overflow
+PACKET_SHARE = 0.4                      # at most 40% of the context window goes to one packet
+
+
+class Refused(Exception):
+    """The request is not allowed in the current state; the message says what to do instead."""
+
+
+def _call(dotted, *a, **kw):
+    mod, fn = dotted.split(":")
+    return getattr(importlib.import_module(mod), fn)(*a, **kw)
+
+
+def _dir(task_id):
+    return STATE / task_id
+
+
+def load(task_id):
+    f = _dir(task_id) / "task.json"
+    if not f.is_file():
+        raise Refused(f"no task {task_id!r}; start one with: fieldkit build-harness start firefox|kernel")
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
+def save(t):
+    d = _dir(t["id"])
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "task.json").write_text(json.dumps(t, indent=1), encoding="utf-8")
+
+
+def journal(t, event, **data):
+    with open(_dir(t["id"]) / "journal.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "task": t["id"], "event": event, **data}) + "\n")
+
+
+def plan_hash(steps):
+    keep = [{k: s.get(k) for k in ("id", "kind", "run", "check", "allowed", "args")} for s in steps]
+    return hashlib.sha256(json.dumps(keep, sort_keys=True).encode()).hexdigest()[:16]
+
+
+# -- working copy (git) ------------------------------------------------------------------
+
+def _git(t, *args, check=True):
+    r = subprocess.run(["git", "-C", t["workdir"], *args], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=3600)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args[:2])}: {(r.stderr or r.stdout).strip()[:300]}")
+    return r.stdout
+
+
+def changed_files(t):
+    out = _git(t, "status", "--porcelain", "--untracked-files=all")
+    return sorted(line[3:].strip().strip('"') for line in out.splitlines() if line.strip())
+
+
+def checkpoint(t, label):
+    _git(t, "add", "-A")
+    if changed_files(t):
+        _git(t, "-c", "user.name=build-harness", "-c", "user.email=build-harness@localhost",
+             "commit", "-q", "--no-verify", "-m", f"checkpoint: {label}")
+    head = _git(t, "rev-parse", "HEAD").strip()
+    t.setdefault("checkpoints", []).append({"label": label, "commit": head, "t": time.strftime("%H:%M:%S")})
+    return head
+
+
+def revert_to_checkpoint(t):
+    _git(t, "reset", "-q", "--hard", "HEAD")
+    _git(t, "clean", "-q", "-fd")
+
+
+# -- lifecycle ------------------------------------------------------------------------------
+
+def start(task_id, workflow, workdir, steps, budget_tokens=100_000, meta=None):
+    if (_dir(task_id) / "task.json").is_file():
+        raise Refused(f"task {task_id} already exists; continue it with next, or pick another id")
+    t = {"id": task_id, "workflow": workflow, "workdir": str(workdir), "budget_tokens": budget_tokens,
+         "created": time.strftime("%Y-%m-%d %H:%M:%S"), "approved": False, "steps": steps,
+         "plan_hash": plan_hash(steps), "meta": meta or {}, "checkpoints": []}
+    for s in t["steps"]:
+        s.setdefault("status", "pending")
+        s.setdefault("attempts", 0)
+        s.setdefault("max_attempts", 3)
+    _dir(task_id).mkdir(parents=True, exist_ok=True)
+    save(t)
+    journal(t, "start", workflow=workflow, steps=len(steps), plan_hash=t["plan_hash"])
+    return t
+
+
+def approve(task_id, who):
+    """The owner approves the plan as it stands. Called from the command line only."""
+    t = load(task_id)
+    t["approved"], t["approved_by"], t["approved_hash"] = True, who, plan_hash(t["steps"])
+    save(t)
+    journal(t, "approve", who=who, plan_hash=t["approved_hash"])
+    return t
+
+
+def current(t):
+    return next((s for s in t["steps"] if s["status"] in ("pending", "failed")), None)
+
+
+def advance(task_id):
+    """Run script steps until a model step, a blocked step or the end."""
+    t = load(task_id)
+    if not t["approved"]:
+        raise Refused("the plan is not approved; the owner runs: fieldkit build-harness approve " + task_id)
+    while True:
+        s = current(t)
+        blocked = next((x for x in t["steps"] if x["status"] == "blocked"), None)
+        if blocked:
+            return {"state": "BLOCKED", "step": blocked["id"], "why": blocked.get("last_why"),
+                    "next": "the owner decides: fix it by hand then `build-harness unblock`, or restore"}
+        if s is None:
+            journal(t, "done")
+            return {"state": "DONE", "checkpoints": len(t["checkpoints"])}
+        if s["kind"] == "model":
+            save(t)
+            return {"state": "MODEL STEP", "step": s["id"]}
+        if s["kind"] == "owner":                      # a decision no model should make
+            s["status"], s["last_why"] = "blocked", [s["title"]]
+            save(t)
+            journal(t, "owner-step", step=s["id"], why=s["title"])
+            continue
+        journal(t, "script-start", step=s["id"])
+        t0 = time.time()
+        try:
+            res = _call(s["run"], t, **(s.get("args") or {})) or {}
+        except Exception as e:  # noqa: BLE001 - a crash is a failed step, reported
+            res = {"ok": False, "why": [f"{type(e).__name__}: {e}"]}
+        s["result"] = {k: v for k, v in res.items() if k != "add_steps"}
+        if res.get("ok", True):
+            s["status"] = "done"
+            new = res.get("add_steps") or []
+            if new:
+                at = t["steps"].index(s) + 1
+                for n in new:
+                    n.setdefault("status", "pending"), n.setdefault("attempts", 0), n.setdefault("max_attempts", 3)
+                t["steps"][at:at] = new
+            checkpoint(t, s["id"]) if Path(t["workdir"], ".git").exists() else None
+            journal(t, "script-done", step=s["id"], seconds=round(time.time() - t0, 1), added=len(new),
+                    summary=res.get("summary"))
+        else:
+            s["attempts"] += 1
+            s["last_why"] = res.get("why")
+            s["status"] = "blocked" if s["attempts"] >= s["max_attempts"] or res.get("fatal") else "failed"
+            journal(t, "script-failed", step=s["id"], why=res.get("why"), attempt=s["attempts"])
+            save(t)
+            if s["status"] == "failed":
+                continue
+        save(t)
+
+
+def packet(task_id):
+    """The one thing the model sees: the current model step, trimmed to the context budget."""
+    state = advance(task_id)
+    if state["state"] != "MODEL STEP":
+        return state
+    t = load(task_id)
+    s = current(t)
+    budget_chars = int(t["budget_tokens"] * PACKET_SHARE * CHARS_PER_TOKEN)
+    body = _call(s["packet"], t, s, budget_chars=budget_chars, **(s.get("args") or {}))
+    done = sum(1 for x in t["steps"] if x["status"] == "done")
+    head = [f"TASK {t['id']} - step {done + 1} of {len(t['steps'])}: {s['title']}",
+            f"Attempt {s['attempts'] + 1} of {s['max_attempts']}."]
+    if s.get("last_why"):
+        head.append("Your last attempt was put back because: " + "; ".join(s["last_why"]))
+    head += ["You may change ONLY these files (anything else is undone):",
+             *[f"  - {a}" for a in s.get("allowed", [])],
+             "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works."]
+    text = "\n".join(head) + "\n\n" + body
+    if len(text) > budget_chars:
+        text = text[:budget_chars] + "\n[... trimmed to fit the context budget]"
+    journal(t, "packet", step=s["id"], chars=len(text), attempt=s["attempts"] + 1)
+    return {"state": "MODEL STEP", "step": s["id"], "packet": text, "chars": len(text)}
+
+
+def submit(task_id, note=""):
+    t = load(task_id)
+    if not t["approved"]:
+        raise Refused("the plan is not approved yet")
+    s = current(t)
+    if not s or s["kind"] != "model":
+        raise Refused("there is no model step waiting; call build_harness_next")
+    changed = changed_files(t)
+    allowed = set(s.get("allowed") or [])
+    outside = [c for c in changed if c not in allowed]
+    why = []
+    if outside:
+        why.append(f"changed files outside the step: {outside[:5]}")
+    if not changed:
+        why.append("nothing was changed")
+    if not why:
+        res = _call(s["check"], t, s, **(s.get("args") or {}))
+        why = [] if res.get("ok") else list(res.get("why") or ["the check failed"])
+    journal(t, "submit", step=s["id"], changed=changed, outside=outside, ok=not why, why=why, note=note[:500])
+    if not why:
+        s["status"], s["last_why"] = "done", None
+        head = checkpoint(t, s["id"])
+        save(t)
+        return {"ok": True, "step": s["id"], "checkpoint": head[:12],
+                "next": "call build_harness_next for the next step"}
+    s["attempts"] += 1
+    s["last_why"] = why
+    revert_to_checkpoint(t)
+    s["status"] = "blocked" if s["attempts"] >= s["max_attempts"] else "failed"
+    save(t)
+    journal(t, "revert", step=s["id"], attempt=s["attempts"], blocked=s["status"] == "blocked")
+    return {"ok": False, "step": s["id"], "why": why, "attempts": f"{s['attempts']} of {s['max_attempts']}",
+            "reverted": True,
+            "next": ("BLOCKED: the owner takes over this step" if s["status"] == "blocked"
+                     else "your changes were put back; call build_harness_next and try again")}
+
+
+def unblock(task_id, step_id, how):
+    """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint)."""
+    t = load(task_id)
+    s = next(x for x in t["steps"] if x["id"] == step_id)
+    if how == "retry":
+        s["status"], s["attempts"] = "pending", 0
+    elif how == "skip":
+        s["status"] = "done"
+        s["skipped_by_owner"] = True
+        checkpoint(t, f"{step_id} (done by the owner)")
+    save(t)
+    journal(t, "unblock", step=step_id, how=how)
+    return t
+
+
+def status(task_id):
+    t = load(task_id)
+    counts = {}
+    for s in t["steps"]:
+        counts[s["status"]] = counts.get(s["status"], 0) + 1
+    cur = current(t)
+    return {"task": t["id"], "workflow": t["workflow"], "approved": t["approved"], "steps": len(t["steps"]),
+            "counts": counts, "current": cur and {"id": cur["id"], "kind": cur["kind"], "title": cur["title"],
+                                                  "attempts": cur["attempts"]},
+            "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"]}

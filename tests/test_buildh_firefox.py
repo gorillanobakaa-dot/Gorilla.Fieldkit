@@ -1,0 +1,127 @@
+"""The Firefox upgrade workflow end to end, on a miniature Firefox and patch set."""
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from fieldkit.buildh import firefox, task, upstream
+
+pytestmark = pytest.mark.skipif(not Path(firefox._patch_exe()).exists() and not shutil.which("patch"),
+                                reason="GNU patch not installed")
+
+
+def _git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _w(p, text):
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8", newline="\n")
+
+
+PREFS_157 = "".join(f'pref("filler.{i}", {i});\n' for i in range(30)) + \
+    'pref("browser.startup.page", 1);\npref("toolkit.telemetry.enabled", true); // default since 157\n'
+# 157 moved the telemetry pref 30 lines down AND edited that very line: even fuzz 3 cannot apply the hunk
+TELEMETRY_PATCH = """--- a/prefs.js
++++ b/prefs.js
+@@ -1,3 +1,3 @@
+ pref("browser.startup.homepage", "about:home");
+-pref("toolkit.telemetry.enabled", true);
++pref("toolkit.telemetry.enabled", false);
+ pref("browser.old.neighbour", 0);
+"""
+LOOK_PATCH = """--- a/theme.css
++++ b/theme.css
+@@ -1,2 +1,2 @@
+ :root {
+-  --accent: blue;
++  --accent: purple;
+"""
+GONE_PATCH = """--- a/removed/feature.js
++++ b/removed/feature.js
+@@ -1,1 +1,1 @@
+-let on = true;
++let on = false;
+"""
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    monkeypatch.setattr(task, "STATE", tmp_path / "state")
+    up = tmp_path / "mozilla"
+    up.mkdir()
+    _git(up, "init", "-q", "-b", "main")
+    _git(up, "config", "user.email", "t@example.com")
+    _git(up, "config", "user.name", "t")
+    _w(up / "prefs.js", PREFS_157)
+    _w(up / "theme.css", ":root {\n  --accent: blue;\n}\n")
+    _w(up / "privacy.js", 'const tracking = "off";\n')          # the PRIVACY patch is already upstream
+    _git(up, "add", ".")
+    _git(up, "commit", "-q", "-m", "157")
+    _git(up, "tag", "FIREFOX_157_0_RELEASE")
+    harness = tmp_path / "Gorilla.firefox"
+    _w(harness / "config" / "patch_policy.json", json.dumps({"patchset_root": "patchset", "groups": {
+        "05.PREFS": {"status": "enabled"}, "08.Look": {"status": "enabled"},
+        "09.GONE": {"status": "enabled"}, "13.PRIVACY": {"status": "enabled"}, "01.MEDIA": {"status": "disabled"}}}))
+    _w(harness / "patchset" / "05.PREFS" / "telemetry.patch", TELEMETRY_PATCH)
+    _w(harness / "patchset" / "08.Look" / "accent.patch", LOOK_PATCH)
+    _w(harness / "patchset" / "09.GONE" / "feature.patch", GONE_PATCH)
+    _w(harness / "patchset" / "13.PRIVACY" / "tracking.patch",
+       '--- a/privacy.js\n+++ b/privacy.js\n@@ -1,1 +1,1 @@\n-const tracking = "on";\n+const tracking = "off";\n')
+    info = upstream.latest_firefox(versions={"LATEST_FIREFOX_VERSION": "157.0"}, repo=up.as_uri())
+    steps = firefox.plan(harness, vault_base=tmp_path / "vault")
+    task.start("ff", "firefox-upgrade", tmp_path / "work" / "157.0", steps, meta={"pinned": info})
+    task.approve("ff", "owner")
+    return tmp_path
+
+
+def test_parse_patch_and_patch_output():
+    files = firefox.parse_patch(TELEMETRY_PATCH)
+    assert files[0]["file"] == "prefs.js" and len(files[0]["hunks"]) == 1
+    out = "patching file prefs.js\nHunk #1 FAILED at 1.\n1 out of 1 hunk FAILED -- saving rejects to file prefs.js.rej\n"
+    assert firefox.failures_from_output(out) == {"failed": [("prefs.js", 1)], "missing": False}
+
+
+def test_whole_workflow_script_does_the_easy_parts_model_gets_one_hunk(world):
+    p = task.packet("ff")
+    w = world / "work" / "157.0"
+    assert p["step"].startswith("port-05.PREFS-telemetry")
+    assert "near line 32" in p["packet"] and "toolkit.telemetry.enabled" in p["packet"]
+    # a small model does the job
+    prefs = w / "prefs.js"
+    prefs.write_text(prefs.read_text().replace('pref("toolkit.telemetry.enabled", true); // default since 157',
+                                               'pref("toolkit.telemetry.enabled", false);'), newline="\n")
+    assert task.submit("ff")["ok"]
+    nxt = task.packet("ff")
+    assert (w / "theme.css").read_text().count("purple") == 1             # the next group: applied by the script
+    assert nxt["state"] == "BLOCKED" and "no longer exists" in nxt["why"][0]            # the GONE group
+    task.unblock("ff", nxt["step"], "skip")
+    done = task.packet("ff")
+    assert done["state"] == "DONE", done
+    t = task.load("ff")
+    upstreamed = next(s for s in t["steps"] if s["id"] == "apply-13.PRIVACY")["result"]["upstreamed"]
+    assert upstreamed == ["13.PRIVACY/tracking.patch (the whole patch is already in this Firefox)"]
+    exported = (world / "work" / "patchset-157.0" / "05.PREFS.patch").read_text()
+    assert '+pref("toolkit.telemetry.enabled", false);' in exported
+    from fieldkit.buildh import vault
+    assert vault.verify("firefox", "157.0", base=world / "vault")["intact"]      # the vault never moved
+
+
+def test_a_wrong_port_is_put_back(world):
+    task.packet("ff")
+    w = world / "work" / "157.0"
+    (w / "prefs.js").write_text("// I rewrote the whole file, it is better now\n", newline="\n")
+    r = task.submit("ff", note="Fixed and verified.")
+    assert not r["ok"] and any("missing added line" in x for x in r["why"])
+    assert (w / "prefs.js").read_text() == PREFS_157
+
+
+def test_hunk_problems_counts_lines():
+    hunk = firefox.parse_patch(TELEMETRY_PATCH)[0]["hunks"][0]
+    before = PREFS_157.splitlines()
+    assert firefox.hunk_problems(before, before, hunk)
+    after = ['pref("toolkit.telemetry.enabled", false);' if "telemetry" in l else l for l in before]
+    assert firefox.hunk_problems(before, after, hunk) == []
+    assert firefox.already_upstream(after, hunk) and not firefox.already_upstream(before, hunk)

@@ -166,3 +166,8 @@ def test_privacy_looks_inside_zips_and_office_files(tmp_path):
 def test_privacy_scan_of_a_missing_path_is_an_error(tmp_path):
     with pytest.raises(FileNotFoundError):
         privacy.scan_path(tmp_path / "not-there.docx")
+
+
+def test_local_settings_may_use_variables_themselves():
+    local = {"vault": {"root": "${HOME}/Vault"}}
+    assert settings.expand("${LOCAL:vault.root}", local) == str(Path.home()) + "/Vault"
