@@ -163,3 +163,65 @@ def test_transplant_refuses_when_it_would_have_to_guess():
     twice = ['pref("toolkit.telemetry.enabled", true);'] * 2
     with pytest.raises(firefox.Ambiguous, match="2 places"):
         firefox.transplant(twice, hunk)
+
+
+# ── question mode (run 6 countermeasure) ────────────────────────────────────
+
+def test_question_packet_marks_auto_removes_and_asks_uncertain():
+    import json as _json
+    case = _json.loads((Path(__file__).parent / "data" / "run6_gemma_h11.json").read_text(encoding="utf-8"))
+    auto, uncertain = firefox.identify_questions(case["before"], case["hunk"], 10)
+    assert len(auto) == 5
+    assert len(uncertain) == 6
+    assert 10 in uncertain  # the edited Nimbus comment
+    assert 17 in uncertain  # the new pref
+
+    packet = firefox.packet_port_questions({"workdir": ""}, {}, 10000, "patch", "file", case["hunk"])
+    # If the file doesn't exist, the packet says so. But if we mock the file:
+    # Instead of full packet integration test, we verify identify_questions logic which is the core.
+
+
+def test_apply_question_answers_correct_decisions(tmp_path):
+    import json as _json
+    case = _json.loads((Path(__file__).parent / "data" / "run6_gemma_h11.json").read_text(encoding="utf-8"))
+    
+    # Write a temp file with before content
+    target = tmp_path / "firefox.js"
+    target.write_text("\n".join(case["before"]) + "\n", encoding="utf-8", newline="")
+
+    auto, uncertain = firefox.identify_questions(case["before"], case["hunk"], 10)
+    
+    # Decisions: KEEP the new upstream stuff, REMOVE nothing from uncertain
+    decisions = [(n, "keep") for n in uncertain]
+    
+    count, summary, removed_texts = firefox.apply_question_answers(target, decisions, case["hunk"], auto)
+    assert count == 5  # 5 auto-removes
+    assert len(removed_texts) == 0  # 0 model removes
+    
+    after = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    assert len(after) == len(case["before"]) - 5
+    assert "pref(\"places.semanticHistory.multilingualEmbeddingRegions\", \"[[\\\"FR\\\",[\\\"en-*\\\",\\\"fr-*\\\"]],[\\\"*\\\",[\\\"fr-*\\\"]]]\");" in after  # KEPT
+
+
+def test_collateral_with_extra_allowed_removals():
+    hunk = firefox.parse_patch(TELEMETRY_PATCH)[0]["hunks"][0]
+    before = ['pref("a", 1);', 'pref("toolkit.telemetry.enabled", true);', 'pref("b", 2);']
+    after = ['pref("a", 1);', 'pref("toolkit.telemetry.enabled", false);']
+    # Removed "b" which is not in the patch -> collateral damage
+    why = firefox.collateral(before, after, hunk)
+    assert len(why) == 1 and 'pref("b", 2);' in why[0]
+    
+    # But if "b" is in extra_removals, it's allowed
+    why = firefox.collateral(before, after, hunk, extra_removals=['pref("b", 2);'])
+    assert len(why) == 0
+
+
+def test_real_run6_gemma_answer_is_refused():
+    """Gemma's real broken answer from run 6 fails question parsing."""
+    from fieldkit.buildh import answer
+    import json as _json
+    case = _json.loads((Path(__file__).parent / "data" / "run6_gemma_h11.json").read_text(encoding="utf-8"))
+    
+    with pytest.raises(answer.BadAnswer, match="no answers found"):
+        # Gemma answered with DELETE / CHANGE operations, not REMOVE / KEEP
+        answer.parse_questions(case["gemma_bad_answer"], {745, 746, 749, 750, 751, 752})

@@ -275,6 +275,21 @@ def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
         parts.append(f"In this Firefox the same code starts near line {at + 1}. Lines {lo + 1}-{hi}:")
     parts += [f"{i + 1:6}| {lines[i]}" for i in range(lo, hi)]
     if answer_mode:
+        # Run 6 countermeasure: for removal-only hunks with uncertain upstream lines,
+        # use REMOVE/KEEP questions instead of line operations.
+        if not added and at is not None:
+            auto_rm, uncertain = identify_questions(lines, hunk, at)
+            if uncertain:
+                from .answer import Q_INSTRUCTIONS
+                parts.append(f"The harness will auto-remove {len(auto_rm)} line(s) that match the patch.")
+                parts.append(f"These {len(uncertain)} line(s) are new upstream text not in the original patch.")
+                parts.append("For each one, answer REMOVE (delete it) or KEEP (leave it):")
+                parts.append("")
+                for n in uncertain:
+                    parts.append(f"  {n} | {lines[n - 1]}")
+                parts += ["", Q_INSTRUCTIONS]
+                return "\n".join(parts)
+        # Fallback: line operations for hunks with additions or no uncertain lines
         from .answer import INSTRUCTIONS
         parts += ["", "DO: make this change in " + file + " with line operations: the '-' lines (or the lines "
                       "that now hold the same settings) go, the '+' lines are added in the matching place. "
@@ -307,14 +322,17 @@ def hunk_problems(before, after, hunk):
     return why
 
 
-def collateral(before, after, hunk):
+def collateral(before, after, hunk, extra_removals=None):
     """Everything the model changed that the hunk does not: the part the first check never saw.
 
     Live run 4 (2026-09-30): Gemma's answer passed hunk_problems, yet it also deleted five lines
     Mozilla added in 155.0.1, put back the old 154 value of browser.touchmode.auto (a line it
     had only seen as CONTEXT in the hunk), and duplicated another line. So: every line the
     model removed must be one of the hunk's '-' lines, and every line it added one of its '+'
-    lines. Blank lines are allowed to move."""
+    lines. Blank lines are allowed to move.
+
+    `extra_removals`, when given, is a list of raw line texts explicitly approved for removal
+    (from question-mode answers); they are added to the allowed-removal set."""
     import collections
     import difflib
     removed, added, _ = hunk_sides(hunk)
@@ -322,6 +340,8 @@ def collateral(before, after, hunk):
     # upstream may have edited the very line the patch changes (added a comment), and removing
     # that edited version is the port, not damage.
     may_remove = collections.Counter(_key(l) for l in removed)
+    if extra_removals:
+        may_remove.update(_key(l) for l in extra_removals)
     may_add = collections.Counter(_key(l) for l in added)
     gone, new = collections.Counter(), collections.Counter()
     sm = difflib.SequenceMatcher(None, [l.strip() for l in before], [l.strip() for l in after], autojunk=False)
@@ -367,6 +387,143 @@ def _key(line):
     otherwise the code without a trailing // comment."""
     m = _PREF.match(line)
     return f"{m.group(1)}:{m.group(2)}" if m else _code(line)
+
+
+# ── question form (run 6 countermeasure) ─────────────────────────────────────
+# Gemma cannot compose line operations. So the harness identifies which lines
+# in the target file match the hunk's '-' lines (auto-removes), which are new
+# upstream text (uncertain), and asks the model only about the uncertain ones.
+
+def identify_questions(lines, hunk, anchor):
+    """Which target-file lines to auto-remove and which to ask about.
+
+    `lines`: the target file's content (list of str, 0-indexed).
+    `hunk`: the hunk dict with 'header' and 'lines'.
+    `anchor`: 0-indexed line number where the hunk's context begins in the target.
+
+    Returns (auto_remove, uncertain) where each is a list of 1-indexed line numbers.
+    auto_remove: lines whose _key matches a hunk '-' line.
+    uncertain: lines between the first and last context/removed line that are NOT
+               in the hunk at all (new upstream content the model must classify).
+    """
+    removed, added, context = hunk_sides(hunk)
+    removed_keys = {_key(l) for l in removed if l.strip()}
+    context_keys = {_key(l) for l in context if l.strip()}
+    added_keys = {_key(l) for l in added if l.strip()}
+    all_hunk_keys = removed_keys | context_keys | added_keys
+
+    # Find the span in the target file that corresponds to this hunk:
+    # walk from the anchor forward, matching context and removed lines.
+    ctx_and_rm = [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")]
+    # Find first and last match to bound the region
+    first_match = None
+    last_match = None
+    for i in range(max(0, anchor - 5), min(len(lines), anchor + len(ctx_and_rm) + 30)):
+        k = _key(lines[i])
+        if k in removed_keys or k in context_keys:
+            if first_match is None:
+                first_match = i
+            last_match = i
+
+    if first_match is None:
+        return [], []
+
+    auto_remove = []
+    uncertain = []
+    for i in range(first_match, last_match + 1):
+        k = _key(lines[i])
+        if not k:
+            continue
+        if k in removed_keys:
+            auto_remove.append(i + 1)  # 1-indexed
+        elif k not in context_keys and k not in added_keys:
+            # New upstream line not in the hunk at all — ask the model
+            uncertain.append(i + 1)  # 1-indexed
+
+    return auto_remove, uncertain
+
+
+def packet_port_questions(t, s, budget_chars, patch, file, hunk, **kw):
+    """Build the REMOVE/KEEP question packet for a hunk port."""
+    from .answer import Q_INSTRUCTIONS
+    removed, added, context = hunk_sides(hunk)
+    target = Path(t["workdir"]) / file
+    parts = [f"PATCH: {patch}", f"FILE:  {file}", "",
+             "The change this hunk makes (lines starting '-' are removed, '+' are added, ' ' are context):",
+             hunk["header"], *hunk["lines"], ""]
+    if not target.is_file():
+        parts.append(f"{file} does not exist. Submit without changing anything.")
+        return "\n".join(parts)
+    lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    at = _anchor(lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
+    if at is None:
+        parts.append(f"The old code was not found in {file}. Submit without changing anything.")
+        return "\n".join(parts)
+
+    auto_remove, uncertain = identify_questions(lines, hunk, at)
+
+    if not uncertain:
+        # Nothing to ask — all lines matched the hunk's '-' lines or context.
+        # The harness can do this itself.
+        parts.append("All lines are accounted for. No questions needed.")
+        return "\n".join(parts)
+
+    parts.append(f"The harness will auto-remove {len(auto_remove)} line(s) that match the patch.")
+    parts.append(f"These {len(uncertain)} line(s) are new upstream text not in the original patch.")
+    parts.append("For each one, answer REMOVE (delete it) or KEEP (leave it):")
+    parts.append("")
+    for n in uncertain:
+        parts.append(f"  {n} | {lines[n - 1]}")
+    parts += ["", Q_INSTRUCTIONS]
+    return "\n".join(parts)
+
+
+def apply_question_answers(target, decisions, hunk, auto_removes, lines=None):
+    """Apply REMOVE/KEEP decisions + auto-removes to the target file.
+
+    `target`: Path to the file.
+    `decisions`: [(line_no, 'remove'|'keep'), ...] from parse_questions.
+    `hunk`: the hunk dict.
+    `auto_removes`: list of 1-indexed line numbers to remove automatically.
+
+    Returns (count, summary, removed_texts) where removed_texts is the list of
+    raw line texts removed by the model's REMOVE decisions (for collateral checking).
+    """
+    with open(target, encoding="utf-8", errors="replace", newline="") as f:
+        raw = f.read()
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    file_lines = raw.split(nl)
+    trailing = file_lines[-1] == ""
+    if trailing:
+        file_lines = file_lines[:-1]
+
+    # Collect all lines to remove (auto + model-chosen REMOVE)
+    model_removes = [n for n, v in decisions if v == "remove"]
+    all_removes = sorted(set(auto_removes + model_removes), reverse=True)  # bottom-up
+
+    # Record the text of model-chosen removals for collateral checking
+    removed_texts = [file_lines[n - 1] for n in model_removes if 1 <= n <= len(file_lines)]
+
+    # Also remove blank lines adjacent to removed blocks (the hunk's '-' lines
+    # include trailing blanks; match that)
+    _, _, _ = hunk_sides(hunk)
+    hunk_removed_blanks = sum(1 for l in hunk["lines"] if l == "-")
+
+    # Delete from bottom up so indices stay valid
+    for n in all_removes:
+        if 1 <= n <= len(file_lines):
+            del file_lines[n - 1]
+
+    # Remove any newly-orphaned blank lines at the deletion site
+    # (the hunk had blank '-' lines; the file may now have a double blank)
+    # We do NOT insert '+' lines here: if the hunk has only '-' lines (pure removal),
+    # there's nothing to add.
+
+    with open(target, "w", encoding="utf-8", newline="") as f:
+        f.write(nl.join(file_lines) + (nl if trailing else ""))
+
+    summary = f"removed {len(all_removes)} line(s) ({len(auto_removes)} auto, {len(model_removes)} by model)"
+    return len(all_removes), summary, removed_texts
 
 
 class Ambiguous(ValueError):
@@ -450,7 +607,8 @@ def check_port(t, s, patch, file, hunk, **kw):
     before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
-    why = hunk_problems(before, after, hunk) + collateral(before, after, hunk)
+    extra = s.get("question_removals")  # set by apply_question_answers via the driver
+    why = hunk_problems(before, after, hunk) + collateral(before, after, hunk, extra_removals=extra)
     _, added, _ = hunk_sides(hunk)
     if len(after) > len(before) + 3 * max(1, len(added)) + 20:
         why.append(f"{len(after) - len(before)} lines added for a {len(added)}-line hunk: change only what the hunk changes")

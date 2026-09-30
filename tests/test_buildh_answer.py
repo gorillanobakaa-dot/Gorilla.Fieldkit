@@ -35,3 +35,40 @@ def test_sloppy_answers_are_refused_and_the_file_is_untouched(tmp_path, reply, w
     with pytest.raises(answer.BadAnswer, match=why):
         answer.apply(p, reply)
     assert p.read_bytes() == b"a\nb\nc\nd\ne\n"
+
+
+# ── question parsing ────────────────────────────────────────────────────────
+
+def test_parse_questions_correct_answer():
+    text = "745 REMOVE\n749 KEEP\n750 KEEP"
+    assert answer.parse_questions(text, {745, 749, 750}) == [(745, "remove"), (749, "keep"), (750, "keep")]
+
+
+def test_parse_questions_with_thinking_preamble():
+    text = "I think 745 is old.\n```\n745 REMOVE\n749 KEEP\n```\nDone."
+    assert answer.parse_questions(text, {745, 749}) == [(745, "remove"), (749, "keep")]
+
+
+def test_parse_questions_missing_answer():
+    with pytest.raises(answer.BadAnswer, match=r"line\(s\) not answered: \[750\]"):
+        answer.parse_questions("745 REMOVE\n749 KEEP", {745, 749, 750})
+
+
+def test_parse_questions_double_answer():
+    with pytest.raises(answer.BadAnswer, match="line 745 answered twice"):
+        answer.parse_questions("745 REMOVE\n745 KEEP\n749 KEEP", {745, 749})
+
+
+def test_parse_questions_unknown_line():
+    with pytest.raises(answer.BadAnswer, match=r"line 746 is not a question \(asked: \[745, 749\]\)"):
+        answer.parse_questions("745 REMOVE\n746 REMOVE\n749 KEEP", {745, 749})
+
+
+def test_parse_questions_free_text_only():
+    with pytest.raises(answer.BadAnswer, match="no answers found"):
+        answer.parse_questions("I think they should all be removed.", {745, 749})
+
+
+def test_parse_questions_wrong_word():
+    with pytest.raises(answer.BadAnswer, match="no answers found"):
+        answer.parse_questions("745 DELETE", {745})

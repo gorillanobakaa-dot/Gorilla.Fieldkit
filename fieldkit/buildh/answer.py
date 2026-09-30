@@ -89,3 +89,51 @@ def apply(path, text):
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(nl.join(lines) + (nl if trailing else ""))
     return len(ops), "; ".join(f"{k} {lo}{'-' + str(hi) if hi != lo else ''}" for k, lo, hi, _ in ops)
+
+
+# ── question form (run 6 countermeasure) ────────────────────────────────
+# Gemma (4.6B) cannot compose line operations: she duplicates lines, echoes
+# the diff, and gets the arithmetic wrong. So the harness identifies which
+# lines must go and asks the model about the uncertain ones only:
+#   745 REMOVE
+#   749 KEEP
+# One answer per line, nothing else accepted.
+
+Q_OP = re.compile(r"^\s*(\d+)\s+(REMOVE|KEEP)\s*$", re.IGNORECASE)
+
+Q_INSTRUCTIONS = """Answer each line below with its number and REMOVE or KEEP, one per line:
+
+<n> REMOVE     this line should be deleted
+<n> KEEP       this line should stay
+
+Answer every line exactly once. Do not add, change, or reorder lines. Do not
+use any other word. The harness applies your decisions and checks the file."""
+
+
+def parse_questions(text, asked):
+    """Parse REMOVE/KEEP answers for the given set of asked line numbers.
+
+    Returns [(line_no, 'remove'|'keep'), ...] sorted by line number.
+    Raises BadAnswer if any asked line is missing, answered twice, or an
+    unknown line appears.
+    """
+    answered = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip().strip("`").strip()
+        m = Q_OP.match(line)
+        if not m:
+            continue
+        n = int(m.group(1))
+        verdict = m.group(2).lower()
+        if n not in asked:
+            raise BadAnswer(f"line {n} is not a question (asked: {sorted(asked)})")
+        if n in answered:
+            raise BadAnswer(f"line {n} answered twice")
+        answered[n] = verdict
+    if not answered:
+        raise BadAnswer("no answers found (expected: <n> REMOVE or <n> KEEP)")
+    missing = sorted(asked - set(answered))
+    if missing:
+        raise BadAnswer(f"line(s) not answered: {missing}")
+    return sorted(answered.items())
+

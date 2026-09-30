@@ -153,13 +153,49 @@ def drive(tid, a):
         if not use_tools:
             cur = task.current(task.load(tid))
             target = Path(t["workdir"]) / cur["allowed"][0]
-            try:
-                count, summary = ans.apply(target, answer)
-                say(f"  applied the answer: {count} operation(s): {summary}")
-            except (ans.BadAnswer, OSError) as e:
-                res = task.fail_attempt(tid, f"your answer was not used: {e}")
-                say(f"  harness check: FAILED - {res['why'][0]}")
-                continue
+            use_line_ops = bool(getattr(a, "line_ops", False))
+            # Run 6 countermeasure: question mode (REMOVE/KEEP) is the default;
+            # line operations are a --line-ops fallback for when the hunk needs
+            # additions, not just removals.
+            if not use_line_ops and cur.get("args", {}).get("hunk"):
+                from . import firefox as ff
+                hunk = cur["args"]["hunk"]
+                _, added, _ = ff.hunk_sides(hunk)
+                file_lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+                at = ff._anchor(file_lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
+                if not added and at is not None:
+                    auto_rm, uncertain = ff.identify_questions(file_lines, hunk, at)
+                    if uncertain:
+                        try:
+                            decisions = ans.parse_questions(answer, set(uncertain))
+                            count, summary, removed_texts = ff.apply_question_answers(
+                                target, decisions, hunk, auto_rm)
+                            # Record removed texts so check_port's collateral() allows them
+                            t2 = task.load(tid)
+                            for s2 in t2["steps"]:
+                                if s2["id"] == step:
+                                    s2["question_removals"] = removed_texts
+                            task.save(t2)
+                            say(f"  applied question answers: {summary}")
+                        except (ans.BadAnswer, OSError) as e:
+                            res = task.fail_attempt(tid, f"your answer was not used: {e}")
+                            say(f"  harness check: FAILED - {res['why'][0]}")
+                            continue
+                    else:
+                        # No uncertain lines — the harness can do it itself
+                        use_line_ops = True
+                else:
+                    use_line_ops = True
+            else:
+                use_line_ops = True
+            if use_line_ops:
+                try:
+                    count, summary = ans.apply(target, answer)
+                    say(f"  applied the answer: {count} operation(s): {summary}")
+                except (ans.BadAnswer, OSError) as e:
+                    res = task.fail_attempt(tid, f"your answer was not used: {e}")
+                    say(f"  harness check: FAILED - {res['why'][0]}")
+                    continue
         # The harness checks the FILE after every run, whatever the model said or called
         # (live run 3: Gemma made no tool call and claimed "submitted successfully").
         if model_submits() == before:
