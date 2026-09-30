@@ -652,7 +652,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "log"])
+                                       "unblock", "log", "watch", "report", "drive"])
     bh.add_argument("args", nargs="*")
     bh.add_argument("--task")
     bh.add_argument("--pin", help="start: a stable version instead of the latest (e.g. 155.0.1)")
@@ -661,6 +661,11 @@ def build_parser():
     bh.add_argument("--workdir")
     bh.add_argument("--version", help="vault verify/restore: a version other than the newest")
     bh.add_argument("--note", help="submit: a note for the log")
+    bh.add_argument("--session", help="watch/report: a Gorilla OpenCode session id (default: the newest)")
+    bh.add_argument("--harness", help="start: the Gorilla.firefox folder to read patches from (default firefox.root)")
+    bh.add_argument("--agent", help="drive: the agent command (default gorilla-opencode)")
+    bh.add_argument("--max-jobs", type=int, help="drive: stop after this many jobs")
+    bh.add_argument("--job-timeout", help="drive: time limit per job, e.g. 45m")
     bh.set_defaults(fn=cmd_build_harness)
     return ap
 

@@ -194,6 +194,21 @@ def step_final_checks(t, **kw):
     r = subprocess.run(["git", "-C", str(w), "diff", "--check", first, "HEAD"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     why += [l for l in r.stdout.splitlines() if "conflict marker" in l][:5]
+    # regression: every hunk a model ported must still be in place at the end
+    from . import task as taskmod
+    for s in t["steps"]:
+        if s["kind"] != "model" or s["status"] != "done" or s.get("skipped_by_owner"):
+            continue
+        a = s["args"]
+        target = w / a["file"]
+        now = target.read_text(encoding="utf-8", errors="replace").splitlines() if target.is_file() else []
+        base_commit = next((c["commit"] for c in t["checkpoints"] if c["label"] == s["id"]), None)
+        before = subprocess.run(["git", "-C", str(w), "show", f"{base_commit}~1:{a['file']}"], capture_output=True
+                                ).stdout.decode("utf-8", "replace").splitlines() if base_commit else []
+        lost = hunk_problems(before, now, a["hunk"]) if before else []
+        if lost:
+            why.append(f"regression: {s['id']} no longer holds: {lost[0]}")
+            taskmod.journal(t, "regression", step=s["id"], why=lost[0])
     return {"ok": not why, "why": why, "summary": "clean" if not why else f"{len(why)} problem(s)"}
 
 

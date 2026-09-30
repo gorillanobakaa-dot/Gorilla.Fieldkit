@@ -9,11 +9,13 @@
     fieldkit build-harness submit [TASK] [--note TEXT]
     fieldkit build-harness unblock TASK STEP retry|skip      the owner
     fieldkit build-harness log [TASK]
+    fieldkit build-harness watch|report [TASK] [--session ID]   the recorder: live, or the whole run
 
 Without TASK, the current task is used (the last one started).
 The model gets three MCP tools: build_harness_status, build_harness_next, build_harness_submit.
 """
 import json
+import time
 from pathlib import Path
 
 from . import firefox, task, upstream, vault
@@ -83,6 +85,53 @@ def mcp_call(name, args):
         return f"REFUSED: {e}", False
 
 
+DRIVE_PROMPT = (
+    "You are doing ONE small job in a Firefox build, and nothing else.\n"
+    "1. Call the tool build_harness_next and read your job.\n"
+    "2. Make exactly the change it asks for, only in the file(s) it names, with your edit tool.\n"
+    "3. Call build_harness_submit. The harness checks your change; do not claim it works yourself.\n"
+    "4. Stop, and report in one sentence what build_harness_submit said.\n"
+    "If build_harness_next says BLOCKED or DONE, stop and report that. Do not run git, do not install "
+    "anything, do not touch other files.")
+
+
+def drive(tid, a):
+    """One fresh Gorilla OpenCode run per job, until the task is done or blocked.
+
+    A fresh run starts with an empty context holding only its own packet, so the job's
+    length never fills a small model's context window."""
+    import os
+    import subprocess as sp
+    exe = a.agent or "gorilla-opencode"
+    t = task.load(tid)
+    env = {**os.environ, "GORILLA_OPENCODE_HEADLESS_TIMEOUT": a.job_timeout or "45m"}
+    for n in range(1, (a.max_jobs or 200) + 1):
+        state = task.packet(tid)                       # runs any script steps first
+        if state["state"] != "MODEL STEP":
+            print(f"{time.strftime('%H:%M:%S')}  {state['state']}: {state.get('step', '')} "
+                  f"{'; '.join(state.get('why') or [])}", flush=True)
+            return 0 if state["state"] == "DONE" else 3
+        step = state["step"]
+        print(f"{time.strftime('%H:%M:%S')}  job {n}: {step} - starting a fresh {exe} run", flush=True)
+        t0 = time.time()
+        r = sp.run([exe, "-p", DRIVE_PROMPT, "-c", t["workdir"], "-q"], env=env, capture_output=True, text=True,
+                   encoding="utf-8", errors="replace")
+        task.journal(task.load(tid), "agent-run", step=step, exit=r.returncode, seconds=round(time.time() - t0),
+                     answer=(r.stdout or r.stderr).strip()[-600:])
+        print(f"{time.strftime('%H:%M:%S')}  job {n} finished in {time.time() - t0:.0f} s, exit {r.returncode}: "
+              f"{(r.stdout or r.stderr).strip()[-300:]}", flush=True)
+        after = task.load(tid)
+        cur = next((x for x in after["steps"] if x["id"] == step), None)
+        if cur and cur["status"] in ("pending", "failed") and cur["attempts"] == 0 and r.returncode == 0:
+            task.journal(after, "no-submit", step=step, why="the run ended without calling build_harness_submit")
+            print("             the model stopped without submitting: counted as a failed attempt", flush=True)
+            cur["attempts"] += 1
+            cur["last_why"] = ["you stopped without calling build_harness_submit"]
+            cur["status"] = "blocked" if cur["attempts"] >= cur["max_attempts"] else "failed"
+            task.save(after)
+    return 3
+
+
 def run(a, emit):
     """The `fieldkit build-harness` command. `emit(obj, lines_fn)` prints JSON or text."""
     act = a.action
@@ -106,7 +155,7 @@ def run(a, emit):
     if act == "start":
         if a.args[0] != "firefox":
             raise SystemExit("start: firefox (the kernel workflow comes next)")
-        t = start_firefox(a.task, a.pin, a.source, a.budget, a.workdir)
+        t = start_firefox(a.task, a.pin, a.source, a.budget, a.workdir, harness_root=a.harness)
         return emit({"task": t["id"], "steps": [s["id"] for s in t["steps"]], "workdir": t["workdir"]},
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
@@ -127,6 +176,42 @@ def run(a, emit):
     if act == "unblock":
         task.unblock(tid, a.args[1], a.args[2])
         return emit(task.status(tid), None) or 0
+    if act in ("report", "watch"):
+        from . import recorder
+        from ..core import settings
+        t = task.load(tid)
+        since = int(time.mktime(time.strptime(t["created"], "%Y-%m-%d %H:%M:%S")))
+        mcp_logs = sorted((settings.ROOT / "state" / "recorder").glob("mcp-*.jsonl"))
+
+        def findings():
+            sid, sess = recorder.session_events(a.session, since=since)
+            journal = recorder.jsonl(task.STATE / tid / "journal.jsonl")
+            mcp = [m for f in mcp_logs for m in recorder.jsonl(f)]
+            return sid, recorder.detect(sess, journal, mcp, budget_tokens=t["budget_tokens"], workdir=t["workdir"])
+        if act == "report":
+            sid, f = findings()
+            out = task.STATE / tid / "recorder-report.json"
+            out.write_text(json.dumps({"session": sid, "findings": f, "summary": recorder.summary(f)}, indent=1),
+                           encoding="utf-8")
+            emit({"session": sid, "findings": f},
+                 lambda r: print(f"session {sid}\n" + "\n".join(recorder.lines(f)) + f"\n\nsaved: {out}"))
+            return 3 if any(x["level"] == "incident" for x in f) else 0
+        seen = set()
+        print(f"watching task {tid} (Ctrl+C to stop) - every incident is printed as it appears")
+        while True:
+            sid, f = findings()
+            for x in f:
+                key = (x["category"], x["evidence"])
+                if key not in seen:
+                    seen.add(key)
+                    at = time.strftime("%H:%M:%S")
+                    print(f"{at}  {x['level'].upper():8} {x['category']}: {x['evidence']}", flush=True)
+            s = task.status(tid)
+            print(f"\r{time.strftime('%H:%M:%S')}  session {sid or '-'}  steps {s['counts']}  "
+                  f"checkpoints {s['checkpoints']}   ", end="", flush=True)
+            time.sleep(5)
+    if act == "drive":
+        return drive(tid, a)
     if act == "log":
         f = task.STATE / tid / "journal.jsonl"
         for line in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else [])[-40:]:
