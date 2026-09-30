@@ -59,7 +59,7 @@ def test_a_misbehaving_run_is_caught(tmp_path):
     journal = [{"t": "2026-09-30 10:00:00", "event": "submit", "step": "port-1", "ok": False,
                 "outside": ["browser/other.js"], "note": "Done and verified"}] + \
               [{"t": "2026-09-30 10:01:00", "event": "submit", "step": "port-2", "ok": False, "outside": [], "note": ""}] * 3 + \
-              [{"t": "2026-09-30 10:02:00", "event": "packet", "step": "port-3"}] * 4 + \
+              [{"t": "2026-09-30 10:02:00", "event": "packet", "step": "port-3", "by": "model"}] * 4 + \
               [{"t": "2026-09-30 10:03:00", "event": "regression", "why": "port-1 check fails after port-4"}]
     f = recorder.detect(sess, journal, mcp=[], budget_tokens=100_000, allowed_tools=None)
     found = cats(f, "incident")

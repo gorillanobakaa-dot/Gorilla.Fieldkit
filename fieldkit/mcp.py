@@ -12,6 +12,7 @@ Approval must come from a person, not from text a model produced.
 """
 import json
 import os
+from pathlib import Path
 import sys
 import time
 
@@ -41,14 +42,13 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "build_harness_status", "description": "Where the current build job stands: steps done, the "
      "current step, checkpoints. Call this first in a new chat.",
-     "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}}}},
+     "inputSchema": {"type": "object", "properties": {}}},
     {"name": "build_harness_next", "description": "Your ONE next job in the build: what to do, the only files "
      "you may change, the text you need, and how it will be checked. Do only this job.",
-     "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}}}},
+     "inputSchema": {"type": "object", "properties": {}}},
     {"name": "build_harness_submit", "description": "Say the job is done. The harness checks your change; if it "
      "fails, your change is put back and you get the reasons. Never claim it works yourself.",
-     "inputSchema": {"type": "object", "properties": {"task": {"type": "string"},
-                                                      "note": {"type": "string"}}}},
+     "inputSchema": {"type": "object", "properties": {"note": {"type": "string"}}}},
 ]
 
 
@@ -144,7 +144,10 @@ def handle(msg):
 def serve(stdin=None, stdout=None, recorder=None):
     global RECORDER
     from .core import settings
-    RECORDER = recorder or settings.ROOT / "state" / "recorder" / f"mcp-{time.strftime('%Y%m%d')}.jsonl"
+    # FIELDKIT_RECORDER points the log elsewhere; the test suite sets it so tests never
+    # write into the real evidence (2026-09-30: test calls appeared in a live run's log).
+    RECORDER = recorder or (Path(os.environ["FIELDKIT_RECORDER"]) if os.environ.get("FIELDKIT_RECORDER") else
+                            settings.ROOT / "state" / "recorder" / f"mcp-{time.strftime('%Y%m%d')}.jsonl")
     stdin, stdout = stdin or sys.stdin, stdout or sys.stdout
     for line in stdin:
         line = line.strip()

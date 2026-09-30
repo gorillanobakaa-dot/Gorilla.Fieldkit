@@ -27,6 +27,7 @@ from pathlib import Path
 from ..core import settings
 from . import upstream, vault
 
+MAX_WINDOW = 160                                   # lines of the target file one packet may show
 TRIVIAL = re.compile(r"^[\s{}()\[\];,]*$")        # braces and punctuation prove nothing
 
 
@@ -258,14 +259,18 @@ def packet_port(t, s, budget_chars, patch, file, hunk, **kw):
         return "\n".join(parts)
     lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
     at = _anchor(lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
-    room = max(20, (budget_chars - len("\n".join(parts)) - 800) // 90)          # ~90 chars per numbered line
+    # The budget is a ceiling, not a target (2026-09-30: the first live packet filled it and
+    # showed lines 1-1425, ~20k tokens, for a change near line 260). Show the hunk's own length
+    # plus 30 lines either side, never more than MAX_WINDOW lines.
+    fits = max(20, (budget_chars - len("\n".join(parts)) - 800) // 90)          # ~90 chars per numbered line
+    room = min(fits, len(hunk["lines"]) + 60, MAX_WINDOW)
     if at is None:
         parts.append(f"The old code was not found in {file} (upstream rewrote it). The file has {len(lines)} "
-                     f"lines. Its start is shown; use your find tool on a distinctive line of the hunk to "
-                     f"locate the new code.")
+                     f"lines. Use your find tool on a distinctive line of the hunk to locate the new code; "
+                     f"the first {room} lines are shown only for orientation.")
         lo, hi = 0, min(len(lines), room)
     else:
-        lo, hi = max(0, at - room // 3), min(len(lines), at + (2 * room) // 3)
+        lo, hi = max(0, at - 30), min(len(lines), max(0, at - 30) + room)
         parts.append(f"In this Firefox the same code starts near line {at + 1}. Lines {lo + 1}-{hi}:")
     parts += [f"{i + 1:6}| {lines[i]}" for i in range(lo, hi)]
     parts += ["", "DO: edit " + file + " so that the '+' lines are present and the '-' lines are gone, in the "

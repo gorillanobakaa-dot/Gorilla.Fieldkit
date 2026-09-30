@@ -59,7 +59,10 @@ def lines_for(result):
 def mcp_call(name, args):
     """-> (text, is_error). Three tools only; approval and unblocking are not among them."""
     try:
-        tid = current_id(args.get("task"))
+        # 2026-09-30, live run 1: Gemma filled an optional "task" field with invented text
+        # ("build firefox for a specific release", a fictitious mixer.cpp job) and never saw
+        # its real job. The model gets no way to name a task: it is always the current one.
+        tid = current_id(None)
         if name == "build_harness_status":
             s = task.status(tid)
             cur = s["current"]
@@ -67,7 +70,7 @@ def mcp_call(name, args):
                                f"current step: {cur['id']} ({cur['kind']}) - {cur['title']}" if cur else "no step left",
                                "NEXT: call build_harness_next"]), False)
         if name == "build_harness_next":
-            r = task.packet(tid)
+            r = task.packet(tid, by="model")
             if r["state"] == "MODEL STEP":
                 return r["packet"], False
             if r["state"] == "BLOCKED":
@@ -75,7 +78,7 @@ def mcp_call(name, args):
                         "NEXT: stop and tell the owner. Do not work around it."), False
             return f"{r['state']}\nNEXT: tell the owner the job is finished.", False
         if name == "build_harness_submit":
-            r = task.submit(tid, note=args.get("note", ""))
+            r = task.submit(tid, note=args.get("note", ""), by="model")
             if r["ok"]:
                 return f"PASSED the harness check. Checkpoint {r['checkpoint']}.\nNEXT: {r['next']}", False
             return ("FAILED the harness check (your change was put back):\n- " + "\n- ".join(r["why"]) +
@@ -85,14 +88,16 @@ def mcp_call(name, args):
         return f"REFUSED: {e}", False
 
 
+# 2026-09-30, live run 1: asked to fetch its own job with a tool, Gemma never got it (it
+# invented arguments for the tool instead). The driver now fetches the job and puts it in
+# the prompt; the model only edits and submits.
 DRIVE_PROMPT = (
-    "You are doing ONE small job in a Firefox build, and nothing else.\n"
-    "1. Call the tool build_harness_next and read your job.\n"
-    "2. Make exactly the change it asks for, only in the file(s) it names, with your edit tool.\n"
-    "3. Call build_harness_submit. The harness checks your change; do not claim it works yourself.\n"
-    "4. Stop, and report in one sentence what build_harness_submit said.\n"
-    "If build_harness_next says BLOCKED or DONE, stop and report that. Do not run git, do not install "
-    "anything, do not touch other files.")
+    "You are doing ONE small job in a Firefox build, and nothing else. Your job is below.\n"
+    "1. Make exactly the change it asks for, only in the file it names, with your edit tool.\n"
+    "2. Call the tool fieldkit_build_harness_submit. The harness checks your change.\n"
+    "3. Stop, and copy the first line of what fieldkit_build_harness_submit answered.\n"
+    "Do not run git, do not install anything, do not touch any other file, do not call other tools.\n\n"
+    "=== YOUR JOB ===\n")
 
 
 def drive(tid, a):
@@ -105,30 +110,50 @@ def drive(tid, a):
     exe = a.agent or "gorilla-opencode"
     t = task.load(tid)
     env = {**os.environ, "GORILLA_OPENCODE_HEADLESS_TIMEOUT": a.job_timeout or "45m"}
+    log_path = task.STATE / tid / "drive.log"            # UTF-8, written here (PowerShell's Tee-Object wrote UTF-16)
+
+    def say(msg):
+        line = f"{time.strftime('%H:%M:%S')}  {msg}"
+        print(line, flush=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+    def model_submits():
+        f = task.STATE / tid / "journal.jsonl"
+        return sum(1 for l in f.read_text(encoding="utf-8").splitlines()
+                   if '"event": "submit"' in l and '"by": "model"' in l) if f.is_file() else 0
+
     for n in range(1, (a.max_jobs or 200) + 1):
-        state = task.packet(tid)                       # runs any script steps first
+        state = task.packet(tid, by="driver")          # runs any script steps first
         if state["state"] != "MODEL STEP":
-            print(f"{time.strftime('%H:%M:%S')}  {state['state']}: {state.get('step', '')} "
-                  f"{'; '.join(state.get('why') or [])}", flush=True)
+            say(f"{state['state']}: {state.get('step', '')} {'; '.join(state.get('why') or [])}")
             return 0 if state["state"] == "DONE" else 3
         step = state["step"]
-        print(f"{time.strftime('%H:%M:%S')}  job {n}: {step} - starting a fresh {exe} run", flush=True)
+        say(f"job {n}: {step} (attempt {task.status(tid)['current']['attempts'] + 1}) - fresh {exe} run, "
+            f"job text {state['chars']:,} chars")
+        before = model_submits()
         t0 = time.time()
-        r = sp.run([exe, "-p", DRIVE_PROMPT, "-c", t["workdir"], "-q"], env=env, capture_output=True, text=True,
-                   encoding="utf-8", errors="replace")
+        r = sp.run([exe, "-p", DRIVE_PROMPT + state["packet"], "-c", t["workdir"], "-q"], env=env,
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+        answer = (r.stdout or r.stderr).strip()
         task.journal(task.load(tid), "agent-run", step=step, exit=r.returncode, seconds=round(time.time() - t0),
-                     answer=(r.stdout or r.stderr).strip()[-600:])
-        print(f"{time.strftime('%H:%M:%S')}  job {n} finished in {time.time() - t0:.0f} s, exit {r.returncode}: "
-              f"{(r.stdout or r.stderr).strip()[-300:]}", flush=True)
-        after = task.load(tid)
-        cur = next((x for x in after["steps"] if x["id"] == step), None)
-        if cur and cur["status"] in ("pending", "failed") and cur["attempts"] == 0 and r.returncode == 0:
+                     answer=answer[-600:])
+        say(f"job {n} finished in {time.time() - t0:.0f} s, exit {r.returncode}. The model said: {answer[-300:]}")
+        if model_submits() == before:                  # whatever it said, the harness never checked anything
+            after = task.load(tid)
+            cur = next((x for x in after["steps"] if x["id"] == step), None)
+            task.revert_to_checkpoint(after)
             task.journal(after, "no-submit", step=step, why="the run ended without calling build_harness_submit")
-            print("             the model stopped without submitting: counted as a failed attempt", flush=True)
-            cur["attempts"] += 1
-            cur["last_why"] = ["you stopped without calling build_harness_submit"]
-            cur["status"] = "blocked" if cur["attempts"] >= cur["max_attempts"] else "failed"
-            task.save(after)
+            if cur and cur["status"] in ("pending", "failed"):
+                cur["attempts"] += 1
+                cur["last_why"] = ["you stopped without calling fieldkit_build_harness_submit"]
+                cur["status"] = "blocked" if cur["attempts"] >= cur["max_attempts"] else "failed"
+                task.save(after)
+            say("  no submit: any change was put back, and it counts as a failed attempt")
+        else:
+            last = [json.loads(l) for l in (task.STATE / tid / "journal.jsonl").read_text(encoding="utf-8").splitlines()
+                    if '"event": "submit"' in l][-1]
+            say(f"  harness check: {'PASSED' if last['ok'] else 'FAILED - ' + '; '.join(last['why'])[:300]}")
     return 3
 
 
@@ -212,6 +237,15 @@ def run(a, emit):
             time.sleep(5)
     if act == "drive":
         return drive(tid, a)
+    if act == "compare":
+        from . import compare as cmp
+        if not a.reference:
+            raise SystemExit("compare needs --reference DIR (the person-made result to hold the job against)")
+        t = task.load(tid)
+        files = cmp.changed_by_job(t["workdir"], t["meta"]["upstream"]["commit"])
+        rows = cmp.compare(t["workdir"], a.reference, files, out_dir=task.STATE / tid)
+        emit(rows, lambda r: print("\n".join(cmp.lines(r)) + f"\n\nsaved: {task.STATE / tid / 'compare.diff'}"))
+        return 0 if all(r["result"] == "same" for r in rows) else 3
     if act == "log":
         f = task.STATE / tid / "journal.jsonl"
         for line in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else [])[-40:]:

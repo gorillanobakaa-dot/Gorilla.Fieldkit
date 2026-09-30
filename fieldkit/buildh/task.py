@@ -188,7 +188,7 @@ def advance(task_id):
         save(t)
 
 
-def packet(task_id):
+def packet(task_id, by="cli"):
     """The one thing the model sees: the current model step, trimmed to the context budget."""
     state = advance(task_id)
     if state["state"] != "MODEL STEP":
@@ -208,11 +208,11 @@ def packet(task_id):
     text = "\n".join(head) + "\n\n" + body
     if len(text) > budget_chars:
         text = text[:budget_chars] + "\n[... trimmed to fit the context budget]"
-    journal(t, "packet", step=s["id"], chars=len(text), attempt=s["attempts"] + 1)
+    journal(t, "packet", step=s["id"], chars=len(text), attempt=s["attempts"] + 1, by=by)
     return {"state": "MODEL STEP", "step": s["id"], "packet": text, "chars": len(text)}
 
 
-def submit(task_id, note=""):
+def submit(task_id, note="", by="cli"):
     t = load(task_id)
     if not t["approved"]:
         raise Refused("the plan is not approved yet")
@@ -230,7 +230,7 @@ def submit(task_id, note=""):
     if not why:
         res = _call(s["check"], t, s, **(s.get("args") or {}))
         why = [] if res.get("ok") else list(res.get("why") or ["the check failed"])
-    journal(t, "submit", step=s["id"], changed=changed, outside=outside, ok=not why, why=why, note=note[:500])
+    journal(t, "submit", step=s["id"], changed=changed, outside=outside, ok=not why, why=why, note=note[:500], by=by)
     if not why:
         s["status"], s["last_why"] = "done", None
         head = checkpoint(t, s["id"])
