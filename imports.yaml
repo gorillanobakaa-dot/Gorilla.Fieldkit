@@ -1,0 +1,95 @@
+# What `fieldkit gather` brings into toolbox/<name>/, and from where.
+#
+# Code, tests and the config a tool needs to run. Personal data, results,
+# binaries and build output never come in. Every copied file is recorded
+# with its source, commit and sha256 in toolbox/<name>/PROVENANCE.json, so
+# `fieldkit gather --check` shows when the original has moved on.
+#
+# github: owner/repo   (cloned shallow into _sources/repos, git-ignored)
+# local:  folder on this machine (${DOCUMENTS} etc. expanded)
+# include / exclude: glob patterns relative to the source root ('*' crosses folders;
+#   './*.py' means top-level files only)
+# tests: commands that prove the tools work; run by `fieldkit gather --test`
+# test_in: toolbox (default) or source - where the tests must run
+# python: interpreter for the tests (a venv holding that source's requirements)
+
+defaults:
+  exclude: ["**/.git/**", "**/__pycache__/**", "**/*.pyc", "**/node_modules/**", "**/.pytest_cache/**",
+            "**/*.png", "**/*.jpg", "**/*.deb", "**/*.zip", "**/*.exe", "**/*.dll", "**/*.bak",
+            "**/*.docx", "**/*.xlsx", "**/*.pptx", "**/*.pdf", "**/*.log", "**/*.csv"]
+
+sources:
+# --- GitHub repositories ----------------------------------------------------
+
+- name: code-review-toolkit
+  github: gorillanobakaa-dot/code-review-toolkit
+  what: Local static-analysis and security review pipeline (36 analysers, normalised JSON findings)
+  include: ["*.py", "tests/**", "*.toml", "*.json", "*.yaml", "*.yml", "README.md", "requirements*.txt"]
+  tests:                                   # plain scripts, not pytest files
+    - [python, tests/test_parsers.py]
+    - [python, tests/test_position.py]
+
+- name: searchfox-tools
+  github: gorillanobakaa-dot/searchfox-tools
+  what: Firefox source intelligence through Mozilla's Searchfox index (query 30M lines on their compute)
+  include: ["*.py", "README.md", "*.json"]
+
+- name: pfind
+  github: gorillanobakaa-dot/pfind
+  what: Hybrid local search in one file - by name, content, meaning or exact snippet
+  include: ["pfind.py", "pfind.cmd", "tests/**", "README.md", "*.toml", "requirements*.txt"]
+  tests:
+    - [python, -m, pytest, -q, -p, no:cacheprovider, tests]
+
+- name: model-eval
+  github: gorillanobakaa-dot/model-eval
+  what: Rank language models by honesty under pressure, graded from tool-call traces
+  include: ["*.py", "*.sh", "registry.example.json", "sweep.example.txt", "README.md", "METHODOLOGY.md"]
+
+- name: dual-track-doc-generator
+  github: gorillanobakaa-dot/dual-track-doc-generator
+  what: Dual-track documentation generator (layman + developer + audit tracks) from a source file
+  include: ["*.py", "README.md"]
+
+- name: debian-kernel
+  github: gorillanobakaa-dot/debian-kernel
+  what: Kernel patch set, audited config change-set, patch tooling and self-test (data for the debian-kernel pipeline)
+  include: ["*.py", "*.sh", "*.c", "*.h", "kernel.config", "README.md", ".github/workflows/*.yml", "docs/**"]
+  exclude: ["historical/**", "versions/**"]
+
+- name: sensors-gorilla
+  github: gorillanobakaa-dot/sensors-gorilla
+  what: Terminal dashboard of every readable hardware sensor, plus a thermal-profile daemon (Linux)
+  include: ["sensors.gorilla", "thermal-profile-daemon", "*.sh", "*.md"]
+
+- name: speaker-loudness-fix
+  github: gorillanobakaa-dot/speaker-loudness-fix
+  what: One-click loudness compressor for quiet laptop speakers (PipeWire/PulseAudio)
+  include: ["*.py", "README.md"]
+
+- name: black-gorilla-theme
+  github: gorillanobakaa-dot/black-gorilla-theme
+  what: Pure-black high-contrast GTK3/GTK4 theme with its .deb builder and installer
+  include: ["**/*"]
+
+- name: apple-superdrive-enabler
+  github: gorillanobakaa-dot/apple-superdrive-enabler
+  what: Enable the Apple USB SuperDrive on non-Apple Linux machines
+  include: ["**/*"]
+
+- name: respect-your-llms
+  github: gorillanobakaa-dot/respect-your-llms
+  what: Plain-language guide to how language models work and how to prompt them (reference, no code)
+  include: ["**/*.md"]
+
+# --- Only on this machine -----------------------------------------------------
+
+- name: hdmi-harness
+  github: gorillanobakaa-dot/Gorilla.HDMI.Harness      # published 2026-09-29 (English, de-personalised)
+  what: HDMI Harness - connect a Windows laptop to a TV and keep it connected (CCD API, EDID parser, mode profiles, stuck-driver recovery, hot-plug agent, Samsung Tizen LAN client, TV Wi-Fi onboarding, diagnostics)
+  include: ["hdmi.py", "hdmiharness/**", "tests/**", "tools/**", "pytest.ini", "requirements.txt", "README.md",
+            "AUDIT_AND_PLAN.md", "bootstrap.ps1", "start.sh", "*.bat"]
+  exclude: ["reports/**", "state/**", "logs/**", "config.json"]
+  python: "${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe"   # its requirements live in their own venv
+  tests:
+    - [python, -m, pytest, -q, -p, no:cacheprovider, tests]

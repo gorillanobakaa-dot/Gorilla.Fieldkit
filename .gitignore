@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+_sources/
+inventory-*/
+state/
+logs/
+fieldkit.local.json
+fieldkit.local.yaml
+*.bak
+*.egg-info/
+toolbox/
+harvest/
+exam-results/
+local/

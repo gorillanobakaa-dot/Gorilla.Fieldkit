@@ -1,0 +1,25 @@
+name: office-deliver
+description: >-
+  Make a Word, Excel, PowerPoint or PDF file safe to send: check it is not
+  broken, take people's names out of its hidden properties (a .bak is kept),
+  prove it is still sound with no names left, and scan everything inside it
+  for secrets, home paths and private words. Run it after the LAST save -
+  Word writes names back on save.
+  fieldkit pipeline run office-deliver --var file=PATH
+vars:
+  file: ""
+stages:
+  - id: check
+    run: {python: "fieldkit.office.deliver:stage_check", args: {file: "{file}"}}
+    verify:
+      - {python: {target: "fieldkit.office.deliver:stage_check", args: {file: "{file}"}}}
+
+  - id: scrub
+    run: {python: "fieldkit.office.deliver:stage_scrub", args: {file: "{file}"}}
+    verify:
+      - {python: {target: "fieldkit.office.deliver:stage_recheck", args: {file: "{file}"}}}
+
+  - id: privacy
+    run: {python: "fieldkit.office.deliver:stage_privacy", args: {file: "{file}"}}
+    verify:
+      - {python: {target: "fieldkit.office.deliver:stage_privacy", args: {file: "{file}"}}}

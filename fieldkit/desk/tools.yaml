@@ -1,0 +1,297 @@
+# The tool registry: every tool Fieldkit knows, where it lives, on which system
+# it runs, whether it changes things, and how it is tested. Agents read this
+# (fieldkit tools list --json) instead of rediscovering tools.
+#
+# Your own tools go in local/tools.yaml (same format, git-ignored): they are
+# merged in at load time and never published.
+#
+# path: ${DOCUMENTS} / ${FIELDKIT} are expanded per machine (core/settings.py).
+# changes: true = the tool modifies files/system state; an agent must ask first.
+# test: command that proves it works (null = no test yet - a gap, listed by `tools check`).
+# repo: where the canonical copy lives when it is not on this machine.
+
+tools:
+# --- Fieldkit's own harnesses ------------------------------------------------
+- id: office
+  title: Read, create, check and scrub Word/Excel/PowerPoint/PDF offline
+  harness: office
+  entry: [python, -m, fieldkit, office]
+  path: ${FIELDKIT}/fieldkit/office
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_office.py"]
+
+# Full agent cards: every field the agent interface uses, reviewed by hand.
+
+- id: office-read
+  title: Read a Word, Excel, PowerPoint or PDF file as plain text
+  harness: office
+  entry: [python, -m, fieldkit, office, read]
+  path: ${FIELDKIT}/fieldkit/office/read.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the .docx .xlsx .pptx or .pdf file"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_office.py"]
+
+- id: office-check
+  title: Check an Office or PDF file is not broken before sending it
+  harness: office
+  entry: [python, -m, fieldkit, office, check]
+  path: ${FIELDKIT}/fieldkit/office/check.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the .docx .xlsx .pptx or .pdf file"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_office.py"]
+
+- id: office-scrub
+  title: Remove people's names from the hidden properties of a Word, Excel or PowerPoint file
+  harness: office
+  entry: [python, -m, fieldkit, office, scrub]
+  path: ${FIELDKIT}/fieldkit/office/scrub.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the .docx .xlsx or .pptx file"}
+    - {name: term, flag: --term, type: list, required: false, help: "names or numbers to remove, besides the author fields"}
+  effects: [writes-files]
+  safety: reversible
+  scope: [file]
+  modes:
+    preview: ["+", "--check"]
+    verify:
+      - {command: [python, -m, fieldkit, office, check, "{file}"]}
+      - {command: [python, -m, fieldkit, office, scrub, "{file}", --check]}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_office.py"]
+
+- id: office-deliver
+  title: Make a Word, Excel, PowerPoint or PDF file safe to send (check, remove names, recheck, privacy scan)
+  harness: office
+  entry: [python, -m, fieldkit, office, deliver]
+  path: ${FIELDKIT}/fieldkit/office/deliver.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the file to send, after its LAST save"}
+  effects: [writes-files]
+  safety: reversible
+  scope: [file]
+  modes:
+    preview: [python, -m, fieldkit, office, scrub, "{file}", --check]
+    verify:
+      - {command: [python, -m, fieldkit, office, check, "{file}"]}
+      - {command: [python, -m, fieldkit, office, scrub, "{file}", --check]}
+      - {command: [python, -m, fieldkit, privacy, scan, "{file}"]}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_deliver.py"]
+
+- id: pipeline
+  title: Staged, resumable pipelines (Firefox on Windows, Debian kernel)
+  harness: build
+  entry: [python, -m, fieldkit, pipeline]
+  path: ${FIELDKIT}/fieldkit/core/pipeline.py
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pipeline.py", "${FIELDKIT}/tests/test_kernel.py"]
+
+- id: triage
+  title: Name a build failure from its log (Firefox, kernel, Debian packaging)
+  harness: build
+  entry: [python, -m, fieldkit, triage]
+  path: ${FIELDKIT}/fieldkit/build/triage.py
+  inputs:
+    - {name: log, flag: null, type: str, required: true, help: "the build or install log file"}
+    - {name: set, flag: --set, type: str, required: false, help: "rule set",
+       choices: [auto, firefox-windows, debian-kernel, debian-packaging]}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_triage.py"]
+  supersedes: firefox-triage
+
+- id: privacy-scan
+  title: Find secrets, personal paths, emails and private names before publishing
+  harness: core
+  entry: [python, -m, fieldkit, privacy, scan]
+  path: ${FIELDKIT}/fieldkit/core/privacy.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "files or folders to scan"}
+    - {name: git, flag: --git, type: flag, required: false, help: "only what git would publish"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core.py"]
+
+- id: refcheck
+  title: Which files named in a list (manifest), link or import do not exist
+  harness: build
+  entry: [python, -m, fieldkit, refcheck]
+  path: ${FIELDKIT}/fieldkit/build/refcheck.py
+  inputs:
+    - {name: rule, flag: null, type: str, required: true, help: "what names the files",
+       choices: [manifest, markdown, python, regex]}
+    - {name: target, flag: null, type: str, required: true, help: "the list file, or the folder to scan"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_refcheck.py"]
+
+- id: snapshot-diff
+  title: Show exactly what changed between two recorded snapshots
+  harness: core
+  entry: [python, -m, fieldkit, snapshot, diff]
+  path: ${FIELDKIT}/fieldkit/core/snapshot.py
+  inputs:
+    - {name: before, flag: null, type: str, required: true, help: "snapshot name taken before"}
+    - {name: after, flag: null, type: str, required: true, help: "snapshot name taken after"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_snapshot.py"]
+
+- id: lifecycle
+  title: Install, verify, (upgrade,) uninstall a program and report anything it left behind
+  harness: build
+  entry: [python, -m, fieldkit, lifecycle]
+  path: ${FIELDKIT}/fieldkit/build/lifecycle.py
+  inputs:
+    - {name: spec, flag: null, type: str, required: true, help: "lifecycle spec (YAML): watch, install, upgrade, uninstall"}
+    - {name: approve, flag: --approve, type: flag, required: true, help: "the owner's go-ahead"}
+  effects: [installs-software, writes-files, deletes-files, admin]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle.py"]
+
+- id: next-step
+  title: The one next thing to do in a build pipeline (DO, BLOCKED, CANNOT HERE or DONE)
+  harness: build
+  entry: [python, -m, fieldkit, next]
+  path: ${FIELDKIT}/fieldkit/core/next.py
+  inputs:
+    - {name: pipeline, flag: null, type: str, required: true, help: "pipeline name, e.g. debian-kernel"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_next.py"]
+
+- id: release-check
+  title: Prove a release - the published files are the tested ones and every claim in the notes is proven
+  harness: build
+  entry: [python, -m, fieldkit, release, check]
+  path: ${FIELDKIT}/fieldkit/release.py
+  inputs:
+    - {name: spec, flag: null, type: str, required: true, help: "release spec YAML, e.g. releases/pfind-v2.2.0.yaml"}
+  effects: [reads-files, network]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_release.py"]
+
+- id: harvest-find
+  title: Which of the owner's scripts does this job? Search every script by what it does
+  harness: desk
+  entry: [python, -m, fieldkit, harvest, --find]
+  path: ${FIELDKIT}/fieldkit/harvest.py
+  inputs:
+    - {name: words, flag: null, type: list, required: true, help: "what the script should do, in plain words"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_harvest.py"]
+
+- id: inventory
+  title: Count code, tests, config and skills per project folder or GitHub repo
+  harness: core
+  entry: [python, "${FIELDKIT}/inventory.py"]
+  path: ${FIELDKIT}/inventory.py
+  platforms: [windows, linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core.py"]
+
+# --- Gathered from GitHub into toolbox/ (fieldkit gather; see imports.yaml) ------
+
+- id: pfind
+  title: Hybrid local search in one Python file (name, content, meaning, snippet)
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/pfind/pfind.py", --json, --no-color]
+  path: ${FIELDKIT}/toolbox/pfind/pfind.py
+  repo: gorillanobakaa-dot/pfind
+  inputs:
+    - {name: query, flag: null, type: str, required: true, help: "what to find: a name, text, or a code line"}
+    - {name: paths, flag: null, type: list, required: false, help: "folders to search (default: current folder)"}
+    - {name: names, flag: --names, type: flag, required: false, help: "file names only"}
+    - {name: content, flag: --content, type: flag, required: false, help: "file contents only"}
+    - {name: exact, flag: -x, type: flag, required: false, help: "the query is an exact (multi-line) code snippet"}
+    - {name: ext, flag: --ext, type: list, required: false, help: "only these extensions, e.g. py md"}
+    - {name: limit, flag: --limit, type: int, required: false, help: "how many files to show (default 40)"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/pfind/tests"]
+
+- id: searchfox
+  title: Firefox source intelligence via Mozilla's Searchfox index (query 30M lines on their compute)
+  harness: build
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py"]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  platforms: [windows, linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: code-review
+  title: Local static-analysis and security review pipeline (36 analysers, JSON findings)
+  harness: build
+  entry: [python, "${FIELDKIT}/toolbox/code-review-toolkit/code_review.py"]
+  path: ${FIELDKIT}/toolbox/code-review-toolkit/code_review.py
+  repo: gorillanobakaa-dot/code-review-toolkit
+  platforms: [windows, linux]
+  changes: false
+  test: [python, "${FIELDKIT}/toolbox/code-review-toolkit/tests/test_parsers.py"]
+
+- id: model-eval
+  title: Rank LLMs by honesty under pressure, graded from tool-call traces
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/model-eval/run_eval.py"]
+  path: ${FIELDKIT}/toolbox/model-eval/run_eval.py
+  repo: gorillanobakaa-dot/model-eval
+  platforms: [windows, linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_model_eval.py"]
+
+- id: dual-track-generator
+  title: Dual-track documentation generator (layman + developer + audit tracks) from a source file
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py"]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_dual_track.py", -k, dual-track-doc-generator]
+
+- id: debian-kernel-project
+  title: Kernel patches, audited config change-set, patch tooling, self-test (data for the debian-kernel pipeline)
+  harness: build
+  path: ${FIELDKIT}/toolbox/debian-kernel
+  repo: gorillanobakaa-dot/debian-kernel
+  platforms: [linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_debian_kernel.py"]
+
+- id: sensors-gorilla
+  title: Terminal dashboard of every readable hardware sensor (Linux)
+  harness: desk
+  path: ${FIELDKIT}/toolbox/sensors-gorilla/sensors.gorilla
+  repo: gorillanobakaa-dot/sensors-gorilla
+  platforms: [linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sensors_gorilla.py"]
+
+- id: speaker-loudness-fix
+  title: One-click loudness compressor for quiet laptop speakers (PipeWire/PulseAudio)
+  harness: desk
+  entry: [python3, "${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py"]
+  path: ${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py
+  repo: gorillanobakaa-dot/speaker-loudness-fix
+  platforms: [linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_speaker_loudness.py"]

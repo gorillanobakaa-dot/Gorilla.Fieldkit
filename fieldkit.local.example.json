@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy to fieldkit.local.json and fill in. That file is git-ignored and stays on this machine.",
+  "firefox": {"root": "${DOCUMENTS}/Gorilla.firefox", "python": "python"},
+  "kernel": {"workdir": "${HOME}/kernel-build", "project": "${HOME}/debian-kernel"},
+  "privacy": {"terms": ["your real name", "your email", "your login name"]}
+}

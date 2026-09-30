@@ -1,0 +1,90 @@
+# Linux kernel build failures on Debian/Ubuntu (make, bindeb-pkg, dpkg).
+# First entry is from this project's own history (debian-kernel CI, 2026-08);
+# the rest are well-known upstream/Debian failures, marked source: common.
+success:
+- 'dpkg-deb: building package .linux-image-'
+- 'dpkg-buildpackage: info: binary-only upload'
+
+signatures:
+- id: unmet-build-deps
+  pattern: 'Unmet build dependencies: (.*)'
+  check: kernel-deps
+  source: debian-kernel CI 2026-08 (libdw-dev:native missing; every CI run aborted at compile)
+  cause: >-
+    bindeb-pkg runs dpkg-checkbuilddeps. A package in the kernel's debian/control
+    build-depends is not installed (libdw-dev was the one that bit here).
+  fix: sudo apt-get install the packages named in the message; the deps stage checks the full list first.
+
+- id: debian-certs
+  pattern: "No rule to make target '.*(debian/canonical-certs\\.pem|debian/certs/.*\\.pem)'|SYSTEM_TRUSTED_KEYS"
+  check: kernel-config
+  source: common
+  cause: >-
+    A distro .config copied from /boot names the distribution's signing
+    certificates, which are not in an upstream source tree.
+  fix: scripts/config --set-str SYSTEM_TRUSTED_KEYS "" --set-str SYSTEM_REVOCATION_KEYS "" then olddefconfig.
+
+- id: btf-pahole
+  pattern: 'BTF: .* pahole|pahole \(pahole\) is not available|Failed to generate BTF|btf_encoder'
+  check: kernel-deps
+  source: common
+  cause: CONFIG_DEBUG_INFO_BTF needs pahole from the dwarves package (and a matching version).
+  fix: sudo apt-get install dwarves, or disable CONFIG_DEBUG_INFO_BTF.
+
+- id: missing-host-tool
+  pattern: '(bc|flex|bison|cpio|rsync|zstd): (command )?not found|/bin/sh: \d+: (bc|flex|bison): not found'
+  check: kernel-deps
+  source: common
+  cause: A host tool the kernel build calls is not installed.
+  fix: sudo apt-get install bc flex bison cpio rsync zstd.
+
+- id: missing-openssl-headers
+  pattern: 'openssl/(opensslv|bio|evp)\.h: No such file'
+  check: kernel-deps
+  source: common
+  cause: Module signing (scripts/sign-file, certs) needs the OpenSSL development headers.
+  fix: sudo apt-get install libssl-dev.
+
+- id: missing-libelf
+  pattern: 'libelf|gelf\.h: No such file|Cannot generate ORC metadata for CONFIG_UNWINDER_ORC'
+  check: kernel-deps
+  source: common
+  cause: objtool needs libelf development headers.
+  fix: sudo apt-get install libelf-dev.
+
+- id: localversion-too-long
+  pattern: 'UTS_RELEASE.*too long|Kernel release name too long'
+  check: kernel-name
+  source: debian-kernel kernel_build_namer.py (64-character uname guard)
+  cause: The kernel release string (version + LOCALVERSION) exceeds 64 characters.
+  fix: Build the name with fieldkit's localversion() (64-char guard, tags dropped from the end first).
+
+- id: oom-killed
+  pattern: 'Killed|internal compiler error: Killed|virtual memory exhausted|Cannot allocate memory'
+  check: null
+  source: common
+  cause: The compiler or linker was killed by the out-of-memory killer.
+  fix: Lower -j, add swap/zram, or disable DEBUG_INFO.
+
+- id: disk-full
+  pattern: 'No space left on device'
+  check: kernel-disk
+  source: common
+  cause: A kernel tree plus objects and .debs needs roughly 30 GB with debug info.
+  fix: Free space, or build without CONFIG_DEBUG_INFO.
+
+- id: config-not-applied
+  pattern: 'missing after olddefconfig|config change-set not present'
+  check: kernel-config
+  source: debian-kernel CI (spot-check step)
+  cause: >-
+    olddefconfig silently dropped a requested option because a dependency is
+    off, so the built kernel would differ from the documented one.
+  fix: Enable the dependency (make menuconfig, search the symbol, read 'Depends on') and re-run the config stage.
+
+- id: patch-rejected
+  pattern: 'Hunk #\d+ FAILED|\d+ out of \d+ hunks? FAILED|patch does not apply|can.t find file to patch'
+  check: kernel-patches
+  source: common
+  cause: A patch no longer applies to this kernel version.
+  fix: Rebase the patch on the new tree and regenerate it (make_patches.py); never force-apply.

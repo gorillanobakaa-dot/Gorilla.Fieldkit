@@ -1,0 +1,69 @@
+name: debian-kernel
+description: >-
+  Build a custom Linux kernel as Debian packages (linux-image, linux-headers)
+  with a verified config change-set. Mirrors the owner's debian-kernel CI, as
+  local stages that can be resumed. Needs Debian/Ubuntu to run; can be planned
+  and dry-run anywhere.
+vars:
+  version: "7.1.2"
+  workdir: "${LOCAL:kernel.workdir}"            # e.g. ~/kernel-build
+  project: "${LOCAL:kernel.project}"            # checkout of the debian-kernel repo
+  src: "{workdir}/linux-{version}"
+  output: "{workdir}/debs-{version}"
+stages:
+  - id: deps
+    platforms: [debian]
+    run: {python: "fieldkit.build.kernel:stage_deps"}
+    verify:
+      - {python: {target: "fieldkit.build.kernel:stage_deps"}}
+    triage: debian-kernel
+
+  - id: fetch
+    platforms: [linux]
+    run: {python: "fieldkit.build.kernel:stage_fetch"}
+    verify:
+      - {files_exist: ["{workdir}/linux-{version}.tar.xz"]}
+
+  - id: extract
+    platforms: [linux]
+    run: {python: "fieldkit.build.kernel:stage_extract"}
+    verify:
+      - {files_exist: ["{src}/Makefile"]}
+
+  - id: patches-check
+    platforms: [linux]
+    run: {cmd: [python3, "{project}/make_patches.py", "--check"], cwd: "{project}"}
+    triage: debian-kernel
+
+  - id: patches
+    platforms: [linux]
+    run: {cmd: [python3, "{project}/universal_freedom_installer.py", "{src}"], cwd: "{project}"}
+    triage: debian-kernel
+
+  - id: config
+    platforms: [linux]
+    run:
+      python: "fieldkit.build.kernel:stage_config"
+      args:
+        base_config: "{project}/kernel.config"
+        injector: "{project}/kernel_config_injector.py"
+    verify:
+      - {python: {target: "fieldkit.build.kernel:verify_config",
+                  args: {injector: "{project}/kernel_config_injector.py"}}}
+    triage: debian-kernel
+
+  - id: build
+    platforms: [debian]
+    timeout: 36000
+    run:
+      python: "fieldkit.build.kernel:stage_build"
+      args: {tags: [unleashed, gorilla, eapd, bbr]}
+    verify:
+      - {files_exist: ["{workdir}/linux-image-*.deb"]}
+    triage: debian-kernel
+
+  - id: collect
+    platforms: [linux]
+    run: {python: "fieldkit.build.kernel:stage_collect"}
+    verify:
+      - {files_exist: ["{output}/linux-image-*.deb"]}

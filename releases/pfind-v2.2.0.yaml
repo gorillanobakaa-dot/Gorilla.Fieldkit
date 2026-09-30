@@ -1,0 +1,26 @@
+# Release gate for pfind v2.2.0 (published 2026-09-29). Checked after the fact.
+name: pfind
+repo: gorillanobakaa-dot/pfind
+local: "${FIELDKIT}/_sources/repos/pfind"
+tag: v2.2.0
+tests:
+  - [python, -m, pytest, -q, -p, no:cacheprovider, tests]
+artifacts:
+  - {path: pfind.py}
+  - {path: pfind.cmd}
+  - {path: README.md}
+privacy: true
+claims:
+  - claim: "27 tests"
+    find: "\\b27 tests\\b"
+    proof: {command: [python, -m, pytest, -q, -p, no:cacheprovider, --collect-only, tests], output_contains: "27 tests collected"}
+  - claim: "the doctor installs nothing unless you type y"
+    find: "unless you type `y`|only after you type `y`"
+    proof: {command: [python, -m, pytest, -q, -p, no:cacheprovider, tests, -k, doctor], output_contains: "passed"}
+  - claim: "no network connection when it searches"
+    find: "no network connection when it searches"
+    proof: {command: [python, -c, "import re,sys; s=open('pfind.py',encoding='utf-8').read(); bad=re.findall(r'^\\s*(?:import|from)\\s+(socket|urllib|requests|http\\.client)\\b', s, re.M); print('network imports:', bad or 'none'); sys.exit(1 if bad else 0)"], output_contains: "none"}
+  - claim: "runs on Windows and Linux"
+    find: "Windows and Linux|Windows 10/11 as well as Linux"
+    # a passing run of the tag's tests recorded ON each platform (fieldkit release prove, run there)
+    proof: {evidence: [windows, linux]}

@@ -1,0 +1,40 @@
+# Debian packaging failures (dpkg-buildpackage, debuild, lintian, cargo-deb /
+# cargo-generate-rpm). Entries marked from this project are real incidents.
+success:
+- 'dpkg-buildpackage: info: (binary-only|full) upload'
+
+signatures:
+- id: pkg-unmet-build-deps
+  pattern: 'dpkg-checkbuilddeps: error: Unmet build dependencies'
+  check: null
+  source: common
+  cause: Build-Depends in debian/control are not installed.
+  fix: sudo apt-get build-dep . (or mk-build-deps -i) in the source directory.
+
+- id: ldd-auto-requires
+  pattern: 'ldd.*(not found|failed)|failed to run ldd'
+  check: null
+  source: TPFanCtrl2 Linux 0.1.0 packaging (cargo-generate-rpm), 2026-09
+  cause: The packager tried to work out library requirements automatically with ldd, which failed in the build environment.
+  fix: Set auto-req = "no" and declare the requirements explicitly in the package metadata.
+
+- id: lintian-error
+  pattern: '^E: [\w.+-]+(:\s*| )[\w-]+'
+  check: null
+  source: common
+  cause: lintian found a policy error in the built package.
+  fix: Look the tag up (lintian-explain-tags TAG) and fix the packaging; do not override without a reason written next to the override.
+
+- id: dh-missing-files
+  pattern: 'dh_install: .* missing files|dh_missing: .*not installed'
+  check: null
+  source: common
+  cause: Files the package claims to ship were not produced by the build (or went elsewhere).
+  fix: Check the install paths in debian/*.install against what the build actually produced.
+
+- id: unsigned-changes
+  pattern: 'gpg: .*(no default secret key|signing failed)'
+  check: null
+  source: common
+  cause: dpkg-buildpackage tried to sign the .changes/.dsc with a key that is not available.
+  fix: For local builds pass -us -uc; sign only on the release machine.

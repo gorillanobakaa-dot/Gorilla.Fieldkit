@@ -1,0 +1,155 @@
+# Firefox build failures on Windows (mach / MozillaBuild / clang-cl).
+# Imported from Gorilla.firefox "working scripts/triage_build_failure.py"
+# (2026-09-09). `check` names the Gorilla.firefox preflight check that now
+# prevents it; null = no check yet. Add new ones as they are hit - that is how
+# the harness learns: the same failure should never cost a build twice.
+success:
+- 'Your build was successful!'
+- 'your build finally finished successfully!'
+
+signatures:
+- id: clang-cl-missing
+  pattern: 'Cannot find the target C compiler'
+  check: clang-cl
+  cause: >-
+    Firefox needs clang-cl, not cl.exe, and the VS LLVM bin is not on PATH.
+    MozillaBuild's login profile rebuilds PATH, so injecting it from Python does
+    nothing - the export must happen inside the shell.
+  fix: Install the toolchain (gorilla deps --install), then confirm with the clang-cl check.
+
+- id: mozbuild-toolchain
+  pattern: 'Cannot find cbindgen|Please run .?mach bootstrap'
+  check: mozbuild-toolchain
+  cause: cbindgen/nasm come only from mach bootstrap, not from VS, MozillaBuild or rustup.
+  fix: Run the bootstrap stage (./mach bootstrap).
+
+- id: bundled-files
+  pattern: 'File listed in FINAL_TARGET_FILES does not exist'
+  check: bundled-files
+  cause: >-
+    A moz.build bundles a file that is not present. On Windows this is usually
+    the MS fonts, which are OS-provided and not redistributable.
+  fix: Drop the patch. Do not copy fonts in from C:\Windows\Fonts.
+
+- id: branding-icons
+  pattern: 'Incorrect icon/cursor Reserved field|Error in ICON statement'
+  check: branding-icons
+  cause: A .ico in the branding directory is not a real ICO - typically a PNG renamed .ico.
+  fix: Regenerate a multi-resolution ICO (fieldkit desk / IconKit renders every frame separately).
+
+- id: objdir-path
+  pattern: "No rule to make target .*\\.obj', needed by"
+  check: objdir-path
+  cause: >-
+    mozmake stats target paths unresolved (with the dot-dot segments still in
+    them). If objdir + 192 chars exceeds MAX_PATH the stat fails, even though the
+    file exists.
+  fix: Set MOZ_OBJDIR to a short absolute path outside the source tree (e.g. C:/gfobj).
+
+- id: split-clusters
+  pattern: 'out-of-line definition of .* does not match any declaration|must explicitly initialize the const member'
+  check: split-clusters
+  cause: >-
+    A header was patched by an enabled patch group while its implementation
+    lives in a disabled one. Patch groups are curated by theme, not by code dependency.
+  fix: Revert the enabled file to upstream, or enable its counterpart (find_split_clusters.py).
+
+- id: moz-build-validation
+  pattern: 'SandboxValidationError|FATAL ERROR PROCESSING MOZBUILD FILE'
+  check: null
+  cause: A moz.build failed validation. The message names the file and the rule that failed.
+  fix: Fix the named moz.build - often a file listed but not present. Read the message before theorising.
+
+- id: clobber-required
+  pattern: 'CLOBBER|clobber is required|Clobbering'
+  check: null
+  cause: A moz.build change invalidated the build backend in a way incremental builds cannot reconcile.
+  fix: Delete the objdir (or ./mach clobber) and rebuild.
+
+- id: linker-oom
+  pattern: 'LNK1102|out of memory|cannot allocate|std::bad_alloc'
+  check: null
+  cause: The linker ran out of memory. libxul is the peak; debug symbols and LTO raise it sharply.
+  fix: Lower -j, keep --disable-debug-symbols, or disable LTO.
+
+- id: disk-full
+  pattern: 'No space left on device|not enough space|ERROR_DISK_FULL'
+  check: disk-space
+  cause: The disk filled mid-build. An objdir runs to tens of GB.
+  fix: Free space; the preflight disk check requires 40 GB up front.
+
+- id: missing-linker-input
+  pattern: 'error: linker `.*` not found|LINK : fatal error LNK1181'
+  check: null
+  cause: A linker input or the linker itself is missing - often a deleted file still referenced by a build file.
+  fix: Run check_deleted_file_refs.py; it catches deleted sources still named by reachable build files.
+
+- id: rust-version
+  pattern: 'rustc .* is not supported|requires rustc|error: package .* cannot be built|edition2024|feature .* is required'
+  check: null
+  cause: Rust toolchain too old (or too new) for this Firefox revision.
+  fix: Match rustc to the tree; mach bootstrap can manage it.
+
+- id: nsis-missing
+  pattern: 'makensis|NSIS'
+  check: null
+  cause: The installer step needs NSIS, which mach bootstrap fetches into ~/.mozbuild/nsis.
+  fix: Run the bootstrap stage.
+
+- id: agent-env-suppression
+  pattern: 'Log file could not be created|AI agent detected'
+  whole_log: true
+  check: agent-env
+  cause: >-
+    mozbuild suppressed its own output because a coding-agent environment
+    variable was set, and its fallback log failed. The real error is hidden.
+  fix: Re-run with CLAUDECODE/CODEX_SANDBOX/GEMINI_CLI/OPENCODE stripped (fieldkit's runner strips them by default).
+
+- id: long-paths
+  pattern: 'Filename too long|path too long|MAX_PATH'
+  check: long-paths
+  cause: >-
+    Paths under testing/web-platform exceed 260 characters. Without long-path
+    support in both Windows and git, files are silently skipped and clone exits 0.
+  fix: LongPathsEnabled=1 in the registry AND git config --global core.longpaths true. Both are needed.
+
+- id: harness-blocker
+  pattern: 'hard blocker|blocking preflight check|Build blocked|check\(s\) failing|Refusing to start a build that cannot succeed'
+  check: preflight
+  source: Gorilla.firefox harness logs 2026-09 (13 halts, all deliberate)
+  cause: >-
+    The harness stopped on purpose: a preflight check failed before hours of
+    compiling could be wasted. The failing check, its fix and its reason are
+    the [-] lines just above the halt (shown in the error lines here).
+  fix: Do what the "fix :" line says, then re-run the same stage.
+
+- id: patch-hunks-failed
+  pattern: 'Hunk #\d+ FAILED|\d+ out of \d+ hunks? FAILED'
+  check: null
+  source: Gorilla.firefox patches logs 2026-09-08 (four runs, PREFS and TOOLKIT groups)
+  cause: >-
+    Gorilla patches written against an older Firefox no longer apply: upstream
+    moved or reworded the lines the hunks expect.
+  fix: >-
+    tally_failed_hunks.py for the real count, extract_failing_hunks.py to see
+    each hunk beside the current source, apply_partial_for_rebase.py to get
+    .rej files, then rebase. Never force-apply.
+
+- id: output-in-another-log
+  pattern: 'Build failed with \d+\. See the log above|mach (bootstrap|package) failed with \d+'
+  whole_log: true
+  check: null
+  source: Gorilla.firefox build logs 2026-09-09 (11 runs before 13:12)
+  cause: >-
+    This harness log holds only the harness summary. The compiler's own output
+    went to the console (runs before 2026-09-09 13:12) or to logs/mach-<time>.log.
+  fix: >-
+    Triage the matching logs/mach-<time>.log instead. Builds run through
+    fieldkit keep the full output in the stage log, so this cannot recur there.
+
+- id: thermal-profile-invalid
+  pattern: 'This profile must NOT be used to gate a build'
+  check: null
+  source: Gorilla.firefox status logs 2026-09-09
+  cause: The calibrated thermal profile is invalid - the temperature sensor did not respond to load during calibration.
+  fix: Re-run calibrate with a sensor that responds to load before any capped build.

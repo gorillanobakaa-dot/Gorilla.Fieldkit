@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fieldkit"
+version = "0.1.0"
+description = "Deterministic tools, harnesses and orchestration for coding agents: office documents, staged build pipelines, build-log triage, privacy scanning. Windows 11 and Debian."
+requires-python = ">=3.11"
+license = {text = "AGPL-3.0-or-later"}
+dependencies = [
+  "pyyaml>=6",
+  "lxml>=5",
+  "python-docx>=1.1",
+  "openpyxl>=3.1",
+  "python-pptx>=1.0",
+  "reportlab>=4",
+  "pypdfium2>=4",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+readers = ["markitdown", "docling"]
+
+[project.scripts]
+fieldkit = "fieldkit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["fieldkit*"]
+
+[tool.setuptools.package-data]
+fieldkit = ["build/signatures/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "local/tests"]
+addopts = "-p no:cacheprovider"

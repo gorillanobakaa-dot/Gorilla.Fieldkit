@@ -1,0 +1,67 @@
+name: firefox-windows
+description: >-
+  Build Gorilla Firefox on Windows by driving the existing Gorilla.firefox
+  harness (thermal-capped, staged). Fieldkit adds the resumable state, the
+  JSON report and failure triage; the harness keeps the Firefox knowledge
+  (3,000-line preflight, 2,700-line diagnoses) and stays the single source.
+vars:
+  harness: "${LOCAL:firefox.root}"              # the Gorilla.firefox folder
+  py: "${LOCAL:firefox.python}"                  # python used by the harness
+  entry: "{harness}/harness/gorilla_build.py"
+stages:
+  - id: preflight
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", preflight], cwd: "{harness}"}
+    verify:
+      - {output_contains: '^\[\+\] Preflight cleared'}      # the harness's own verdict line
+    triage: firefox-windows
+
+  - id: deps
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", deps], cwd: "{harness}"}
+    triage: firefox-windows
+
+  - id: source
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", source], cwd: "{harness}"}
+    verify:
+      - {files_exist: ["{harness}/src/mach"]}
+    triage: firefox-windows
+
+  - id: bootstrap
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", bootstrap], cwd: "{harness}"}
+    triage: firefox-windows
+
+  - id: patches-check
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", patches, --check], cwd: "{harness}"}
+    triage: firefox-windows
+
+  - id: patches
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", patches], cwd: "{harness}"}
+    triage: firefox-windows
+
+  - id: generated
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", generated], cwd: "{harness}"}
+    triage: firefox-windows
+
+  - id: build
+    platforms: [windows]
+    timeout: 43200
+    run: {cmd: ["{py}", "{entry}", build], cwd: "{harness}"}
+    triage: firefox-windows
+
+  - id: package
+    platforms: [windows]
+    run: {cmd: ["{py}", "{entry}", package], cwd: "{harness}"}
+    verify:
+      - {files_exist: ["{harness}/state/artifacts.json"]}
+    triage: firefox-windows
+
+  - id: restore-power
+    platforms: [windows]
+    always: true            # put the power scheme back even if the build failed
+    run: {cmd: ["{py}", "{entry}", restore], cwd: "{harness}"}

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Fieldkit pre-commit: no commit unless the tests pass and nothing private is staged.
+# Installed with: git config core.hooksPath hooks
+cd "$(git rev-parse --show-toplevel)" || exit 1
+if ! python -m pytest -q -p no:cacheprovider >/dev/null 2>&1; then
+  echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"; exit 1
+fi
+if ! python -m fieldkit privacy scan . --git >/dev/null 2>&1; then
+  echo "pre-commit: privacy findings in files git would publish - commit refused"
+  python -m fieldkit privacy scan . --git; exit 1
+fi
+exit 0
