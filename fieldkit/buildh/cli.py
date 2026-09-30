@@ -217,6 +217,14 @@ def run(a, emit):
         r = task.submit(tid, a.note or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "audit":
+        from . import audit
+        if a.args and a.args[0] == "baseline":
+            snap = audit.baseline(tid if tid else "firefox-155.0.1")
+            return emit({"baseline": str(audit.BASE), "tests": snap["tests"]["line"]}, None) or 0
+        r = audit.run(tid)
+        emit(r, lambda r: print("\n".join(audit.lines(r))))
+        return 0 if all(c["ok"] for c in r["checks"]) else 3
     if act == "rewind":
         return emit(task.rewind(tid, a.args[1]), None) or 0
     if act == "unblock":
