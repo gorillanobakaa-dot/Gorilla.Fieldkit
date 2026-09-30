@@ -24,6 +24,28 @@ def test_backticks_and_crlf_are_handled(tmp_path):
     assert p.read_bytes() == b"x\r\nz\r\n"
 
 
+def test_multiline_insert_with_code_block(tmp_path):
+    p = _file(tmp_path)
+    reply = ("Sure, I can help!\n"
+             "```\n"
+             "INSERT AFTER 2: line 1\n"
+             "line 2\n"
+             "  line 3\n"
+             "```\n"
+             "And some text here.")
+    n, summary = answer.apply(p, reply)
+    assert n == 1
+    assert p.read_bytes() == b"a\nb\nline 1\nline 2\n  line 3\nc\nd\ne\n"
+
+
+def test_multiline_change(tmp_path):
+    p = _file(tmp_path)
+    reply = "```\nCHANGE 3: C\nD\nE\n```"
+    n, summary = answer.apply(p, reply)
+    assert n == 1
+    assert p.read_bytes() == b"a\nb\nC\nD\nE\nd\ne\n"
+
+
 @pytest.mark.parametrize("reply,why", [
     ("I changed the file.", "no operations"),
     ("DELETE 9", "not inside"),

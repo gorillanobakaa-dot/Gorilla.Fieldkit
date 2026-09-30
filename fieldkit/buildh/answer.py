@@ -21,16 +21,16 @@ import re
 
 OP = re.compile(r"^\s*(?:(DELETE)\s+(\d+)(?:\s*-\s*(\d+))?|(CHANGE)\s+(\d+)\s*:\s?(.*)|(INSERT AFTER)\s+(\d+)\s*:\s?(.*))\s*$")
 
-INSTRUCTIONS = """Answer with line operations, one per line, and nothing after them:
+INSTRUCTIONS = """Answer with line operations. You MUST wrap your operations in a ``` code block.
 
 DELETE <n>                  remove line n
 DELETE <n>-<m>              remove lines n to m
 CHANGE <n>: <new text>      replace line n with the new text
 INSERT AFTER <n>: <text>    add a new line after line n
 
-Use the line numbers shown above. Do not copy lines you are not changing: every line you
-do not name stays exactly as it is. The harness applies your operations and checks the file;
-your words are not checked."""
+If your new text spans multiple lines, just write the extra lines normally below the CHANGE or INSERT AFTER line.
+Use the line numbers shown above. Do not copy lines you are not changing.
+"""
 
 
 class BadAnswer(ValueError):
@@ -38,22 +38,47 @@ class BadAnswer(ValueError):
 
 
 def parse(text, n_lines):
+    import re
+    # Extract code block if present to avoid swallowing conversational text
+    blocks = re.findall(r"```[^\n]*\n(.*?)```", text, re.DOTALL)
+    if blocks:
+        text = blocks[0]
+        
     ops = []
+    current_op = None
+    
     for raw in (text or "").splitlines():
-        line = raw.strip().strip("`").strip()
+        line = raw.strip("\r\n")  # Keep indentation, strip newlines
+        # OP match ignores leading/trailing whitespace around the command itself
         m = OP.match(line)
-        if not m:
-            continue
-        if m.group(1):
-            lo = int(m.group(2))
-            hi = int(m.group(3) or lo)
-            ops.append(("delete", lo, hi, None))
-        elif m.group(4):
-            ops.append(("change", int(m.group(5)), int(m.group(5)), m.group(6)))
+        if m:
+            if current_op:
+                ops.append(current_op)
+            if m.group(1):
+                lo = int(m.group(2))
+                hi = int(m.group(3) or lo)
+                current_op = ("delete", lo, hi, None)
+            elif m.group(4):
+                current_op = ("change", int(m.group(5)), int(m.group(5)), m.group(6))
+            else:
+                current_op = ("insert", int(m.group(8)), int(m.group(8)), m.group(9))
         else:
-            ops.append(("insert", int(m.group(8)), int(m.group(8)), m.group(9)))
+            if current_op and current_op[0] in ("change", "insert"):
+                kind, lo, hi, txt = current_op
+                # Only append if the line isn't just an empty string at the very start
+                # (to avoid leading newlines if m.group(6)/(9) was empty)
+                txt = (txt + "\n" + line) if txt else line
+                current_op = (kind, lo, hi, txt)
+            elif not current_op and line.strip() and not line.strip().startswith("`"):
+                # Non-empty line before any operation is found
+                pass
+
+    if current_op:
+        ops.append(current_op)
+
     if not ops:
-        raise BadAnswer("no operations found (DELETE n / DELETE n-m / CHANGE n: text / INSERT AFTER n: text)")
+        raise BadAnswer("no operations found inside a code block (DELETE n / DELETE n-m / CHANGE n: text / INSERT AFTER n: text)")
+    
     touched = {}
     for kind, lo, hi, _ in ops:
         if not (1 <= lo <= hi <= n_lines) and not (kind == "insert" and lo == 0):
