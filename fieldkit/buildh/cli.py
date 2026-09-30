@@ -204,7 +204,8 @@ def run(a, emit):
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
                                     f"NEXT: the owner reads the plan and runs: fieldkit build-harness approve {r['task']}")) or 0
-    tid = current_id(a.task or (a.args[0] if a.args else None))
+    words = [x for x in a.args if x != "baseline"]            # `audit baseline` is not a task name
+    tid = current_id(a.task or (words[0] if words else None))
     if act == "approve":
         t = task.approve(tid, "owner (command line)")
         return emit({"task": tid, "approved": t["approved"]}, lambda r: print(f"approved {tid}")) or 0
