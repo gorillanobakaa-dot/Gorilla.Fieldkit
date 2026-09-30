@@ -75,7 +75,10 @@ def export_tag(local, tag, dest):
     if rc != 0:
         raise ValueError(f"tag {tag} not found in {local}")
     zpath = Path(dest) / "tag.zip"
-    rc, out = _sh(["git", "-C", local, "archive", "--format=zip", "-o", str(zpath), tag])
+    # core.autocrlf off: with it on (the default on many Windows machines, including
+    # GitHub's runners) git archive writes CRLF while GitHub serves the stored LF blob,
+    # and identical code is reported as "published != tested" (found 2026-09-30).
+    rc, out = _sh(["git", "-C", local, "-c", "core.autocrlf=false", "archive", "--format=zip", "-o", str(zpath), tag])
     if rc != 0:
         raise ValueError(f"git archive failed: {out[:200]}")
     tree = Path(dest) / "tree"

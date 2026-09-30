@@ -44,7 +44,8 @@ def github(monkeypatch, repo):
     state = {"notes": "Release v1. It has 1 test.", "tampered": False}
 
     def pub_sha(r, tag, path):
-        data = subprocess.run(["git", "-C", str(repo), "show", f"{tag}:{path}"], capture_output=True).stdout
+        data = subprocess.run(["git", "-C", str(state.get("repo", repo)), "show", f"{tag}:{path}"],
+                              capture_output=True).stdout
         return hashlib.sha256(data + (b"x" if state["tampered"] else b"")).hexdigest()
     monkeypatch.setattr(release, "published_file_sha", pub_sha)
     monkeypatch.setattr(release, "release_notes", lambda r, t: state["notes"])
@@ -165,3 +166,22 @@ def test_failing_tests_are_recorded_as_failed(tmp_path, repo, github):
     _git(repo, "tag", "-f", "v1")
     ev, _ = release.prove(_ev_spec(tmp_path, repo, [HERE]))
     assert not ev["passed"] and ev["runs"][0]["exit"] != 0
+
+
+def test_line_ending_conversion_does_not_fake_a_difference(tmp_path, github):
+    """2026-09-30, GitHub's Windows runners: with core.autocrlf=true the stored blob is LF but
+    `git archive` wrote CRLF, so identical code was reported as 'published != tested'."""
+    r = tmp_path / "crlf"
+    r.mkdir()
+    _git(r, "init", "-q")
+    _git(r, "config", "core.autocrlf", "true")
+    _git(r, "config", "user.email", "t@example.com")
+    _git(r, "config", "user.name", "t")
+    (r / "tool.py").write_bytes(b"print('ok')\r\n")
+    (r / "test_ok.py").write_bytes(b"def test_ok():\r\n    assert True\r\n")
+    _git(r, "add", ".")
+    _git(r, "commit", "-q", "-m", "v1")
+    _git(r, "tag", "v1")
+    github["repo"] = r
+    res = release.check(_spec(tmp_path, r))
+    assert res["clear"], release.lines(res)
