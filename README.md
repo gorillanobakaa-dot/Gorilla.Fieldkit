@@ -67,9 +67,10 @@ takes `--json`; exit codes are fixed: `0` fine, `1` error, `2` bad usage, `3` fi
   there, compares published files by sha256, privacy-scans, and demands a passing proof
   for every claim in the notes. `release prove` records evidence from another machine
   (platform, git tree id, result). No `--force`.
-- **Tests.** `python -m pytest`: on a clean copy of this repository, 185 pass, 41 skip
-  (each names the gathered tool it needs) and 1 is a known fault kept as a strict xfail.
-  GitHub Actions runs the suite on Windows and Ubuntu on every push.
+- **Tests.** `python -m pytest`. A clean copy on the author's Windows 11 laptop: 186
+  passed, 41 skipped, 1 known fault kept as a strict xfail. GitHub Actions on every push:
+  Windows 182 passed, 46 skipped; Ubuntu 180 passed, 48 skipped. A skipped test names
+  the tool it needs, such as a repository `fieldkit gather` has not copied in yet.
 
 Release notes: [GitHub releases](https://github.com/gorillanobakaa-dot/Gorilla.Fieldkit/releases).
 
