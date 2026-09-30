@@ -18,9 +18,9 @@ claims:
     proof:
       command: [python, -c, "import subprocess as s,json,sys; sha=s.run(['git','-C',sys.argv[1],'rev-list','-n1','v0.1.0'],capture_output=True,text=True).stdout.strip(); r=json.loads(s.run(['gh','run','list','-R','gorillanobakaa-dot/Gorilla.Fieldkit','-w','tests.yml','-c',sha,'--json','conclusion,status'],capture_output=True,text=True).stdout or '[]'); print('tests workflow for', sha[:7], ':', [x['conclusion'] for x in r]); sys.exit(0 if r and r[0]['conclusion']=='success' else 1)", "${FIELDKIT}"]
       output_contains: "\\['success'"
-  - claim: "186 passed on a clean copy"
-    find: "186 passed"
-    proof: {command: [python, -m, pytest, -q, -p, no:cacheprovider], output_contains: "186 passed"}
+  - claim: "187 passed on a clean copy"
+    find: "187 passed"
+    proof: {command: [python, -m, pytest, -q, -p, no:cacheprovider], output_contains: "187 passed"}
   - claim: "the MCP server offers six tools"
     find: "six tools"
     proof: {command: [python, -c, "from fieldkit import mcp; print(len(mcp.TOOLS), 'tools:', [t['name'] for t in mcp.TOOLS])"], output_contains: "^6 tools"}
