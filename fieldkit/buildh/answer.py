@@ -124,12 +124,12 @@ def apply(path, text):
 #   749 KEEP
 # One answer per line, nothing else accepted.
 
-Q_OP = re.compile(r"^\s*(\d+)\s+(REMOVE|KEEP)\s*$", re.IGNORECASE)
+Q_OP = re.compile(r"^\s*<?(\d+)>?\s+(REMOVE|KEEP)\s*$", re.IGNORECASE)
 
 Q_INSTRUCTIONS = """Answer each line below with its number and REMOVE or KEEP, one per line:
 
-<n> REMOVE     this line should be deleted
-<n> KEEP       this line should stay
+123 REMOVE     this line should be deleted
+123 KEEP       this line should stay
 
 Answer every line exactly once. Do not add, change, or reorder lines. Do not
 use any other word. The harness applies your decisions and checks the file."""
@@ -156,7 +156,7 @@ def parse_questions(text, asked):
             raise BadAnswer(f"line {n} answered twice")
         answered[n] = verdict
     if not answered:
-        raise BadAnswer("no answers found (expected: <n> REMOVE or <n> KEEP)")
+        raise BadAnswer("no answers found (expected: 123 REMOVE or 123 KEEP)")
     missing = sorted(asked - set(answered))
     if missing:
         raise BadAnswer(f"line(s) not answered: {missing}")
