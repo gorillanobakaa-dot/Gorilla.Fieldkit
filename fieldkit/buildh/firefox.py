@@ -247,7 +247,7 @@ def _anchor(lines, context_and_removed, min_run=3):
     return near_i if near_i is not None else best_i
 
 
-def packet_port(t, s, budget_chars, patch, file, hunk, **kw):
+def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
     removed, added, context = hunk_sides(hunk)
     target = Path(t["workdir"]) / file
     parts = [f"PATCH: {patch}", f"FILE:  {file}", "",
@@ -273,8 +273,13 @@ def packet_port(t, s, budget_chars, patch, file, hunk, **kw):
         lo, hi = max(0, at - 30), min(len(lines), max(0, at - 30) + room)
         parts.append(f"In this Firefox the same code starts near line {at + 1}. Lines {lo + 1}-{hi}:")
     parts += [f"{i + 1:6}| {lines[i]}" for i in range(lo, hi)]
-    parts += ["", "DO: edit " + file + " so that the '+' lines are present and the '-' lines are gone, in the "
-                                     "matching place. Change nothing else. Keep the file's own style."]
+    if answer_mode:
+        from .answer import INSTRUCTIONS
+        parts += ["", "DO: give the lines that make this change in " + file + ": the '+' lines present and the "
+                      "'-' lines gone, in the matching place. Keep the file's own style.", "", INSTRUCTIONS]
+    else:
+        parts += ["", "DO: edit " + file + " so that the '+' lines are present and the '-' lines are gone, in the "
+                                         "matching place. Change nothing else. Keep the file's own style."]
     return "\n".join(parts)
 
 

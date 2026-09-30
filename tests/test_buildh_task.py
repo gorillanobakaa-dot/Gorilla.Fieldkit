@@ -17,7 +17,7 @@ def step_prepare(t, **kw):
                            "allowed": [f"{n}.txt"], "args": {"word": n}} for n in ("alpha", "beta")]}
 
 
-def pkt(t, s, budget_chars, word):
+def pkt(t, s, budget_chars, word, **kw):
     return f"Write the word {word} into {word}.txt.\n" + "x" * 100_000
 
 

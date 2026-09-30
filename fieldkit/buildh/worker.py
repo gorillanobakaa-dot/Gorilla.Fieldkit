@@ -22,8 +22,9 @@ from pathlib import Path
 from ..core import settings
 
 KEEP_TOOLS = {"tool.edit", "tool.view"}
-KEEP_PROMPT = {"prompt.section.preamble", "prompt.section.scope", "prompt.section.honesty",
-               "prompt.section.tools", "prompt.section.output"}
+# live run 3: Gemma copied the output section's headings ("lead with outcome", "re-ground the
+# reader") into its answer, so that section is off; the tools section only when tools are on.
+KEEP_PROMPT = {"prompt.section.preamble", "prompt.section.scope", "prompt.section.honesty"}
 LOCAL_LIMITS = {"GORILLA_OPENCODE_FIRST_BYTE_TIMEOUT": "20m",     # reading a long prompt on a CPU takes minutes
                 "GORILLA_OPENCODE_STREAM_STALL_TIMEOUT": "10m"}   # a thinking model may pause between chunks
 
@@ -38,7 +39,7 @@ def profile_root():
     return vault.root().parent / "Build.Work" / "worker-config"
 
 
-def write_profile(model=None):
+def write_profile(model=None, tools=False):
     """-> the XDG_CONFIG_HOME to use. Rebuilt from the owner's settings each time; secrets are not copied."""
     src = owner_config_dir()
     owner = json.loads((src / "config.json").read_text(encoding="utf-8"))
@@ -49,14 +50,14 @@ def write_profile(model=None):
     agents = owner.get("agents") or {}
     if model:
         agents = {k: {**v, "model": model} for k, v in agents.items()}
-    exe = shutil.which("fieldkit") or "fieldkit"
     cfg = {"localEndpoints": owner.get("localEndpoints") or [], "agents": agents,
            "extrasChoiceMade": True, "tui": owner.get("tui") or {},
-           "mcpServers": {"fieldkit": {"type": "stdio", "command": exe, "args": ["mcp"],
-                                        "env": ["FIELDKIT_MCP_TOOLS=build_harness_submit,build_harness_status"]}}}
+           # live run 3: Gemma skipped both tool calls and claimed "submitted successfully".
+           # The driver now runs the harness check itself; the worker needs no Fieldkit tool.
+           "mcpServers": {}}
     (d / "config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    worker_loadout = {k: (k in KEEP_TOOLS or k in KEEP_PROMPT) for k in loadout} or \
-        {**{k: True for k in KEEP_TOOLS | KEEP_PROMPT}}
+    keep = KEEP_PROMPT | (KEEP_TOOLS | {"prompt.section.tools"} if tools else set())
+    worker_loadout = {k: (k in keep) for k in loadout} or {k: True for k in keep}
     (d / "loadout.json").write_text(json.dumps(worker_loadout, indent=1), encoding="utf-8")
     (d / "connection.json").write_text(json.dumps({"profile": "unconstrained", "chosen": True, "samples": []}),
                                        encoding="utf-8")

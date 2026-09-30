@@ -188,23 +188,29 @@ def advance(task_id):
         save(t)
 
 
-def packet(task_id, by="cli"):
-    """The one thing the model sees: the current model step, trimmed to the context budget."""
+def packet(task_id, by="cli", answer_mode=False):
+    """The one thing the model sees: the current model step, trimmed to the context budget.
+
+    answer_mode: the model answers in text (answer.py) and the harness applies it; the packet
+    then says nothing about tools, so there are no conflicting instructions."""
     state = advance(task_id)
     if state["state"] != "MODEL STEP":
         return state
     t = load(task_id)
     s = current(t)
     budget_chars = int(t["budget_tokens"] * PACKET_SHARE * CHARS_PER_TOKEN)
-    body = _call(s["packet"], t, s, budget_chars=budget_chars, **(s.get("args") or {}))
+    body = _call(s["packet"], t, s, budget_chars=budget_chars, answer_mode=answer_mode, **(s.get("args") or {}))
     done = sum(1 for x in t["steps"] if x["status"] == "done")
     head = [f"TASK {t['id']} - step {done + 1} of {len(t['steps'])}: {s['title']}",
             f"Attempt {s['attempts'] + 1} of {s['max_attempts']}."]
     if s.get("last_why"):
         head.append("Your last attempt was put back because: " + "; ".join(s["last_why"]))
-    head += ["You may change ONLY these files (anything else is undone):",
-             *[f"  - {a}" for a in s.get("allowed", [])],
-             "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works."]
+    if answer_mode:
+        head += [f"The file to change: {', '.join(s.get('allowed', []))}"]
+    else:
+        head += ["You may change ONLY these files (anything else is undone):",
+                 *[f"  - {a}" for a in s.get("allowed", [])],
+                 "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works."]
     text = "\n".join(head) + "\n\n" + body
     if len(text) > budget_chars:
         text = text[:budget_chars] + "\n[... trimmed to fit the context budget]"
@@ -274,3 +280,18 @@ def status(task_id):
             "counts": counts, "current": cur and {"id": cur["id"], "kind": cur["kind"], "title": cur["title"],
                                                   "attempts": cur["attempts"]},
             "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"]}
+
+
+def fail_attempt(task_id, why, by="driver"):
+    """Count a failed attempt that never reached a check (e.g. an answer not in the required form)."""
+    t = load(task_id)
+    s = current(t)
+    if not s or s["kind"] != "model":
+        raise Refused("there is no model step waiting")
+    revert_to_checkpoint(t)
+    s["attempts"] += 1
+    s["last_why"] = [why]
+    s["status"] = "blocked" if s["attempts"] >= s["max_attempts"] else "failed"
+    save(t)
+    journal(t, "submit", step=s["id"], changed=[], outside=[], ok=False, why=[why], note="", by=by)
+    return {"ok": False, "step": s["id"], "why": [why], "attempts": f"{s['attempts']} of {s['max_attempts']}"}

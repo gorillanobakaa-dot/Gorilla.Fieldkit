@@ -91,12 +91,18 @@ def mcp_call(name, args):
 # 2026-09-30, live run 1: asked to fetch its own job with a tool, Gemma never got it (it
 # invented arguments for the tool instead). The driver now fetches the job and puts it in
 # the prompt; the model only edits and submits.
+# Live run 3: given edit and submit tools, Gemma made no tool call and wrote detailed reports
+# of edits it never made. In answer mode (the default) the model only writes the change as
+# text in a fixed form; the harness applies it to the file and checks the result.
 DRIVE_PROMPT = (
     "You are doing ONE small job in a Firefox build, and nothing else. Your job is below.\n"
-    "1. Make exactly the change it asks for, only in the file it names, with your edit tool.\n"
-    "2. Call the tool fieldkit_build_harness_submit. The harness checks your change.\n"
-    "3. Stop, and copy the first line of what fieldkit_build_harness_submit answered.\n"
-    "Do not run git, do not install anything, do not touch any other file, do not call other tools.\n\n"
+    "Read it, then answer in the exact form it asks for. Do not use any tool.\n\n"
+    "=== YOUR JOB ===\n")
+TOOL_PROMPT = (
+    "You are doing ONE small job in a Firefox build, and nothing else. Your job is below.\n"
+    "Use your edit tool to make exactly the change it asks for, only in the file it names.\n"
+    "Then stop. The build harness checks the file itself afterwards; your words are not checked, "
+    "only the file is. If you do not edit the file, the job fails.\n\n"
     "=== YOUR JOB ===\n")
 
 
@@ -112,8 +118,9 @@ def drive(tid, a):
     env = {**os.environ, "GORILLA_OPENCODE_HEADLESS_TIMEOUT": a.job_timeout or "45m"}
     # live run 2: the owner's profile fed ~9k tokens of prompt per job and its network time
     # limits cut a slow local model off 6 times; the worker profile and local limits fix both
-    from . import worker
-    env.update(worker.environment(worker.write_profile()))
+    from . import answer as ans, worker
+    use_tools = bool(getattr(a, "tools", False))
+    env.update(worker.environment(worker.write_profile(tools=use_tools)))
     log_path = task.STATE / tid / "drive.log"            # UTF-8, written here (PowerShell's Tee-Object wrote UTF-16)
 
     def say(msg):
@@ -128,7 +135,7 @@ def drive(tid, a):
                    if '"event": "submit"' in l and '"by": "model"' in l) if f.is_file() else 0
 
     for n in range(1, (a.max_jobs or 200) + 1):
-        state = task.packet(tid, by="driver")          # runs any script steps first
+        state = task.packet(tid, by="driver", answer_mode=not use_tools)   # runs any script steps first
         if state["state"] != "MODEL STEP":
             say(f"{state['state']}: {state.get('step', '')} {'; '.join(state.get('why') or [])}")
             return 0 if state["state"] == "DONE" else 3
@@ -137,23 +144,31 @@ def drive(tid, a):
             f"job text {state['chars']:,} chars")
         before = model_submits()
         t0 = time.time()
-        r = sp.run([exe, "-p", DRIVE_PROMPT + state["packet"], "-c", t["workdir"], "-q"], env=env,
-                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+        r = sp.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],
+                    "-q"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
         answer = (r.stdout or r.stderr).strip()
         task.journal(task.load(tid), "agent-run", step=step, exit=r.returncode, seconds=round(time.time() - t0),
-                     answer=answer[-600:])
+                     answer=answer[-2000:])
         say(f"job {n} finished in {time.time() - t0:.0f} s, exit {r.returncode}. The model said: {answer[-300:]}")
-        if model_submits() == before:                  # whatever it said, the harness never checked anything
-            after = task.load(tid)
-            cur = next((x for x in after["steps"] if x["id"] == step), None)
-            task.revert_to_checkpoint(after)
-            task.journal(after, "no-submit", step=step, why="the run ended without calling build_harness_submit")
-            if cur and cur["status"] in ("pending", "failed"):
-                cur["attempts"] += 1
-                cur["last_why"] = ["you stopped without calling fieldkit_build_harness_submit"]
-                cur["status"] = "blocked" if cur["attempts"] >= cur["max_attempts"] else "failed"
-                task.save(after)
-            say("  no submit: any change was put back, and it counts as a failed attempt")
+        if not use_tools:
+            cur = task.current(task.load(tid))
+            target = Path(t["workdir"]) / cur["allowed"][0]
+            try:
+                lo, hi, count = ans.apply(target, answer)
+                say(f"  applied the answer: lines {lo}-{hi} replaced by {count} line(s)")
+            except (ans.BadAnswer, OSError) as e:
+                res = task.fail_attempt(tid, f"your answer was not used: {e}")
+                say(f"  harness check: FAILED - {res['why'][0]}")
+                continue
+        # The harness checks the FILE after every run, whatever the model said or called
+        # (live run 3: Gemma made no tool call and claimed "submitted successfully").
+        if model_submits() == before:
+            try:
+                res = task.submit(tid, note=f"checked by the driver after the run; the model said: {answer[-300:]}",
+                                  by="driver")
+            except task.Refused as e:
+                res = {"ok": False, "why": [str(e)]}
+            say(f"  harness check: {'PASSED' if res['ok'] else 'FAILED - ' + '; '.join(res['why'])[:300]}")
         else:
             last = [json.loads(l) for l in (task.STATE / tid / "journal.jsonl").read_text(encoding="utf-8").splitlines()
                     if '"event": "submit"' in l][-1]
