@@ -110,6 +110,10 @@ def drive(tid, a):
     exe = a.agent or "gorilla-opencode"
     t = task.load(tid)
     env = {**os.environ, "GORILLA_OPENCODE_HEADLESS_TIMEOUT": a.job_timeout or "45m"}
+    # live run 2: the owner's profile fed ~9k tokens of prompt per job and its network time
+    # limits cut a slow local model off 6 times; the worker profile and local limits fix both
+    from . import worker
+    env.update(worker.environment(worker.write_profile()))
     log_path = task.STATE / tid / "drive.log"            # UTF-8, written here (PowerShell's Tee-Object wrote UTF-16)
 
     def say(msg):

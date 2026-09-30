@@ -75,7 +75,15 @@ def _text(lines):
     return "\n".join(lines) if isinstance(lines, list) else str(lines)
 
 
+def offered():
+    """FIELDKIT_MCP_TOOLS=a,b limits what this server offers (the harness worker gets only what a job needs)."""
+    allow = {x.strip() for x in os.environ.get("FIELDKIT_MCP_TOOLS", "").split(",") if x.strip()}
+    return [t for t in TOOLS if not allow or t["name"] in allow]
+
+
 def call_tool(name, args):
+    if name not in {t["name"] for t in offered()}:
+        return f"no tool {name!r} on this server", True
     """-> (text, is_error). Every refusal is a normal answer with a NEXT line, not a crash."""
     try:
         if name == "discover":
@@ -126,7 +134,7 @@ def handle(msg):
         result = {"protocolVersion": PROTOCOL, "capabilities": {"tools": {}},
                   "serverInfo": {"name": "fieldkit", "version": __version__}}
     elif method == "tools/list":
-        result = {"tools": TOOLS}
+        result = {"tools": offered()}
     elif method == "tools/call":
         t0 = time.time()
         text, err = call_tool(params.get("name"), params.get("arguments") or {})
