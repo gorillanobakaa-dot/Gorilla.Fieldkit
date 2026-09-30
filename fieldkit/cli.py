@@ -668,6 +668,7 @@ def build_parser():
     bh.add_argument("--job-timeout", help="drive: time limit per job, e.g. 45m")
     bh.add_argument("--reference", help="compare: a person-made result folder (the answer key)")
     bh.add_argument("--tools", action="store_true", help="drive: let the model edit with tools instead of answering in text")
+    bh.add_argument("--line-ops", action="store_true", help="drive: use line operations (DELETE/CHANGE/INSERT) instead of REMOVE/KEEP questions")
     bh.set_defaults(fn=cmd_build_harness)
     return ap
 
