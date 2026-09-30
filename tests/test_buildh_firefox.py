@@ -125,3 +125,21 @@ def test_hunk_problems_counts_lines():
     after = ['pref("toolkit.telemetry.enabled", false);' if "telemetry" in l else l for l in before]
     assert firefox.hunk_problems(before, after, hunk) == []
     assert firefox.already_upstream(after, hunk) and not firefox.already_upstream(before, hunk)
+
+
+def test_real_case_run4_collateral_damage_is_refused():
+    """Gemma's real answer from live run 4: the old check passed it; the new one names all the damage."""
+    import json as _json
+    case = _json.loads((Path(__file__).parent / "data" / "run4_gemma_touchmode.json").read_text(encoding="utf-8"))
+    assert firefox.hunk_problems(case["before"], case["after"], case["hunk"]) == []
+    why = firefox.collateral(case["before"], case["after"], case["hunk"])
+    assert any('sticky_pref("browser.touchmode.auto", false);' in w for w in why)
+    assert any('pref("browser.touchmode.auto", true);' in w for w in why)
+    assert any("compactmode.show" in w for w in why)
+
+
+def test_collateral_allows_exactly_the_hunk():
+    hunk = firefox.parse_patch(TELEMETRY_PATCH)[0]["hunks"][0]
+    before = ['pref("a", 1);', 'pref("toolkit.telemetry.enabled", true);', 'pref("b", 2);']
+    after = ['pref("a", 1);', 'pref("toolkit.telemetry.enabled", false);', 'pref("b", 2);']
+    assert firefox.collateral(before, after, hunk) == []

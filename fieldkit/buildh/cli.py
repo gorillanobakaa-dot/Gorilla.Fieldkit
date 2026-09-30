@@ -217,6 +217,8 @@ def run(a, emit):
         r = task.submit(tid, a.note or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "rewind":
+        return emit(task.rewind(tid, a.args[1]), None) or 0
     if act == "unblock":
         task.unblock(tid, a.args[1], a.args[2])
         return emit(task.status(tid), None) or 0

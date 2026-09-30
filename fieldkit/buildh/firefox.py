@@ -305,6 +305,52 @@ def hunk_problems(before, after, hunk):
     return why
 
 
+def collateral(before, after, hunk):
+    """Everything the model changed that the hunk does not: the part the first check never saw.
+
+    Live run 4 (2026-09-30): Gemma's answer passed hunk_problems, yet it also deleted five lines
+    Mozilla added in 155.0.1, put back the old 154 value of browser.touchmode.auto (a line it
+    had only seen as CONTEXT in the hunk), and duplicated another line. So: every line the
+    model removed must be one of the hunk's '-' lines, and every line it added one of its '+'
+    lines. Blank lines are allowed to move."""
+    import collections
+    import difflib
+    removed, added, _ = hunk_sides(hunk)
+    # A line counts as the hunk's line when its CODE matches, ignoring a trailing // comment:
+    # upstream may have edited the very line the patch changes (added a comment), and removing
+    # that edited version is the port, not damage.
+    may_remove = collections.Counter(_code(l) for l in removed)
+    may_add = collections.Counter(_code(l) for l in added)
+    gone, new = collections.Counter(), collections.Counter()
+    sm = difflib.SequenceMatcher(None, [l.strip() for l in before], [l.strip() for l in after], autojunk=False)
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op in ("delete", "replace"):
+            gone.update(l.strip() for l in before[i1:i2] if l.strip())
+        if op in ("insert", "replace"):
+            new.update(l.strip() for l in after[j1:j2] if l.strip())
+    moved = gone & new                                          # the same line taken out and put back
+    gone, new = gone - moved, new - moved
+    gone_code = collections.Counter({_code(k): n for k, n in gone.items()})
+    new_code = collections.Counter({_code(k): n for k, n in new.items()})
+    why = [f"you removed a line that is not part of the change: {k[:100]}" for k in (gone_code - may_remove)]
+    why += [f"you added a line that is not part of the change: {k[:100]}" for k in (new_code - may_add)]
+    return why
+
+
+def _code(line):
+    """The line without a trailing // comment (a // inside a string, e.g. https://, is kept)."""
+    s, quote = line.strip(), None
+    for i, ch in enumerate(s):
+        if quote:
+            if ch == quote and s[i - 1] != "\\":
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif s.startswith("//", i) and i > 0:
+            return s[:i].rstrip()
+    return s
+
+
 def check_port(t, s, patch, file, hunk, **kw):
     target = Path(t["workdir"]) / file
     if not target.is_file():
@@ -312,7 +358,7 @@ def check_port(t, s, patch, file, hunk, **kw):
     before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
-    why = hunk_problems(before, after, hunk)
+    why = hunk_problems(before, after, hunk) + collateral(before, after, hunk)
     _, added, _ = hunk_sides(hunk)
     if len(after) > len(before) + 3 * max(1, len(added)) + 20:
         why.append(f"{len(after) - len(before)} lines added for a {len(added)}-line hunk: change only what the hunk changes")

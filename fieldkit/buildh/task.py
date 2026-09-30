@@ -295,3 +295,29 @@ def fail_attempt(task_id, why, by="driver"):
     save(t)
     journal(t, "submit", step=s["id"], changed=[], outside=[], ok=False, why=[why], note="", by=by)
     return {"ok": False, "step": s["id"], "why": [why], "attempts": f"{s['attempts']} of {s['max_attempts']}"}
+
+
+def rewind(task_id, step_id):
+    """Owner only: undo a step that passed but is wrong. The working copy goes back to the
+    checkpoint before it, and that step and every step after it are pending again.
+
+    Live run 4 (2026-09-30): a port passed a check that was too weak; the fix to the check
+    is only half the job, the bad result must also leave the working copy."""
+    t = load(task_id)
+    ids = [s["id"] for s in t["steps"]]
+    if step_id not in ids:
+        raise Refused(f"no step {step_id!r}")
+    k = next((i for i, c in enumerate(t["checkpoints"]) if c["label"].startswith(step_id)), None)
+    if k is None:
+        raise Refused(f"{step_id} has no checkpoint: it never passed, so there is nothing to rewind")
+    target = _git(t, "rev-parse", f"{t['checkpoints'][k]['commit']}~1").strip()
+    _git(t, "reset", "-q", "--hard", target)
+    _git(t, "clean", "-q", "-fd")
+    t["checkpoints"] = t["checkpoints"][:k]
+    for s in t["steps"][ids.index(step_id):]:
+        if s["status"] != "pending" or s.get("attempts"):
+            s.update(status="pending", attempts=0, last_why=None)
+            s.pop("skipped_by_owner", None)
+    save(t)
+    journal(t, "rewind", step=step_id, to=target[:12])
+    return {"step": step_id, "working copy at": target[:12], "checkpoints kept": len(t["checkpoints"])}

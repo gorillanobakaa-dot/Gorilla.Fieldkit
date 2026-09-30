@@ -120,3 +120,19 @@ def test_a_crashing_script_step_blocks_instead_of_looping(tmp_path, monkeypatch)
     assert r["state"] == "BLOCKED" and "the script broke" in r["why"][0]
     lines = (tmp_path / "state" / "t2" / "journal.jsonl").read_text().splitlines()
     assert sum('"script-failed"' in l for l in lines) == 3
+
+
+def test_owner_can_rewind_a_step_that_passed_but_is_wrong(job):
+    task.approve("t1", "owner")
+    task.packet("t1")
+    (job / "alpha.txt").write_text("alpha\n")
+    assert task.submit("t1")["ok"]
+    task.packet("t1")
+    (job / "beta.txt").write_text("beta\n")
+    assert task.submit("t1")["ok"]
+    out = task.rewind("t1", "fix-alpha")
+    assert not (job / "alpha.txt").exists() and not (job / "beta.txt").exists()
+    s = task.status("t1")
+    assert s["current"]["id"] == "fix-alpha" and s["counts"].get("done") == 1 and out["checkpoints kept"] >= 1
+    with pytest.raises(task.Refused, match="never passed"):
+        task.rewind("t1", "fix-beta")
