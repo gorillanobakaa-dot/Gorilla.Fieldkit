@@ -79,6 +79,9 @@ def gate(task_id, harness_root=None, write=True):
     lost = firefox.unexplained_deletions(t) if wd.exists() else []
     row("no pristine file missing without a patch that deletes it", not lost,
         "none missing" if not lost else f"{len(lost)} missing, e.g. {lost[:3]}")
+    from . import verify as vf
+    for name, ok, evidence in vf.problems(vf.verify(task_id)):
+        row(name, ok, evidence)
     moz = mozconfig_path(harness_root)
     row("mozconfig present", moz.is_file(), str(moz))
     od = objdir(moz) if moz.is_file() else None

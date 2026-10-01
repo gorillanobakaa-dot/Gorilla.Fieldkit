@@ -121,11 +121,65 @@ def plan_groups(t, harness_root, **kw):
         args = {"harness_root": str(harness_root), "group": g}
         steps.append({"id": f"apply-{g}", "kind": "script", "title": f"apply group {g}",
                       "run": "fieldkit.buildh.firefox:step_apply_group", "args": args})
+        if (pset / g / "NEW_FILES").is_dir():
+            steps.append({"id": f"new-files-{g}", "kind": "script", "title": f"copy the new files of {g}",
+                          "run": "fieldkit.buildh.firefox:step_new_files", "args": args})
         steps.append({"id": f"export-{g}", "kind": "script", "title": f"export the {g} patch",
                       "run": "fieldkit.buildh.firefox:step_export_group", "args": args})
     steps.append({"id": "final-checks", "kind": "script", "title": "no rejects, no conflict markers",
                   "run": "fieldkit.buildh.firefox:step_final_checks"})
     return {"ok": True, "add_steps": steps, "summary": f"{len(steps) // 2} enabled groups"}
+
+
+NOT_SOURCE = {"user.js", "mozconfig"}      # profile / build-config files the patch set carries; they are not source
+
+
+def new_files(pset, group):
+    """-> [(source Path, relative destination)] for a group's NEW_FILES tree, minus files that are not source."""
+    root = Path(pset) / group / "NEW_FILES"
+    out = []
+    for p in sorted(root.rglob("*")):
+        if p.is_file():
+            rel = p.relative_to(root).as_posix()
+            if p.name in NOT_SOURCE and "/" not in rel:
+                continue
+            out.append((p, rel))
+    return out
+
+
+def step_new_files(t, harness_root, group, **kw):
+    """Copy the group's whole new files (branding, icons, installer assets) into the tree.
+
+    The independent audit of 2026-10-01 found the harness never copied them: 69 of the 81 08.Look files were
+    missing from every working copy. A file that already exists in pristine Firefox at the same path is never
+    overwritten here (upstream now ships something there): that is an owner decision."""
+    pset, _ = _policy(harness_root)
+    w = Path(t["workdir"])
+    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    pristine = set(subprocess.run(["git", "-C", str(w), "ls-tree", "-r", "--name-only", root[0]], capture_output=True,
+                                  text=True, errors="replace").stdout.splitlines()) if root else set()
+    copied, same, conflicts, skipped = [], [], [], []
+    for src, rel in new_files(pset, group):
+        dest = w / rel
+        data = src.read_bytes()
+        if rel in pristine:
+            if dest.is_file() and dest.read_bytes() == data:
+                same.append(rel)
+            else:
+                conflicts.append(rel)
+            continue
+        if dest.is_file() and dest.read_bytes() == data:
+            same.append(rel)
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        copied.append(rel)
+    skipped = [p.name for p in (Path(pset) / group / "NEW_FILES").iterdir() if p.is_file() and p.name in NOT_SOURCE]
+    steps = [{"id": f"owner-{group}-new-file-{Path(c).name}", "kind": "owner",
+              "title": f"{group}/NEW_FILES/{c} also exists in this Firefox; decide which one wins"} for c in conflicts]
+    return {"ok": True, "add_steps": steps, "copied": copied, "already": same, "conflicts": conflicts, "not_source": skipped,
+            "summary": f"{group}: {len(copied)} new file(s) copied, {len(same)} already there, {len(conflicts)} conflict(s) "
+                       f"for the owner, {len(skipped)} not source ({', '.join(skipped) or '-'})"}
 
 
 def step_apply_group(t, harness_root, group, **kw):

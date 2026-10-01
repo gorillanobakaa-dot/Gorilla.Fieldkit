@@ -23,8 +23,9 @@ def world(tmp_path, monkeypatch):
     h = tmp_path / "harness"
     (h / "config").mkdir(parents=True)
     (h / "config" / "mozconfig.win64").write_text(f"mk_add_options MOZ_OBJDIR={obj.as_posix()}\n")
+    (h / "config" / "patch_policy.json").write_text('{"patchset_root": "patchset", "groups": {}}')
     monkeypatch.setattr(cg, "mozconfig_path", lambda root=None: h / "config" / "mozconfig.win64")
-    t = task.start("c1", "demo", w, [], budget_tokens=1000, meta={"upstream": {"version": "157.0"}})
+    t = task.start("c1", "demo", w, [], budget_tokens=1000, meta={"upstream": {"version": "157.0"}, "harness_root": str(h)})
     task.approve("c1", "owner")
     t = task.load("c1")
     task.journal(t, "script-done", step="final-checks")

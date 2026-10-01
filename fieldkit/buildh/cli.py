@@ -246,6 +246,19 @@ def drive(tid, a):
         for l in preflight.lines(pre):
             say(l)
         return 5
+    # sync: the tree decides what is done, not the record. A step the record calls done but the tree does not
+    # back goes back to pending before any job is handed out (audit of 2026-10-01: 208 such steps overnight).
+    from . import verify as vf
+    amended = vf.add_missing_new_file_steps(tid)
+    if amended:
+        say(f"SYNC: plan amended, new-files steps added: {amended}")
+    rep = vf.verify(tid)
+    reopened = vf.reopen(tid, rep)
+    if reopened:
+        say(f"SYNC: {len(reopened)} step(s) the record called done are not in the tree; reopened: {reopened[:5]}")
+    for name, ok, ev in vf.problems(rep):
+        if not ok and not name.startswith("tree: every step"):
+            say(f"SYNC WARNING: {name}: {ev}")
     crashes = 0
     with ThreadPoolExecutor(max_workers=1) as executor:
         futures = set()
@@ -330,6 +343,13 @@ def run(a, emit):
         rows = preflight.run(tid, build=bool(a.build), model=bool(a.model), fix_locks=bool(a.fix_locks), fan_required=bool(a.build))
         emit(rows, lambda rows: print("\n".join(preflight.lines(rows))))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "verify":
+        from . import verify as vf
+        rep = vf.verify(tid)
+        if getattr(a, "reopen", False):
+            rep["reopened"] = vf.reopen(tid, rep)
+        emit(rep, lambda rep: print("\n".join(vf.lines(rep) + ([f"reopened: {rep['reopened']}"] if rep.get("reopened") else []))))
+        return 0 if all(ok for _, ok, _ in vf.problems(rep)) else 3
     if act == "deferred":
         from . import deferred
         rest = a.args[1:]

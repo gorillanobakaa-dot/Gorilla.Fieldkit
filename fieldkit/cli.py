@@ -652,7 +652,8 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-verify", "brief", "deferred"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-verify", "brief", "deferred", "verify"])
+    bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")
     bh.add_argument("args", nargs="*")
     bh.add_argument("--fix-locks", action="store_true", help="preflight: remove stale git locks (only when no git process runs)")
     bh.add_argument("--build", action="store_true", help="preflight: also check what a compile needs (disk, fan control)")
