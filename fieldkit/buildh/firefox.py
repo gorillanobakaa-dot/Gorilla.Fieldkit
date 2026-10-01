@@ -484,8 +484,15 @@ def _span(lines, hunk, lo=None):
         at = _anchor(lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
         if at is None:
             return None
-        lo = max(0, at - 5)
-    at = lo + 5
+        # the span starts at the hunk's first SPECIFIC line, not a fixed five lines before the anchor: the real
+        # h33 anchor sat 11 lines early and the five lines above held an unrelated `#if defined(XP_WIN)` block,
+        # whose #endif the file-wide-then-window count demanded gone
+        specific = {_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-") and _specific(_key(l[1:]))}
+        lo = next((i for i in range(max(0, at - 5), min(len(lines), at + len(hunk["lines"]) + 40))
+                   if _key(lines[i]) in specific), None)
+        if lo is None:
+            return None
+    at = lo
     tail = [_key(l[1:]) for l in reversed(hunk["lines"]) if l.startswith(" ") and _specific(_key(l[1:]))]
     limit = min(len(lines), at + len(hunk["lines"]) + 40)
     for key in tail:

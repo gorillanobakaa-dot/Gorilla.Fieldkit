@@ -189,3 +189,13 @@ def test_the_check_still_catches_a_missing_added_line_inside_the_span():
     after = firefox.auto_merge(before, H32)
     after.remove('pref("browser.urlbar.suggest.trending", false);')
     assert any("missing added line" in w for w in firefox.hunk_problems(before, after, H32))
+
+
+def test_the_span_starts_at_the_hunks_first_specific_line_not_five_lines_before_the_anchor():
+    """The real file: an unrelated #if defined(XP_WIN) ... #endif block sits just above the span."""
+    before = list(FF157_WITH_STRAY_ENDIF)
+    lo, hi = firefox._span(before, H32)
+    assert before[lo] == "// Is the sidebar positioned ahead of the content browser"
+    assert before[hi - 1] == 'pref("sidebar.animation.duration-ms", 200);'
+    after = firefox.auto_merge(before, H32)
+    assert firefox.hunk_problems(before, after, H32) == []
