@@ -510,14 +510,19 @@ def _bounds(lines, hunk, anchor):
     for l in lines:
         k = _key(l)
         counts[k] = counts.get(k, 0) + 1
-    # only a line that occurs ONCE in the file can anchor the span: `color: inherit;` twice in browser-shared.css
-    # was enough to drag h7's span onto the next block (real file, 2026-10-01)
-    seq = [_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-") and _specific(_key(l[1:])) and counts.get(_key(l[1:]), 0) == 1]
+    # a line that occurs a few times may anchor (navigator-toolbox.js holds the same `case` block in two handlers,
+    # live run 16); one that occurs all over the file never does. A non-unique line may not EXTEND the span
+    # across lines the hunk knows nothing about (`color: inherit;` two rules further down, h7).
+    hunk_keys = {_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-")}
+    seq = [_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-") and _specific(_key(l[1:])) and counts.get(_key(l[1:]), 0) <= 3]
     if not seq:
         return None
-    start = max(0, anchor - 5)
     limit = min(len(lines), anchor + len(hunk["lines"]) + 40)
-    lo = next((i for i in range(start, limit) if _key(lines[i]) == seq[0]), None)
+    # the hunk may begin well before the anchor (the anchor can land inside a long removed block,
+    # DesktopActorRegistry h1): take the occurrence nearest below the anchor within the hunk's own length,
+    # else the first one after
+    below = [i for i in range(max(0, anchor - len(hunk["lines"]) - 5), min(len(lines), anchor + 6)) if _key(lines[i]) == seq[0]]
+    lo = below[-1] if below else next((i for i in range(anchor + 6, limit) if _key(lines[i]) == seq[0]), None)
     if lo is None:
         return None
     hi = lo
@@ -525,8 +530,11 @@ def _bounds(lines, hunk, anchor):
         # a line upstream dropped (a removed line already gone, a context line rewritten) is skipped, not a stop:
         # the next key is still looked for within GAP of the last match
         nxt = next((i for i in range(hi + 1, min(len(lines), hi + 1 + GAP)) if _key(lines[i]) == key), None)
-        if nxt is not None:
-            hi = nxt
+        if nxt is None:
+            continue
+        if counts.get(key, 0) > 1 and sum(1 for i in range(hi + 1, nxt) if _key(lines[i]) not in hunk_keys) >= 2:
+            continue
+        hi = nxt
     # the hunk's trailing removals right after the last match (`}`, a blank) belong to the span when contiguous
     hl = [l for l in hunk["lines"] if l[:1] in (" ", "-")]
     pos = next((i for i, l in enumerate(hl) if _key(l[1:]) == _key(lines[hi])), None)
@@ -657,7 +665,10 @@ def _key(line):
     may change the VALUE; live run 5 hunk #4: customIcon.enabled went false -> true in 155.0.1),
     otherwise the code without a trailing // comment."""
     m = _PREF.match(line)
-    return f"{m.group(1)}:{m.group(2)}" if m else _code(line)
+    k = f"{m.group(1)}:{m.group(2)}" if m else _code(line)
+    # upstream turns `this._field` into the private `this.#field` (SessionStore 157: _windows -> #windows); the
+    # same line under either spelling (live run 16, SessionStore h2)
+    return k.replace("this.#", "this._") if "this.#" in k else k
 
 
 # ── question form (run 6 countermeasure) ─────────────────────────────────────
@@ -674,47 +685,53 @@ def _specific(key):
 
 
 def identify_questions(lines, hunk, anchor):
-    """Which target-file lines to auto-remove and which to ask about.
+    """Which target-file lines to auto-remove and which to ask about, by walking the hunk IN ORDER over the
+    file (a tolerant transplant), never by key sets: `}` is in every hunk and in every file, and a key-set match
+    removed a context brace next to a removed block (live run 16, SessionStore h6, DesktopActorRegistry h1).
 
-    `lines`: the target file's content (list of str, 0-indexed).
-    `hunk`: the hunk dict with 'header' and 'lines'.
-    `anchor`: 0-indexed line number where the hunk's context begins in the target.
-
-    Returns (auto_remove, uncertain) where each is a list of 1-indexed line numbers.
-    auto_remove: lines whose _key matches a hunk '-' line.
-    uncertain: lines between the first and last context/removed line that are NOT
-               in the hunk at all (new upstream content the model must classify).
-    """
-    removed, added, context = hunk_sides(hunk)
-    removed_keys = {_key(l) for l in removed if l.strip()}
-    context_keys = {_key(l) for l in context if l.strip()}
-    added_keys = {_key(l) for l in added if l.strip()}
-    all_hunk_keys = removed_keys | context_keys | added_keys
-
-    # Find the span in the target file that corresponds to this hunk:
-    # walk from the anchor forward, matching context and removed lines.
-    ctx_and_rm = [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")]
-    # The span is bounded by SPECIFIC lines only. A generic line (#endif, #else, a brace) matches anywhere:
-    # on the real firefox.js h32 the anchor was 11 lines early and a stray `#endif` from an unrelated block
-    # became the span's start, so nine unrelated lines turned into 'questions' and that #endif into a removal.
+    Returns (auto_remove, uncertain), both 1-indexed. A '-' line is removed where the walk finds it (a trivial
+    one only immediately where the walk stands); a context line moves the walk on; a line the walk has to step
+    over that is not in the hunk is new upstream text: a question, unless it sits inside a removed block."""
     b = _bounds(lines, hunk, anchor)
     if b is None:
         return [], []
-    first_match, last_match = b
-
-    auto_remove = []
-    uncertain = []
-    for i in range(first_match, last_match + 1):
-        k = _key(lines[i])
-        if not k:
+    lo, hi = b
+    hunk_keys = {_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-", "+")}
+    p, auto_remove, consumed, uncertain = lo, [], set(), []
+    limit = hi + 1                      # the walk never leaves the frame (h7: `color: inherit;` two rules further down)
+    for hl in hunk["lines"]:
+        tag, text = hl[:1], hl[1:]
+        if tag == "+":
             continue
-        if k in removed_keys:
-            auto_remove.append(i + 1)  # 1-indexed
-        elif k not in context_keys and k not in added_keys:
-            # New upstream line not in the hunk at all — ask the model
-            uncertain.append(i + 1)  # 1-indexed
-
-    return auto_remove, uncertain
+        k = _key(text)
+        if p >= limit:
+            break
+        if not _specific(k):
+            # blank, punctuation, `#endif`, `break;`: it says nothing on its own, so it matches only where the
+            # walk stands (a context `break;` searched ahead jumped the walk over the very block to remove,
+            # navigator-toolbox.js h3)
+            if _key(lines[p]) == k:
+                if tag == "-":
+                    auto_remove.append(p + 1)
+                consumed.add(p)
+                p += 1
+            continue
+        j = next((i for i in range(p, min(limit, p + GAP + 1)) if _key(lines[i]) == k), None)
+        if j is None:
+            continue                                              # upstream dropped this line
+        for i in range(p, j):
+            if lines[i].strip() and _key(lines[i]) not in hunk_keys:
+                uncertain.append(i + 1)
+        if tag == "-":
+            auto_remove.append(j + 1)
+        consumed.add(j)
+        p = j + 1
+    rm = set(auto_remove)
+    enclosed = [n for n in uncertain if (n - 1) in rm and (n + 1) in rm]      # inside a removed block: goes with it
+    if enclosed:
+        auto_remove = sorted(rm | set(enclosed))
+        uncertain = [n for n in uncertain if n not in enclosed]
+    return sorted(set(auto_remove)), sorted(set(uncertain))
 
 
 def insertion_after(lines, hunk, lo, hi):
@@ -816,6 +833,47 @@ def _apply(body, deletions, placements):
         at = shifted(idx) + (1 if mode == "after" else 0)
         new[at:at] = lines
     return new
+
+
+_FUNC = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)|(?:static\s+)?(?:get\s+|set\s+)?(#?\w+)\s*\([^)]*\)\s*\{\s*$"
+                   r"|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>|(\w+)\s*:\s*(?:async\s+)?function\b"
+                   r"|(?:const|let|var)\s+(\w+)\s*=\s*\{\s*$|(\w+)\s*:\s*\{\s*$)")
+
+
+def enclosing_function(lines, idx):
+    """The nearest function / method / object the line belongs to, by indentation (a heuristic for JS/C++)."""
+    if idx is None or idx >= len(lines):
+        return None
+    indent = len(lines[idx]) - len(lines[idx].lstrip())
+    for i in range(idx - 1, -1, -1):
+        l = lines[i]
+        if not l.strip():
+            continue
+        ind = len(l) - len(l.lstrip())
+        if ind < indent:
+            m = _FUNC.match(l)
+            if m:
+                return next(g for g in m.groups() if g)
+            indent = ind
+    return None
+
+
+def moved_where(body, hunk, file):
+    """For a hunk the harness could not place in a code file: where its old home was (the patch's own context
+    header) and where its lines sit now, so a person knows what moved (PanelTestProvider h2: the ternary moved
+    from getMessages() into tagMessageForTesting())."""
+    if not file.endswith((".js", ".mjs", ".jsm", ".cpp", ".h", ".c", ".py", ".rs")):
+        return None
+    m = re.search(r"@@ .*? @@\s*(.*)$", hunk.get("header", ""))
+    old_home = m.group(1).strip() if m and m.group(1).strip() else None
+    _, _, _ = hunk_sides(hunk)
+    specific = [_key(l[1:]) for l in hunk["lines"] if l.startswith("-") and _specific(_key(l[1:]))]
+    hits = [i for i, l in enumerate(body) if _key(l) in specific]
+    new_home = enclosing_function(body, hits[0]) if hits else None
+    if not old_home and not new_home:
+        return None
+    return ("in the old tree this sat in: " + (old_home[:60] if old_home else "?") +
+            ("; its lines now sit in: " + new_home + "()" if new_home else "; its lines were not found in this file"))
 
 
 def placeable(body, hunk, at):
@@ -1198,6 +1256,9 @@ def auto_port(t, s, patch, file, hunk, **kw):
     except Ambiguous as e:
         notes.append(f"merge: {e}")
 
+    where = moved_where(body, hunk, file)
+    if where:
+        notes.append(where)
     return {"ok": False, "why": ["transplant, auto-substitute and merge all failed: " + "; ".join(notes)]}
 
 

@@ -172,7 +172,7 @@ def test_question_packet_marks_auto_removes_and_asks_uncertain():
     import json as _json
     case = _json.loads((Path(__file__).parent / "data" / "run6_gemma_h11.json").read_text(encoding="utf-8"))
     auto, uncertain = firefox.identify_questions(case["before"], case["hunk"], 10)
-    assert len(auto) == 5
+    assert len(auto) == 7                     # 5 pref/comment lines + the 2 blank lines the hunk removes with them
     assert len(uncertain) == 6
     assert 10 in uncertain  # the edited Nimbus comment
     assert 17 in uncertain  # the new pref
@@ -196,11 +196,11 @@ def test_apply_question_answers_correct_decisions(tmp_path):
     decisions = [(n, "keep") for n in uncertain]
     
     count, summary, removed_texts = firefox.apply_question_answers(target, decisions, case["hunk"], auto)
-    assert count == 5  # 5 auto-removes
+    assert count == 7  # 7 auto-removes (incl. the hunk's two removed blank lines)
     assert len(removed_texts) == 0  # 0 model removes
     
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
-    assert len(after) == len(case["before"]) - 5
+    assert len(after) == len(case["before"]) - 7
     assert "pref(\"places.semanticHistory.multilingualEmbeddingRegions\", \"[[\\\"FR\\\",[\\\"en-*\\\",\\\"fr-*\\\"]],[\\\"*\\\",[\\\"fr-*\\\"]]]\");" in after  # KEPT
 
 

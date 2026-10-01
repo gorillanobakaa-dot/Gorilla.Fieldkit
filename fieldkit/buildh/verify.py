@@ -86,15 +86,15 @@ def score_hunk(body, hunk, file=""):
         lo, hi = frame
         if hi - lo <= 1:                                        # one anchor only: look as far as the hunk reaches
             hi = min(len(body), lo + len(hunk["lines"]) + 5)    # (may say NOT-APPLIED wrongly, never APPLIED wrongly)
-        here = {body[i].strip() for i in range(lo, hi)}
-        rem_in = [l for l in rem if l in here]
+        scope = body[lo:hi]
     else:
-        # no context to frame by (`],`, `)`): the removed block counts as still present only if its specific
-        # lines are still there TOGETHER, in order, not scattered copies in other blocks (moz.build h2,
-        # tokens-brand.css h5 on 2026-10-01: `script=`, `entry_point=` live in every GeneratedFile block)
-        rem_in = rem if rem and _sequence_present(body, rem) else []
-    if not frame and rem and not rem_in and not add:
-        return "APPLIED", f"the {len(rem)} removed line(s) no longer stand together anywhere"
+        scope = body
+    # the removed block counts as still present only if its specific lines are still there TOGETHER, in order,
+    # not scattered copies in other blocks (moz.build h2, tokens-brand.css h5 on 2026-10-01: `script=`,
+    # `entry_point=` live in every GeneratedFile block; a frame pinned on the wrong copy must not matter either)
+    rem_in = rem if rem and _sequence_present(scope, rem) else []
+    if rem and not rem_in and not add:
+        return "APPLIED", f"the {len(rem)} removed line(s) no longer stand together" + (" in the hunk's frame" if frame else " anywhere")
     if add and len(add_in) == len(add) and not rem_in:
         return "APPLIED", f"{len(add)} added line(s) present, {len(rem)} removed line(s) gone"
     if not add and rem and not rem_in:
