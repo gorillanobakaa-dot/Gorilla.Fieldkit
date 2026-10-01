@@ -119,7 +119,9 @@ nothing else on your computer.
 Full steps, backups and checks: [INSTALL.md](INSTALL.md), steps 4 to 6.
 
 Fieldkit speaks MCP, the standard way AI helpers use outside tools. Your helper then sees
-six tools: `discover`, `describe`, `run`, `undo`, `next` and `readiness`.
+nine tools: `discover`, `describe`, `run`, `undo`, `next` and `readiness`, plus the three the build
+harness gives a model (`build_harness_status`, `build_harness_next`, `build_harness_submit`: one
+small job at a time, and the harness checks the result; approving and skipping are not among them).
 
 **Gorilla OpenCode** - add to your `config.json` (on Windows,
 `%USERPROFILE%\.config\gorilla-opencode\config.json`), then restart it:
