@@ -152,3 +152,40 @@ def test_a_generic_line_like_endif_never_bounds_the_span_the_real_file_had_one_e
     auto_rm, uncertain = firefox.identify_questions(body, H32, at)
     assert uncertain == [] and [body[n - 1] for n in auto_rm] == ['pref("sidebar.revamp", true);']
     assert firefox.auto_merge(body, H32)[9:] == OWNER_155
+
+
+FF157_WITH_OTHER_IFDEFS = """#ifdef NIGHTLY_BUILD
+pref("some.other.nightly.thing", true);
+#else
+pref("some.other.nightly.thing", false);
+#endif
+""".splitlines() + FF157_WITH_STRAY_ENDIF + """
+#ifdef NIGHTLY_BUILD
+pref("yet.another.nightly.thing", true);
+#else
+pref("yet.another.nightly.thing", false);
+#endif
+""".splitlines()
+
+
+def test_the_check_judges_the_span_not_the_whole_file_a_removed_line_upstream_already_dropped_cannot_be_demanded():
+    """The real h33: fourteen other #ifdef NIGHTLY_BUILD blocks in firefox.js made a correct merge 'wrong'."""
+    before = list(FF157_WITH_OTHER_IFDEFS)
+    after = firefox.auto_merge(before, H32)
+    assert firefox.hunk_problems(before, after, H32) == []
+    assert firefox.collateral(before, after, H32) == []
+
+
+def test_the_check_still_catches_a_removal_that_did_not_happen_inside_the_span():
+    before = list(FF157_WITH_OTHER_IFDEFS)
+    after = list(before)
+    i = after.index('pref("sidebar.position_start", true);')
+    after[i + 1:i + 1] = [l[1:] for l in H32["lines"] if l.startswith("+")]      # added, but the old line kept
+    assert any("should be gone" in w for w in firefox.hunk_problems(before, after, H32))
+
+
+def test_the_check_still_catches_a_missing_added_line_inside_the_span():
+    before = list(FF157_WITH_OTHER_IFDEFS)
+    after = firefox.auto_merge(before, H32)
+    after.remove('pref("browser.urlbar.suggest.trending", false);')
+    assert any("missing added line" in w for w in firefox.hunk_problems(before, after, H32))

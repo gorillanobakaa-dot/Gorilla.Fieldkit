@@ -475,13 +475,42 @@ def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
     return "\n".join(parts)
 
 
+def _span(lines, hunk, lo=None):
+    """The region of `lines` this hunk is about: from the anchor to the hunk's last specific context line.
+    -> (lo, hi) exclusive, or None when it cannot be pinned (then the caller judges the whole file).
+    `lo` may be given (the span's start found in the file BEFORE the change: edits happen inside the span,
+    so its start is the same afterwards, while re-anchoring on the changed text can drift)."""
+    if lo is None:
+        at = _anchor(lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
+        if at is None:
+            return None
+        lo = max(0, at - 5)
+    at = lo + 5
+    tail = [_key(l[1:]) for l in reversed(hunk["lines"]) if l.startswith(" ") and _specific(_key(l[1:]))]
+    limit = min(len(lines), at + len(hunk["lines"]) + 40)
+    for key in tail:
+        hit = next((i for i in range(lo, limit) if _key(lines[i]) == key), None)
+        if hit is not None:
+            return lo, hit + 1
+    return None
+
+
 def hunk_problems(before, after, hunk):
     """What is still wrong in `after` (lines) for the hunk's change, counted against `before`.
 
     For every meaningful line the hunk adds, the file must hold as many copies as before plus
     those added minus those removed; for every line it removes, the count must drop the same way.
-    Braces and punctuation-only lines prove nothing and are ignored."""
+    Braces and punctuation-only lines prove nothing and are ignored.
+
+    Counted INSIDE the hunk's span when it can be pinned in both files, else file-wide. Live run 9
+    (2026-10-01, firefox.js h33): upstream had already dropped the span's `#ifdef NIGHTLY_BUILD`, and the
+    file holds fourteen other such lines, so a file-wide count could never 'drop' and a correct merge
+    (and, before it, three of Gemma's attempts) were refused for a line that was never there."""
     removed, added, _ = hunk_sides(hunk)
+    sb = _span(before, hunk)
+    sa = _span(after, hunk, lo=sb[0]) if sb else None
+    if sb and sa:
+        before, after = before[sb[0]:sb[1]], after[sa[0]:sa[1]]
     b = [l.strip() for l in before]
     a = [l.strip() for l in after]
     why = []
