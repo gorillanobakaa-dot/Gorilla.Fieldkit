@@ -996,6 +996,23 @@ def auto_port(t, s, patch, file, hunk, **kw):
 
     # (Tier 0 answer-key fallback removed: copying Firefox 156 files over 157 breaks upstream changes)
 
+    # Fluent files are ported by MESSAGE, never by line (live run 11, browser.ftl h30)
+    if file.endswith(".ftl"):
+        from . import fluent
+        try:
+            new, fnotes, gone = fluent.port(body, hunk)
+        except fluent.Ambiguous as e:
+            fnotes, gone, new = [f"fluent: {e}"], [], None
+        if gone:
+            why = "; ".join(f"message '{i}' no longer exists" + (f" (upstream may have renamed it: {', '.join(c[:3])})" if c else "")
+                            for i, c in gone)
+            return {"ok": False, "defer": True, "why": [why + ". Not a job for a model; the owner decides where the wording goes"]}
+        if new is not None:
+            if new != body:
+                target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
+            return {"ok": True, "why": [], "notes": fnotes}
+        notes += fnotes
+
     # Tier 0: nothing to do (upstream already has it, or an earlier attempt landed and the record was reopened)
     if already_upstream(body, hunk):
         return {"ok": True, "why": [], "notes": ["already in place: the added lines are there and the removed ones gone"]}
@@ -1038,6 +1055,13 @@ def check_port(t, s, patch, file, hunk, **kw):
     before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    if file.endswith(".ftl"):
+        from . import fluent
+        try:
+            why = fluent.check(before, after, hunk)
+            return {"ok": not why, "why": why[:8]}
+        except fluent.Ambiguous:
+            pass                                            # fall through to the line-level check
     if before == after and already_upstream(after, hunk):
         # nothing was changed because nothing needed changing (tier 0 / a reopened step whose result had landed):
         # the net-count check below would read the present lines as 'missing' (live run 10, h39)

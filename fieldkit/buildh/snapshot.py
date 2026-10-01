@@ -282,7 +282,7 @@ def compare_curated(harness_root):
         return cache[f]
     counts, dead = {}, []
     for g, rel, file, n, h in verify.hunks_in_scope(harness_root):
-        v, d = verify.score_hunk(body(file), h)
+        v, d = verify.score_hunk(body(file), h, file)
         counts.setdefault(g, {"APPLIED": 0, "PARTIAL": 0, "NOT-APPLIED": 0, "TARGET-GONE": 0, "NO-SIGNAL": 0})[v] += 1
         if v in ("NOT-APPLIED", "PARTIAL", "TARGET-GONE"):
             dead.append(f"{rel} {file} #{n} [{v}] {d}")

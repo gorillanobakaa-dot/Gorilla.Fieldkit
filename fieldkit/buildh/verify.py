@@ -29,8 +29,27 @@ def _judgeable(lines, floor):
     return [l.strip() for l in lines if len(l.strip()) >= floor and not firefox.TRIVIAL.match(l.strip())]
 
 
-def score_hunk(body, hunk):
+def score_hunk(body, hunk, file=""):
     """-> (verdict, detail). `body` is the target file's lines, or None when the file does not exist."""
+    if file.endswith(".ftl") and body is not None:
+        from . import fluent
+        try:
+            sem = fluent.semantics(hunk)
+            if sem["reformat_only"]:
+                return "APPLIED", "whitespace-only Fluent hunk: nothing to port"
+            have = {e["id"]: e["parts"] for e in fluent.entries(body)}
+            want = {**sem["changed"], **sem["added"]}
+            ok = [i for i, p in want.items() if have.get(i) == p]
+            gone = [i for i in list(want) + sem["removed"] if i not in have and i not in sem["added"]]
+            if want and len(ok) == len(want) and not any(i in have for i in sem["removed"]):
+                return "APPLIED", f"{len(ok)} message(s) read as the patch wants"
+            if gone and not ok:
+                return "TARGET-GONE", f"message(s) no longer exist: {gone[:3]}"
+            if not ok:
+                return "NOT-APPLIED", f"none of the {len(want)} message(s) read as the patch wants"
+            return "PARTIAL", f"{len(ok)} of {len(want)} message(s) read as the patch wants"
+        except fluent.Ambiguous:
+            pass
     removed, added, _ = firefox.hunk_sides(hunk)
     add = _judgeable(added, SHORT)
     # a line the hunk removes AND adds back (re-indented, moved into an #ifdef) is not a removal to check:
@@ -142,7 +161,7 @@ def verify(task_id):
     # 1. every hunk, scored from the tree
     scores = {}
     for g, rel, file, n, h in hunks_in_scope(hr):
-        v, d = score_hunk(body(file), h)
+        v, d = score_hunk(body(file), h, file)
         scores[(rel, file, n)] = (v, d)
         rep["groups"].setdefault(g, {"APPLIED": 0, "PARTIAL": 0, "NOT-APPLIED": 0, "TARGET-GONE": 0, "NO-SIGNAL": 0})[v] += 1
         if v == "TARGET-GONE":
