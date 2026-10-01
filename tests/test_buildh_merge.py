@@ -1,0 +1,133 @@
+"""Mixed hunks (removals AND additions) are merged by the harness; the model is asked only REMOVE/KEEP, never to
+write code. Built from the real firefox.js h32 of live run 8 (2026-10-01): Gemma failed it 3 times with line
+operations; upstream 157 had collapsed a 5-line #ifdef into one line.
+"""
+from pathlib import Path
+
+import pytest
+
+from fieldkit.buildh import firefox
+
+H32 = {"header": "@@ -2218,11 +2209,13 @@", "lines": [
+    " ",
+    " // Is the sidebar positioned ahead of the content browser",
+    ' pref("sidebar.position_start", true);',
+    "-#ifdef NIGHTLY_BUILD",
+    '-pref("sidebar.revamp", true);',
+    "-#else",
+    '-pref("sidebar.revamp", false);',
+    "-#endif",
+    '+pref("sidebar.revamp", false, locked); // GORILLA: the 136 revamp sidebar (dumping ground) locked off',
+    "+// Gorilla Unleashed: Force accept languages and disable multilingual / trending",
+    '+pref("intl.multilingual.enabled", false);',
+    '+pref("intl.multilingual.downloadEnabled", false);',
+    '+pref("intl.accept_languages", "en-US, en");',
+    '+pref("browser.urlbar.suggest.trending", false);',
+    '+pref("browser.urlbar.trending.featureGate", false);',
+    ' pref("sidebar.revamp.round-content-area", true);',
+    ' pref("sidebar.animation.enabled", true);',
+    ' pref("sidebar.animation.duration-ms", 200);']}
+
+FF157 = """// Try to convert PDFs sent as octet-stream
+pref("pdfjs.handleOctetStream", true);
+
+// Is the sidebar positioned ahead of the content browser
+pref("sidebar.position_start", true);
+pref("sidebar.revamp", true);
+pref("sidebar.animation.enabled", true);
+pref("sidebar.animation.duration-ms", 200);
+pref("sidebar.animation.expand-on-hover.duration-ms", 400);
+pref("sidebar.animation.expand-on-hover.delay-duration-ms", 200);
+
+// This pref is used to store user customized tools in the sidebar launcher and shouldn't be changed.
+pref("sidebar.main.tools", "");
+""".splitlines()
+
+OWNER_155 = """// Try to convert PDFs sent as octet-stream
+pref("pdfjs.handleOctetStream", true);
+
+// Is the sidebar positioned ahead of the content browser
+pref("sidebar.position_start", true);
+pref("sidebar.revamp", false, locked); // GORILLA: the 136 revamp sidebar (dumping ground) locked off
+// Gorilla Unleashed: Force accept languages and disable multilingual / trending
+pref("intl.multilingual.enabled", false);
+pref("intl.multilingual.downloadEnabled", false);
+pref("intl.accept_languages", "en-US, en");
+pref("browser.urlbar.suggest.trending", false);
+pref("browser.urlbar.trending.featureGate", false);
+pref("sidebar.animation.enabled", true);
+pref("sidebar.animation.duration-ms", 200);
+pref("sidebar.animation.expand-on-hover.duration-ms", 400);
+pref("sidebar.animation.expand-on-hover.delay-duration-ms", 200);
+
+// This pref is used to store user customized tools in the sidebar launcher and shouldn't be changed.
+pref("sidebar.main.tools", "");
+""".splitlines()
+
+
+def test_the_real_h32_is_merged_by_the_harness_with_no_model_and_matches_the_owners_own_port():
+    notes = []
+    assert firefox.auto_merge(FF157, H32, notes) == OWNER_155
+    assert notes == ["merged by key: removed 1 line(s), inserted 7"]
+
+
+def test_the_old_tiers_still_give_up_on_h32_so_the_merge_is_what_rescues_it():
+    with pytest.raises(firefox.Ambiguous):
+        firefox.transplant(list(FF157), H32)
+    with pytest.raises(firefox.Ambiguous):
+        firefox.auto_substitute(list(FF157), H32)
+
+
+def test_merge_refuses_when_an_upstream_line_needs_a_decision():
+    body = list(FF157)
+    body.insert(6, 'pref("sidebar.revamp.somethingNew", true);')          # inside the span, unknown to the hunk
+    with pytest.raises(firefox.Ambiguous, match="need a decision"):
+        firefox.auto_merge(body, H32)
+
+
+def test_merge_refuses_when_nothing_of_the_old_text_is_there():
+    body = [l for l in FF157 if "sidebar.revamp" not in l]
+    with pytest.raises(firefox.Ambiguous, match="none of the removed lines"):
+        firefox.auto_merge(body, H32)
+
+
+def test_merge_refuses_when_the_context_line_is_ambiguous():
+    body = list(FF157)
+    body.insert(3, 'pref("sidebar.position_start", true);')                # the context line twice in the span
+    with pytest.raises(firefox.Ambiguous, match="could not be fixed"):
+        firefox.auto_merge(body, H32)
+
+
+def test_a_plus_block_that_opens_the_hunk_goes_before_the_first_context_line():
+    hunk = {"header": "@@", "lines": ["+// new first", "+pref(\"n.e.w\", 1);", ' pref("sidebar.position_start", true);']}
+    new = firefox.auto_merge(list(FF157), hunk)
+    i = new.index('pref("sidebar.position_start", true);')
+    assert new[i - 2:i] == ["// new first", 'pref("n.e.w", 1);']
+
+
+def test_question_answers_also_insert_the_plus_block(tmp_path):
+    body = list(FF157)
+    body.insert(6, 'pref("sidebar.revamp.somethingNew", true);')
+    target = tmp_path / "firefox.js"
+    target.write_text("\n".join(body) + "\n", encoding="utf-8", newline="")
+    at = firefox._anchor(body, [l[1:] for l in H32["lines"] if l[:1] in (" ", "-")])
+    auto_rm, uncertain = firefox.identify_questions(body, H32, at)
+    assert uncertain == [7] and auto_rm == [6]
+    count, summary, removed = firefox.apply_question_answers(target, [(7, "keep")], H32, auto_rm)
+    out = target.read_text(encoding="utf-8").splitlines()
+    assert "inserted 7 line(s) by the harness" in summary and count == 8
+    assert out[5].startswith('pref("sidebar.revamp", false, locked)') and 'pref("sidebar.revamp.somethingNew", true);' in out
+    assert 'pref("sidebar.revamp", true);' not in out
+
+
+def test_the_packet_asks_questions_for_a_mixed_hunk_and_says_the_harness_inserts(tmp_path, monkeypatch):
+    from fieldkit.buildh import task
+    monkeypatch.setattr(task, "STATE", tmp_path / "state")
+    w = tmp_path / "work"
+    w.mkdir()
+    body = list(FF157)
+    body.insert(6, 'pref("sidebar.revamp.somethingNew", true);')
+    (w / "firefox.js").write_text("\n".join(body) + "\n", encoding="utf-8", newline="")
+    t = {"workdir": str(w)}
+    text = firefox.packet_port(t, {"id": "x"}, 8000, "05.PREFS/x.patch", "firefox.js", H32, answer_mode=True)
+    assert "insert the 7 new line(s) itself" in text and "REMOVE" in text and "DELETE" not in text.split("REMOVE")[0][-200:]

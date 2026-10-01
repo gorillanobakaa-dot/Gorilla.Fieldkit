@@ -450,11 +450,13 @@ def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
     if answer_mode:
         # Run 6 countermeasure: for removal-only hunks with uncertain upstream lines,
         # use REMOVE/KEEP questions instead of line operations.
-        if not added and at is not None:
+        if at is not None:
             auto_rm, uncertain = identify_questions(lines, hunk, at)
-            if uncertain:
+            if uncertain and (not added or insertion_after(lines, hunk, max(0, at - 5),
+                                                            min(len(lines) - 1, at + len(hunk["lines"]) + 30)) is not None):
                 from .answer import Q_INSTRUCTIONS
-                parts.append(f"The harness will auto-remove {len(auto_rm)} line(s) that match the patch.")
+                parts.append(f"The harness will auto-remove {len(auto_rm)} line(s) that match the patch"
+                             + (f" and insert the {len(added)} new line(s) itself." if added else "."))
                 parts.append(f"These {len(uncertain)} line(s) are new upstream text not in the original patch.")
                 parts.append("For each one, answer REMOVE (delete it) or KEEP (leave it):")
                 parts.append("")
@@ -616,6 +618,65 @@ def identify_questions(lines, hunk, anchor):
     return auto_remove, uncertain
 
 
+def insertion_after(lines, hunk, lo, hi):
+    """Where the hunk's '+' block goes: the index of the file line after which to insert, or None.
+
+    The '+' block follows some ' ' (context) line in the hunk, possibly with '-' lines in between that are gone
+    from the file. That context line is looked up by key inside the span [lo, hi]. If the '+' block opens the
+    hunk, the first context line after it is used and the block goes before it. Ambiguous or absent -> None."""
+    hl = hunk["lines"]
+    first_plus = next((i for i, l in enumerate(hl) if l.startswith("+")), None)
+    if first_plus is None:
+        return None
+
+    def find(key):
+        hits = [i for i in range(lo, hi + 1) if _key(lines[i]) == key]
+        return hits[0] if len(hits) == 1 else None
+    for i in range(first_plus - 1, -1, -1):
+        if hl[i].startswith(" ") and hl[i][1:].strip():
+            at = find(_key(hl[i][1:]))
+            return at                                   # after this line (None when not found once)
+        if not hl[i].startswith("-"):
+            break
+    for i in range(first_plus, len(hl)):
+        if hl[i].startswith(" ") and hl[i][1:].strip():
+            at = find(_key(hl[i][1:]))
+            return at - 1 if at is not None else None   # before this line
+    return None
+
+
+def auto_merge(body, hunk, notes=None):
+    """Tier 3 of the harness's own attempt: remove every file line whose key matches a '-' line, insert the '+'
+    block after its context line. Refuses (Ambiguous) when the span holds lines it cannot account for: those are
+    the REMOVE/KEEP questions for the model. Live run 8 (2026-10-01, firefox.js h32): upstream had collapsed a
+    5-line #ifdef block into one line; transplant and substitute both gave up, Gemma failed 3 times with line
+    operations, and this does it with no model at all."""
+    at = _anchor(body, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
+    if at is None:
+        raise Ambiguous("anchor not found")
+    auto_rm, uncertain = identify_questions(body, hunk, at)
+    if uncertain:
+        raise Ambiguous(f"{len(uncertain)} upstream line(s) in the span need a decision")
+    removed, added, _ = hunk_sides(hunk)
+    if not auto_rm and any(l.strip() for l in removed):
+        raise Ambiguous("none of the removed lines are in the file")
+    lo = max(0, at - 5)
+    hi = min(len(body) - 1, at + len(hunk["lines"]) + 30)
+    ins = insertion_after(body, hunk, lo, hi) if added else None
+    if added and ins is None:
+        raise Ambiguous("the place for the added lines could not be fixed on one context line")
+    new = list(body)
+    for n in sorted(auto_rm, reverse=True):
+        del new[n - 1]
+        if ins is not None and n - 1 <= ins:
+            ins -= 1
+    if added:
+        new[ins + 1:ins + 1] = added
+    if notes is not None:
+        notes.append(f"merged by key: removed {len(auto_rm)} line(s), inserted {len(added)}")
+    return new
+
+
 def packet_port_questions(t, s, budget_chars, patch, file, hunk, **kw):
     """Build the REMOVE/KEEP question packet for a hunk port."""
     from .answer import Q_INSTRUCTIONS
@@ -682,21 +743,32 @@ def apply_question_answers(target, decisions, hunk, auto_removes, lines=None):
     _, _, _ = hunk_sides(hunk)
     hunk_removed_blanks = sum(1 for l in hunk["lines"] if l == "-")
 
+    # The '+' block is the harness's job, never the model's: place it by its context line (mixed hunks).
+    removed_, added, _ = hunk_sides(hunk)
+    ins = None
+    if added:
+        at = _anchor(file_lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
+        if at is None:
+            raise OSError("the added lines have no place: the hunk's context was not found")
+        ins = insertion_after(file_lines, hunk, max(0, at - 5), min(len(file_lines) - 1, at + len(hunk["lines"]) + 30))
+        if ins is None:
+            raise OSError("the place for the added lines could not be fixed on one context line")
+
     # Delete from bottom up so indices stay valid
     for n in all_removes:
         if 1 <= n <= len(file_lines):
             del file_lines[n - 1]
-
-    # Remove any newly-orphaned blank lines at the deletion site
-    # (the hunk had blank '-' lines; the file may now have a double blank)
-    # We do NOT insert '+' lines here: if the hunk has only '-' lines (pure removal),
-    # there's nothing to add.
+            if ins is not None and n - 1 <= ins:
+                ins -= 1
+    if added:
+        file_lines[ins + 1:ins + 1] = added
 
     with open(target, "w", encoding="utf-8", newline="") as f:
         f.write(nl.join(file_lines) + (nl if trailing else ""))
 
-    summary = f"removed {len(all_removes)} line(s) ({len(auto_removes)} auto, {len(model_removes)} by model)"
-    return len(all_removes), summary, removed_texts
+    summary = f"removed {len(all_removes)} line(s) ({len(auto_removes)} auto, {len(model_removes)} by model)" + \
+        (f", inserted {len(added)} line(s) by the harness" if added else "")
+    return len(all_removes) + len(added), summary, removed_texts
 
 
 class Ambiguous(ValueError):
@@ -897,7 +969,15 @@ def auto_port(t, s, patch, file, hunk, **kw):
     except Ambiguous:
         pass
 
-    return {"ok": False, "why": ["transplant and auto-substitute both failed; no answer key available"]}
+    # Tier 3: merge by key (removals matched line by line, the '+' block placed after its context line)
+    try:
+        new = auto_merge(body, hunk, notes)
+        target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
+        return {"ok": True, "why": [], "notes": notes}
+    except Ambiguous as e:
+        notes.append(f"merge: {e}")
+
+    return {"ok": False, "why": ["transplant, auto-substitute and merge all failed: " + "; ".join(notes)]}
 
 
 def check_port(t, s, patch, file, hunk, **kw):

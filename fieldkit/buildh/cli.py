@@ -176,9 +176,11 @@ def drive(tid, a):
                         _, added, _ = ff.hunk_sides(hunk)
                         file_lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
                         at = ff._anchor(file_lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
-                        if not added and at is not None:
+                        if at is not None:
                             auto_rm, uncertain = ff.identify_questions(file_lines, hunk, at)
-                            if uncertain:
+                            placeable = not added or ff.insertion_after(file_lines, hunk, max(0, at - 5),
+                                                                        min(len(file_lines) - 1, at + len(hunk["lines"]) + 30)) is not None
+                            if uncertain and placeable:
                                 try:
                                     decisions = ans.parse_questions(answer, set(uncertain))
                                     count, summary, removed_texts = ff.apply_question_answers(target, decisions, hunk, auto_rm)
