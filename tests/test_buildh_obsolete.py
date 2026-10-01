@@ -4,6 +4,7 @@ The real case: hunk h23 of browser/app/profile/firefox.js (live run 7, 2026-10-0
 `#if` around browser.preonboarding.enabled do not exist in Firefox 157; Gemma was asked to port it anyway, invented
 edits and was refused twice. The file text below is the real 157 region.
 """
+import json
 import subprocess
 
 import pytest
@@ -110,3 +111,36 @@ def test_a_retry_from_the_owner_gives_the_harness_its_own_go_again(parked):
     task.unblock("o1", "port-x", "retry")
     t = task.load("o1")
     assert t["steps"][0]["status"] == "pending" and t["steps"][0]["auto_tried"] is False
+
+
+def auto_obsolete(t, s, **kw):
+    return {"ok": False, "defer": True, "obsolete": True, "why": ["upstream removed this"]}
+
+
+def test_an_obsolete_change_resolves_by_default_and_the_gate_counts_it_as_done_but_lists_it(tmp_path, monkeypatch):
+    from fieldkit.buildh import compile as cg
+    monkeypatch.setattr(task, "STATE", tmp_path / "state")
+    w = tmp_path / "work"
+    w.mkdir()
+    subprocess.run(["git", "init", "-q", str(w)], check=True)
+    (w / "base.txt").write_text("base\n")
+    subprocess.run(["git", "-C", str(w), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "b"], check=True)
+    h = tmp_path / "h" / "config"
+    h.mkdir(parents=True)
+    (h / "mozconfig.win64").write_text("mk_add_options MOZ_OBJDIR=C:/x\n")
+    (h / "patch_policy.json").write_text('{"patchset_root": "patchset", "groups": {}}')
+    monkeypatch.setattr(cg, "mozconfig_path", lambda root=None: h / "mozconfig.win64")
+    steps = [{"id": "port-x", "kind": "model", "title": "x", "packet": "tests.test_buildh_task:pkt", "check": "tests.test_buildh_task:chk",
+              "auto": "tests.test_buildh_obsolete:auto_obsolete", "allowed": ["alpha.txt"], "args": {"word": "alpha"}},
+             {"id": "owner-gone-file", "kind": "owner", "obsolete_default": True, "title": "x.patch patches a file that no longer exists"}]
+    task.start("ob", "demo", w, steps, budget_tokens=1000, meta={"upstream": {"version": "157.0"}, "harness_root": str(tmp_path / "h")})
+    task.approve("ob", "owner")
+    task.journal(task.load("ob"), "script-done", step="final-checks")
+    r = task.packet("ob")
+    assert r["state"] == "DONE"
+    t = task.load("ob")
+    assert [s["status"] for s in t["steps"]] == ["obsolete", "obsolete"]
+    rows = {x["check"]: x for x in cg.gate("ob", write=False)}
+    assert rows["every step is done"]["ok"] and "2:" in rows["obsolete changes listed for review (upstream removed their target; nothing was ported)"]["evidence"]
+    assert all(e["event"] != "deferred" for e in map(json.loads, (task.STATE / "ob" / "journal.jsonl").read_text(encoding="utf-8").splitlines()))

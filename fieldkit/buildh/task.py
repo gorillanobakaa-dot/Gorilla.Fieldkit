@@ -241,7 +241,15 @@ def advance(task_id, in_flight_steps=None):
                 res = _call(s["auto"], t, s, **(s.get("args") or {})) or {}
                 why = list(res.get("why") or [])
                 if res.get("defer"):
-                    # not a job for a model (e.g. upstream removed the thing): park it for the owner, visibly.
+                    if res.get("obsolete"):
+                        # upstream removed the very thing the change touches and there is nothing to attach it
+                        # to: resolved as OBSOLETE by default (owner's instruction 2026-10-01: a sensible default,
+                        # recorded for review, instead of a question). Counted for the gate, listed by it.
+                        s["status"], s["last_why"] = "obsolete", why
+                        journal(t, "obsolete", step=s["id"], why=why)
+                        save(t)
+                        continue
+                    # not a job for a model (e.g. the thing moved): park it for the owner, visibly.
                     # It is NOT done: the build gate refuses while any step is deferred.
                     s["status"], s["last_why"] = "deferred", why
                     journal(t, "deferred", step=s["id"], why=why)
@@ -263,6 +271,11 @@ def advance(task_id, in_flight_steps=None):
             save(t)
             return {"state": "MODEL STEP", "step": s["id"]}
         if s["kind"] == "owner":                      # a decision no model should make
+            if s.get("obsolete_default"):              # ...unless there is nothing left to decide about
+                s["status"], s["last_why"] = "obsolete", [s["title"]]
+                save(t)
+                journal(t, "obsolete", step=s["id"], why=[s["title"]])
+                continue
             s["status"], s["last_why"] = "blocked", [s["title"]]
             save(t)
             journal(t, "owner-step", step=s["id"], why=s["title"])
@@ -342,6 +355,7 @@ def submit(task_id, note="", by="cli", step_id=None):
     if not changed:
         why.append("nothing was changed")
     if not why:
+        s["hand_port"] = by == "hand"                       # a person's declared port is judged by meaning, anything else by the letter
         res = _call(s["check"], t, s, **(s.get("args") or {}))
         why = [] if res.get("ok") else list(res.get("why") or ["the check failed"])
     journal(t, "submit", step=s["id"], changed=changed, outside=outside, ok=not why, why=why, note=note[:500], by=by)

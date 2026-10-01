@@ -134,6 +134,10 @@ def plan_groups(t, harness_root, **kw):
                       "run": "fieldkit.buildh.firefox:step_export_group", "args": args})
     steps.append({"id": "final-checks", "kind": "script", "title": "no rejects, no conflict markers",
                   "run": "fieldkit.buildh.firefox:step_final_checks"})
+    # the owner's own preflight (Gorilla.firefox/harness/gorilla_build.py) at the very end: its BLOCKERS become
+    # owner steps with the owner's fix text (2026-10-01: four of them on the ported 157 tree, none visible to the port)
+    steps.append({"id": "owner-preflight", "kind": "script", "title": "the owner's preflight: every blocker becomes an owner step",
+                  "run": "fieldkit.buildh.ownercheck:step_owner_preflight"})
     return {"ok": True, "add_steps": steps, "summary": f"{len(steps) // 2} enabled groups"}
 
 
@@ -275,7 +279,7 @@ def step_apply_group(t, harness_root, group, **kw):
                               "allowed": [fname],
                               "args": {"patch": rel, "file": fname, "hunk": hunks[n - 1]}})
         if res["missing"]:
-            new_steps.append({"id": f"owner-{group}-{pf.stem}", "kind": "owner",
+            new_steps.append({"id": f"owner-{group}-{pf.stem}", "kind": "owner", "obsolete_default": True,
                               "title": f"{rel} patches a file that no longer exists in this Firefox; "
                                        f"decide: drop the patch, or point it at the file's new home"})
     for rej in leftovers(w):
@@ -1222,7 +1226,8 @@ def auto_port(t, s, patch, file, hunk, **kw):
         if gone:
             why = "; ".join(f"message '{i}' no longer exists" + (f" (upstream may have renamed it: {', '.join(c[:3])})" if c else "")
                             for i, c in gone)
-            return {"ok": False, "defer": True, "why": [why + ". Not a job for a model; the owner decides where the wording goes"]}
+            return {"ok": False, "defer": True, "obsolete": not any(c for _, c in gone),
+                    "why": [why + ". Not a job for a model; the owner decides where the wording goes"]}
         if new is not None:
             if new != body:
                 target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
@@ -1236,7 +1241,8 @@ def auto_port(t, s, patch, file, hunk, **kw):
         if gone and not gone[0][0].startswith("(new keys"):
             why = "; ".join(f"key '{k}' no longer exists" + (f" (upstream may have renamed it: {', '.join(c[:3])})" if c else "")
                             for k, c in gone)
-            return {"ok": False, "defer": True, "why": [why + ". Not a job for a model; the owner decides where the value goes"]}
+            return {"ok": False, "defer": True, "obsolete": not any(c for _, c in gone),
+                    "why": [why + ". Not a job for a model; the owner decides where the value goes"]}
         if not gone:
             if new != body:
                 target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
@@ -1253,7 +1259,8 @@ def auto_port(t, s, patch, file, hunk, **kw):
             if gone:
                 why = "; ".join(f"pref '{n}' " + (c[0] if c and c[0].startswith("defined") else "no longer exists" +
                                                    (f" (upstream may have renamed it: {', '.join(c[:3])})" if c else "")) for n, c in gone)
-                return {"ok": False, "defer": True, "why": [why + ". Not a job for a model; the owner decides"]}
+                return {"ok": False, "defer": True, "obsolete": not any(c for _, c in gone),
+                        "why": [why + ". Not a job for a model; the owner decides"]}
             if new != body:
                 target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
             return {"ok": True, "why": [], "notes": pnotes}
@@ -1264,7 +1271,7 @@ def auto_port(t, s, patch, file, hunk, **kw):
 
     gone = obsolete_upstream(body, hunk)
     if gone:
-        return {"ok": False, "defer": True, "why": [gone]}
+        return {"ok": False, "defer": True, "obsolete": True, "why": [gone]}
 
     # Tier 1: transplant (exact contiguous-block matching)
     try:
@@ -1298,6 +1305,44 @@ def auto_port(t, s, patch, file, hunk, **kw):
     return {"ok": False, "why": ["transplant, auto-substitute and merge all failed: " + "; ".join(notes)]}
 
 
+_TOKEN = re.compile(r"[A-Za-z_$][\w$]{5,}|\"[^\"]{4,}\"|'[^']{4,}'|`[^`]{4,}`")
+
+
+def hand_port_check(before, after, hunk):
+    """A PERSON ported this hunk by hand (not a model): the shape may differ from the patch, the meaning may not.
+    Required: every specific removed line is gone (from the frame when it can be pinned, else the file); every
+    distinctive token of the added lines (identifiers of 6+ chars, quoted strings) is present near the change;
+    nothing was removed outside the hunk. PanelTestProvider h2 (2026-10-01): the owner's change moved from an
+    object literal in getMessages() into tagMessageForTesting(); a literal check can never accept that, a token
+    check can, and collateral still guards the rest of the file."""
+    removed, added, _ = hunk_sides(hunk)
+    why = []
+    # the whole file: a person may legitimately port the change into another function (the real case did)
+    scope_after = after
+    have = {l.strip() for l in scope_after}
+    for l in removed:
+        k = l.strip()
+        if _specific(_key(k)) and k in have:
+            why.append(f"line should be gone: {k[:100]}")
+    text_after = "\n".join(scope_after)
+    for l in added:
+        for tok in _TOKEN.findall(l):
+            if tok not in text_after and tok.strip("\"'`") not in text_after:
+                why.append(f"the added text's {tok[:40]!r} is nowhere near the change")
+                break
+    # removals outside the hunk are collateral whatever the shape of the port: every new line is 'allowed', and
+    # a removed line is allowed when it shares a distinctive token with the hunk (`message.targeting =` next to
+    # the hunk's `targeting:`); a removed line with no such token (`other() {`) is damage
+    hunk_tokens = {tok for l in removed + added for tok in _TOKEN.findall(l)}
+    gone_lines = [l for l in before if l.strip() and l.strip() not in {a.strip() for a in after}]
+    allowed = [l for l in gone_lines if set(_TOKEN.findall(l)) & hunk_tokens]
+    new_lines = [l for l in after if l.strip() and l.strip() not in {b.strip() for b in before}]
+    extra = collateral(before, after, {"lines": [l for l in hunk["lines"] if not l.startswith("+")] + ["+" + l for l in new_lines]},
+                       extra_removals=allowed)
+    why += [w for w in extra if w.startswith("you removed")]
+    return why
+
+
 def check_port(t, s, patch, file, hunk, **kw):
     target = Path(t["workdir"]) / file
     if not target.is_file():
@@ -1305,6 +1350,9 @@ def check_port(t, s, patch, file, hunk, **kw):
     before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    if s.get("hand_port"):
+        why = hand_port_check(before, after, hunk)
+        return {"ok": not why, "why": why[:8]}
     if file.endswith(".ftl"):
         from . import fluent
         try:

@@ -227,6 +227,8 @@ def transfer(lines, hunk, gone):
             cur = cparts[target]
             if cur == old_text:
                 result[target] = own_text
+            elif cur == own_text:                           # already transferred (an earlier run, or upstream agreed)
+                result[target] = own_text
             elif cur.count(old_text) == 1:                  # upstream wrapped the same text: "... (beta)"
                 result[target] = cur.replace(old_text, own_text)
             else:

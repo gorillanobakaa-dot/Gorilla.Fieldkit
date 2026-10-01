@@ -39,7 +39,8 @@ def _step(t, step_id):
 
 def listing(task_id):
     t = task.load(task_id)
-    return [(s["id"], (s.get("last_why") or [""])[0][:90]) for s in t["steps"] if s["status"] == "deferred"]
+    return [(s["id"], (("OBSOLETE (resolved by default, review): " if s["status"] == "obsolete" else "") + (s.get("last_why") or [""])[0])[:120])
+            for s in t["steps"] if s["status"] in ("deferred", "obsolete")]
 
 
 def _grep(wd, needle):

@@ -237,3 +237,39 @@ def test_the_check_sees_inserted_lines_even_when_the_hunks_trailing_context_is_t
     after = firefox.auto_merge(before, hunk)
     assert "  // GORILLA excised: AIChatContent actor (aiwindow removed)." in after and "  AIChatContent: {" not in after
     assert firefox.hunk_problems(before, after, hunk) == [] and firefox.collateral(before, after, hunk) == []
+
+
+def test_a_hand_port_is_judged_by_meaning_the_real_panel_test_provider_case():
+    hunk = {"header": "@@ -3390,11 +3334,7 @@ export const PanelTestProvider = {", "lines": [
+        "     return Promise.resolve(", "       MESSAGES().map(message => ({", "         ...message,",
+        "-        targeting:", '-          typeof message.targeting === "string" &&', '-          message.targeting?.includes("isAIWindow")',
+        '-            ? `isAIWindow && providerCohorts.panel_local_testing == "SHOW_TEST"`',
+        '-            : `providerCohorts.panel_local_testing == "SHOW_TEST"`,',
+        '+        targeting: `providerCohorts.panel_local_testing == "SHOW_TEST"`,', "       }))", "     );", "   },"]}
+    before = """  tagMessageForTesting(message) {
+    message.provider = "panel_local_testing";
+    message.targeting =
+      typeof message.targeting === "string" &&
+      message.targeting?.includes("isAIWindow")
+        ? `isAIWindow && providerCohorts.panel_local_testing == "SHOW_TEST"`
+        : `providerCohorts.panel_local_testing == "SHOW_TEST"`;
+    return message;
+  },
+
+  getMessages() {
+    return Promise.resolve(
+      MESSAGES().map(message =>
+        PanelTestProvider.tagMessageForTesting({ ...message })
+      )
+    );
+  },
+  other() {
+    return 1;
+  },
+""".splitlines()
+    good = before[:2] + ['    message.targeting = `providerCohorts.panel_local_testing == "SHOW_TEST"`;'] + before[7:]
+    assert firefox.hand_port_check(before, good, hunk) == []
+    half = before[:2] + ['    message.targeting = `providerCohorts.panel_local_testing == "SHOW_TEST"`;'] + before[5:]   # one old line left
+    assert any("should be gone" in w for w in firefox.hand_port_check(before, half, hunk))
+    vandal = good[:-3]                                                                   # other() removed too
+    assert any("not part of the change" in w for w in firefox.hand_port_check(before, vandal, hunk))

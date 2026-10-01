@@ -55,8 +55,11 @@ def gate(task_id, harness_root=None, write=True):
     def row(name, ok, evidence):
         rows.append({"check": name, "ok": bool(ok), "evidence": evidence})
 
-    left = [s["id"] for s in t["steps"] if s["status"] != "done"]
+    left = [s["id"] for s in t["steps"] if s["status"] not in ("done", "obsolete")]
     row("every step is done", not left, "all done" if not left else f"{len(left)} not done, first: {left[0]}")
+    obs = [s["id"] for s in t["steps"] if s["status"] == "obsolete"]
+    row("obsolete changes listed for review (upstream removed their target; nothing was ported)", True,
+        "none" if not obs else f"{len(obs)}: {[o.split('-', 1)[1][-50:] for o in obs][:6]}")
     dropped = [s["id"] for s in t["steps"] if s.get("dropped_by_owner")]
     row("every dropped change was a briefed decision", all(s.get("drop_fingerprint") for s in t["steps"] if s.get("dropped_by_owner")),
         f"{len(dropped)} dropped by the owner after an explanation: {[d.split('-', 1)[1][:50] for d in dropped][:4]}" if dropped else "none dropped")

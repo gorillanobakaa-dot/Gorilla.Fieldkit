@@ -364,7 +364,7 @@ def run(a, emit):
         r = task.packet(tid)
         return emit(r, lambda r: print(lines_for(r))) or 0
     if act == "submit":
-        r = task.submit(tid, a.note or "")
+        r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli")
         emit(r, None)
         return 0 if r["ok"] else 3
     if act == "preflight":

@@ -669,6 +669,7 @@ def build_parser():
     bh.add_argument("--workdir")
     bh.add_argument("--version", help="vault verify/restore: a version other than the newest")
     bh.add_argument("--note", help="submit: a note for the log")
+    bh.add_argument("--hand", action="store_true", help="submit: a PERSON ported this hunk by hand; judge it by meaning (removed lines gone, added text's tokens present), not by the letter")
     bh.add_argument("--session", help="watch/report: a Gorilla OpenCode session id (default: the newest)")
     bh.add_argument("--harness", help="start: the Gorilla.firefox folder to read patches from (default firefox.root)")
     bh.add_argument("--agent", help="drive: the agent command (default gorilla-opencode)")

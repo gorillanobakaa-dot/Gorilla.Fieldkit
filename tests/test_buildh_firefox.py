@@ -98,10 +98,10 @@ def test_whole_workflow_script_does_the_easy_parts_model_gets_one_hunk(world, mo
     assert task.submit("ff")["ok"]
     nxt = task.packet("ff")
     assert (w / "theme.css").read_text().count("purple") == 1             # the next group: applied by the script
-    assert nxt["state"] == "BLOCKED" and "no longer exists" in nxt["why"][0]            # the GONE group
-    task.unblock("ff", nxt["step"], "skip")
-    done = task.packet("ff")
-    assert done["state"] == "DONE", done
+    # the GONE group's patch targets a file that no longer exists: resolved as OBSOLETE by default (2026-10-01)
+    assert nxt["state"] == "DONE", nxt
+    done = nxt
+    assert next(s for s in task.load("ff")["steps"] if s["id"].startswith("owner-09.GONE"))["status"] == "obsolete"
     t = task.load("ff")
     upstreamed = next(s for s in t["steps"] if s["id"] == "apply-13.PRIVACY")["result"]["upstreamed"]
     assert upstreamed == ["13.PRIVACY/tracking.patch (the whole patch is already in this Firefox)"]
