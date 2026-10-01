@@ -170,13 +170,69 @@ def step_apply_group(t, harness_root, group, **kw):
             new_steps.append({"id": f"owner-{group}-{pf.stem}", "kind": "owner",
                               "title": f"{rel} patches a file that no longer exists in this Firefox; "
                                        f"decide: drop the patch, or point it at the file's new home"})
-    for rej in list(w.rglob("*.rej")) + list(w.rglob("*.orig")):
+    for rej in leftovers(w):
         rej.unlink()
     # the export step for this group comes after its port steps
     return {"ok": True, "add_steps": new_steps,
             "upstreamed": upstreamed,
             "summary": f"{group}: {applied} patch(es) applied clean, {len(new_steps)} hunk job(s), "
                        f"{len(upstreamed)} hunk(s) already upstream, {len(skipped)} excluded"}
+
+
+def leftovers(w):
+    """*.rej / *.orig files that `patch` left behind: UNTRACKED ones only.
+
+    Firefox itself tracks hundreds of vendored `third_party/rust/*/Cargo.toml.orig` files. The first draft of this
+    harness deleted every *.orig it found, which silently removed 560 upstream files from the source (found by an
+    independent audit on 2026-10-01, in both the overnight copy and the clean copy). Only what is not in git is ours."""
+    w = Path(w)
+    raw = subprocess.run(["git", "-C", str(w), "ls-files", "-z", "--", "*.rej", "*.orig"], capture_output=True).stdout
+    tracked = {p for p in raw.decode("utf-8", "replace").split("\0") if p}
+    found = []
+    for p in list(w.rglob("*.rej")) + list(w.rglob("*.orig")):
+        rel = p.relative_to(w).as_posix()
+        if rel.startswith(".git/") or rel in tracked:
+            continue
+        found.append(p)
+    return found
+
+
+_DELETES = re.compile(r"^--- a/(.+)\n\+\+\+ /dev/null", re.M)
+
+
+def unexplained_deletions(t):
+    """Files that exist in pristine Firefox but are gone from the working copy, and that no Gorilla patch deletes.
+    -> list of paths. (The 560 vendored .orig files removed by the first draft would have been caught here.)"""
+    w = Path(t["workdir"])
+    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    if not root:
+        return []
+    gone = subprocess.run(["git", "-C", str(w), "diff", "--name-only", "--diff-filter=D", "-z", root[0], "HEAD"],
+                          capture_output=True).stdout.decode("utf-8", "replace").split("\0")
+    gone = [p for p in gone if p]
+    meant = set()
+    hr = t.get("meta", {}).get("harness_root")
+    for pf in (Path(hr) / "patches").rglob("*.patch") if hr and (Path(hr) / "patches").is_dir() else []:
+        meant.update(_DELETES.findall(pf.read_text(encoding="utf-8", errors="replace")))
+    return [p for p in gone if p not in meant]
+
+
+def restore_deleted(task_id):
+    """Put back pristine files that vanished without a patch asking for it, as one harness checkpoint.
+    -> how many. Only ever restores files from the pristine base commit; never touches anything else."""
+    from . import task as taskmod
+    t = taskmod.load(task_id)
+    lost = unexplained_deletions(t)
+    if not lost:
+        return 0
+    w = Path(t["workdir"])
+    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
+    for i in range(0, len(lost), 100):
+        subprocess.run(["git", "-C", str(w), "checkout", root, "--", *lost[i:i + 100]], check=True, capture_output=True)
+    taskmod.checkpoint(t, f"restored {len(lost)} pristine file(s) the first harness draft had deleted")
+    taskmod.journal(t, "repair", restored=len(lost), first=lost[:3])
+    taskmod.save(t)
+    return len(lost)
 
 
 def step_export_group(t, harness_root, group, out_dir=None, **kw):
@@ -191,11 +247,14 @@ def step_export_group(t, harness_root, group, out_dir=None, **kw):
 
 def step_final_checks(t, **kw):
     w = Path(t["workdir"])
-    why = [f"leftover {p.relative_to(w)}" for p in list(w.rglob("*.rej"))[:5] + list(w.rglob("*.orig"))[:5]]
+    why = [f"leftover {p.relative_to(w)}" for p in leftovers(w)[:10]]
     first = t["checkpoints"][0]["commit"] if t["checkpoints"] else "HEAD"
     r = subprocess.run(["git", "-C", str(w), "diff", "--check", first, "HEAD"], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     why += [l for l in r.stdout.splitlines() if "conflict marker" in l][:5]
+    lost = unexplained_deletions(t)
+    if lost:
+        why.append(f"{len(lost)} file(s) of the pristine source are gone and no patch deletes them, e.g. {lost[0]}")
     # regression: every hunk a model ported must still be in place at the end
     from . import task as taskmod
     for s in t["steps"]:

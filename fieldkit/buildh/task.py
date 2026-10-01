@@ -29,6 +29,7 @@ Workflows (firefox.py, kernel.py) supply the steps.
 import hashlib
 import importlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -145,8 +146,13 @@ def changed_files(t):
 def checkpoint(t, label):
     _git(t, "add", "-A")
     if changed_files(t):
-        _git(t, "-c", "user.name=build-harness", "-c", "user.email=build-harness@localhost",
-             "commit", "-q", "--no-verify", "-m", f"checkpoint: {label}")
+        # The identity is forced through the environment, not `-c`: a git hook (or anyone) can export
+        # GIT_AUTHOR_NAME, which beats `-c user.name`, and the audit tells harness checkpoints from hand
+        # commits by this author (found 2026-10-01: the pre-commit hook's run signed a checkpoint as the owner).
+        ident = {"GIT_AUTHOR_NAME": "build-harness", "GIT_AUTHOR_EMAIL": "build-harness@localhost",
+                 "GIT_COMMITTER_NAME": "build-harness", "GIT_COMMITTER_EMAIL": "build-harness@localhost"}
+        subprocess.run(["git", "-C", t["workdir"], "commit", "-q", "--no-verify", "-m", f"checkpoint: {label}"],
+                       check=True, capture_output=True, env={**os.environ, **ident}, timeout=3600)
     head = _git(t, "rev-parse", "HEAD").strip()
     t.setdefault("checkpoints", []).append({"label": label, "commit": head, "t": time.strftime("%H:%M:%S")})
     return head

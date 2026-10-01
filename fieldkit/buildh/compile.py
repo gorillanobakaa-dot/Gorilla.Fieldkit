@@ -73,8 +73,12 @@ def gate(task_id, harness_root=None, write=True):
     row("journal hash chain intact", not problems, f"{count} lines" if not problems else "; ".join(problems[:2]))
     dirty = _git(wd, "status", "--porcelain")
     row("working copy: no hand edits", not dirty, "clean" if not dirty else f"uncommitted: {dirty.splitlines()[:3]}")
-    stray = [p.name for p in wd.rglob("*") if p.suffix in (".rej", ".orig") and ".git" not in p.parts] if wd.exists() else []
+    from . import firefox
+    stray = [p.name for p in firefox.leftovers(wd)] if wd.exists() else []
     row("no .rej / .orig leftovers", not stray, "none" if not stray else f"{len(stray)}: {stray[:3]}")
+    lost = firefox.unexplained_deletions(t) if wd.exists() else []
+    row("no pristine file missing without a patch that deletes it", not lost,
+        "none missing" if not lost else f"{len(lost)} missing, e.g. {lost[:3]}")
     moz = mozconfig_path(harness_root)
     row("mozconfig present", moz.is_file(), str(moz))
     od = objdir(moz) if moz.is_file() else None
