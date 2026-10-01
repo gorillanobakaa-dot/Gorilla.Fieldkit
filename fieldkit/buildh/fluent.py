@@ -243,9 +243,10 @@ def transfer(lines, hunk, gone):
     return new, mapping, notes, still
 
 
-def check(before, after, hunk, mapping=None):
-    """-> problems. Intended ids carry the intended content; every other message is unchanged. `mapping` (from
-    transfer) says which intended ids live under a new name, with the content they must have there."""
+def check(before, after, hunk, mapping=None, collateral=True):
+    """-> problems. Intended ids carry the intended content; every other message is unchanged (unless
+    `collateral` is off: the final re-check, where later hunks legitimately touched the same file). `mapping`
+    (from transfer) says which intended ids live under a new name, with the content they must have there."""
     sem, _ = intent(hunk)
     mapping = mapping or {}
     b, a = _by_id(entries(before)), _by_id(entries(after))
@@ -265,6 +266,8 @@ def check(before, after, hunk, mapping=None):
     for i in sem["removed"]:
         if i in a and i in b:
             why.append(f"message {i} should be gone")
+    if not collateral:
+        return why
     intended = set(sem["changed"]) | set(sem["added"]) | set(sem["removed"]) | set(intended_now)
     for i in b:
         if i not in intended and (i not in a or a[i]["parts"] != b[i]["parts"]):

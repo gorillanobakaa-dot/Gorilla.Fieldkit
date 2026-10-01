@@ -196,3 +196,16 @@ def test_auto_port_transfers_h30_and_the_check_accepts_the_mapping(tmp_path):
     assert res["ok"] and "fluent_map" in s, res
     assert "urlbar-view-context-menu-open-in-tab2 = Open in New Gorilla Tab" in (w / "browser" / "browser.ftl").read_text(encoding="utf-8").splitlines()
     assert firefox.check_port(t, s, "08.Look/b.patch", "browser/browser.ftl", H30) == {"ok": True, "why": []}
+
+
+def test_the_final_re_check_honours_the_transfer_mapping_and_ignores_later_hunks_but_catches_a_real_regression():
+    """Live run 15: the literal re-check failed the final checks on browser.ftl h30, which the transfer had ported."""
+    before = list(FF157)
+    after, mapping, _, still = fluent.transfer(*fluent.port(list(FF157), H30)[:1], H30, fluent.port(list(FF157), H30)[2])
+    assert still == []
+    step = {"fluent_map": mapping}
+    assert firefox.still_holds(step, "browser/browser.ftl", H30, before, after) == []
+    later = [l.replace("Quick Actions", "Gorilla Actions") for l in after]            # another hunk's legitimate change
+    assert firefox.still_holds(step, "browser/browser.ftl", H30, before, later) == []
+    reverted = [l.replace("Open in New Gorilla Tab", "Open in New Tab") for l in after]
+    assert any("open-in-tab2" in w for w in firefox.still_holds(step, "browser/browser.ftl", H30, before, reverted))

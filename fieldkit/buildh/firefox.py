@@ -359,6 +359,27 @@ def step_export_group(t, harness_root, group, out_dir=None, **kw):
     return {"ok": True, "summary": f"{out.name}: {len(diff):,} bytes"}
 
 
+def still_holds(s, file, hunk, before, now):
+    """The re-check at the end: does this step's OWN result still stand? Judged the way the step's tier judged
+    it (Fluent by message with the step's rename mapping, prefs by name, lines inside the span), and only the
+    hunk's result: later hunks legitimately touch the same file, so no collateral here. Live run 15: the literal
+    re-check called the Fluent transfer of browser.ftl h30 a regression and failed the final checks three times."""
+    if file.endswith(".ftl"):
+        from . import fluent
+        try:
+            return fluent.check(before, now, hunk, {k: tuple(v) for k, v in (s.get("fluent_map") or {}).items()}, collateral=False)
+        except fluent.Ambiguous:
+            pass
+    if Path(file).name in PREF_FILES:
+        from . import prefs
+        ch = prefs.changes(hunk)
+        if (ch["set"] or ch["drop"]) and not ch["add"]:
+            return prefs.check(before, now, hunk, collateral=False)
+    if now == before or already_upstream(now, hunk):
+        return []
+    return hunk_problems(before, now, hunk)
+
+
 def step_final_checks(t, **kw):
     w = Path(t["workdir"])
     why = [f"leftover {p.relative_to(w)}" for p in leftovers(w)[:10]]
@@ -380,7 +401,7 @@ def step_final_checks(t, **kw):
         base_commit = next((c["commit"] for c in t["checkpoints"] if c["label"] == s["id"]), None)
         before = subprocess.run(["git", "-C", str(w), "show", f"{base_commit}~1:{a['file']}"], capture_output=True
                                 ).stdout.decode("utf-8", "replace").splitlines() if base_commit else []
-        lost = hunk_problems(before, now, a["hunk"]) if before else []
+        lost = still_holds(s, a["file"], a["hunk"], before, now) if before else []
         if lost:
             why.append(f"regression: {s['id']} no longer holds: {lost[0]}")
             taskmod.journal(t, "regression", step=s["id"], why=lost[0])

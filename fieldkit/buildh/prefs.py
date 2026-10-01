@@ -94,7 +94,7 @@ def port(lines, hunk):
     return new, notes, []
 
 
-def check(before, after, hunk):
+def check(before, after, hunk, collateral=True):
     ch = changes(hunk)
     b, a = defined(before), defined(after)
     why = []
@@ -109,6 +109,8 @@ def check(before, after, hunk):
     for n in [name_of(l) for l in ch["add"]]:
         if n and n not in a:
             why.append(f"pref {n} is missing")
+    if not collateral:
+        return why
     touched = set(ch["set"]) | set(ch["drop"]) | {name_of(l) for l in ch["add"]}
     for n, idx in b.items():
         if n in touched:
