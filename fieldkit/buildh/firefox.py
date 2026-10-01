@@ -421,6 +421,58 @@ def syntax_problems(workdir, files):
     return out
 
 
+EXCISED = re.compile(r"GORILLA excised:?\s*\"?([A-Za-z_][\w./-]*)")
+
+
+def excised_symbols(harness_root):
+    """What the fork removes, as names worth looking for in the new tree: the quoted names in `# GORILLA excised: "x"`
+    lines the patch set adds, and the stems of the files the fork deletes (DELETED_FILES manifests), 8+ chars."""
+    pset, groups = _policy(harness_root)
+    names = set()
+    for g, spec in groups.items():
+        if spec.get("status") != "enabled":
+            continue
+        for pf in (pset / g).rglob("*.patch"):
+            for line in pf.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("+"):
+                    for m in EXCISED.finditer(line):
+                        names.add(Path(m.group(1)).name)
+        for rel in manifest_deletions(harness_root):
+            stem = Path(rel).stem
+            if len(stem) >= 8 and not stem.islower():                   # PSpeechRecognition, SpeechGrammar; not "moz"
+                names.add(stem)
+    return sorted(n for n in names if len(n) >= 8)
+
+
+def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
+    """Files in the new tree with lines that name an excised symbol and did not exist in the old pristine version
+    of the same file: upstream code reaching into a component the fork removes. -> [(file, n_new, example)].
+    Live run 16 (2026-10-02): 157's HWInference wired PSpeechRecognition and PHWInference into PContent.ipdl,
+    PUtilityProcess.ipdl, ContentParent and the sandbox - none covered by any hunk; the build found them one by one."""
+    if not symbols:
+        return []
+    args = ["git", "-C", str(workdir), "grep", "-nI"]
+    for sym in symbols:
+        args += ["-e", sym]
+    args += ["--", "*.ipdl", "*.cpp", "*.h", "*.mm", "moz.build", "*.mjs", "*.js", "*.webidl", "*.idl", "*.mn", "*.ftl"]
+    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    hits = {}
+    for line in r.stdout.splitlines():
+        f, _, rest = line.partition(":")
+        n, _, text = rest.partition(":")
+        if not f or "/test" in f or any(f.startswith(d) for d in exclude_dirs):
+            continue
+        hits.setdefault(f, []).append((n, text.strip()))
+    out = []
+    for f, rows in sorted(hits.items()):
+        old = Path(old_root) / f
+        old_text = old.read_text(encoding="utf-8", errors="replace") if old.is_file() else ""
+        new = [(n, t) for n, t in rows if t not in old_text]
+        if new:
+            out.append((f, len(new), f"{new[0][0]}: {new[0][1][:80]}"))
+    return out
+
+
 def changed_vs_root(workdir):
     root = subprocess.run(["git", "-C", str(workdir), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
     if not root:

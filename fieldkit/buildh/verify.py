@@ -382,6 +382,13 @@ def verify(task_id):
     rep["unexplained_deletions"] = firefox.unexplained_deletions(t)
     # 6b. changed build files that do not parse (a merge left `GeneratedFile(` dangling: configure stopped, live run 16)
     rep["syntax"] = firefox.syntax_problems(w, changed) if root else []
+    # 6c. excision creep: upstream code in the new tree that names what the fork removes, absent from the old pristine
+    rep["creep"] = []
+    if old_pristine is not None:
+        syms = firefox.excised_symbols(hr)
+        excl = tuple(d for d in (Path(x).parent.as_posix() + "/" for x in firefox.manifest_deletions(hr)) if d != "./")
+        rep["creep"] = firefox.excision_creep(w, old_pristine, syms, exclude_dirs=excl)
+        rep["creep_symbols"] = syms
     # 7. a Fluent file with an id twice where the pristine file had it once (a moved message whose old copy was not
     #    removed, or a port that added a copy): Firefox's parser keeps the last and the build's l10n lint fails
     #    Measured against the owner's TRUTH when the harness is a snapshot (live run 16: nine of ten doubled ids are
@@ -443,6 +450,8 @@ def problems(rep):
             ("tree: no edit that no patch asked for", not se, "none" if not se else f"{len(se)}: {se[:3]}"),
             ("tree: every new file of the patch set is in place", not mn, "all present" if not mn else f"{len(mn)} missing, e.g. {mn[0]}"),
             ("tree: no upstream file gone without a patch", not ud, "none" if not ud else f"{len(ud)}, e.g. {ud[0]}"),
+            ("tree: upstream references to excised components are listed (new since the old version; the build decides)", True,
+             "none" if not rep.get("creep") else f"{len(rep['creep'])} file(s), e.g. {rep['creep'][0][0]}: {rep['creep'][0][2]}"),
             ("tree: every changed build file parses (moz.build, .py, .json)", not rep.get("syntax"),
              "all parse" if not rep.get("syntax") else f"{len(rep['syntax'])}: {rep['syntax'][:2]}"),
             ("tree: Fluent messages as often as in the owner's tree", not rep.get("ftl_duplicates"),
