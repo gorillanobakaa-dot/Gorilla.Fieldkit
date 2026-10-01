@@ -126,13 +126,29 @@ def capture(harness_root, version, out_root, vault_base=None):
     status = _git(src, "status", "--porcelain", "-z").split("\0")
     deleted = sorted(s[3:] for s in status if s.startswith(" D") or s.startswith("D "))
     modified = sorted(f for f in numstat if f not in deleted)
+    counts["replaced_why"] = {}
     for rel in modified:
         g = group_for(group_of, rel, snap)
-        if numstat[rel][0] == "-":                                       # binary: replace byte-exact
+        why = None
+        if numstat[rel][0] == "-":
+            why = "binary"
+        else:
+            old = _git(src, "show", f"HEAD:{rel}", binary=True)
+            new = (src / rel).read_bytes()
+            if (b"\r\n" in old) != (b"\r\n" in new):
+                why = "line endings changed (an editor converted the whole file); a text patch cannot express that"
+            else:
+                diff = _git(src, "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "HEAD", "--", rel, binary=True)
+                # every patch must apply to the pristine tree it was cut from, or it is not a patch
+                r = subprocess.run([firefox._patch_exe(), "-p1", "--dry-run", "--no-backup-if-mismatch", "-d", str(pristine)],
+                                   input=diff, capture_output=True, timeout=120)
+                if r.returncode != 0:
+                    why = "the generated patch does not apply to its own base: " + r.stdout.decode("utf-8", "replace")[-120:].strip()
+        if why:
             put(f"{g}/REPLACE_FILES/{rel}", (src / rel).read_bytes())
             counts["replaced"] += 1
+            counts["replaced_why"][rel] = why
             continue
-        diff = _git(src, "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "HEAD", "--", rel, binary=True)
         put(f"{g}/{stem(rel)}.patch", diff)
         counts["patches"] += 1
     put(f"{snap}/DELETED_FILES.manifest.txt", ("\n".join(deleted) + "\n").encode("utf-8") if deleted else b"")
@@ -225,10 +241,13 @@ def prove(manifest, work, vault_base=None):
     tracked = {f for f in _git(src, "ls-files", "-z").split("\0") if f}
     untracked = {f for f in _git(src, "ls-files", "--others", "--exclude-standard", "-z").split("\0") if f}
     # untracked root-level files are tools or profile files, never source (capture excludes them the same way)
-    live = {f for f in tracked | untracked if not JUNK.search(f) and not (f in untracked and "/" not in f)}
+    # JUNK applies to NEW files only: a tracked upstream file called *.orig or package-lock.json is source
+    # (the first proof run excluded 551 tracked .orig files on one side and called them 'extra').
+    live = {f for f in tracked | untracked if not (f in untracked and (JUNK.search(f) or "/" not in f))}
     live -= {f for f in live if not (src / f).is_file()}           # deleted-in-live are not in the live set
-    got = set(_git(w, "ls-files", "-z").split("\0")) | set(_git(w, "ls-files", "--others", "--exclude-standard", "-z").split("\0"))
-    got = {f for f in got if f and (w / f).is_file()}
+    got_tracked = {f for f in _git(w, "ls-files", "-z").split("\0") if f}
+    got_untracked = {f for f in _git(w, "ls-files", "--others", "--exclude-standard", "-z").split("\0") if f}
+    got = {f for f in got_tracked | got_untracked if (w / f).is_file() and not (f in got_untracked and JUNK.search(f))}
     missing = sorted(live - got)
     extra = sorted(got - live)
     # Both trees start from the same pristine commit, so a file neither tree modified is identical by git's own

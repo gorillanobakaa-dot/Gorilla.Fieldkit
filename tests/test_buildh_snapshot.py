@@ -66,7 +66,7 @@ def test_capture_lays_the_truth_out_in_the_owners_layout(world):
     assert (ps / "08.Look" / "NEW_FILES" / "browser" / "branding" / "gorilla" / "new.png").is_file()   # curated NEW_FILES dir
     assert (ps / "20.SNAPSHOT.DELTA.155.0.1" / "NEW_FILES" / "browser" / "modules" / "Extra.sys.mjs").is_file()
     assert (ps / "10.OVERRIDES" / "NEW_FILES" / "user.js").is_file()
-    assert m["counts"] == {"patches": 2, "new_files": 3, "replaced": 1, "deleted": 1,
+    assert m["counts"] == {"patches": 2, "new_files": 3, "replaced": 1, "deleted": 1, "replaced_why": {"logo.ico": "binary"},
                            "excluded": ["app.js.gorilla77", "tool.py  (root-level file, not source)"]}
     assert all(len(v) == 64 for v in m["files"].values())
     pol = json.loads((world["tmp"] / "snap" / "harness" / "config" / "patch_policy.json").read_text())
@@ -124,3 +124,34 @@ def test_the_workflow_plans_delete_and_replace_steps_and_runs_them(world, tmp_pa
     git(w, "add", "-A")
     git(w, "commit", "-q", "-m", "checkpoint: x")
     assert firefox.unexplained_deletions(task.load("sn")) == []          # the manifest explains the deletion
+
+
+def test_a_file_whose_line_endings_changed_is_replaced_not_patched_and_the_proof_still_holds(world):
+    src = world["src"]
+    _w(src / "keep.css", "a {}\r\nb { color: gorilla; }\r\n")                 # the editor turned the file into CRLF
+    m = snapshot.capture(world["h"], "155.0.1", world["tmp"] / "snap", vault_base=world["vb"])
+    ps = world["tmp"] / "snap" / "patchset"
+    assert not (ps / "05.PREFS" / "keep.css.patch").exists()
+    assert (ps / "05.PREFS" / "REPLACE_FILES" / "keep.css").read_bytes() == b"a {}\r\nb { color: gorilla; }\r\n"
+    assert "line endings" in m["counts"]["replaced_why"]["keep.css"]
+    r = snapshot.prove(m, world["tmp"] / "rebuilt", vault_base=world["vb"])
+    assert r["ok"], r
+
+
+def test_tracked_upstream_files_that_look_like_junk_are_source_on_both_sides(world, tmp_path):
+    # pristine ships a tracked .orig file (Firefox vendors hundreds); it must count on both sides of the proof
+    up = world["tmp"] / "mozilla"
+    _w(up / "third_party/x/Cargo.toml.orig", "[package]\n")
+    git(up, "add", "-A")
+    git(up, "commit", "-q", "-m", "vendored orig")
+    git(up, "tag", "-f", "FIREFOX_155_0_1_RELEASE")
+    vb2 = tmp_path / "vault2"
+    info = upstream.latest_firefox(versions={"LATEST_FIREFOX_VERSION": "155.0.1"}, repo=up.as_uri())
+    vault.fetch_firefox(info, base=vb2)
+    src = world["src"]
+    git(src, "stash", "-q", "--include-untracked")
+    git(src, "pull", "-q", str(up), "main")
+    git(src, "stash", "pop", "-q")
+    m = snapshot.capture(world["h"], "155.0.1", world["tmp"] / "snap", vault_base=vb2)
+    r = snapshot.prove(m, world["tmp"] / "rebuilt", vault_base=vb2)
+    assert r["ok"] and r["extra_in_rebuilt"] == [], r
