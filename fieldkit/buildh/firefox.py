@@ -452,8 +452,7 @@ def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
         # use REMOVE/KEEP questions instead of line operations.
         if at is not None:
             auto_rm, uncertain = identify_questions(lines, hunk, at)
-            if uncertain and (not added or insertion_after(lines, hunk, max(0, at - 5),
-                                                            min(len(lines) - 1, at + len(hunk["lines"]) + 30)) is not None):
+            if uncertain and (not added or placeable(lines, hunk, at)):
                 from .answer import Q_INSTRUCTIONS
                 parts.append(f"The harness will auto-remove {len(auto_rm)} line(s) that match the patch"
                              + (f" and insert the {len(added)} new line(s) itself." if added else "."))
@@ -724,10 +723,95 @@ def insertion_after(lines, hunk, lo, hi):
     return None
 
 
+def _placements(body, hunk, lo, hi):
+    """Where each '+' block of the hunk goes, decided block by block. -> [(index in `body`, mode, lines)] with
+    mode 'at' (the block replaces its own '-' lines: insert where the first of them stands) or 'after' / 'before'
+    a unique context neighbour in the span. Raises PlacementGone when a block's neighbours are no longer here,
+    Ambiguous when a neighbour occurs more than once in the span (live run 13, h17: two '+' blocks in one hunk)."""
+    hl = hunk["lines"]
+    span_keys = [_key(body[i]) for i in range(lo, hi + 1)]
+    have = {_key(l) for l in body}
+
+    def find(text):
+        hits = [i for i in range(lo, hi + 1) if _key(body[i]) == _key(text)]
+        return hits[0] if len(hits) == 1 else None
+    out = []
+    i = 0
+    while i < len(hl):
+        if not hl[i].startswith("+"):
+            i += 1
+            continue
+        j = i
+        while j < len(hl) and hl[j][:1] in "+-":
+            j += 1
+        block_minus = [hl[k][1:] for k in range(i, j) if hl[k].startswith("-")]
+        # a block may start with '-' lines before the first '+': include them
+        k0 = i
+        while k0 > 0 and hl[k0 - 1].startswith("-"):
+            k0 -= 1
+        block_minus = [hl[k][1:] for k in range(k0, j) if hl[k].startswith("-")]
+        added = [hl[k][1:] for k in range(i, j) if hl[k].startswith("+")]
+        before = next((hl[k][1:] for k in range(k0 - 1, -1, -1) if hl[k].startswith(" ") and hl[k][1:].strip()), None)
+        after = next((hl[k][1:] for k in range(j, len(hl)) if hl[k].startswith(" ") and hl[k][1:].strip()), None)
+        placed = None
+        usable = [c for c in (before, after) if c and _specific(_key(c))]
+        once = [c for c in usable if span_keys.count(_key(c)) == 1]
+        if not usable or once:
+            # the block's own '-' lines pin it best (a substitution lands where the old line stood), but only
+            # when a neighbour agrees the place is still here (h7: the old block was here, its @media was not)
+            for m in block_minus:
+                if m.strip() and find(m) is not None:
+                    placed = (find(m), "at", added)
+                    break
+        if placed is None:
+            if before and before in once:
+                placed = (find(before), "after", added)
+            elif after and after in once:
+                placed = (find(after), "before", added)
+            elif usable and not once:
+                if any(span_keys.count(_key(c)) > 1 for c in usable):
+                    raise Ambiguous("the place for the added lines could not be fixed on one context line")
+                gone_ctx = [c for c in usable if _key(c) not in have]
+                if gone_ctx:
+                    raise PlacementGone(f"the lines the added text belongs with no longer exist in this Firefox: {gone_ctx[0][:80]!r}")
+                raise PlacementGone(f"the lines the added text belongs with are somewhere else in the file now: {usable[0][:80]!r}")
+            else:
+                raise Ambiguous("the place for the added lines could not be fixed on one context line")
+        out.append(placed)
+        i = j
+    return out
+
+
+def _apply(body, deletions, placements):
+    """Delete the 1-indexed `deletions`, then insert each placement, with every index measured on the ORIGINAL body."""
+    gone = sorted(set(deletions))
+    new = list(body)
+    for n in reversed(gone):
+        del new[n - 1]
+
+    def shifted(idx):
+        return idx - sum(1 for n in gone if n - 1 < idx)
+    for idx, mode, lines in sorted(placements, key=lambda p: p[0], reverse=True):
+        at = shifted(idx) + (1 if mode == "after" else 0)
+        new[at:at] = lines
+    return new
+
+
+def placeable(body, hunk, at):
+    """Can every '+' block of the hunk be placed without a model? (the question form needs that)"""
+    b = _bounds(body, hunk, at)
+    lo, hi = (b[0], min(len(body) - 1, b[1] + 5)) if b else (max(0, at - 5), min(len(body) - 1, at + len(hunk["lines"]) + 30))
+    try:
+        _placements(body, hunk, lo, hi)
+        return True
+    except Ambiguous:
+        return False
+
+
 def auto_merge(body, hunk, notes=None):
-    """Tier 3 of the harness's own attempt: remove every file line whose key matches a '-' line, insert the '+'
-    block after its context line. Refuses (Ambiguous) when the span holds lines it cannot account for: those are
-    the REMOVE/KEEP questions for the model. Live run 8 (2026-10-01, firefox.js h32): upstream had collapsed a
+    """Tier 3 of the harness's own attempt: remove every file line whose key matches a '-' line, insert each '+'
+    block at its own place. Refuses (Ambiguous) when the span holds lines it cannot account for: those are the
+    REMOVE/KEEP questions for the model. Live run 8 (2026-10-01, firefox.js h32): upstream had collapsed a
     5-line #ifdef block into one line; transplant and substitute both gave up, Gemma failed 3 times with line
     operations, and this does it with no model at all."""
     at = _anchor(body, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
@@ -741,36 +825,8 @@ def auto_merge(body, hunk, notes=None):
         raise Ambiguous("none of the removed lines are in the file")
     b = _bounds(body, hunk, at)
     lo, hi = (b[0], min(len(body) - 1, b[1] + 5)) if b else (max(0, at - 5), min(len(body) - 1, at + len(hunk["lines"]) + 30))
-    if added:
-        # the '+' block belongs with its nearest specific context neighbours; when one of them is gone from the
-        # file, the place itself is gone (h7: a lint comment for an @media line upstream removed) -> the owner
-        have = {_key(l) for l in body}
-        hl = hunk["lines"]
-        first_plus = next(i for i, l in enumerate(hl) if l.startswith("+"))
-        last_plus = max(i for i, l in enumerate(hl) if l.startswith("+"))
-        neighbours = [next((hl[i][1:] for i in range(first_plus - 1, -1, -1) if hl[i].startswith(" ") and hl[i][1:].strip()), None),
-                      next((hl[i][1:] for i in range(last_plus + 1, len(hl)) if hl[i].startswith(" ") and hl[i][1:].strip()), None)]
-        usable = [c for c in neighbours if c and _specific(_key(c))]
-        span_keys = [_key(body[i]) for i in range(lo, hi + 1)]
-        once = [c for c in usable if span_keys.count(_key(c)) == 1]            # a neighbour right here, unambiguous
-        twice = [c for c in usable if span_keys.count(_key(c)) > 1]
-        if usable and not once:
-            if twice:
-                raise Ambiguous("the place for the added lines could not be fixed on one context line")
-            gone_ctx = [c for c in usable if _key(c) not in have]
-            if gone_ctx:
-                raise PlacementGone(f"the lines the added text belongs with no longer exist in this Firefox: {gone_ctx[0][:80]!r}")
-            raise PlacementGone(f"the lines the added text belongs with are somewhere else in the file now: {usable[0][:80]!r}")
-    ins = insertion_after(body, hunk, lo, hi) if added else None
-    if added and ins is None:
-        raise Ambiguous("the place for the added lines could not be fixed on one context line")
-    new = list(body)
-    for n in sorted(auto_rm, reverse=True):
-        del new[n - 1]
-        if ins is not None and n - 1 <= ins:
-            ins -= 1
-    if added:
-        new[ins + 1:ins + 1] = added
+    placements = _placements(body, hunk, lo, hi) if added else []
+    new = _apply(body, auto_rm, placements)
     if notes is not None:
         notes.append(f"merged by key: removed {len(auto_rm)} line(s), inserted {len(added)}")
     return new
@@ -842,25 +898,20 @@ def apply_question_answers(target, decisions, hunk, auto_removes, lines=None):
     _, _, _ = hunk_sides(hunk)
     hunk_removed_blanks = sum(1 for l in hunk["lines"] if l == "-")
 
-    # The '+' block is the harness's job, never the model's: place it by its context line (mixed hunks).
+    # The '+' blocks are the harness's job, never the model's: each placed by its own lines (mixed hunks).
     removed_, added, _ = hunk_sides(hunk)
-    ins = None
+    placements = []
     if added:
         at = _anchor(file_lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
         if at is None:
             raise OSError("the added lines have no place: the hunk's context was not found")
-        ins = insertion_after(file_lines, hunk, max(0, at - 5), min(len(file_lines) - 1, at + len(hunk["lines"]) + 30))
-        if ins is None:
-            raise OSError("the place for the added lines could not be fixed on one context line")
-
-    # Delete from bottom up so indices stay valid
-    for n in all_removes:
-        if 1 <= n <= len(file_lines):
-            del file_lines[n - 1]
-            if ins is not None and n - 1 <= ins:
-                ins -= 1
-    if added:
-        file_lines[ins + 1:ins + 1] = added
+        b = _bounds(file_lines, hunk, at)
+        lo, hi = (b[0], min(len(file_lines) - 1, b[1] + 5)) if b else (max(0, at - 5), min(len(file_lines) - 1, at + len(hunk["lines"]) + 30))
+        try:
+            placements = _placements(file_lines, hunk, lo, hi)
+        except Ambiguous as e:
+            raise OSError(str(e))
+    file_lines = _apply(file_lines, [n for n in all_removes if 1 <= n <= len(file_lines)], placements)
 
     with open(target, "w", encoding="utf-8", newline="") as f:
         f.write(nl.join(file_lines) + (nl if trailing else ""))

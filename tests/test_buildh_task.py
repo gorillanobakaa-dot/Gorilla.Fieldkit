@@ -1,4 +1,5 @@
 """task engine: approval first, one packet at a time, the harness checks, failures are put back, 3 strikes block."""
+import json
 import subprocess
 from pathlib import Path
 
@@ -96,7 +97,7 @@ def test_three_strikes_block_the_step_for_the_owner(job):
         (job / "alpha.txt").write_text("wrong\n")
         r = task.submit("t1")
     assert "BLOCKED" in r["next"]
-    assert task.packet("t1")["state"] == "BLOCKED"
+    assert task.packet("t1")["step"] == "fix-beta"            # a blocked step is a person's; the plan goes on
     task.unblock("t1", "fix-alpha", "retry")
     assert task.packet("t1")["step"] == "fix-alpha"
 
@@ -164,3 +165,19 @@ def test_the_owner_at_a_terminal_can_skip_a_model_step(job, monkeypatch):
     task.unblock("t1", "fix-alpha", "skip")
     s = next(s for s in task.load("t1")["steps"] if s["id"] == "fix-alpha")
     assert s["status"] == "done" and s["skipped_by_owner"]
+
+
+def test_a_blocked_step_does_not_halt_the_rest_and_the_run_ends_with_the_list(job):
+    task.approve("t1", "owner")
+    for _ in range(3):
+        task.packet("t1")
+        (job / "alpha.txt").write_text("wrong\n")
+        task.submit("t1")
+    r = task.packet("t1")
+    assert r["step"] == "fix-beta"
+    (job / "beta.txt").write_text("beta\n")
+    assert task.submit("t1")["ok"]
+    end = task.packet("t1")
+    assert end["state"] == "BLOCKED" and end["steps"] == ["fix-alpha"] and "wait for a person" in end["next"]
+    ev = [json.loads(l)["event"] for l in (task.STATE / "t1" / "journal.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert "done" not in ev

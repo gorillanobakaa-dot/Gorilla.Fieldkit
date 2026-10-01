@@ -215,13 +215,17 @@ def advance(task_id, in_flight_steps=None):
         raise Refused("the plan is not approved; the owner runs: fieldkit build-harness approve " + task_id)
     while True:
         s = current(t, in_flight_steps)
-        blocked = next((x for x in t["steps"] if x["status"] == "blocked"), None)
-        if blocked:
-            return {"state": "BLOCKED", "step": blocked["id"], "why": blocked.get("last_why"),
-                    "next": "the owner decides: fix it by hand then `build-harness unblock`, or restore"}
+        # A blocked or deferred step is a person's; the rest of the plan goes on (live run 13: one parked CSS hunk
+        # halted 30 steps the harness would have done itself). The run ends with the list, never with 'done'.
         if s is None:
             if in_flight_steps:
                 return {"state": "WAITING"}
+            blocked = [x for x in t["steps"] if x["status"] == "blocked"]
+            if blocked:
+                return {"state": "BLOCKED", "step": blocked[0]["id"], "why": blocked[0].get("last_why"),
+                        "steps": [x["id"] for x in blocked],
+                        "next": f"{len(blocked)} step(s) wait for a person: fix by hand then `build-harness submit`, "
+                                "or `build-harness unblock ... retry`; the build gate stays closed"}
             parked = [x["id"] for x in t["steps"] if x["status"] == "deferred"]
             if parked:
                 journal(t, "done-with-deferred", steps=parked)

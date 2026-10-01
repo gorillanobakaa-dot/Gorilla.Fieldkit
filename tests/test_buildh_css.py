@@ -125,3 +125,48 @@ def test_h7_a_correct_answer_is_not_refused_for_a_color_inherit_that_lives_elsew
     after = body[:3] + body[12:]                                        # the existing block removed (lines 4-11 + blank)
     after.insert(3, "/* stylelint-disable-next-line media-query-no-invalid */")
     assert not any("should be gone" in w for w in firefox.hunk_problems(body, after, H7))
+
+
+H17 = {"header": "@@ -1829,7 +1833,13 @@ popupnotificationcontent {", "lines": [
+    "   }",
+    " ",
+    '   @media not -moz-pref("browser.nova.enabled") {',
+    "+    /* stylelint-disable-next-line media-query-no-invalid */",
+    '+    @media -moz-pref("browser.nova.enabled") {',
+    '+      list-style-image: url("chrome://browser/skin/smart-window-nova.svg");',
+    "+    }",
+    "+",
+    "     > .toolbarbutton-icon {",
+    "+      /* stylelint-disable-next-line media-query-no-invalid */",
+    "       /* Smart Window icon has additional 0.125rem padding per side, to be slightly smaller than Classic Window icon when used in Switcher */",
+    "       padding: var(--space-xxsmall);",
+    "     }"]}
+
+CSS157_H17 = """    display: none;
+  }
+
+  @media not -moz-pref("browser.nova.enabled") {
+    > .toolbarbutton-icon {
+      /* Smart Window icon has additional 0.125rem padding per side, to be slightly smaller than Classic Window icon when used in Switcher */
+      padding: var(--space-xxsmall);
+    }
+  }
+}
+
+#appMenu-new-ai-window-button > moz-badge {
+  margin-inline-start: auto;
+}
+""".splitlines()
+
+
+def test_h17_two_added_blocks_in_one_hunk_are_each_placed_by_their_own_neighbour():
+    body = list(CSS157_H17)
+    new = firefox.auto_merge(body, H17)
+    i = new.index('  @media not -moz-pref("browser.nova.enabled") {')
+    assert new[i + 1:i + 6] == ["    /* stylelint-disable-next-line media-query-no-invalid */",
+                                '    @media -moz-pref("browser.nova.enabled") {',
+                                '      list-style-image: url("chrome://browser/skin/smart-window-nova.svg");', "    }", ""]
+    j = new.index("    > .toolbarbutton-icon {")
+    assert new[j + 1] == "      /* stylelint-disable-next-line media-query-no-invalid */"
+    assert new[j + 2].startswith("      /* Smart Window icon")
+    assert firefox.hunk_problems(body, new, H17) == [] and firefox.collateral(body, new, H17) == []
