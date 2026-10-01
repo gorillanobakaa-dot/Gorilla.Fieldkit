@@ -319,7 +319,10 @@ def check(before, after, hunk, mapping=None, collateral=True):
         elif i in b or i in sem["added"]:
             intended_now[i] = parts
     intended_now = {i: [tuple(p) for p in parts] for i, parts in intended_now.items()}   # JSON round-trips give lists
+    twins = sem.get("twins") or {}
     for i, parts in intended_now.items():
+        if i not in a and i in twins and twins[i] in a and _texts(a[twins[i]]["parts"]) == _texts(parts):
+            continue                                        # the owner's name carries the owner's wording: transferred
         if i not in a:
             why.append(f"message {i} is missing")
         elif a[i]["parts"] != parts:

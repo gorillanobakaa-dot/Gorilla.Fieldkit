@@ -90,6 +90,11 @@ def test_an_already_transferred_twin_is_done_not_gone():
     assert any("already transferred: containers-remove-button2" in n for n in notes)
     assert new == DONE
     assert fluent.check(DONE, new, H52, {}) == []
+    # the final re-check sees the PRISTINE file as 'before' (button3 present) and the done tree as 'now' (button2):
+    # transferred wording on the owner's name is not a missing message (final-checks failed three times on this)
+    pristine = [l.replace("containers-remove-button2 =", "containers-remove-button3 =").replace(".title = Remove", ".title = Delete")
+                .replace("Gorilla Settings", "Settings").replace("new Gorilla tab", "new tab") for l in DONE]
+    assert fluent.check(pristine, DONE, H52, {}, collateral=False) == []
     # with the old name still there, the wording still goes onto it (unchanged behaviour)
     old = [l.replace("containers-remove-button2 =", "containers-remove-button3 =").replace(".title = Remove", ".title = Delete") for l in DONE]
     new, notes, gone = fluent.port(old, H52)
