@@ -28,6 +28,7 @@ from ..core import settings
 from . import task, vault
 
 BASE = settings.ROOT / "_private" / "audit-baseline.json"
+ANCHORS = settings.ROOT / "_private" / "journal-anchors.json"
 DOCS = Path.home() / "Documents"
 OWNER_CFG = Path.home() / ".config" / "gorilla-opencode"
 PATCHSET = DOCS / "Gorilla.firefox" / "gorilla-patchset"
@@ -107,6 +108,22 @@ def tally(task_id):
     return out
 
 
+def chain_checks(task_id, anchors=None):
+    """Journal hash chain, plus anchors: what each earlier audit saw (line count and the hash of its last line).
+    A rewrite that re-chains the whole file still fails, because an old anchor no longer matches.
+    -> ([(name, ok, evidence)], new_anchor)"""
+    problems, count, head = task.verify_journal(task_id)
+    p = task.STATE / task_id / "journal.jsonl"
+    lines = [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()] if p.is_file() else []
+    seen = (anchors or {}).get(task_id, [])
+    moved = [a for a in seen if a["count"] > len(lines) or task.line_hash(lines[a["count"] - 1]) != a["head"]]
+    out = [("journal: hash chain intact", not problems, "intact, %d lines" % count if not problems else "; ".join(problems[:3])),
+           ("journal: earlier history unchanged since the last audits", not moved,
+            "%d earlier anchor(s) still match" % len(seen) if not moved else
+            "history before line %d was rewritten" % min(a["count"] for a in moved))]
+    return out, {"count": count, "head": head, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+
+
 def journal_checks(ev):
     """The overnight run of 2026-10-01 in three rules, read from the journal -> [(name, ok, evidence)]."""
     out = []
@@ -169,6 +186,13 @@ def run(task_id="firefox-155.0.1"):
     ev = [json.loads(l) for l in jp.read_text(encoding="utf-8").splitlines() if l.strip()] if jp.is_file() else []
     for name, ok, evidence in journal_checks(ev):
         check(name, ok, evidence)
+    anchors = json.loads(ANCHORS.read_text(encoding="utf-8")) if ANCHORS.is_file() else {}
+    rows, anchor = chain_checks(task_id, anchors)
+    for name, ok, evidence in rows:
+        check(name, ok, evidence)
+    if anchor["count"] and all(ok for _, ok, _ in rows) and (not anchors.get(task_id) or anchors[task_id][-1]["count"] != anchor["count"]):
+        anchors.setdefault(task_id, []).append(anchor)          # only a sound journal is remembered
+        ANCHORS.write_text(json.dumps(anchors, indent=1), encoding="utf-8")
     return {"baseline": b["taken"], "now": now["taken"], "checks": checks, "tally": tally(task_id),
             "fieldkit_commits_since": _git(settings.ROOT, "log", "--oneline", f"{b['fieldkit_head']}..HEAD").splitlines()}
 

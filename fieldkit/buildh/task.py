@@ -67,9 +67,59 @@ def save(t):
     (d / "task.json").write_text(json.dumps(t, indent=1), encoding="utf-8")
 
 
+ZERO = "0" * 16
+
+
+def line_hash(line):
+    return hashlib.sha256(line.strip().encode("utf-8")).hexdigest()[:16]
+
+
+def _last_line(path):
+    """The journal's last non-empty line, without reading the whole file."""
+    if not path.is_file():
+        return ""
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        back = 65536
+        while True:
+            f.seek(max(0, size - back))
+            chunk = f.read().decode("utf-8", "replace").splitlines()
+            lines = [l for l in chunk if l.strip()]
+            if len(lines) >= 2 or size <= back:
+                return lines[-1] if lines else ""
+            back *= 4
+
+
 def journal(t, event, **data):
-    with open(_dir(t["id"]) / "journal.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "task": t["id"], "event": event, **data}) + "\n")
+    """Append one event. Each carries the hash of the line before it, so an edit, a deletion or a
+    reorder anywhere in the history breaks the chain and the audit says so."""
+    p = _dir(t["id"]) / "journal.jsonl"
+    prev = line_hash(_last_line(p)) if p.is_file() and p.stat().st_size else ZERO
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "task": t["id"], "event": event,
+                            "prev": prev, **data}) + "\n")
+
+
+def verify_journal(task_id):
+    """-> (problems, count, head). Lines before the chain began (no 'prev') are legacy; after that every
+    line must carry the hash of the line before it."""
+    p = _dir(task_id) / "journal.jsonl"
+    lines = [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()] if p.is_file() else []
+    problems, chained = [], False
+    for i, line in enumerate(lines):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            problems.append(f"line {i + 1} is not valid JSON")
+            continue
+        if "prev" in d:
+            chained = True
+            want = line_hash(lines[i - 1]) if i else ZERO
+            if d["prev"] != want and not (i == 0 and d["prev"] == ZERO):
+                problems.append(f"line {i + 1} ({d.get('event')}): chain broken - an earlier line was changed, removed or reordered")
+        elif chained:
+            problems.append(f"line {i + 1} ({d.get('event')}): no hash, but the chain had already started")
+    return problems, len(lines), line_hash(lines[-1]) if lines else ZERO
 
 
 def plan_hash(steps):

@@ -213,7 +213,10 @@ def detect(session, journal, mcp, budget_tokens=100_000, workdir=None, allowed_t
                 break
         if DEP_FILES.search(path) and len(versions) > 1:
             out.append(_f("dependency churn", "incident", versions[-1]["t"], f"{path} changed"))
-        if versions[0]["content"] == "" and re.search(r"\.(py|ps1|sh|js)$", path) and not TEST_FILE.search(path):
+        # a job names the files the model may touch; a script it writes is new work nobody asked for
+        # (python/shell/batch scripts always; .js only when the history shows the file started empty)
+        if not TEST_FILE.search(path) and (re.search(r"\.(py|ps1|sh|bat|cmd)$", path) or
+                                           (versions[0]["content"] == "" and path.endswith(".js"))):
             out.append(_f("ignoring existing architecture", "review", versions[0]["t"],
                           f"new script {path}: is there already a registered tool for this?"))
 

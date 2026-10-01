@@ -118,6 +118,11 @@ def drive(tid, a):
     env = {**os.environ, "GORILLA_OPENCODE_HEADLESS_TIMEOUT": a.job_timeout or "45m"}
     from . import answer as ans, worker
     use_tools = bool(getattr(a, "tools", False))
+    if use_tools and os.environ.get("FIELDKIT_ALLOW_MODEL_TOOLS") != "1":
+        # Answer mode (the default) gives the model no tools at all: it can only reply with text and the
+        # harness applies it. With tools it can write anywhere the user account can, outside the working copy.
+        raise task.Refused("--tools lets the model write anywhere on this computer; it is for experiments only. "
+                           "Set FIELDKIT_ALLOW_MODEL_TOOLS=1 yourself if you really mean it")
     env.update(worker.environment(worker.write_profile(tools=use_tools)))
     log_path = task.STATE / tid / "drive.log"
 
@@ -228,16 +233,27 @@ def drive(tid, a):
                 say(f"job {n} crashed: {e}")
                 if step in in_flight_steps:
                     in_flight_steps.remove(step)
-            return "CONTINUE"
+            return "CRASH"
 
     jobs_to_run = a.max_jobs or 200
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    # ONE job at a time, always: the working copy is one git repository, a failed attempt resets all of it, and
+    # one local model serves one request at a time. (The overnight run of 2026-10-01 ran 8 jobs in parallel:
+    # git locks collided and eight jobs crashed.)
+    from . import preflight
+    pre = preflight.run(tid, model=True, fix_locks=False)
+    if not all(r["ok"] for r in pre):
+        say("PREFLIGHT failed - no job started")
+        for l in preflight.lines(pre):
+            say(l)
+        return 5
+    crashes = 0
+    with ThreadPoolExecutor(max_workers=1) as executor:
         futures = set()
         n = 1
 
         while n <= jobs_to_run or futures:
             with lock:
-                while n <= jobs_to_run:
+                while n <= jobs_to_run and not futures:
                     state = task.packet(tid, by="driver", answer_mode=not use_tools, in_flight_steps=in_flight_steps)
                     if state["state"] == "WAITING":
                         break
@@ -257,6 +273,10 @@ def drive(tid, a):
             done, futures = wait(futures, return_when=FIRST_COMPLETED)
             for f in done:
                 res = f.result()
+                crashes = crashes + 1 if res == "CRASH" else 0
+                if crashes >= 2:                       # something is wrong with the machine, not the model
+                    say("STOPPED: two jobs in a row crashed (see above). Fix the cause; nothing further was started.")
+                    return 4
                 if res in ("DONE", "BLOCKED"):
                     return 0 if res == "DONE" else 3
                     
@@ -305,6 +325,12 @@ def run(a, emit):
         r = task.submit(tid, a.note or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "preflight":
+        from . import preflight
+        rows = preflight.run(tid, build="--build" in a.args, model="--model" in a.args, fix_locks=bool(getattr(a, "fix_locks", False)),
+                             fan_required="--build" in a.args)
+        emit(rows, lambda rows: print("\n".join(preflight.lines(rows))))
+        return 0 if all(r["ok"] for r in rows) else 3
     if act == "audit":
         from . import audit
         if a.args and a.args[0] == "baseline":
