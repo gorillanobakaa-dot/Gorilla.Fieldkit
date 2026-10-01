@@ -1038,6 +1038,10 @@ def check_port(t, s, patch, file, hunk, **kw):
     before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    if before == after and already_upstream(after, hunk):
+        # nothing was changed because nothing needed changing (tier 0 / a reopened step whose result had landed):
+        # the net-count check below would read the present lines as 'missing' (live run 10, h39)
+        return {"ok": True, "why": []}
     # No flag, answer key or other shortcut may skip these checks (the overnight run of 2026-10-01 did).
     why = hunk_problems(before, after, hunk)
     extra = s.get("question_removals")  # set by apply_question_answers via the driver

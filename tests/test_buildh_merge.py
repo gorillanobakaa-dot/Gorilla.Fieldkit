@@ -4,6 +4,8 @@ operations; upstream 157 had collapsed a 5-line #ifdef into one line.
 """
 from pathlib import Path
 
+import subprocess
+
 import pytest
 
 from fieldkit.buildh import firefox
@@ -208,3 +210,19 @@ def test_a_hunk_already_in_place_is_done_by_tier_zero_not_sent_to_a_model(tmp_pa
     res = firefox.auto_port({"workdir": str(w)}, {"id": "x"}, "05.PREFS/x.patch", "firefox.js", H32)
     assert res["ok"] and res["notes"] == ["already in place: the added lines are there and the removed ones gone"]
     assert (w / "firefox.js").read_text(encoding="utf-8").splitlines() == OWNER_155
+
+
+def test_the_check_passes_a_hunk_that_is_already_in_place_and_untouched(tmp_path):
+    """Live run 10: tier 0 said 'already in place', then the net-count check called the present lines missing."""
+    w = tmp_path / "w"
+    w.mkdir()
+    (w / "firefox.js").write_text("\n".join(OWNER_155) + "\n", encoding="utf-8", newline="")
+    subprocess.run(["git", "init", "-q", str(w)], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "done earlier"], check=True)
+    res = firefox.check_port({"workdir": str(w)}, {"id": "x"}, "05.PREFS/x.patch", "firefox.js", H32)
+    assert res == {"ok": True, "why": []}
+    # but a file that merely did not change, with the hunk NOT in it, still fails
+    (w / "firefox.js").write_text("\n".join(FF157) + "\n", encoding="utf-8", newline="")
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qam", "undone"], check=True)
+    assert not firefox.check_port({"workdir": str(w)}, {"id": "x"}, "05.PREFS/x.patch", "firefox.js", H32)["ok"]
