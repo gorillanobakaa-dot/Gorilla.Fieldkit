@@ -438,10 +438,30 @@ def excised_symbols(harness_root):
                     for m in EXCISED.finditer(line):
                         names.add(Path(m.group(1)).name)
         for rel in manifest_deletions(harness_root):
-            stem = Path(rel).stem
-            if len(stem) >= 8 and not stem.islower():                   # PSpeechRecognition, SpeechGrammar; not "moz"
+            stem = Path(rel).name.split(".")[0]                          # AIWindow.sys.mjs -> AIWindow
+            if len(stem) >= 8 and not stem.islower() and stem not in ("manifest",):
                 names.add(stem)
     return sorted(n for n in names if len(n) >= 8)
+
+
+COMMENT = re.compile(r"^\s*(//|#|/\*|\*|<!--)")
+CREEP_SKIP = ("third_party/", "taskcluster/", "testing/", "tools/", "docs/")
+
+
+def _generic(symbols, old_root):
+    """Symbols the OLD pristine tree used in files the fork did not delete are not excised identifiers (XPCOMUtils,
+    manifest): one git grep over the old tree decides."""
+    if not symbols or not (Path(old_root) / ".git").exists():
+        return set()
+    args = ["git", "-C", str(old_root), "grep", "-lI"]
+    generic = set()
+    for sym in symbols:
+        r = subprocess.run(args + ["-e", sym, "--", "*.cpp", "*.h", "*.mjs", "*.js", "moz.build", "*.ipdl"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace")
+        files = [f for f in r.stdout.splitlines() if f and "/test" not in f]
+        if len(files) > 12:
+            generic.add(sym)
+    return generic
 
 
 def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
@@ -449,6 +469,7 @@ def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
     of the same file: upstream code reaching into a component the fork removes. -> [(file, n_new, example)].
     Live run 16 (2026-10-02): 157's HWInference wired PSpeechRecognition and PHWInference into PContent.ipdl,
     PUtilityProcess.ipdl, ContentParent and the sandbox - none covered by any hunk; the build found them one by one."""
+    symbols = [x for x in symbols if x not in _generic(symbols, old_root)]
     if not symbols:
         return []
     args = ["git", "-C", str(workdir), "grep", "-nI"]
@@ -460,7 +481,9 @@ def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
     for line in r.stdout.splitlines():
         f, _, rest = line.partition(":")
         n, _, text = rest.partition(":")
-        if not f or "/test" in f or any(f.startswith(d) for d in exclude_dirs):
+        if not f or "/test" in f or f.startswith(CREEP_SKIP) or any(f.startswith(d) for d in exclude_dirs):
+            continue
+        if COMMENT.match(text) or "GORILLA" in text:                     # the fork's own notes name what it removed
             continue
         hits.setdefault(f, []).append((n, text.strip()))
     out = []
