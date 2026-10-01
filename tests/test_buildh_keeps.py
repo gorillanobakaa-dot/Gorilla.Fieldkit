@@ -51,5 +51,6 @@ def test_a_copy_of_the_old_file_is_harmless_when_upstream_only_touched_removed_l
     new = b"a\nGeneratedFile(\n    y.json,\n)\n"
     monkeypatch.setattr(verify, "hunks_in_scope", lambda hr: [("g", "p", "f/moz.build", 1, {"lines": ["-GeneratedFile(", "-    y.json,", "-)"]})])
     assert verify._upstream_changes_inside_removed_blocks(new, old, "f/moz.build", "hr")
-    monkeypatch.setattr(verify, "hunks_in_scope", lambda hr: [("g", "p", "f/moz.build", 1, {"lines": ["-GeneratedFile(", "-    x.json,", "-)"]})])
+    # the hunk removes another block: upstream's new line is not inside what the fork removes
+    monkeypatch.setattr(verify, "hunks_in_scope", lambda hr: [("g", "p", "f/moz.build", 1, {"lines": ["-Other(", "-    z.json,", "-)"]})])
     assert not verify._upstream_changes_inside_removed_blocks(new, old, "f/moz.build", "hr")

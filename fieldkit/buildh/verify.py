@@ -253,14 +253,23 @@ def _upstream_changes_inside_removed_blocks(new_pristine, old_pristine, rel, hr)
     (browser/themes/addons/moz.build, live run 16: upstream edited the aiwindow-nova GeneratedFile block that the
     owner excises whole, so the ported file equals the owner's 155 file and loses nothing)."""
     old_lines = {l.strip() for l in old_pristine.decode("utf-8", "replace").splitlines()}
-    added = [l.strip() for l in new_pristine.decode("utf-8", "replace").splitlines() if l.strip() and l.strip() not in old_lines]
-    if not added:
+    new_lines = [l.strip() for l in new_pristine.decode("utf-8", "replace").splitlines()]
+    added_idx = [i for i, l in enumerate(new_lines) if l and l not in old_lines]
+    if not added_idx:
         return True
     removed = set()
     for _, _, file, _, h in hunks_in_scope(hr):
         if file == rel:
             removed.update(l[1:].strip() for l in h["lines"] if l.startswith("-"))
-    return all(l in removed for l in added)
+    # the hunks were cut against the OLD version, so an upstream line is 'inside a removed block' when the nearest
+    # non-added lines above and below it are lines the hunks remove
+    added = set(added_idx)
+    for i in added_idx:
+        up = next((new_lines[j] for j in range(i - 1, -1, -1) if j not in added and new_lines[j]), None)
+        down = next((new_lines[j] for j in range(i + 1, len(new_lines)) if j not in added and new_lines[j]), None)
+        if up not in removed or down not in removed:
+            return False
+    return True
 
 
 def verify(task_id):
@@ -305,7 +314,7 @@ def verify(task_id):
             a = s.get("args") or {}
             b = body(a["file"]) if a.get("file") else None
             pristine = _git(w, "show", f"{root[0]}:{a['file']}").splitlines() if root and a.get("file") else None
-            why = firefox.hand_port_holds(b, a["hunk"], pristine or None) if b is not None else ["the file does not exist"]
+            why = firefox.hand_port_holds(b, a["hunk"], pristine or None, firefox.hand_keeps(s.get("hand_note")))                 if b is not None else ["the file does not exist"]
             v, d = ("APPLIED", "hand port holds") if not why else ("NOT-APPLIED", "hand port: " + "; ".join(why)[:160])
         if v is None:                                   # a relocated step: its file is not the patch's (relocate.py)
             v, d = score_hunk(body(a["file"]), a["hunk"], a["file"]) if (a := s.get("args") or {}).get("hunk") else (None, None)
