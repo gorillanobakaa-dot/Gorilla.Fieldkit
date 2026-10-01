@@ -106,7 +106,7 @@ def fix_fluent(t, root, say, lines=()):
     return bool(done), "; ".join(done)
 
 
-MISSING_TOOLCHAIN = re.compile(r"does not exist: .*?[/\\]\.mozbuild[/\\]([\w.-]+)[/\\]")
+MISSING_TOOLCHAIN = re.compile(r"does not exist: .*?[/\\]\.mozbuild[/\\]([\w.-]+)[/\\]([\w.-]+)")
 MOZBUILD_BASH = Path(r"C:\mozilla-build\msys2\usr\bin\bash.exe")
 
 
@@ -126,19 +126,25 @@ def toolchain_job(src, alias):
 
 def fix_toolchain(t, root, say, lines=()):
     """A moz.build lists a file under ~/.mozbuild/<toolchain>/ that is not there: a toolchain `mach bootstrap` would
-    have fetched (Firefox 157 added winappsdk-x86_64-pc-windows-msvc). Fetched with
-    `mach artifact toolchain --from-build <job>`, the job found by its alias in taskcluster/kinds/toolchain."""
+    have fetched (Firefox 157 added two DLLs to winappsdk-x86_64-pc-windows-msvc). When the toolchain folder exists
+    from an older bootstrap, `mach artifact toolchain` says done and changes nothing (23:18-23:26: five identical
+    stops), so a folder that lacks the named file is moved aside first; success is that FILE existing afterwards."""
     text = "\n".join(lines)
     m = MISSING_TOOLCHAIN.search(text)
     if not m:
-        return False, "no ~/.mozbuild/<toolchain>/ path in the error"
-    alias = m.group(1)
+        return False, "no ~/.mozbuild/<toolchain>/<file> path in the error"
+    alias, missing = m.group(1), m.group(2)
     src = Path(t["workdir"])
     job = toolchain_job(src, alias)
     if not job:
         return False, f"no toolchain job carries the alias {alias}"
     if not MOZBUILD_BASH.is_file():
         return False, f"no {MOZBUILD_BASH}"
+    folder = Path.home() / ".mozbuild" / alias
+    if folder.is_dir() and not (folder / missing).exists():
+        stale = folder.with_name(f"{alias}.stale-{time.strftime('%Y%m%d-%H%M%S')}")
+        folder.rename(stale)
+        say(f"  ~/.mozbuild/{alias} is from an older bootstrap (no {missing}): moved to {stale.name}")
     env = _env()
     env["MOZILLABUILD"] = r"C:\mozilla-build"
     from .compile import mozconfig_path
@@ -146,9 +152,10 @@ def fix_toolchain(t, root, say, lines=()):
     msys = "/" + str(src).replace(":", "").replace("\\", "/")
     r = subprocess.run([str(MOZBUILD_BASH), "-l", "-c", f"cd {msys} && ./mach artifact toolchain --from-build {job}"],
                        cwd=str(src), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
-    have = (Path.home() / ".mozbuild" / alias).is_dir()
-    say(f"  mach artifact toolchain --from-build {job}: exit {r.returncode}; ~/.mozbuild/{alias} {'present' if have else 'STILL MISSING'}")
-    return have, f"toolchain {alias} via {job}: exit {r.returncode}"
+    have = (folder / missing).exists()
+    say(f"  mach artifact toolchain --from-build {job}: exit {r.returncode}; ~/.mozbuild/{alias}/{missing} "
+        f"{'present' if have else 'STILL MISSING: ' + (r.stdout or r.stderr).strip()[-160:]}")
+    return have, f"toolchain {alias} via {job}: exit {r.returncode}, {missing} {'present' if have else 'missing'}"
 
 
 def active_power_scheme():
@@ -250,13 +257,15 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
             name, fix = classify(lines)
             errs = error_lines(lines)
             stop = {"stage": stage, "attempt": attempt, "rc": rc, "signature": name, "errors": errs}
+            repeat = bool(stops) and stops[-1]["signature"] == name and stops[-1]["stage"] == stage
             stops.append(stop)
             task.journal(t, "build-stop", **stop)
             say(f"{time.strftime('%H:%M:%S')}  {stage} STOPPED rc={rc}: {name}")
             for e in errs[:5]:
                 say("    " + e)
-            if fix is None or attempt > RETRIES:
-                say("  no known fix: the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
+            if fix is None or attempt > RETRIES or repeat:
+                say("  no known fix" if fix is None else "  the same stop again after its fix: no progress"
+                    + "; the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
                 return {"ok": False, "stops": stops, "log": str(log_path)}
             ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain) else fix(t, root, say)
             task.journal(t, "build-fix", stage=stage, signature=name, ok=ok, what=what)

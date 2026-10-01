@@ -69,7 +69,33 @@ def test_a_missing_toolchain_is_its_own_stop_not_a_clobber(tmp_path):
     assert buildrun.toolchain_job(tmp_path, "winappsdk-x86_64-pc-windows-msvc") == "win64-WindowsAppSDK"
     assert buildrun.toolchain_job(tmp_path, "winappsdk-x86-pc-windows-msvc") == "win32-WindowsAppSDK"
     assert buildrun.toolchain_job(tmp_path, "nothing") is None
-    assert buildrun.MISSING_TOOLCHAIN.search("\n".join(MOZBUILD_STOP)).group(1) == "winappsdk-x86_64-pc-windows-msvc"
+    m = buildrun.MISSING_TOOLCHAIN.search("\n".join(MOZBUILD_STOP))
+    assert (m.group(1), m.group(2)) == ("winappsdk-x86_64-pc-windows-msvc", "Microsoft.WindowsAppRuntime.dll")
+
+
+def test_a_stale_toolchain_folder_is_moved_aside_and_success_is_the_file(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".mozbuild" / "winappsdk-x86_64-pc-windows-msvc").mkdir(parents=True)
+    (home / ".mozbuild" / "winappsdk-x86_64-pc-windows-msvc" / "old.dll").write_bytes(b"x")
+    monkeypatch.setattr(buildrun.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(buildrun, "toolchain_job", lambda src, alias: "win64-WindowsAppSDK")
+    monkeypatch.setattr(buildrun, "MOZBUILD_BASH", tmp_path / "bash.exe")
+    (tmp_path / "bash.exe").write_bytes(b"")
+    from fieldkit.buildh import compile as cg
+    monkeypatch.setattr(cg, "mozconfig_path", lambda root: tmp_path / "mozconfig")
+
+    def fake_fetch(cmd, **kw):
+        d = home / ".mozbuild" / "winappsdk-x86_64-pc-windows-msvc"
+        d.mkdir()
+        (d / "Microsoft.WindowsAppRuntime.dll").write_bytes(b"dll")
+        class R: returncode, stdout, stderr = 0, "", ""
+        return R()
+    monkeypatch.setattr(buildrun.subprocess, "run", fake_fetch)
+    said = []
+    ok, what = buildrun.fix_toolchain({"workdir": str(tmp_path)}, tmp_path, said.append, MOZBUILD_STOP)
+    assert ok and "present" in what
+    assert any("older bootstrap" in x for x in said)
+    assert [d.name for d in (home / ".mozbuild").iterdir() if d.name.startswith("winappsdk") and "stale" in d.name]
 
 
 def test_the_power_scheme_is_put_back_when_the_stage_leaves_another(monkeypatch):
