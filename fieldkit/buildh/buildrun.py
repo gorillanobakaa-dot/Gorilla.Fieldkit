@@ -149,9 +149,12 @@ def fix_toolchain(t, root, say, lines=()):
     env["MOZILLABUILD"] = r"C:\mozilla-build"
     from .compile import mozconfig_path
     env["MOZCONFIG"] = str(mozconfig_path(root))
-    msys = "/" + str(src).replace(":", "").replace("\\", "/")
-    r = subprocess.run([str(MOZBUILD_BASH), "-l", "-c", f"cd {msys} && ./mach artifact toolchain --from-build {job}"],
-                       cwd=str(src), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
+    # `mach artifact toolchain` unpacks into the CURRENT directory (the first run left the folder inside the source
+    # tree, where the gate then saw an untracked folder): run it from ~/.mozbuild, where bootstrap puts toolchains
+    msys = lambda p: "/" + str(p).replace(":", "").replace("\\", "/")
+    r = subprocess.run([str(MOZBUILD_BASH), "-l", "-c",
+                        f"cd {msys(folder.parent)} && {msys(src)}/mach artifact toolchain --from-build {job}"],
+                       cwd=str(folder.parent), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
     have = (folder / missing).exists()
     say(f"  mach artifact toolchain --from-build {job}: exit {r.returncode}; ~/.mozbuild/{alias}/{missing} "
         f"{'present' if have else 'STILL MISSING: ' + (r.stdout or r.stderr).strip()[-160:]}")
