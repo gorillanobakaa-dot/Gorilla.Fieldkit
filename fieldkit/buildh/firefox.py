@@ -380,6 +380,8 @@ def still_holds(s, file, hunk, before, now):
     it (Fluent by message with the step's rename mapping, prefs by name, lines inside the span), and only the
     hunk's result: later hunks legitimately touch the same file, so no collateral here. Live run 15: the literal
     re-check called the Fluent transfer of browser.ftl h30 a regression and failed the final checks three times."""
+    if s.get("hand_port") or s.get("done_by") == "hand":
+        return hand_port_holds(now, hunk)
     if file.endswith(".ftl"):
         from . import fluent
         try:
@@ -1219,7 +1221,8 @@ def _judgeable_rename(removed):
     """A removed line may be judged 'present under new names' only when it carries enough identity: two or more
     8+ identifiers/strings, or one of 12+ characters (`remoteTypes` alone identifies nothing)."""
     toks = _idents(removed)
-    return (len(toks) >= 2 and any(len(t) >= 10 for t in toks)) or any(len(t) >= 12 for t in toks)
+    names = {t for t in toks if t[:1] not in "\"'`"}             # a string literal is content, not identity
+    return (len(toks) >= 2 and any(len(t) >= 10 for t in names)) or any(len(t) >= 12 for t in names)
 
 
 REWRAP = 3            # a removed line may now be spread over up to this many lines
@@ -1233,6 +1236,7 @@ def renamed_candidates(lines, removed, lo=0, hi=None, exclude=()):
     toks = _idents(removed)
     key = removed.strip()
     skip = {l.strip() for l in exclude}
+    added_toks = [_idents(x) for x in exclude if _judgeable_rename(x)]
     hi = len(lines) if hi is None else hi
     out, i = [], lo
     while i < hi:
@@ -1249,6 +1253,8 @@ def renamed_candidates(lines, removed, lo=0, hi=None, exclude=()):
             if n > 1 and (not all(_idents(l) & toks for l in run) or any(_is_renamed(toks, l) for l in run)):
                 continue                                # every line of a run carries part of it; runs are minimal
             text = " ".join(l.strip() for l in run)
+            if any(_is_renamed(a, text) for a in added_toks):
+                continue                                # the hunk's own added line, adapted by a person
             if _is_renamed(toks, text):
                 hit = n
                 break
@@ -1292,7 +1298,14 @@ def rename_window(lines, hunk):
     file when no frame can be pinned (the context itself may have been renamed)."""
     frame = _span(lines, {"lines": [l for l in hunk["lines"] if not l.startswith("-")]})
     reach = len(hunk["lines"]) + GAP
-    return (max(0, frame[0] - reach), min(len(lines), frame[1] + reach)) if frame else (0, len(lines))
+    return (max(0, frame[0] - reach), min(len(lines), frame[1] + reach)) if frame else None
+
+
+def renamed_near(lines, hunk, removed, added=()):
+    """renamed_pairs inside the hunk's window; [] when the hunk cannot be pinned (a file-wide search called other
+    rules' declarations 'renamed', live run 16)."""
+    win = rename_window(lines, hunk)
+    return renamed_pairs(lines, removed, *win, exclude=added) if win else []
 
 
 def renamed_removal(body, hunk, notes=None):
@@ -1308,7 +1321,10 @@ def renamed_removal(body, hunk, notes=None):
         raise Ambiguous("no specific removed lines")
     # the frame comes from the context lines; the block may lie before them (trailing context only), so the
     # window reaches one hunk length either side, and every match must be unique inside it
-    lo, hi = rename_window(body, hunk)
+    win = rename_window(body, hunk)
+    if not win:
+        raise Ambiguous("the hunk's context cannot be pinned in the file")
+    lo, hi = win
     idx, pos = [], lo
     for l in spec:
         k = _key(l)
@@ -1422,7 +1438,7 @@ def obsolete_upstream(body, hunk):
     spec_removed = [l.strip() for l in removed if len(l.strip()) >= SPECIFIC and not TRIVIAL.match(l.strip())]
     spec_added = [l.strip() for l in added if len(l.strip()) >= SPECIFIC and not TRIVIAL.match(l.strip())]
     anchored = any(len(l.strip()) >= 12 and l.strip() in have for l in context)
-    if renamed_pairs(body, removed, *rename_window(body, hunk), exclude=added):
+    if renamed_near(body, hunk, removed, added):
         return None                                     # still there, renamed: a port, not an obsolete change
     if spec_removed and anchored and not any(l in have for l in spec_removed) and not any(l in have for l in spec_added):
         return ("every specific line this hunk would remove is already gone from the new source, and none of the lines it "
@@ -1546,7 +1562,7 @@ def auto_port(t, s, patch, file, hunk, **kw):
         return {"ok": True, "why": [], "notes": notes}
     except Ambiguous as e:
         notes.append(f"renamed: {e}")
-    pairs = renamed_pairs(body, hunk_sides(hunk)[0], *rename_window(body, hunk), exclude=hunk_sides(hunk)[1])
+    pairs = renamed_near(body, hunk, hunk_sides(hunk)[0], hunk_sides(hunk)[1])
     if pairs:
         return {"ok": False, "defer": True,
                 "why": ["upstream renamed identifiers inside this hunk (" + "; ".join(f"`{a[:40]}` is now `{b[:40]}`" for a, b in pairs[:3])
@@ -1603,6 +1619,8 @@ def hand_port_check(before, after, hunk):
         wide = _judgeable_rename(k)
         if k in (have if wide else near):
             why.append(f"line should be gone: {k[:100]}")
+    for a, b in renamed_near(after, hunk, removed, added)[:3]:
+        why.append(f"line still there under new names: `{a[:60]}` is now `{b[:60]}`")
     text_after = "\n".join(scope_after)
     norm = lambda tok: tok.strip("\"'`").lstrip("_#$")       # `this._x`, `this.#x` and `lazy.x` are one name (live run 16)
     for l in added:
@@ -1628,6 +1646,14 @@ def hand_port_check(before, after, hunk):
                        extra_removals=allowed)
     why += [w for w in extra if w.startswith("you removed")]
     return why
+
+
+def hand_port_holds(now, hunk):
+    """Does a hand port's result still stand in `now`? The meaning check (specific removed lines gone, the added
+    text's tokens present) without the collateral part: later hunks touch the same file. Used by the verifier and
+    the final re-check for steps done by hand (live run 16: the literal verifier reopened four hand ports, the tiers
+    re-ran on them and one Fluent port removed the owner's moved message a second time)."""
+    return [w for w in hand_port_check(now, now, hunk) if not w.startswith("you removed")]
 
 
 def check_port(t, s, patch, file, hunk, **kw):
@@ -1688,7 +1714,7 @@ def already_upstream(file_lines, hunk):
         here = [l.strip() for l in file_lines[lo:hi]]
     else:
         here = a
-    if renamed_pairs(file_lines, meaningful_removed, *rename_window(file_lines, hunk), exclude=added):
+    if renamed_near(file_lines, hunk, meaningful_removed, added):
         return False                                    # the removed lines are still there under new names
     return bool(meaningful_added or meaningful_removed) and all(k in a for k in meaningful_added) and \
         not any(k in here for k in meaningful_removed)

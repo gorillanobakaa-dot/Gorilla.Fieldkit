@@ -126,6 +126,41 @@ def intent(hunk):
     return sem, notes
 
 
+def hunk_neighbours(hunk, mid):
+    """The ids of the messages before and after `mid` in the hunk's OLD text (context + removed lines)."""
+    ids = [m.group(1) for l in hunk["lines"] if l[:1] in (" ", "-") for m in [ENTRY.match(l[1:])] if m]
+    if mid not in ids:
+        return None, None
+    k = ids.index(mid)
+    return (ids[k - 1] if k else None), (ids[k + 1] if k + 1 < len(ids) else None)
+
+
+def in_place(ents, k, hunk):
+    """Does the k-th entry sit where the hunk has it (same neighbouring message ids, where the hunk names them)?"""
+    prev, nxt = hunk_neighbours(hunk, ents[k]["id"])
+    p = ents[k - 1]["id"] if k else None
+    n = ents[k + 1]["id"] if k + 1 < len(ents) else None
+    return (prev is None or prev == p) and (nxt is None or nxt == n)
+
+
+def copy_to_remove(ents, mid, hunk):
+    """Index of the copy of `mid` the hunk removes: the one in the hunk's place; the only copy when there is one
+    and the hunk names no neighbour that exists. None when no copy sits there (already removed, or the owner MOVED
+    the message and only its new copy is left: contextual-identity.ftl h2, live run 16, where a second pass took
+    the moved copy as well)."""
+    copies = [k for k, e in enumerate(ents) if e["id"] == mid]
+    if not copies:
+        return None
+    placed = [k for k in copies if in_place(ents, k, hunk)]
+    if placed:
+        return placed[0]
+    prev, nxt = hunk_neighbours(hunk, mid)
+    ids = {e["id"] for e in ents}
+    if len(copies) == 1 and prev not in ids and nxt not in ids:
+        return copies[0]                                  # the hunk's neighbours are gone too: no better evidence
+    return None
+
+
 def port(lines, hunk):
     """-> (new_lines, notes, gone) ; gone = [(id, [candidate ids])]. With gone ids nothing is written: the owner
     decides whether the change belongs to the renamed message."""
@@ -144,10 +179,11 @@ def port(lines, hunk):
         if r not in have and twin in have and _texts(have[twin]["parts"]) == _texts(sem["changed"][r]):
             notes.append(f"already transferred: {twin} carries the owner's wording and {r} is gone")
             del sem["changed"][r]
-    already_removed = [i for i in sem["removed"] if i not in have]
+    remove_at = {i: copy_to_remove(ents, i, hunk) for i in sem["removed"]}
+    already_removed = [i for i in sem["removed"] if remove_at[i] is None]
     if already_removed:
-        notes.append(f"already removed upstream: {', '.join(already_removed)}")
-        sem["removed"] = [i for i in sem["removed"] if i in have]
+        notes.append(f"already removed (no copy where the hunk has it): {', '.join(already_removed)}")
+        sem["removed"] = [i for i in sem["removed"] if remove_at[i] is not None]
     for i in list(sem["added"]):
         if i in have:
             if have[i]["parts"] == sem["added"][i]:
@@ -164,7 +200,7 @@ def port(lines, hunk):
     new = list(lines)
     # rewrite from the bottom so earlier offsets stay valid
     work = [(have[i]["start"], have[i]["end"], i, sem["changed"][i]) for i in sem["changed"]]
-    work += [(have[i]["start"], have[i]["end"], i, None) for i in sem["removed"]]
+    work += [(ents[remove_at[i]]["start"], ents[remove_at[i]]["end"], i, None) for i in sem["removed"]]
     for start, end, i, parts in sorted(work, reverse=True):
         new[start:end] = _render(i, parts, have[i]["indent"] or default_indent) if parts is not None else []
     if sem["added"]:
@@ -344,6 +380,38 @@ def dedupe(lines, truth_lines):
     return new, sorted(removed, key=lambda r: r[1])
 
 
+def restore_lost(lines, truth_lines, pristine_lines):
+    """Put back a message the owner's truth AND the pristine upstream file both have, that the tree has fewer copies
+    of than the truth, at the truth's position (after the same previous message, else before the same next one,
+    else at the end). A message only the truth has is a port's job, not this one's; a message upstream dropped is
+    not restored. -> (new_lines, [(id, inserted_at_line)])."""
+    import collections
+    ents, truth, pristine = entries(lines), entries(truth_lines), entries(pristine_lines)
+    have = collections.Counter(e["id"] for e in ents)
+    want = collections.Counter(e["id"] for e in truth)
+    up = collections.Counter(e["id"] for e in pristine)
+    new, inserted = list(lines), []
+    for k, e in enumerate(truth):
+        i = e["id"]
+        if have[i] >= want[i] or up[i] == 0:
+            continue
+        block = truth_lines[e["start"]:e["end"]]
+        cur = entries(new)
+        prev = truth[k - 1]["id"] if k else None
+        nxt = truth[k + 1]["id"] if k + 1 < len(truth) else None
+        at = next((x["end"] for x in cur if x["id"] == prev), None) if prev else None
+        while at is not None and at < len(new) and not new[at].strip():
+            at += 1                                       # after the blank lines that follow the previous message
+        if at is None:
+            at = next((x["start"] for x in cur if x["id"] == nxt), None) if nxt else None
+        if at is None:
+            at = len(new)
+        new[at:at] = block
+        inserted.append((i, at + 1))
+        have[i] += 1
+    return new, inserted
+
+
 def step_dedupe(t, file, truth_root, **kw):
     """Harness step: remove the surplus copies in `file` against the owner's truth copy of it."""
     from pathlib import Path as _P
@@ -353,11 +421,24 @@ def step_dedupe(t, file, truth_root, **kw):
         return {"ok": False, "why": [f"{file} or its truth copy does not exist"]}
     raw = p.read_text(encoding="utf-8")
     nl = "\r\n" if "\r\n" in raw else "\n"
-    new, removed = dedupe(raw.split(nl), tp.read_text(encoding="utf-8", errors="replace").splitlines())
-    if removed:
+    truth = tp.read_text(encoding="utf-8", errors="replace").splitlines()
+    new, removed = dedupe(raw.split(nl), truth)
+    inserted = []
+    if kw.get("pristine_lines") is not None:
+        new, inserted = restore_lost(new, truth, kw["pristine_lines"])
+    else:
+        import subprocess
+        r = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+        root = r.stdout.split()
+        if root:
+            pr = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace")
+            if pr.returncode == 0:
+                new, inserted = restore_lost(new, truth, pr.stdout.splitlines())
+    if removed or inserted:
         p.write_text(nl.join(new), encoding="utf-8", newline="")
-    return {"ok": True, "summary": f"{file}: removed {len(removed)} surplus message cop(y/ies): "
-                                   + ", ".join(f"{i} at line {at}" for i, at in removed) if removed else f"{file}: no surplus copy"}
+    what = [f"removed surplus {i} at line {at}" for i, at in removed] + [f"restored {i} at line {at}" for i, at in inserted]
+    return {"ok": True, "summary": f"{file}: " + ("; ".join(what) if what else "nothing to reconcile")}
 
 
 def check_dedupe(t, file, truth_root, **kw):
@@ -366,4 +447,16 @@ def check_dedupe(t, file, truth_root, **kw):
     now = collections.Counter(e["id"] for e in entries((_P(t["workdir"]) / file).read_text(encoding="utf-8").splitlines()))
     want = collections.Counter(e["id"] for e in entries((_P(truth_root) / file).read_text(encoding="utf-8", errors="replace").splitlines()))
     over = [i for i, n in now.items() if n > 1 and n > want[i]]
-    return {"ok": not over, "why": [f"{file}: still defined more than in the truth: {over[:3]}"] if over else []}
+    why = [f"{file}: still defined more than in the truth: {over[:3]}"] if over else []
+    pristine = kw.get("pristine_lines")
+    if pristine is None:
+        import subprocess
+        r = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+        pr = subprocess.run(["git", "-C", t["workdir"], "show", f"{r.stdout.split()[0]}:{file}"], capture_output=True, text=True,
+                            encoding="utf-8", errors="replace") if r.stdout.split() else None
+        pristine = pr.stdout.splitlines() if pr is not None and pr.returncode == 0 else []
+    up = collections.Counter(e["id"] for e in entries(pristine))
+    lost = [i for i, n in want.items() if now[i] < n and up[i]]
+    if lost:
+        why.append(f"{file}: fewer copies than the owner's tree: {lost[:3]}")
+    return {"ok": not why, "why": why}

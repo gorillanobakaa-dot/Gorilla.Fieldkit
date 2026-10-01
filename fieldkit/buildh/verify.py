@@ -58,8 +58,12 @@ def score_hunk(body, hunk, file=""):
             want = {**sem["changed"], **sem["added"]}
             ok = [i for i, p in want.items() if have.get(i) == p]
             gone = [i for i in list(want) + sem["removed"] if i not in have and i not in sem["added"]]
-            if want and len(ok) == len(want) and not any(i in have for i in sem["removed"]):
+            ents = fluent.entries(body)
+            still = [i for i in sem["removed"] if fluent.copy_to_remove(ents, i, hunk) is not None]
+            if want and len(ok) == len(want) and not still:
                 return "APPLIED", f"{len(ok)} message(s) read as the patch wants"
+            if not want and sem["removed"] and not still:
+                return "APPLIED", f"{len(sem['removed'])} message(s) removed where the patch removes them"
             if gone and not ok:
                 return "TARGET-GONE", f"message(s) no longer exist: {gone[:3]}"
             if not ok:
@@ -94,7 +98,7 @@ def score_hunk(body, hunk, file=""):
     # `entry_point=` live in every GeneratedFile block; a frame pinned on the wrong copy must not matter either)
     rem_in = rem if rem and _sequence_present(scope, rem) else []
     if rem and not rem_in:
-        pairs = firefox.renamed_pairs(body, rem, *firefox.rename_window(body, hunk), exclude=added)
+        pairs = firefox.renamed_near(body, hunk, rem, added)
         if pairs:                                       # live run 16: renamed by upstream, not gone
             return "NOT-APPLIED", f"{len(pairs)} removed line(s) still present under new names: " + \
                 "; ".join(f"`{a[:40]}` is now `{b[:40]}`" for a, b in pairs[:2])
@@ -193,21 +197,35 @@ def relocate_missing(task_id):
     return out
 
 
-def _truth_root(hr):
-    """The owner's built tree a snapshot harness was taken from (patch_policy._snapshot.live_tree), or None."""
+def _truth_root(hr, workdir=None):
+    """The owner's built tree a snapshot harness was taken from (patch_policy._snapshot.live_tree, else the snapshot
+    harness's own src link), or None. Never the task's own tree: the owner's `src` became a junction to the ported
+    157 tree after the snapshot, and the truth path followed it, so the Fluent reconcile compared the tree with
+    itself and saw nothing (live run 16, second pass)."""
     import json
+    cands = []
     try:
         snap = json.loads((Path(hr) / "config" / "patch_policy.json").read_text(encoding="utf-8")).get("_snapshot") or {}
-        return Path(snap["live_tree"]) if snap.get("live_tree") and Path(snap["live_tree"]).is_dir() else None
+        if snap.get("live_tree"):
+            cands.append(Path(snap["live_tree"]))
     except (OSError, ValueError):
-        return None
+        pass
+    cands.append(Path(hr) / "src")
+    own = Path(workdir).resolve() if workdir else None
+    for c in cands:
+        try:
+            if c.is_dir() and (own is None or c.resolve() != own) and (c / "browser").is_dir():
+                return c
+        except OSError:
+            continue
+    return None
 
 
 def add_dedupe_steps(task_id, rep):
     """A Fluent file with a message doubled beyond the owner's truth gets a dedupe step (fluent.step_dedupe), placed
     before the final checks. -> ids added."""
     t = task.load(task_id)
-    truth = _truth_root(t["meta"].get("harness_root") or "")
+    truth = _truth_root(t["meta"].get("harness_root") or "", t["workdir"])
     if not truth or not rep.get("ftl_duplicates"):
         return []
     have = {s["id"] for s in t["steps"]}
@@ -218,8 +236,8 @@ def add_dedupe_steps(task_id, rep):
         if sid in have:
             continue
         at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
-        t["steps"].insert(at, {"id": sid, "kind": "script", "title": f"{rel}: a message is defined more often than in the owner's tree; "
-                                                                      f"remove the surplus copies", "status": "pending",
+        t["steps"].insert(at, {"id": sid, "kind": "script", "title": f"{rel}: messages defined more or fewer times than in the "
+                                                                      f"owner's tree; reconcile against it", "status": "pending",
                                "attempts": 0, "max_attempts": 3, "run": "fieldkit.buildh.fluent:step_dedupe",
                                "check": "fieldkit.buildh.fluent:check_dedupe", "allowed": [rel],
                                "args": {"file": rel, "truth_root": str(truth)}})
@@ -267,6 +285,11 @@ def verify(task_id):
         if s["status"] not in ("done", "obsolete") or s.get("skipped_by_owner") or s.get("dropped_by_owner"):
             continue
         v, d = scores.get(key, (None, None))
+        if s.get("done_by") == "hand" or s.get("hand_port"):
+            a = s.get("args") or {}
+            b = body(a["file"]) if a.get("file") else None
+            why = firefox.hand_port_holds(b, a["hunk"]) if b is not None else ["the file does not exist"]
+            v, d = ("APPLIED", "hand port holds") if not why else ("NOT-APPLIED", "hand port: " + "; ".join(why)[:160])
         if v is None:                                   # a relocated step: its file is not the patch's (relocate.py)
             v, d = score_hunk(body(a["file"]), a["hunk"], a["file"]) if (a := s.get("args") or {}).get("hunk") else (None, None)
         # an OBSOLETE step whose lines the tree still holds (renamed or not) was closed wrongly: reopened like a
@@ -338,7 +361,7 @@ def verify(task_id):
     if root:
         import collections
         from . import fluent
-        truth = _truth_root(hr)
+        truth = _truth_root(hr, w)
         for rel in changed:
             if not rel.endswith(".ftl"):
                 continue
@@ -347,9 +370,15 @@ def verify(task_id):
                 continue
             ref = (truth / rel).read_text(encoding="utf-8", errors="replace").splitlines() if truth and (truth / rel).is_file()                 else _git(w, "show", f"{root[0]}:{rel}").splitlines()
             was = collections.Counter(e["id"] for e in fluent.entries(ref))
-            dup = [i for i, n in collections.Counter(e["id"] for e in fluent.entries(now)).items() if n > 1 and n > was[i]]
-            if dup:
-                rep["ftl_duplicates"].append(f"{rel}: {dup[:3]}")
+            cnt = collections.Counter(e["id"] for e in fluent.entries(now))
+            dup = [i for i, n in cnt.items() if n > 1 and n > was[i]]
+            lost = []
+            if truth and (truth / rel).is_file():
+                up = collections.Counter(e["id"] for e in fluent.entries(_git(w, "show", f"{root[0]}:{rel}").splitlines()))
+                lost = [i for i, n in was.items() if cnt[i] < n and up[i]]
+            if dup or lost:
+                rep["ftl_duplicates"].append(f"{rel}: " + (f"doubled {dup[:3]}" if dup else "") + (" " if dup and lost else "")
+                                             + (f"lost {lost[:3]}" if lost else ""))
     return rep
 
 
@@ -385,7 +414,7 @@ def problems(rep):
             ("tree: no edit that no patch asked for", not se, "none" if not se else f"{len(se)}: {se[:3]}"),
             ("tree: every new file of the patch set is in place", not mn, "all present" if not mn else f"{len(mn)} missing, e.g. {mn[0]}"),
             ("tree: no upstream file gone without a patch", not ud, "none" if not ud else f"{len(ud)}, e.g. {ud[0]}"),
-            ("tree: no Fluent message defined twice", not rep.get("ftl_duplicates"),
+            ("tree: Fluent messages as often as in the owner's tree", not rep.get("ftl_duplicates"),
              "none" if not rep.get("ftl_duplicates") else f"{len(rep['ftl_duplicates'])} file(s), e.g. {rep['ftl_duplicates'][0]}")] + \
            [("verifier could run", not rep["problems"], "; ".join(rep["problems"]) or "ok")]
 

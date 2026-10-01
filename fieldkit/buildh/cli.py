@@ -425,6 +425,11 @@ def run(a, emit):
             return 0
         emit(b, lambda b: print("\n".join(decision.show(b, plain=not a.technical))))
         return 0
+    if act == "build-run":
+        from . import buildrun
+        r = buildrun.run(tid, force=bool(getattr(a, "force", False)), say=say)
+        emit(r, lambda r: print("BUILD " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or [s["signature"] for s in r.get("stops", [])]))))
+        return 0 if r.get("ok") else 3
     if act in ("build-gate", "build-verify"):
         from . import compile as cg
         rows = cg.gate(tid, harness_root=a.harness) if act == "build-gate" else cg.verify(tid)

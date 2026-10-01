@@ -55,8 +55,11 @@ def gate(task_id, harness_root=None, write=True):
     def row(name, ok, evidence):
         rows.append({"check": name, "ok": bool(ok), "evidence": evidence})
 
-    left = [s["id"] for s in t["steps"] if s["status"] not in ("done", "obsolete")]
+    left = [s["id"] for s in t["steps"] if s["status"] not in ("done", "obsolete") and not s.get("post_build")]
     row("every step is done", not left, "all done" if not left else f"{len(left)} not done, first: {left[0]}")
+    post = [s["id"] for s in t["steps"] if s.get("post_build") and s["status"] not in ("done", "obsolete")]
+    row("owner checks that need an objdir are listed for build-verify (not a reason to hold the gate)", True,
+        "none" if not post else f"{len(post)}: {[p.replace('owner-preflight-', '') for p in post][:4]}")
     obs = [s["id"] for s in t["steps"] if s["status"] == "obsolete"]
     row("obsolete changes listed for review (upstream removed their target; nothing was ported)", True,
         "none" if not obs else f"{len(obs)}: {[o.split('-', 1)[1][-50:] for o in obs][:6]}")
@@ -135,6 +138,20 @@ def verify(task_id, run_binary=True):
             row("built firefox.exe reports the pinned version", rec["version"] in out, out.strip() or "no output")
         else:
             row("built firefox.exe exists", False, str(exe))
+    # the owner's own preflight, after the build: the checks that needed an objdir must pass now
+    t = task.load(task_id)
+    from . import ownercheck
+    root = ownercheck._owner_root(t)
+    if root and run_binary:
+        rc, text = ownercheck.run_preflight(root)
+        blockers = ownercheck.parse(text) if rc is not None else []
+        row("the owner's preflight passes on the built tree", not blockers,
+            "no blocker" if not blockers else "; ".join(f"{b['name']}: {b['detail'][:80]}" for b in blockers[:3]))
+        if not blockers:
+            for s in t["steps"]:
+                if s.get("post_build") and s["status"] not in ("done", "obsolete"):
+                    s["status"], s["done_by"] = "done", "build-verify"
+            task.save(t)
     if all(r["ok"] for r in rows):
         res = {"task": task_id, "verified_at": time.strftime("%Y-%m-%d %H:%M:%S"), "tree": rec["tree"],
                "artifacts": {k: {"file": str(v[0]), "sha256": _sha(v[0])} for k, v in found.items() if v}}

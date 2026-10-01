@@ -12,6 +12,14 @@ import sys
 from pathlib import Path
 
 BLOCKER = re.compile(r"^\[-\]\s+(.+?)\s+\(BLOCKER\):\s*(.*)$")
+#: checks that can only pass once an objdir exists: measured AFTER the build (build-verify), never a reason to
+#: hold the gate before it. The build loop passes --force to the owner's stage for these, and only these.
+BUILD_DEPENDENT = ("Package manifest resolves", "Localization resources resolve", "Bundled extensions are visible",
+                   "Objdir vs CLOBBER")
+
+
+def post_build(name):
+    return any(name.startswith(k) for k in BUILD_DEPENDENT)
 FIX = re.compile(r"^\[\*\]\s+fix\s*:\s*(.*)$")
 
 
@@ -76,13 +84,33 @@ def step_owner_preflight(t, owner_root=None, **kw):
         return {"ok": True, "summary": text}
     blockers = parse(text)
     have = {s["id"] for s in t["steps"]}
+    # a blocker this run no longer reports is resolved: its owner step closes as obsolete with that reason (live run
+    # 16: four steps from the first run stayed 'blocked' after the port fixed or the clobber removed their cause)
+    now_ids = {f"owner-preflight-{slug(b['name'])}" for b in blockers}
+    cleared = []
+    for s in t["steps"]:
+        if s["id"].startswith("owner-preflight-") and s.get("kind") == "owner" and s.get("status") not in ("done", "obsolete")                 and s["id"] not in now_ids:
+            s["status"], s["last_why"] = "obsolete", ["the owner's preflight no longer reports this blocker"]
+            cleared.append(s["id"])
     steps = []
     for b in blockers:
         sid = f"owner-preflight-{slug(b['name'])}"
         if sid in have:
+            if post_build(b["name"]):                   # an earlier run parked it as a blocker: it is a post-build check
+                for s in t["steps"]:
+                    if s["id"] == sid and s.get("status") not in ("done", "obsolete"):
+                        s["status"], s["post_build"] = "deferred", True
+                        s["last_why"] = [f"{b['name']} can only pass once an objdir exists: measured by build-verify"]
             continue
-        steps.append({"id": sid, "kind": "owner",
-                      "title": f"the owner's preflight blocks the build: {b['name']}: {b['detail']}"
-                               + (f" | fix: {b['fix']}" if b["fix"] else "")})
-    return {"ok": True, "add_steps": steps, "blockers": [b["name"] for b in blockers],
-            "summary": f"owner preflight exit {rc}: {len(blockers)} blocker(s)" + (" -> owner steps" if steps else "")}
+        step = {"id": sid, "kind": "owner",
+                "title": f"the owner's preflight blocks the build: {b['name']}: {b['detail']}"
+                         + (f" | fix: {b['fix']}" if b["fix"] else "")}
+        if post_build(b["name"]):
+            step.update({"post_build": True, "status": "deferred",
+                         "last_why": [f"{b['name']} can only pass once an objdir exists: measured by build-verify"],
+                         "title": f"after the build, the owner's preflight must pass: {b['name']}: {b['detail']}"
+                                  + (f" | fix: {b['fix']}" if b["fix"] else "")})
+        steps.append(step)
+    return {"ok": True, "add_steps": steps, "blockers": [b["name"] for b in blockers], "cleared": cleared,
+            "summary": f"owner preflight exit {rc}: {len(blockers)} blocker(s)" + (" -> owner steps" if steps else "")
+                       + (f"; {len(cleared)} earlier blocker(s) no longer reported -> obsolete" if cleared else "")}

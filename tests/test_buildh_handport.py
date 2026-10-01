@@ -112,5 +112,5 @@ def test_a_surplus_copy_goes_where_the_truth_does_not_have_it(tmp_path):
     t = {"workdir": str(w)}
     assert not fluent.check_dedupe(t, "b/x.ftl", str(tr))["ok"]
     r = fluent.step_dedupe(t, "b/x.ftl", str(tr))
-    assert r["ok"] and "removed 1 surplus" in r["summary"]
+    assert r["ok"] and "removed surplus urlbar-result-menu-trending-dont-show2 at line 4" in r["summary"]
     assert fluent.check_dedupe(t, "b/x.ftl", str(tr))["ok"]

@@ -652,12 +652,13 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-verify", "brief", "deferred", "verify", "snapshot"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "brief", "deferred", "verify", "snapshot"])
     bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
     bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")
     bh.add_argument("args", nargs="*")
     bh.add_argument("--fix-locks", action="store_true", help="preflight: remove stale git locks (only when no git process runs)")
+    bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
     bh.add_argument("--build", action="store_true", help="preflight: also check what a compile needs (disk, fan control)")
     bh.add_argument("--model", action="store_true", help="preflight: also check that the model server answers")
     bh.add_argument("--technical", action="store_true", help="brief: the full technical brief instead of the plain-words one")
