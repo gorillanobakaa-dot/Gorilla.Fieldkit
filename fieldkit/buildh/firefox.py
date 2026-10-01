@@ -1221,7 +1221,18 @@ def already_upstream(file_lines, hunk):
     meaningful_added = [x.strip() for x in added if x.strip() and not TRIVIAL.match(x.strip())]
     meaningful_removed = [x.strip() for x in removed if x.strip() and not TRIVIAL.match(x.strip())
                           and x.strip() not in meaningful_added]
-    return bool(meaningful_added or meaningful_removed) and all(k in a for k in meaningful_added) and         not any(k in a for k in meaningful_removed)
+    # removals are judged inside the hunk's CONTEXT frame: `color: inherit;` living in another rule made a done
+    # removal look undone and parked it (live run 15, h15/h16). One anchor only -> as far as the hunk reaches.
+    frame = _span(file_lines, {"lines": [l for l in hunk["lines"] if not l.startswith("-")]}) if meaningful_removed else None
+    if frame:
+        lo, hi = frame
+        if hi - lo <= 1:
+            hi = min(len(file_lines), lo + len(hunk["lines"]) + 5)
+        here = [l.strip() for l in file_lines[lo:hi]]
+    else:
+        here = a
+    return bool(meaningful_added or meaningful_removed) and all(k in a for k in meaningful_added) and \
+        not any(k in here for k in meaningful_removed)
 
 
 # -- building the plan -------------------------------------------------------------------------

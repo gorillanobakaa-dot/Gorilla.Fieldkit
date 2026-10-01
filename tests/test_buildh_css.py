@@ -170,3 +170,15 @@ def test_h17_two_added_blocks_in_one_hunk_are_each_placed_by_their_own_neighbour
     assert new[j + 1] == "      /* stylelint-disable-next-line media-query-no-invalid */"
     assert new[j + 2].startswith("      /* Smart Window icon")
     assert firefox.hunk_problems(body, new, H17) == [] and firefox.collateral(body, new, H17) == []
+
+
+def test_a_done_removal_is_recognised_as_already_in_place_even_when_its_lines_live_elsewhere():
+    """Live run 15: h15/h16 were merged, then reopened, then parked because tier 0 looked file-wide."""
+    hunk = {"header": "@@", "lines": [" .toolbox-top-unique-selector {", "-  color: inherit;", "-  background-color: var(--toolbox-background-color);",
+                                      "-  padding-inline-end: var(--toolbar-padding-inline);", " }", " ", " .another-unique-selector-after {"]}
+    done = [".toolbox-top-unique-selector {", "}", "", ".another-unique-selector-after {", "}", "", ".other-rule {", "  color: inherit;",
+            "  background-color: var(--toolbox-background-color);", "  padding-inline-end: var(--toolbar-padding-inline);", "}"]
+    assert firefox.already_upstream(done, hunk)
+    not_done = done[:1] + ["  color: inherit;", "  background-color: var(--toolbox-background-color);",
+                           "  padding-inline-end: var(--toolbar-padding-inline);"] + done[1:]
+    assert not firefox.already_upstream(not_done, hunk)
