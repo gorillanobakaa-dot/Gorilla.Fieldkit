@@ -330,6 +330,11 @@ def run(a, emit):
         rows = preflight.run(tid, build=bool(a.build), model=bool(a.model), fix_locks=bool(a.fix_locks), fan_required=bool(a.build))
         emit(rows, lambda rows: print("\n".join(preflight.lines(rows))))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "brief":
+        from . import decision
+        b = decision.owner_file_edit(a.args[0], a.args[1])
+        emit(b, lambda b: print("\n".join(decision.render(b))))
+        return 0
     if act in ("build-gate", "build-verify"):
         from . import compile as cg
         rows = cg.gate(tid, harness_root=a.harness) if act == "build-gate" else cg.verify(tid)
