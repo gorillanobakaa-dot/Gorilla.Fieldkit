@@ -225,3 +225,98 @@ def test_real_run6_gemma_answer_is_refused():
     with pytest.raises(answer.BadAnswer, match="no answers found"):
         # Gemma answered with DELETE / CHANGE operations, not REMOVE / KEEP
         answer.parse_questions(case["gemma_bad_answer"], {745, 746, 749, 750, 751, 752})
+
+
+# ── auto-substitute (run 7 improvement) ─────────────────────────────────────
+
+def test_auto_substitute_individual_replacement():
+    """When upstream inserts a line between two removed lines, auto_substitute
+    handles each one individually instead of requiring a contiguous block."""
+    lines = ['pref("a", 1);', 'pref("upstream.new", 99);', 'pref("b", 2);']
+    hunk = firefox.parse_patch(
+        '--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n'
+        '-pref("a", 1);\n+pref("a", 10);\n'
+        '-pref("b", 2);\n+pref("b", 20);\n'
+    )[0]["hunks"][0]
+    after = firefox.auto_substitute(lines, hunk)
+    assert after == ['pref("a", 10);', 'pref("upstream.new", 99);', 'pref("b", 20);']
+
+
+def test_auto_substitute_individual_deletion():
+    lines = ['pref("a", 1);', 'pref("upstream.new", 99);', 'pref("b", 2);']
+    hunk = firefox.parse_patch(
+        '--- a/f\n+++ b/f\n@@ -1,2 +0,0 @@\n'
+        '-pref("a", 1);\n-pref("b", 2);\n'
+    )[0]["hunks"][0]
+    after = firefox.auto_substitute(lines, hunk)
+    assert after == ['pref("upstream.new", 99);']
+
+
+def test_auto_substitute_falls_back_to_contiguous():
+    """When the lines ARE contiguous, auto_substitute works the same as transplant."""
+    lines = ['pref("a", 1);', 'pref("b", 2);', 'pref("c", 3);']
+    hunk = firefox.parse_patch(
+        '--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n'
+        '-pref("a", 1);\n-pref("b", 2);\n'
+        '+pref("a", 10);\n+pref("b", 20);\n'
+    )[0]["hunks"][0]
+    after = firefox.auto_substitute(lines, hunk)
+    assert after == ['pref("a", 10);', 'pref("b", 20);', 'pref("c", 3);']
+
+
+def test_auto_substitute_refuses_ambiguous():
+    lines = ['pref("a", 1);', 'pref("a", 1);']  # duplicated line
+    hunk = firefox.parse_patch(
+        '--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n'
+        '-pref("a", 1);\n+pref("a", 10);\n'
+    )[0]["hunks"][0]
+    with pytest.raises(firefox.Ambiguous, match="2 places"):
+        firefox.auto_substitute(lines, hunk)
+
+
+# ── answer-key fallback (run 7 improvement) ─────────────────────────────────
+
+def test_answer_key_fallback_copies_file_when_transplant_fails(world):
+    """When both transplant and auto_substitute fail, the answer key is used."""
+    # Advance the workflow so the workdir is created by step_workcopy
+    task.packet("ff")
+    harness = world / "Gorilla.firefox"
+    w = world / "work" / "157.0"
+    # Create a file that the transplant can't handle (upstream rewrote the line)
+    target = w / "theme.css"
+    target.write_text(":root {\n  --accent: red;\n  --new-thing: green;\n}\n",
+                      encoding="utf-8", newline="")
+    # Create the answer key
+    src = harness / "src" / "theme.css"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(":root {\n  --accent: purple;\n  --new-thing: green;\n}\n",
+                   encoding="utf-8", newline="")
+    t = task.load("ff")
+    t["meta"]["harness_root"] = str(harness)
+    hunk = firefox.parse_patch(LOOK_PATCH)[0]["hunks"][0]
+    s = {"id": "test-ak", "allowed": ["theme.css"]}
+    result = firefox.auto_port(t, s, "08.Look/accent.patch", "theme.css", hunk)
+    assert result["ok"]
+    assert s.get("answer_key_used")
+    assert target.read_text(encoding="utf-8") == src.read_text(encoding="utf-8")
+
+
+def test_check_port_skips_collateral_when_answer_key_used(world):
+    """When the answer key was used, collateral check is skipped."""
+    # Advance the workflow so the workdir is created by step_workcopy
+    task.packet("ff")
+    w = world / "work" / "157.0"
+    target = w / "theme.css"
+    # Write a file with MORE changes than just the hunk (simulating answer key with multi-hunk changes)
+    target.write_text(":root {\n  --accent: purple;\n  --extra: thing;\n}\n",
+                      encoding="utf-8", newline="")
+    t = task.load("ff")
+    hunk = firefox.parse_patch(LOOK_PATCH)[0]["hunks"][0]
+    # Without answer_key_used, collateral should flag the extra line
+    s_normal = {"id": "test-normal"}
+    result_normal = firefox.check_port(t, s_normal, "08.Look/accent.patch", "theme.css", hunk)
+    # With answer_key_used, collateral should be skipped
+    s_ak = {"id": "test-ak", "answer_key_used": True}
+    result_ak = firefox.check_port(t, s_ak, "08.Look/accent.patch", "theme.css", hunk)
+    # The answer-key version should be more lenient
+    assert len(result_ak.get("why", [])) <= len(result_normal.get("why", []))

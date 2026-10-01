@@ -133,22 +133,38 @@ def approve(task_id, who):
     return t
 
 
-def current(t):
-    return next((s for s in t["steps"] if s["status"] in ("pending", "failed")), None)
+def current(t, in_flight_steps=None):
+    in_flight = in_flight_steps or set()
+    in_flight_files = {f for x in t["steps"] if x["id"] in in_flight and x.get("allowed") for f in x["allowed"]}
+    for s in t["steps"]:
+        if s["status"] in ("pending", "failed"):
+            if s["id"] in in_flight:
+                continue
+            if s["kind"] == "script" and in_flight:
+                return None
+            if s["kind"] == "owner" and in_flight:
+                return None
+            if s["kind"] == "model":
+                if any(f in in_flight_files for f in s.get("allowed", [])):
+                    continue
+            return s
+    return None
 
 
-def advance(task_id):
+def advance(task_id, in_flight_steps=None):
     """Run script steps until a model step, a blocked step or the end."""
     t = load(task_id)
     if not t["approved"]:
         raise Refused("the plan is not approved; the owner runs: fieldkit build-harness approve " + task_id)
     while True:
-        s = current(t)
+        s = current(t, in_flight_steps)
         blocked = next((x for x in t["steps"] if x["status"] == "blocked"), None)
         if blocked:
             return {"state": "BLOCKED", "step": blocked["id"], "why": blocked.get("last_why"),
                     "next": "the owner decides: fix it by hand then `build-harness unblock`, or restore"}
         if s is None:
+            if in_flight_steps:
+                return {"state": "WAITING"}
             journal(t, "done")
             return {"state": "DONE", "checkpoints": len(t["checkpoints"])}
         if s["kind"] == "model":
@@ -207,16 +223,16 @@ def advance(task_id):
         save(t)
 
 
-def packet(task_id, by="cli", answer_mode=False):
+def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     """The one thing the model sees: the current model step, trimmed to the context budget.
 
     answer_mode: the model answers in text (answer.py) and the harness applies it; the packet
     then says nothing about tools, so there are no conflicting instructions."""
-    state = advance(task_id)
+    state = advance(task_id, in_flight_steps)
     if state["state"] != "MODEL STEP":
         return state
     t = load(task_id)
-    s = current(t)
+    s = next(x for x in t["steps"] if x["id"] == state["step"])
     budget_chars = int(t["budget_tokens"] * PACKET_SHARE * CHARS_PER_TOKEN)
     body = _call(s["packet"], t, s, budget_chars=budget_chars, answer_mode=answer_mode, **(s.get("args") or {}))
     done = sum(1 for x in t["steps"] if x["status"] == "done")
@@ -237,11 +253,11 @@ def packet(task_id, by="cli", answer_mode=False):
     return {"state": "MODEL STEP", "step": s["id"], "packet": text, "chars": len(text)}
 
 
-def submit(task_id, note="", by="cli"):
+def submit(task_id, note="", by="cli", step_id=None):
     t = load(task_id)
     if not t["approved"]:
         raise Refused("the plan is not approved yet")
-    s = current(t)
+    s = next((x for x in t["steps"] if x["id"] == step_id), None) if step_id else current(t)
     if not s or s["kind"] != "model":
         raise Refused("there is no model step waiting; call build_harness_next")
     changed = changed_files(t)
@@ -301,10 +317,10 @@ def status(task_id):
             "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"]}
 
 
-def fail_attempt(task_id, why, by="driver"):
+def fail_attempt(task_id, why, by="driver", step_id=None):
     """Count a failed attempt that never reached a check (e.g. an answer not in the required form)."""
     t = load(task_id)
-    s = current(t)
+    s = next((x for x in t["steps"] if x["id"] == step_id), None) if step_id else current(t)
     if not s or s["kind"] != "model":
         raise Refused("there is no model step waiting")
     revert_to_checkpoint(t)

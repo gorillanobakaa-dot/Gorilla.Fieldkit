@@ -107,21 +107,19 @@ TOOL_PROMPT = (
 
 
 def drive(tid, a):
-    """One fresh Gorilla OpenCode run per job, until the task is done or blocked.
-
-    A fresh run starts with an empty context holding only its own packet, so the job's
-    length never fills a small model's context window."""
+    """One fresh Gorilla OpenCode run per job, until the task is done or blocked."""
     import os
     import subprocess as sp
+    from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+    import threading
+
     exe = a.agent or "gorilla-opencode"
     t = task.load(tid)
     env = {**os.environ, "GORILLA_OPENCODE_HEADLESS_TIMEOUT": a.job_timeout or "45m"}
-    # live run 2: the owner's profile fed ~9k tokens of prompt per job and its network time
-    # limits cut a slow local model off 6 times; the worker profile and local limits fix both
     from . import answer as ans, worker
     use_tools = bool(getattr(a, "tools", False))
     env.update(worker.environment(worker.write_profile(tools=use_tools)))
-    log_path = task.STATE / tid / "drive.log"            # UTF-8, written here (PowerShell's Tee-Object wrote UTF-16)
+    log_path = task.STATE / tid / "drive.log"
 
     def say(msg):
         line = f"{time.strftime('%H:%M:%S')}  {msg}"
@@ -129,86 +127,139 @@ def drive(tid, a):
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-    def model_submits():
+    def step_submits(step_id):
         f = task.STATE / tid / "journal.jsonl"
         return sum(1 for l in f.read_text(encoding="utf-8").splitlines()
-                   if '"event": "submit"' in l and '"by": "model"' in l) if f.is_file() else 0
+                   if '"event": "submit"' in l and f'"step": "{step_id}"' in l) if f.is_file() else 0
 
-    for n in range(1, (a.max_jobs or 200) + 1):
-        state = task.packet(tid, by="driver", answer_mode=not use_tools)   # runs any script steps first
-        if state["state"] != "MODEL STEP":
-            say(f"{state['state']}: {state.get('step', '')} {'; '.join(state.get('why') or [])}")
-            return 0 if state["state"] == "DONE" else 3
+    lock = threading.Lock()
+    in_flight_steps = set()
+
+    def process_job_inner(n, state):
         step = state["step"]
-        say(f"job {n}: {step} (attempt {task.status(tid)['current']['attempts'] + 1}) - fresh {exe} run, "
-            f"job text {state['chars']:,} chars")
-        before = model_submits()
-        t0 = time.time()
-        r = sp.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],
-                    "-q"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
-        answer = (r.stdout or r.stderr).strip()
-        task.journal(task.load(tid), "agent-run", step=step, exit=r.returncode, seconds=round(time.time() - t0),
-                     answer=answer[-2000:])
-        say(f"job {n} finished in {time.time() - t0:.0f} s, exit {r.returncode}. The model said: {answer[-300:]}")
-        if not use_tools:
-            cur = task.current(task.load(tid))
-            target = Path(t["workdir"]) / cur["allowed"][0]
-            use_line_ops = bool(getattr(a, "line_ops", False))
-            # Run 6 countermeasure: question mode (REMOVE/KEEP) is the default;
-            # line operations are a --line-ops fallback for when the hunk needs
-            # additions, not just removals.
-            if not use_line_ops and cur.get("args", {}).get("hunk"):
-                from . import firefox as ff
-                hunk = cur["args"]["hunk"]
-                _, added, _ = ff.hunk_sides(hunk)
-                file_lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
-                at = ff._anchor(file_lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
-                if not added and at is not None:
-                    auto_rm, uncertain = ff.identify_questions(file_lines, hunk, at)
-                    if uncertain:
-                        try:
-                            decisions = ans.parse_questions(answer, set(uncertain))
-                            count, summary, removed_texts = ff.apply_question_answers(
-                                target, decisions, hunk, auto_rm)
-                            # Record removed texts so check_port's collateral() allows them
-                            t2 = task.load(tid)
-                            for s2 in t2["steps"]:
-                                if s2["id"] == step:
-                                    s2["question_removals"] = removed_texts
-                            task.save(t2)
-                            say(f"  applied question answers: {summary}")
-                        except (ans.BadAnswer, OSError) as e:
-                            res = task.fail_attempt(tid, f"your answer was not used: {e}")
-                            say(f"  harness check: FAILED - {res['why'][0]}")
-                            continue
+        try:
+            t_curr = task.load(tid)
+            attempts = next((x["attempts"] for x in t_curr["steps"] if x["id"] == step), 0)
+            say(f"job {n}: {step} (attempt {attempts + 1}) - fresh {exe} run, job text {state['chars']:,} chars")
+
+            if state["chars"] > 8000:
+                with lock:
+                    res = task.fail_attempt(tid, f"prompt too large ({state['chars']:,} chars); skipping model attempt", step_id=step)
+                    say(f"  prompt too large ({state['chars']:,} chars), skipping")
+                    in_flight_steps.remove(step)
+                return "CONTINUE"
+
+            before = step_submits(step)
+            t0 = time.time()
+            r = sp.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],
+                        "-q"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            answer = (r.stdout or r.stderr).strip()
+
+            with lock:
+                task.journal(task.load(tid), "agent-run", step=step, exit=r.returncode, seconds=round(time.time() - t0),
+                             answer=answer[-2000:])
+                say(f"job {n} finished in {time.time() - t0:.0f} s, exit {r.returncode}. The model said: {answer[-300:]}")
+
+                if not use_tools:
+                    t_curr = task.load(tid)
+                    cur = next(x for x in t_curr["steps"] if x["id"] == step)
+                    target = Path(t_curr["workdir"]) / cur["allowed"][0]
+                    use_line_ops = bool(getattr(a, "line_ops", False))
+                    if not use_line_ops and cur.get("args", {}).get("hunk"):
+                        from . import firefox as ff
+                        hunk = cur["args"]["hunk"]
+                        _, added, _ = ff.hunk_sides(hunk)
+                        file_lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+                        at = ff._anchor(file_lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
+                        if not added and at is not None:
+                            auto_rm, uncertain = ff.identify_questions(file_lines, hunk, at)
+                            if uncertain:
+                                try:
+                                    decisions = ans.parse_questions(answer, set(uncertain))
+                                    count, summary, removed_texts = ff.apply_question_answers(target, decisions, hunk, auto_rm)
+                                    t2 = task.load(tid)
+                                    for s2 in t2["steps"]:
+                                        if s2["id"] == step:
+                                            s2["question_removals"] = removed_texts
+                                    task.save(t2)
+                                    say(f"  applied question answers: {summary}")
+                                except (ans.BadAnswer, OSError) as e:
+                                    res = task.fail_attempt(tid, f"your answer was not used: {e}", step_id=step)
+                                    say(f"  harness check: FAILED - {res['why'][0]}")
+                                    in_flight_steps.remove(step)
+                                    return "CONTINUE"
+                            else:
+                                use_line_ops = True
+                        else:
+                            use_line_ops = True
                     else:
-                        # No uncertain lines — the harness can do it itself
                         use_line_ops = True
+
+                    if use_line_ops:
+                        try:
+                            count, summary = ans.apply(target, answer)
+                            say(f"  applied the answer: {count} operation(s): {summary}")
+                        except (ans.BadAnswer, OSError) as e:
+                            res = task.fail_attempt(tid, f"your answer was not used: {e}", step_id=step)
+                            say(f"  harness check: FAILED - {res['why'][0]}")
+                            in_flight_steps.remove(step)
+                            return "CONTINUE"
+
+                if step_submits(step) == before:
+                    try:
+                        res = task.submit(tid, note=f"checked by the driver after the run; the model said: {answer[-300:]}",
+                                          by="driver", step_id=step)
+                    except task.Refused as e:
+                        res = {"ok": False, "why": [str(e)]}
+                    say(f"  harness check: {'PASSED' if res['ok'] else 'FAILED - ' + '; '.join(res['why'])[:300]}")
                 else:
-                    use_line_ops = True
-            else:
-                use_line_ops = True
-            if use_line_ops:
+                    last = [json.loads(l) for l in (task.STATE / tid / "journal.jsonl").read_text(encoding="utf-8").splitlines()
+                            if '"event": "submit"' in l and f'"step": "{step}"' in l][-1]
+                    say(f"  harness check: {'PASSED' if last['ok'] else 'FAILED - ' + '; '.join(last['why'])[:300]}")
+
+                in_flight_steps.remove(step)
+                return "CONTINUE"
+        except Exception as e:
+            with lock:
                 try:
-                    count, summary = ans.apply(target, answer)
-                    say(f"  applied the answer: {count} operation(s): {summary}")
-                except (ans.BadAnswer, OSError) as e:
-                    res = task.fail_attempt(tid, f"your answer was not used: {e}")
-                    say(f"  harness check: FAILED - {res['why'][0]}")
-                    continue
-        # The harness checks the FILE after every run, whatever the model said or called
-        # (live run 3: Gemma made no tool call and claimed "submitted successfully").
-        if model_submits() == before:
-            try:
-                res = task.submit(tid, note=f"checked by the driver after the run; the model said: {answer[-300:]}",
-                                  by="driver")
-            except task.Refused as e:
-                res = {"ok": False, "why": [str(e)]}
-            say(f"  harness check: {'PASSED' if res['ok'] else 'FAILED - ' + '; '.join(res['why'])[:300]}")
-        else:
-            last = [json.loads(l) for l in (task.STATE / tid / "journal.jsonl").read_text(encoding="utf-8").splitlines()
-                    if '"event": "submit"' in l][-1]
-            say(f"  harness check: {'PASSED' if last['ok'] else 'FAILED - ' + '; '.join(last['why'])[:300]}")
+                    res = task.fail_attempt(tid, f"Internal error during model execution: {e}", step_id=step)
+                except Exception:
+                    pass
+                say(f"job {n} crashed: {e}")
+                if step in in_flight_steps:
+                    in_flight_steps.remove(step)
+            return "CONTINUE"
+
+    jobs_to_run = a.max_jobs or 200
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = set()
+        n = 1
+
+        while n <= jobs_to_run or futures:
+            with lock:
+                while n <= jobs_to_run:
+                    state = task.packet(tid, by="driver", answer_mode=not use_tools, in_flight_steps=in_flight_steps)
+                    if state["state"] == "WAITING":
+                        break
+                    if state["state"] != "MODEL STEP":
+                        say(f"{state['state']}: {state.get('step', '')} {'; '.join(state.get('why') or [])}")
+                        if not futures:
+                            return 0 if state["state"] == "DONE" else 3
+                        break
+                    step = state["step"]
+                    in_flight_steps.add(step)
+                    futures.add(executor.submit(process_job_inner, n, state))
+                    n += 1
+
+            if not futures:
+                break
+
+            done, futures = wait(futures, return_when=FIRST_COMPLETED)
+            for f in done:
+                res = f.result()
+                if res in ("DONE", "BLOCKED"):
+                    return 0 if res == "DONE" else 3
+                    
     return 3
 
 
