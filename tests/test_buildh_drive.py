@@ -100,3 +100,14 @@ def test_a_hunk_with_no_question_form_is_parked_for_a_person_not_sent_as_line_op
     assert cli.drive("t1", a) == 3 and not called
     s = next(x for x in task.load("t1")["steps"] if x["id"] == "fix-alpha")
     assert s["status"] == "blocked" and "a person ports it" in s["last_why"][0]
+
+
+def test_a_parked_job_does_not_end_the_run(job, quiet, monkeypatch):
+    task.approve("t1", "owner")
+    monkeypatch.setattr(cli, "PACKET_LIMIT", 50)         # every job text is 'too large' -> parked, one after another
+    called = []
+    real = subprocess.run
+    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: called.append(cmd) if cmd[0] == "fake-agent" else real(cmd, *a, **k))
+    assert cli.drive("t1", args()) == 3 and not called
+    t = task.load("t1")
+    assert [s["status"] for s in t["steps"] if s["kind"] == "model"] == ["blocked", "blocked"]     # both, not just the first

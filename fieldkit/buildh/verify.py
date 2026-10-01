@@ -62,7 +62,17 @@ def score_hunk(body, hunk, file=""):
     if not add and not rem:
         return "NO-SIGNAL", "only short, blank or punctuation lines: cannot be judged by text"
     add_in = [l for l in add if l in have]
-    rem_in = [l for l in rem if l in have]
+    # a removal is judged inside the hunk's own span when it can be pinned: `color: inherit;` living elsewhere in
+    # the file made two correct CSS merges 'not in the tree' and reopened them (live run 14, h15/h16)
+    frame = firefox._span(body, {"lines": [l for l in hunk["lines"] if not l.startswith("-")]})   # context only
+    if frame:
+        lo, hi = frame
+        if hi - lo <= 1:                                        # one anchor only: look as far as the hunk reaches
+            hi = min(len(body), lo + len(hunk["lines"]) + 5)    # (may say NOT-APPLIED wrongly, never APPLIED wrongly)
+        here = {body[i].strip() for i in range(lo, hi)}
+    else:
+        here = have
+    rem_in = [l for l in rem if l in here]
     if add and len(add_in) == len(add) and not rem_in:
         return "APPLIED", f"{len(add)} added line(s) present, {len(rem)} removed line(s) gone"
     if not add and rem and not rem_in:

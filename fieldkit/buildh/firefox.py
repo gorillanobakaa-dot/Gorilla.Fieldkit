@@ -1063,6 +1063,7 @@ def auto_substitute(lines, hunk, notes=None):
 
 
 SPECIFIC = 25      # a line shorter than this (a brace, "#endif", a short pref) proves nothing by itself
+PREF_FILES = {"firefox.js", "all.js", "mobile.js", "firefox-branding.js"}      # ported by pref name
 
 
 def obsolete_upstream(body, hunk):
@@ -1127,6 +1128,21 @@ def auto_port(t, s, patch, file, hunk, **kw):
             return {"ok": True, "why": [], "notes": fnotes}
         notes += fnotes
 
+    # Preference files are ported by PREF NAME when the hunk only sets or drops prefs (new prefs need a place:
+    # those go through the merge below)
+    if Path(file).name in PREF_FILES:
+        from . import prefs
+        ch = prefs.changes(hunk)
+        if (ch["set"] or ch["drop"]) and not ch["add"]:
+            new, pnotes, gone = prefs.port(body, hunk)
+            if gone:
+                why = "; ".join(f"pref '{n}' " + (c[0] if c and c[0].startswith("defined") else "no longer exists" +
+                                                   (f" (upstream may have renamed it: {', '.join(c[:3])})" if c else "")) for n, c in gone)
+                return {"ok": False, "defer": True, "why": [why + ". Not a job for a model; the owner decides"]}
+            if new != body:
+                target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
+            return {"ok": True, "why": [], "notes": pnotes}
+
     # Tier 0: nothing to do (upstream already has it, or an earlier attempt landed and the record was reopened)
     if already_upstream(body, hunk):
         return {"ok": True, "why": [], "notes": ["already in place: the added lines are there and the removed ones gone"]}
@@ -1178,6 +1194,12 @@ def check_port(t, s, patch, file, hunk, **kw):
             return {"ok": not why, "why": why[:8]}
         except fluent.Ambiguous:
             pass                                            # fall through to the line-level check
+    if Path(file).name in PREF_FILES:
+        from . import prefs
+        ch = prefs.changes(hunk)
+        if (ch["set"] or ch["drop"]) and not ch["add"]:
+            why = prefs.check(before, after, hunk)
+            return {"ok": not why, "why": why[:8]}
     if before == after and already_upstream(after, hunk):
         # nothing was changed because nothing needed changing (tier 0 / a reopened step whose result had landed):
         # the net-count check below would read the present lines as 'missing' (live run 10, h39)

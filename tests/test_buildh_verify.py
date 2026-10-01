@@ -192,3 +192,16 @@ def test_a_line_removed_and_re_added_indented_is_not_a_removal_to_check():
     body = ["#ifdef NIGHTLY_BUILD", '  pref("media.contextmenu.video-overlay-detection", true);', "#else",
             '  pref("media.contextmenu.video-overlay-detection", false);', "#endif"]
     assert verify.score_hunk(body, hunk)[0] == "APPLIED"
+
+
+def test_a_pure_removal_hunk_is_applied_when_its_lines_are_gone_from_the_span_even_if_they_live_elsewhere():
+    """Live run 14: h15 removed 25 CSS lines; `color: inherit;` and friends exist in other rules, and the
+    verifier called the merge 'not in the tree' and reopened it."""
+    hunk = {"header": "@@", "lines": [" .toolbox-top-unique-selector {", "-  color: inherit;", "-  background-color: var(--toolbox-background-color);",
+                                      "-  padding-inline-end: var(--toolbar-padding-inline);", " }", " ", " .another-unique-selector-after {"]}
+    body = [".toolbox-top-unique-selector {", "}", "", ".another-unique-selector-after {", "}", "", ".other-rule {", "  color: inherit;",
+            "  background-color: var(--toolbox-background-color);", "  padding-inline-end: var(--toolbar-padding-inline);", "}"]
+    assert verify.score_hunk(body, hunk, "browser-shared.css")[0] == "APPLIED"
+    not_done = body[:1] + ["  color: inherit;", "  background-color: var(--toolbox-background-color);",
+                           "  padding-inline-end: var(--toolbar-padding-inline);"] + body[1:]
+    assert verify.score_hunk(not_done, hunk, "browser-shared.css")[0] == "NOT-APPLIED"

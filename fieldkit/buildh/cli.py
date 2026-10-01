@@ -318,8 +318,9 @@ def drive(tid, a):
                 if crashes >= 2:                       # something is wrong with the machine, not the model
                     say("STOPPED: two jobs in a row crashed (see above). Fix the cause; nothing further was started.")
                     return 4
-                if res in ("DONE", "BLOCKED"):
-                    return 0 if res == "DONE" else 3
+                if res == "DONE":
+                    return 0
+                # a parked job ("BLOCKED") is a person's; the plan goes on and packet() ends the run with the list
                     
     return 3
 
