@@ -131,3 +131,24 @@ def test_the_packet_asks_questions_for_a_mixed_hunk_and_says_the_harness_inserts
     t = {"workdir": str(w)}
     text = firefox.packet_port(t, {"id": "x"}, 8000, "05.PREFS/x.patch", "firefox.js", H32, answer_mode=True)
     assert "insert the 7 new line(s) itself" in text and "REMOVE" in text and "DELETE" not in text.split("REMOVE")[0][-200:]
+
+
+FF157_WITH_STRAY_ENDIF = """#if defined(XP_WIN)
+  pref("toolkit.winRegisterApplicationRestart", true);
+#endif
+
+// The values of preferredAction and alwaysAskBeforeHandling before pdf.js
+// became the default.
+pref("pdfjs.previousHandler.preferredAction", 0);
+pref("pdfjs.previousHandler.alwaysAskBeforeHandling", false);
+
+""".splitlines() + FF157
+
+
+def test_a_generic_line_like_endif_never_bounds_the_span_the_real_file_had_one_eleven_lines_early():
+    """The real 157 firefox.js: the anchor landed 11 lines early and a stray #endif started the span."""
+    body = list(FF157_WITH_STRAY_ENDIF)
+    at = firefox._anchor(body, [l[1:] for l in H32["lines"] if l[:1] in (" ", "-")])
+    auto_rm, uncertain = firefox.identify_questions(body, H32, at)
+    assert uncertain == [] and [body[n - 1] for n in auto_rm] == ['pref("sidebar.revamp", true);']
+    assert firefox.auto_merge(body, H32)[9:] == OWNER_155

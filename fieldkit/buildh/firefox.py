@@ -569,6 +569,14 @@ def _key(line):
 # in the target file match the hunk's '-' lines (auto-removes), which are new
 # upstream text (uncertain), and asks the model only about the uncertain ones.
 
+GENERIC = {"#endif", "#else", "#ifdef nightly_build", "#ifndef", "}", "{", "};", "});", "end", "fi", "done"}
+
+
+def _specific(key):
+    """A line that can pin a position on its own: long enough, not punctuation, not a preprocessor closer."""
+    return bool(key) and len(key) >= 12 and not TRIVIAL.match(key) and key.lower() not in GENERIC
+
+
 def identify_questions(lines, hunk, anchor):
     """Which target-file lines to auto-remove and which to ask about.
 
@@ -590,12 +598,15 @@ def identify_questions(lines, hunk, anchor):
     # Find the span in the target file that corresponds to this hunk:
     # walk from the anchor forward, matching context and removed lines.
     ctx_and_rm = [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")]
-    # Find first and last match to bound the region
+    # The span is bounded by SPECIFIC lines only. A generic line (#endif, #else, a brace) matches anywhere:
+    # on the real firefox.js h32 the anchor was 11 lines early and a stray `#endif` from an unrelated block
+    # became the span's start, so nine unrelated lines turned into 'questions' and that #endif into a removal.
+    specific = {k for k in removed_keys | context_keys if _specific(k)}
     first_match = None
     last_match = None
     for i in range(max(0, anchor - 5), min(len(lines), anchor + len(ctx_and_rm) + 30)):
         k = _key(lines[i])
-        if k in removed_keys or k in context_keys:
+        if k in specific:
             if first_match is None:
                 first_match = i
             last_match = i
