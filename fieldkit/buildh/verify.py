@@ -248,6 +248,21 @@ def add_dedupe_steps(task_id, rep):
     return added
 
 
+def _upstream_changes_inside_removed_blocks(new_pristine, old_pristine, rel, hr):
+    """True when every line upstream added to `rel` between the two versions is a line the fork's hunks remove
+    (browser/themes/addons/moz.build, live run 16: upstream edited the aiwindow-nova GeneratedFile block that the
+    owner excises whole, so the ported file equals the owner's 155 file and loses nothing)."""
+    old_lines = {l.strip() for l in old_pristine.decode("utf-8", "replace").splitlines()}
+    added = [l.strip() for l in new_pristine.decode("utf-8", "replace").splitlines() if l.strip() and l.strip() not in old_lines]
+    if not added:
+        return True
+    removed = set()
+    for _, _, file, _, h in hunks_in_scope(hr):
+        if file == rel:
+            removed.update(l[1:].strip() for l in h["lines"] if l.startswith("-"))
+    return all(l in removed for l in added)
+
+
 def verify(task_id):
     """-> report dict. Read-only."""
     t = task.load(task_id)
@@ -326,6 +341,8 @@ def verify(task_id):
         new_pristine = subprocess.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True).stdout
         if new_pristine == (old_pristine / rel).read_bytes():
             rep["old_tree_copies_harmless"].append(rel)       # upstream did not change it: same result either way
+        elif _upstream_changes_inside_removed_blocks(new_pristine, (old_pristine / rel).read_bytes(), rel, hr):
+            rep["old_tree_copies_harmless"].append(rel)       # upstream only touched lines the fork removes anyway
         else:
             rep["old_tree_copies"].append(rel)
     # 4. stray edits: changed files that no in-scope patch or NEW_FILES names

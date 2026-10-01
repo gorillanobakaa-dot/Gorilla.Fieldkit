@@ -365,6 +365,8 @@ def submit(task_id, note="", by="cli", step_id=None):
         why.append("nothing was changed, and the tree does not hold the result: " + "; ".join(chk.get("why") or [])[:200])
     if not why:
         s["hand_port"] = by == "hand"                       # a person's declared port is judged by meaning, anything else by the letter
+        if by == "hand" and note:
+            s["hand_note"] = note                           # `keeps: <line>` declarations live here, journaled with the submit
         res = _call(s["check"], t, s, **(s.get("args") or {}))
         why = [] if res.get("ok") else list(res.get("why") or ["the check failed"])
     journal(t, "submit", step=s["id"], changed=changed, outside=outside, ok=not why, why=why, note=note[:500], by=by)

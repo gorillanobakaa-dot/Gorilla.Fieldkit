@@ -381,7 +381,7 @@ def still_holds(s, file, hunk, before, now):
     hunk's result: later hunks legitimately touch the same file, so no collateral here. Live run 15: the literal
     re-check called the Fluent transfer of browser.ftl h30 a regression and failed the final checks three times."""
     if s.get("hand_port") or s.get("done_by") == "hand":
-        return hand_port_holds(now, hunk, before)
+        return hand_port_holds(now, hunk, before, hand_keeps(s.get("hand_note")))
     if file.endswith(".ftl"):
         from . import fluent
         try:
@@ -684,6 +684,7 @@ def collateral(before, after, hunk, extra_removals=None):
     if extra_removals:
         may_remove.update(_key(l) for l in extra_removals)
     may_add = collections.Counter(_key(l) for l in added)
+    hunk_idents = set().union(*(_idents(l) for l in removed + added)) if removed + added else set()
     gone, new = collections.Counter(), collections.Counter()
     sm = difflib.SequenceMatcher(None, [l.strip() for l in before], [l.strip() for l in after], autojunk=False)
     for op, i1, i2, j1, j2 in sm.get_opcodes():
@@ -702,8 +703,9 @@ def collateral(before, after, hunk, extra_removals=None):
                 # a line upstream added INSIDE a block the hunk removes (both neighbours are the hunk's '-' lines)
                 # goes with the block: the port, not damage (SessionStore h6: `let activeIndex = this.historyIndex(tab);`)
                 nb = [_key(before[j]) for j in (i - 1, i + 1) if 0 <= j < len(before) and before[j].strip()]
-                if _key(before[i]) not in may_remove and len(nb) == 2 and all(k in may_remove for k in nb):
-                    may_remove[_key(before[i])] += 1
+                if _key(before[i]) not in may_remove and len(nb) == 2 and all(k in may_remove for k in nb) \
+                        and (TRIVIAL.match(before[i].strip()) or _idents(before[i]) & hunk_idents):
+                    may_remove[_key(before[i])] += 1       # ...but `"ipc",` added by upstream inside the block is not
                 gone[before[i].strip()] += 1
         if op in ("insert", "replace"):
             new.update(l.strip() for l in after[j1:j2] if l.strip())
@@ -1619,7 +1621,19 @@ def auto_port(t, s, patch, file, hunk, **kw):
 _TOKEN = re.compile(r"[A-Za-z_$][\w$]{5,}|\"[^\"]{4,}\"|'[^']{4,}'|`[^`]{4,}`")
 
 
-def hand_port_check(before, after, hunk, pristine=None):
+def hand_keeps(note):
+    """The removed lines a hand port keeps on purpose, declared in the submit note as `keeps: <line>` (one per
+    line or `;`-separated). ml/moz.build h1 (live run 16): upstream added `"ipc",` inside the `if ... android`
+    block the owner's hunk removes; the port must keep the `if` and drop only backends/llama."""
+    out = []
+    for chunk in re.split(r"[\n;]", note or ""):
+        m = re.match(r"\s*keeps?:\s*(.+?)\s*$", chunk)
+        if m:
+            out.append(m.group(1).strip())
+    return out
+
+
+def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     """A PERSON ported this hunk by hand (not a model): the shape may differ from the patch, the meaning may not.
     Required: every specific removed line is gone (from the frame when it can be pinned, else the file); every
     distinctive token of the added lines (identifiers of 6+ chars, quoted strings) is present near the change;
@@ -1649,9 +1663,12 @@ def hand_port_check(before, after, hunk, pristine=None):
     ca = collections.Counter(l.strip() for l in after)
     cn = collections.Counter(l.strip() for l in after[lo:hi])
     want_gone = collections.Counter(l.strip() for l in removed)
+    kept = {x.strip() for x in keeps}
     for k, n in want_gone.items():
         if not _specific(_key(k)) or k.startswith(("/*", "//", "*", "<!--")):
             continue                                        # a comment follows its block; it proves nothing alone
+        if k in kept or any(d.startswith(k) for d in kept):
+            continue                                        # declared (a reason may follow the line), journaled with the submit
         wide = _judgeable_rename(k)
         here = ca[k] if wide else cn[k]
         if not here:
@@ -1691,13 +1708,14 @@ def hand_port_check(before, after, hunk, pristine=None):
     return why
 
 
-def hand_port_holds(now, hunk, pristine=None):
+def hand_port_holds(now, hunk, pristine=None, keeps=()):
     """Does a hand port's result still stand in `now`? The meaning check (specific removed lines gone, the added
     text's tokens present) without the collateral part: later hunks touch the same file. Used by the verifier and
     the final re-check for steps done by hand (live run 16: the literal verifier reopened four hand ports, the tiers
     re-ran on them and one Fluent port removed the owner's moved message a second time). With `pristine` (the
     upstream file) removals are judged by count, pristine -> now."""
-    return [w for w in hand_port_check(pristine if pristine is not None else now, now, hunk, pristine) if not w.startswith("you removed")]
+    return [w for w in hand_port_check(pristine if pristine is not None else now, now, hunk, pristine, keeps)
+            if not w.startswith("you removed")]
 
 
 def check_port(t, s, patch, file, hunk, **kw):
@@ -1711,7 +1729,7 @@ def check_port(t, s, patch, file, hunk, **kw):
         root = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
         pristine = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
             "utf-8", "replace").splitlines() if root else None
-        why = hand_port_check(before, after, hunk, pristine or None)
+        why = hand_port_check(before, after, hunk, pristine or None, keeps=hand_keeps(s.get("hand_note")))
         return {"ok": not why, "why": why[:8]}
     if file.endswith(".ftl"):
         from . import fluent
