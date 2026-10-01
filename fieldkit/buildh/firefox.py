@@ -680,14 +680,7 @@ def auto_port(t, s, patch, file, hunk, **kw):
     body = lines[:-1] if trailing else lines
     notes = []
 
-    # Tier 0: if the answer key exists, use it unconditionally
-    harness_root = t.get("meta", {}).get("harness_root")
-    if harness_root:
-        answer_key = Path(harness_root) / "src" / file
-        if answer_key.is_file():
-            shutil.copy2(str(answer_key), str(target))
-            s["answer_key_used"] = True
-            return {"ok": True, "why": [], "notes": ["copied answer key from Gorilla.firefox/src (handles all hunks for this file)"]}
+    # (Tier 0 answer-key fallback removed: copying Firefox 156 files over 157 breaks upstream changes)
 
     # Tier 1: transplant (exact contiguous-block matching)
     try:
@@ -715,17 +708,13 @@ def check_port(t, s, patch, file, hunk, **kw):
     before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
-    if s.get("answer_key_used"):
-        return {"ok": True, "why": []}
+    # No flag, answer key or other shortcut may skip these checks (the overnight run of 2026-10-01 did).
     why = hunk_problems(before, after, hunk)
-    # When the answer key was used, the file may contain changes from other hunks too;
-    # skip the collateral check since the file is the known-good final state.
-    if not s.get("answer_key_used"):
-        extra = s.get("question_removals")  # set by apply_question_answers via the driver
-        why += collateral(before, after, hunk, extra_removals=extra)
-        _, added, _ = hunk_sides(hunk)
-        if len(after) > len(before) + 3 * max(1, len(added)) + 20:
-            why.append(f"{len(after) - len(before)} lines added for a {len(added)}-line hunk: change only what the hunk changes")
+    extra = s.get("question_removals")  # set by apply_question_answers via the driver
+    why += collateral(before, after, hunk, extra_removals=extra)
+    _, added, _ = hunk_sides(hunk)
+    if len(after) > len(before) + 3 * max(1, len(added)) + 20:
+        why.append(f"{len(after) - len(before)} lines added for a {len(added)}-line hunk: change only what the hunk changes")
     return {"ok": not why, "why": why[:8]}
 
 

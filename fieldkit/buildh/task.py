@@ -30,6 +30,7 @@ import hashlib
 import importlib
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -290,6 +291,11 @@ def submit(task_id, note="", by="cli", step_id=None):
                      else "your changes were put back; call build_harness_next and try again")}
 
 
+def owner_terminal():
+    """True only at a real terminal: an agent running shell commands has none."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def unblock(task_id, step_id, how):
     """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint)."""
     t = load(task_id)
@@ -297,6 +303,11 @@ def unblock(task_id, step_id, how):
     if how == "retry":
         s["status"], s["attempts"], s["last_why"] = "pending", 0, None     # a fresh start carries no old advice
     elif how == "skip":
+        # Overnight 2026-10-01 a supervising agent skipped ~70 steps, incl. the failing final-checks.
+        if s["kind"] == "script" or s["id"].startswith("final"):
+            raise Refused("a check step cannot be skipped: fix what it reports, then retry")
+        if not owner_terminal():
+            raise Refused("skip is for the owner at a real terminal; an agent's shell is not one")
         s["status"] = "done"
         s["skipped_by_owner"] = True
         checkpoint(t, f"{step_id} (done by the owner)")

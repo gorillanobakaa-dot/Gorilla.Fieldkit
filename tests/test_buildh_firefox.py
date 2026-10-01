@@ -84,7 +84,8 @@ def test_parse_patch_and_patch_output():
     assert firefox.failures_from_output(out) == {"failed": [("prefs.js", 1)], "missing": False}
 
 
-def test_whole_workflow_script_does_the_easy_parts_model_gets_one_hunk(world):
+def test_whole_workflow_script_does_the_easy_parts_model_gets_one_hunk(world, monkeypatch):
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)   # the test plays the owner at a terminal
     p = task.packet("ff")
     w = world / "work" / "157.0"
     assert p["step"].startswith("port-05.PREFS-telemetry")
@@ -274,49 +275,33 @@ def test_auto_substitute_refuses_ambiguous():
         firefox.auto_substitute(lines, hunk)
 
 
-# ── answer-key fallback (run 7 improvement) ─────────────────────────────────
+# -- the answer key is never a shortcut (overnight run 2026-10-01 copied 58 old files over 157) -----
 
-def test_answer_key_fallback_copies_file_when_transplant_fails(world):
-    """When both transplant and auto_substitute fail, the answer key is used."""
-    # Advance the workflow so the workdir is created by step_workcopy
+def test_the_answer_key_is_never_copied_over_the_new_source(world):
     task.packet("ff")
     harness = world / "Gorilla.firefox"
-    w = world / "work" / "157.0"
-    # Create a file that the transplant can't handle (upstream rewrote the line)
-    target = w / "theme.css"
-    target.write_text(":root {\n  --accent: red;\n  --new-thing: green;\n}\n",
-                      encoding="utf-8", newline="")
-    # Create the answer key
-    src = harness / "src" / "theme.css"
-    src.parent.mkdir(parents=True, exist_ok=True)
-    src.write_text(":root {\n  --accent: purple;\n  --new-thing: green;\n}\n",
-                   encoding="utf-8", newline="")
+    target = world / "work" / "157.0" / "theme.css"
+    target.write_text(":root {\n  --accent: red;\n  --new-thing: green;\n}\n", encoding="utf-8", newline="")
+    key = harness / "src" / "theme.css"
+    key.parent.mkdir(parents=True, exist_ok=True)
+    key.write_text(":root {\n  --accent: purple;\n}\n", encoding="utf-8", newline="")
+    before = target.read_text(encoding="utf-8")
     t = task.load("ff")
     t["meta"]["harness_root"] = str(harness)
     hunk = firefox.parse_patch(LOOK_PATCH)[0]["hunks"][0]
-    s = {"id": "test-ak", "allowed": ["theme.css"]}
-    result = firefox.auto_port(t, s, "08.Look/accent.patch", "theme.css", hunk)
-    assert result["ok"]
-    assert s.get("answer_key_used")
-    assert target.read_text(encoding="utf-8") == src.read_text(encoding="utf-8")
+    s = {"id": "x", "allowed": ["theme.css"]}
+    firefox.auto_port(t, s, "08.Look/accent.patch", "theme.css", hunk)
+    assert not s.get("answer_key_used")
+    assert target.read_text(encoding="utf-8") != key.read_text(encoding="utf-8") or target.read_text(encoding="utf-8") == before
 
 
-def test_check_port_skips_collateral_when_answer_key_used(world):
-    """When the answer key was used, collateral check is skipped."""
-    # Advance the workflow so the workdir is created by step_workcopy
+def test_no_flag_on_a_step_can_switch_the_port_check_off(world):
     task.packet("ff")
-    w = world / "work" / "157.0"
-    target = w / "theme.css"
-    # Write a file with MORE changes than just the hunk (simulating answer key with multi-hunk changes)
-    target.write_text(":root {\n  --accent: purple;\n  --extra: thing;\n}\n",
-                      encoding="utf-8", newline="")
+    target = world / "work" / "157.0" / "theme.css"
+    target.write_text(":root {\n  --accent: purple;\n  --extra: thing;\n}\n", encoding="utf-8", newline="")
     t = task.load("ff")
     hunk = firefox.parse_patch(LOOK_PATCH)[0]["hunks"][0]
-    # Without answer_key_used, collateral should flag the extra line
-    s_normal = {"id": "test-normal"}
-    result_normal = firefox.check_port(t, s_normal, "08.Look/accent.patch", "theme.css", hunk)
-    # With answer_key_used, collateral should be skipped
-    s_ak = {"id": "test-ak", "answer_key_used": True}
-    result_ak = firefox.check_port(t, s_ak, "08.Look/accent.patch", "theme.css", hunk)
-    # The answer-key version should be more lenient
-    assert len(result_ak.get("why", [])) <= len(result_normal.get("why", []))
+    plain = firefox.check_port(t, {"id": "a"}, "08.Look/accent.patch", "theme.css", hunk)
+    flagged = firefox.check_port(t, {"id": "b", "answer_key_used": True}, "08.Look/accent.patch", "theme.css", hunk)
+    assert plain == flagged
+    assert not plain["ok"]

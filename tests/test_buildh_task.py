@@ -136,3 +136,31 @@ def test_owner_can_rewind_a_step_that_passed_but_is_wrong(job):
     assert s["current"]["id"] == "fix-alpha" and s["counts"].get("done") == 1 and out["checkpoints kept"] >= 1
     with pytest.raises(task.Refused, match="never passed"):
         task.rewind("t1", "fix-beta")
+
+
+# -- skip is the owner's, at a real terminal (overnight run 2026-10-01 skipped ~70 steps, incl. failing checks) --
+
+def test_skip_is_refused_from_an_agents_shell(job, monkeypatch):
+    task.approve("t1", "owner")
+    task.packet("t1")          # runs the prepare step, which adds the model steps
+    monkeypatch.setattr(task, "owner_terminal", lambda: False)
+    with pytest.raises(task.Refused, match="real terminal"):
+        task.unblock("t1", "fix-alpha", "skip")
+    assert next(s for s in task.load("t1")["steps"] if s["id"] == "fix-alpha")["status"] != "done"
+
+
+def test_a_check_step_can_never_be_skipped_even_by_the_owner(job, monkeypatch):
+    task.approve("t1", "owner")
+    task.packet("t1")          # runs the prepare step, which adds the model steps
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    with pytest.raises(task.Refused, match="cannot be skipped"):
+        task.unblock("t1", "prepare", "skip")
+
+
+def test_the_owner_at_a_terminal_can_skip_a_model_step(job, monkeypatch):
+    task.approve("t1", "owner")
+    task.packet("t1")          # runs the prepare step, which adds the model steps
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    task.unblock("t1", "fix-alpha", "skip")
+    s = next(s for s in task.load("t1")["steps"] if s["id"] == "fix-alpha")
+    assert s["status"] == "done" and s["skipped_by_owner"]
