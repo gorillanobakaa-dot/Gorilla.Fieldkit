@@ -425,6 +425,12 @@ def run(a, emit):
             return 0
         emit(b, lambda b: print("\n".join(decision.show(b, plain=not a.technical))))
         return 0
+    if act == "record":
+        from . import handedit
+        files = [x for x in a.args[1:]] if len(a.args) > 1 else []
+        ids = handedit.record(tid, files, a.note or "")
+        emit({"ok": True, "recorded": ids}, lambda r: print("recorded: " + ", ".join(r["recorded"])))
+        return 0
     if act == "build-run":
         from . import buildrun
         r = buildrun.run(tid, force=bool(getattr(a, "force", False)), say=lambda m: print(m, flush=True))
