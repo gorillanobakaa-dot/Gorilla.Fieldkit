@@ -205,3 +205,16 @@ def test_a_pure_removal_hunk_is_applied_when_its_lines_are_gone_from_the_span_ev
     not_done = body[:1] + ["  color: inherit;", "  background-color: var(--toolbox-background-color);",
                            "  padding-inline-end: var(--toolbar-padding-inline);"] + body[1:]
     assert verify.score_hunk(not_done, hunk, "browser-shared.css")[0] == "NOT-APPLIED"
+
+
+def test_a_removed_block_with_only_trivial_context_counts_as_present_only_when_its_lines_still_stand_together():
+    """Real moz.build h2: the hunk removes a whole GeneratedFile(...) block between `)` and a blank; its lines
+    `script="process_tokens.py",` and `entry_point="process_tokens",` live in every other such block."""
+    hunk = {"header": "@@", "lines": [" )", " ", "-GeneratedFile(", '-    "aiwindow-nova/manifest.json",', '-    script="process_tokens.py",',
+                                      '-    entry_point="process_tokens",', "-)", " ", " GeneratedFile("]}
+    done = [")", "", "GeneratedFile(", '    "other-thing/manifest.json",', '    script="process_tokens.py",',
+            '    entry_point="process_tokens",', ")", "", "GeneratedFile(", '    "third/manifest.json",', '    script="process_tokens.py",', ")"]
+    assert verify.score_hunk(done, hunk, "moz.build")[0] == "APPLIED"
+    not_done = [")", "", "GeneratedFile(", '    "aiwindow-nova/manifest.json",', '    script="process_tokens.py",',
+                '    entry_point="process_tokens",', ")", ""] + done[2:]
+    assert verify.score_hunk(not_done, hunk, "moz.build")[0] == "NOT-APPLIED"

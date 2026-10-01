@@ -27,9 +27,14 @@ def _norm(line):
 
 
 def changes(hunk):
-    removed = {name_of(l[1:]): l[1:] for l in hunk["lines"] if l.startswith("-") and name_of(l[1:])}
-    added = {name_of(l[1:]): l[1:] for l in hunk["lines"] if l.startswith("+") and name_of(l[1:])}
-    out = {"set": {}, "drop": [], "add": []}
+    minus = [name_of(l[1:]) for l in hunk["lines"] if l.startswith("-") and name_of(l[1:])]
+    plus = [name_of(l[1:]) for l in hunk["lines"] if l.startswith("+") and name_of(l[1:])]
+    # a pref named twice on one side (`#ifdef NIGHTLY_BUILD ... #else ...`) is not a simple set: by-name port
+    # cannot say which copy; h39 (2026-10-01) re-added the same pref true/false under #ifdef
+    complex_ = {n for n in minus if minus.count(n) > 1} | {n for n in plus if plus.count(n) > 1}
+    removed = {name_of(l[1:]): l[1:] for l in hunk["lines"] if l.startswith("-") and name_of(l[1:]) and name_of(l[1:]) not in complex_}
+    added = {name_of(l[1:]): l[1:] for l in hunk["lines"] if l.startswith("+") and name_of(l[1:]) and name_of(l[1:]) not in complex_}
+    out = {"set": {}, "drop": [], "add": [], "complex": sorted(complex_)}
     for n, line in added.items():
         if n in removed:
             if _norm(removed[n]) != _norm(line):

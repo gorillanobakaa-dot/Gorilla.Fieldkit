@@ -258,6 +258,7 @@ def check(before, after, hunk, mapping=None, collateral=True):
             intended_now[j] = p
         elif i in b or i in sem["added"]:
             intended_now[i] = parts
+    intended_now = {i: [tuple(p) for p in parts] for i, parts in intended_now.items()}   # JSON round-trips give lists
     for i, parts in intended_now.items():
         if i not in a:
             why.append(f"message {i} is missing")

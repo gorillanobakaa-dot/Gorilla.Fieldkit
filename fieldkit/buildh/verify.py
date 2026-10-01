@@ -29,6 +29,23 @@ def _judgeable(lines, floor):
     return [l.strip() for l in lines if len(l.strip()) >= floor and not firefox.TRIVIAL.match(l.strip())]
 
 
+def _sequence_present(body, lines, gap=3):
+    """Do `lines` (stripped) occur in `body` in order, each within `gap` lines of the previous?"""
+    stripped = [l.strip() for l in body]
+    starts = [i for i, l in enumerate(stripped) if l == lines[0]]
+    for s in starts:
+        pos, ok = s, True
+        for want in lines[1:]:
+            nxt = next((i for i in range(pos + 1, min(len(stripped), pos + 1 + gap)) if stripped[i] == want), None)
+            if nxt is None:
+                ok = False
+                break
+            pos = nxt
+        if ok:
+            return True
+    return False
+
+
 def score_hunk(body, hunk, file=""):
     """-> (verdict, detail). `body` is the target file's lines, or None when the file does not exist."""
     if file.endswith(".ftl") and body is not None:
@@ -70,9 +87,14 @@ def score_hunk(body, hunk, file=""):
         if hi - lo <= 1:                                        # one anchor only: look as far as the hunk reaches
             hi = min(len(body), lo + len(hunk["lines"]) + 5)    # (may say NOT-APPLIED wrongly, never APPLIED wrongly)
         here = {body[i].strip() for i in range(lo, hi)}
+        rem_in = [l for l in rem if l in here]
     else:
-        here = have
-    rem_in = [l for l in rem if l in here]
+        # no context to frame by (`],`, `)`): the removed block counts as still present only if its specific
+        # lines are still there TOGETHER, in order, not scattered copies in other blocks (moz.build h2,
+        # tokens-brand.css h5 on 2026-10-01: `script=`, `entry_point=` live in every GeneratedFile block)
+        rem_in = rem if rem and _sequence_present(body, rem) else []
+    if not frame and rem and not rem_in and not add:
+        return "APPLIED", f"the {len(rem)} removed line(s) no longer stand together anywhere"
     if add and len(add_in) == len(add) and not rem_in:
         return "APPLIED", f"{len(add)} added line(s) present, {len(rem)} removed line(s) gone"
     if not add and rem and not rem_in:
@@ -197,7 +219,18 @@ def verify(task_id):
     changed = [l for l in _git(w, "diff", "--name-only", root[0], "HEAD").splitlines() if l] if root else []
     old_pristine = older_pristine(t["meta"].get("upstream", {}).get("version"))
     rep["old_tree_copies_harmless"], rep["old_tree_copies_undetermined"] = [], []
+    pset0, groups0 = firefox._policy(hr)
+    shipped = set()                                               # files the patch set itself ships whole: expected identical
+    for g, spec in groups0.items():
+        if spec.get("status") != "enabled":
+            continue
+        shipped.update(rel for _, rel in firefox.new_files(pset0, g))
+        rf = pset0 / g / "REPLACE_FILES"
+        if rf.is_dir():
+            shipped.update(p.relative_to(rf).as_posix() for p in rf.rglob("*") if p.is_file())
     for rel in changed:
+        if rel in shipped:
+            continue
         p, k = w / rel, key_root / rel
         if not (p.is_file() and k.is_file() and p.stat().st_size == k.stat().st_size and _sha(p) == _sha(k)):
             continue
@@ -215,6 +248,11 @@ def verify(task_id):
     for g, spec in groups.items():
         if spec.get("status") == "enabled":
             named.update(rel for _, rel in firefox.new_files(pset, g))
+    named |= firefox.manifest_deletions(hr)                       # a file the fork deletes on purpose is not a stray edit
+    for g, spec in groups.items():
+        rf = pset / g / "REPLACE_FILES"
+        if spec.get("status") == "enabled" and rf.is_dir():
+            named.update(p.relative_to(rf).as_posix() for p in rf.rglob("*") if p.is_file())
     rep["stray_edits"] = [rel for rel in changed if rel not in named]
     # 5. new files not in the tree
     for g, spec in groups.items():
