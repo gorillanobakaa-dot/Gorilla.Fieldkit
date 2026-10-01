@@ -150,6 +150,13 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
     stops = []
     rows = cg.gate(task_id, harness_root=None, write=True)
     bad = [r for r in rows if not r["ok"]]
+    if bad and all(r["check"].startswith("final checks passed") for r in bad):
+        # the only thing missing is a final re-check after the last change: run it (a script step, no model)
+        say("gate: final checks are stale - re-running them")
+        task.unblock(task_id, "final-checks", "retry")
+        task.advance(task_id)
+        rows = cg.gate(task_id, harness_root=None, write=True)
+        bad = [r for r in rows if not r["ok"]]
     if bad:
         say("BUILD GATE FAILED: " + "; ".join(f"{r['check']}: {r['evidence']}" for r in bad[:3]))
         return {"ok": False, "why": "build gate", "rows": rows}

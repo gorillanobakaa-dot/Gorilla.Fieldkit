@@ -427,7 +427,7 @@ def run(a, emit):
         return 0
     if act == "build-run":
         from . import buildrun
-        r = buildrun.run(tid, force=bool(getattr(a, "force", False)), say=say)
+        r = buildrun.run(tid, force=bool(getattr(a, "force", False)), say=lambda m: print(m, flush=True))
         emit(r, lambda r: print("BUILD " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or [s["signature"] for s in r.get("stops", [])]))))
         return 0 if r.get("ok") else 3
     if act in ("build-gate", "build-verify"):
