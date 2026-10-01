@@ -96,7 +96,7 @@ def test_the_real_h30_means_three_wording_changes_and_nothing_else():
 
 def test_the_real_h30_is_deferred_to_the_owner_with_the_rename_candidates_named():
     new, notes, gone = fluent.port(list(FF157), H30)
-    assert new == FF157 and notes == []
+    assert new == FF157 and all("older name" in n for n in notes)
     assert dict(gone)["urlbar-view-context-menu-open-in-tab"] == ["urlbar-view-context-menu-open-in-tab2"]
     assert dict(gone)["urlbar-view-context-menu-open-in-window"] == ["urlbar-view-context-menu-open-in-window2"]
 
@@ -134,14 +134,65 @@ def test_a_hunk_that_cuts_a_message_is_ambiguous():
         fluent.semantics(hunk)
 
 
-def test_auto_port_defers_h30_and_applies_a_wording_change_through_the_fluent_tier(tmp_path):
+def test_auto_port_transfers_h30_and_applies_a_wording_change_through_the_fluent_tier(tmp_path):
     w = tmp_path / "w"
     (w / "browser").mkdir(parents=True)
     (w / "browser" / "browser.ftl").write_text("\n".join(FF157) + "\n", encoding="utf-8", newline="")
     t = {"workdir": str(w)}
     res = firefox.auto_port(t, {"id": "x"}, "08.Look/b.patch", "browser/browser.ftl", H30)
-    assert res.get("defer") and "open-in-tab2" in res["why"][0]
+    assert res["ok"] and any("transferred" in n for n in res["notes"])          # the renamed messages take the wording
     hunk = {"header": "@@", "lines": [" urlbar-group-quickactions =", "-  .label = Quick Actions", "+    .label = Gorilla Actions"]}
     res = firefox.auto_port(t, {"id": "y"}, "08.Look/b.patch", "browser/browser.ftl", hunk)
     assert res["ok"] and res["notes"] == ["ported by message id: 1 changed, 0 added, 0 removed"]
     assert "  .label = Gorilla Actions" in (w / "browser" / "browser.ftl").read_text(encoding="utf-8").splitlines()
+
+
+# -- the owner's rebranding carried onto messages upstream renamed or restructured ------------------------------
+
+def test_the_real_h30_wording_is_transferred_onto_the_renamed_messages_and_the_drift_pair_is_left_alone():
+    new, notes, gone = fluent.port(list(FF157), H30)
+    assert gone and dict(gone)["urlbar-view-context-menu-open-in-tab"] == ["urlbar-view-context-menu-open-in-tab2"]
+    assert any("older name of urlbar-result-menu-trending-dont-show2" in n for n in notes)      # drift, not rebranding
+    new, mapping, tnotes, still = fluent.transfer(new, H30, gone)
+    assert still == []
+    assert "urlbar-view-context-menu-open-in-tab2 = Open in New Gorilla Tab" in new
+    assert "urlbar-view-context-menu-open-in-window2 = Open in New Gorilla Window" in new
+    assert new[new.index("urlbar-view-context-menu-open-in-tab2 = Open in New Gorilla Tab") + 1] == "    .accesskey = w"
+    assert "urlbar-result-menu-trending-dont-show2 = Don’t show trending searches" in new       # upstream's name kept
+    assert "urlbar-result-menu-trending-dont-show =" not in new                                  # the old name NOT added back
+    assert mapping["urlbar-view-context-menu-open-in-tab"][0] == "urlbar-view-context-menu-open-in-tab2"
+    assert fluent.check(FF157, new, H30, mapping) == []
+
+
+def test_transfer_applies_the_same_edit_when_upstream_also_changed_other_words():
+    hunk = {"header": "@@", "lines": [" urlbar-group-old-name =", "-  .label = Open in New Tab", "+    .label = Open in New Gorilla Tab"]}
+    body = list(FF157) + ["urlbar-group-old-name2 =", "    .label = Open in New Tab (beta)"]
+    new, notes, gone = fluent.port(body, hunk)
+    new, mapping, tnotes, still = fluent.transfer(new, hunk, gone)
+    assert still == [] and "    .label = Open in New Gorilla Tab (beta)" in new
+
+
+def test_transfer_refuses_when_the_edited_fragment_is_not_there_or_the_candidate_is_ambiguous():
+    hunk = {"header": "@@", "lines": [" urlbar-group-old-name =", "-  .label = Open in New Tab", "+    .label = Open in New Gorilla Tab"]}
+    body = list(FF157) + ["urlbar-group-old-name2 =", "    .label = Something completely different"]
+    new, notes, gone = fluent.port(body, hunk)
+    new2, mapping, tnotes, still = fluent.transfer(new, hunk, gone)
+    assert still == gone and new2 == new and mapping == {}
+    body = list(FF157) + ["urlbar-group-old-name2 =", "    .label = Open in New Tab", "urlbar-group-old-name3 =", "    .label = Open in New Tab"]
+    new, notes, gone = fluent.port(body, hunk)
+    assert len(dict(gone)["urlbar-group-old-name"]) == 2
+    assert fluent.transfer(new, hunk, gone)[3] == gone
+
+
+def test_auto_port_transfers_h30_and_the_check_accepts_the_mapping(tmp_path):
+    w = tmp_path / "w"
+    (w / "browser").mkdir(parents=True)
+    (w / "browser" / "browser.ftl").write_text("\n".join(FF157) + "\n", encoding="utf-8", newline="")
+    subprocess.run(["git", "init", "-q", str(w)], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "157"], check=True)
+    t, s = {"workdir": str(w)}, {"id": "x"}
+    res = firefox.auto_port(t, s, "08.Look/b.patch", "browser/browser.ftl", H30)
+    assert res["ok"] and "fluent_map" in s, res
+    assert "urlbar-view-context-menu-open-in-tab2 = Open in New Gorilla Tab" in (w / "browser" / "browser.ftl").read_text(encoding="utf-8").splitlines()
+    assert firefox.check_port(t, s, "08.Look/b.patch", "browser/browser.ftl", H30) == {"ok": True, "why": []}

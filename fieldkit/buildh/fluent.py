@@ -67,6 +67,11 @@ def _by_id(ents):
     return {e["id"]: e for e in ents}
 
 
+def _texts(parts):
+    """The texts of a message with `.label` and the plain value treated as one slot (upstream folds them)."""
+    return {("value" if n == ".label" else n): t for n, t in parts}
+
+
 def semantics(hunk):
     """-> {"reformat_only": bool, "changed": {id: parts}, "added": {id: parts}, "removed": [ids]}"""
     hl = hunk["lines"]
@@ -84,11 +89,11 @@ def semantics(hunk):
 
 
 def _render(entry_id, parts, indent):
-    if len(parts) == 1 and parts[0][0] == "value":
-        return [f"{entry_id} = {parts[0][1]}"]
-    out = [f"{entry_id} ="]
+    value = next((t for n, t in parts if n == "value"), None)
+    out = [f"{entry_id} = {value}" if value is not None else f"{entry_id} ="]       # Fluent's own form: value on the id line
     for name, text in parts:
-        out.append(f"{indent}{name} = {text}" if name != "value" else f"{indent}{text}")
+        if name != "value":
+            out.append(f"{indent}{name} = {text}")
     return out
 
 
@@ -98,17 +103,41 @@ def candidates(gone_id, ids):
     return sorted(i for i in ids if i != gone_id and (i.startswith(stem) or re.sub(r"\d+$", "", i) == stem))
 
 
+def intent(hunk):
+    """semantics() with drift resolved: -> (sem, notes). A removed id and an added id that are the same message under
+    two names (dont-show2 vs dont-show) are not a change the owner made: the owner's tree carries an OLDER name.
+    Same text -> nothing to port; different text -> the owner's wording belongs on the name the file has (never add
+    the old name back)."""
+    sem = semantics(hunk)
+    notes = []
+    for r in list(sem["removed"]):
+        twin = next((a_id for a_id in sem["added"] if r in candidates(a_id, [r]) or a_id in candidates(r, [a_id])), None)
+        if twin is None:
+            continue
+        before_r = _by_id(entries([l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")]))[r]["parts"]
+        sem["removed"].remove(r)
+        own = sem["added"].pop(twin)
+        if _texts(own) == _texts(before_r):                 # `.label =` and a plain value are the same text
+            notes.append(f"{twin}: an older name of {r} in the owner's tree, same text: nothing to port")
+        else:
+            sem["changed"][r] = own
+            notes.append(f"{twin}: the owner's wording goes onto {r}, the name this Firefox uses")
+    return sem, notes
+
+
 def port(lines, hunk):
     """-> (new_lines, notes, gone) ; gone = [(id, [candidate ids])]. With gone ids nothing is written: the owner
     decides whether the change belongs to the renamed message."""
-    sem = semantics(hunk)
+    sem, notes = intent(hunk)
     if sem["reformat_only"]:
         return list(lines), ["reformat only: the hunk changes whitespace, not a single message"], []
     ents = entries(lines)
     have = _by_id(ents)
+    if not sem["changed"] and not sem["added"] and not sem["removed"]:
+        return list(lines), notes or ["nothing to port"], []
     gone = [(i, candidates(i, have)) for i in list(sem["changed"]) + sem["removed"] if i not in have]
     if gone:
-        return list(lines), [], gone
+        return list(lines), notes, gone
     default_indent = next((e["indent"] for e in ents if e["indent"]), "    ")
     new = list(lines)
     # rewrite from the bottom so earlier offsets stay valid
@@ -130,24 +159,113 @@ def port(lines, hunk):
         for i, parts in sem["added"].items():
             block += _render(i, parts, default_indent)
         new[at:at] = block
-    notes = [f"ported by message id: {len(sem['changed'])} changed, {len(sem['added'])} added, {len(sem['removed'])} removed"]
+    notes.append(f"ported by message id: {len(sem['changed'])} changed, {len(sem['added'])} added, {len(sem['removed'])} removed")
     return new, notes, []
 
 
-def check(before, after, hunk):
-    """-> problems. Intended ids carry the intended content; every other message is unchanged."""
-    sem = semantics(hunk)
+# -- transferring the owner's wording onto a message upstream renamed or restructured -------------------------
+
+def _edit(old, new):
+    """The owner's change to one text as (X, Y): old = P+X+S, new = P+Y+S with the longest common ends. None when
+    nothing changed."""
+    if old == new:
+        return None
+    p = 0
+    while p < min(len(old), len(new)) and old[p] == new[p]:
+        p += 1
+    s = 0
+    while s < min(len(old), len(new)) - p and old[-1 - s] == new[-1 - s]:
+        s += 1
+    return old[p:len(old) - s], new[p:len(new) - s]
+
+
+def _owner_parts(hunk, gone_id):
+    before = _by_id(entries([l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")]))
+    after = _by_id(entries([l[1:] for l in hunk["lines"] if l[:1] in (" ", "+")]))
+    return before.get(gone_id, {}).get("parts"), after.get(gone_id, {}).get("parts")
+
+
+def transfer(lines, hunk, gone):
+    """Carry the owner's edits onto renamed messages, strictly. -> (new_lines, mapping {old_id: (new_id, parts)},
+    notes, still_gone). Rules: exactly one candidate; for each text the owner changed, the candidate must still
+    hold the old text (then it gets the owner's text) or contain the owner's replaced fragment exactly once (then
+    the same replacement is made); anything else stays with the owner. A message whose text the owner did NOT
+    change (the owner's tree merely carries an older id) is drift, not rebranding: nothing to port."""
+    ents = entries(lines)
+    have = _by_id(ents)
+    new, mapping, notes, still = list(lines), {}, [], []
+    edits = []
+    for gone_id, cands in gone:
+        old_parts, own_parts = _owner_parts(hunk, gone_id)
+        if old_parts is None or own_parts is None:
+            still.append((gone_id, cands)); continue
+        if old_parts == own_parts:
+            notes.append(f"{gone_id}: the owner changed no text here (an older id of the same message): nothing to port")
+            continue
+        if len(cands) != 1:
+            still.append((gone_id, cands)); continue
+        cand = have[cands[0]]
+        cparts = dict(cand["parts"])
+        old_d, own_d = dict(old_parts), dict(own_parts)
+        # upstream may have folded `.label` into the value or the other way round
+        def slot(name):
+            if name in cparts:
+                return name
+            if name == ".label" and "value" in cparts:
+                return "value"
+            if name == "value" and ".label" in cparts:
+                return ".label"
+            return None
+        result, ok = dict(cparts), True
+        for name, own_text in own_parts:
+            old_text = old_d.get(name)
+            if old_text is None or old_text == own_text:
+                continue
+            target = slot(name)
+            if target is None:
+                ok = False; break
+            cur = cparts[target]
+            if cur == old_text:
+                result[target] = own_text
+            elif cur.count(old_text) == 1:                  # upstream wrapped the same text: "... (beta)"
+                result[target] = cur.replace(old_text, own_text)
+            else:
+                ok = False; break
+        if not ok:
+            still.append((gone_id, cands)); continue
+        parts = [(n, result[n]) for n, _ in cand["parts"]]
+        edits.append((cand["start"], cand["end"], cands[0], parts, cand["indent"]))
+        mapping[gone_id] = (cands[0], parts)
+        notes.append(f"{gone_id}: the owner's wording transferred to the renamed message {cands[0]}")
+    default_indent = next((e["indent"] for e in ents if e["indent"]), "    ")
+    for start, end, i, parts, indent in sorted(edits, reverse=True):
+        new[start:end] = _render(i, parts, indent or default_indent)
+    return new, mapping, notes, still
+
+
+def check(before, after, hunk, mapping=None):
+    """-> problems. Intended ids carry the intended content; every other message is unchanged. `mapping` (from
+    transfer) says which intended ids live under a new name, with the content they must have there."""
+    sem, _ = intent(hunk)
+    mapping = mapping or {}
     b, a = _by_id(entries(before)), _by_id(entries(after))
     why = []
+    intended_now = {}
     for i, parts in {**sem["changed"], **sem["added"]}.items():
+        if i in mapping:
+            j, p = mapping[i]
+            intended_now[j] = p
+        elif i in b or i in sem["added"]:
+            intended_now[i] = parts
+    for i, parts in intended_now.items():
         if i not in a:
             why.append(f"message {i} is missing")
         elif a[i]["parts"] != parts:
             why.append(f"message {i} does not read as the patch wants: {a[i]['parts']}")
     for i in sem["removed"]:
-        if i in a:
+        if i in a and i in b:
             why.append(f"message {i} should be gone")
-    intended = set(sem["changed"]) | set(sem["added"]) | set(sem["removed"])
+    intended = set(sem["changed"]) | set(sem["added"]) | set(sem["removed"]) | set(intended_now)
     for i in b:
         if i not in intended and (i not in a or a[i]["parts"] != b[i]["parts"]):
             why.append(f"message {i} changed, but the patch does not touch it")

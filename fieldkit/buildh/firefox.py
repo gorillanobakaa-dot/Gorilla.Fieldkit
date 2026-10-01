@@ -1004,6 +1004,13 @@ def auto_port(t, s, patch, file, hunk, **kw):
         except fluent.Ambiguous as e:
             fnotes, gone, new = [f"fluent: {e}"], [], None
         if gone:
+            # the owner's wording carried onto the renamed message, under strict rules; the rest to the owner
+            new2, mapping, tnotes, gone = fluent.transfer(body, hunk, gone)
+            fnotes += tnotes
+            if mapping:
+                s["fluent_map"] = mapping
+                new = new2
+        if gone:
             why = "; ".join(f"message '{i}' no longer exists" + (f" (upstream may have renamed it: {', '.join(c[:3])})" if c else "")
                             for i, c in gone)
             return {"ok": False, "defer": True, "why": [why + ". Not a job for a model; the owner decides where the wording goes"]}
@@ -1058,7 +1065,7 @@ def check_port(t, s, patch, file, hunk, **kw):
     if file.endswith(".ftl"):
         from . import fluent
         try:
-            why = fluent.check(before, after, hunk)
+            why = fluent.check(before, after, hunk, {k: tuple(v) for k, v in (s.get("fluent_map") or {}).items()})
             return {"ok": not why, "why": why[:8]}
         except fluent.Ambiguous:
             pass                                            # fall through to the line-level check
