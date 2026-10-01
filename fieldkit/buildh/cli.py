@@ -343,6 +343,25 @@ def run(a, emit):
         rows = preflight.run(tid, build=bool(a.build), model=bool(a.model), fix_locks=bool(a.fix_locks), fan_required=bool(a.build))
         emit(rows, lambda rows: print("\n".join(preflight.lines(rows))))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "snapshot":
+        from ..core import settings
+        from . import snapshot as snap
+        hr = a.harness or settings.expand("${LOCAL:firefox.root}")
+        version = a.version or (a.args[0] if a.args else None)
+        if not version:
+            raise task.Refused("snapshot: say which version the live tree is, e.g. --version 155.0.1")
+        out = Path(a.out) if a.out else vault.root().parent / "Build.Work" / f"snapshot-{version}"
+        m = snap.capture(hr, version, out)
+        print("\n".join(snap.lines_capture(m)))
+        counts, dead = snap.compare_curated(hr)
+        print(f"curated patch set judged by the live tree: {sum(c['APPLIED'] for c in counts.values())} hunks alive, {len(dead)} dead "
+              f"(not in the build); list in {out / 'CURATED-DEAD.txt'}")
+        (out / "CURATED-DEAD.txt").write_text("\n".join(dead) + "\n", encoding="utf-8")
+        if a.prove:
+            r = snap.prove(m, out / "proof-tree")
+            print("\n".join(snap.lines_proof(r)))
+            return 0 if r["ok"] else 3
+        return 0
     if act == "verify":
         from . import verify as vf
         rep = vf.verify(tid)

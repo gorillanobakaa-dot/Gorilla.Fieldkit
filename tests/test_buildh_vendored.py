@@ -57,6 +57,9 @@ def test_a_deletion_that_a_gorilla_patch_asks_for_is_explained(tree, tmp_path):
     h = tmp_path / "harness" / "patches" / "02.GPU"
     h.mkdir(parents=True)
     (h / "x.patch").write_text("--- a/app.js\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n")
+    (tmp_path / "harness" / "config").mkdir()
+    (tmp_path / "harness" / "config" / "patch_policy.json").write_text(
+        '{"patchset_root": "patches", "groups": {"02.GPU": {"status": "enabled"}}}')
     (tree / "app.js").unlink()
     git(tree, "add", "-A")
     git(tree, "commit", "-q", "-m", "checkpoint")

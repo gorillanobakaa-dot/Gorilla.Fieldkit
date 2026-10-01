@@ -124,6 +124,12 @@ def plan_groups(t, harness_root, **kw):
         if (pset / g / "NEW_FILES").is_dir():
             steps.append({"id": f"new-files-{g}", "kind": "script", "title": f"copy the new files of {g}",
                           "run": "fieldkit.buildh.firefox:step_new_files", "args": args})
+        if (pset / g / "REPLACE_FILES").is_dir():
+            steps.append({"id": f"replace-files-{g}", "kind": "script", "title": f"replace the binary files of {g}",
+                          "run": "fieldkit.buildh.firefox:step_replace_files", "args": args})
+        if (pset / g / "DELETED_FILES.manifest.txt").is_file():
+            steps.append({"id": f"delete-files-{g}", "kind": "script", "title": f"delete the files {g} removes",
+                          "run": "fieldkit.buildh.firefox:step_delete_files", "args": args})
         steps.append({"id": f"export-{g}", "kind": "script", "title": f"export the {g} patch",
                       "run": "fieldkit.buildh.firefox:step_export_group", "args": args})
     steps.append({"id": "final-checks", "kind": "script", "title": "no rejects, no conflict markers",
@@ -180,6 +186,54 @@ def step_new_files(t, harness_root, group, **kw):
     return {"ok": True, "add_steps": steps, "copied": copied, "already": same, "conflicts": conflicts, "not_source": skipped,
             "summary": f"{group}: {len(copied)} new file(s) copied, {len(same)} already there, {len(conflicts)} conflict(s) "
                        f"for the owner, {len(skipped)} not source ({', '.join(skipped) or '-'})"}
+
+
+def manifest_deletions(harness_root):
+    """Every path an enabled group's DELETED_FILES.manifest.txt removes."""
+    pset, groups = _policy(harness_root)
+    out = set()
+    for g, spec in groups.items():
+        m = pset / g / "DELETED_FILES.manifest.txt"
+        if spec.get("status") == "enabled" and m.is_file():
+            out.update(l.strip() for l in m.read_text(encoding="utf-8").splitlines() if l.strip())
+    return out
+
+
+def step_replace_files(t, harness_root, group, **kw):
+    """Binary files the build modified (a snapshot's REPLACE_FILES): written byte-exact over the upstream file."""
+    pset, _ = _policy(harness_root)
+    w = Path(t["workdir"])
+    root = pset / group / "REPLACE_FILES"
+    done, created = [], []
+    for p in sorted(root.rglob("*")) if root.is_dir() else []:
+        if p.is_file():
+            rel = p.relative_to(root).as_posix()
+            d = w / rel
+            (created if not d.is_file() else done).append(rel)
+            d.parent.mkdir(parents=True, exist_ok=True)
+            d.write_bytes(p.read_bytes())
+    return {"ok": True, "replaced": done, "created": created,
+            "summary": f"{group}: {len(done)} file(s) replaced" + (f", {len(created)} did not exist upstream and were created" if created else "")}
+
+
+def step_delete_files(t, harness_root, group, **kw):
+    """Files the fork removes (the AI excision lives here). Already-gone files are reported, never an error."""
+    pset, _ = _policy(harness_root)
+    w = Path(t["workdir"])
+    man = pset / group / "DELETED_FILES.manifest.txt"
+    removed, already = [], []
+    for rel in man.read_text(encoding="utf-8").splitlines():
+        rel = rel.strip()
+        if not rel:
+            continue
+        p = w / rel
+        if p.is_file():
+            p.unlink()
+            removed.append(rel)
+        else:
+            already.append(rel)
+    return {"ok": True, "removed": removed, "already_gone": already,
+            "summary": f"{group}: {len(removed)} file(s) deleted, {len(already)} already gone upstream"}
 
 
 def step_apply_group(t, harness_root, group, **kw):
@@ -266,8 +320,14 @@ def unexplained_deletions(t):
     gone = [p for p in gone if p]
     meant = set()
     hr = t.get("meta", {}).get("harness_root")
-    for pf in (Path(hr) / "patches").rglob("*.patch") if hr and (Path(hr) / "patches").is_dir() else []:
-        meant.update(_DELETES.findall(pf.read_text(encoding="utf-8", errors="replace")))
+    if hr and (Path(hr) / "config" / "patch_policy.json").is_file():
+        pset, groups = _policy(hr)
+        for g, spec in groups.items():
+            if spec.get("status") != "enabled":
+                continue
+            for pf in (pset / g).rglob("*.patch"):
+                meant.update(_DELETES.findall(pf.read_text(encoding="utf-8", errors="replace")))
+        meant |= manifest_deletions(hr)
     return [p for p in gone if p not in meant]
 
 
