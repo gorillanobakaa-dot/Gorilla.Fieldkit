@@ -150,7 +150,8 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
     stops = []
     rows = cg.gate(task_id, harness_root=None, write=True)
     bad = [r for r in rows if not r["ok"]]
-    if bad and all(r["check"].startswith("final checks passed") for r in bad):
+    stale = lambda r: r["check"].startswith("final checks passed") or (r["check"] == "every step is done" and "final-checks" in r["evidence"])
+    if bad and all(stale(r) for r in bad):
         # the only thing missing is a final re-check after the last change: run it (a script step, no model)
         say("gate: final checks are stale - re-running them")
         task.unblock(task_id, "final-checks", "retry")
