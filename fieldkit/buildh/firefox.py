@@ -375,6 +375,9 @@ def still_holds(s, file, hunk, before, now):
         ch = prefs.changes(hunk)
         if (ch["set"] or ch["drop"]) and not ch["add"]:
             return prefs.check(before, now, hunk, collateral=False)
+    from . import keyed
+    if keyed.kind(file):
+        return keyed.check(before, now, hunk, file, collateral=False)
     if now == before or already_upstream(now, hunk):
         return []
     return hunk_problems(before, now, hunk)
@@ -1226,6 +1229,20 @@ def auto_port(t, s, patch, file, hunk, **kw):
             return {"ok": True, "why": [], "notes": fnotes}
         notes += fnotes
 
+    # Keyed files (.properties / .dtd / .ini) are ported by KEY
+    from . import keyed
+    if keyed.kind(file):
+        new, knotes, gone = keyed.port(body, hunk, file)
+        if gone and not gone[0][0].startswith("(new keys"):
+            why = "; ".join(f"key '{k}' no longer exists" + (f" (upstream may have renamed it: {', '.join(c[:3])})" if c else "")
+                            for k, c in gone)
+            return {"ok": False, "defer": True, "why": [why + ". Not a job for a model; the owner decides where the value goes"]}
+        if not gone:
+            if new != body:
+                target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
+            return {"ok": True, "why": [], "notes": knotes}
+        notes += knotes                                           # new keys: the merge below places them
+
     # Preference files are ported by PREF NAME when the hunk only sets or drops prefs (new prefs need a place:
     # those go through the merge below)
     if Path(file).name in PREF_FILES:
@@ -1301,6 +1318,10 @@ def check_port(t, s, patch, file, hunk, **kw):
         if (ch["set"] or ch["drop"]) and not ch["add"]:
             why = prefs.check(before, after, hunk)
             return {"ok": not why, "why": why[:8]}
+    from . import keyed
+    if keyed.kind(file):
+        why = keyed.check(before, after, hunk, file)
+        return {"ok": not why, "why": why[:8]}
     if before == after and already_upstream(after, hunk):
         # nothing was changed because nothing needed changing (tier 0 / a reopened step whose result had landed):
         # the net-count check below would read the present lines as 'missing' (live run 10, h39)
