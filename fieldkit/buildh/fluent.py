@@ -365,7 +365,10 @@ def dedupe(lines, truth_lines):
     have = collections.Counter(e["id"] for e in ents)
     drop = []
     for i, n in have.items():
-        if n <= want[i]:
+        if n <= want[i] or n <= 1:
+            # surplus means a message defined TWICE in the tree. A message the truth lacks because 157 renamed it
+            # (`...-open-in-tab2`, carrying the owner's transferred wording) or added it is not surplus: the first
+            # cut removed eleven such messages across two files (live run 16, 22:39) - repaired from the checkpoint
             continue
         copies = [k for k, e in enumerate(ents) if e["id"] == i]
         placed = [k for k in copies if _neighbours(ents, k) in truth_nb[i]]

@@ -101,6 +101,9 @@ def test_a_surplus_copy_goes_where_the_truth_does_not_have_it(tmp_path):
     assert removed == [("urlbar-result-menu-trending-dont-show2", 4)]
     assert new.count("urlbar-result-menu-trending-dont-show2 = Don’t show trending searches") == 1
     assert new.index("urlbar-result-menu-trending-dont-show2 = Don’t show trending searches") > new.index("urlbar-result-menu-tip-get-help2 = Get help")
+    # a message only this Firefox has (renamed upstream, the owner's wording transferred onto it) is never surplus
+    only_here = TRUTH + ["", "urlbar-view-context-menu-open-in-tab2 = Open in New Gorilla Tab", "    .accesskey = w"]
+    assert fluent.dedupe(only_here, TRUTH)[1] == []
     # a message the truth itself holds twice is left alone
     twice = TRUTH + ["", "urlbar-result-menu-learn-more = Learn more"]
     assert fluent.dedupe(twice, twice)[1] == []
