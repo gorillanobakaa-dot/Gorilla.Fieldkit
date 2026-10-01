@@ -165,6 +165,22 @@ def drive(tid, a):
                     in_flight_steps.remove(step)
                 return "BLOCKED"
 
+            if not use_tools and "Answer with line operations" in state["packet"]:
+                # No question form could be made for this hunk. Line operations are the only thing left and the
+                # model has failed every one of them (runs 6-12): this is a person's job, not three wasted attempts.
+                with lock:
+                    t_now = task.load(tid)
+                    for s2 in t_now["steps"]:
+                        if s2["id"] == step:
+                            s2["status"], s2["last_why"] = "blocked", ["the harness could neither merge this hunk nor turn it into "
+                                                                       "REMOVE/KEEP questions; a person ports it (edit the file, then "
+                                                                       "`build-harness submit`)"]
+                    task.save(t_now)
+                    task.journal(t_now, "needs-person", step=step)
+                    say("  no question form possible: parked for a person, no model attempt used")
+                    in_flight_steps.remove(step)
+                return "BLOCKED"
+
             before = step_submits(step)
             t0 = time.time()
             r = sp.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],

@@ -475,26 +475,62 @@ def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
     return "\n".join(parts)
 
 
+GAP = 10            # how far apart two consecutive hunk lines may sit in the file and still be the same place
+
+
+def _bounds(lines, hunk, anchor):
+    """The hunk's own place in the file, found by aligning its lines IN ORDER: the first specific hunk line
+    (context or removed) is located from a little before the anchor, and every following specific line must
+    appear within GAP lines of the previous match; the alignment stops at the first that does not.
+    -> (lo, hi) inclusive, or None.
+
+    Why in order: a long but common line (`/* stylelint-disable-next-line ... */`, `color: inherit;`) occurs
+    all over a CSS file; taken out of order it pulled the span onto the wrong block (live run 12, h7/h11)."""
+    counts = {}
+    for l in lines:
+        k = _key(l)
+        counts[k] = counts.get(k, 0) + 1
+    # only a line that occurs ONCE in the file can anchor the span: `color: inherit;` twice in browser-shared.css
+    # was enough to drag h7's span onto the next block (real file, 2026-10-01)
+    seq = [_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-") and _specific(_key(l[1:])) and counts.get(_key(l[1:]), 0) == 1]
+    if not seq:
+        return None
+    start = max(0, anchor - 5)
+    limit = min(len(lines), anchor + len(hunk["lines"]) + 40)
+    lo = next((i for i in range(start, limit) if _key(lines[i]) == seq[0]), None)
+    if lo is None:
+        return None
+    hi = lo
+    for key in seq[1:]:
+        # a line upstream dropped (a removed line already gone, a context line rewritten) is skipped, not a stop:
+        # the next key is still looked for within GAP of the last match
+        nxt = next((i for i in range(hi + 1, min(len(lines), hi + 1 + GAP)) if _key(lines[i]) == key), None)
+        if nxt is not None:
+            hi = nxt
+    # the hunk's trailing removals right after the last match (`}`, a blank) belong to the span when contiguous
+    hl = [l for l in hunk["lines"] if l[:1] in (" ", "-")]
+    pos = next((i for i, l in enumerate(hl) if _key(l[1:]) == _key(lines[hi])), None)
+    if pos is not None:
+        for l in hl[pos + 1:]:
+            if l.startswith("-") and hi + 1 < len(lines) and _key(lines[hi + 1]) == _key(l[1:]):
+                hi += 1
+            else:
+                break
+    return lo, hi
+
+
 def _span(lines, hunk, lo=None):
-    """The region of `lines` this hunk is about: from the anchor to the hunk's last specific context line.
-    -> (lo, hi) exclusive, or None when it cannot be pinned (then the caller judges the whole file).
+    """The region of `lines` this hunk is about -> (lo, hi) EXCLUSIVE, or None when it cannot be pinned.
     `lo` may be given (the span's start found in the file BEFORE the change: edits happen inside the span,
     so its start is the same afterwards, while re-anchoring on the changed text can drift)."""
     if lo is None:
         at = _anchor(lines, [l[1:] for l in hunk["lines"] if l[:1] in (" ", "-")])
         if at is None:
             return None
-        # the span starts at the hunk's first SPECIFIC line, not a fixed five lines before the anchor: the real
-        # h33 anchor sat 11 lines early and the five lines above held an unrelated `#if defined(XP_WIN)` block,
-        # whose #endif the file-wide-then-window count demanded gone
-        specific = {_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-") and _specific(_key(l[1:]))}
-        lo = next((i for i in range(max(0, at - 5), min(len(lines), at + len(hunk["lines"]) + 40))
-                   if _key(lines[i]) in specific), None)
-        if lo is None:
-            return None
-    at = lo
+        b = _bounds(lines, hunk, at)
+        return (b[0], b[1] + 1) if b else None
     tail = [_key(l[1:]) for l in reversed(hunk["lines"]) if l.startswith(" ") and _specific(_key(l[1:]))]
-    limit = min(len(lines), at + len(hunk["lines"]) + 40)
+    limit = min(len(lines), lo + len(hunk["lines"]) + 40)
     for key in tail:
         hit = next((i for i in range(lo, limit) if _key(lines[i]) == key), None)
         if hit is not None:
@@ -516,7 +552,8 @@ def hunk_problems(before, after, hunk):
     removed, added, _ = hunk_sides(hunk)
     sb = _span(before, hunk)
     sa = _span(after, hunk, lo=sb[0]) if sb else None
-    if sb and sa:
+    pinned = bool(sb and sa)
+    if pinned:
         before, after = before[sb[0]:sb[1]], after[sa[0]:sa[1]]
     b = [l.strip() for l in before]
     a = [l.strip() for l in after]
@@ -528,7 +565,10 @@ def hunk_problems(before, after, hunk):
         want = max(0, b.count(k) + net)
         if net > 0 and a.count(k) < want:
             why.append(f"missing added line: {k[:100]}")
-        elif net < 0 and a.count(k) > want:
+        elif net < 0 and a.count(k) > want and pinned:
+            # a removal is only ever demanded inside the hunk's own span: counted file-wide, a line that lives
+            # elsewhere too (`color: inherit;`) refused a correct answer (live run 12, h7); collateral() still
+            # catches removals that were not asked for
             why.append(f"line should be gone: {k[:100]}")
     return why
 
@@ -637,18 +677,10 @@ def identify_questions(lines, hunk, anchor):
     # The span is bounded by SPECIFIC lines only. A generic line (#endif, #else, a brace) matches anywhere:
     # on the real firefox.js h32 the anchor was 11 lines early and a stray `#endif` from an unrelated block
     # became the span's start, so nine unrelated lines turned into 'questions' and that #endif into a removal.
-    specific = {k for k in removed_keys | context_keys if _specific(k)}
-    first_match = None
-    last_match = None
-    for i in range(max(0, anchor - 5), min(len(lines), anchor + len(ctx_and_rm) + 30)):
-        k = _key(lines[i])
-        if k in specific:
-            if first_match is None:
-                first_match = i
-            last_match = i
-
-    if first_match is None:
+    b = _bounds(lines, hunk, anchor)
+    if b is None:
         return [], []
+    first_match, last_match = b
 
     auto_remove = []
     uncertain = []
@@ -683,8 +715,8 @@ def insertion_after(lines, hunk, lo, hi):
         if hl[i].startswith(" ") and hl[i][1:].strip():
             at = find(_key(hl[i][1:]))
             return at                                   # after this line (None when not found once)
-        if not hl[i].startswith("-"):
-            break
+        if not hl[i].startswith("-") and hl[i].strip():
+            break                                       # ('-' lines are gone, blank lines say nothing: walk on)
     for i in range(first_plus, len(hl)):
         if hl[i].startswith(" ") and hl[i][1:].strip():
             at = find(_key(hl[i][1:]))
@@ -707,8 +739,28 @@ def auto_merge(body, hunk, notes=None):
     removed, added, _ = hunk_sides(hunk)
     if not auto_rm and any(l.strip() for l in removed):
         raise Ambiguous("none of the removed lines are in the file")
-    lo = max(0, at - 5)
-    hi = min(len(body) - 1, at + len(hunk["lines"]) + 30)
+    b = _bounds(body, hunk, at)
+    lo, hi = (b[0], min(len(body) - 1, b[1] + 5)) if b else (max(0, at - 5), min(len(body) - 1, at + len(hunk["lines"]) + 30))
+    if added:
+        # the '+' block belongs with its nearest specific context neighbours; when one of them is gone from the
+        # file, the place itself is gone (h7: a lint comment for an @media line upstream removed) -> the owner
+        have = {_key(l) for l in body}
+        hl = hunk["lines"]
+        first_plus = next(i for i, l in enumerate(hl) if l.startswith("+"))
+        last_plus = max(i for i, l in enumerate(hl) if l.startswith("+"))
+        neighbours = [next((hl[i][1:] for i in range(first_plus - 1, -1, -1) if hl[i].startswith(" ") and hl[i][1:].strip()), None),
+                      next((hl[i][1:] for i in range(last_plus + 1, len(hl)) if hl[i].startswith(" ") and hl[i][1:].strip()), None)]
+        usable = [c for c in neighbours if c and _specific(_key(c))]
+        span_keys = [_key(body[i]) for i in range(lo, hi + 1)]
+        once = [c for c in usable if span_keys.count(_key(c)) == 1]            # a neighbour right here, unambiguous
+        twice = [c for c in usable if span_keys.count(_key(c)) > 1]
+        if usable and not once:
+            if twice:
+                raise Ambiguous("the place for the added lines could not be fixed on one context line")
+            gone_ctx = [c for c in usable if _key(c) not in have]
+            if gone_ctx:
+                raise PlacementGone(f"the lines the added text belongs with no longer exist in this Firefox: {gone_ctx[0][:80]!r}")
+            raise PlacementGone(f"the lines the added text belongs with are somewhere else in the file now: {usable[0][:80]!r}")
     ins = insertion_after(body, hunk, lo, hi) if added else None
     if added and ins is None:
         raise Ambiguous("the place for the added lines could not be fixed on one context line")
@@ -820,6 +872,10 @@ def apply_question_answers(target, decisions, hunk, auto_removes, lines=None):
 
 class Ambiguous(ValueError):
     """The transplant cannot be done without judgement: the job goes to the model."""
+
+
+class PlacementGone(Ambiguous):
+    """The context the added lines belong with no longer exists: a decision for the owner, not a model."""
 
 
 def change_blocks(hunk):
@@ -1049,6 +1105,8 @@ def auto_port(t, s, patch, file, hunk, **kw):
         new = auto_merge(body, hunk, notes)
         target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
         return {"ok": True, "why": [], "notes": notes}
+    except PlacementGone as e:
+        return {"ok": False, "defer": True, "why": [f"{e}. Not a job for a model; the owner decides whether the change still applies"]}
     except Ambiguous as e:
         notes.append(f"merge: {e}")
 

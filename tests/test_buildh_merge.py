@@ -95,7 +95,7 @@ def test_merge_refuses_when_nothing_of_the_old_text_is_there():
 
 def test_merge_refuses_when_the_context_line_is_ambiguous():
     body = list(FF157)
-    body.insert(3, 'pref("sidebar.position_start", true);')                # the context line twice in the span
+    body.insert(5, 'pref("sidebar.position_start", true);')                # the context line twice INSIDE the span
     with pytest.raises(firefox.Ambiguous, match="could not be fixed"):
         firefox.auto_merge(body, H32)
 

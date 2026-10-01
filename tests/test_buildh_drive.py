@@ -84,3 +84,19 @@ def test_an_oversized_job_text_is_parked_once_without_burning_attempts(job, quie
     assert cli.drive("t1", args()) == 3 and not called
     s = next(x for x in task.load("t1")["steps"] if x["id"] == "fix-alpha")
     assert s["status"] == "blocked" and s["attempts"] == 0 and "over the 50 limit" in s["last_why"][0]
+
+
+def test_a_hunk_with_no_question_form_is_parked_for_a_person_not_sent_as_line_operations(job, quiet, monkeypatch):
+    task.approve("t1", "owner")
+    task.packet("t1")                                   # runs the prepare step, which creates fix-alpha
+    monkeypatch.setenv("FIELDKIT_ALLOW_MODEL_TOOLS", "1")
+    monkeypatch.setattr(task, "packet", lambda tid, **k: {"state": "MODEL STEP", "step": "fix-alpha", "chars": 100,
+                                                            "packet": "DO: ...\nAnswer with line operations. ..."})
+    called = []
+    real = subprocess.run
+    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: called.append(cmd) if cmd[0] == "fake-agent" else real(cmd, *a, **k))
+    a = args()
+    a.tools = False
+    assert cli.drive("t1", a) == 3 and not called
+    s = next(x for x in task.load("t1")["steps"] if x["id"] == "fix-alpha")
+    assert s["status"] == "blocked" and "a person ports it" in s["last_why"][0]
