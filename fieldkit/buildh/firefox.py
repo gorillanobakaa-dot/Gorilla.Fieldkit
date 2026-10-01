@@ -279,6 +279,18 @@ def step_apply_group(t, harness_root, group, **kw):
                               "allowed": [fname],
                               "args": {"patch": rel, "file": fname, "hunk": hunks[n - 1]}})
         if res["missing"]:
+            from . import relocate
+            moved = []
+            for fname, hunks in parsed.items():
+                if not (w / fname).is_file():
+                    steps, why = relocate.steps_for_missing(w, group, rel, pf.stem, fname, hunks,
+                                                            {x["id"] for x in new_steps})
+                    if steps:
+                        moved.append(f"{fname}: {why}")
+                        new_steps.extend(steps)
+            if moved:
+                upstreamed.append(f"{rel} (moved: " + "; ".join(moved) + ")")
+                continue
             new_steps.append({"id": f"owner-{group}-{pf.stem}", "kind": "owner", "obsolete_default": True,
                               "title": f"{rel} patches a file that no longer exists in this Firefox; "
                                        f"decide: drop the patch, or point it at the file's new home"})
@@ -644,6 +656,14 @@ def collateral(before, after, hunk, extra_removals=None):
     sm = difflib.SequenceMatcher(None, [l.strip() for l in before], [l.strip() for l in after], autojunk=False)
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op in ("delete", "replace"):
+            # a removed run that starts and ends on the hunk's own '-' lines is the hunk's block, re-wrapped by
+            # upstream in between (ActorManagerParent h1: `esModuleURI:` split over two lines inside `MLEngine: {`)
+            run = [before[i] for i in range(i1, i2) if before[i].strip()]
+            if len(run) >= 3 and _key(run[0]) in may_remove and _key(run[-1]) in may_remove:
+                import collections as _c
+                inner = _c.Counter(_key(l) for l in run[1:-1])
+                for k, n in inner.items():
+                    may_remove[k] = max(may_remove[k], n) if k in may_remove else n
             for i in range(i1, i2):
                 if not before[i].strip():
                     continue
@@ -1171,6 +1191,225 @@ SPECIFIC = 25      # a line shorter than this (a brace, "#endif", a short pref) 
 PREF_FILES = {"firefox.js", "all.js", "mobile.js", "firefox-branding.js"}      # ported by pref name
 
 
+_IDENT = re.compile(r"[A-Za-z_$#-][\w$-]{7,}|\"[^\"]{4,}\"|'[^']{4,}'")
+
+
+def _idents(line):
+    """The identifiers (8+ chars) and string literals of a line, with `_`/`#`/`$`/`-` prefixes dropped so that
+    `this._allowTransparentBrowser`, `this.#documentGlobal` and `lazy.allowTransparentBrowser` agree. Hyphens stay
+    inside a name: a CSS custom property is one identifier (`--border-color-deemphasized`), not its last word
+    (the first cut matched `deemphasized` alone and called eight done CSS hunks 'renamed')."""
+    return {t.lstrip("_#$-").rstrip("-") for t in _IDENT.findall(line) if t.lstrip("_#$-").rstrip("-")}
+
+
+def _is_renamed(removed_toks, text):
+    """Is `text` the removed line under new names? Every long token (12+) of the removed line must be there, at
+    least half of all its tokens, and the text's own tokens must be mostly the removed line's (not a longer line
+    that merely mentions them)."""
+    mine = _idents(text)
+    if not mine:
+        return False
+    shared = removed_toks & mine
+    if any(len(t) >= 12 and t not in mine for t in removed_toks):
+        return False
+    return len(shared) * 2 >= len(removed_toks) and len(shared) * 10 >= len(mine) * 6
+
+
+def _judgeable_rename(removed):
+    """A removed line may be judged 'present under new names' only when it carries enough identity: two or more
+    8+ identifiers/strings, or one of 12+ characters (`remoteTypes` alone identifies nothing)."""
+    toks = _idents(removed)
+    return (len(toks) >= 2 and any(len(t) >= 10 for t in toks)) or any(len(t) >= 12 for t in toks)
+
+
+REWRAP = 3            # a removed line may now be spread over up to this many lines
+
+
+def renamed_candidates(lines, removed, lo=0, hi=None, exclude=()):
+    """-> [(start, n)] runs of n lines in lines[lo:hi] that are `removed` under new names (never the exact line).
+    Upstream also re-wraps: `if (A || B) {` became `if (` / `A ||` / `B` on three lines (Tabbrowser h4)."""
+    if not _judgeable_rename(removed):
+        return []
+    toks = _idents(removed)
+    key = removed.strip()
+    skip = {l.strip() for l in exclude}
+    hi = len(lines) if hi is None else hi
+    out, i = [], lo
+    while i < hi:
+        hit = None
+        if not _idents(lines[i]):                       # a run starts on a line that says something
+            i += 1
+            continue
+        for n in range(1, REWRAP + 1):
+            if i + n > hi:
+                break
+            run = lines[i:i + n]
+            if any(l.strip() == key or l.strip() in skip for l in run):
+                continue                                # the exact line is presence, not a rename; an added line is the result
+            if n > 1 and (not all(_idents(l) & toks for l in run) or any(_is_renamed(toks, l) for l in run)):
+                continue                                # every line of a run carries part of it; runs are minimal
+            text = " ".join(l.strip() for l in run)
+            if _is_renamed(toks, text):
+                hit = n
+                break
+        if hit:
+            out.append((i, hit))
+            i += hit
+        else:
+            i += 1
+    return out
+
+
+def renamed_form(lines, removed, lo=0, hi=None, exclude=()):
+    """Index in lines[lo:hi] of the line that IS the removed line after upstream renamed things around it, or None.
+
+    Live run 16 (2026-10-01, Tabbrowser.sys.mjs h3-h5): Firefox 157 turned `AIWindow.isAIWindowActive(window)` into
+    `lazy.AIWindow.isAIWindowActive(this.documentGlobal)` and `this._allowTransparentBrowser` into
+    `lazy.allowTransparentBrowser`. Judged by exact text the removed lines were "gone", so the port was recorded as
+    done (h3) and obsolete (h4) with the code still there."""
+    c = renamed_candidates(lines, removed, lo, hi, exclude)
+    return c[0][0] if c else None
+
+
+def renamed_pairs(lines, removed, lo=0, hi=None, exclude=()):
+    """-> [(removed line, file text)] for the removed lines present only in renamed form; `exclude` is the hunk's
+    added lines (a changed value is the hunk's result, not a rename)."""
+    have = {l.strip() for l in lines[lo:hi]}
+    out = []
+    for r in removed:
+        k = r.strip()
+        if not k or TRIVIAL.match(k) or k in have:
+            continue
+        c = renamed_candidates(lines, r, lo, hi, exclude)
+        if c:
+            i, n = c[0]
+            out.append((k, " ".join(l.strip() for l in lines[i:i + n])))
+    return out
+
+
+def rename_window(lines, hunk):
+    """Where a hunk's removed lines may live: one hunk length and GAP either side of the context frame; the whole
+    file when no frame can be pinned (the context itself may have been renamed)."""
+    frame = _span(lines, {"lines": [l for l in hunk["lines"] if not l.startswith("-")]})
+    reach = len(hunk["lines"]) + GAP
+    return (max(0, frame[0] - reach), min(len(lines), frame[1] + reach)) if frame else (0, len(lines))
+
+
+def renamed_removal(body, hunk, notes=None):
+    """Remove a block whose lines upstream renamed inside: every specific removed line is matched, uniquely and in
+    order, to its renamed (or exact) form near the hunk's frame; the run from the first to the last goes. Only for
+    hunks that add nothing but comments: an added CODE line would carry the OLD names into the new file, which no
+    tool may do (that case is deferred to a person with the renames listed)."""
+    removed, added, _ = hunk_sides(hunk)
+    if any(l.strip() and not l.strip().startswith(("//", "/*", "*", "#")) for l in added):
+        raise Ambiguous("the hunk adds code lines, which would need the renaming applied to them")
+    spec = [l for l in removed if _specific(_key(l))]
+    if not spec:
+        raise Ambiguous("no specific removed lines")
+    # the frame comes from the context lines; the block may lie before them (trailing context only), so the
+    # window reaches one hunk length either side, and every match must be unique inside it
+    lo, hi = rename_window(body, hunk)
+    idx, pos = [], lo
+    for l in spec:
+        k = _key(l)
+        exact = [(i, 1) for i in range(lo, hi) if _key(body[i]) == k]
+        ren = renamed_candidates(body, l, lo, hi, added)
+        if any(n > 1 for _, n in ren):
+            raise Ambiguous(f"upstream re-wrapped `{l.strip()[:50]}` over several lines")
+        cands = sorted(set(exact + ren))
+        if len(cands) != 1:
+            raise Ambiguous(f"{len(cands)} lines near the frame could be `{l.strip()[:50]}`")
+        i, n = cands[0]
+        if i < pos:
+            raise Ambiguous("the removed lines are not in the hunk's order here")
+        idx.append((i, n))
+        pos = i + n
+    if not any(renamed_candidates(body, l, lo, hi, added) for l in spec):
+        raise Ambiguous("nothing is renamed here")
+    first, last = idx[0][0], idx[-1][0] + idx[-1][1] - 1
+    while removed and removed[0].strip().startswith("//") and first > 0 and body[first - 1].strip().startswith("//"):
+        first -= 1
+    # the hunk's trivial edge lines (`);`, `}`, blanks before and after the block) go with it, matched one by one:
+    # specific lines alone would leave `);` and `}` dangling (h5: 5 of 8 lines) and the file would not parse
+    spec_keys = {_key(l) for l in spec}
+    lead = [l.strip() for l in removed[:next((i for i, l in enumerate(removed) if _key(l) in spec_keys), 0)]]
+    tail = [l.strip() for l in removed[len(removed) - next((i for i, l in enumerate(reversed(removed)) if _key(l) in spec_keys), 0):]]
+    for want in reversed(lead):
+        if first > 0 and body[first - 1].strip() == want and (TRIVIAL.match(want) or not want):
+            first -= 1
+    for want in tail:
+        if last + 1 < len(body) and body[last + 1].strip() == want and (TRIVIAL.match(want) or not want):
+            last += 1
+    region = body[first:last + 1]
+    if len(region) > len(removed) + GAP:
+        raise Ambiguous(f"the matched lines span {len(region)} lines for a {len(removed)}-line removal")
+    toks = set().union(*(_idents(l) for l in removed))
+    rkeys = {_key(r) for r in removed}
+    for l in region:
+        k = l.strip()
+        if not k or TRIVIAL.match(k) or _key(l) in rkeys or _idents(l) & toks:
+            continue
+        raise Ambiguous(f"a line inside the block is not the hunk's: {k[:60]}")
+    new = body[:first] + added + body[last + 1:]
+    if notes is not None:
+        pairs = renamed_pairs(body, spec, lo, hi)
+        notes.append(f"removed the block in its renamed form ({len(region)} lines in the file, {len(removed)} in the hunk): "
+                     + "; ".join(f"`{a[:50]}` is now `{b[:50]}`" for a, b in pairs[:3]))
+    return new, region
+
+
+_OPENER = re.compile(r"^\s*(?:[\w$.]+|\"[^\"]+\"|'[^']+')\s*[:=]\s*\{\s*$")
+_CLOSER = re.compile(r"^\s*\}[,;]?\s*$")
+
+
+def block_removal(body, hunk, notes=None):
+    """Remove one whole brace-balanced block the hunk removes, found in the new file by its opener line.
+
+    Live run 16 (2026-10-01, ActorManagerParent h1): the hunk deletes the `MLEngine: { ... },` actor entry (a comment
+    line, the opener, nine inner lines, the closer). Firefox 157 re-wrapped two inner lines (`esModuleURI:` on its own
+    line, the URI below it, now moz-src://), so no line tier matched and Gemma, asked line by line, left `child: {`
+    behind twice. The block is still one block: its opener occurs once, its braces balance; the whole of it goes,
+    and the hunk's '+' lines take its place. Only the single-change-block, opener-to-closer shape is handled."""
+    blocks = change_blocks(hunk)
+    if len(blocks) != 1 or not blocks[0]["-"]:
+        raise Ambiguous("not a single removed block")
+    rem = [l for l in blocks[0]["-"]]
+    lead = 0
+    while lead < len(rem) and rem[lead].strip().startswith("//"):
+        lead += 1
+    core = rem[lead:]
+    if len(core) < 3 or not _OPENER.match(core[0]) or not _CLOSER.match(core[-1]):
+        raise Ambiguous("the removed lines are not one `name: { ... }` block")
+    if sum(l.count("{") - l.count("}") for l in core) != 0:
+        raise Ambiguous("the removed block's braces do not balance")
+    opener = _key(core[0])
+    at = [i for i, l in enumerate(body) if _key(l) == opener]
+    if len(at) != 1:
+        raise Ambiguous(f"the block's opener occurs {len(at)} times in the file")
+    start = at[0]
+    depth, end = 0, None
+    for i in range(start, min(len(body), start + 2 * len(core) + 8)):
+        depth += body[i].count("{") - body[i].count("}")
+        if depth == 0:
+            end = i
+            break
+    if end is None or not _CLOSER.match(body[end]):
+        raise Ambiguous("the block in the file does not close where expected")
+    # the comment lines directly above the opener belong to the block when the hunk removed comment lines too
+    first = start
+    while lead and first > 0 and body[first - 1].strip().startswith("//"):
+        first -= 1
+    inner_keys = {_key(l) for l in core[1:-1] if _specific(_key(l))}
+    found = sum(1 for l in body[start + 1:end] if _key(l) in inner_keys)
+    if inner_keys and found * 2 < len(inner_keys):
+        raise Ambiguous(f"the block in the file shares only {found} of {len(inner_keys)} specific lines with the hunk's")
+    new = body[:first] + blocks[0]["+"] + body[end + 1:]
+    if notes is not None:
+        notes.append(f"removed the whole `{core[0].strip()}` block ({end + 1 - first} lines in the file, "
+                     f"{len(rem)} in the hunk) and put the hunk's {len(blocks[0]['+'])} added line(s) in its place")
+    return new
+
+
 def obsolete_upstream(body, hunk):
     """Is the thing this hunk changes simply gone from the new source? Returns the reason, or None.
 
@@ -1183,6 +1422,8 @@ def obsolete_upstream(body, hunk):
     spec_removed = [l.strip() for l in removed if len(l.strip()) >= SPECIFIC and not TRIVIAL.match(l.strip())]
     spec_added = [l.strip() for l in added if len(l.strip()) >= SPECIFIC and not TRIVIAL.match(l.strip())]
     anchored = any(len(l.strip()) >= 12 and l.strip() in have for l in context)
+    if renamed_pairs(body, removed, *rename_window(body, hunk), exclude=added):
+        return None                                     # still there, renamed: a port, not an obsolete change
     if spec_removed and anchored and not any(l in have for l in spec_removed) and not any(l in have for l in spec_added):
         return ("every specific line this hunk would remove is already gone from the new source, and none of the lines it "
                 "would add are there: upstream removed or replaced this. Not a job for a model; the owner decides whether "
@@ -1289,6 +1530,28 @@ def auto_port(t, s, patch, file, hunk, **kw):
     except Ambiguous:
         pass
 
+    # Tier 2b: a whole brace-balanced block removed (upstream re-wrapped lines inside it)
+    try:
+        new = block_removal(body, hunk, notes)
+        target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
+        return {"ok": True, "why": [], "notes": notes}
+    except Ambiguous as e:
+        notes.append(f"block: {e}")
+
+    # Tier 2c: the removed lines are there under names upstream changed
+    try:
+        new, region = renamed_removal(body, hunk, notes)
+        s["renamed_removals"] = region
+        target.write_text(nl.join(new) + (nl if trailing else ""), encoding="utf-8", newline="")
+        return {"ok": True, "why": [], "notes": notes}
+    except Ambiguous as e:
+        notes.append(f"renamed: {e}")
+    pairs = renamed_pairs(body, hunk_sides(hunk)[0], *rename_window(body, hunk), exclude=hunk_sides(hunk)[1])
+    if pairs:
+        return {"ok": False, "defer": True,
+                "why": ["upstream renamed identifiers inside this hunk (" + "; ".join(f"`{a[:40]}` is now `{b[:40]}`" for a, b in pairs[:3])
+                        + "); its added lines must be rewritten with the new names by a person, never by a model"]}
+
     # Tier 3: merge by key (removals matched line by line, the '+' block placed after its context line)
     try:
         new = auto_merge(body, hunk, notes)
@@ -1376,8 +1639,8 @@ def check_port(t, s, patch, file, hunk, **kw):
         return {"ok": True, "why": []}
     # No flag, answer key or other shortcut may skip these checks (the overnight run of 2026-10-01 did).
     why = hunk_problems(before, after, hunk)
-    extra = s.get("question_removals")  # set by apply_question_answers via the driver
-    why += collateral(before, after, hunk, extra_removals=extra)
+    extra = list(s.get("question_removals") or []) + list(s.get("renamed_removals") or [])  # driver / tier 2c
+    why += collateral(before, after, hunk, extra_removals=extra or None)
     _, added, _ = hunk_sides(hunk)
     if len(after) > len(before) + 3 * max(1, len(added)) + 20:
         why.append(f"{len(after) - len(before)} lines added for a {len(added)}-line hunk: change only what the hunk changes")
@@ -1401,6 +1664,8 @@ def already_upstream(file_lines, hunk):
         here = [l.strip() for l in file_lines[lo:hi]]
     else:
         here = a
+    if renamed_pairs(file_lines, meaningful_removed, *rename_window(file_lines, hunk), exclude=added):
+        return False                                    # the removed lines are still there under new names
     return bool(meaningful_added or meaningful_removed) and all(k in a for k in meaningful_added) and \
         not any(k in here for k in meaningful_removed)
 

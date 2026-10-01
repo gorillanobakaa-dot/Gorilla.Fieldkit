@@ -93,6 +93,11 @@ def score_hunk(body, hunk, file=""):
     # not scattered copies in other blocks (moz.build h2, tokens-brand.css h5 on 2026-10-01: `script=`,
     # `entry_point=` live in every GeneratedFile block; a frame pinned on the wrong copy must not matter either)
     rem_in = rem if rem and _sequence_present(scope, rem) else []
+    if rem and not rem_in:
+        pairs = firefox.renamed_pairs(body, rem, *firefox.rename_window(body, hunk), exclude=added)
+        if pairs:                                       # live run 16: renamed by upstream, not gone
+            return "NOT-APPLIED", f"{len(pairs)} removed line(s) still present under new names: " + \
+                "; ".join(f"`{a[:40]}` is now `{b[:40]}`" for a, b in pairs[:2])
     if rem and not rem_in and not add:
         return "APPLIED", f"the {len(rem)} removed line(s) no longer stand together" + (" in the hunk's frame" if frame else " anywhere")
     if add and len(add_in) == len(add) and not rem_in:
@@ -172,6 +177,22 @@ def add_missing_new_file_steps(task_id):
     return added
 
 
+def relocate_missing(task_id):
+    """Owner 'file no longer exists' steps whose file has a measurable new home become port/append steps
+    (relocate.heal). -> [(owner id, reason, new ids)]."""
+    from . import relocate
+    t = task.load(task_id)
+    hr = t["meta"].get("harness_root")
+    if not hr:
+        return []
+    out = relocate.heal(t, hr)
+    if out:
+        task.save(t)
+        for sid, why, new in out:
+            task.journal(t, "relocated", step=sid, why=[why], steps=new)
+    return out
+
+
 def verify(task_id):
     """-> report dict. Read-only."""
     t = task.load(task_id)
@@ -206,9 +227,13 @@ def verify(task_id):
             m = re.search(r"-h(\d+)$", s["id"])
             by_key[(a["patch"], a["file"], int(m.group(1)) if m else -1)] = s
     for key, s in by_key.items():
-        if s["status"] != "done" or s.get("skipped_by_owner") or s.get("dropped_by_owner"):
+        if s["status"] not in ("done", "obsolete") or s.get("skipped_by_owner") or s.get("dropped_by_owner"):
             continue
         v, d = scores.get(key, (None, None))
+        if v is None:                                   # a relocated step: its file is not the patch's (relocate.py)
+            v, d = score_hunk(body(a["file"]), a["hunk"], a["file"]) if (a := s.get("args") or {}).get("hunk") else (None, None)
+        # an OBSOLETE step whose lines the tree still holds (renamed or not) was closed wrongly: reopened like a
+        # false completion (live run 16: Tabbrowser.sys.mjs h4, closed as obsolete with the code still there)
         if v in ("NOT-APPLIED", "PARTIAL"):
             rep["false_completions"].append({"step": s["id"], "verdict": v, "detail": d, "done_by": s.get("done_by", "model")})
     # 3. files that are byte-identical to the owner's OLD tree. Harmless when upstream did not touch the file

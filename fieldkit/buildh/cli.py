@@ -280,6 +280,8 @@ def drive(tid, a):
     amended = vf.add_missing_new_file_steps(tid)
     if amended:
         say(f"SYNC: plan amended, new-files steps added: {amended}")
+    for sid, why, new in vf.relocate_missing(tid):
+        say(f"SYNC: {sid}: {why}; now {new}")
     rep = vf.verify(tid)
     reopened = vf.reopen(tid, rep)
     if reopened:

@@ -1,0 +1,215 @@
+"""A patch whose file is gone from the new Firefox: find where the file went before parking it for the owner.
+
+Live run 16 (2026-10-01, three "file no longer exists" owner steps in the 157 port). None was a dead file:
+
+  * browser/components/tabbrowser/content/tabbrowser.js  -> upstream moved the code into
+    browser/components/tabbrowser/Tabbrowser.sys.mjs (every specific line of the hunks is there, in one file)
+  * browser/extensions/newtab/css/activity-stream.css     -> upstream stopped committing the compiled CSS; 157's
+    moz.build GENERATES it from content-src/styles/activity-stream.scss at build time, so a change appended to the
+    .css is lost on every build. The Gorilla theme block is plain CSS, which Sass compiles verbatim, so it belongs
+    at the end of the .scss entry instead.
+  * .../css/nova/activity-stream.css                     -> same, from content-src/styles/nova/activity-stream.scss
+
+Both outcomes are measurable from the tree (which file holds the hunk's lines; which moz.build rule produces the
+file), so the harness decides them; the owner only sees a file that truly has no home.
+"""
+import re
+import subprocess
+from pathlib import Path
+
+from . import firefox
+
+MIN_HITS = 2          # specific lines a candidate file must hold before it counts as the new home
+GENERATED = re.compile(r"GeneratedFile\(\s*((?:\s*\"[^\"]+\"\s*,?)+)", re.S)
+
+
+def specific_lines(hunks):
+    """The hunk lines that identify the code (context and removals; long, not punctuation), deduplicated, in order."""
+    out = []
+    for h in hunks:
+        for l in h["lines"]:
+            if l[:1] in (" ", "-"):
+                k = l[1:].strip()
+                if len(k) >= firefox.SPECIFIC and not firefox.TRIVIAL.match(k) and k not in out:
+                    out.append(k)
+    return out
+
+
+def moved_file(workdir, old_file, hunks):
+    """-> (new relative path, reason) when exactly one tracked file holds the hunks' specific lines, else (None, reason).
+    One `git grep` for all the lines at once (a call per line took minutes on the Firefox tree)."""
+    keys = specific_lines(hunks)[:40]
+    if len(keys) < MIN_HITS:
+        return None, "the patch has too few specific lines to look for"
+    args = ["git", "-C", str(workdir), "grep", "-nF", "--no-color"]
+    for k in keys:
+        args += ["-e", k]
+    # the file's own top-level directory first (browser/ is a tenth of the tree), the whole tree only if that is empty
+    top = old_file.split("/")[0] if "/" in old_file else "."
+    out = ""
+    for scope in ([top, "."] if top != "." else ["."]):
+        r = subprocess.run(args + ["--", scope], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        out = r.stdout
+        if out.strip():
+            break
+    per_file = {}
+    for line in out.splitlines():
+        f, _, rest = line.partition(":")
+        _, _, text = rest.partition(":")
+        if not f or f == old_file or "/test" in f or f.startswith("test"):
+            continue
+        t = text.strip()
+        for k in keys:
+            if k in t:
+                per_file.setdefault(f, set()).add(k)
+    common = {k for k in keys if sum(1 for v in per_file.values() if k in v) > 20}   # a line that is everywhere
+    hits = {f: len(v - common) for f, v in per_file.items()}
+    hits = {f: n for f, n in hits.items() if n}
+    if not hits:
+        return None, "no file in this Firefox holds any of the patch's specific lines"
+    ranked = sorted(hits.items(), key=lambda kv: -kv[1])
+    best, n = ranked[0]
+    if n < MIN_HITS or n * 2 < len(keys):
+        return None, f"no file holds enough of the patch's lines (best: {best} with {n} of {len(keys)})"
+    if len(ranked) > 1 and ranked[1][1] * 2 > n:
+        return None, f"more than one file holds the patch's lines ({best}: {n}, {ranked[1][0]}: {ranked[1][1]})"
+    return best, f"{n} of {len(keys)} specific lines of the patch are in {best}, no other file comes close"
+
+
+def generated_source(workdir, file):
+    """-> (source relative path, reason) when `file` is produced by a moz.build GeneratedFile rule from a Sass entry
+    of the same name under content-src/styles, else (None, reason)."""
+    w = Path(workdir)
+    p = Path(file)
+    for parent in [p.parent] + list(p.parent.parents):
+        mb = w / parent / "moz.build"
+        if not mb.is_file():
+            continue
+        text = mb.read_text(encoding="utf-8", errors="replace")
+        rel = p.relative_to(parent).as_posix()
+        for m in GENERATED.finditer(text):
+            outputs = re.findall(r"\"([^\"]+)\"", m.group(1))
+            if rel in outputs:
+                if rel.endswith(".css") and rel.startswith("css/"):
+                    src = parent / "content-src" / "styles" / (rel[len("css/"):-4] + ".scss")
+                    if (w / src).is_file():
+                        return src.as_posix(), f"{mb.relative_to(w).as_posix()} generates {rel}; its Sass entry is {src.as_posix()}"
+                    return None, f"{rel} is generated by {mb.relative_to(w).as_posix()} but no Sass entry {src.as_posix()} exists"
+                return None, f"{rel} is generated by {mb.relative_to(w).as_posix()} from sources the harness does not map"
+        if rel in text:
+            break
+    return None, "not a generated file"
+
+
+def additions_only(hunks):
+    return all(not l.startswith("-") for h in hunks for l in h["lines"])
+
+
+def added_lines(hunks):
+    return [l[1:] for h in hunks for l in h["lines"] if l.startswith("+")]
+
+
+def _read(p):
+    raw = p.read_text(encoding="utf-8", errors="replace")
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    return raw, nl
+
+
+def step_append_source(t, file, lines, origin, **kw):
+    """Harness step: append `lines` (the patch's additions) to the end of `file` once (the Sass entry of a generated
+    CSS file). Idempotent: a second run finds the block and does nothing."""
+    p = Path(t["workdir"]) / file
+    if not p.is_file():
+        return {"ok": False, "why": [f"{file} does not exist"]}
+    raw, nl = _read(p)
+    body = raw.split(nl)
+    if _present(body, lines):
+        return {"ok": True, "summary": f"{file} already ends with the {len(lines)} lines of {origin}"}
+    out = raw if raw.endswith(nl) or not raw else raw + nl
+    out += nl.join(lines) + nl
+    p.write_text(out, encoding="utf-8", newline="")
+    return {"ok": True, "summary": f"appended {len(lines)} lines of {origin} to {file}"}
+
+
+def _present(body, lines):
+    want = [l.strip() for l in lines if l.strip()]
+    have = [l.strip() for l in body]
+    return bool(want) and all(l in have for l in want)
+
+
+def check_append_source(t, file, lines, origin, **kw):
+    """The appended lines are all in the file, in order, at its end."""
+    p = Path(t["workdir"]) / file
+    if not p.is_file():
+        return {"ok": False, "why": [f"{file} does not exist"]}
+    raw, nl = _read(p)
+    body = [l.strip() for l in raw.split(nl) if l.strip()]
+    want = [l.strip() for l in lines if l.strip()]
+    if body[-len(want):] != want:
+        return {"ok": False, "why": [f"{file} does not end with the {len(want)} lines of {origin}"]}
+    return {"ok": True, "why": []}
+
+
+def steps_for_missing(workdir, group, rel, stem, fname, hunks, have):
+    """The steps that replace an owner 'file no longer exists' step, or [] when the file truly has no home.
+    -> (steps, reason)."""
+    src, why = generated_source(workdir, fname)
+    if src:
+        if not additions_only(hunks):
+            return [], f"{why}, but the patch also removes lines from the compiled file: the owner decides"
+        sid = f"append-{group}-{stem}"
+        if sid in have:
+            return [], "already planned"
+        return [{"id": sid, "kind": "script", "title": f"{fname} is generated at build time: append the additions of {rel} "
+                                                        f"to its source {src}",
+                 "run": "fieldkit.buildh.relocate:step_append_source",
+                 "check": "fieldkit.buildh.relocate:check_append_source",
+                 "args": {"file": src, "lines": added_lines(hunks), "origin": rel}}], why
+    new, why2 = moved_file(workdir, fname, hunks)
+    if new:
+        steps = []
+        for n, h in enumerate(hunks, 1):
+            sid = f"port-{group}-{stem}-{Path(new).name}-h{n}"
+            if sid in have:
+                continue
+            steps.append({"id": sid, "kind": "model", "title": f"port hunk #{n} of {rel} into {new} (upstream moved {fname} there)",
+                          "packet": "fieldkit.buildh.firefox:packet_port",
+                          "check": "fieldkit.buildh.firefox:check_port", "auto": "fieldkit.buildh.firefox:auto_port",
+                          "allowed": [new], "args": {"patch": rel, "file": new, "hunk": h}})
+        return steps, why2
+    return [], f"{why}; {why2}"
+
+
+def heal(t, harness_root):
+    """Every open owner 'file no longer exists' step whose file has a measurable new home becomes port/append steps;
+    the owner step is closed as obsolete with the reason. -> [(owner step id, reason, [new ids])]."""
+    pset, groups = firefox._policy(harness_root)
+    have = {s["id"] for s in t["steps"]}
+    out = []
+    for i, s in enumerate(list(t["steps"])):
+        if s.get("kind") != "owner" or s["status"] in ("done", "obsolete") or "no longer exists" not in s.get("title", ""):
+            continue
+        # group names carry dashes themselves (16.SNAPSHOT.DELTA.2026-08-12): match the known groups, longest first
+        group = next((g for g in sorted(groups, key=len, reverse=True) if s["id"].startswith(f"owner-{g}-")), None)
+        if not group:
+            continue
+        stem = s["id"][len(f"owner-{group}-"):]
+        pf = pset / group / (stem + ".patch")
+        if not pf.is_file():
+            continue
+        parsed = firefox.parse_patch(pf.read_text(encoding="utf-8", errors="replace"))
+        rel = pf.relative_to(pset).as_posix()
+        for f in parsed:
+            if (Path(t["workdir"]) / f["file"]).is_file():
+                continue
+            steps, why = steps_for_missing(t["workdir"], group, rel, stem, f["file"], f["hunks"], have)
+            if not steps:
+                continue
+            at = next(j for j, x in enumerate(t["steps"]) if x["id"] == s["id"])
+            for k, ns in enumerate(steps):
+                ns.update({"status": "pending", "attempts": 0, "max_attempts": 3})
+                t["steps"].insert(at + 1 + k, ns)
+                have.add(ns["id"])
+            s["status"], s["last_why"] = "obsolete", [f"{f['file']}: {why}; replaced by {[x['id'] for x in steps]}"]
+            out.append((s["id"], why, [x["id"] for x in steps]))
+    return out
