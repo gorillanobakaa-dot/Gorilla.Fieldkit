@@ -112,6 +112,10 @@ def apply(brief, option, typed, out_dir):
     """Carry out an option. Reverting needs the typed sentence AND a real terminal, and saves the diff first."""
     if option == "hold":
         return "nothing changed"
+    if not brief.get("options"):
+        # the owner ran the command after the file was already back (2026-10-01 20:34): a crash here is wrong,
+        # the honest answer is 'nothing to do'
+        return f"nothing to do: {brief['what']}"
     if option != "revert" or typed != brief["confirm"]:
         raise task.Refused(f"to apply this, type exactly: {brief['confirm']}   (hold is the default and needs nothing)")
     if not task.owner_terminal():

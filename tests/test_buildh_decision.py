@@ -147,3 +147,11 @@ def test_what_was_shown_and_what_was_done_is_logged_in_a_chain(repo, monkeypatch
 def test_a_file_the_harness_knows_is_explained_by_what_it_is_for():
     assert "how to build Firefox" in decision._what_is("config/mozconfig.win64")
     assert decision._what_is("whatever/x.cfg") == "one of your project files"
+
+
+def test_applying_a_fix_to_a_file_that_is_already_back_says_nothing_to_do(repo, monkeypatch):
+    """The owner ran the command after the file had already been restored: KeyError 'confirm' (2026-10-01 20:34)."""
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    subprocess.run(["git", "-C", str(repo), "checkout", "--", "config/m.cfg"], check=True)
+    b = decision.owner_file_edit(repo, "config/m.cfg")
+    assert decision.apply(b, "revert", "PUT BACK THE OLD m.cfg", repo).startswith("nothing to do")
