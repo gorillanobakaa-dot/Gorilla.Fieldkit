@@ -330,6 +330,20 @@ def run(a, emit):
         rows = preflight.run(tid, build=bool(a.build), model=bool(a.model), fix_locks=bool(a.fix_locks), fan_required=bool(a.build))
         emit(rows, lambda rows: print("\n".join(preflight.lines(rows))))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "deferred":
+        from . import deferred
+        rest = a.args[1:]
+        if not rest:
+            rows = deferred.listing(tid)
+            return emit(rows, lambda rows: print("\n".join([f"{len(rows)} step(s) are parked for the owner:"] +
+                                                           [f"  {i}  ({w})" for i, w in rows] +
+                                                           ["", "to read the explanation for one: fieldkit build-harness deferred TASK STEP"]))) or 0
+        if getattr(a, "do", None):
+            print(deferred.apply_drop(tid, rest[0], a.do))
+            return 0
+        b = deferred.build(tid, rest[0])
+        emit(b, lambda b: print("\n".join(deferred.show(b, plain=not a.technical))))
+        return 0
     if act == "brief":
         from . import decision
         b = decision.owner_file_edit(a.args[0], a.args[1])

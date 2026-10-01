@@ -57,6 +57,9 @@ def gate(task_id, harness_root=None, write=True):
 
     left = [s["id"] for s in t["steps"] if s["status"] != "done"]
     row("every step is done", not left, "all done" if not left else f"{len(left)} not done, first: {left[0]}")
+    dropped = [s["id"] for s in t["steps"] if s.get("dropped_by_owner")]
+    row("every dropped change was a briefed decision", all(s.get("drop_fingerprint") for s in t["steps"] if s.get("dropped_by_owner")),
+        f"{len(dropped)} dropped by the owner after an explanation: {[d.split('-', 1)[1][:50] for d in dropped][:4]}" if dropped else "none dropped")
     jp = task.STATE / task_id / "journal.jsonl"
     ev = [json.loads(l) for l in jp.read_text(encoding="utf-8").splitlines() if l.strip()] if jp.is_file() else []
     last_final = max((i for i, e in enumerate(ev) if e.get("event") == "script-done" and e.get("step") == "final-checks"), default=-1)
