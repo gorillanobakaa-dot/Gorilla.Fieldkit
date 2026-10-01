@@ -663,6 +663,28 @@ def auto_substitute(lines, hunk, notes=None):
     return out
 
 
+SPECIFIC = 25      # a line shorter than this (a brace, "#endif", a short pref) proves nothing by itself
+
+
+def obsolete_upstream(body, hunk):
+    """Is the thing this hunk changes simply gone from the new source? Returns the reason, or None.
+
+    Live run 7 (2026-10-01, hunk h23 of firefox.js): Gorilla's old comment block and `#if` around
+    browser.preonboarding.enabled do not exist in Firefox 157 at all (upstream removed the feature), yet
+    Gemma was asked to port it, invented edits and was refused twice. A model must not be asked to port
+    what is no longer there; whether to drop or re-create it is the owner's decision."""
+    removed, added, context = hunk_sides(hunk)
+    have = {l.strip() for l in body}
+    spec_removed = [l.strip() for l in removed if len(l.strip()) >= SPECIFIC and not TRIVIAL.match(l.strip())]
+    spec_added = [l.strip() for l in added if len(l.strip()) >= SPECIFIC and not TRIVIAL.match(l.strip())]
+    anchored = any(len(l.strip()) >= 12 and l.strip() in have for l in context)
+    if spec_removed and anchored and not any(l in have for l in spec_removed) and not any(l in have for l in spec_added):
+        return ("every specific line this hunk would remove is already gone from the new source, and none of the lines it "
+                "would add are there: upstream removed or replaced this. Not a job for a model; the owner decides whether "
+                "the Gorilla change is still wanted")
+    return None
+
+
 def auto_port(t, s, patch, file, hunk, **kw):
     """The harness's own attempt before a model is asked. -> {"ok", "why"}; writes the file only on success.
 
@@ -681,6 +703,10 @@ def auto_port(t, s, patch, file, hunk, **kw):
     notes = []
 
     # (Tier 0 answer-key fallback removed: copying Firefox 156 files over 157 breaks upstream changes)
+
+    gone = obsolete_upstream(body, hunk)
+    if gone:
+        return {"ok": False, "defer": True, "why": [gone]}
 
     # Tier 1: transplant (exact contiguous-block matching)
     try:

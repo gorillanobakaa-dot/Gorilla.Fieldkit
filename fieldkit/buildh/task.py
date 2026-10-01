@@ -216,6 +216,11 @@ def advance(task_id, in_flight_steps=None):
         if s is None:
             if in_flight_steps:
                 return {"state": "WAITING"}
+            parked = [x["id"] for x in t["steps"] if x["status"] == "deferred"]
+            if parked:
+                journal(t, "done-with-deferred", steps=parked)
+                return {"state": "DEFERRED", "step": parked[0], "why": [f"{len(parked)} step(s) are waiting for the owner "
+                                                                    "(upstream removed what they change); the build gate stays closed"]}
             journal(t, "done")
             return {"state": "DONE", "checkpoints": len(t["checkpoints"])}
         if s["kind"] == "model":
@@ -225,6 +230,13 @@ def advance(task_id, in_flight_steps=None):
                 s["auto_tried"] = True
                 res = _call(s["auto"], t, s, **(s.get("args") or {})) or {}
                 why = list(res.get("why") or [])
+                if res.get("defer"):
+                    # not a job for a model (e.g. upstream removed the thing): park it for the owner, visibly.
+                    # It is NOT done: the build gate refuses while any step is deferred.
+                    s["status"], s["last_why"] = "deferred", why
+                    journal(t, "deferred", step=s["id"], why=why)
+                    save(t)
+                    continue
                 if res.get("ok"):
                     changed = changed_files(t)
                     outside = [c for c in changed if c not in set(s.get("allowed") or [])]
@@ -352,6 +364,7 @@ def unblock(task_id, step_id, how):
     s = next(x for x in t["steps"] if x["id"] == step_id)
     if how == "retry":
         s["status"], s["attempts"], s["last_why"] = "pending", 0, None     # a fresh start carries no old advice
+        s["auto_tried"] = False                                           # ...and the harness gets its own go again
     elif how == "skip":
         # Overnight 2026-10-01 a supervising agent skipped ~70 steps, incl. the failing final-checks.
         if s["kind"] == "script" or s["id"].startswith("final"):
