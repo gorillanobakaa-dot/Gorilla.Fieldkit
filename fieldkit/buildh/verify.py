@@ -274,6 +274,7 @@ def verify(task_id):
         rep["groups"].setdefault(g, {"APPLIED": 0, "PARTIAL": 0, "NOT-APPLIED": 0, "TARGET-GONE": 0, "NO-SIGNAL": 0})[v] += 1
         if v == "TARGET-GONE":
             rep["target_gone"].append(f"{rel} {file} #{n}")
+    root = _git(w, "rev-list", "--max-parents=0", "HEAD").split()
     # 2. the task record against the tree
     by_key = {}
     for s in t["steps"]:
@@ -288,7 +289,8 @@ def verify(task_id):
         if s.get("done_by") == "hand" or s.get("hand_port"):
             a = s.get("args") or {}
             b = body(a["file"]) if a.get("file") else None
-            why = firefox.hand_port_holds(b, a["hunk"]) if b is not None else ["the file does not exist"]
+            pristine = _git(w, "show", f"{root[0]}:{a['file']}").splitlines() if root and a.get("file") else None
+            why = firefox.hand_port_holds(b, a["hunk"], pristine or None) if b is not None else ["the file does not exist"]
             v, d = ("APPLIED", "hand port holds") if not why else ("NOT-APPLIED", "hand port: " + "; ".join(why)[:160])
         if v is None:                                   # a relocated step: its file is not the patch's (relocate.py)
             v, d = score_hunk(body(a["file"]), a["hunk"], a["file"]) if (a := s.get("args") or {}).get("hunk") else (None, None)
@@ -299,7 +301,6 @@ def verify(task_id):
     # 3. files that are byte-identical to the owner's OLD tree. Harmless when upstream did not touch the file
     #    between the two versions (then patching gives the same bytes); lossy when it did. The older pristine
     #    copy in the vault decides; without one the verdict is UNDETERMINED, never 'fine'.
-    root = _git(w, "rev-list", "--max-parents=0", "HEAD").split()
     key_root = Path(hr) / "src"
     changed = [l for l in _git(w, "diff", "--name-only", root[0], "HEAD").splitlines() if l] if root else []
     old_pristine = older_pristine(t["meta"].get("upstream", {}).get("version"))
@@ -353,6 +354,8 @@ def verify(task_id):
                 rep["missing_new_files"].append(f"{g}/NEW_FILES/{rel}")
     # 6. upstream files gone without a patch deleting them
     rep["unexplained_deletions"] = firefox.unexplained_deletions(t)
+    # 6b. changed build files that do not parse (a merge left `GeneratedFile(` dangling: configure stopped, live run 16)
+    rep["syntax"] = firefox.syntax_problems(w, changed) if root else []
     # 7. a Fluent file with an id twice where the pristine file had it once (a moved message whose old copy was not
     #    removed, or a port that added a copy): Firefox's parser keeps the last and the build's l10n lint fails
     #    Measured against the owner's TRUTH when the harness is a snapshot (live run 16: nine of ten doubled ids are
@@ -414,6 +417,8 @@ def problems(rep):
             ("tree: no edit that no patch asked for", not se, "none" if not se else f"{len(se)}: {se[:3]}"),
             ("tree: every new file of the patch set is in place", not mn, "all present" if not mn else f"{len(mn)} missing, e.g. {mn[0]}"),
             ("tree: no upstream file gone without a patch", not ud, "none" if not ud else f"{len(ud)}, e.g. {ud[0]}"),
+            ("tree: every changed build file parses (moz.build, .py, .json)", not rep.get("syntax"),
+             "all parse" if not rep.get("syntax") else f"{len(rep['syntax'])}: {rep['syntax'][:2]}"),
             ("tree: Fluent messages as often as in the owner's tree", not rep.get("ftl_duplicates"),
              "none" if not rep.get("ftl_duplicates") else f"{len(rep['ftl_duplicates'])} file(s), e.g. {rep['ftl_duplicates'][0]}")] + \
            [("verifier could run", not rep["problems"], "; ".join(rep["problems"]) or "ok")]

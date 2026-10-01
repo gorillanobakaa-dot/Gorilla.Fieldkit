@@ -381,7 +381,7 @@ def still_holds(s, file, hunk, before, now):
     hunk's result: later hunks legitimately touch the same file, so no collateral here. Live run 15: the literal
     re-check called the Fluent transfer of browser.ftl h30 a regression and failed the final checks three times."""
     if s.get("hand_port") or s.get("done_by") == "hand":
-        return hand_port_holds(now, hunk)
+        return hand_port_holds(now, hunk, before)
     if file.endswith(".ftl"):
         from . import fluent
         try:
@@ -401,6 +401,35 @@ def still_holds(s, file, hunk, before, now):
     return hunk_problems(before, now, hunk)
 
 
+def syntax_problems(workdir, files):
+    """Changed build files that do not parse: moz.build and .py with ast, .json with json. A dangling
+    `GeneratedFile(` left by a merge stopped the 157 build at configure (live run 16, 23:36)."""
+    import ast
+    out = []
+    for rel in files:
+        p = Path(workdir) / rel
+        if not p.is_file():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if rel.endswith((".py", "moz.build")) or Path(rel).name == "moz.build":
+                ast.parse(text)
+            elif rel.endswith(".json") and not rel.endswith((".in.json", ".jsonc")) and "/test" not in rel:
+                json.loads(text)
+        except (SyntaxError, ValueError) as e:
+            out.append(f"{rel}: {str(e).splitlines()[0][:120]}")
+    return out
+
+
+def changed_vs_root(workdir):
+    root = subprocess.run(["git", "-C", str(workdir), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    if not root:
+        return []
+    r = subprocess.run(["git", "-C", str(workdir), "diff", "--name-only", root[0], "HEAD"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    return [l for l in r.stdout.splitlines() if l]
+
+
 def step_final_checks(t, **kw):
     w = Path(t["workdir"])
     why = [f"leftover {p.relative_to(w)}" for p in leftovers(w)[:10]]
@@ -411,6 +440,7 @@ def step_final_checks(t, **kw):
     lost = unexplained_deletions(t)
     if lost:
         why.append(f"{len(lost)} file(s) of the pristine source are gone and no patch deletes them, e.g. {lost[0]}")
+    why += [f"does not parse: {x}" for x in syntax_problems(w, changed_vs_root(w))[:5]]
     # regression: every hunk a model ported must still be in place at the end
     from . import task as taskmod
     for s in t["steps"]:
@@ -1374,8 +1404,9 @@ def renamed_removal(body, hunk, notes=None):
     return new, region
 
 
-_OPENER = re.compile(r"^\s*(?:[\w$.]+|\"[^\"]+\"|'[^']+')\s*[:=]\s*\{\s*$")
-_CLOSER = re.compile(r"^\s*\}[,;]?\s*$")
+_OPENER = re.compile(r"^\s*(?:[\w$.]+|\"[^\"]+\"|'[^']+')\s*[:=]\s*\{\s*$|^\s*[\w$.]+\(\s*$")
+_CLOSER = re.compile(r"^\s*[\}\)][,;]?\s*$")
+_PAIRS = (("{", "}"), ("(", ")"))
 
 
 def block_removal(body, hunk, notes=None):
@@ -1396,8 +1427,9 @@ def block_removal(body, hunk, notes=None):
     core = rem[lead:]
     if len(core) < 3 or not _OPENER.match(core[0]) or not _CLOSER.match(core[-1]):
         raise Ambiguous("the removed lines are not one `name: { ... }` block")
-    if sum(l.count("{") - l.count("}") for l in core) != 0:
-        raise Ambiguous("the removed block's braces do not balance")
+    o, c = next((pair for pair in _PAIRS if core[0].rstrip().endswith(pair[0])), _PAIRS[0])
+    if sum(l.count(o) - l.count(c) for l in core) != 0:
+        raise Ambiguous("the removed block's brackets do not balance")
     opener = _key(core[0])
     at = [i for i, l in enumerate(body) if _key(l) == opener]
     if len(at) != 1:
@@ -1405,7 +1437,7 @@ def block_removal(body, hunk, notes=None):
     start = at[0]
     depth, end = 0, None
     for i in range(start, min(len(body), start + 2 * len(core) + 8)):
-        depth += body[i].count("{") - body[i].count("}")
+        depth += body[i].count(o) - body[i].count(c)
         if depth == 0:
             end = i
             break
@@ -1587,7 +1619,7 @@ def auto_port(t, s, patch, file, hunk, **kw):
 _TOKEN = re.compile(r"[A-Za-z_$][\w$]{5,}|\"[^\"]{4,}\"|'[^']{4,}'|`[^`]{4,}`")
 
 
-def hand_port_check(before, after, hunk):
+def hand_port_check(before, after, hunk, pristine=None):
     """A PERSON ported this hunk by hand (not a model): the shape may differ from the patch, the meaning may not.
     Required: every specific removed line is gone (from the frame when it can be pinned, else the file); every
     distinctive token of the added lines (identifiers of 6+ chars, quoted strings) is present near the change;
@@ -1612,13 +1644,24 @@ def hand_port_check(before, after, hunk):
     else:
         lo, hi = 0, len(after)
     near = {l.strip() for l in after[lo:hi]}
-    for l in removed:
-        k = l.strip()
+    import collections
+    cb = collections.Counter(l.strip() for l in (pristine if pristine is not None else before))
+    ca = collections.Counter(l.strip() for l in after)
+    cn = collections.Counter(l.strip() for l in after[lo:hi])
+    want_gone = collections.Counter(l.strip() for l in removed)
+    for k, n in want_gone.items():
         if not _specific(_key(k)) or k.startswith(("/*", "//", "*", "<!--")):
             continue                                        # a comment follows its block; it proves nothing alone
         wide = _judgeable_rename(k)
-        if k in (have if wide else near):
-            why.append(f"line should be gone: {k[:100]}")
+        here = ca[k] if wide else cn[k]
+        if not here:
+            continue
+        # a line other blocks also use (`GeneratedFile(` opens three blocks in addons/moz.build, the hunk removes one)
+        # is no evidence either way: only a line whose every copy in `before` is the hunk's must be gone. What a
+        # shared opener left dangling does is caught by the parse check (syntax_problems), not by text.
+        if (pristine is not None or before is not after) and cb[k] != n:
+            continue
+        why.append(f"line should be gone: {k[:100]}")
     for a, b in renamed_near(after, hunk, removed, added)[:3]:
         why.append(f"line still there under new names: `{a[:60]}` is now `{b[:60]}`")
     text_after = "\n".join(scope_after)
@@ -1648,12 +1691,13 @@ def hand_port_check(before, after, hunk):
     return why
 
 
-def hand_port_holds(now, hunk):
+def hand_port_holds(now, hunk, pristine=None):
     """Does a hand port's result still stand in `now`? The meaning check (specific removed lines gone, the added
     text's tokens present) without the collateral part: later hunks touch the same file. Used by the verifier and
     the final re-check for steps done by hand (live run 16: the literal verifier reopened four hand ports, the tiers
-    re-ran on them and one Fluent port removed the owner's moved message a second time)."""
-    return [w for w in hand_port_check(now, now, hunk) if not w.startswith("you removed")]
+    re-ran on them and one Fluent port removed the owner's moved message a second time). With `pristine` (the
+    upstream file) removals are judged by count, pristine -> now."""
+    return [w for w in hand_port_check(pristine if pristine is not None else now, now, hunk, pristine) if not w.startswith("you removed")]
 
 
 def check_port(t, s, patch, file, hunk, **kw):
@@ -1664,7 +1708,10 @@ def check_port(t, s, patch, file, hunk, **kw):
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()
     if s.get("hand_port"):
-        why = hand_port_check(before, after, hunk)
+        root = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+        pristine = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
+            "utf-8", "replace").splitlines() if root else None
+        why = hand_port_check(before, after, hunk, pristine or None)
         return {"ok": not why, "why": why[:8]}
     if file.endswith(".ftl"):
         from . import fluent
