@@ -327,9 +327,18 @@ def run(a, emit):
         return 0 if r["ok"] else 3
     if act == "preflight":
         from . import preflight
-        rows = preflight.run(tid, build="--build" in a.args, model="--model" in a.args, fix_locks=bool(getattr(a, "fix_locks", False)),
-                             fan_required="--build" in a.args)
+        rows = preflight.run(tid, build=bool(a.build), model=bool(a.model), fix_locks=bool(a.fix_locks), fan_required=bool(a.build))
         emit(rows, lambda rows: print("\n".join(preflight.lines(rows))))
+        return 0 if all(r["ok"] for r in rows) else 3
+    if act in ("build-gate", "build-verify"):
+        from . import compile as cg
+        rows = cg.gate(tid, harness_root=a.harness) if act == "build-gate" else cg.verify(tid)
+        emit(rows, lambda rows: print("\n".join(cg.lines(rows, act.upper()))))
+        if act == "build-gate" and all(r["ok"] for r in rows):
+            print("\nThe tree is recorded. The OWNER now compiles it, from a normal terminal (this changes the power scheme):\n"
+                  "  1. in Gorilla.firefox: python harness\\gorilla_build.py build\n"
+                  "  2. python harness\\gorilla_build.py package\n"
+                  "  3. fieldkit build-harness build-verify " + tid)
         return 0 if all(r["ok"] for r in rows) else 3
     if act == "audit":
         from . import audit
