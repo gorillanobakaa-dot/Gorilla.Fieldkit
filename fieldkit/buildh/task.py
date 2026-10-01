@@ -352,8 +352,17 @@ def submit(task_id, note="", by="cli", step_id=None):
     why = []
     if outside:
         why.append(f"changed files outside the step: {outside[:5]}")
-    if not changed:
+    if not changed and by != "hand":
         why.append("nothing was changed")
+    if not changed and by == "hand":
+        s["hand_port"] = True
+        chk = _call(s["check"], t, s, **(s.get("args") or {}))
+        if chk.get("ok"):
+            s["status"], s["done_by"], s["notes"] = "done", "hand", ["already in the tree: nothing to change, the check passes"]
+            save(t)
+            journal(t, "submit", step=s["id"], ok=True, by=by, note="already in the tree")
+            return {"ok": True, "step": s["id"], "note": "already in the tree; recorded as done by hand"}
+        why.append("nothing was changed, and the tree does not hold the result: " + "; ".join(chk.get("why") or [])[:200])
     if not why:
         s["hand_port"] = by == "hand"                       # a person's declared port is judged by meaning, anything else by the letter
         res = _call(s["check"], t, s, **(s.get("args") or {}))
@@ -389,6 +398,15 @@ def unblock(task_id, step_id, how):
     if how == "retry":
         s["status"], s["attempts"], s["last_why"] = "pending", 0, None     # a fresh start carries no old advice
         s["auto_tried"] = False                                           # ...and the harness gets its own go again
+    elif how == "hand":
+        # a person ports it: the step waits for `submit --hand` without the harness tiers running again (they
+        # would defer or park it the same way) and without a model being asked
+        if s["kind"] != "model":
+            raise Refused("only a port step can be taken by hand")
+        if s["status"] in ("done", "obsolete"):
+            raise Refused(f"{step_id} is {s['status']}: nothing to take by hand")
+        s["status"], s["attempts"], s["last_why"] = "pending", 0, None
+        s["auto_tried"], s["hand_port"] = True, True
     elif how == "skip":
         # Overnight 2026-10-01 a supervising agent skipped ~70 steps, incl. the failing final-checks.
         if s["kind"] == "script" or s["id"].startswith("final"):

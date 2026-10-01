@@ -193,6 +193,43 @@ def relocate_missing(task_id):
     return out
 
 
+def _truth_root(hr):
+    """The owner's built tree a snapshot harness was taken from (patch_policy._snapshot.live_tree), or None."""
+    import json
+    try:
+        snap = json.loads((Path(hr) / "config" / "patch_policy.json").read_text(encoding="utf-8")).get("_snapshot") or {}
+        return Path(snap["live_tree"]) if snap.get("live_tree") and Path(snap["live_tree"]).is_dir() else None
+    except (OSError, ValueError):
+        return None
+
+
+def add_dedupe_steps(task_id, rep):
+    """A Fluent file with a message doubled beyond the owner's truth gets a dedupe step (fluent.step_dedupe), placed
+    before the final checks. -> ids added."""
+    t = task.load(task_id)
+    truth = _truth_root(t["meta"].get("harness_root") or "")
+    if not truth or not rep.get("ftl_duplicates"):
+        return []
+    have = {s["id"] for s in t["steps"]}
+    added = []
+    for row in rep["ftl_duplicates"]:
+        rel = row.split(":")[0]
+        sid = "dedupe-" + re.sub(r"[^a-z0-9]+", "-", rel.lower()).strip("-")[:60]
+        if sid in have:
+            continue
+        at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
+        t["steps"].insert(at, {"id": sid, "kind": "script", "title": f"{rel}: a message is defined more often than in the owner's tree; "
+                                                                      f"remove the surplus copies", "status": "pending",
+                               "attempts": 0, "max_attempts": 3, "run": "fieldkit.buildh.fluent:step_dedupe",
+                               "check": "fieldkit.buildh.fluent:check_dedupe", "allowed": [rel],
+                               "args": {"file": rel, "truth_root": str(truth)}})
+        added.append(sid)
+    if added:
+        task.save(t)
+        task.journal(t, "plan-amended", steps=added, why="Fluent messages defined more often than in the owner's tree")
+    return added
+
+
 def verify(task_id):
     """-> report dict. Read-only."""
     t = task.load(task_id)
@@ -274,6 +311,10 @@ def verify(task_id):
         if spec.get("status") == "enabled":
             named.update(rel for _, rel in firefox.new_files(pset, g))
     named |= firefox.manifest_deletions(hr)                       # a file the fork deletes on purpose is not a stray edit
+    for s in t["steps"]:                                          # a relocated target (relocate.py) is named by its step
+        a = s.get("args") or {}
+        named.update([a["file"]] if a.get("file") else [])
+        named.update(s.get("allowed") or [])
     for g, spec in groups.items():
         rf = pset / g / "REPLACE_FILES"
         if spec.get("status") == "enabled" and rf.is_dir():
@@ -289,6 +330,26 @@ def verify(task_id):
                 rep["missing_new_files"].append(f"{g}/NEW_FILES/{rel}")
     # 6. upstream files gone without a patch deleting them
     rep["unexplained_deletions"] = firefox.unexplained_deletions(t)
+    # 7. a Fluent file with an id twice where the pristine file had it once (a moved message whose old copy was not
+    #    removed, or a port that added a copy): Firefox's parser keeps the last and the build's l10n lint fails
+    #    Measured against the owner's TRUTH when the harness is a snapshot (live run 16: nine of ten doubled ids are
+    #    doubled in the owner's running 155 tree as well, so they are the port, not damage), else the pristine tree.
+    rep["ftl_duplicates"] = []
+    if root:
+        import collections
+        from . import fluent
+        truth = _truth_root(hr)
+        for rel in changed:
+            if not rel.endswith(".ftl"):
+                continue
+            now = body(rel)
+            if now is None:
+                continue
+            ref = (truth / rel).read_text(encoding="utf-8", errors="replace").splitlines() if truth and (truth / rel).is_file()                 else _git(w, "show", f"{root[0]}:{rel}").splitlines()
+            was = collections.Counter(e["id"] for e in fluent.entries(ref))
+            dup = [i for i, n in collections.Counter(e["id"] for e in fluent.entries(now)).items() if n > 1 and n > was[i]]
+            if dup:
+                rep["ftl_duplicates"].append(f"{rel}: {dup[:3]}")
     return rep
 
 
@@ -323,7 +384,9 @@ def problems(rep):
               f"{rep['old_tree_copies_undetermined'][:3]}")),
             ("tree: no edit that no patch asked for", not se, "none" if not se else f"{len(se)}: {se[:3]}"),
             ("tree: every new file of the patch set is in place", not mn, "all present" if not mn else f"{len(mn)} missing, e.g. {mn[0]}"),
-            ("tree: no upstream file gone without a patch", not ud, "none" if not ud else f"{len(ud)}, e.g. {ud[0]}")] + \
+            ("tree: no upstream file gone without a patch", not ud, "none" if not ud else f"{len(ud)}, e.g. {ud[0]}"),
+            ("tree: no Fluent message defined twice", not rep.get("ftl_duplicates"),
+             "none" if not rep.get("ftl_duplicates") else f"{len(rep['ftl_duplicates'])} file(s), e.g. {rep['ftl_duplicates'][0]}")] + \
            [("verifier could run", not rep["problems"], "; ".join(rep["problems"]) or "ok")]
 
 

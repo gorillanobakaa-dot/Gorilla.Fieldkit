@@ -283,6 +283,8 @@ def drive(tid, a):
     for sid, why, new in vf.relocate_missing(tid):
         say(f"SYNC: {sid}: {why}; now {new}")
     rep = vf.verify(tid)
+    for sid in vf.add_dedupe_steps(tid, rep):
+        say(f"SYNC: plan amended, dedupe step added: {sid}")
     reopened = vf.reopen(tid, rep)
     if reopened:
         say(f"SYNC: {len(reopened)} step(s) the record called done are not in the tree; reopened: {reopened[:5]}")

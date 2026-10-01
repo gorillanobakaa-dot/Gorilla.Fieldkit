@@ -121,6 +121,7 @@ def intent(hunk):
             notes.append(f"{twin}: an older name of {r} in the owner's tree, same text: nothing to port")
         else:
             sem["changed"][r] = own
+            sem.setdefault("twins", {})[r] = twin
             notes.append(f"{twin}: the owner's wording goes onto {r}, the name this Firefox uses")
     return sem, notes
 
@@ -135,9 +136,30 @@ def port(lines, hunk):
     have = _by_id(ents)
     if not sem["changed"] and not sem["added"] and not sem["removed"]:
         return list(lines), notes or ["nothing to port"], []
+    # a message the hunk REMOVES that is already absent is done, not gone; a message the hunk ADDS that is already
+    # there with the same parts is done too, and with other parts it is a change (live run 16, preferences.ftl h52:
+    # `containers-remove-button3` was already gone and `containers-remove-button2` already added, and the port
+    # was deferred as "no longer exists" for a removal it did not need to make)
+    for r, twin in list((sem.get("twins") or {}).items()):
+        if r not in have and twin in have and _texts(have[twin]["parts"]) == _texts(sem["changed"][r]):
+            notes.append(f"already transferred: {twin} carries the owner's wording and {r} is gone")
+            del sem["changed"][r]
+    already_removed = [i for i in sem["removed"] if i not in have]
+    if already_removed:
+        notes.append(f"already removed upstream: {', '.join(already_removed)}")
+        sem["removed"] = [i for i in sem["removed"] if i in have]
+    for i in list(sem["added"]):
+        if i in have:
+            if have[i]["parts"] == sem["added"][i]:
+                notes.append(f"already added: {i}")
+            else:
+                sem["changed"][i] = sem["added"][i]
+            del sem["added"][i]
     gone = [(i, candidates(i, have)) for i in list(sem["changed"]) + sem["removed"] if i not in have]
     if gone:
         return list(lines), notes, gone
+    if not sem["changed"] and not sem["added"] and not sem["removed"]:
+        return list(lines), notes + ["nothing left to port"], []
     default_indent = next((e["indent"] for e in ents if e["indent"]), "    ")
     new = list(lines)
     # rewrite from the bottom so earlier offsets stay valid
@@ -266,9 +288,11 @@ def check(before, after, hunk, mapping=None, collateral=True):
             why.append(f"message {i} is missing")
         elif a[i]["parts"] != parts:
             why.append(f"message {i} does not read as the patch wants: {a[i]['parts']}")
+    import collections
+    cb, ca = collections.Counter(e["id"] for e in entries(before)), collections.Counter(e["id"] for e in entries(after))
     for i in sem["removed"]:
-        if i in a and i in b:
-            why.append(f"message {i} should be gone")
+        if i in b and ca[i] >= cb[i]:
+            why.append(f"message {i} should be gone" + (f" (one of its {cb[i]} copies)" if cb[i] > 1 else ""))
     if not collateral:
         return why
     intended = set(sem["changed"]) | set(sem["added"]) | set(sem["removed"]) | set(intended_now)
@@ -279,3 +303,67 @@ def check(before, after, hunk, mapping=None, collateral=True):
         if i not in b and i not in intended:
             why.append(f"message {i} appeared, but the patch does not add it")
     return why
+
+
+# -- a message defined more times than the owner's truth has it ------------------------------------------------
+
+def _neighbours(ents, k):
+    prev = ents[k - 1]["id"] if k > 0 else None
+    nxt = ents[k + 1]["id"] if k + 1 < len(ents) else None
+    return prev, nxt
+
+
+def dedupe(lines, truth_lines):
+    """Remove the copies of a message that exceed the owner's truth, keeping the copies that sit where the truth
+    has them (same neighbouring messages), else the last ones. -> (new_lines, [(id, removed_at_line)]).
+
+    Live run 16 (2026-10-01, browser.ftl): the owner MOVES `urlbar-result-menu-trending-dont-show2` down the file.
+    The group apply added the new copy; the hunk removing the old one was closed as a drift twin, so the tree held
+    the message twice where the owner's tree holds it once. Firefox keeps the last copy and the l10n lint fails."""
+    import collections
+    ents, truth = entries(lines), entries(truth_lines)
+    want = collections.Counter(e["id"] for e in truth)
+    truth_nb = collections.defaultdict(list)
+    for k, e in enumerate(truth):
+        truth_nb[e["id"]].append(_neighbours(truth, k))
+    have = collections.Counter(e["id"] for e in ents)
+    drop = []
+    for i, n in have.items():
+        if n <= want[i]:
+            continue
+        copies = [k for k, e in enumerate(ents) if e["id"] == i]
+        placed = [k for k in copies if _neighbours(ents, k) in truth_nb[i]]
+        keep = placed[:want[i]] if len(placed) >= want[i] else (placed + [k for k in reversed(copies) if k not in placed])[:want[i]]
+        drop += [k for k in copies if k not in keep]
+    removed = []
+    new = list(lines)
+    for k in sorted(drop, reverse=True):
+        e = ents[k]
+        removed.append((e["id"], e["start"] + 1))
+        del new[e["start"]:e["end"]]
+    return new, sorted(removed, key=lambda r: r[1])
+
+
+def step_dedupe(t, file, truth_root, **kw):
+    """Harness step: remove the surplus copies in `file` against the owner's truth copy of it."""
+    from pathlib import Path as _P
+    p = _P(t["workdir"]) / file
+    tp = _P(truth_root) / file
+    if not p.is_file() or not tp.is_file():
+        return {"ok": False, "why": [f"{file} or its truth copy does not exist"]}
+    raw = p.read_text(encoding="utf-8")
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    new, removed = dedupe(raw.split(nl), tp.read_text(encoding="utf-8", errors="replace").splitlines())
+    if removed:
+        p.write_text(nl.join(new), encoding="utf-8", newline="")
+    return {"ok": True, "summary": f"{file}: removed {len(removed)} surplus message cop(y/ies): "
+                                   + ", ".join(f"{i} at line {at}" for i, at in removed) if removed else f"{file}: no surplus copy"}
+
+
+def check_dedupe(t, file, truth_root, **kw):
+    import collections
+    from pathlib import Path as _P
+    now = collections.Counter(e["id"] for e in entries((_P(t["workdir"]) / file).read_text(encoding="utf-8").splitlines()))
+    want = collections.Counter(e["id"] for e in entries((_P(truth_root) / file).read_text(encoding="utf-8", errors="replace").splitlines()))
+    over = [i for i, n in now.items() if n > 1 and n > want[i]]
+    return {"ok": not over, "why": [f"{file}: still defined more than in the truth: {over[:3]}"] if over else []}

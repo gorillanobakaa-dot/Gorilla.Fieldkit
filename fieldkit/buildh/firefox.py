@@ -1210,8 +1210,8 @@ def _is_renamed(removed_toks, text):
     if not mine:
         return False
     shared = removed_toks & mine
-    if any(len(t) >= 12 and t not in mine for t in removed_toks):
-        return False
+    if any(len(t) >= 10 and t not in mine for t in removed_toks):
+        return False                                    # `isAIWindow` missing: `.isPopup = true` is another line
     return len(shared) * 2 >= len(removed_toks) and len(shared) * 10 >= len(mine) * 6
 
 
@@ -1583,22 +1583,46 @@ def hand_port_check(before, after, hunk):
     # the whole file: a person may legitimately port the change into another function (the real case did)
     scope_after = after
     have = {l.strip() for l in scope_after}
+    # a removed line is looked for file-wide only when it has identity of its own (a distinctive identifier, not a
+    # comment): `color: inherit;` and a stylelint comment live in many rules, and a hand port of browser-shared.css
+    # h7 was refused for copies in other rules (live run 16). Generic lines are judged inside the hunk's window.
+    # the window sits round the hunk's specific context lines that occur once in the file (`}` and a `@media` that
+    # the file has six times anchor nothing: browser-shared.css h7 was refused for copies 300 lines away)
+    reach = len(hunk["lines"]) + GAP
+    pins = [i for l in hunk["lines"] if l.startswith(" ") and _specific(_key(l[1:]))
+            for i in [[j for j, x in enumerate(after) if _key(x) == _key(l[1:])]] if len(i) == 1]
+    if pins:
+        lo, hi = max(0, min(p[0] for p in pins) - reach), min(len(after), max(p[0] for p in pins) + reach)
+    else:
+        lo, hi = 0, len(after)
+    near = {l.strip() for l in after[lo:hi]}
     for l in removed:
         k = l.strip()
-        if _specific(_key(k)) and k in have:
+        if not _specific(_key(k)) or k.startswith(("/*", "//", "*", "<!--")):
+            continue                                        # a comment follows its block; it proves nothing alone
+        wide = _judgeable_rename(k)
+        if k in (have if wide else near):
             why.append(f"line should be gone: {k[:100]}")
     text_after = "\n".join(scope_after)
+    norm = lambda tok: tok.strip("\"'`").lstrip("_#$")       # `this._x`, `this.#x` and `lazy.x` are one name (live run 16)
     for l in added:
         for tok in _TOKEN.findall(l):
-            if tok not in text_after and tok.strip("\"'`") not in text_after:
+            if tok not in text_after and norm(tok) not in text_after:
                 why.append(f"the added text's {tok[:40]!r} is nowhere near the change")
                 break
     # removals outside the hunk are collateral whatever the shape of the port: every new line is 'allowed', and
     # a removed line is allowed when it shares a distinctive token with the hunk (`message.targeting =` next to
     # the hunk's `targeting:`); a removed line with no such token (`other() {`) is damage
-    hunk_tokens = {tok for l in removed + added for tok in _TOKEN.findall(l)}
-    gone_lines = [l for l in before if l.strip() and l.strip() not in {a.strip() for a in after}]
-    allowed = [l for l in gone_lines if set(_TOKEN.findall(l)) & hunk_tokens]
+    hunk_tokens = {norm(tok) for l in removed + added for tok in _TOKEN.findall(l)}
+    import difflib
+    allowed = []
+    sm = difflib.SequenceMatcher(None, [l.strip() for l in before], [l.strip() for l in after], autojunk=False)
+    for op, i1, i2, _, _ in sm.get_opcodes():           # runs of removed lines, as the diff sees them: a token-less
+        if op not in ("delete", "replace"):             # line (`if (`, `) {`) inside a run that carries the hunk's
+            continue                                    # tokens goes with it (Tabbrowser h4, live run 16)
+        run = [l for l in before[i1:i2] if l.strip()]
+        if any({norm(t) for t in _TOKEN.findall(x)} & hunk_tokens for x in run):
+            allowed += [x for x in run if {norm(t) for t in _TOKEN.findall(x)} & hunk_tokens or not _TOKEN.findall(x)]
     new_lines = [l for l in after if l.strip() and l.strip() not in {b.strip() for b in before}]
     extra = collateral(before, after, {"lines": [l for l in hunk["lines"] if not l.startswith("+")] + ["+" + l for l in new_lines]},
                        extra_removals=allowed)
