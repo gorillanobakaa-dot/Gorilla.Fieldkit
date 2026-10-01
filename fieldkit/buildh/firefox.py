@@ -514,7 +514,12 @@ def _bounds(lines, hunk, anchor):
     # live run 16); one that occurs all over the file never does. A non-unique line may not EXTEND the span
     # across lines the hunk knows nothing about (`color: inherit;` two rules further down, h7).
     hunk_keys = {_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-")}
-    seq = [_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-") and _specific(_key(l[1:])) and counts.get(_key(l[1:]), 0) <= 3]
+    seq = [_key(l[1:]) for l in hunk["lines"] if l[:1] in (" ", "-") and _specific(_key(l[1:]))]
+    # the START needs a line that occurs a few times at most; later lines may occur more often (design-token
+    # CSS repeats the same declaration in every colour scheme) because the walk only accepts them in order,
+    # within GAP, and not across unknown lines
+    while seq and counts.get(seq[0], 0) > 3:
+        seq.pop(0)
     if not seq:
         return None
     limit = min(len(lines), anchor + len(hunk["lines"]) + 40)
@@ -532,8 +537,8 @@ def _bounds(lines, hunk, anchor):
         nxt = next((i for i in range(hi + 1, min(len(lines), hi + 1 + GAP)) if _key(lines[i]) == key), None)
         if nxt is None:
             continue
-        if counts.get(key, 0) > 1 and sum(1 for i in range(hi + 1, nxt) if _key(lines[i]) not in hunk_keys) >= 2:
-            continue
+        if counts.get(key, 0) > 1 and sum(1 for i in range(hi + 1, nxt) if _key(lines[i]) not in hunk_keys) >= 3:
+            continue                        # (two unknown lines: upstream added a pair inside the span, tokens-platform.css)
         hi = nxt
     # the hunk's trailing removals right after the last match (`}`, a blank) belong to the span when contiguous
     hl = [l for l in hunk["lines"] if l[:1] in (" ", "-")]
@@ -582,6 +587,12 @@ def hunk_problems(before, after, hunk):
     sa = _span(after, hunk, lo=sb[0]) if sb else None
     pinned = bool(sb and sa)
     if pinned:
+        # the after-span must reach over the lines the hunk ADDS: when the hunk's trailing context is too short to
+        # pin (`BackupUI: {`), the span ended before the inserted lines and called them missing (DesktopActorRegistry h1)
+        add_keys = {_key(l[1:]) for l in hunk["lines"] if l.startswith("+") and _specific(_key(l[1:]))}
+        reach = min(len(after), sa[0] + len(hunk["lines"]) + 40)
+        last_added = max((i for i in range(sa[0], reach) if _key(after[i]) in add_keys), default=sa[1] - 1)
+        sa = (sa[0], max(sa[1], last_added + 1))
         before, after = before[sb[0]:sb[1]], after[sa[0]:sa[1]]
     b = [l.strip() for l in before]
     a = [l.strip() for l in after]
@@ -626,7 +637,15 @@ def collateral(before, after, hunk, extra_removals=None):
     sm = difflib.SequenceMatcher(None, [l.strip() for l in before], [l.strip() for l in after], autojunk=False)
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op in ("delete", "replace"):
-            gone.update(l.strip() for l in before[i1:i2] if l.strip())
+            for i in range(i1, i2):
+                if not before[i].strip():
+                    continue
+                # a line upstream added INSIDE a block the hunk removes (both neighbours are the hunk's '-' lines)
+                # goes with the block: the port, not damage (SessionStore h6: `let activeIndex = this.historyIndex(tab);`)
+                nb = [_key(before[j]) for j in (i - 1, i + 1) if 0 <= j < len(before) and before[j].strip()]
+                if _key(before[i]) not in may_remove and len(nb) == 2 and all(k in may_remove for k in nb):
+                    may_remove[_key(before[i])] += 1
+                gone[before[i].strip()] += 1
         if op in ("insert", "replace"):
             new.update(l.strip() for l in after[j1:j2] if l.strip())
     moved = gone & new                                          # the same line taken out and put back

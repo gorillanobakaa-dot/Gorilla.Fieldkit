@@ -213,3 +213,27 @@ def test_a_true_refactor_stays_with_a_person_and_names_the_functions():
 """.splitlines()
     where = firefox.moved_where(body, hunk, "PanelTestProvider.sys.mjs")
     assert "export const PanelTestProvider" in where and "tagMessageForTesting()" in where
+
+
+def test_a_new_line_inside_a_removed_block_is_not_collateral():
+    body = list(SS6_157)
+    new = firefox.auto_merge(body, SS6)
+    assert firefox.collateral(body, new, SS6) == []
+    # but a removed line OUTSIDE any removed block still is
+    bad = [l for l in new if l != '      argString = Cc["@mozilla.org/supports-string;1"].createInstance(']
+    assert any("not part of the change" in w for w in firefox.collateral(body, bad, SS6))
+
+
+def test_the_check_sees_inserted_lines_even_when_the_hunks_trailing_context_is_too_short_to_pin():
+    """DesktopActorRegistry h1: three '+' comments follow the removed actors; the trailing context is `BackupUI: {`."""
+    hunk = {"header": "@@ -229,76 +229,11 @@ let JSWINDOWACTORS = {", "lines": [
+        '     enablePreference: "browser.aboutwelcome.enabled",', "   },", " ",
+        "-  AIChatContent: {", "-    parent: {", '-      esModuleURI: "moz-src:///browser/components/aiwindow/ui/actors/AIChatContentParent.sys.mjs",',
+        "-    },", '-    enablePreference: "browser.smartwindow.enabled",', "-  },",
+        "+  // GORILLA excised: AIChatContent actor (aiwindow removed).", " ", "   BackupUI: {", "     parent: {"]}
+    before = ['    enablePreference: "browser.aboutwelcome.enabled",', "  },", "", "  AIChatContent: {", "    parent: {",
+              '      esModuleURI: "moz-src:///browser/components/aiwindow/ui/actors/AIChatContentParent.sys.mjs",', "    },",
+              '    enablePreference: "browser.smartwindow.enabled",', "  },", "", "  BackupUI: {", "    parent: {", "      esModuleURI: 'x',"]
+    after = firefox.auto_merge(before, hunk)
+    assert "  // GORILLA excised: AIChatContent actor (aiwindow removed)." in after and "  AIChatContent: {" not in after
+    assert firefox.hunk_problems(before, after, hunk) == [] and firefox.collateral(before, after, hunk) == []

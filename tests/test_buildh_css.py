@@ -182,3 +182,54 @@ def test_a_done_removal_is_recognised_as_already_in_place_even_when_its_lines_li
     not_done = done[:1] + ["  color: inherit;", "  background-color: var(--toolbox-background-color);",
                            "  padding-inline-end: var(--toolbar-padding-inline);"] + done[1:]
     assert not firefox.already_upstream(not_done, hunk)
+
+
+# tokens-platform.css h2: design-token files repeat the same declaration in every colour scheme, and upstream
+# added two declarations inside the span
+TOKENS = {"header": "@@", "lines": [
+    "     --button-background-color: color-mix(in srgb, currentColor 13%, transparent);",
+    "     --button-background-color-hover: color-mix(in srgb, currentColor 17%, transparent);",
+    "     --button-background-color-active: color-mix(in srgb, currentColor 30%, transparent);",
+    "-    --button-background-color-ghost: transparent;",
+    "     --button-text-color: currentColor;",
+    "-    --button-text-color-menu-selected: currentColor;",
+    "     --button-text-color-primary: AccentColorText;", " ", "     /** color **/"]}
+TOKENS_157 = """  @media (prefers-contrast) {
+    --button-text-color: currentColor;
+    --button-text-color-menu-selected: currentColor;
+    --button-text-color-primary: AccentColorText;
+  }
+  @media (forced-colors) {
+    --button-text-color: currentColor;
+    --button-text-color-menu-selected: currentColor;
+    --button-text-color-primary: AccentColorText;
+  }
+  :root {
+    /* TODO Bug 1821203 - Gray use needs to be consolidated */
+    --button-background-color: color-mix(in srgb, currentColor 13%, transparent);
+    --button-background-color-hover: color-mix(in srgb, currentColor 17%, transparent);
+    --button-background-color-active: color-mix(in srgb, currentColor 30%, transparent);
+    --button-background-color-ghost: transparent;
+    --button-background-color-ghost-hover: color-mix(in srgb, currentColor 17%, transparent);
+    --button-background-color-ghost-active: color-mix(in srgb, currentColor 30%, transparent);
+    --button-text-color: currentColor;
+    --button-text-color-menu-selected: currentColor;
+    --button-text-color-primary: AccentColorText;
+
+    /** color **/
+    --color-accent-attention: AccentColor;
+  }
+  @media (prefers-color-scheme: dark) {
+    --button-text-color: currentColor;
+    --button-text-color-menu-selected: currentColor;
+    --button-text-color-primary: AccentColorText;
+  }
+""".splitlines()
+
+
+def test_a_repeated_declaration_may_extend_the_span_in_order_and_the_two_new_lines_become_questions():
+    body = list(TOKENS_157)
+    at = firefox._anchor(body, [l[1:] for l in TOKENS["lines"] if l[:1] in (" ", "-")])
+    auto_rm, uncertain = firefox.identify_questions(body, TOKENS, at)
+    assert [body[n - 1].strip() for n in auto_rm] == ["--button-background-color-ghost: transparent;", "--button-text-color-menu-selected: currentColor;"]
+    assert [body[n - 1].strip()[:38] for n in uncertain] == ["--button-background-color-ghost-hover:", "--button-background-color-ghost-active"]
