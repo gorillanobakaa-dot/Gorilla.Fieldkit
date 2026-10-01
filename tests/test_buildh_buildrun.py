@@ -48,3 +48,37 @@ def test_fluent_stop_reconciles_the_named_file(tmp_path, monkeypatch):
     assert ok and "removed surplus a" in what
     assert (w / "l/x.ftl").read_text(encoding="utf-8").count("a = A") == 1
     assert buildrun.fix_fluent(t, "root", said.append, lines=["no file here"])[0] is False
+
+
+MOZBUILD_STOP = [" 1:13.20 FATAL ERROR PROCESSING MOZBUILD FILE",
+                 " 1:13.20     D:/build/firefox/157.0-truth/widget/windows/moz.build",
+                 " 1:13.20     File listed in FINAL_TARGET_FILES does not exist: D:/home/.mozbuild/winappsdk-x86_64-pc-windows-msvc/Microsoft.WindowsAppRuntime.dll",
+                 ' 1:16.14 E *** Fix above errors and then restart with "./mach build"',
+                 "[*]   Objdir vs CLOBBER        ok   objdir has no CLOBBER record yet"]
+
+
+def test_a_missing_toolchain_is_its_own_stop_not_a_clobber(tmp_path):
+    name, fix = buildrun.classify(MOZBUILD_STOP)
+    assert name == "missing-toolchain" and fix is buildrun.fix_toolchain      # the word CLOBBER elsewhere must not win
+    assert buildrun.classify(["Objdir vs CLOBBER ok", "random failure"])[0] == "unknown"
+    (tmp_path / "taskcluster/kinds/toolchain").mkdir(parents=True)
+    (tmp_path / "taskcluster/kinds/toolchain/misc.yml").write_text(
+        "win64-WindowsAppSDK:\n    description: x\n    run:\n        toolchain-artifact: public/build/winappsdk.tar.zst\n"
+        "        toolchain-alias: winappsdk-x86_64-pc-windows-msvc\n\nwin32-WindowsAppSDK:\n        toolchain-alias: winappsdk-x86-pc-windows-msvc\n",
+        encoding="utf-8")
+    assert buildrun.toolchain_job(tmp_path, "winappsdk-x86_64-pc-windows-msvc") == "win64-WindowsAppSDK"
+    assert buildrun.toolchain_job(tmp_path, "winappsdk-x86-pc-windows-msvc") == "win32-WindowsAppSDK"
+    assert buildrun.toolchain_job(tmp_path, "nothing") is None
+    assert buildrun.MISSING_TOOLCHAIN.search("\n".join(MOZBUILD_STOP)).group(1) == "winappsdk-x86_64-pc-windows-msvc"
+
+
+def test_the_power_scheme_is_put_back_when_the_stage_leaves_another(monkeypatch):
+    calls = []
+    states = iter([("g-build", "Gorilla Build"), ("g-bal", "Balanced")])
+    monkeypatch.setattr(buildrun, "active_power_scheme", lambda: next(states))
+    monkeypatch.setattr(buildrun.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    said = []
+    assert buildrun.restore_power_scheme(("g-bal", "Balanced"), said.append)
+    assert calls == [["powercfg", "/setactive", "g-bal"]] and "put back to 'Balanced'" in said[0]
+    monkeypatch.setattr(buildrun, "active_power_scheme", lambda: ("g-bal", "Balanced"))
+    assert not buildrun.restore_power_scheme(("g-bal", "Balanced"), said.append)

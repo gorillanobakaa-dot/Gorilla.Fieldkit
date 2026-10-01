@@ -106,9 +106,75 @@ def fix_fluent(t, root, say, lines=()):
     return bool(done), "; ".join(done)
 
 
+MISSING_TOOLCHAIN = re.compile(r"does not exist: .*?[/\\]\.mozbuild[/\\]([\w.-]+)[/\\]")
+MOZBUILD_BASH = Path(r"C:\mozilla-build\msys2\usr\bin\bash.exe")
+
+
+def toolchain_job(src, alias):
+    """The toolchain job whose `toolchain-alias` is `alias`, from taskcluster/kinds/toolchain/*.yml, or None."""
+    import glob
+    for yml in glob.glob(str(Path(src) / "taskcluster" / "kinds" / "toolchain" / "*.yml")):
+        job = None
+        for line in Path(yml).read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"^([\w.-]+):\s*$", line)
+            if m:
+                job = m.group(1)
+            elif re.match(rf"^\s+toolchain-alias:\s*{re.escape(alias)}\s*$", line) and job:
+                return job
+    return None
+
+
+def fix_toolchain(t, root, say, lines=()):
+    """A moz.build lists a file under ~/.mozbuild/<toolchain>/ that is not there: a toolchain `mach bootstrap` would
+    have fetched (Firefox 157 added winappsdk-x86_64-pc-windows-msvc). Fetched with
+    `mach artifact toolchain --from-build <job>`, the job found by its alias in taskcluster/kinds/toolchain."""
+    text = "\n".join(lines)
+    m = MISSING_TOOLCHAIN.search(text)
+    if not m:
+        return False, "no ~/.mozbuild/<toolchain>/ path in the error"
+    alias = m.group(1)
+    src = Path(t["workdir"])
+    job = toolchain_job(src, alias)
+    if not job:
+        return False, f"no toolchain job carries the alias {alias}"
+    if not MOZBUILD_BASH.is_file():
+        return False, f"no {MOZBUILD_BASH}"
+    env = _env()
+    env["MOZILLABUILD"] = r"C:\mozilla-build"
+    from .compile import mozconfig_path
+    env["MOZCONFIG"] = str(mozconfig_path(root))
+    msys = "/" + str(src).replace(":", "").replace("\\", "/")
+    r = subprocess.run([str(MOZBUILD_BASH), "-l", "-c", f"cd {msys} && ./mach artifact toolchain --from-build {job}"],
+                       cwd=str(src), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
+    have = (Path.home() / ".mozbuild" / alias).is_dir()
+    say(f"  mach artifact toolchain --from-build {job}: exit {r.returncode}; ~/.mozbuild/{alias} {'present' if have else 'STILL MISSING'}")
+    return have, f"toolchain {alias} via {job}: exit {r.returncode}"
+
+
+def active_power_scheme():
+    r = subprocess.run(["powercfg", "/getactivescheme"], capture_output=True, text=True, errors="replace")
+    m = re.search(r"GUID:\s*([0-9a-f-]{36})\s*\((.*?)\)", r.stdout or "")
+    return (m.group(1), m.group(2)) if m else (None, (r.stdout or r.stderr).strip()[:80])
+
+
+def restore_power_scheme(before, say):
+    """The owner's stage switches to its build power scheme and restores on exit; when the stage crashes in its
+    finally (it did, 2026-10-01: a flag named `_stop` shadowed Thread._stop) the laptop stays capped. The loop puts the
+    scheme it found back whenever the stage left another one active."""
+    guid, name = active_power_scheme()
+    if before[0] and guid and guid != before[0]:
+        subprocess.run(["powercfg", "/setactive", before[0]], capture_output=True)
+        now = active_power_scheme()
+        say(f"  power scheme was left on '{name}': put back to '{before[1]}' -> now '{now[1]}'")
+        return True
+    return False
+
+
 #: (regex over the stage output, name, fix or None). Order matters: first match wins.
 STOPS = [
-    (r"Automatic clobber|CLOBBER|clobber is required|requires a clobber|please clobber", "clobber-required", fix_clobber),
+    (r"\.mozbuild[/\\][\w.-]+[/\\].* does not exist|does not exist: .*\.mozbuild", "missing-toolchain", fix_toolchain),
+    (r"Automatic clobber was not requested|clobber is required|requires a clobber|please clobber|CLOBBER file (was|has been) updated",
+     "clobber-required", fix_clobber),
     (r"Refusing to start a build that cannot succeed", "owner-preflight-blocks", None),
     (r"duplicate\s+(message|term|attribute)|Duplicate (message|term)|is defined twice", "fluent-duplicate", fix_fluent),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
@@ -173,7 +239,10 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         for attempt in range(1, RETRIES + 2):
             cmd = [sys.executable, str(Path(root) / "harness" / "gorilla_build.py"), stage] + (["--force"] if stage == "build" and needs_force else [])
             say(f"{time.strftime('%H:%M:%S')}  {stage} attempt {attempt}: {' '.join(cmd[1:])}")
+            power = active_power_scheme()
             rc, lines = _stream(cmd, root, log_path, say)
+            if restore_power_scheme(power, say):
+                task.journal(t, "power-scheme-restored", stage=stage, attempt=attempt, to=power[1])
             if rc == 0:
                 say(f"{time.strftime('%H:%M:%S')}  {stage} OK ({len(lines)} lines)")
                 task.journal(t, "build-stage-done", stage=stage, attempt=attempt, lines=len(lines))
@@ -189,7 +258,7 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
             if fix is None or attempt > RETRIES:
                 say("  no known fix: the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
                 return {"ok": False, "stops": stops, "log": str(log_path)}
-            ok, what = fix(t, root, say) if fix is not fix_fluent else fix(t, root, say, lines)
+            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain) else fix(t, root, say)
             task.journal(t, "build-fix", stage=stage, signature=name, ok=ok, what=what)
             if not ok:
                 return {"ok": False, "stops": stops, "log": str(log_path)}
