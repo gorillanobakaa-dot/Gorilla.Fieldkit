@@ -996,6 +996,10 @@ def auto_port(t, s, patch, file, hunk, **kw):
 
     # (Tier 0 answer-key fallback removed: copying Firefox 156 files over 157 breaks upstream changes)
 
+    # Tier 0: nothing to do (upstream already has it, or an earlier attempt landed and the record was reopened)
+    if already_upstream(body, hunk):
+        return {"ok": True, "why": [], "notes": ["already in place: the added lines are there and the removed ones gone"]}
+
     gone = obsolete_upstream(body, hunk)
     if gone:
         return {"ok": False, "defer": True, "why": [gone]}

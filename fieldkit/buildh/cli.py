@@ -106,6 +106,9 @@ TOOL_PROMPT = (
     "=== YOUR JOB ===\n")
 
 
+PACKET_LIMIT = 24_000     # chars, ~6k tokens: a 21-line hunk with its window and questions is ~12k; Gemma has 100k
+
+
 def drive(tid, a):
     """One fresh Gorilla OpenCode run per job, until the task is done or blocked."""
     import os
@@ -147,12 +150,20 @@ def drive(tid, a):
             attempts = next((x["attempts"] for x in t_curr["steps"] if x["id"] == step), 0)
             say(f"job {n}: {step} (attempt {attempts + 1}) - fresh {exe} run, job text {state['chars']:,} chars")
 
-            if state["chars"] > 8000:
+            if state["chars"] > PACKET_LIMIT:
+                # not the model's fault: do not burn its attempts (live run 10: three 'too large' in 50 s blocked
+                # a step that was already done). Park it for the owner at once, with the size.
                 with lock:
-                    res = task.fail_attempt(tid, f"prompt too large ({state['chars']:,} chars); skipping model attempt", step_id=step)
-                    say(f"  prompt too large ({state['chars']:,} chars), skipping")
+                    t_now = task.load(tid)
+                    for s2 in t_now["steps"]:
+                        if s2["id"] == step:
+                            s2["status"], s2["last_why"] = "blocked", [f"the job text is {state['chars']:,} chars, over the "
+                                                                       f"{PACKET_LIMIT:,} limit for a small model; shrink the hunk or raise the limit"]
+                    task.save(t_now)
+                    task.journal(t_now, "too-large", step=step, chars=state["chars"], limit=PACKET_LIMIT)
+                    say(f"  job text too large ({state['chars']:,} chars > {PACKET_LIMIT:,}): parked for the owner, no attempt used")
                     in_flight_steps.remove(step)
-                return "CONTINUE"
+                return "BLOCKED"
 
             before = step_submits(step)
             t0 = time.time()

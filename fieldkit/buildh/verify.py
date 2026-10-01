@@ -33,7 +33,10 @@ def score_hunk(body, hunk):
     """-> (verdict, detail). `body` is the target file's lines, or None when the file does not exist."""
     removed, added, _ = firefox.hunk_sides(hunk)
     add = _judgeable(added, SHORT)
-    rem = _judgeable(removed, SPECIFIC)
+    # a line the hunk removes AND adds back (re-indented, moved into an #ifdef) is not a removal to check:
+    # live run 10 (h39) re-added `pref("media.contextmenu.video-overlay-detection", true);` indented, the
+    # verifier called the harness's correct merge PARTIAL, reopened it, and the model was sent a done job
+    rem = [l for l in _judgeable(removed, SPECIFIC) if l not in set(add)]
     if body is None:
         return "TARGET-GONE", "the file does not exist"
     have = {l.strip() for l in body}

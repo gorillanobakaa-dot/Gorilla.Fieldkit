@@ -199,3 +199,12 @@ def test_the_span_starts_at_the_hunks_first_specific_line_not_five_lines_before_
     assert before[hi - 1] == 'pref("sidebar.animation.duration-ms", 200);'
     after = firefox.auto_merge(before, H32)
     assert firefox.hunk_problems(before, after, H32) == []
+
+
+def test_a_hunk_already_in_place_is_done_by_tier_zero_not_sent_to_a_model(tmp_path):
+    w = tmp_path / "w"
+    w.mkdir()
+    (w / "firefox.js").write_text("\n".join(OWNER_155) + "\n", encoding="utf-8", newline="")
+    res = firefox.auto_port({"workdir": str(w)}, {"id": "x"}, "05.PREFS/x.patch", "firefox.js", H32)
+    assert res["ok"] and res["notes"] == ["already in place: the added lines are there and the removed ones gone"]
+    assert (w / "firefox.js").read_text(encoding="utf-8").splitlines() == OWNER_155

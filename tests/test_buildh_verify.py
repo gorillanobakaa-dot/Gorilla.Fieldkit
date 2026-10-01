@@ -182,3 +182,13 @@ def test_an_older_task_gets_the_new_files_steps_added_once(world):
     ids = [s["id"] for s in task.load("v1")["steps"]]
     assert ids.index("apply-08.Look") < ids.index("new-files-08.Look") < ids.index("export-08.Look")
     assert verify.add_missing_new_file_steps("v1") == []
+
+
+def test_a_line_removed_and_re_added_indented_is_not_a_removal_to_check():
+    """Real h39: `pref("media.contextmenu.video-overlay-detection", true);` moved into an #ifdef, re-indented."""
+    hunk = {"lines": ['-pref("media.contextmenu.video-overlay-detection", true);', "+#ifdef NIGHTLY_BUILD",
+                      '+  pref("media.contextmenu.video-overlay-detection", true);', "+#else",
+                      '+  pref("media.contextmenu.video-overlay-detection", false);', "+#endif"]}
+    body = ["#ifdef NIGHTLY_BUILD", '  pref("media.contextmenu.video-overlay-detection", true);', "#else",
+            '  pref("media.contextmenu.video-overlay-detection", false);', "#endif"]
+    assert verify.score_hunk(body, hunk)[0] == "APPLIED"

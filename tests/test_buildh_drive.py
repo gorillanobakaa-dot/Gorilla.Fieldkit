@@ -73,3 +73,14 @@ def test_tool_mode_is_refused_unless_the_owner_opts_in(job, monkeypatch):
     task.approve("t1", "owner")
     with pytest.raises(task.Refused, match="anywhere on this computer"):
         cli.drive("t1", args())
+
+
+def test_an_oversized_job_text_is_parked_once_without_burning_attempts(job, quiet, monkeypatch):
+    task.approve("t1", "owner")
+    monkeypatch.setattr(cli, "PACKET_LIMIT", 50)
+    called = []
+    real = subprocess.run
+    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: called.append(cmd) if cmd[0] == "fake-agent" else real(cmd, *a, **k))
+    assert cli.drive("t1", args()) == 3 and not called
+    s = next(x for x in task.load("t1")["steps"] if x["id"] == "fix-alpha")
+    assert s["status"] == "blocked" and s["attempts"] == 0 and "over the 50 limit" in s["last_why"][0]
