@@ -333,7 +333,11 @@ def run(a, emit):
     if act == "brief":
         from . import decision
         b = decision.owner_file_edit(a.args[0], a.args[1])
-        emit(b, lambda b: print("\n".join(decision.render(b))))
+        if getattr(a, "do", None):
+            from ..core import settings
+            print(decision.apply(b, "revert", a.do, settings.ROOT / "_private"))
+            return 0
+        emit(b, lambda b: print("\n".join(decision.show(b, plain=not a.technical))))
         return 0
     if act in ("build-gate", "build-verify"):
         from . import compile as cg

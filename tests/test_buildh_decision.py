@@ -37,7 +37,7 @@ def test_the_brief_measures_instead_of_asking(repo):
     assert "OLD text" in text and "was in use during a real run" in text         # the old line is proven by a recorded run
     assert "has never been exercised" in text                                       # the new one never ran
     assert "NOT DETERMINED" in text and "Default if you do nothing: hold" in text
-    assert "REVERT config/m.cfg" in text
+    assert "PUT BACK THE OLD m.cfg" in text
 
 
 def test_something_ran_after_the_change_makes_it_a_one_way_door(repo):
@@ -58,7 +58,7 @@ def test_hold_changes_nothing_and_needs_nothing(repo):
 def test_a_click_or_a_yes_is_not_enough_to_revert(repo, monkeypatch):
     monkeypatch.setattr(task, "owner_terminal", lambda: True)
     b = decision.owner_file_edit(repo, "config/m.cfg")
-    for typed in ("", "yes", "y", "revert", "REVERT"):
+    for typed in ("", "yes", "y", "revert", "REVERT", "put back"):
         with pytest.raises(task.Refused, match="type exactly"):
             decision.apply(b, "revert", typed, repo)
 
@@ -74,6 +74,8 @@ def test_an_agents_shell_cannot_revert_even_with_the_sentence(repo, monkeypatch)
 def test_the_typed_sentence_at_a_terminal_reverts_and_saves_the_change(repo, monkeypatch, tmp_path):
     monkeypatch.setattr(task, "owner_terminal", lambda: True)
     b = decision.owner_file_edit(repo, "config/m.cfg")
+    monkeypatch.setattr(decision, "COOLING_OFF_SECONDS", 0)
+    decision.show(b)
     out = tmp_path / "saved"
     out.mkdir()
     msg = decision.apply(b, "revert", b["confirm"], out)
@@ -81,3 +83,67 @@ def test_the_typed_sentence_at_a_terminal_reverts_and_saves_the_change(repo, mon
     saved = next(out.glob("*.diff"))
     subprocess.run(["git", "-C", str(repo), "apply", str(saved)], check=True)         # the change can be put back
     assert "other/path" in (repo / "config" / "m.cfg").read_text()
+
+
+# -- the reader may be someone with no IT knowledge ------------------------------------------------------
+
+def test_the_plain_brief_has_no_jargon_and_leads_with_what_is_safe(repo):
+    b = decision.owner_file_edit(repo, "config/m.cfg")
+    text = "\n".join(decision.render_plain(b))
+    assert "NOTHING HAS BEEN HURT" in text and "Nothing. That is the safe answer" in text
+    for jargon in ("diff", "hash", "two-way", "blast", "git ", "revert", "commit", "fingerprint"):
+        assert jargon not in text.lower(), jargon
+    assert "pressing yes" in text and "PUT BACK THE OLD m.cfg" in text
+
+
+def test_the_plain_brief_does_not_say_all_is_well_when_something_ran_afterwards(repo):
+    (repo / "logs" / "new-build.log").write_text("a build ran after the edit\n")
+    os.utime(repo / "logs" / "new-build.log", (time.time() + 60, time.time() + 60))
+    text = "\n".join(decision.render_plain(decision.owner_file_edit(repo, "config/m.cfg")))
+    assert "NOTHING HAS BEEN HURT" not in text.split("What happened")[1] or "Possibly" in text
+    assert "do NOT change anything yet" in text and "PUT BACK THE OLD m.cfg" not in text
+
+
+def test_nothing_is_changed_before_the_explanation_has_been_shown(repo, monkeypatch):
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    b = decision.owner_file_edit(repo, "config/m.cfg")
+    with pytest.raises(task.Refused, match="not been shown"):
+        decision.apply(b, "revert", b["confirm"], repo)
+    assert "other/path" in (repo / "config" / "m.cfg").read_text()
+
+
+def test_a_change_is_never_one_quick_click_the_pause_is_enforced(repo, monkeypatch):
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    b = decision.owner_file_edit(repo, "config/m.cfg")
+    decision.show(b)
+    with pytest.raises(task.Refused, match="wait .* more seconds"):
+        decision.apply(b, "revert", b["confirm"], repo)
+    assert "other/path" in (repo / "config" / "m.cfg").read_text()
+
+
+def test_a_stale_explanation_is_refused_if_the_file_changed_again(repo, monkeypatch):
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    monkeypatch.setattr(decision, "COOLING_OFF_SECONDS", 0)
+    b = decision.owner_file_edit(repo, "config/m.cfg")
+    decision.show(b)
+    (repo / "config" / "m.cfg").write_text("someone changed it yet again\n")
+    with pytest.raises(task.Refused, match="changed again"):
+        decision.apply(b, "revert", b["confirm"], repo)
+
+
+def test_what_was_shown_and_what_was_done_is_logged_in_a_chain(repo, monkeypatch, tmp_path):
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    monkeypatch.setattr(decision, "COOLING_OFF_SECONDS", 0)
+    b = decision.owner_file_edit(repo, "config/m.cfg")
+    decision.show(b)
+    out = tmp_path / "saved"
+    out.mkdir()
+    decision.apply(b, "revert", b["confirm"], out)
+    lines = decision._log_path().read_text(encoding="utf-8").splitlines()
+    assert [__import__("json").loads(l)["event"] for l in lines] == ["shown", "reverted"]
+    assert __import__("json").loads(lines[1])["prev"] == task.line_hash(lines[0])
+
+
+def test_a_file_the_harness_knows_is_explained_by_what_it_is_for():
+    assert "how to build Firefox" in decision._what_is("config/mozconfig.win64")
+    assert decision._what_is("whatever/x.cfg") == "one of your project files"

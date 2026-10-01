@@ -105,7 +105,7 @@ def owner_file_edit(repo, path):
     return {"kind": "owner-file-edit", "what": f"{path} in {repo.name} differs from its committed version", "evidence": evidence,
             "hypotheses": hypotheses, "blast_past": blast_past, "blast_future": blast_future, "not_determined": undetermined,
             "door": "two-way" if two_way else "one-way", "options": options, "recommended": "revert" if two_way else "hold",
-            "why": why, "confirm": f"REVERT {path}", "diff": diff, "repo": str(repo), "path": path}
+            "why": why, "confirm": f"PUT BACK THE OLD {Path(path).name}", "diff": diff, "repo": str(repo), "path": path}
 
 
 def apply(brief, option, typed, out_dir):
@@ -116,10 +116,93 @@ def apply(brief, option, typed, out_dir):
         raise task.Refused(f"to apply this, type exactly: {brief['confirm']}   (hold is the default and needs nothing)")
     if not task.owner_terminal():
         raise task.Refused("this changes the owner's repository: it needs the owner at a real terminal")
+    shown = _shown_at(brief)
+    if shown is None:
+        raise task.Refused("you have not been shown the explanation yet: run `build-harness brief` and read it first")
+    wait = COOLING_OFF_SECONDS - (time.time() - shown)
+    if wait > 0:
+        raise task.Refused(f"wait {wait:.0f} more seconds: the pause is on purpose, so a change is never one quick click")
+    if _git(brief["repo"], "diff", "--", brief["path"]) != brief["diff"]:
+        raise task.Refused("the file changed again since the explanation was written; run `brief` again")
     out = Path(out_dir) / f"{Path(brief['path']).name}.{time.strftime('%Y%m%d-%H%M%S')}.diff"
     out.write_text(brief["diff"], encoding="utf-8")
     subprocess.run(["git", "-C", brief["repo"], "checkout", "--", brief["path"]], check=True)
+    _log("reverted", brief, saved=str(out))
     return f"restored; the change is saved in {out} (git apply puts it back)"
+
+
+# -- for a person with no IT knowledge ------------------------------------------------------------
+# Assumed: the reader may click yes to anything, will not read a diff, does not know what a file is for, and
+# is tired. So: say what happened and what is safe in plain words, make "do nothing" the answer that is
+# safe, force a pause before anything is changed, and keep a log of what was shown and what was typed.
+
+KNOWN_FILES = {
+    "mozconfig.win64": "the settings file that tells the computer how to build Firefox",
+    "firefox.js": "the file holding Firefox's default settings",
+    "all.js": "the file holding Firefox's core default settings",
+}
+COOLING_OFF_SECONDS = 30
+
+
+def _what_is(path):
+    return KNOWN_FILES.get(Path(path).name, "one of your project files")
+
+
+def _log_path():
+    return task.STATE / "decisions.jsonl"
+
+
+def _log(event, brief, **data):
+    """Every brief shown and every answer, hash-chained like the journal."""
+    p = _log_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    prev = task.line_hash(task._last_line(p)) if p.is_file() and p.stat().st_size else task.ZERO
+    fp = hashlib.sha256(brief.get("diff", "").encode()).hexdigest()[:12]
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "event": event, "path": brief.get("path"),
+                            "fingerprint": fp, "prev": prev, **data}) + "\n")
+
+
+def _shown_at(brief):
+    fp = hashlib.sha256(brief.get("diff", "").encode()).hexdigest()[:12]
+    p = _log_path()
+    if not p.is_file():
+        return None
+    for line in reversed(p.read_text(encoding="utf-8").splitlines()):
+        e = json.loads(line)
+        if e.get("event") == "shown" and e.get("fingerprint") == fp:
+            return time.mktime(time.strptime(e["t"], "%Y-%m-%d %H:%M:%S"))
+    return None
+
+
+def render_plain(b):
+    """The same facts, no jargon. Starts with the answer, then what is safe, then the one thing to type."""
+    if not b.get("options"):
+        return [b["what"]]
+    name, what = Path(b["path"]).name, _what_is(b["path"])
+    safe = b["door"] == "two-way"
+    out = [f"SOMETHING CHANGED THAT YOU DID NOT ASK FOR - AND NOTHING HAS BEEN HURT.", "",
+           f"What happened: {what} ({name}) was changed. The records show when, but not who: nobody can say it was you, an assistant or a program.",
+           "Is anything broken? No. Nothing has built with the change yet, so nothing has been affected." if safe else
+           "Is anything broken? Possibly. Something ran after the change, so please do NOT change anything yet; ask for help.",
+           "", "What you need to do:", "  Nothing. That is the safe answer. The build simply will not start until this is sorted out."]
+    out += ["", "If you want it sorted out now:",
+            f"  The safe fix puts the old, working version of {what} back. The changed version is saved first,",
+            "  so nothing can be lost and it can be put back with one command." if safe else
+            "  This cannot be done safely by you right now."]
+    if safe:
+        out += ["  To do it, open a normal terminal yourself (not through an assistant) and paste this one line:",
+                f"    fieldkit build-harness brief \"{b['repo']}\" {b['path']} --do \"{b['confirm']}\"",
+                f"  The computer makes you wait {COOLING_OFF_SECONDS} seconds first. That is on purpose."]
+    out += ["", "Things that will NOT work, on purpose: pressing yes, typing 'ok', or having an assistant do it for you.",
+            "If any of this is unclear, the correct move is to do nothing and ask a person you trust."]
+    return out
+
+
+def show(b, plain=True):
+    """Print-side entry point: records that the owner was shown the brief (the pause starts here)."""
+    _log("shown", b)
+    return render_plain(b) if plain else render(b)
 
 
 def render(b):

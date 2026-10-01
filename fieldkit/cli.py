@@ -657,6 +657,8 @@ def build_parser():
     bh.add_argument("--fix-locks", action="store_true", help="preflight: remove stale git locks (only when no git process runs)")
     bh.add_argument("--build", action="store_true", help="preflight: also check what a compile needs (disk, fan control)")
     bh.add_argument("--model", action="store_true", help="preflight: also check that the model server answers")
+    bh.add_argument("--technical", action="store_true", help="brief: the full technical brief instead of the plain-words one")
+    bh.add_argument("--do", help="brief: the exact sentence the brief told you to type, to carry out the safe fix")
     bh.add_argument("--task")
     bh.add_argument("--pin", help="start: a stable version instead of the latest (e.g. 155.0.1)")
     bh.add_argument("--source", help="start: repository URL or local git path holding the release tag")
