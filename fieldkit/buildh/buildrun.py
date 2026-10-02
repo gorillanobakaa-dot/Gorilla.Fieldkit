@@ -180,8 +180,42 @@ def restore_power_scheme(before, say):
     return False
 
 
+def fix_creep_include(t, root, say, lines=()):
+    """A compile stop on a header from an excised component: remove the include and the self-contained uses, record
+    the edit as hand-port steps (handedit.record) so the gate and the verifier judge it; leave anything else to a
+    person, listed. -> (ok, what)."""
+    from . import creepfix, handedit, firefox
+    w = Path(t["workdir"])
+    hr = t["meta"].get("harness_root")
+    excised = set()
+    if hr:
+        excised.update(Path(x).parent.as_posix() for x in firefox.manifest_deletions(hr))
+        excised.update(firefox.excised_symbols(hr))
+    done, what = [], []
+    for src, hdr in creepfix.missing_headers(lines):
+        rel = creepfix.rel_to_tree(src, w)
+        p = w / rel
+        if not p.is_file() or not creepfix.excised_header(hdr, excised):
+            what.append(f"{rel}: {hdr} is not from an excised component: a person decides")
+            continue
+        raw = p.read_text(encoding="utf-8", errors="replace")
+        nl = "\r\n" if "\r\n" in raw else "\n"
+        new, removed, leftover = creepfix.excise(raw.split(nl), hdr)
+        if leftover or not creepfix.balanced(new):
+            what.append(f"{rel}: uses of {hdr} at lines {leftover} are not self-contained: a person decides")
+            continue
+        p.write_text(nl.join(new), encoding="utf-8", newline="")
+        ids = handedit.record(t["id"], [rel], f"excision creep: {hdr} belongs to a removed component; include and "
+                                              f"{len(removed) - 1} self-contained use(s) excised by creepfix", group="creep")
+        done.append(rel)
+        what.append(f"{rel}: excised {hdr} + {len(removed) - 1} use(s) -> {ids}")
+    say("  " + "; ".join(what)[:300])
+    return bool(done) and len(done) == len(creepfix.missing_headers(lines)), "; ".join(what)
+
+
 #: (regex over the stage output, name, fix or None). Order matters: first match wins.
 STOPS = [
+    (r"fatal error: '[^']+' file not found", "excision-creep-include", fix_creep_include),
     (r"\.mozbuild[/\\][\w.-]+[/\\].* does not exist|does not exist: .*\.mozbuild", "missing-toolchain", fix_toolchain),
     (r"Automatic clobber was not requested|clobber is required|requires a clobber|please clobber|CLOBBER file (was|has been) updated",
      "clobber-required", fix_clobber),
@@ -276,7 +310,8 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
                 say("  no known fix" if fix is None else "  the same stop again after its fix: no progress"
                     + "; the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
                 return {"ok": False, "stops": stops, "log": str(log_path)}
-            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain) else fix(t, root, say)
+            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include) else fix(t, root, say)
+            t = task.load(task_id)                      # a fix may have recorded steps and checkpointed
             task.journal(t, "build-fix", stage=stage, signature=name, ok=ok, what=what)
             if not ok:
                 return {"ok": False, "stops": stops, "log": str(log_path)}

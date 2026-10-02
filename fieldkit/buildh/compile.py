@@ -150,6 +150,13 @@ def verify(task_id, run_binary=True):
                 row(f"branding {name} is embedded in firefox.exe", hits == total and total > 0, f"{hits} of {total} image(s): {detail}")
         else:
             row("branding icons embedded in firefox.exe", False, "no --with-branding dir found from the mozconfig")
+    if found.get("installer") and brand and (brand / "firefox.ico").is_file():
+        # the owner's verify_installer.py, as a row: the branding icon's pixel data inside the packaged installer
+        inst = found["installer"][0]
+        rows_ico = [r for r in icons.embedded(inst, brand) if r[0] == "firefox.ico"]
+        if rows_ico:
+            name, hits, total, detail = rows_ico[0]
+            row("branding firefox.ico is embedded in the packaged installer", hits == total and total > 0, f"{hits} of {total} image(s): {detail}")
     if root:
         ok, text = icons.logo_provenance(root)
         row("internal-pages logo is crisp (owner's Crisp Icon Doctrine gates)", bool(ok), (text.splitlines() or ["ok"])[-1][:160]
