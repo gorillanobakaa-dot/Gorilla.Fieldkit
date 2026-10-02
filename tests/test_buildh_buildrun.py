@@ -112,7 +112,7 @@ def test_the_power_scheme_is_put_back_when_the_stage_leaves_another(monkeypatch)
 
 def test_thermal_verdict_catches_a_stuck_sensor_and_the_hard_ceiling(tmp_path):
     f = tmp_path / "thermal.csv"
-    rows = ["elapsed_s,temp_c,perf_pct"] + [f"{i*5},41.85,86.0" for i in range(12)]
+    rows = ["elapsed_s,temp_c,perf_pct"] + [f"{i*5},41.85,86.0" for i in range(36)]
     f.write_text("\n".join(rows) + "\n", encoding="utf-8")
     assert "stuck at 41.85" in buildrun.thermal_verdict(f)
     f.write_text("\n".join(rows[:-1] + ["55,42.10,86.0"]) + "\n", encoding="utf-8")

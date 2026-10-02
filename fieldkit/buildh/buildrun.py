@@ -44,7 +44,7 @@ def _env():
 
 
 TELEMETRY_LINE = re.compile(r"Telemetry -> (logs[/\\]thermal-[\w.-]+\.csv)")
-DEAD_SAMPLES, DEAD_PERF, HARD_CEILING_C = 12, 50.0, 95.0
+DEAD_SAMPLES, DEAD_PERF, HARD_CEILING_C = 36, 50.0, 95.0   # 3 min at the owner's 5 s interval
 
 
 def thermal_verdict(csv_path):
@@ -65,7 +65,7 @@ def thermal_verdict(csv_path):
     return None
 
 
-def _stream(cmd, cwd, log_path, say, watch_thermal=True):
+def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None):
     """Run `cmd`, append its output to log_path, print a heartbeat, watch the owner's telemetry CSV and kill the
     process tree on a thermal verdict (2026-10-02: a stuck sensor and a flag nobody acted on cooked the laptop).
     -> (rc, lines)."""
@@ -74,6 +74,9 @@ def _stream(cmd, cwd, log_path, say, watch_thermal=True):
         lf.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} $ {' '.join(cmd)}\n")
         proc = subprocess.Popen(cmd, cwd=str(cwd), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace", bufsize=1)
+        if governor is not None:                         # the thermald: moves the cap, kills this tree on its verdict
+            governor.kill = lambda why, p=proc: subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
+            governor.start()
         for line in proc.stdout:
             lf.write(line)
             lines.append(line.rstrip("\n"))
@@ -92,6 +95,9 @@ def _stream(cmd, cwd, log_path, say, watch_thermal=True):
                 say(f"  ... {int((now - started) // 60)} min, {len(lines)} lines, last: {line.strip()[:110]}")
                 last_beat = now
         rc = proc.wait()
+        if governor is not None:
+            governor.stop()
+            governor.join(timeout=15)
     return rc, lines
 
 
@@ -258,7 +264,7 @@ STOPS = [
     (r"duplicate\s+(message|term|attribute)|Duplicate (message|term)|is defined twice", "fluent-duplicate", fix_fluent),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
-    (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|temperature source went static|does not respond to load", "thermal", None),
+    (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", None),
 ]
 
 
@@ -282,6 +288,14 @@ def owner_preflight_ok(root, say):
     for b in blockers:
         say(f"  owner preflight: {b['name']}: {b['detail'][:90]}" + ("  (needs an objdir: --force)" if b in stale else "  (HARD: no build)"))
     return not hard, bool(stale), blockers
+
+
+def thermal_sensor(say):
+    """The first CPU sensor proven against load (fieldkit.thermal.sensors.best). -> (name, fn) or (None, None)."""
+    from ..thermal import sensors
+    name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
+    say(f"  thermal source: {name or 'NONE'} - {detail[:200]}")
+    return name, fn
 
 
 def run(task_id, force=False, say=print, stages=("build", "package")):
@@ -312,8 +326,13 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         return {"ok": False, "why": "the owner's preflight reports a blocker a build cannot resolve", "blockers": blockers}
     if needs_force and not force:
         return {"ok": False, "why": "only build-dependent owner blockers remain; run again with --force to pass them on", "blockers": blockers}
+    # 2026-10-02: no build without a CPU sensor proven to move under load (the laptop reset with a blind governor)
+    sensor_name, sensor = thermal_sensor(say)
+    if sensor is None:
+        task.journal(t, "build-refused", why=["no CPU temperature source responds to load: see fieldkit thermal prove"])
+        return {"ok": False, "why": "no CPU temperature source responds to load; the build would run blind (fieldkit thermal prove)"}
     task.journal(t, "build-start", head=cg._git(Path(t["workdir"]), "rev-parse", "HEAD"), log=str(log_path),
-                 forced=[b["name"] for b in blockers] if needs_force else [])
+                 forced=[b["name"] for b in blockers] if needs_force else [], thermal_source=sensor_name)
     for stage in stages:
         if stage == "package":
             # the installer's outer icon lives in a vendored 7-Zip stub consumed at package time: brand it first
@@ -325,7 +344,16 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
             cmd = [sys.executable, str(Path(root) / "harness" / "gorilla_build.py"), stage] + (["--force"] if stage == "build" and needs_force else [])
             say(f"{time.strftime('%H:%M:%S')}  {stage} attempt {attempt}: {' '.join(cmd[1:])}")
             power = active_power_scheme()
-            rc, lines = _stream(cmd, root, log_path, say)
+            from ..thermal import governor as gv
+            gov = gv.Governor(sensor, target_c=75.0, interval=3.0, kill=lambda why: None, on_event=say,
+                              csv_path=task.STATE / task_id / f"thermal-{stage}-{time.strftime('%Y%m%d-%H%M%S')}.csv")
+            rc, lines = _stream(cmd, root, log_path, say, governor=gov)
+            if gov.verdict:
+                lines.append(f"FIELDKIT THERMAL GOVERNOR: {gov.verdict}")
+                task.journal(t, "thermal-kill", stage=stage, attempt=attempt, why=[gov.verdict], peak=gov.peak)
+            else:
+                task.journal(t, "thermal", stage=stage, attempt=attempt, source=sensor_name, peak=gov.peak, samples=gov.samples,
+                             floor_cap=min([gov.cap or 100, gov.start_cap or 100]))
             if restore_power_scheme(power, say):
                 task.journal(t, "power-scheme-restored", stage=stage, attempt=attempt, to=power[1])
             if rc == 0:

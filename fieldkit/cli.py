@@ -649,6 +649,12 @@ def build_parser():
     fr.add_argument("--out")
     k.set_defaults(fn=cmd_kernel)
 
+    th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
+    th.add_argument("action", choices=["status", "prove", "watch"])
+    th.add_argument("--seconds", type=int, default=60, help="watch: how long")
+    th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
+    th.set_defaults(fn=cmd_thermal)
+
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
@@ -690,6 +696,34 @@ def cmd_build_harness(a):
     except task.Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
+
+
+def cmd_thermal(a):
+    from .thermal import governor, sensors
+    if a.action == "status":
+        for name, fn in sensors.PROVIDERS:
+            print(f"  {name:14} {fn()}")
+        print(f"  cap (PROCTHROTTLEMAX): {governor.read_cap()}%  perf: {sensors.perf_percent()}")
+        return 0
+    if a.action == "prove":
+        name, fn, detail = sensors.best(prove=True)
+        print(f"{'PROVEN' if name else 'NO LIVE SOURCE'}: {name}: {detail}")
+        return 0 if name else 3
+    name, fn, detail = sensors.best(prove=True)
+    if not name:
+        print("no live source: " + detail)
+        return 3
+    print(f"watching {name} for {a.seconds}s, target {a.target} C (the cap moves; nothing is killed)")
+    gov = governor.Governor(fn, target_c=a.target, interval=3.0, kill=lambda why: print("  would kill: " + why))
+    gov.start()
+    import time as _t
+    end = _t.time() + a.seconds
+    while _t.time() < end and gov.is_alive():
+        _t.sleep(3)
+        print(f"  {fn()} C  cap {gov.cap}%  peak {gov.peak}")
+    gov.stop()
+    gov.join(timeout=15)
+    return 0
 
 
 def main(argv=None):
