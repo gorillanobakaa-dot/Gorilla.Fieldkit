@@ -108,3 +108,18 @@ def test_the_power_scheme_is_put_back_when_the_stage_leaves_another(monkeypatch)
     assert calls == [["powercfg", "/setactive", "g-bal"]] and "put back to 'Balanced'" in said[0]
     monkeypatch.setattr(buildrun, "active_power_scheme", lambda: ("g-bal", "Balanced"))
     assert not buildrun.restore_power_scheme(("g-bal", "Balanced"), said.append)
+
+
+def test_thermal_verdict_catches_a_stuck_sensor_and_the_hard_ceiling(tmp_path):
+    f = tmp_path / "thermal.csv"
+    rows = ["elapsed_s,temp_c,perf_pct"] + [f"{i*5},41.85,86.0" for i in range(12)]
+    f.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    assert "stuck at 41.85" in buildrun.thermal_verdict(f)
+    f.write_text("\n".join(rows[:-1] + ["55,42.10,86.0"]) + "\n", encoding="utf-8")
+    assert buildrun.thermal_verdict(f) is None                         # it moved: live
+    f.write_text("\n".join(["elapsed_s,temp_c,perf_pct"] + [f"{i*5},41.85,20.0" for i in range(12)]) + "\n", encoding="utf-8")
+    assert buildrun.thermal_verdict(f) is None                         # idle: a flat reading proves nothing
+    f.write_text("elapsed_s,temp_c,perf_pct\n5,96.0,80.0\n", encoding="utf-8")
+    assert "hard ceiling" in buildrun.thermal_verdict(f)
+    assert buildrun.thermal_verdict(tmp_path / "missing.csv") is None
+    assert buildrun.classify(["[-] THERMAL ABORT: temperature source stuck"])[0] == "thermal"

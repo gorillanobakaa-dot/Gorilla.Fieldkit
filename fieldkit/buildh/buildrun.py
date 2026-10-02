@@ -43,9 +43,33 @@ def _env():
     return env
 
 
-def _stream(cmd, cwd, log_path, say):
-    """Run `cmd`, append its output to log_path, print a heartbeat. -> (rc, lines)."""
-    lines, last_beat, started = [], time.time(), time.time()
+TELEMETRY_LINE = re.compile(r"Telemetry -> (logs[/\\]thermal-[\w.-]+\.csv)")
+DEAD_SAMPLES, DEAD_PERF, HARD_CEILING_C = 12, 50.0, 95.0
+
+
+def thermal_verdict(csv_path):
+    """Read the owner's telemetry CSV: -> None when fine, else the reason the build must stop. The owner's stage has
+    the same guard; this one is Fieldkit's own, in case the stage's thread is the thing that died."""
+    try:
+        rows = [l.split(",") for l in Path(csv_path).read_text(encoding="utf-8", errors="replace").splitlines()[1:]]
+    except OSError:
+        return None
+    temps = [(float(r[1]), float(r[2])) for r in rows if len(r) >= 3 and r[1] and r[2]]
+    if not temps:
+        return None
+    if temps[-1][0] >= HARD_CEILING_C:
+        return f"temperature {temps[-1][0]:.1f} C at or above the hard ceiling {HARD_CEILING_C:.0f} C"
+    tail = temps[-DEAD_SAMPLES:]
+    if len(tail) == DEAD_SAMPLES and all(p > DEAD_PERF for _, p in tail) and len({t for t, _ in tail}) == 1:
+        return f"temperature source stuck at {tail[-1][0]:.2f} C for {DEAD_SAMPLES} busy samples: not a live sensor"
+    return None
+
+
+def _stream(cmd, cwd, log_path, say, watch_thermal=True):
+    """Run `cmd`, append its output to log_path, print a heartbeat, watch the owner's telemetry CSV and kill the
+    process tree on a thermal verdict (2026-10-02: a stuck sensor and a flag nobody acted on cooked the laptop).
+    -> (rc, lines)."""
+    lines, last_beat, started, csv_path, last_check = [], time.time(), time.time(), None, time.time()
     with open(log_path, "a", encoding="utf-8", newline="\n") as lf:
         lf.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} $ {' '.join(cmd)}\n")
         proc = subprocess.Popen(cmd, cwd=str(cwd), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -53,9 +77,20 @@ def _stream(cmd, cwd, log_path, say):
         for line in proc.stdout:
             lf.write(line)
             lines.append(line.rstrip("\n"))
-            if time.time() - last_beat >= HEARTBEAT_S:
-                say(f"  ... {int((time.time() - started) // 60)} min, {len(lines)} lines, last: {line.strip()[:110]}")
-                last_beat = time.time()
+            m = TELEMETRY_LINE.search(line)
+            if m:
+                csv_path = Path(cwd) / m.group(1)
+            now = time.time()
+            if watch_thermal and csv_path and now - last_check >= 30:
+                last_check = now
+                why = thermal_verdict(csv_path)
+                if why:
+                    say(f"  THERMAL WATCHDOG: {why} - killing the build")
+                    lines.append(f"FIELDKIT THERMAL WATCHDOG: {why}")
+                    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+            if now - last_beat >= HEARTBEAT_S:
+                say(f"  ... {int((now - started) // 60)} min, {len(lines)} lines, last: {line.strip()[:110]}")
+                last_beat = now
         rc = proc.wait()
     return rc, lines
 
@@ -223,7 +258,7 @@ STOPS = [
     (r"duplicate\s+(message|term|attribute)|Duplicate (message|term)|is defined twice", "fluent-duplicate", fix_fluent),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
-    (r"Temperature stayed above", "thermal-abort", None),
+    (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|temperature source went static|does not respond to load", "thermal", None),
 ]
 
 
