@@ -295,6 +295,37 @@ def fix_corrupt_object(t, root, say, lines=()):
 
 
 #: (regex over the stage output, name, fix or None). Order matters: first match wins.
+JARMN_FILE = re.compile(r"The error occurred while processing the following file.*?\n\s*\n\s*(\S+moz\.build)", re.S)
+
+
+def fix_jar_manifest(t, root, say, lines):
+    """mozbuild refuses a jar.mn that exists in a directory whose moz.build no longer declares it (build 5, 02 Oct:
+    the ml excision dropped `JAR_MANIFESTS += ["jar.mn"]`). The excision keeps: declare it again and empty the
+    manifest (comment only), so nothing it listed is packaged. Recorded as a hand step."""
+    from . import handedit
+    m = JARMN_FILE.search("\n".join(lines))
+    if not m:
+        return False, "the moz.build path is not in the error text"
+    mb = Path(m.group(1).replace("/", os.sep))
+    w = Path(t["workdir"])
+    try:
+        rel = mb.resolve().relative_to(w.resolve()).as_posix()
+    except ValueError:
+        return False, f"{mb} is not inside the tree"
+    jar = w / Path(rel).parent / "jar.mn"
+    text = (w / rel).read_text(encoding="utf-8", errors="replace")
+    if "JAR_MANIFESTS" not in text or re.search(r"^\s*#.*JAR_MANIFESTS", text, re.M):
+        text = re.sub(r"^\s*#[^\n]*JAR_MANIFESTS[^\n]*\n", "", text, count=1, flags=re.M)
+        text = text.rstrip("\n") + '\nJAR_MANIFESTS += ["jar.mn"]  # GORILLA: emptied, not dropped (mozbuild refuses an undeclared jar.mn)\n'
+        (w / rel).write_text(text, encoding="utf-8")
+    jar.write_text("# GORILLA excised: every entry (the directory's chrome content is not packaged).\n"
+                   "# The file stays because mozbuild refuses a jar.mn that exists without a JAR_MANIFESTS declaration.\n", encoding="utf-8")
+    ids = handedit.record(t["id"], [rel, (Path(rel).parent / "jar.mn").as_posix()],
+                          "build stop jar-manifest-undeclared: declaration restored, manifest emptied")
+    say(f"  {rel}: JAR_MANIFESTS declared again, jar.mn emptied ({len(ids)} hand step(s))")
+    return True, f"{rel}: declared + emptied jar.mn"
+
+
 def fix_retry(t, root, say):
     say("  the stage was interrupted from the console (Ctrl+C / window closed): running it again")
     return True, "retry after a console interrupt"
@@ -313,6 +344,7 @@ STOPS = [
     # process group (2026-10-02, package stage: the build's console window was closed; the harness parent died with
     # it, silently). A retry is the right fix; the window is now hidden so there is nothing to close.
     (r"failed with 3221225786|0xC000013A|STATUS_CONTROL_C_EXIT", "console-interrupt", fix_retry),
+    (r"A jar\.mn exists but it\s+is not referenced in the moz\.build file", "jar-manifest-undeclared", fix_jar_manifest),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
     (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", None),
@@ -369,6 +401,15 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         say("gate: final checks are stale - re-running them")
         task.unblock(task_id, "final-checks", "retry")
         task.advance(task_id)
+        rows = cg.gate(task_id, harness_root=None, write=True)
+        bad = [r for r in rows if not r["ok"]]
+    repairable = lambda r: "JS file parses" in r["check"] or "UPPER_CASE member" in r["check"]
+    if bad and all(repairable(r) for r in bad):
+        # the two port failures of 02 Oct have a deterministic repair: run it once, then judge the gate again
+        from . import repair
+        say("gate: a JS module does not parse or reads a moved member - running repair")
+        rep = repair.run(task_id, say=say)
+        task.journal(task.load(task_id), "gate-repair", repaired=rep["repaired"][:10], refused=rep["refused"][:10])
         rows = cg.gate(task_id, harness_root=None, write=True)
         bad = [r for r in rows if not r["ok"]]
     if bad:
@@ -445,7 +486,7 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
                 say("  no known fix" if fix is None else "  the same stop again after its fix: no progress"
                     + "; the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
                 return {"ok": False, "stops": stops, "log": str(log_path)}
-            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object) else fix(t, root, say)
+            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object, fix_jar_manifest) else fix(t, root, say)
             t = task.load(task_id)                      # a fix may have recorded steps and checkpointed
             task.journal(t, "build-fix", stage=stage, signature=name, ok=ok, what=what)
             if not ok:

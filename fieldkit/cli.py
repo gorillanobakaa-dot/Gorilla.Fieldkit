@@ -658,7 +658,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "record", "creep", "brief", "deferred", "verify", "snapshot"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "record", "creep", "brief", "deferred", "verify", "snapshot"])
     bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
     bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")

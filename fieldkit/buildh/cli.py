@@ -434,6 +434,11 @@ def run(a, emit):
         r = inst.run(tid, do_backup=not getattr(a, "no_backup", False), say=lambda m: print(m, flush=True), install_dir=a.install_dir)
         emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))))
         return 0 if r.get("ok") else 3
+    if act == "repair":
+        from . import repair
+        r = repair.run(tid, say=lambda m: print(m, flush=True))
+        emit(r, lambda r: print(f"REPAIR {'OK' if r['ok'] else 'NOT OK'}: {len(r['repaired'])} repaired, {len(r['refused'])} refused"))
+        return 0 if r["ok"] else 3
     if act == "truthbound":
         from . import truthbound, verify as vf
         t = task.load(tid)

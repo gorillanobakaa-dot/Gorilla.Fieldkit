@@ -271,3 +271,40 @@ def test_console_interrupt_is_classified_and_retried():
     assert name == "console-interrupt" and fix is buildrun.fix_retry
     ok, what = buildrun.fix_retry({}, ".", lambda m: None)
     assert ok and "retry" in what
+
+
+def test_undeclared_jar_manifest_is_declared_again_and_emptied(tmp_path, monkeypatch):
+    from fieldkit.buildh import buildrun, handedit
+    w = tmp_path / "tree"
+    (w / "toolkit/components/ml").mkdir(parents=True)
+    (w / "toolkit/components/ml/moz.build").write_text("# GORILLA excised: jar.mn (dropped)\nDIRS += [\"ipc\"]\n", encoding="utf-8")
+    (w / "toolkit/components/ml/jar.mn").write_text("toolkit.jar:\n    content/global/ml/X.sys.mjs (X.sys.mjs)\n", encoding="utf-8")
+    recorded = []
+    monkeypatch.setattr(handedit, "record", lambda tid, files, why: recorded.append(files) or ["h1", "h2"])
+    lines = ["The error occurred while processing the following file or one of the files it includes:", "",
+             "    " + str(w / "toolkit/components/ml/moz.build").replace("\\", "/"), "",
+             "The reported error is:", "    A jar.mn exists but it is not referenced in the moz.build file. Please define JAR_MANIFESTS."]
+    name, fix = buildrun.classify(lines)
+    assert name == "jar-manifest-undeclared" and fix is buildrun.fix_jar_manifest
+    ok, what = fix({"id": "t", "workdir": str(w)}, w, lambda m: None, lines)
+    assert ok and recorded == [["toolkit/components/ml/moz.build", "toolkit/components/ml/jar.mn"]]
+    mb = (w / "toolkit/components/ml/moz.build").read_text(encoding="utf-8")
+    assert 'JAR_MANIFESTS += ["jar.mn"]' in mb
+    assert "X.sys.mjs" not in (w / "toolkit/components/ml/jar.mn").read_text(encoding="utf-8")
+
+
+def test_gate_runs_repair_once_when_only_the_repairable_rows_fail(monkeypatch, tmp_path):
+    from fieldkit.buildh import buildrun, compile as cg, task, repair
+    calls = {"gate": 0, "repair": 0}
+    def gate(tid, harness_root=None, write=True):
+        calls["gate"] += 1
+        bad = calls["gate"] == 1
+        return [{"check": "tree: every changed build or JS file parses (moz.build, .py, .json, .mjs, .js)", "ok": not bad, "evidence": "x"}]
+    monkeypatch.setattr(cg, "gate", gate)
+    monkeypatch.setattr(repair, "run", lambda tid, say=print: calls.__setitem__("repair", calls["repair"] + 1) or {"ok": True, "repaired": ["a"], "refused": []})
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "workdir": str(tmp_path), "meta": {}, "steps": []})
+    monkeypatch.setattr(task, "journal", lambda t, ev, **kw: None)
+    monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
+    monkeypatch.setattr(buildrun, "owner_preflight_ok", lambda root, say: (False, False, [{"name": "stop-here"}]))
+    r = buildrun.run("t", say=lambda m: None)
+    assert calls == {"gate": 2, "repair": 1} and r["why"].startswith("the owner's preflight")
