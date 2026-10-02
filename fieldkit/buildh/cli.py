@@ -434,6 +434,84 @@ def run(a, emit):
         r = inst.run(tid, do_backup=not getattr(a, "no_backup", False), say=lambda m: print(m, flush=True), install_dir=a.install_dir)
         emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))))
         return 0 if r.get("ok") else 3
+    if act in ("leakgate", "leakgate-approve", "leakgate-propose"):
+        from ..leakgate import gate as lg, allow as la
+        from . import buildrun, verify as vf
+        import json as _js
+        t = task.load(tid)
+        owner = Path(buildrun._owner_root(t))
+        say = lambda m: print(m, flush=True)
+        if act == "leakgate-approve":
+            ids = set(x for x in a.args[1:]) or {"*proposed*"}
+            done = la.approve(la.path_for(owner), ids, say=say)
+            print(f"approved {len(done)}: {done}")
+            return 0
+        workroot = task.STATE / "leakgate" / tid
+        if act == "leakgate-propose":
+            last = sorted(p for p in workroot.iterdir() if (p / "events.jsonl").is_file())[-1]
+            events = [_js.loads(l) for l in (last / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+            added = la.propose(la.path_for(owner), events, last.name, say=say)
+            print(f"proposed {len(added)} entr(ies) from {last.name}; approve with: fieldkit build-harness leakgate-approve {tid}  (owner, real terminal)")
+            return 0
+        res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
+        backups = Path.home() / "Documents" / "Gorilla.Firefox.Backups"
+        prev = None
+        for b in sorted(backups.glob("*/manifest.json"), reverse=True):
+            m = _js.loads(b.read_text(encoding="utf-8"))
+            if m.get("installed", {}).get("version") and m["installed"]["version"] != t["meta"]["upstream"]["version"]:
+                prev = b.parent / m["files"]["install"]["zip"]
+                break
+        only = set(a.only.split(",")) if getattr(a, "only", None) else None
+        result, events, st, bi = lg.run(res["artifacts"]["zip"]["file"], owner, t["workdir"], t["meta"]["upstream"],
+                                        workroot, repeat=int(getattr(a, "repeat", None) or 1), quick=not getattr(a, "release", False),
+                                        only=only, release=getattr(a, "release", False), previous_zip=prev,
+                                        n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say)
+        for p in lg.POLICIES:
+            print(f"  {p:24s} {result[p]}" + (f"  - {result['WHY'][p][0][:220]}" if p in result.get("WHY", {}) else ""))
+        print(f"FINAL_RESULT {result['FINAL_RESULT']}  ({result['ARTIFACTS']})")
+        try:                                                     # the owner's publish gate reads this, keyed by their build id
+            import sys as _sys
+            _sys.path.insert(0, str(owner / "working scripts"))
+            import verify_address_bar as _v
+            bid = _v.build_id(Path(result["ARTIFACTS"]) / "build-direct")
+        except Exception:
+            bid = None
+        (owner / "state").mkdir(exist_ok=True)
+        (owner / "state" / "leakgate_result.json").write_text(_js.dumps({
+            "build_id": bid, "BUILD": result["BUILD"], "when": time.strftime("%Y-%m-%dT%H:%M:%S"), "release_run": bool(getattr(a, "release", False)),
+            "FINAL_RESULT": result["FINAL_RESULT"], "policies": {p: result[p] for p in lg.POLICIES}, "artifacts": result["ARTIFACTS"]}, indent=1), encoding="utf-8")
+        task.journal(t, "leakgate", final=result["FINAL_RESULT"], release=bool(getattr(a, "release", False)),
+                     failed=[p for p in lg.POLICIES if result[p] != "PASS"], artifacts=result["ARTIFACTS"])
+        return 0 if result["FINAL_RESULT"] == "PASS" else 3
+    if act == "capture":
+        from . import capture
+        import shutil as _sh, json as _js
+        t = task.load(tid)
+        res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
+        work = task.STATE / tid / f"capture-{time.strftime('%Y%m%d-%H%M%S')}"
+        work.mkdir(parents=True)
+        zp = work / "build.zip"                                   # a copy: a later package step rewrites dist/
+        _sh.copyfile(res["artifacts"]["zip"]["file"], zp)
+        plain = capture.test_copy(zp, work / "browser-plain")
+        say = lambda m: print(m, flush=True)
+        if getattr(a, "packets_only", False):
+            pk = capture.packet_run(plain / "firefox.exe", work, say=say)
+            if pk is None:
+                print("not elevated: run this in an administrator PowerShell")
+                return 3
+            (work / "packets.json").write_text(_js.dumps(pk, indent=1), encoding="utf-8")
+            for name, r in pk.items():
+                v, tr, un = capture.judge(set(r["sni"]) | set(r["dns"]))
+                print(f"  [{'ok' if not v and not tr else 'FAIL'}] packets {name}: vendor {sorted(v)} trackers {sorted(tr)} other {sorted(un)[:10]} udp {r['udp'][:6]}")
+            task.journal(t, "capture-packets", dir=str(work), scenarios=list(pk))
+            return 0
+        rows = capture.rows(tid, zp, plain / "firefox.exe", work, say=say, packets=True)
+        (work / "capture.json").write_text(_js.dumps(rows, indent=1, default=str), encoding="utf-8")
+        for r in rows:
+            print(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:400]}")
+        task.journal(t, "capture", dir=str(work), ok=all(r["ok"] for r in rows), failed=[r["check"] for r in rows if not r["ok"]][:12])
+        print(f"CAPTURE {'OK' if all(r['ok'] for r in rows) else 'NOT OK'}: {work}")
+        return 0 if all(r["ok"] for r in rows) else 3
     if act == "repair":
         from . import repair
         r = repair.run(tid, say=lambda m: print(m, flush=True))

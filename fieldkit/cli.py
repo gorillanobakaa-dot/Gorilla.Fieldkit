@@ -658,7 +658,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "record", "creep", "brief", "deferred", "verify", "snapshot"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "record", "creep", "brief", "deferred", "verify", "snapshot"])
     bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
     bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")
@@ -667,6 +667,9 @@ def build_parser():
     bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
     bh.add_argument("--no-backup", action="store_true", dest="no_backup", help="install: skip the backup (never the default)")
     bh.add_argument("--drive", action="store_true", help="post-install: allow the checks that take the keyboard (announced, 20 s countdown)")
+    bh.add_argument("--release", action="store_true", help="leakgate: release run (full durations, 3 repetitions, packets required)")
+    bh.add_argument("--repeat", type=int, help="leakgate: repetitions per scenario")
+    bh.add_argument("--packets-only", action="store_true", dest="packets_only", help="capture: only the frame-level pktmon pass (needs an admin shell)")
     bh.add_argument("--only", help="post-install: comma list of check names to run")
     bh.add_argument("--restore", help="install: put a backup directory back instead of installing")
     bh.add_argument("--install-dir", dest="install_dir", help="install: the directory to install into (default: the registered install)")
