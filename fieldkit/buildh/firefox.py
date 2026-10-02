@@ -437,6 +437,10 @@ def syntax_problems(workdir, files):
             text = p.read_text(encoding="utf-8", errors="replace")
             if rel.endswith((".py", "moz.build")) or Path(rel).name == "moz.build":
                 ast.parse(text)
+                if Path(rel).name == "moz.build" or rel.endswith(".mozbuild"):
+                    from .mozbuild_rules import empty_assignments
+                    for ln, var in empty_assignments(text):
+                        out.append(f"{rel}: line {ln}: mozbuild refuses an empty {var} assignment")
             elif rel.endswith(".json") and not rel.endswith((".in.json", ".jsonc")) and "/test" not in rel:
                 json.loads(text)
             elif rel.endswith((".mjs", ".js")) and "/test" not in rel and not rel.endswith(".min.js"):

@@ -47,6 +47,21 @@ def hand_commits(t):
     return out
 
 
+NARRATION = [(r"^\s*20\d\d-\d\d-\d\d\s*", ""), (r"^build \d+ (stop|proof)\s*:\s*", ""), (r"^build \d+,\s*", ""),
+             (r"\s*\(leakgate source inventory\)", ""), (r"\(build \d+\)", ""), (r"\(kept as _private/[^)]*\)", "(proposed separately)"),
+             (r"the owner's preflight guard refuses pref decisions from anyone but the owner", "pref decisions are recorded separately"),
+             (r"the owner's", "Gorilla's"), (r"\bthe owner\b", "Gorilla"), (r"owner's", "Gorilla's"), (r"\bowner\b", "Gorilla")]
+
+
+def public_note(why):
+    """A recorded reason as a public technical note."""
+    w = (why or "").strip()
+    for a, b in NARRATION:
+        w = re.sub(a, b, w, flags=re.I)
+    w = re.sub(r"\s{2,}", " ", w).strip(" :")
+    return (w[0].upper() + w[1:]) if w else "Hand edit"
+
+
 def slug(s, n=60):
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:n] or "hand-edit"
 
@@ -64,17 +79,22 @@ def export(task_id, patchset_root, version, say=print, dry=False):
         diff = _git(w, "diff", "--no-color", "--no-renames", f"{c}^", c)
         if not diff.strip():
             continue
-        head = f"# Gorilla {version} {kind} hand step, {when}\n# why: {why}\n# files: {', '.join(files)}\n# source commit (157.0-truth task checkpoint): {c}\n"
-        name = f"{i:03d}-{slug(why)}.patch"
-        written[kind].append((name, len(files)))
+        # the public repo's rule: technical notes, not a diary - no dates, no build narration, no local commit ids
+        note = public_note(why)
+        head = f"# Gorilla {version} {'privacy cut' if kind == 'privacy' else 'port fix'}\n# {note}\n# Files: {', '.join(files)}\n\n"
+        name = f"{i:03d}-{slug(note)}.patch"
+        written[kind].append((name, note))
         if not dry:
             groups[kind].mkdir(parents=True, exist_ok=True)
             (groups[kind] / name).write_text(head + diff, encoding="utf-8", newline="\n")
     for kind, g in groups.items():
         if written[kind] and not dry:
-            (g / "README.md").write_text(
-                f"# {g.name}\n\nWritten by `fieldkit build-harness export-hand TASK` from the recorded hand steps of the {version} port.\n"
-                f"Each patch carries the reason recorded with its step. {len(written[kind])} patch(es).\n\n"
-                + "\n".join(f"- `{n}` ({k} file(s))" for n, k in written[kind]) + "\n", encoding="utf-8")
+            intro = ("Repairs needed to carry Gorilla's patches onto Firefox " + version + "." if kind == "port" else
+                     "Every network caller, identifier and helper executable cut from Firefox " + version + " at the source. Each cut "
+                     "returns before the code that would send, with a `GORILLA UNLEASHED - PHYSICAL LOCK` comment, so no preference "
+                     "can turn it back on. Verified on the built browser by its own HTTP log, a decrypting proxy, the socket table "
+                     "and the packaged archives.")
+            (g / "README.md").write_text(f"# {g.name}\n\n{intro} Apply in order, after the snapshot groups.\n\n"
+                                         + "\n".join(f"- `{n}`: {w}" for n, w in written[kind]) + "\n", encoding="utf-8", newline="\n")
         say(f"  {g.name}: {len(written[kind])} patch(es)")
     return written

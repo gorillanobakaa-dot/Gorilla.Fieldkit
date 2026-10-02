@@ -170,6 +170,15 @@ def run(task_id, say=print):
     repaired, refused = [], []
     for prob in firefox.syntax_problems(w, changed):
         rel, _, rest = prob.partition(": ")
+        if "mozbuild refuses an empty" in rest:
+            from .mozbuild_rules import fix_empty_assignments
+            fixed = fix_empty_assignments(w / rel)
+            what = f"empty mozbuild assignment(s) removed: {fixed}"
+            say(f"  [{'repaired' if fixed else 'refused'}] {rel}: {what}")
+            (repaired if fixed else refused).append(f"{rel}: {what}")
+            if fixed:
+                handedit.record(task_id, [rel], f"repair: {what} (mozbuild refuses an empty value)")
+            continue
         m = re.search(r"line (\d+)", rest)
         if not m or not rel.endswith((".mjs", ".js")):
             refused.append(prob)

@@ -345,6 +345,26 @@ def sweep_excised_dist(dist_bin, say):
     return removed
 
 
+def fix_mozbuild_empty(t, root, say, lines):
+    """mach: "Variable X assigned an empty value" -> the statement removed, recorded, retried."""
+    from . import handedit
+    from .mozbuild_rules import from_log, fix_empty_assignments
+    path, var = from_log(lines)
+    if not path:
+        return False, "the moz.build path is not in the error text"
+    w = Path(t["workdir"])
+    try:
+        rel = Path(path.replace("/", os.sep)).resolve().relative_to(w.resolve()).as_posix()
+    except ValueError:
+        return False, f"{path} is not inside the tree"
+    fixed = fix_empty_assignments(w / rel)
+    if not fixed:
+        return False, f"{rel}: no empty assignment found for {var}"
+    handedit.record(t["id"], [rel], f"build stop mozbuild-empty-assignment: {fixed} removed")
+    say(f"  {rel}: empty {fixed} assignment removed")
+    return True, f"{rel}: {fixed}"
+
+
 def fix_retry(t, root, say):
     say("  the stage was interrupted from the console (Ctrl+C / window closed): running it again")
     return True, "retry after a console interrupt"
@@ -364,6 +384,7 @@ STOPS = [
     # it, silently). A retry is the right fix; the window is now hidden so there is nothing to close.
     (r"failed with 3221225786|0xC000013A|STATUS_CONTROL_C_EXIT", "console-interrupt", fix_retry),
     (r"A jar\.mn exists but it\s+is not referenced in the moz\.build file", "jar-manifest-undeclared", fix_jar_manifest),
+    (r"Variable \w+ assigned an empty value", "mozbuild-empty-assignment", fix_mozbuild_empty),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
     (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", None),
@@ -550,7 +571,7 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
                 say("  no known fix" if fix is None else "  the same stop again after its fix: no progress"
                     + "; the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
                 return {"ok": False, "stops": stops, "log": str(log_path)}
-            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object, fix_jar_manifest) else fix(t, root, say)
+            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object, fix_jar_manifest, fix_mozbuild_empty) else fix(t, root, say)
             t = task.load(task_id)                      # a fix may have recorded steps and checkpointed
             task.journal(t, "build-fix", stage=stage, signature=name, ok=ok, what=what)
             if not ok:
