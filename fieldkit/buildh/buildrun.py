@@ -255,8 +255,48 @@ def fix_creep_include(t, root, say, lines=()):
     return bool(done) and len(done) == len(creepfix.missing_headers(lines)), "; ".join(what)
 
 
+OBJ_MAGIC = (b"\x64\x86", b"\x4c\x01", b"\x00\x00\xff\xff", b"BC", b"!<ar", b"\x00asm")   # COFF x64/x86, anon COFF, bitcode, archive, wasm
+
+
+def sweep_objects(objdir, say=print):
+    """Delete object files a killed or reset build left half-written: zero bytes or no known header. mach rebuilds
+    them; lld-link does not ("vp9itxfm.obj: unknown file type", 2026-10-02 07:56, a 0-byte object written at 07:37
+    when the stage killed the tree mid-write). -> [paths removed]. ~1 s over 4,000 objects."""
+    import os
+    removed = []
+    for dp, dn, fn in os.walk(str(objdir)):
+        if "sccache" in dp or os.sep + ".git" in dp:
+            continue
+        for name in fn:
+            if not name.endswith((".obj", ".o")):
+                continue
+            path = os.path.join(dp, name)
+            try:
+                size = os.path.getsize(path)
+                with open(path, "rb") as fh:
+                    head = fh.read(4)
+            except OSError:
+                continue
+            if size == 0 or not any(head.startswith(m) for m in OBJ_MAGIC):
+                os.remove(path)
+                removed.append(path)
+    if removed:
+        say(f"  objdir sweep: removed {len(removed)} half-written object(s), e.g. {removed[0]}")
+    return removed
+
+
+def fix_corrupt_object(t, root, say, lines=()):
+    from .compile import mozconfig_path, objdir as _objdir
+    od = _objdir(mozconfig_path(root))
+    if not od or not Path(od).is_dir():
+        return False, "no objdir from the mozconfig"
+    removed = sweep_objects(od, say)
+    return True, f"removed {len(removed)} object(s) with no valid header; mach rebuilds them"
+
+
 #: (regex over the stage output, name, fix or None). Order matters: first match wins.
 STOPS = [
+    (r"lld-link: error: .*: unknown file type|error: .*\.obj: (file too small|invalid|corrupt)", "corrupt-object", fix_corrupt_object),
     (r"fatal error: '[^']+' file not found", "excision-creep-include", fix_creep_include),
     (r"\.mozbuild[/\\][\w.-]+[/\\].* does not exist|does not exist: .*\.mozbuild", "missing-toolchain", fix_toolchain),
     (r"Automatic clobber was not requested|clobber is required|requires a clobber|please clobber|CLOBBER file (was|has been) updated",
@@ -348,6 +388,13 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         for attempt in range(1, RETRIES + 2):
             cmd = [sys.executable, str(Path(root) / "harness" / "gorilla_build.py"), stage] + (["--force"] if stage == "build" and needs_force else [])
             say(f"{time.strftime('%H:%M:%S')}  {stage} attempt {attempt}: {' '.join(cmd[1:])}")
+            if stage == "build":
+                from .compile import mozconfig_path, objdir as _objdir
+                od = _objdir(mozconfig_path(root))
+                if od and Path(od).is_dir():
+                    removed = sweep_objects(od, say)
+                    if removed:
+                        task.journal(t, "objdir-sweep", removed=len(removed), first=removed[0])
             power = active_power_scheme()
             from ..thermal import governor as gv
             gov = gv.Governor(sensor, target_c=75.0, interval=3.0, kill=lambda why: None, on_event=say,
@@ -379,7 +426,7 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
                 say("  no known fix" if fix is None else "  the same stop again after its fix: no progress"
                     + "; the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
                 return {"ok": False, "stops": stops, "log": str(log_path)}
-            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include) else fix(t, root, say)
+            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object) else fix(t, root, say)
             t = task.load(task_id)                      # a fix may have recorded steps and checkpointed
             task.journal(t, "build-fix", stage=stage, signature=name, ok=ok, what=what)
             if not ok:
