@@ -205,6 +205,13 @@ def best(prove=True, **kw):
         if not prove:
             return name, fn, "not proven"
         ok, detail = prove_live(fn, **kw)
+        if ok and "[surface sensor]" in detail:
+            # a SLOW die-tracking sensor looks like skin in a 20-second test: the EC cpu value climbed only
+            # 32 -> 38 C in that test yet reached 82 C in a real compile (2026-10-02 07:50). Give it a minute.
+            ok2, detail2 = prove_live(fn, settle=45 if kw.get("settle", 8) else 0, samples=8, interval=kw.get("interval", 2.0),
+                                      rise=kw.get("rise", 2.0), threads=kw.get("threads"), load=kw.get("load", _load))
+            if ok2:
+                detail = detail2 + " (after a 60 s load)"
         tried.append(f"{name}: {detail}")
         if ok:
             return name, fn, detail

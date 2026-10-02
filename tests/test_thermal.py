@@ -142,3 +142,13 @@ def test_surface_sensors_are_graded_and_capped():
     gov._halt = type("H", (), {"is_set": lambda self: bool(done), "wait": lambda self, s: None})()
     gov.run()
     assert caps[0] == 80 and caps[-1] == 100 and gov.start_cap == 80   # ceiling applied at start, original put back
+
+
+def test_a_slow_die_sensor_is_regraded_after_a_longer_load(monkeypatch):
+    class P:
+        def kill(self): pass
+    readings = iter([30.0, 31, 32, 33, 34, 35, 36, 37,        # the 20-second test: +7, "surface"
+                     38, 45, 52, 58, 63, 68, 72, 75, 78])     # the 60-second test: +48, "die"
+    monkeypatch.setattr(sensors, "PROVIDERS", (("fake", lambda: next(readings)),))
+    name, fn, detail = sensors.best(prove=True, settle=0, samples=6, interval=0, load=lambda n: [P()])
+    assert name == "fake" and "[die sensor]" in detail and "after a 60 s load" in detail
