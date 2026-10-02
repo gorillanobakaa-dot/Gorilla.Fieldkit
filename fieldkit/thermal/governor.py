@@ -49,7 +49,7 @@ def set_cap(pct):
 
 class Governor(threading.Thread):
     def __init__(self, sensor, target_c=75.0, interval=3.0, csv_path=None, kill=None, on_event=print,
-                 set_cap=set_cap, read_cap=read_cap, perf=sensors.perf_percent, clock=time.time, sleep=None):
+                 set_cap=set_cap, read_cap=read_cap, perf=sensors.perf_percent, clock=time.time, sleep=None, max_cap=None):
         super().__init__(daemon=True)
         self.sensor, self.target, self.interval = sensor, target_c, interval
         self.csv_path = Path(csv_path) if csv_path else None
@@ -59,6 +59,8 @@ class Governor(threading.Thread):
         self._sleep = sleep or (lambda s: self._halt.wait(s))
         self.start_cap = None
         self.cap = None
+        self.max_cap = max_cap       # a ceiling below the scheme's own cap: 80 while only a surface sensor exists
+        self._orig_cap = None
         self.peak = 0.0
         self.samples = 0
         self.verdict = None                                   # why the build was killed, if it was
@@ -87,8 +89,11 @@ class Governor(threading.Thread):
             self.kill(why)
 
     def run(self):
-        self.start_cap = self._read_cap() or 100
-        self.cap = self.start_cap
+        self._orig_cap = self._read_cap() or 100
+        self.start_cap = min(self._orig_cap, self.max_cap) if self.max_cap else self._orig_cap
+        self.cap = self._orig_cap
+        if self.start_cap != self.cap:
+            self._apply(self.start_cap, "ceiling while only a surface sensor exists")
         fh = w = None
         if self.csv_path:
             self.csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,9 +144,9 @@ class Governor(threading.Thread):
         finally:
             if fh:
                 fh.close()
-            if self.start_cap is not None and self.cap != self.start_cap:
-                self._set_cap(self.start_cap)
-                self._event("cap", f"restored to {self.start_cap}%")
+            if self._orig_cap is not None and self.cap != self._orig_cap:
+                self._set_cap(self._orig_cap)
+                self._event("cap", f"restored to {self._orig_cap}%")
 
 
 def kill_tree(pid):

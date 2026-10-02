@@ -155,9 +155,18 @@ def _load(n):
     return [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(n)]
 
 
+DIE_RISE = 10.0       # a package sensor climbs this much within a minute of twelve busy threads; a skin sensor does not
+
+
+def grade(idle, hi):
+    """'die' when the load test rose >= DIE_RISE, else 'surface' (moves, but not the silicon: this L15 Gen 3's EC
+    `cpu` value is replicated on three sensors and read 27 C during a compile)."""
+    return "die" if hi - idle >= DIE_RISE else "surface"
+
+
 def prove_live(fn, settle=8, samples=6, interval=2.0, rise=2.0, threads=None, load=_load):
     """Saturate the cores and require the reading to RISE by `rise` degrees or move by that much. -> (ok, detail).
-    A source that does not move while twelve threads spin is not watching the silicon."""
+    A source that does not move while twelve threads spin is not watching the silicon. `detail` ends with the grade."""
     import os
     idle = fn()
     if idle is None:
@@ -177,7 +186,7 @@ def prove_live(fn, settle=8, samples=6, interval=2.0, rise=2.0, threads=None, lo
     if not seen:
         return False, "no reading under load"
     hi, lo = max(seen), min(seen)
-    detail = f"idle {idle:.1f} C, under load {lo:.1f}-{hi:.1f} C"
+    detail = f"idle {idle:.1f} C, under load {lo:.1f}-{hi:.1f} C [{grade(idle, hi)} sensor]"
     if hi - idle >= rise or hi - lo >= rise:
         return True, detail
     return False, detail + f" - moved less than {rise:.0f} C: not a live CPU sensor"

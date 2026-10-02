@@ -103,3 +103,22 @@ def test_status_file_source_reads_cpu_and_rejects_stale(tmp_path):
     assert sensors.tpfan_status(f) is None                           # two minutes old: the engine is not writing
     assert sensors.tpfan_status(tmp_path / "none.txt") is None
     assert sensors.PROVIDERS[0][0] == "tpfan_status"
+
+
+def test_surface_sensors_are_graded_and_capped():
+    assert sensors.grade(30.0, 45.0) == "die" and sensors.grade(30.0, 36.0) == "surface"
+    gov, caps, events, killed = _run([40, 40, 40], start_cap=100)
+    assert caps == []                                           # no ceiling: nothing to apply
+    it = iter([40, 40, 40]); caps, events = [], []
+    done = []
+    def sensor():
+        try: return next(it)
+        except StopIteration:
+            done.append(True); return None
+    clock = Clock()
+    gov = governor.Governor(sensor=sensor, target_c=75.0, interval=3.0, kill=lambda w: None, on_event=events.append,
+                            set_cap=caps.append, read_cap=lambda: 100, perf=lambda: 90.0, clock=clock,
+                            sleep=lambda s: setattr(clock, "t", clock.t + s), max_cap=80)
+    gov._halt = type("H", (), {"is_set": lambda self: bool(done), "wait": lambda self, s: None})()
+    gov.run()
+    assert caps[0] == 80 and caps[-1] == 100 and gov.start_cap == 80   # ceiling applied at start, original put back

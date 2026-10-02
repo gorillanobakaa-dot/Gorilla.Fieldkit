@@ -252,7 +252,10 @@ def step_apply_group(t, harness_root, group, **kw):
             skipped.append(pf.name)
             continue
         with open(pf, "rb") as fh:
-            r = subprocess.run([_patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=3",
+            # --fuzz=0: with fuzz 3 GNU patch dropped the three context lines of FOG.cpp's hunk and put the owner's
+            # `return NS_OK;` block before the function signature (live run 16, stop 8). A hunk whose context does not
+            # match is a REJECT for the tiers, which anchor on content; a guess by line number is never a port.
+            r = subprocess.run([_patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0",
                                 "-d", str(w)], stdin=fh, capture_output=True, timeout=600)
         out = r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
         res = failures_from_output(out)
@@ -501,6 +504,39 @@ def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
         if new:
             out.append((f, len(new), f"{new[0][0]}: {new[0][1][:80]}"))
     return out
+
+
+def misplaced(body, hunk, gap=None):
+    """For a hunk that ADDS a block next to context lines: the first added line's position in `body` must be within
+    `gap` lines of a specific context line that precedes it in the hunk (or follows it, for a block added at the
+    top). -> None when placed, else a reason. Live run 16, stop 8: FOG.cpp's early return sat 7 lines above its
+    context `gInitializeCalled = true;`, and the verifier called the hunk APPLIED because the lines existed."""
+    gap = GAP if gap is None else gap
+    lines = hunk["lines"]
+    first_add = next((i for i, l in enumerate(lines) if l.startswith("+")), None)
+    if first_add is None:
+        return None
+    keys = [_key(l) for l in body]
+    # the anchor is an added line with identity: specific, not a comment, occurring ONCE in the file (a stylelint
+    # comment that lives in six places anchored three CSS hunks on the wrong copy)
+    added_key = next((_key(l[1:]) for l in lines[first_add:] if l.startswith("+") and _specific(_key(l[1:]))
+                      and not l[1:].strip().startswith(("/*", "//", "*", "#", "<!--")) and keys.count(_key(l[1:])) == 1), None)
+    if added_key is None:
+        return None
+    before = [_key(l[1:]) for l in lines[:first_add] if l.startswith(" ") and _specific(_key(l[1:]))]
+    after = [_key(l[1:]) for l in lines[first_add:] if l.startswith(" ") and _specific(_key(l[1:]))]
+    at = [i for i, l in enumerate(body) if _key(l) == added_key]
+    if not at:
+        return None                                      # not there at all: score_hunk reports that itself
+    if not any(k in keys for k in before + after):
+        return None                                      # no context of the hunk exists here: nothing to place against
+    for i in at:
+        near_before = any(k in keys[max(0, i - gap):i] for k in before) if before else False
+        near_after = any(k in keys[i + 1:i + 1 + gap + len(lines)] for k in after) if after else False
+        if (before and near_before) or (not before and near_after) or (before and not any(k in keys for k in before) and near_after):
+            return None
+    want = before[-1] if before else (after[0] if after else "")
+    return f"added block is not next to its context (`{want[:60]}`): found at line {at[0] + 1}, context elsewhere"
 
 
 def changed_vs_root(workdir):
@@ -1746,7 +1782,10 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     cn = collections.Counter(l.strip() for l in after[lo:hi])
     want_gone = collections.Counter(l.strip() for l in removed)
     kept = {x.strip() for x in keeps}
+    moved = {_key(l) for l in added}                       # removed AND added back (a block moved): not a removal
     for k, n in want_gone.items():
+        if _key(k) in moved:
+            continue
         if not _specific(_key(k)) or k.startswith(("/*", "//", "*", "<!--")):
             continue                                        # a comment follows its block; it proves nothing alone
         if k in kept or any(d.startswith(k) for d in kept):

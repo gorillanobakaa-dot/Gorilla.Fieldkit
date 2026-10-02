@@ -27,6 +27,7 @@ from . import task
 from .ownercheck import BUILD_DEPENDENT, post_build  # noqa: E402
 
 RETRIES = 4
+SURFACE_CAP = 80       # processor cap while the only proven sensor is a surface/skin reading, not the die
 HEARTBEAT_S = 300
 ERROR_LINE = re.compile(r"^\s*\d*:?\d*\.?\d*\s*(?:E|ERROR|error)\b|error:|Error:|FAILED|fatal error|: error |\bError \d+\b", re.I)
 
@@ -296,7 +297,10 @@ def thermal_sensor(say):
     from ..thermal import sensors
     name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
     say(f"  thermal source: {name or 'NONE'} - {detail[:200]}")
-    return name, fn
+    surface = "[surface sensor]" in (detail or "")
+    if surface:
+        say(f"  only a surface sensor: the compile runs with the cap held at {SURFACE_CAP}% of base (no die reading on this machine)")
+    return name, fn, surface
 
 
 def run(task_id, force=False, say=print, stages=("build", "package")):
@@ -328,7 +332,7 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
     if needs_force and not force:
         return {"ok": False, "why": "only build-dependent owner blockers remain; run again with --force to pass them on", "blockers": blockers}
     # 2026-10-02: no build without a CPU sensor proven to move under load (the laptop reset with a blind governor)
-    sensor_name, sensor = thermal_sensor(say)
+    sensor_name, sensor, surface = thermal_sensor(say)
     if sensor is None:
         task.journal(t, "build-refused", why=["no CPU temperature source responds to load: see fieldkit thermal prove"])
         return {"ok": False, "why": "no CPU temperature source responds to load; the build would run blind (fieldkit thermal prove)"}
@@ -347,7 +351,8 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
             power = active_power_scheme()
             from ..thermal import governor as gv
             gov = gv.Governor(sensor, target_c=75.0, interval=3.0, kill=lambda why: None, on_event=say,
-                              csv_path=task.STATE / task_id / f"thermal-{stage}-{time.strftime('%Y%m%d-%H%M%S')}.csv")
+                              csv_path=task.STATE / task_id / f"thermal-{stage}-{time.strftime('%Y%m%d-%H%M%S')}.csv",
+                              max_cap=SURFACE_CAP if surface else None)
             rc, lines = _stream(cmd, root, log_path, say, governor=gov)
             if gov.verdict:
                 lines.append(f"FIELDKIT THERMAL GOVERNOR: {gov.verdict}")

@@ -105,6 +105,9 @@ def score_hunk(body, hunk, file=""):
     if rem and not rem_in and not add:
         return "APPLIED", f"the {len(rem)} removed line(s) no longer stand together" + (" in the hunk's frame" if frame else " anywhere")
     if add and len(add_in) == len(add) and not rem_in:
+        where = firefox.misplaced(body, hunk) if Path(file).name not in firefox.PREF_FILES else None   # prefs: order-free
+        if where:
+            return "NOT-APPLIED", "misplaced: " + where
         return "APPLIED", f"{len(add)} added line(s) present, {len(rem)} removed line(s) gone"
     if not add and rem and not rem_in:
         return "APPLIED", f"all {len(rem)} removed line(s) gone"
