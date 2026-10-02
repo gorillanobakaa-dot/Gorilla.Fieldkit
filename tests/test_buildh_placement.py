@@ -61,3 +61,8 @@ def test_the_group_apply_uses_no_fuzz():
     import inspect
     src = inspect.getsource(firefox.step_apply_group)
     assert '"--fuzz=0"' in src and '"--fuzz=3"' not in src
+
+
+def test_tier_zero_does_not_call_a_misplaced_block_already_in_place():
+    assert firefox.already_upstream(GOOD, H)
+    assert not firefox.already_upstream(BAD, H)

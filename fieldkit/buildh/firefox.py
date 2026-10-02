@@ -520,7 +520,7 @@ def misplaced(body, hunk, gap=None):
     # the anchor is an added line with identity: specific, not a comment, occurring ONCE in the file (a stylelint
     # comment that lives in six places anchored three CSS hunks on the wrong copy)
     added_key = next((_key(l[1:]) for l in lines[first_add:] if l.startswith("+") and _specific(_key(l[1:]))
-                      and not l[1:].strip().startswith(("/*", "//", "*", "#", "<!--")) and keys.count(_key(l[1:])) == 1), None)
+                      and keys.count(_key(l[1:])) == 1), None)       # unique in the file; a unique comment anchors too
     if added_key is None:
         return None
     before = [_key(l[1:]) for l in lines[:first_add] if l.startswith(" ") and _specific(_key(l[1:]))]
@@ -1902,6 +1902,8 @@ def already_upstream(file_lines, hunk):
         here = a
     if renamed_near(file_lines, hunk, meaningful_removed, added):
         return False                                    # the removed lines are still there under new names
+    if meaningful_added and misplaced(file_lines, hunk):
+        return False                                    # the lines exist, but not where the hunk puts them (h5, live run 16)
     return bool(meaningful_added or meaningful_removed) and all(k in a for k in meaningful_added) and \
         not any(k in here for k in meaningful_removed)
 
