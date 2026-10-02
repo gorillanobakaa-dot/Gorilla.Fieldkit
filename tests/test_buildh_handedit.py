@@ -61,3 +61,18 @@ def test_record_merges_the_two_halves_of_a_moved_block():
     out = handedit.merge_moves([h_remove, other, h_add])
     assert len(out) == 2 and "merged" in out[0]["header"] and out[1] is other
     assert out[0]["lines"] == h_remove["lines"] + h_add["lines"]
+
+
+def test_save_merges_steps_another_process_added(tmp_path, monkeypatch):
+    from fieldkit.buildh import task
+    monkeypatch.setattr(task, "STATE", tmp_path)
+    a = {"id": "t", "steps": [{"id": "s1"}, {"id": "final-checks"}], "checkpoints": [{"commit": "aaa"}]}
+    task.save(a)
+    other = task.load("t")                                   # a second process loads the same task
+    other["steps"].insert(1, {"id": "hand-x"}); other["checkpoints"].append({"commit": "bbb"})
+    task.save(other)                                         # and records a hand step
+    a["steps"][0]["status"] = "done"                         # the first process, stale, saves its own change
+    task.save(a)
+    disk = task.load("t")
+    assert [s["id"] for s in disk["steps"]] == ["s1", "hand-x", "final-checks"] and disk["steps"][0]["status"] == "done"
+    assert [c["commit"] for c in disk["checkpoints"]] == ["aaa"] and disk["merged_steps"][0]["ids"] == ["hand-x"]   # checkpoints: not merged (rewind removes them on purpose)

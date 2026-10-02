@@ -24,7 +24,11 @@ PRE_IF = re.compile(r"^\s*#\s*(if|ifdef|ifndef)\b")
 PRE_END = re.compile(r"^\s*#\s*endif\b")
 PREF_SOURCES = (("modules/libpref/init/all.js", "greprefs.js", "omni.ja"),
                 ("browser/app/profile/firefox.js", "defaults/preferences/firefox.js", "browser/omni.ja"))
-EXCISED_DIRS = ("browser/components/aiwindow/", "browser/components/genai/", "toolkit/components/ml/")
+# packaged path PREFIXES of excised components (omni.ja layout, not source layout). Substring matching caught
+# xml/, mathml/ and uBlock's _locales/ml/ on 02 Oct; these are prefixes, matched at a path-component boundary.
+EXCISED_PACKAGED = ("chrome/toolkit/content/global/ml/", "moz-src/toolkit/components/ml/actors/", "moz-src/toolkit/components/ml/MLModelHubService.sys.mjs",
+                    "moz-src/browser/components/aiwindow/", "chrome/browser/content/browser/aiwindow/",
+                    "moz-src/browser/components/genai/", "chrome/browser/content/browser/genai/", "modules/GenAI.sys.mjs")
 
 
 def _norm(v):
@@ -103,19 +107,25 @@ def prefs_row(workdir, install_dir):
             "bad": bad}
 
 
-def excised_row(install_dir, deleted_paths):
-    names = {Path(p).name for p in deleted_paths if p.endswith((".mjs", ".js", ".jsm", ".ftl", ".css", ".html", ".xhtml"))}
+def excised_row(install_dir, deleted_paths, truth_root=None):
+    """`deleted_paths` are the owner's DELETED_FILES manifests; only entries the owner's truth tree really lacks count
+    (the manifests list TelemetryUtils.sys.mjs and services-settings/Utils.sys.mjs, both shipped in 155.0.1)."""
+    truth = Path(truth_root) if truth_root else None
+    names = {Path(p).name for p in deleted_paths if p.endswith((".mjs", ".jsm"))
+             and (truth is None or not (truth / p).exists())}
     hits = []
     for ja in ("omni.ja", "browser/omni.ja"):
         try:
             with zipfile.ZipFile(Path(install_dir) / ja) as z:
                 for n in z.namelist():
-                    if Path(n).name in names or any(d.split("/")[-2] + "/" in n for d in EXCISED_DIRS):
+                    if n.endswith("/"):
+                        continue
+                    if Path(n).name in names or any(n.startswith(pre) for pre in EXCISED_PACKAGED):
                         hits.append(f"{ja}:{n}")
         except OSError:
             hits.append(f"{ja}: unreadable")
     return {"check": "excised: nothing the port removes is packaged", "ok": not hits,
-            "evidence": f"{len(names)} removed module names and {len(EXCISED_DIRS)} directories checked" + (f"; packaged: {hits[:3]}" if hits else ""),
+            "evidence": f"{len(names)} removed module names and {len(EXCISED_PACKAGED)} packaged prefixes checked" + (f"; packaged: {hits[:3]}" if hits else ""),
             "bad": hits}
 
 
@@ -158,11 +168,17 @@ LIST_HOSTS = {"cdn.jsdelivr.net", "ublockorigin.pages.dev", "ublockorigin.github
 URL_IN_LOG = re.compile(r"(?:uri=|URI |spec=|BeginConnect )\[?(https?|wss?)://([^/\s\]]+)([^\s\]]*)")
 
 
+HOSTNAME = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(:\d+)?$")
+
+
 def http_hosts(log_text):
-    """{host: (count, first url)} from an nsHttp:3 log."""
+    """{host: (count, first url)} from an nsHttp:3 log. A log line can wrap mid-URL with a timestamp glued on
+    ("www.anthropic.c2026-10-02"); only real hostnames (letters-only TLD) count."""
     out = {}
     for m in URL_IN_LOG.finditer(log_text):
         host = m.group(2).lower().split("@")[-1]
+        if not HOSTNAME.match(host):
+            continue
         n, first = out.get(host, (0, f"{m.group(1)}://{host}{m.group(3)[:100]}"))
         out[host] = (n + 1, first)
     return out
@@ -205,14 +221,53 @@ def egress_row(install_dir, url="https://www.anthropic.com/legal/archive/21d66aa
             "bad": bad, "unknown": sorted(unknown), "log": str(prof)}
 
 
-def rows(workdir, install_dir, deleted_paths=(), which=("prefs", "excised", "startup", "egress")):
+# ad and tracker hosts a stock browser contacts on a news front page; the bundled uBlock Origin (Manifest V2,
+# webRequestBlocking) must keep every one of them out of the browser's own HTTP log
+AD_HOSTS = ("doubleclick.net", "googlesyndication.com", "googleadservices.com", "adnxs.com", "amazon-adsystem.com",
+            "criteo.com", "rubiconproject.com", "pubmatic.com", "openx.net", "taboola.com", "outbrain.com",
+            "scorecardresearch.com", "google-analytics.com", "googletagmanager.com", "facebook.net", "adsrvr.org")
+
+
+def adblock_row(install_dir, url="https://www.theguardian.com/international", seconds=60):
+    """The page must load (its own host in the log) and no ad/tracker host may appear: proves the bundled uBlock
+    Origin is active and MV2 blocking works in this Firefox."""
+    import os as _os, tempfile
+    exe = Path(install_dir) / "firefox.exe"
+    prof = Path(tempfile.mkdtemp(prefix="gadblock_"))
+    (prof / "user.js").write_text('user_pref("browser.shell.checkDefaultBrowser", false);\nuser_pref("browser.aboutwelcome.enabled", false);\n', encoding="utf-8")
+    env = dict(_os.environ, MOZ_LOG="nsHttp:3,timestamp", MOZ_LOG_FILE=str(prof / "http.log"))
+    proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        proc.wait(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        pass
+    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in sorted(prof.glob("http.log*")))
+    hosts = http_hosts(text)
+    return judge_adblock(hosts, url)
+
+
+def judge_adblock(hosts, url):
+    page = url.split("/")[2]
+    loaded = any(h == page or h.endswith("." + page.split(".", 1)[-1]) for h in hosts)
+    ads = sorted(h for h in hosts if any(h == a or h.endswith("." + a) for a in AD_HOSTS))
+    return {"check": "adblock: the bundled uBlock Origin (MV2 webRequestBlocking) keeps ad/tracker hosts out", "ok": loaded and not ads,
+            "evidence": (f"{page} loaded, {len(hosts)} host(s)" if loaded else f"{page} did NOT load ({len(hosts)} hosts: offline or blocked page)")
+                        + (f"; ad/tracker hosts reached: {ads[:5]}" if ads else "; no ad/tracker host reached"),
+            "bad": ads, "loaded": loaded}
+
+
+def rows(workdir, install_dir, deleted_paths=(), which=("prefs", "excised", "startup", "egress", "adblock"), truth_root=None):
     out = []
     if "prefs" in which:
         out.append(prefs_row(workdir, install_dir))
     if "excised" in which:
-        out.append(excised_row(install_dir, deleted_paths))
+        out.append(excised_row(install_dir, deleted_paths, truth_root))
     if "startup" in which:
         out.append(startup_row(install_dir))
     if "egress" in which:
         out.append(egress_row(install_dir))
+    if "adblock" in which:
+        out.append(adblock_row(install_dir))
     return out

@@ -25,6 +25,42 @@ def diff_hunks(workdir, rel):
     return parsed[0]["hunks"] if parsed else []
 
 
+def commit_hunks(workdir, commit, rel):
+    """The hunks a checkpoint commit made to `rel` (recovery: a record whose steps another process overwrote)."""
+    r = subprocess.run(["git", "-C", str(workdir), "show", "--no-color", "--format=", commit, "--", rel], capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    parsed = firefox.parse_patch(r.stdout) if r.stdout.strip() else []
+    return parsed[0]["hunks"] if parsed else []
+
+
+def record_from_commit(task_id, commit, files, why, group="hand"):
+    """Re-create the hand steps of a checkpoint commit (no checkpoint is made: the commit already exists)."""
+    t = task.load(task_id)
+    w = Path(t["workdir"])
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    have = {s["id"] for s in t["steps"]}
+    added = []
+    at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
+    for rel in files:
+        for n, h in enumerate(merge_moves(commit_hunks(w, commit, rel)), 1):
+            sid = f"hand-{group}-{Path(rel).name}-{stamp}-h{n}"
+            if sid in have:
+                continue
+            t["steps"].insert(at, {"id": sid, "kind": "model", "status": "done", "done_by": "hand", "hand_port": True,
+                                   "hand_note": why, "attempts": 1, "max_attempts": 1,
+                                   "title": f"hand edit of {rel} (no patch asked for it): {why}",
+                                   "packet": "fieldkit.buildh.firefox:packet_port", "check": "fieldkit.buildh.firefox:check_port",
+                                   "auto": "fieldkit.buildh.firefox:auto_port", "allowed": [rel],
+                                   "args": {"patch": f"hand/{group}", "file": rel, "hunk": h}})
+            at += 1
+            added.append(sid)
+    if not added:
+        raise task.Refused(f"commit {commit[:10]} has no hunks for {files}")
+    task.save(t)
+    task.journal(t, "hand-edit", steps=added, files=list(files), why=[why, f"recovered from checkpoint {commit[:10]}"])
+    return added
+
+
 def merge_moves(hunks):
     """Hunks of one file that together MOVE lines (removed in one, added back in another) become one hunk: judged
     apart, the removing half reads as "line should be gone" for a line that is rightly still there (2026-10-02: an

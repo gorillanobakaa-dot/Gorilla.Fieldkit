@@ -87,8 +87,10 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
         (sd / f"{name}.py").write_text("import sys; print('args', sys.argv[1:]); sys.exit(0 if 'verify_no' not in sys.argv[0] else 2)\n", encoding="utf-8")
     monkeypatch.setattr(inst, "scripts_dir", lambda: sd)
     from fieldkit.buildh import proof
-    monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(): [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}])
+    monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None: [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}])
     monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
+    from fieldkit.buildh import leaks
+    monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
@@ -118,3 +120,17 @@ def test_syntax_problems_catch_a_js_module_that_does_not_parse(tmp_path):
     (tmp_path / "ok.min.js").write_text("this is not checked", encoding="utf-8")
     out = firefox.syntax_problems(tmp_path, ["ok.sys.mjs", "bad.sys.mjs", "ok.min.js"])
     assert len(out) == 1 and out[0].startswith("bad.sys.mjs: line 5") and "SyntaxError" in out[0], out
+
+
+def test_install_from_zip_empties_the_directory_and_unpacks_the_top_folder(tmp_path, monkeypatch):
+    zp = tmp_path / "firefox-157.0.en-US.win64.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("firefox/firefox.exe", "MZ")
+        z.writestr("firefox/application.ini", "[App]\nVersion=157.0\n")
+        z.writestr("firefox/browser/omni.ja", "x")
+    d = _fake_install(tmp_path / "G")
+    (d / "stale.dll").write_bytes(b"old")
+    monkeypatch.setattr(inst, "running", lambda d: [])
+    rc, _ = inst.install_from_zip(zp, d, say=lambda m: None)
+    assert rc == 0 and not (d / "stale.dll").exists() and (d / "browser/omni.ja").read_text() == "x"
+    assert inst.installed(d)["version"] == "157.0"

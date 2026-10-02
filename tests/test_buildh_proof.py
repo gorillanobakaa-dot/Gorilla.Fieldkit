@@ -52,9 +52,15 @@ def test_excised_row_names_packaged_removed_modules(tmp_path):
     with zipfile.ZipFile(tmp_path / "inst" / "omni.ja", "a") as z:
         z.writestr("chrome/toolkit/content/global/ml/MLEngine.worker.mjs", "")
         z.writestr("modules/TelemetryUtils.sys.mjs", "")
+    with zipfile.ZipFile(tmp_path / "inst" / "omni.ja", "a") as z:
+        z.writestr("chrome/toolkit/content/global/xml/XMLPrettyPrint.css", "")       # xml/ is not ml/
+        z.writestr("chrome/browser/gorilla-addons/ublock-origin/_locales/ml/messages.json", "")
     r = proof.excised_row(tmp_path / "inst", ["toolkit/components/telemetry/TelemetryUtils.sys.mjs", "x/Other.sys.mjs"])
     assert not r["ok"] and sorted(r["bad"]) == ["omni.ja:chrome/toolkit/content/global/ml/MLEngine.worker.mjs", "omni.ja:modules/TelemetryUtils.sys.mjs"]
-    r = proof.excised_row(tmp_path / "inst", ["x/Other.sys.mjs"])
+    # a manifest entry the owner's truth tree still carries is not a deletion
+    truth = tmp_path / "truth"; (truth / "toolkit/components/telemetry").mkdir(parents=True)
+    (truth / "toolkit/components/telemetry/TelemetryUtils.sys.mjs").write_text("", encoding="utf-8")
+    r = proof.excised_row(tmp_path / "inst", ["toolkit/components/telemetry/TelemetryUtils.sys.mjs"], truth_root=truth)
     assert not r["ok"] and r["bad"] == ["omni.ja:chrome/toolkit/content/global/ml/MLEngine.worker.mjs"]
 
 
@@ -72,3 +78,18 @@ def test_egress_judges_hosts_from_the_browsers_own_log():
     vendor, unknown = proof.judge_hosts(hosts, "www.anthropic.com")
     assert set(vendor) == {"firefox.settings.services.mozilla.com", "firefox-portal-detection.com", "push.services.mozilla.com"}
     assert set(unknown) == {"unknown-tracker.example"}
+
+
+def test_http_hosts_drops_wrapped_log_lines():
+    hosts = proof.http_hosts("uri=https://www.anthropic.c2026-10-02 x\nuri=https://www.anthropic.com/a y\nuri=https://push.services.mozilla.com/ z\n")
+    assert set(hosts) == {"www.anthropic.com", "push.services.mozilla.com"}
+
+
+def test_adblock_judgement_needs_the_page_and_no_ad_host():
+    hosts = {"www.theguardian.com": (3, "u"), "assets.guim.co.uk": (2, "u"), "securepubads.g.doubleclick.net": (1, "u")}
+    r = proof.judge_adblock(hosts, "https://www.theguardian.com/international")
+    assert not r["ok"] and r["bad"] == ["securepubads.g.doubleclick.net"]
+    r = proof.judge_adblock({"www.theguardian.com": (3, "u"), "assets.guim.co.uk": (2, "u")}, "https://www.theguardian.com/international")
+    assert r["ok"]
+    r = proof.judge_adblock({}, "https://www.theguardian.com/international")
+    assert not r["ok"] and "did NOT load" in r["evidence"]

@@ -326,6 +326,25 @@ def fix_jar_manifest(t, root, say, lines):
     return True, f"{rel}: declared + emptied jar.mn"
 
 
+def sweep_excised_dist(dist_bin, say):
+    """Delete, under dist/bin, every path the proof's EXCISED_PACKAGED prefixes name. -> [removed]."""
+    from .proof import EXCISED_PACKAGED
+    import shutil
+    removed = []
+    for pre in EXCISED_PACKAGED:
+        rel = pre.replace("chrome/toolkit/content/global/", "chrome/toolkit/content/global/").rstrip("/")
+        p = Path(dist_bin) / rel
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+            removed.append(rel + "/")
+        elif p.is_file():
+            p.unlink()
+            removed.append(rel)
+    if removed:
+        say(f"  dist/bin sweep: {len(removed)} stale excised path(s) removed before packaging: {removed[:3]}")
+    return removed
+
+
 def fix_retry(t, root, say):
     say("  the stage was interrupted from the console (Ctrl+C / window closed): running it again")
     return True, "retry after a console interrupt"
@@ -477,6 +496,14 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
     from . import compile as cg
     for stage in stages:
         if stage == "package":
+            # a jar.mn that loses entries leaves the files it once installed in dist/bin, and the packager ships
+            # them (build 8, 02 Oct: 26 ML modules in omni.ja with an empty ml/jar.mn). Sweep the excised prefixes.
+            from .compile import mozconfig_path, objdir as _objdir
+            od = _objdir(mozconfig_path(root))
+            if od:
+                swept = sweep_excised_dist(Path(od) / "dist" / "bin", say)
+                if swept:
+                    task.journal(t, "dist-sweep", removed=swept[:20])
             # the installer's outer icon lives in a vendored 7-Zip stub consumed at package time: brand it first
             from . import icons
             ok, text = icons.brand_installer_stub(root, say)

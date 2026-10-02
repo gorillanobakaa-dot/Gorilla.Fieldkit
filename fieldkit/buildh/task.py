@@ -63,9 +63,29 @@ def load(task_id):
 
 
 def save(t):
+    """Write the task. Steps and checkpoints that another process added since this one loaded the task are kept:
+    02 Oct 13:32, a `record` in one process wrote three hand steps and the build process, loaded at 13:20, saved
+    its stale copy over them 32 s later. Last writer no longer wins: the on-disk steps this copy lacks are merged
+    in (by id, in their on-disk order, before the first `final` step), and the merge is noted in the task."""
     d = _dir(t["id"])
     d.mkdir(parents=True, exist_ok=True)
-    (d / "task.json").write_text(json.dumps(t, indent=1), encoding="utf-8")
+    f = d / "task.json"
+    if f.is_file():
+        try:
+            disk = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            disk = None
+        if disk:
+            have = {s["id"] for s in t.get("steps", [])}
+            missing = [s for s in disk.get("steps", []) if s["id"] not in have]
+            if missing:
+                at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
+                for s in missing:
+                    t["steps"].insert(at, s)
+                    at += 1
+                t.setdefault("merged_steps", []).append({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "ids": [s["id"] for s in missing]})
+            # checkpoints are NOT merged back: a rewind removes them on purpose (the git commits still exist)
+    f.write_text(json.dumps(t, indent=1), encoding="utf-8")
 
 
 ZERO = "0" * 16

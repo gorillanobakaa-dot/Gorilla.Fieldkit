@@ -172,6 +172,36 @@ def caches_row():
             "evidence": "every profile's startupCache is empty" if not left else f"{len(left)} profile(s) still cached: {left[:2]}"}
 
 
+def install_from_zip(zip_path, install_dir, say=print):
+    """The packaged zip (one top-level folder) unpacked into `install_dir`, which is emptied first. Deterministic:
+    no installer heuristics, no elevation. 02 Oct: the NSIS installer, silent, into an empty directory with a stale
+    per-machine uninstall entry around, went the elevated route, could not, and exited 0 having installed nothing.
+    -> (0, seconds)."""
+    import zipfile
+    if running(install_dir):
+        raise task.Refused(f"Firefox is running from {install_dir}: close it first")
+    t0 = time.time()
+    dest = Path(install_dir)
+    if dest.is_dir():
+        shutil.rmtree(dest)
+        say(f"  install: removed the old {dest} (backed up first)")
+    dest.mkdir(parents=True)
+    n = 0
+    with zipfile.ZipFile(zip_path) as z:
+        names = [x for x in z.namelist() if not x.endswith("/")]
+        top = names[0].split("/")[0]
+        for x in names:
+            if not x.startswith(top + "/"):
+                continue
+            target = dest / x[len(top) + 1:]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(x) as src, open(target, "wb") as out:
+                shutil.copyfileobj(src, out)
+            n += 1
+    say(f"  install: {n} files from {Path(zip_path).name} into {dest} ({time.time() - t0:.0f} s)")
+    return 0, time.time() - t0
+
+
 def install(installer, install_dir, say=print, timeout=1800, fresh=True):
     """Run the packaged installer silently into `install_dir` (per-user: no elevation). With `fresh` the old
     install directory is removed first (the backup was taken before), so nothing of an earlier build lingers.
@@ -229,13 +259,16 @@ def restore(backup_dir, install_dir, say=print):
     return installed(inst)
 
 
-def run(task_id, do_backup=True, say=print, install_dir=None):
+def run(task_id, do_backup=True, say=print, install_dir=None, use_installer=False):
     """The whole step: backup -> install -> verify, journaled. -> {"ok", "backup", "rows"}."""
     t = task.load(task_id)
     res = json.loads((task.STATE / task_id / "build-result.json").read_text(encoding="utf-8"))
     installer = Path(res["artifacts"]["installer"]["file"])
     if _sha(installer) != res["artifacts"]["installer"]["sha256"]:
         return {"ok": False, "why": "the installer on disk is not the one build-verify hashed"}
+    zip_path = Path(res["artifacts"]["zip"]["file"]) if res["artifacts"].get("zip") else None
+    if zip_path and _sha(zip_path) != res["artifacts"]["zip"]["sha256"]:
+        return {"ok": False, "why": "the zip on disk is not the one build-verify hashed"}
     version = t["meta"]["upstream"]["version"]
     target = Path(install_dir) if install_dir else find_install()
     if not target:
@@ -246,7 +279,10 @@ def run(task_id, do_backup=True, say=print, install_dir=None):
     if do_backup:
         bdir = backup(target, say=say)
         task.journal(t, "backup", dest=str(bdir), installed=before)
-    rc, secs = install(installer, target, say=say)
+    if zip_path and not use_installer:
+        rc, secs = install_from_zip(zip_path, target, say=say)
+    else:
+        rc, secs = install(installer, target, say=say)
     cleared = clear_startup_caches(say=say)
     rows = verify(target, version) + [caches_row()]
     ok = rc == 0 and all(r["ok"] for r in rows)
@@ -318,10 +354,13 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
     results = []
     # production proof first: the shipped artefacts and a headless start, no window, no keyboard
     from . import proof, firefox
-    want = {"prefs", "excised", "startup", "egress"} & (only or {"prefs", "excised", "startup", "egress"})
+    want = {"prefs", "excised", "startup", "egress", "adblock", "leaks"} & (only or {"prefs", "excised", "startup", "egress", "adblock", "leaks"})
     if want:
         deleted = firefox.manifest_deletions(t["meta"]["harness_root"]) if t.get("meta", {}).get("harness_root") else []
-        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want):
+        from . import verify as vf
+        truth = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]) if t.get("meta", {}).get("harness_root") else None
+        from . import leaks
+        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []):
             say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
             results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "log": row.get("log"), "lines": row.get("bad", [])[:10]})
     for name, argv in POST_INSTALL:

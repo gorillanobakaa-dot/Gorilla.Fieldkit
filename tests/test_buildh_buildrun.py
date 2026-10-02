@@ -317,3 +317,15 @@ def test_thermal_proof_waits_for_a_busy_machine(monkeypatch):
     slept, said = [], []
     busy = buildrun.wait_for_idle(said.append, busy_max=35.0, timeout=600, sleep=slept.append)
     assert busy == 20.0 and slept == [20, 20] and len(said) == 2
+
+
+def test_dist_sweep_removes_stale_excised_paths(tmp_path):
+    from fieldkit.buildh import buildrun
+    d = tmp_path / "dist/bin"
+    (d / "chrome/toolkit/content/global/ml/backends").mkdir(parents=True)
+    (d / "chrome/toolkit/content/global/ml/MLEngine.worker.mjs").write_text("", encoding="utf-8")
+    (d / "chrome/toolkit/content/global/xml").mkdir(parents=True)
+    (d / "chrome/toolkit/content/global/xml/XMLPrettyPrint.css").write_text("", encoding="utf-8")
+    removed = buildrun.sweep_excised_dist(d, lambda m: None)
+    assert "chrome/toolkit/content/global/ml/" in removed
+    assert not (d / "chrome/toolkit/content/global/ml").exists() and (d / "chrome/toolkit/content/global/xml/XMLPrettyPrint.css").exists()
