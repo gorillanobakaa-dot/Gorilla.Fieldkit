@@ -138,10 +138,25 @@ def verify(task_id, run_binary=True):
             row("built firefox.exe reports the pinned version", rec["version"] in out, out.strip() or "no output")
         else:
             row("built firefox.exe exists", False, str(exe))
-    # the owner's own preflight, after the build: the checks that needed an objdir must pass now
+    # the icons: the gorilla inside firefox.exe, the crisp logo, the installer's outer icon (icons.py)
     t = task.load(task_id)
-    from . import ownercheck
+    from . import icons, ownercheck
     root = ownercheck._owner_root(t)
+    brand_rel = icons.branding_dir(moz.read_text(encoding="utf-8", errors="replace")) if moz.is_file() else None
+    brand = wd / brand_rel if brand_rel else None
+    if exe.is_file():                                    # (a missing exe already fails its own row above)
+        if brand and brand.is_dir():
+            for name, hits, total, detail in icons.embedded(exe, brand):
+                row(f"branding {name} is embedded in firefox.exe", hits == total and total > 0, f"{hits} of {total} image(s): {detail}")
+        else:
+            row("branding icons embedded in firefox.exe", False, "no --with-branding dir found from the mozconfig")
+    if root:
+        ok, text = icons.logo_provenance(root)
+        row("internal-pages logo is crisp (owner's Crisp Icon Doctrine gates)", bool(ok), (text.splitlines() or ["ok"])[-1][:160]
+            if ok is not None else "tool missing: " + text)
+        ok, text = icons.installer_stub_check(root)
+        row("installer SFX stub carries this build's icon", bool(ok), (text.splitlines() or ["ok"])[0][:160] if ok is not None else "tool missing: " + text)
+    # the owner's own preflight, after the build: the checks that needed an objdir must pass now
     if root and run_binary:
         rc, text = ownercheck.run_preflight(root)
         blockers = ownercheck.parse(text) if rc is not None else []

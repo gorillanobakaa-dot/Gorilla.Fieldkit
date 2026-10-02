@@ -246,6 +246,12 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
     task.journal(t, "build-start", head=cg._git(Path(t["workdir"]), "rev-parse", "HEAD"), log=str(log_path),
                  forced=[b["name"] for b in blockers] if needs_force else [])
     for stage in stages:
+        if stage == "package":
+            # the installer's outer icon lives in a vendored 7-Zip stub consumed at package time: brand it first
+            from . import icons
+            ok, text = icons.brand_installer_stub(root, say)
+            say(f"  installer stub icon: {'ok' if ok else 'NOT branded' if ok is False else 'tool missing'}")
+            task.journal(t, "installer-stub", ok=ok, what=(text or "")[-300:])
         for attempt in range(1, RETRIES + 2):
             cmd = [sys.executable, str(Path(root) / "harness" / "gorilla_build.py"), stage] + (["--force"] if stage == "build" and needs_force else [])
             say(f"{time.strftime('%H:%M:%S')}  {stage} attempt {attempt}: {' '.join(cmd[1:])}")
