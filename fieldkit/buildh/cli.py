@@ -425,6 +425,13 @@ def run(a, emit):
             return 0
         emit(b, lambda b: print("\n".join(decision.show(b, plain=not a.technical))))
         return 0
+    if act == "creep":
+        from . import verify as vf
+        syms, rows = vf.creep(tid)
+        emit({"symbols": syms, "creep": rows},
+             lambda r: print(f"{len(r['symbols'])} excised symbol(s); {len(r['creep'])} file(s) with new upstream references:\n"
+                             + "\n".join(f"  {f}: {n} new | {ex}" for f, n, ex in r["creep"])))
+        return 0
     if act == "record":
         from . import handedit
         files = [x for x in a.args[1:]] if len(a.args) > 1 else []

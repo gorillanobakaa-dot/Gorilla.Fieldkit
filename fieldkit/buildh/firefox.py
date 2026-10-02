@@ -448,20 +448,27 @@ COMMENT = re.compile(r"^\s*(//|#|/\*|\*|<!--)")
 CREEP_SKIP = ("third_party/", "taskcluster/", "testing/", "tools/", "docs/")
 
 
-def _generic(symbols, old_root):
-    """Symbols the OLD pristine tree used in files the fork did not delete are not excised identifiers (XPCOMUtils,
-    manifest): one git grep over the old tree decides."""
+def _generic(symbols, old_root, limit=12):
+    """Symbols the OLD pristine tree used in more than `limit` files the fork did not delete are not excised
+    identifiers (XPCOMUtils, manifest). ONE git grep for all symbols: a grep per symbol over the Firefox tree ran
+    for three hours inside the build gate (2026-10-02 00:31-03:42) and nothing moved."""
     if not symbols or not (Path(old_root) / ".git").exists():
         return set()
-    args = ["git", "-C", str(old_root), "grep", "-lI"]
-    generic = set()
+    args = ["git", "-C", str(old_root), "grep", "-nIF"]
     for sym in symbols:
-        r = subprocess.run(args + ["-e", sym, "--", "*.cpp", "*.h", "*.mjs", "*.js", "moz.build", "*.ipdl"], capture_output=True,
-                           text=True, encoding="utf-8", errors="replace")
-        files = [f for f in r.stdout.splitlines() if f and "/test" not in f]
-        if len(files) > 12:
-            generic.add(sym)
-    return generic
+        args += ["-e", sym]
+    r = subprocess.run(args + ["--", "*.cpp", "*.h", "*.mjs", "*.js", "moz.build", "*.ipdl"], capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", timeout=900)
+    files = {}
+    for line in r.stdout.splitlines():
+        f, _, rest = line.partition(":")
+        _, _, text = rest.partition(":")
+        if "/test" in f:
+            continue
+        for sym in symbols:
+            if sym in text:
+                files.setdefault(sym, set()).add(f)
+    return {sym for sym, fs in files.items() if len(fs) > limit}
 
 
 def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
@@ -469,10 +476,10 @@ def excision_creep(workdir, old_root, symbols, exclude_dirs=()):
     of the same file: upstream code reaching into a component the fork removes. -> [(file, n_new, example)].
     Live run 16 (2026-10-02): 157's HWInference wired PSpeechRecognition and PHWInference into PContent.ipdl,
     PUtilityProcess.ipdl, ContentParent and the sandbox - none covered by any hunk; the build found them one by one."""
-    symbols = [x for x in symbols if x not in _generic(symbols, old_root)]
+    symbols = [x for x in symbols if x not in _generic(symbols, old_root)][:300]
     if not symbols:
         return []
-    args = ["git", "-C", str(workdir), "grep", "-nI"]
+    args = ["git", "-C", str(workdir), "grep", "-nIF"]
     for sym in symbols:
         args += ["-e", sym]
     args += ["--", "*.ipdl", "*.cpp", "*.h", "*.mm", "moz.build", "*.mjs", "*.js", "*.webidl", "*.idl", "*.mn", "*.ftl"]
