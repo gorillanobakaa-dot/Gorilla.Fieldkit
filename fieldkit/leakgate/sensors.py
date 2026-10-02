@@ -54,6 +54,15 @@ def websocket_message(flow):
     _w({"t": time.time(), "kind": "ws", "host": flow.request.pretty_host, "from_client": m.from_client, "bytes": len(m.content)})
 def tls_failed_client(data):
     _w({"t": time.time(), "kind": "tls-failed", "host": getattr(data.context.client, "sni", None) or "?"})
+_POISON = [(500, b"internal error"), (200, b""), (200, b"{not json"), (200, b'{"data": [{"id": 1, "unexpected": true}'), (403, b"forbidden"),
+           (200, b"\x00" * 2_000_000)]
+_n = [0]
+def requestheaders(flow):
+    if os.environ.get("LEAKGATE_POISON") and flow.request.pretty_host not in ("127.0.0.1", "localhost"):
+        from mitmproxy import http
+        code, body = _POISON[_n[0] % len(_POISON)]
+        _n[0] += 1
+        flow.response = http.Response.make(code, body, {"Content-Type": "application/json"})
 '''
 
 
@@ -304,7 +313,8 @@ def parse_pcap(path, local_ports, canaries=()):
 
 
 # ------------------------------------------------------------------------------------------- one run
-def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_port=None, watch=10, packets=False, say=print):
+def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_port=None, watch=10, packets=False, say=print,
+            graceful=False, poison=False):
     """Run one scenario in one mode. -> (events, artifacts dict)."""
     work = Path(workdir)
     prof = new_profile(work, f"{name}-{mode}")
@@ -313,12 +323,12 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     if mode == "direct":
         env.update(MOZ_LOG=NECKO, MOZ_LOG_FILE=str(log))
     mitm_out, mitm_raw, mitm = work / f"mitm-{name}.jsonl", work / f"mitm-{name}.raw", None
-    if mode == "proxied":
+    if mode in ("proxied", "poisoned"):
         for p in (mitm_out, mitm_raw):
             p.unlink(missing_ok=True)
         addon = work / "leakgate_mitm_addon.py"
         addon.write_text(MITM_ADDON, encoding="utf-8")
-        menv = dict(os.environ, LEAKGATE_MITM_OUT=str(mitm_out), LEAKGATE_MITM_RAW=str(mitm_raw))
+        menv = dict(os.environ, LEAKGATE_MITM_OUT=str(mitm_out), LEAKGATE_MITM_RAW=str(mitm_raw), LEAKGATE_POISON="1" if poison else "")
         mitmdump = shutil.which("mitmdump") or str(Path(sys.executable).parent / "Scripts" / "mitmdump.exe")
         mitm = subprocess.Popen([mitmdump, "--listen-host", "127.0.0.1", "--listen-port", str(proxy_port), "--set",
                                  f"confdir={work / 'mitm-conf'}", "-s", str(addon), "-q"], env=menv,
@@ -328,11 +338,23 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     if packets:
         pktmon_start(etl)
     before = fs_snapshot(watch_dirs())
-    cmd = [str(Path(build_dir) / "firefox.exe"), "-headless", "-no-remote", "-profile", str(prof)] + list(args) + [url]
-    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    from . import extras
+    head = [] if graceful else ["-headless"]
+    cmd = [str(Path(build_dir) / "firefox.exe")] + head + ["-no-remote", "-profile", str(prof)] + list(args) + [url]
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            startupinfo=extras.startupinfo_minimized() if graceful else None)
     sampler = Sampler(proc.pid)
     sampler.start()
     time.sleep(seconds)
+    closed_normally = None
+    if graceful:
+        pids = set(sampler.procs) | {proc.pid}
+        extras.graceful_close(pids)
+        try:
+            proc.wait(timeout=45)
+            closed_normally = True
+        except subprocess.TimeoutExpired:
+            closed_normally = False
     sampler.stop_flag.set()
     sampler.join(timeout=30)
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
@@ -345,6 +367,8 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
 
     ev = []
     base = {"scenario": name, "mode": mode}
+    if graceful and closed_normally is False:
+        ev.append({**base, "sensor": "process-tree", "kind": "shutdown-failed", "value": "the browser did not exit within 45 s of WM_CLOSE"})
     for r in sampler.procs.values():
         ev.append({**base, "sensor": "process-tree", "kind": "process", "value": (r.get("Name") or "?").lower(),
                    "detail": r.get("ExecutablePath") or "", "cmd": (r.get("CommandLine") or "")[:300]})
@@ -361,8 +385,8 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
             loop = raddr.startswith("127.") or raddr == "::1"
             if not loop:
                 ev.append({**base, "sensor": "sockets", "kind": "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} pid {pid}"})
-                if mode == "proxied":
-                    ev.append({**base, "sensor": "sockets", "kind": "proxy-bypass", "value": raddr, "port": int(rport), "detail": f"tcp {state}"})
+                if mode in ("proxied", "poisoned", "dns-controlled"):
+                    ev.append({**base, "sensor": "sockets", "kind": "proxy-bypass" if mode != "dns-controlled" else "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state}"})
         elif proto == "udp":
             ev.append({**base, "sensor": "sockets", "kind": "udp", "value": f"{laddr}:{lport}", "detail": f"pid {pid}"})
     for p in fs_diff(before, after):
@@ -387,7 +411,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                 if c in line and "127.0.0.1" not in line and "localhost" not in line and ("uri=" in line or "host" in line):
                     ev.append({**base, "sensor": "necko-http", "kind": "canary", "value": cname, "detail": line.strip()[:200]})
                     break
-    if mode == "proxied" and mitm_out.is_file():
+    if mode in ("proxied", "poisoned") and mitm_out.is_file():
         for l in mitm_out.read_text(encoding="utf-8").splitlines():
             r = json.loads(l)
             if r.get("kind") in ("http", "ws", "tls-failed"):
@@ -412,4 +436,4 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
             seen.add(k)
             dedup.append(e)
     return dedup, {"profile": str(prof), "necko": str(log), "mitm": str(mitm_out), "pcap": str(pcap) if packets else None,
-                   "timeline": sampler.timeline}
+                   "timeline": sampler.timeline, "local_ports": sorted(local_ports), "closed_normally": closed_normally}

@@ -30,7 +30,14 @@ SCENARIOS = [
     ("workers", "/workers", 90, [], [], 30),
     ("webrtc", "/webrtc", 45, [], [], 10),
     ("page", REAL_PAGE, 60, [], ["www.anthropic.com", "*.anthropic.com"], 10),
+    ("crash", "about:crashcontent", 30, [], [], 30),
+    ("certs", "/certs", 30, [], [], 5),
+    ("shutdown-graceful", REAL_PAGE, 60, [], ["www.anthropic.com", "*.anthropic.com"], 60),
 ]
+# extra modes beyond direct + proxied, for the scenarios where they say something
+DNS_CONTROLLED = ("startup-idle", "newtab", "home", "page", "canary")
+POISONED = ("startup-idle", "newtab", "home", "addons")
+GRACEFUL = ("shutdown-graceful",)          # a minimised window that never takes focus, closed with WM_CLOSE
 QUICK = {"startup-idle": 120, "workers": 45}
 
 CANARY_PAGE = """<!doctype html><meta charset=utf-8><title>%(title)s</title><body>
@@ -70,6 +77,17 @@ WEBRTC_PAGE = """<!doctype html><meta charset=utf-8><title>webrtc</title><body><
 })();
 </script></body>"""
 
+CERTS_PAGE = """<!doctype html><meta charset=utf-8><title>certs</title><body><script>
+(async () => {
+  const q = new URLSearchParams(location.search), out = {};
+  for (const k of ["valid", "expired", "wronghost", "selfsigned"]) {
+    try { const r = await fetch(`https://127.0.0.1:${q.get(k)}/`, {cache: "no-store"}); out[k] = r.ok ? "loaded" : "status " + r.status; }
+    catch (e) { out[k] = "refused"; }
+  }
+  fetch("/result", {method: "POST", body: JSON.stringify({certs: out})});
+})();
+</script></body>"""
+
 SCRIPTS = {"/sw.js": "self.addEventListener('install', e => self.skipWaiting());",
            "/shared.js": "onconnect = e => e.ports[0].postMessage('ok');",
            "/worker.js": "postMessage('ok');"}
@@ -104,6 +122,8 @@ class Server:
                     self._send(CANARY_PAGE % CANARIES, extra=[("Set-Cookie", "gc=%s; Path=/; SameSite=Lax" % CANARIES["cookie"])])
                 elif p == "/workers":
                     self._send(WORKERS_PAGE)
+                elif p == "/certs":
+                    self._send(CERTS_PAGE)
                 elif p == "/webrtc":
                     self._send(WEBRTC_PAGE)
                 elif p == "/dl":

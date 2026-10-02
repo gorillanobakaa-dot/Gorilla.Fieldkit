@@ -66,7 +66,12 @@ def imports(text):
 
 
 def defines(module_text, member):
-    return re.search(r"(?:^|[\s{,;])(?:export\s+const\s+|static\s+|get\s+)?" + re.escape(member) + r"\s*[:=(]", module_text) is not None
+    m = re.escape(member)
+    if re.search(r"(?:^|[\s{,;])(?:export\s+const\s+|static\s+|get\s+)?" + m + r"\s*[:=(]", module_text):
+        return True
+    # ChromeUtils.defineLazyGetter(Obj, "M", ...), Object.defineProperty(Obj, "M", ...), Obj.M = ... (UpdateUtils.ABI, 2026-10-02)
+    return re.search(r"(?:defineLazyGetter|defineProperty|defineLazyPreferenceGetter)\(\s*[\w.]+\s*,\s*[\"']" + m + r"[\"']"
+                     r"|\b\w+\." + m + r"\s*=[^=]", module_text) is not None
 
 
 def missing_members(workdir, rel, _cache=None):

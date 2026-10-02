@@ -34,7 +34,7 @@ TELEMETRY_FILES = ("datareporting/*", "saved-telemetry-pings/*", "crashes/*", "m
                    "*pending_pings*", "*glean*")
 POLICIES = ("NETWORK_POLICY", "TELEMETRY_POLICY", "DNS_POLICY", "PROCESS_POLICY", "FILESYSTEM_POLICY", "SOCKET_POLICY",
             "WEBRTC_POLICY", "PROXY_POLICY", "IPV6_POLICY", "CANARY_POLICY", "SHUTDOWN_POLICY", "REPRODUCIBILITY_POLICY",
-            "SOURCE_POLICY", "BINARY_POLICY", "ALLOWLIST_POLICY")
+            "SOURCE_POLICY", "BINARY_POLICY", "DEPENDENCY_POLICY", "TLS_POLICY", "REGRESSION_POLICY", "ALLOWLIST_POLICY")
 
 
 def _fn(host, globs):
@@ -76,9 +76,24 @@ def build_manifest(copy_dir, workdir_tree, upstream, allow_path, spec_path):
         "HARNESS_VERSION": _cmd(["git", "-C", str(fk), "rev-parse", "HEAD"]),
         "ALLOWLIST_SHA256": _sha(allow_path) if Path(allow_path).is_file() else None,
         "SPEC_SHA256": _sha(spec_path) if Path(spec_path).is_file() else None,
+        "CONFIGURE": configure_record(),
         "PROFILE_CONFIGURATION": "fresh throwaway profile per scenario and mode; user.js: no default-browser check, no about:welcome, downloads into the profile",
         "NETWORK_CONFIGURATION": "Windows host network (NOT the spec's namespace); direct and mitmproxy-pinned runs",
     }
+
+
+def configure_record(objdir=Path("C:/gfobj"), mozconfig=Path.home() / "Documents" / "Gorilla.firefox" / "config" / "mozconfig.win64"):
+    """Configure arguments (the mozconfig ac_add_options) and the MOZ_* substitutions configure produced."""
+    out = {"mozconfig": None, "MOZ": {}}
+    if Path(mozconfig).is_file():
+        out["mozconfig"] = [l.strip() for l in Path(mozconfig).read_text(encoding="utf-8", errors="replace").splitlines()
+                            if l.strip().startswith(("ac_add_options", "mk_add_options", "export "))]
+    cs = Path(objdir) / "config.status"
+    if cs.is_file():
+        import re as _re
+        for m in _re.finditer(r"'(MOZ_[A-Z0-9_]+)':\s*'([^']*)'", cs.read_text(encoding="utf-8", errors="replace")):
+            out["MOZ"][m.group(1)] = m.group(2)
+    return out
 
 
 def ensure_ca(work):
@@ -232,7 +247,7 @@ def reproducibility(events, repeat):
 
 # ---------------------------------------------------------------------------------------------- run
 def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
-        previous_zip=None, n_minus_1_tree=None, say=print):
+        previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
     owner_root = Path(owner_root)
     allow_path = al.path_for(owner_root)
     disp_path = owner_root / "leakgate" / "dispositions.json"
@@ -275,6 +290,18 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     proxied = se.build_copy(zp, work / "build-proxied", {
         "Certificates": {"Install": [str(ca)]},
         "Proxy": {"Mode": "manual", "HTTPProxy": f"127.0.0.1:{port}", "UseHTTPProxyForAllProtocols": True, "Locked": True}})
+    from . import extras
+    approved_names = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") and e.get("approval") for v in e.get("values", [])]
+    doh = extras.DohServer(work, ca, approved_names + [h for s in sc.SCENARIOS for h in s[4]])
+    dnsctl = se.build_copy(zp, work / "build-dns", {
+        "Certificates": {"Install": [str(ca)]},
+        "DNSOverHTTPS": {"Enabled": True, "ProviderURL": doh.url(), "Locked": True, "Fallback": False}})
+    certsrv = extras.CertServers(work, ca)
+    fw_name = None
+    if firewall and packets:
+        fw_name = f"leakgate-{work.name}"
+        extras.firewall_block(str(direct / "firefox.exe"), fw_name)
+        say(f"  firewall: outbound block for the direct build copy ({fw_name}); removed at the end")
     manifest = build_manifest(direct, workdir_tree, upstream, allow_path, spec_path)
     say(f"leakgate: build {manifest['BUILD']} ({manifest['VERSION']}), packets {'ON' if packets else 'OFF (not elevated)'}, "
         f"repeat {repeat}, {'quick' if quick else 'release'} durations -> {work}")
@@ -292,10 +319,21 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
             if only and name not in only:
                 continue
             scen_hosts[name] = hosts
+            if name == "certs":
+                target = "/certs?" + "&".join(f"{k}={p}" for k, p in certsrv.ports().items())
             secs = sc.QUICK.get(name, secs) if quick else secs
+            if name == "startup-idle" and soak:
+                secs = int(soak)
             watch = min(watch, 10) if quick else watch
+            modes = [("direct", direct), ("proxied", proxied)]
+            if name in sc.DNS_CONTROLLED:
+                modes.append(("dns-controlled", dnsctl))
+            if name in sc.POISONED and not quick:
+                modes.append(("poisoned", proxied))
+            if name in sc.GRACEFUL:
+                modes = [("direct", direct), ("proxied", proxied)]
             for rep in range(repeat):
-                for mode, bdir in (("direct", direct), ("proxied", proxied)):
+                for mode, bdir in modes:
                     say(f"  {name} [{mode}] run {rep + 1}/{repeat}: {secs} s + {watch} s after shutdown")
                     if linux:
                         allowed = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") for v in e.get("values", [])] + list(hosts)
@@ -303,7 +341,8 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
                                              f"{name}-r{rep}", mode, canaries, port, watch, allowed, say=say)
                     else:
                         ev, art = se.run_one(bdir, server.url(target), secs, args, work / "runs", f"{name}-r{rep}", mode, canaries,
-                                             proxy_port=port, watch=watch, packets=packets and mode == "direct", say=say)
+                                             proxy_port=port, watch=watch, packets=packets and mode == "direct", say=say,
+                                             graceful=name in sc.GRACEFUL, poison=mode == "poisoned")
                     for e in ev:
                         e["scenario"], e["rep"] = name, rep
                     events.extend(ev)
@@ -313,10 +352,75 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
                                        "detail": "the page itself never reached mitmproxy"})
     finally:
         server.close()
+        doh.close()
+        certsrv.close()
+        if fw_name:
+            extras.firewall_unblock(fw_name)
         if linux:
             lx.netns_down()
 
-    fail, lists = judge(events, allow, scen_hosts, [direct, proxied], server.results, repeat, packets, quick)
+    # the controlled resolver's own log is a sensor: every name the browser asked for, answered or not
+    for q in doh.queries:
+        events.append({"scenario": "(dns-controlled)", "mode": "dns-controlled", "sensor": "doh-server", "kind": "dns", "value": q["name"],
+                       "detail": f"type {q['type']} {'answered' if q['answered'] else 'NXDOMAIN'}", "rep": 0})
+    fail, lists = judge(events, allow, scen_hosts, [direct, proxied, dnsctl], server.results, repeat, packets, quick)
+    # fallbacks under poisoned responses: a host seen only when every answer was garbage
+    for scen in sc.POISONED:
+        normal = {e["value"] for e in events if e["scenario"] == scen and e["mode"] == "proxied" and e["kind"] == "dest"}
+        for e in events:
+            if e["scenario"] == scen and e["mode"] == "poisoned" and e["kind"] == "dest" and e["value"] not in normal:
+                fail["NETWORK_POLICY"].append(f"[{scen}/poisoned] fallback destination under malformed responses: {e['value']}")
+    # certificate validation
+    certs = next((r["certs"] for r in server.results if isinstance(r, dict) and "certs" in r), None)
+    if only is None or "certs" in only:
+        if not certs:
+            fail["TLS_POLICY"].append("the certificate page never reported")
+        else:
+            for k in ("expired", "wronghost", "selfsigned"):
+                if certs.get(k) == "loaded":
+                    fail["TLS_POLICY"].append(f"a {k} certificate was ACCEPTED")
+    # plaintext: any http:// request to a non-local host
+    for e in events:
+        if e["kind"] == "dest" and str(e.get("detail", "")).startswith("http://") and not e["value"].startswith(("127.", "localhost")):
+            fail["TLS_POLICY"].append(f"[{e['scenario']}/{e['mode']}] plaintext HTTP to {e['value']}")
+    # graceful shutdown
+    for e in events:
+        if e["kind"] == "shutdown-failed":
+            fail["SHUTDOWN_POLICY"].append(e["value"])
+    # periodicity and TLS details (reports; vendor periodicity already fails the network rows)
+    flows = []
+    for key, art in artifacts.items():
+        m = Path(art.get("mitm") or "")
+        if m.is_file():
+            flows += [json.loads(l) for l in m.read_text(encoding="utf-8").splitlines() if l.strip()]
+    period = extras.periodicity(flows)
+    tls = []
+    for key, art in artifacts.items():
+        if art.get("pcap"):
+            tls += extras.tls_details(art["pcap"], set(art.get("local_ports") or []))
+    for t_ in tls:
+        if t_.get("server_version") in ("0x301", "0x302", "0x300"):
+            fail["TLS_POLICY"].append(f"TLS below 1.2 negotiated with {t_.get('sni')}: {t_['server_version']}")
+    (work / "periodicity.json").write_text(json.dumps(period, indent=1), encoding="utf-8")
+    (work / "tls.json").write_text(json.dumps(tls, indent=1), encoding="utf-8")
+    # regression against the approved baseline of the previous release
+    base_path = owner_root / "leakgate" / "baseline.json"
+    if base_path.is_file():
+        base = json.loads(base_path.read_text(encoding="utf-8"))
+        counts = {}
+        for f_ in flows:
+            if f_.get("kind") == "http":
+                counts[f_["host"]] = counts.get(f_["host"], 0) + 1
+        for h, n in counts.items():
+            b = base.get("request_counts", {}).get(h)
+            if b is None:
+                fail["REGRESSION_POLICY"].append(f"{h}: not in the baseline of {base.get('release')}")
+            elif n > 2 * max(b, 1):
+                fail["REGRESSION_POLICY"].append(f"{h}: {n} requests vs {b} in the baseline of {base.get('release')}")
+    else:
+        fail["REGRESSION_POLICY"].append("no approved baseline (leakgate/baseline.json): run leakgate-baseline after the first approved release PASS")
+    if not packets:
+        fail["TLS_POLICY"].append("packet sensor not run: negotiated TLS versions unverified")
     if repeat >= 3:
         fail["REPRODUCIBILITY_POLICY"].extend(reproducibility(events, repeat))
     for p in al.problems(allow):
@@ -335,6 +439,29 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     if bi["unapproved_new"]:
         fail["BINARY_POLICY"].append(f"{len(bi['unapproved_new'])} embedded host(s) new since release N-1 without an approved disposition: {bi['unapproved_new'][:8]}")
 
+    say("  executable and dependency audits ...")
+    ex = audit.executable_audit(direct, previous_zip, dispositions)
+    if ex["unapproved_new"]:
+        fail["BINARY_POLICY"].append(f"{len(ex['unapproved_new'])} executable/DLL(s) new since release N-1 without an approved disposition: {ex['unapproved_new'][:6]}")
+    if ex["unexpected_network_imports"]:
+        fail["BINARY_POLICY"].append(f"binaries importing network libraries they should not: {dict(list(ex['unexpected_network_imports'].items())[:4])}")
+    prev_lock = None
+    if n_minus_1_tree:
+        try:
+            import subprocess as _sp
+            repo = Path(workdir_tree).parent / "155.0.1"
+            root = _sp.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
+            prev_lock = _sp.run(["git", "-C", str(repo), "show", f"{root}:Cargo.lock"], capture_output=True, text=True, encoding="utf-8").stdout
+        except Exception:
+            prev_lock = None
+    dep = audit.dependency_audit(workdir_tree, prev_lock, dispositions)
+    if not prev_lock:
+        fail["DEPENDENCY_POLICY"].append("no previous Cargo.lock to compare with")
+    elif dep["unapproved_new"]:
+        fail["DEPENDENCY_POLICY"].append(f"{len(dep['unapproved_new'])} Rust crate(s) new since release N-1 without an approved disposition"
+                                         + (f"; network-capable: {dep['network_capable_new']}" if dep["network_capable_new"] else "") + f": {dep['unapproved_new'][:8]}")
+    (work / "executables.json").write_text(json.dumps(ex, indent=1), encoding="utf-8")
+    (work / "dependencies.json").write_text(json.dumps(dep, indent=1), encoding="utf-8")
     result = {**{k: manifest[k] for k in ("BUILD", "VERSION", "SOURCE", "BINARY_SHA256", "OS", "KERNEL", "ARCHITECTURE",
                                            "NETWORK_CONFIGURATION", "PROFILE_CONFIGURATION", "HARNESS_VERSION")},
               "TEST_RUN": work.name, "DNS_CONFIGURATION": "system resolver (Windows DNS Client)",
@@ -358,4 +485,21 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     (work / "destinations.new").write_text("\n".join(result["UNEXPECTED_DESTINATIONS"]) + "\n", encoding="utf-8")
     (work / "dns.new").write_text("\n".join(result["UNEXPECTED_DNS"]) + "\n", encoding="utf-8")
     (work / "sockets.new").write_text("\n".join(result["UNEXPECTED_SOCKETS"]) + "\n", encoding="utf-8")
+    result["PERIODIC_HOSTS"] = {h: v for h, v in period.items() if v["regular"]}
+    (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     return result, events, st, bi
+
+
+def save_baseline(run_dir, owner_root, release):
+    """After an approved release PASS: request counts per host become the regression baseline."""
+    run_dir = Path(run_dir)
+    counts = {}
+    for m in (run_dir / "runs").glob("mitm-*.jsonl"):
+        for l in m.read_text(encoding="utf-8").splitlines():
+            f = json.loads(l)
+            if f.get("kind") == "http":
+                counts[f["host"]] = counts.get(f["host"], 0) + 1
+    out = {"release": release, "from_run": run_dir.name, "request_counts": counts}
+    p = Path(owner_root) / "leakgate" / "baseline.json"
+    p.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
+    return p

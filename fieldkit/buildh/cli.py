@@ -434,7 +434,16 @@ def run(a, emit):
         r = inst.run(tid, do_backup=not getattr(a, "no_backup", False), say=lambda m: print(m, flush=True), install_dir=a.install_dir)
         emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))))
         return 0 if r.get("ok") else 3
-    if act in ("leakgate", "leakgate-approve", "leakgate-propose"):
+    if act == "export-hand":
+        from . import export as ex, buildrun
+        t = task.load(tid)
+        owner = Path(buildrun._owner_root(t))
+        import json as _js
+        pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True))
+        print("register new groups in config/patch_policy.json if they are not there; prove them with the scratch-index replay in RUNBOOK.md")
+        return 0
+    if act in ("leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline"):
         from ..leakgate import gate as lg, allow as la
         from . import buildrun, verify as vf
         import json as _js
@@ -447,6 +456,16 @@ def run(a, emit):
             print(f"approved {len(done)}: {done}")
             return 0
         workroot = task.STATE / "leakgate" / tid
+        if act == "leakgate-baseline":
+            from . import task as _t
+            if not _t.owner_terminal():
+                raise _t.Refused("the baseline is the owner's to set, at a real terminal")
+            st = _js.loads((owner / "state" / "leakgate_result.json").read_text(encoding="utf-8"))
+            if st.get("FINAL_RESULT") != "PASS" or not st.get("release_run"):
+                raise _t.Refused("a baseline is taken only from a release-mode PASS")
+            p = lg.save_baseline(st["artifacts"], owner, t["meta"]["upstream"]["version"])
+            print(f"baseline saved: {p}")
+            return 0
         if act == "leakgate-propose":
             last = sorted(p for p in workroot.iterdir() if (p / "events.jsonl").is_file())[-1]
             events = [_js.loads(l) for l in (last / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -465,7 +484,8 @@ def run(a, emit):
         result, events, st, bi = lg.run(res["artifacts"]["zip"]["file"], owner, t["workdir"], t["meta"]["upstream"],
                                         workroot, repeat=int(getattr(a, "repeat", None) or 1), quick=not getattr(a, "release", False),
                                         only=only, release=getattr(a, "release", False), previous_zip=prev,
-                                        n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say)
+                                        n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,
+                                        soak=getattr(a, "soak", None), firewall=getattr(a, "firewall", False))
         for p in lg.POLICIES:
             print(f"  {p:24s} {result[p]}" + (f"  - {result['WHY'][p][0][:220]}" if p in result.get("WHY", {}) else ""))
         print(f"FINAL_RESULT {result['FINAL_RESULT']}  ({result['ARTIFACTS']})")

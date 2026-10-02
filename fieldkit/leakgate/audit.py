@@ -31,7 +31,8 @@ COMPONENTS = {
     "Background downloads": ["toolkit/components/bitsdownload", "toolkit/mozapps/downloads"],
     "Ping sender": ["toolkit/components/telemetry/pingsender"],
 }
-NET_API = re.compile(r"\bfetch\(|new XMLHttpRequest|new WebSocket|newChannel\(|NetUtil\.newChannel|asyncOpen\(|sendBeacon|"
+# a global fetch( only: `keywords.fetch(`, `this.#fetch(` and `async fetch({` methods are not network calls (02 Oct: 9 false hits)
+NET_API = re.compile(r"(?<![.\w#])(?<!async )fetch\((?!\{)(?![^)\n]*\)\s*\{)|new XMLHttpRequest|new WebSocket|newChannel\(|NetUtil\.newChannel|asyncOpen\(|sendBeacon|"
                      r"ServiceRequest|\bDownloader\b|RemoteSettings\(|NS_NewChannel|nsIHttpChannel|PR_Connect|PR_OpenTCPSocket|"
                      r"PR_OpenUDPSocket|CreateTransport|viaduct::|reqwest::|hyper::|ureq::|WinHttp|InternetOpen|HttpClient")
 SOURCE_EXT = (".mjs", ".js", ".jsm", ".cpp", ".cc", ".h", ".rs", ".py")
@@ -110,3 +111,75 @@ def binary_audit(install_dir, previous_zip, dispositions):
     unapproved = [h for h in new if not (dispositions.get("host:" + h) or {}).get("approval")]
     return {"hosts": len(now), "previous": len(prev), "new": new, "removed": sorted(h for h in prev if h not in now),
             "unapproved_new": unapproved, "where": {h: now[h] for h in new}}
+
+
+# ---------------------------------------------------------------------------------------------- executables / PE
+NET_DLLS = ("wininet.dll", "winhttp.dll", "urlmon.dll", "webio.dll", "dnsapi.dll", "ws2_32.dll", "iphlpapi.dll", "bits.dll")
+EXPECTED_NET_IMPORTS = {"xul.dll": {"ws2_32.dll", "dnsapi.dll", "iphlpapi.dll"}, "nss3.dll": {"ws2_32.dll"}}
+
+
+def executables(open_member, names):
+    """-> {relpath: {"imports": [network dlls imported]}} for every .exe/.dll."""
+    import pefile
+    out = {}
+    for rel in names:
+        if not rel.lower().endswith((".exe", ".dll")):
+            continue
+        try:
+            pe = pefile.PE(data=open_member(rel), fast_load=True)
+            pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
+                                                   pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT"]])
+            imps = set()
+            for attr in ("DIRECTORY_ENTRY_IMPORT", "DIRECTORY_ENTRY_DELAY_IMPORT"):
+                for e in getattr(pe, attr, []) or []:
+                    imps.add(e.dll.decode("ascii", "replace").lower())
+            out[rel] = {"imports": sorted(i for i in imps if i in NET_DLLS)}
+        except Exception as ex:
+            out[rel] = {"imports": [], "error": str(ex)[:120]}
+    return out
+
+
+def executable_audit(install_dir, previous_zip, dispositions):
+    inst = Path(install_dir)
+    names = [p.relative_to(inst).as_posix() for p in inst.rglob("*") if p.suffix.lower() in (".exe", ".dll")]
+    now = executables(lambda rel: (inst / rel).read_bytes(), names)
+    prev_names = []
+    if previous_zip and Path(previous_zip).is_file():
+        z = zipfile.ZipFile(previous_zip)
+        prev_names = [n for n in z.namelist() if n.lower().endswith((".exe", ".dll"))]
+    new = sorted(n for n in now if prev_names and n not in prev_names)
+    unexpected_net = {}
+    for rel, info in now.items():
+        extra = set(info["imports"]) - EXPECTED_NET_IMPORTS.get(Path(rel).name.lower(), set())
+        if extra and not (dispositions.get("pe:" + rel) or {}).get("approval"):
+            unexpected_net[rel] = sorted(extra)
+    unapproved_new = [n for n in new if not (dispositions.get("exe:" + n) or {}).get("approval")]
+    return {"binaries": len(now), "new": new, "unapproved_new": unapproved_new, "network_imports": {k: v["imports"] for k, v in now.items() if v["imports"]},
+            "unexpected_network_imports": unexpected_net}
+
+
+# ---------------------------------------------------------------------------------------------- Rust dependencies
+NET_CRATES = ("hyper", "reqwest", "ureq", "viaduct", "h2", "h3", "quinn", "neqo-transport", "neqo-http3", "tokio", "mio",
+              "socket2", "async-std", "surf", "isahc", "curl", "rustls", "native-tls", "tungstenite", "websocket")
+
+
+def cargo_packages(text):
+    out, name = {}, None
+    for line in text.splitlines():
+        if line.startswith("name = "):
+            name = line.split('"')[1]
+        elif line.startswith("version = ") and name:
+            out.setdefault(name, set()).add(line.split('"')[1])
+            name = None
+    return out
+
+
+def dependency_audit(tree, previous_lock_text, dispositions):
+    now = cargo_packages((Path(tree) / "Cargo.lock").read_text(encoding="utf-8"))
+    prev = cargo_packages(previous_lock_text or "")
+    new = sorted(n for n in now if prev and n not in prev)
+    changed = sorted(n for n in now if n in prev and now[n] != prev[n])
+    net_new = [n for n in new if n in NET_CRATES or n.startswith(("hyper", "reqwest", "neqo", "h2", "h3"))]
+    unapproved = [n for n in new if not (dispositions.get("crate:" + n) or {}).get("approval")]
+    return {"crates": len(now), "new": new, "removed": sorted(n for n in prev if n not in now), "version_changed": len(changed),
+            "network_capable_new": net_new, "unapproved_new": unapproved}
