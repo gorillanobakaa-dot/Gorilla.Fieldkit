@@ -263,3 +263,11 @@ def test_half_written_objects_are_swept_and_valid_ones_kept(tmp_path):
     import os; assert sorted(os.path.basename(p) for p in removed) == ["junk.obj", "vp9itxfm.obj"]
     assert (tmp_path / "media/good.obj").exists() and (tmp_path / "conftest.o").exists()
     assert buildrun.classify(["10:05.05 E lld-link: error: x86/vp9itxfm.obj: unknown file type"])[0] == "corrupt-object"
+
+
+def test_console_interrupt_is_classified_and_retried():
+    from fieldkit.buildh import buildrun
+    name, fix = buildrun.classify(["[!!!] FATAL HALT [!!!]", "[!!!] mach package failed with 3221225786"])
+    assert name == "console-interrupt" and fix is buildrun.fix_retry
+    ok, what = buildrun.fix_retry({}, ".", lambda m: None)
+    assert ok and "retry" in what

@@ -404,11 +404,31 @@ def still_holds(s, file, hunk, before, now):
     return hunk_problems(before, now, hunk)
 
 
+def node_check(path):
+    """`node --check` on one JS/ESM file -> None when it parses, else "line N: error". None too when node is
+    missing (the caller reports that once as a tool gap, never as a pass)."""
+    import shutil, subprocess
+    node = shutil.which("node")
+    if not node:
+        return None
+    r = subprocess.run([node, "--check", str(path)], capture_output=True, text=True, errors="replace", timeout=60)
+    if r.returncode == 0:
+        return None
+    lines = [l for l in (r.stderr or "").splitlines() if l.strip()]
+    err = next((l for l in lines if "Error" in l), lines[-1] if lines else "node --check failed")
+    loc = next((l for l in lines if Path(path).name in l and ":" in l), "")
+    return (f"line {loc.rsplit(':', 1)[-1].strip()}: " if loc else "") + err
+
+
 def syntax_problems(workdir, files):
-    """Changed build files that do not parse: moz.build and .py with ast, .json with json. A dangling
-    `GeneratedFile(` left by a merge stopped the 157 build at configure (live run 16, 23:36)."""
-    import ast
+    """Changed files that do not parse: moz.build and .py with ast, .json with json, .mjs/.sys.mjs/.js with
+    `node --check`. A dangling `GeneratedFile(` left by a merge stopped the 157 build at configure (live run 16);
+    a half-removed actor block in DesktopActorRegistry.sys.mjs (2026-10-02) BUILT and then killed every window
+    actor in the installed browser: no address bar, no extensions. A JS module that does not parse is a stop
+    before the build, not after the install."""
+    import ast, shutil
     out = []
+    no_node = False
     for rel in files:
         p = Path(workdir) / rel
         if not p.is_file():
@@ -419,8 +439,19 @@ def syntax_problems(workdir, files):
                 ast.parse(text)
             elif rel.endswith(".json") and not rel.endswith((".in.json", ".jsonc")) and "/test" not in rel:
                 json.loads(text)
+            elif rel.endswith((".mjs", ".js")) and "/test" not in rel and not rel.endswith(".min.js"):
+                if re.search(r"^#(ifdef|ifndef|if |filter|include|expand|define)\b", text, re.M):
+                    continue                               # preprocessed (firefox.js, all.js): not plain JS until build time
+                if not shutil.which("node"):
+                    no_node = True
+                    continue
+                err = node_check(p)
+                if err:
+                    out.append(f"{rel}: {err[:120]}")
         except (SyntaxError, ValueError) as e:
             out.append(f"{rel}: {str(e).splitlines()[0][:120]}")
+    if no_node:
+        out.append("node is not installed: changed .js/.mjs files were NOT syntax-checked")
     return out
 
 

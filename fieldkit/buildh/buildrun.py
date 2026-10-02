@@ -295,6 +295,11 @@ def fix_corrupt_object(t, root, say, lines=()):
 
 
 #: (regex over the stage output, name, fix or None). Order matters: first match wins.
+def fix_retry(t, root, say):
+    say("  the stage was interrupted from the console (Ctrl+C / window closed): running it again")
+    return True, "retry after a console interrupt"
+
+
 STOPS = [
     (r"lld-link: error: .*: unknown file type|error: .*\.obj: (file too small|invalid|corrupt)", "corrupt-object", fix_corrupt_object),
     (r"fatal error: '[^']+' file not found", "excision-creep-include", fix_creep_include),
@@ -304,6 +309,10 @@ STOPS = [
     (r"Refusing to start a build that cannot succeed", "owner-preflight-blocks", None),
     (r"duplicate\s+(message|term|attribute)|Duplicate (message|term)|is defined twice", "fluent-duplicate", fix_fluent),
     (r"Build failed with 3221225794|0xC0000142|STATUS_DLL_INIT_FAILED", "host-killed", None),   # the process tree was torn down from outside
+    # 0xC000013A = STATUS_CONTROL_C_EXIT: a Ctrl+C / Ctrl+Break / console-window close reached the whole console
+    # process group (2026-10-02, package stage: the build's console window was closed; the harness parent died with
+    # it, silently). A retry is the right fix; the window is now hidden so there is nothing to close.
+    (r"failed with 3221225786|0xC000013A|STATUS_CONTROL_C_EXIT", "console-interrupt", fix_retry),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
     (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", None),
@@ -378,6 +387,16 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         return {"ok": False, "why": "no CPU temperature source responds to load; the build would run blind (fieldkit thermal prove)"}
     task.journal(t, "build-start", head=cg._git(Path(t["workdir"]), "rev-parse", "HEAD"), log=str(log_path),
                  forced=[b["name"] for b in blockers] if needs_force else [], thermal_source=sensor_name)
+    try:
+        return _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface, stops, log_path, say)
+    except KeyboardInterrupt:
+        task.journal(task.load(task_id), "interrupted", why=["console interrupt (Ctrl+C / Ctrl+Break / window closed) reached the harness"])
+        say("INTERRUPTED from the console; journaled")
+        return {"ok": False, "why": "interrupted from the console", "stops": stops, "log": str(log_path)}
+
+
+def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface, stops, log_path, say):
+    from . import compile as cg
     for stage in stages:
         if stage == "package":
             # the installer's outer icon lives in a vendored 7-Zip stub consumed at package time: brand it first

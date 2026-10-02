@@ -51,3 +51,13 @@ def test_record_refuses_blind_and_partial_records(tmp_path, monkeypatch):
     (w / "dom/other.cpp").write_text("int y;\n", encoding="utf-8")
     with pytest.raises(task.Refused, match="other files changed too"):
         handedit.record("he", ["dom/P.ipdl"], "only one named")
+
+
+def test_record_merges_the_two_halves_of_a_moved_block():
+    from fieldkit.buildh import handedit
+    h_remove = {"header": "@@ -10,4 +10,2 @@", "lines": [" a", "-    this.embedder = make();", "-    this.db = open();", " b"]}
+    h_add = {"header": "@@ -30,2 +28,4 @@", "lines": [" c", "+    this.embedder = make();", "+    this.db = open();", " d"]}
+    other = {"header": "@@ -50,1 +50,1 @@", "lines": ["-    old();", "+    new();"]}
+    out = handedit.merge_moves([h_remove, other, h_add])
+    assert len(out) == 2 and "merged" in out[0]["header"] and out[1] is other
+    assert out[0]["lines"] == h_remove["lines"] + h_add["lines"]

@@ -386,18 +386,24 @@ def verify(task_id):
         if spec.get("status") == "enabled" and rf.is_dir():
             named.update(p.relative_to(rf).as_posix() for p in rf.rglob("*") if p.is_file())
     rep["stray_edits"] = [rel for rel in changed if rel not in named]
-    # 5. new files not in the tree
+    # 5. new files not in the tree. A new file a recorded hand step then changed (2026-10-02: AIWindowStub gained a
+    # method 157 asks for) is judged by that step, not by the byte-identity with the patch set's copy.
+    hand_edited = {s.get("args", {}).get("file") for s in t["steps"] if s.get("hand_port") and s.get("status") == "done"}
     for g, spec in groups.items():
         if spec.get("status") != "enabled":
             continue
         for src, rel in firefox.new_files(pset, g):
             d = w / rel
-            if not d.is_file() or d.read_bytes() != src.read_bytes():
+            if not d.is_file():
                 rep["missing_new_files"].append(f"{g}/NEW_FILES/{rel}")
+            elif d.read_bytes() != src.read_bytes() and rel not in hand_edited:
+                rep["missing_new_files"].append(f"{g}/NEW_FILES/{rel} (differs from the patch set's copy, no hand step)")
     # 6. upstream files gone without a patch deleting them
     rep["unexplained_deletions"] = firefox.unexplained_deletions(t)
     # 6b. changed build files that do not parse (a merge left `GeneratedFile(` dangling: configure stopped, live run 16)
     rep["syntax"] = firefox.syntax_problems(w, changed) if root else []
+    from . import symbols
+    rep["symbols"] = symbols.problems(w, changed) if root else []
     # 6c. excision creep is NOT computed here: two tree-wide greps over hundreds of symbols held the build gate for
     #     three hours (2026-10-02). It is its own command, `fieldkit build-harness creep TASK`, run on purpose.
     rep["creep"] = []
@@ -462,7 +468,9 @@ def problems(rep):
             ("tree: no edit that no patch asked for", not se, "none" if not se else f"{len(se)}: {se[:3]}"),
             ("tree: every new file of the patch set is in place", not mn, "all present" if not mn else f"{len(mn)} missing, e.g. {mn[0]}"),
             ("tree: no upstream file gone without a patch", not ud, "none" if not ud else f"{len(ud)}, e.g. {ud[0]}"),
-            ("tree: every changed build file parses (moz.build, .py, .json)", not rep.get("syntax"),
+            ("tree: every UPPER_CASE member read from an import still exists in that module", not rep.get("symbols"),
+             "all resolve" if not rep.get("symbols") else f"{len(rep['symbols'])}: {rep['symbols'][:2]}"),
+            ("tree: every changed build or JS file parses (moz.build, .py, .json, .mjs, .js)", not rep.get("syntax"),
              "all parse" if not rep.get("syntax") else f"{len(rep['syntax'])}: {rep['syntax'][:2]}"),
             ("tree: Fluent messages as often as in the owner's tree", not rep.get("ftl_duplicates"),
              "none" if not rep.get("ftl_duplicates") else f"{len(rep['ftl_duplicates'])} file(s), e.g. {rep['ftl_duplicates'][0]}")] + \

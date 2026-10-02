@@ -425,6 +425,29 @@ def run(a, emit):
             return 0
         emit(b, lambda b: print("\n".join(decision.show(b, plain=not a.technical))))
         return 0
+    if act == "install":
+        from . import install as inst
+        if getattr(a, "restore", None):
+            info = inst.restore(a.restore, a.install_dir or inst.find_install(), say=lambda m: print(m, flush=True))
+            emit({"ok": True, "restored": info}, lambda r: print(f"restored: {r['restored']}"))
+            return 0
+        r = inst.run(tid, do_backup=not getattr(a, "no_backup", False), say=lambda m: print(m, flush=True), install_dir=a.install_dir)
+        emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))))
+        return 0 if r.get("ok") else 3
+    if act == "truthbound":
+        from . import truthbound, verify as vf
+        t = task.load(tid)
+        repo155 = task.load("firefox-155.0.1")["workdir"]
+        truth155 = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"])
+        r = truthbound.run(tid, repo155, truth155, say=lambda m: print(m, flush=True))
+        emit(r, lambda r: print(f"TRUTHBOUND {'OK' if r['ok'] else 'NOT OK'}: {r['changed']} changed files, {len(r['unexplained'])} unexplained"))
+        return 0 if r["ok"] else 3
+    if act == "post-install":
+        from . import install as inst
+        r = inst.post_install(tid, install_dir=a.install_dir, only=set(a.only.split(",")) if getattr(a, "only", None) else None,
+                              say=lambda m: print(m, flush=True), drive=getattr(a, "drive", False))
+        emit(r, lambda r: print("POST-INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or [(x["name"], x["rc"]) for x in r.get("results", []) if x["rc"] != 0]))))
+        return 0 if r.get("ok") else 3
     if act == "creep":
         from . import verify as vf
         syms, rows = vf.creep(tid)

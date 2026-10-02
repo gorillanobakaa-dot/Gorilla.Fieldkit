@@ -25,6 +25,41 @@ def diff_hunks(workdir, rel):
     return parsed[0]["hunks"] if parsed else []
 
 
+def merge_moves(hunks):
+    """Hunks of one file that together MOVE lines (removed in one, added back in another) become one hunk: judged
+    apart, the removing half reads as "line should be gone" for a line that is rightly still there (2026-10-02: an
+    override block moved above a two-line statement in PlacesSemanticHistoryManager.sys.mjs came back as a false
+    completion). Unrelated hunks stay separate."""
+    hunks = list(hunks)
+    groups = []                                         # lists of hunk indexes that share a moved line
+    for i, h in enumerate(hunks):
+        rem = {l[1:].strip() for l in h["lines"] if l.startswith("-") and l[1:].strip()}
+        add = {l[1:].strip() for l in h["lines"] if l.startswith("+") and l[1:].strip()}
+        joined = None
+        for g in groups:
+            for j in g:
+                o = hunks[j]
+                orem = {l[1:].strip() for l in o["lines"] if l.startswith("-") and l[1:].strip()}
+                oadd = {l[1:].strip() for l in o["lines"] if l.startswith("+") and l[1:].strip()}
+                if (rem & oadd) or (add & orem):
+                    joined = g
+                    break
+            if joined:
+                break
+        if joined:
+            joined.append(i)
+        else:
+            groups.append([i])
+    out = []
+    for g in groups:
+        if len(g) == 1:
+            out.append(hunks[g[0]])
+        else:
+            out.append({"header": hunks[g[0]]["header"] + " (+%d moved-line hunk(s) merged)" % (len(g) - 1),
+                        "lines": [l for j in g for l in hunks[j]["lines"]]})
+    return out
+
+
 def record(task_id, files, why, group="hand"):
     """Turn the working tree's edits of `files` into done hand-port steps (one per hunk), checkpoint them.
     -> [step ids]. Refuses when a file has no diff or when other files changed too (nothing is recorded blind)."""
@@ -42,7 +77,7 @@ def record(task_id, files, why, group="hand"):
     added = []
     at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
     for rel in files:
-        for n, h in enumerate(diff_hunks(w, rel), 1):
+        for n, h in enumerate(merge_moves(diff_hunks(w, rel)), 1):
             sid = f"hand-{group}-{Path(rel).name}-{stamp}-h{n}"
             if sid in have:
                 continue
