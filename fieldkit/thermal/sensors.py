@@ -83,6 +83,24 @@ def tpfan_window():
     return None
 
 
+STATUS_FILE = Path(r"C:\ProgramData\TPFanControl\status.txt")
+
+
+def tpfan_status(path=None, max_age_s=30):
+    """TPFanControl 2.5.1-gorilla.4's status file (engine side, every sample, atomic): `cpu=` from
+    ts=..;mode=..;cpu=..;max=..;load=..;fan=0x..;rpm=.. - no window needed. None when absent, stale or unreadable."""
+    import time as _t
+    p = Path(path) if path else STATUS_FILE
+    try:
+        if _t.time() - p.stat().st_mtime > max_age_s:
+            return None
+        fields = dict(kv.split("=", 1) for kv in p.read_text(encoding="utf-8", errors="replace").strip().split(";") if "=" in kv)
+        cpu = float(fields.get("cpu", -1))
+        return cpu if 0 < cpu < DUMMY_SENSOR else None
+    except (OSError, ValueError):
+        return None
+
+
 def tpfan_csv(path=None):
     """Last row of TPFanControl_csv.txt (Log2csv=1): the max of the sensor columns below DUMMY_SENSOR, or None."""
     p = Path(path) if path else TPFAN_DIR / "TPFanControl_csv.txt"
@@ -121,7 +139,8 @@ def msacpi():
         return None
 
 
-PROVIDERS = (("tpfan_window", tpfan_window), ("tpfan_csv", tpfan_csv), ("thermalzone", thermalzone), ("msacpi", msacpi))
+PROVIDERS = (("tpfan_status", tpfan_status), ("tpfan_window", tpfan_window), ("tpfan_csv", tpfan_csv),
+             ("thermalzone", thermalzone), ("msacpi", msacpi))
 
 
 def perf_percent():

@@ -262,6 +262,7 @@ STOPS = [
      "clobber-required", fix_clobber),
     (r"Refusing to start a build that cannot succeed", "owner-preflight-blocks", None),
     (r"duplicate\s+(message|term|attribute)|Duplicate (message|term)|is defined twice", "fluent-duplicate", fix_fluent),
+    (r"Build failed with 3221225794|0xC0000142|STATUS_DLL_INIT_FAILED", "host-killed", None),   # the process tree was torn down from outside
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
     (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", None),

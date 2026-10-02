@@ -89,3 +89,17 @@ def test_a_stuck_sensor_under_load_kills_but_idle_flatness_does_not():
 def test_no_reading_for_too_long_kills():
     gov, caps, events, killed = _run([70] + [None] * 12, interval=3.0)
     assert killed and "no temperature reading" in gov.verdict
+
+
+def test_status_file_source_reads_cpu_and_rejects_stale(tmp_path):
+    import os, time
+    f = tmp_path / "status.txt"
+    f.write_text("ts=123;mode=5;cpu=58;max=58;load=97;fan=0x07;rpm=4312\r\n", encoding="utf-8")
+    assert sensors.tpfan_status(f) == 58.0
+    f.write_text("ts=1;mode=5;cpu=148;max=148;load=0;fan=0x04;rpm=2900\r\n", encoding="utf-8")
+    assert sensors.tpfan_status(f) is None                           # placeholder register, not a reading
+    f.write_text("ts=1;mode=5;cpu=58;max=58;load=0;fan=0x04;rpm=2900\r\n", encoding="utf-8")
+    os.utime(f, (time.time() - 120, time.time() - 120))
+    assert sensors.tpfan_status(f) is None                           # two minutes old: the engine is not writing
+    assert sensors.tpfan_status(tmp_path / "none.txt") is None
+    assert sensors.PROVIDERS[0][0] == "tpfan_status"
