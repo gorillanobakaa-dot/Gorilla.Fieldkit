@@ -78,8 +78,11 @@ def tpfan_window():
                 # the Switch value is TPFanControl's own maximum over the sensors it does NOT ignore; the raw vector
                 # carries constant placeholders (148 on an unpopulated register, a steady 66 on another) that must
                 # not win. vec[0] is the EC `cpu` sensor: take the hotter of the two, never the placeholders.
+                # ONLY the EC `cpu` sensor (vec[0]). TPFanControl's own Switch value is the max over sensors it does
+                # not ignore, and sensor 11 (`pwr`) publishes a constant 66 whenever it reads at all - at 07:38 the
+                # Switch said 66 with the cpu at 40, and the stage was fed 66 flat until it stopped the build.
                 cpu = vec[0] if vec and 0 < vec[0] < DUMMY_SENSOR else None
-                return max(temp, cpu) if cpu is not None else temp
+                return cpu
     return None
 
 

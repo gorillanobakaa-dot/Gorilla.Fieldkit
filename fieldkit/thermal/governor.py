@@ -49,7 +49,8 @@ def set_cap(pct):
 
 class Governor(threading.Thread):
     def __init__(self, sensor, target_c=75.0, interval=3.0, csv_path=None, kill=None, on_event=print,
-                 set_cap=set_cap, read_cap=read_cap, perf=sensors.perf_percent, clock=time.time, sleep=None, max_cap=None):
+                 set_cap=set_cap, read_cap=read_cap, perf=sensors.perf_percent, clock=time.time, sleep=None, max_cap=None,
+                 dead_check=True):
         super().__init__(daemon=True)
         self.sensor, self.target, self.interval = sensor, target_c, interval
         self.csv_path = Path(csv_path) if csv_path else None
@@ -60,6 +61,7 @@ class Governor(threading.Thread):
         self.start_cap = None
         self.cap = None
         self.max_cap = max_cap       # a ceiling below the scheme's own cap: 80 while only a surface sensor exists
+        self.dead_check = dead_check # the never-moved kill: for die sensors; a skin sensor plateaus for minutes
         self._orig_cap = None
         self.peak = 0.0
         self.samples = 0
@@ -123,7 +125,7 @@ class Governor(threading.Thread):
                 busy = p is not None and p > BUSY
                 self._flat = (self._flat + [t])[-DEAD:] if busy else []
                 self._seen.add(t)
-                if len(self._flat) == DEAD and len(self._seen) == 1:      # busy for DEAD samples and never moved at all
+                if self.dead_check and len(self._flat) == DEAD and len(self._seen) == 1:   # die sensor that never moved
                     self._die(f"sensor stuck at {t:.2f} C since the start, {DEAD} busy samples")
                     return
                 if t >= KILL:

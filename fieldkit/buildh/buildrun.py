@@ -352,8 +352,8 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
             from ..thermal import governor as gv
             gov = gv.Governor(sensor, target_c=75.0, interval=3.0, kill=lambda why: None, on_event=say,
                               csv_path=task.STATE / task_id / f"thermal-{stage}-{time.strftime('%Y%m%d-%H%M%S')}.csv",
-                              max_cap=SURFACE_CAP if surface else None)
-            rc, lines = _stream(cmd, root, log_path, say, governor=gov)
+                              max_cap=SURFACE_CAP if surface else None, dead_check=not surface)
+            rc, lines = _stream(cmd, root, log_path, say, governor=gov, watch_thermal=not surface)
             if gov.verdict:
                 lines.append(f"FIELDKIT THERMAL GOVERNOR: {gov.verdict}")
                 task.journal(t, "thermal-kill", stage=stage, attempt=attempt, why=[gov.verdict], peak=gov.peak)

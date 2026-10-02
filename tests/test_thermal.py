@@ -16,6 +16,9 @@ def test_status_line_parses_and_placeholders_never_win():
              "Fan: 0x04 / Switch: 31° C (31; 0; 31; 0; 0; 31; 0; 148; 0; 1; 0; 0;)"]
     sensors._tpfan_window_text = lambda: texts
     assert sensors.tpfan_window() == 31.0
+    # the Switch value carries the constant `pwr` sensor (66) once it reads: only the cpu sensor counts
+    sensors._tpfan_window_text = lambda: ["Fan: 0x04 / Switch: 66° C (40; 0; 40; 0; 0; 40; 0; 148; 0; 1; 66; 0;)"]
+    assert sensors.tpfan_window() == 40.0
 
 
 def test_csv_source_takes_the_max_real_sensor(tmp_path):
@@ -77,6 +80,21 @@ def test_hot_goes_to_the_floor_and_ceiling_kills():
     assert caps[0] == governor.FLOOR
     gov, caps, events, killed = _run([70, 96])
     assert killed and "96.0 C >= 95 C" in gov.verdict and caps[0] == governor.FLOOR and caps[-1] == 100
+
+
+def test_a_surface_sensor_is_never_declared_dead():
+    it = iter([30.0] * 70); done = []
+    def sensor():
+        try: return next(it)
+        except StopIteration:
+            done.append(True); return None
+    clock = Clock(); killed = []
+    gov = governor.Governor(sensor=sensor, target_c=75.0, interval=3.0, kill=killed.append, on_event=lambda e: None,
+                            set_cap=lambda c: None, read_cap=lambda: 100, perf=lambda: 90.0, clock=clock,
+                            sleep=lambda s: setattr(clock, "t", clock.t + s), dead_check=False)
+    gov._halt = type("H", (), {"is_set": lambda self: bool(done), "wait": lambda self, s: None})()
+    gov.run()
+    assert killed == [] and gov.verdict is None
 
 
 def test_a_stuck_sensor_under_load_kills_but_idle_flatness_does_not():
