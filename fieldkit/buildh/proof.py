@@ -107,12 +107,15 @@ def prefs_row(workdir, install_dir):
             "bad": bad}
 
 
-def excised_row(install_dir, deleted_paths, truth_root=None):
-    """`deleted_paths` are the owner's DELETED_FILES manifests; only entries the owner's truth tree really lacks count
-    (the manifests list TelemetryUtils.sys.mjs and services-settings/Utils.sys.mjs, both shipped in 155.0.1)."""
+def excised_row(install_dir, deleted_paths, truth_root=None, tree_files=None):
+    """`deleted_paths` are the DELETED_FILES manifests; only entries the truth tree really lacks count, and only by a
+    file name no surviving file shares (2026-10-02: aiwindow/models/TelemetryUtils.sys.mjs and .../Utils.sys.mjs are
+    deleted, toolkit's TelemetryUtils.sys.mjs and services-settings/Utils.sys.mjs are not - a basename match flagged
+    the legitimate ones). `tree_files`: every path of the ported tree (git ls-files)."""
     truth = Path(truth_root) if truth_root else None
-    names = {Path(p).name for p in deleted_paths if p.endswith((".mjs", ".jsm"))
-             and (truth is None or not (truth / p).exists())}
+    deleted = {p for p in deleted_paths if p.endswith((".mjs", ".jsm")) and (truth is None or not (truth / p).exists())}
+    survivors = {Path(f).name for f in (tree_files or []) if f not in deleted}
+    names = {Path(p).name for p in deleted if Path(p).name not in survivors}
     hits = []
     for ja in ("omni.ja", "browser/omni.ja"):
         try:
@@ -263,7 +266,12 @@ def rows(workdir, install_dir, deleted_paths=(), which=("prefs", "excised", "sta
     if "prefs" in which:
         out.append(prefs_row(workdir, install_dir))
     if "excised" in which:
-        out.append(excised_row(install_dir, deleted_paths, truth_root))
+        files = None
+        try:
+            files = subprocess.run(["git", "-C", str(workdir), "ls-files"], capture_output=True, text=True, encoding="utf-8").stdout.split("\n")
+        except Exception:
+            pass
+        out.append(excised_row(install_dir, deleted_paths, truth_root, files))
     if "startup" in which:
         out.append(startup_row(install_dir))
     if "egress" in which:

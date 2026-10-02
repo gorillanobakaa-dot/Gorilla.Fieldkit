@@ -93,3 +93,14 @@ def test_adblock_judgement_needs_the_page_and_no_ad_host():
     assert r["ok"]
     r = proof.judge_adblock({}, "https://www.theguardian.com/international")
     assert not r["ok"] and "did NOT load" in r["evidence"]
+
+
+def test_excised_ignores_a_deleted_name_a_surviving_file_shares(tmp_path):
+    _ship(tmp_path / "inst")
+    with zipfile.ZipFile(tmp_path / "inst" / "omni.ja", "a") as z:
+        z.writestr("modules/TelemetryUtils.sys.mjs", "")
+        z.writestr("modules/AIOnly.sys.mjs", "")
+    deleted = ["browser/components/aiwindow/models/TelemetryUtils.sys.mjs", "browser/components/aiwindow/AIOnly.sys.mjs"]
+    tree = ["toolkit/components/telemetry/app/TelemetryUtils.sys.mjs", "x/y.mjs"]
+    r = proof.excised_row(tmp_path / "inst", deleted, None, tree)
+    assert r["bad"] == ["omni.ja:modules/AIOnly.sys.mjs"]
