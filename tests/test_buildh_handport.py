@@ -117,3 +117,14 @@ def test_a_surplus_copy_goes_where_the_truth_does_not_have_it(tmp_path):
     r = fluent.step_dedupe(t, "b/x.ftl", str(tr))
     assert r["ok"] and "removed surplus urlbar-result-menu-trending-dont-show2 at line 4" in r["summary"]
     assert fluent.check_dedupe(t, "b/x.ftl", str(tr))["ok"]
+
+
+def test_a_pre_existing_similar_line_is_not_a_rename_of_the_removed_one():
+    from fieldkit.buildh import firefox
+    before = ["  get SERVER_URL() {", "    return lazy.allowServerURL", "      ? lazy.gServerURL", "      : AppConstants.REMOTE_SETTINGS_SERVER_URLS[0];", "  },", "", "  other() {",
+              "    return AppConstants.REMOTE_SETTINGS_SERVER_URLS.includes(this.SERVER_URL) || x;", "  },"]
+    after = ["  get SERVER_URL() {", '    return "data:,#remote-settings-dummy/v1";', "  },", "", "  other() {",
+             "    return AppConstants.REMOTE_SETTINGS_SERVER_URLS.includes(this.SERVER_URL) || x;", "  },"]
+    hunk = {"header": "@@ -1,5 +1,3 @@", "lines": ["   get SERVER_URL() {", "-    return lazy.allowServerURL", "-      ? lazy.gServerURL",
+                                                    "-      : AppConstants.REMOTE_SETTINGS_SERVER_URLS[0];", '+    return "data:,#remote-settings-dummy/v1";', "   },"]}
+    assert firefox.hand_port_holds(after, hunk, before) == []

@@ -373,10 +373,47 @@ def owner_preflight_ok(root, say):
     return not hard, bool(stale), blockers
 
 
-def thermal_sensor(say):
+def cpu_busy_percent(sample=2.0):
+    """System-wide CPU use over `sample` seconds (Windows GetSystemTimes), or None where unavailable."""
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        FT = ctypes.c_ulonglong
+        def times():
+            i, kk, u = FT(), FT(), FT()
+            k.GetSystemTimes(ctypes.byref(i), ctypes.byref(kk), ctypes.byref(u))
+            return i.value, kk.value + u.value
+        i0, t0 = times()
+        time.sleep(sample)
+        i1, t1 = times()
+        return 100.0 * (1 - (i1 - i0) / max(1, t1 - t0))
+    except Exception:
+        return None
+
+
+def wait_for_idle(say, busy_max=35.0, timeout=600, sleep=time.sleep):
+    """The proof loads the CPU and expects the sensor to rise; on a machine already busy (02 Oct 11:40: the test
+    suite ran beside the gate) it cannot rise and the sensor reads as dead. Wait for the machine first, up to
+    `timeout` s. -> busy percent at the end."""
+    t0 = time.time()
+    while True:
+        busy = cpu_busy_percent()
+        if busy is None or busy <= busy_max or time.time() - t0 > timeout:
+            return busy
+        say(f"  thermal proof: machine busy ({busy:.0f}% CPU) - waiting for it to settle before loading it")
+        sleep(20)
+
+
+def thermal_sensor(say, retry=True):
     """The first CPU sensor proven against load (fieldkit.thermal.sensors.best). -> (name, fn) or (None, None)."""
     from ..thermal import sensors
+    busy = wait_for_idle(say)
     name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
+    if name is None and retry:
+        # one more try after a minute: a plateau from earlier load needs time to fall before a rise can show
+        say(f"  thermal proof failed once (busy {busy if busy is None else round(busy)}%); waiting 60 s and proving again")
+        time.sleep(60)
+        name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
     say(f"  thermal source: {name or 'NONE'} - {detail[:200]}")
     surface = "[surface sensor]" in (detail or "")
     if surface:

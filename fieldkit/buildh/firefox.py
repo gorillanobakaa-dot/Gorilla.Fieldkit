@@ -1831,7 +1831,11 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
         if (pristine is not None or before is not after) and cb[k] != n:
             continue
         why.append(f"line should be gone: {k[:100]}")
-    for a, b in renamed_near(after, hunk, removed, added)[:3]:
+    # a line that already existed before the edit cannot be the renamed form of a removed line (02 Oct: the
+    # Remote Settings lock removed `: AppConstants.REMOTE_SETTINGS_SERVER_URLS[0];` and the check pointed at the
+    # pre-existing `AppConstants.REMOTE_SETTINGS_SERVER_URLS.includes(...)` as its new name)
+    pre = {l.strip() for l in (pristine if pristine is not None else before)}
+    for a, b in [(a, b) for a, b in renamed_near(after, hunk, removed, added) if b.strip() not in pre][:3]:
         why.append(f"line still there under new names: `{a[:60]}` is now `{b[:60]}`")
     text_after = "\n".join(scope_after)
     norm = lambda tok: tok.strip("\"'`").lstrip("_#$")       # `this._x`, `this.#x` and `lazy.x` are one name (live run 16)

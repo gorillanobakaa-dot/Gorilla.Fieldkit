@@ -308,3 +308,12 @@ def test_gate_runs_repair_once_when_only_the_repairable_rows_fail(monkeypatch, t
     monkeypatch.setattr(buildrun, "owner_preflight_ok", lambda root, say: (False, False, [{"name": "stop-here"}]))
     r = buildrun.run("t", say=lambda m: None)
     assert calls == {"gate": 2, "repair": 1} and r["why"].startswith("the owner's preflight")
+
+
+def test_thermal_proof_waits_for_a_busy_machine(monkeypatch):
+    from fieldkit.buildh import buildrun
+    readings = iter([90.0, 80.0, 20.0])
+    monkeypatch.setattr(buildrun, "cpu_busy_percent", lambda sample=2.0: next(readings))
+    slept, said = [], []
+    busy = buildrun.wait_for_idle(said.append, busy_max=35.0, timeout=600, sleep=slept.append)
+    assert busy == 20.0 and slept == [20, 20] and len(said) == 2

@@ -132,10 +132,55 @@ def backup(install_dir, profiles=None, dest_root=None, say=print):
     return dest
 
 
-def install(installer, install_dir, say=print, timeout=1800):
-    """Run the packaged installer silently into `install_dir` (per-user: no elevation). -> (rc, seconds)."""
+def local_profiles():
+    """Every profile's LOCAL directory (startupCache lives there), from profiles.ini; Windows and Linux."""
+    out = []
+    ini = profiles_dir() / "profiles.ini"
+    if not ini.is_file():
+        return out
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.read(ini, encoding="utf-8")
+    local_root = Path(os.environ.get("LOCALAPPDATA", "")) / "Mozilla" / "Firefox" if sys.platform == "win32" else Path.home() / ".cache" / "mozilla" / "firefox"
+    for sec in cp.sections():
+        path = cp.get(sec, "Path", fallback=None)
+        if path:
+            out.append(local_root / path if cp.get(sec, "IsRelative", fallback="1") == "1" else Path(path))
+    return out
+
+
+def clear_startup_caches(say=print):
+    """Delete every profile's startupCache. Firefox keys that cache on the BuildID; two different builds with one
+    BuildID (02 Oct, builds 2-6) left the owner's profile running the broken build's compiled scripts while a
+    fresh profile ran the new one. -> [cleared dirs]. Refuses while Firefox runs."""
+    if subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Process firefox -ErrorAction SilentlyContinue | Select-Object -First 1"],
+                      capture_output=True, text=True).stdout.strip():
+        raise task.Refused("Firefox is running: close it before the startup caches are cleared")
+    cleared = []
+    for prof in local_profiles():
+        sc = prof / "startupCache"
+        if sc.is_dir():
+            n = sum(1 for _ in sc.rglob("*") if _.is_file())
+            shutil.rmtree(sc, ignore_errors=True)
+            cleared.append(f"{sc} ({n} files)")
+            say(f"  startup cache cleared: {sc.parent.name} ({n} files)")
+    return cleared
+
+
+def caches_row():
+    left = [str(p / "startupCache") for p in local_profiles() if (p / "startupCache").is_dir() and any((p / "startupCache").iterdir())]
+    return {"check": "profiles: no stale startup cache from an earlier build", "ok": not left,
+            "evidence": "every profile's startupCache is empty" if not left else f"{len(left)} profile(s) still cached: {left[:2]}"}
+
+
+def install(installer, install_dir, say=print, timeout=1800, fresh=True):
+    """Run the packaged installer silently into `install_dir` (per-user: no elevation). With `fresh` the old
+    install directory is removed first (the backup was taken before), so nothing of an earlier build lingers.
+    -> (rc, seconds)."""
     if running(install_dir):
         raise task.Refused(f"Firefox is running from {install_dir}: close it first")
+    if fresh and Path(install_dir).is_dir():
+        shutil.rmtree(install_dir)
+        say(f"  install: removed the old {install_dir} (backed up first)")
     t0 = time.time()
     # the Firefox installer: a 7-Zip SFX that unpacks and runs setup.exe; /S silent, /InstallDirectoryPath= exact dir
     cmd = [str(installer), "/S", f"/InstallDirectoryPath={install_dir}"]
@@ -202,10 +247,11 @@ def run(task_id, do_backup=True, say=print, install_dir=None):
         bdir = backup(target, say=say)
         task.journal(t, "backup", dest=str(bdir), installed=before)
     rc, secs = install(installer, target, say=say)
-    rows = verify(target, version)
+    cleared = clear_startup_caches(say=say)
+    rows = verify(target, version) + [caches_row()]
     ok = rc == 0 and all(r["ok"] for r in rows)
     task.journal(t, "install", installer=str(installer), target=str(target), rc=rc, seconds=round(secs), ok=ok,
-                 rows=[(r["check"], r["ok"]) for r in rows], backup=str(bdir) if bdir else None)
+                 rows=[(r["check"], r["ok"]) for r in rows], backup=str(bdir) if bdir else None, caches_cleared=cleared)
     for r in rows:
         say(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:140]}")
     return {"ok": ok, "backup": str(bdir) if bdir else None, "rows": rows, "rc": rc, "target": str(target)}
@@ -272,10 +318,10 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
     results = []
     # production proof first: the shipped artefacts and a headless start, no window, no keyboard
     from . import proof, firefox
-    want = {"prefs", "excised", "startup"} & (only or {"prefs", "excised", "startup"})
+    want = {"prefs", "excised", "startup", "egress"} & (only or {"prefs", "excised", "startup", "egress"})
     if want:
         deleted = firefox.manifest_deletions(t["meta"]["harness_root"]) if t.get("meta", {}).get("harness_root") else []
-        for row in proof.rows(t["workdir"], target, deleted, which=want):
+        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want):
             say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
             results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "log": row.get("log"), "lines": row.get("bad", [])[:10]})
     for name, argv in POST_INSTALL:

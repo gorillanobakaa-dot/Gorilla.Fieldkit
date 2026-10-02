@@ -56,3 +56,19 @@ def test_excised_row_names_packaged_removed_modules(tmp_path):
     assert not r["ok"] and sorted(r["bad"]) == ["omni.ja:chrome/toolkit/content/global/ml/MLEngine.worker.mjs", "omni.ja:modules/TelemetryUtils.sys.mjs"]
     r = proof.excised_row(tmp_path / "inst", ["x/Other.sys.mjs"])
     assert not r["ok"] and r["bad"] == ["omni.ja:chrome/toolkit/content/global/ml/MLEngine.worker.mjs"]
+
+
+def test_egress_judges_hosts_from_the_browsers_own_log():
+    log = ("x uri=https://firefox.settings.services.mozilla.com/v2/ y\n"
+           "x uri=https://firefox.settings.services.mozilla.com/v2/buckets/main z\n"
+           "x uri=https://www.anthropic.com/legal/archive/abc q\n"
+           "x uri=https://cdn.anthropic.com/img.png q\n"
+           "x uri=https://cdn.jsdelivr.net/gh/uBlockOrigin/x.txt q\n"
+           "x uri=http://firefox-portal-detection.com/success.txt?ipv4 q\n"
+           "x uri=https://push.services.mozilla.com/ q\n"
+           "x uri=https://unknown-tracker.example/beacon q\n")
+    hosts = proof.http_hosts(log)
+    assert hosts["firefox.settings.services.mozilla.com"][0] == 2
+    vendor, unknown = proof.judge_hosts(hosts, "www.anthropic.com")
+    assert set(vendor) == {"firefox.settings.services.mozilla.com", "firefox-portal-detection.com", "push.services.mozilla.com"}
+    assert set(unknown) == {"unknown-tracker.example"}

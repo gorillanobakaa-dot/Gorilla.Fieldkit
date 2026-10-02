@@ -56,6 +56,30 @@ def test_install_refuses_while_the_browser_runs(tmp_path, monkeypatch):
         inst.install(tmp_path / "setup.exe", tmp_path / "G")
 
 
+def test_fresh_install_removes_the_old_directory_first(tmp_path, monkeypatch):
+    d = _fake_install(tmp_path / "G")
+    (d / "leftover-from-build-2.dll").write_bytes(b"x")
+    monkeypatch.setattr(inst, "running", lambda d: [])
+    monkeypatch.setattr(inst.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0})())
+    monkeypatch.setattr(inst.time, "sleep", lambda s: None)
+    rc, _ = inst.install(tmp_path / "setup.exe", d, say=lambda m: None)
+    assert rc == 0 and not (d / "leftover-from-build-2.dll").exists()
+
+
+def test_startup_caches_are_cleared_and_proven_empty(tmp_path, monkeypatch):
+    p1 = tmp_path / "local/Profiles/abc.default"
+    (p1 / "startupCache").mkdir(parents=True)
+    (p1 / "startupCache/scriptCache-current.bin").write_bytes(b"stale")
+    monkeypatch.setattr(inst, "local_profiles", lambda: [p1])
+    monkeypatch.setattr(inst.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "", "returncode": 0})())
+    assert not inst.caches_row()["ok"]
+    cleared = inst.clear_startup_caches(say=lambda m: None)
+    assert len(cleared) == 1 and "1 files" in cleared[0] and inst.caches_row()["ok"]
+    monkeypatch.setattr(inst.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "firefox", "returncode": 0})())
+    with pytest.raises(task.Refused, match="running"):
+        inst.clear_startup_caches()
+
+
 def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs(tmp_path, monkeypatch):
     sd = tmp_path / "working scripts"
     sd.mkdir()
@@ -64,6 +88,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     monkeypatch.setattr(inst, "scripts_dir", lambda: sd)
     from fieldkit.buildh import proof
     monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(): [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}])
+    monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
@@ -72,7 +97,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     said = []
     r = inst.post_install("t1", install_dir=tmp_path / "G", say=said.append)
     # the keyboard-taking check is skipped unless asked, and the skip is said out loud
-    assert not r["ok"] and [(x["name"], x["rc"]) for x in r["results"]] == [("startup", 0),
+    assert not r["ok"] and [(x["name"], x["rc"]) for x in r["results"]] == [("profiles", 0), ("startup", 0),
         ("verify_installed_build", 0), ("verify_no_phone_home", 2), ("webrtc_selftest", 0), ("verify_address_bar", None)]
     assert any("takes the keyboard" in m for m in said)
     slept = []
