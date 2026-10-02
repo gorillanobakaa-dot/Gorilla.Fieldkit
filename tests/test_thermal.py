@@ -84,6 +84,8 @@ def test_a_stuck_sensor_under_load_kills_but_idle_flatness_does_not():
     assert killed and "stuck at 41.85" in gov.verdict
     gov, caps, events, killed = _run([41.85] * 61, perf=20.0)
     assert killed == [] and gov.verdict is None
+    gov, caps, events, killed = _run([31.0, 32.0] + [33.0] * 70)         # a skin sensor plateaus after moving: alive
+    assert killed == [] and gov.verdict is None
 
 
 def test_no_reading_for_too_long_kills():

@@ -66,6 +66,7 @@ class Governor(threading.Thread):
         self.verdict = None                                   # why the build was killed, if it was
         self._cool_since = None
         self._flat = []
+        self._seen = set()
         self._last_reading = None
 
     def stop(self):
@@ -121,8 +122,9 @@ class Governor(threading.Thread):
                 self.peak = max(self.peak, t)
                 busy = p is not None and p > BUSY
                 self._flat = (self._flat + [t])[-DEAD:] if busy else []
-                if len(self._flat) == DEAD and len(set(self._flat)) == 1:
-                    self._die(f"sensor stuck at {t:.2f} C for {DEAD} busy samples")
+                self._seen.add(t)
+                if len(self._flat) == DEAD and len(self._seen) == 1:      # busy for DEAD samples and never moved at all
+                    self._die(f"sensor stuck at {t:.2f} C since the start, {DEAD} busy samples")
                     return
                 if t >= KILL:
                     self._die(f"{t:.1f} C >= {KILL:.0f} C ceiling")

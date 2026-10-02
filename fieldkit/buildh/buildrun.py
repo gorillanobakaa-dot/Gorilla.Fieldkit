@@ -61,8 +61,8 @@ def thermal_verdict(csv_path):
     if temps[-1][0] >= HARD_CEILING_C:
         return f"temperature {temps[-1][0]:.1f} C at or above the hard ceiling {HARD_CEILING_C:.0f} C"
     tail = temps[-DEAD_SAMPLES:]
-    if len(tail) == DEAD_SAMPLES and all(p > DEAD_PERF for _, p in tail) and len({t for t, _ in tail}) == 1:
-        return f"temperature source stuck at {tail[-1][0]:.2f} C for {DEAD_SAMPLES} busy samples: not a live sensor"
+    if len(tail) == DEAD_SAMPLES and all(p > DEAD_PERF for _, p in tail) and len({t for t, _ in temps}) == 1:
+        return f"temperature source stuck at {tail[-1][0]:.2f} C since the start, {DEAD_SAMPLES} busy samples: not a live sensor"
     return None
 
 
