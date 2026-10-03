@@ -435,7 +435,7 @@ POST_INSTALL = (
     ("verify_address_bar", ["--install", "{dir}", "--yes"]),    # real window: typing an address navigates (title changes)
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
-PROOF_CHECKS = frozenset({"prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual"})
+PROOF_CHECKS = frozenset({"prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
@@ -478,6 +478,13 @@ def _decisions_row(t, target):
     return [decisions.proof_row(buildrun._owner_root(t), t["workdir"], target)]
 
 
+def _claims_row(t, target):
+    """What the public repository claims, against this tree and this build (fieldkit/buildh/claims.py; read-only:
+    the register and the report are written only by `build-harness claims`)."""
+    from . import claims
+    return [claims.proof_row(t, target)]
+
+
 def _visual_row(t, target, say=print):
     """Crisp icons and aligned pages: the static tree and a throwaway copy of `target` (fieldkit/visual)."""
     from .. import visual
@@ -509,7 +516,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         from . import verify as vf
         truth = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]) if t.get("meta", {}).get("harness_root") else None
         from . import leaks
-        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []):
+        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []):
             say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
             results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "status": "ok" if row["ok"] else "FAIL",
                             "log": row.get("log"), "lines": row.get("bad", [])[:10]})

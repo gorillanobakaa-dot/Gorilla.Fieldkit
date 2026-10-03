@@ -84,7 +84,7 @@ groups:
 
   - name: install-and-proof
     title: Install the built browser and prove it
-    sources: [buildh/capture.py, buildh/decisions.py, buildh/install.py, buildh/leaks.py, buildh/proof.py, buildh/throwaway.py]
+    sources: [buildh/capture.py, buildh/claims.py, buildh/decisions.py, buildh/install.py, buildh/leaks.py, buildh/proof.py, buildh/throwaway.py]
 
   - name: leakgate
     title: Leakgate, the fail-closed leak and telemetry release gate

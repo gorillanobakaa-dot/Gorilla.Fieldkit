@@ -482,6 +482,12 @@ def run(a, emit):
                 print("\n".join(_dec.lines(dres)))
                 raise _t.Refused("the baseline is this build WITH its decisions: every decision must be ENFORCED first "
                                  "(fieldkit build-harness decisions TASK --strict)")
+            from . import claims as _cl
+            cres = _cl.run(tid, install_dir=_inst.find_install(), strict=True, write=False)
+            if not cres["ok"]:
+                print("\n".join(_cl.lines(cres)))
+                raise _t.Refused("the baseline is this build WITH what we publish about it: every public claim must be PROVEN "
+                                 "and every enabled patch IMPLEMENTED or explained first (fieldkit build-harness claims TASK --strict)")
             p = lg.save_baseline(st["artifacts"], owner, t["meta"]["upstream"]["version"], bootstrap=boot,
                                  decisions={"sha256": dres["sha256"], "ids": [x["id"] for x in dres["rows"]]})
             print(f"baseline saved: {p}")
@@ -590,6 +596,14 @@ def run(a, emit):
         target = a.install_dir or inst.find_install()
         r = dec.check(owner, t["workdir"], target, strict=getattr(a, "strict", False))
         emit(r, lambda r: print("\n".join(dec.lines(r))))
+        return 0 if r["ok"] else 3
+    if act == "claims":
+        # what the public repository claims, against the tree and the installed build (fieldkit/buildh/claims.py)
+        from . import claims as cl, install as inst
+        r = cl.run(tid, install_dir=a.install_dir or inst.find_install(), report_path=getattr(a, "report", None),
+                   strict=getattr(a, "strict", False))
+        emit({k: v for k, v in r.items() if k not in ("claims", "patch_audit")} | {"worst_gaps": cl.worst_gaps(r)},
+             lambda _: print("\n".join(cl.lines(r))))
         return 0 if r["ok"] else 3
     if act == "post-install":
         from . import install as inst

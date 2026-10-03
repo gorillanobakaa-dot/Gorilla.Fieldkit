@@ -94,6 +94,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     from fieldkit.buildh import leaks
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
+    monkeypatch.setattr(inst, "_claims_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_visual_row", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
@@ -226,6 +227,7 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
     monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
+    monkeypatch.setattr(inst, "_claims_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_visual_row", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")

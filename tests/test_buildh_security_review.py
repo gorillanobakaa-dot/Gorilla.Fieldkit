@@ -207,3 +207,13 @@ def test_record_takes_the_kind_as_a_kind_token(monkeypatch):
     a = argparse.Namespace(action="record", args=["t1", "kind=port", "kind=privacy", "a/x.cpp"], task=None, note="x")
     with pytest.raises(task.Refused, match="one kind="):
         bh.run(a, lambda o, f: None)
+
+
+def test_a_thermal_stop_cools_down_and_retries(monkeypatch):
+    from fieldkit.buildh import buildrun
+    name, fix = buildrun.classify(["[!] THERMAL GOVERNOR: 79.0 C over the cap"])
+    assert name == "thermal" and fix is buildrun.fix_thermal_cooldown
+    slept = []
+    monkeypatch.setattr(buildrun, "cpu_busy_percent", lambda: 5.0)
+    ok, what = buildrun.fix_thermal_cooldown({}, None, lambda m: None, sleep=slept.append)
+    assert ok and 300 in slept

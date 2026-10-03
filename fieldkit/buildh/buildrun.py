@@ -374,6 +374,16 @@ def fix_retry(t, root, say):
     return True, "retry after a console interrupt"
 
 
+def fix_thermal_cooldown(t, root, say, sleep=time.sleep):
+    """2026-10-03 04:15: build 12 hit 79 C in 90 s because a 50%-CPU job ran beside it (idle was already 71 C), and
+    the loop gave up with "no known fix". The cause is load and heat, not the tree: wait for the machine to go idle
+    (other work finished), let it cool, then run the stage again. The governor still guards the retry."""
+    busy = wait_for_idle(say, busy_max=20.0, timeout=3600, sleep=sleep)
+    say(f"  thermal stop: machine at {busy if busy is None else round(busy)}% CPU; cooling for 5 minutes before the retry")
+    sleep(300)
+    return True, "retry after the machine went idle and cooled"
+
+
 STOPS = [
     (r"lld-link: error: .*: unknown file type|error: .*\.obj: (file too small|invalid|corrupt)", "corrupt-object", fix_corrupt_object),
     (r"fatal error: '[^']+' file not found", "excision-creep-include", fix_creep_include),
@@ -391,7 +401,7 @@ STOPS = [
     (r"Variable \w+ assigned an empty value", "mozbuild-empty-assignment", fix_mozbuild_empty),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
-    (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", None),
+    (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", fix_thermal_cooldown),
 ]
 
 

@@ -671,7 +671,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "creep", "brief", "deferred", "verify", "snapshot", "visual"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "claims", "creep", "brief", "deferred", "verify", "snapshot", "visual"])
     bh.add_argument("--static", action="store_true", help="visual: only the static layer (the ported tree; no browser is started)")
     bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
@@ -681,7 +681,9 @@ def build_parser():
     bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
     bh.add_argument("--no-backup", action="store_true", dest="no_backup", help="install: skip the backup (never the default)")
     bh.add_argument("--drive", action="store_true", help="post-install: allow the checks that take the keyboard (announced, 20 s countdown)")
-    bh.add_argument("--strict", action="store_true", help="decisions: a pending decision counts as not done (release, baseline)")
+    bh.add_argument("--strict", action="store_true", help="decisions: a pending decision counts as not done (release, baseline); "
+                                                          "claims: every claim PROVEN, every patch IMPLEMENTED or explained")
+    bh.add_argument("--report", help="claims: where to write the public audit report (default <owner>/claims/AUDIT-<major>.md)")
     bh.add_argument("--release", action="store_true", help="leakgate: release run (full durations, 3 repetitions, packets required)")
     bh.add_argument("--repeat", type=int, help="leakgate: repetitions per scenario")
     bh.add_argument("--soak", type=int, help="leakgate: startup-idle duration in seconds (spec: 1800 or 3600)")
