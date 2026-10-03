@@ -337,13 +337,16 @@ def sweep_excised_dist(dist_bin, say):
     removed = []
     for pre in EXCISED_PACKAGED:
         rel = pre.replace("chrome/toolkit/content/global/", "chrome/toolkit/content/global/").rstrip("/")
-        p = Path(dist_bin) / rel
-        if p.is_dir():
-            shutil.rmtree(p, ignore_errors=True)
-            removed.append(rel + "/")
-        elif p.is_file():
-            p.unlink()
-            removed.append(rel)
+        # omni.ja entries live under dist/bin, browser/omni.ja entries under dist/bin/browser (2026-10-03: the
+        # removed Alpenglow theme was packaged again from dist/bin/browser because only dist/bin was swept)
+        for base in (Path(dist_bin), Path(dist_bin) / "browser"):
+            p = base / rel
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+                removed.append(str(p.relative_to(dist_bin)).replace("\\", "/") + "/")
+            elif p.is_file():
+                p.unlink()
+                removed.append(str(p.relative_to(dist_bin)).replace("\\", "/"))
     if removed:
         say(f"  dist/bin sweep: {len(removed)} stale excised path(s) removed before packaging: {removed[:3]}")
     return removed
