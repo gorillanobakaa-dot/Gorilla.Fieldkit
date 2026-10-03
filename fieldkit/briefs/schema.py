@@ -36,7 +36,8 @@ REQUIRED = ("id", "topic", "kind", "task", "source", "affected", "options", "rec
             "blocking")
 OPTION_FIELDS = ("id", "label", "what_changes", "user_impact", "credibility_impact", "cost", "reversible", "records")
 RECORDS = ("register", "allowlist", "disposition", "journal")
-KINDS = ("decision", "patch", "claims", "disposition", "allowlist", "deferred", "owner-edit")
+KINDS = ("decision", "patch", "claims", "disposition", "allowlist", "deferred", "owner-edit",
+         "intake", "consistency", "lost-layer", "publish")          # the last four: migration control (fieldkit/migrate)
 SHOW_ITEMS = 5          # the plain rendering shows this many items in full; --technical and --json show all
 
 

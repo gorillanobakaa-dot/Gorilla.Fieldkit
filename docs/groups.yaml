@@ -90,6 +90,10 @@ groups:
     title: Decision briefs, never a bare question (what is affected, every option, its cost, the recorded answer)
     sources: ["briefs/*.py"]
 
+  - name: migration-control
+    title: Migration control (intent ledger, stages and gates, SITREP, drift guard) for porting to a new Firefox
+    sources: ["migrate/*.py"]
+
   - name: leakgate
     title: Leakgate, the fail-closed leak and telemetry release gate
     sources: ["leakgate/*.py"]

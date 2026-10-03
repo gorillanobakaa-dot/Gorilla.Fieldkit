@@ -15,7 +15,12 @@ Each entry: id, title, decided (date), by (always the maintainer), provenance (w
     tree_lacks:      {path, text}            text that must NOT be in the ported tree
     pref:            {name, value, locked}   what the INSTALLED browser ships (firefox.js wins over greprefs.js);
                                              value null = the pref must not be set; locked true/false is checked
+    tree_absent:     [relative paths]        files the ported tree must NOT hold (a deletion the patch set makes)
+    tree_present:    [relative paths]        files the ported tree must hold (a new file the patch set adds)
     installed_absent: [relative paths]       files that must not exist in the install folder
+    installed_present: [relative paths]      files that MUST exist in the install folder (a defence layer that ships as
+                                             a file, e.g. distribution/policies.json: 2026-10-03 the 157 install had
+                                             lost it while the tree still carried it)
     omni_absent:     [entry prefixes]        nothing in omni.ja / browser/omni.ja may start with these
     fieldkit_test:   pytest node id          a harness behaviour (run from the Fieldkit folder)
     image_sharp:     {path, master, ratio}   a raster in the tree is a real downsample of its master (an .svg with an
@@ -38,7 +43,7 @@ import yaml
 REGISTER = Path("decisions") / "PRODUCT-DECISIONS.yaml"
 STATUSES = ("enforced", "pending", "trade-off", "retired")
 KINDS = ("mozconfig_has", "tree_contains", "tree_lacks", "pref", "installed_absent", "omni_absent", "fieldkit_test",
-         "image_sharp")
+         "image_sharp", "tree_absent", "tree_present", "installed_present")
 FIELDKIT = Path(__file__).resolve().parents[2]
 
 
@@ -126,6 +131,19 @@ def _check(kind, arg, ctx):
             raise Unreadable("no installed browser")
         present = [r for r in arg if (Path(install) / r).exists()]
         return not present, "present: " + ", ".join(present) if present else "absent: " + ", ".join(arg)
+    if kind == "installed_present":
+        if not install:
+            raise Unreadable("no installed browser")
+        missing = [r for r in arg if not (Path(install) / r).exists()]
+        return not missing, "MISSING from the install: " + ", ".join(missing) if missing else "present: " + ", ".join(arg)
+    if kind in ("tree_absent", "tree_present"):
+        if not workdir:
+            raise Unreadable("no ported tree")
+        there = [r for r in arg if (Path(workdir) / r).exists()]
+        if kind == "tree_absent":
+            return not there, "still in the tree: " + ", ".join(there[:5]) if there else f"absent: {len(arg)} path(s)"
+        gone = [r for r in arg if r not in there]
+        return not gone, "missing from the tree: " + ", ".join(gone[:5]) if gone else f"present: {len(arg)} path(s)"
     if kind == "omni_absent":
         if not install:
             raise Unreadable("no installed browser")

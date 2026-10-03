@@ -13,6 +13,10 @@
     fieldkit build-harness briefs TASK [--json] [--technical]   every open decision, as a full brief (fieldkit/briefs)
     fieldkit build-harness brief show ID [--task TASK]          one brief in full (logged as shown)
     fieldkit build-harness decide ID OPTION --words "..."       the maintainer records the answer (real terminal only)
+    fieldkit build-harness migrate plan|sitrep|seed|check|gate|init|advance|work|park|unpark|intents|intake|consistency TASK
+                                                                migration control: stages S0-S9, gates, SITREP, drift
+                                                                guard (fieldkit/migrate); --park "why" on record, repair,
+                                                                build-run or decide parks a ticket instead of running
 
 Without TASK, the current task is used (the last one started).
 The model gets four MCP tools: build_harness_status, build_harness_next, build_harness_submit, and the read-only
@@ -411,6 +415,14 @@ def run(a, emit):
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
                                     f"NEXT: the owner reads the plan and runs: fieldkit build-harness approve {r['task']}")) or 0
+    if act == "migrate":                                      # migration control: plan, gates, SITREP (fieldkit/migrate)
+        from ..migrate import cli as mc
+        return mc.run(a, emit, current_id)
+    # the drift guard: under migration control, record/repair/build-run/decide need a work item of the current stage
+    # (or --park "why"), and writers (record, repair, build-run, install, leakgate, submit) run one at a time
+    from ..migrate import guard as _guard
+    if _guard.enforce(act, a, current_id) == "parked":
+        return 0
     if act in ("briefs", "decide") or (act == "brief" and a.args and a.args[0] == "show"):
         return _briefs(act, a, emit)
     words = [x for x in a.args if x != "baseline"]            # `audit baseline` is not a task name

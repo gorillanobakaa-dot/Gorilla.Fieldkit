@@ -9,6 +9,10 @@ the patch, the claim's own sentence, the allowlist entry); nothing is summarised
     from_allowlist   an allowlist proposal nobody approved yet (leakgate/allow.json)
     from_deferred    a step parked for the maintainer (buildh/deferred.py)
     from_owner_edits an uncommitted change to a file the build reads, in the owner repository (buildh/decision.py)
+    from_lost_layer / from_consistency / from_intake / from_publish
+                     migration control (fieldkit/migrate/briefs.py): a defence layer missing from the install, a document
+                     or tool that disagrees with the register or the build, a new upstream thing with no disposition,
+                     and the maintainer's yes to publish
 
 `collect(ctx)` runs them all (or `kinds`) and returns the valid briefs in priority order; a producer that cannot run
 is reported as a problem, never silently skipped.
@@ -24,7 +28,9 @@ import yaml
 from . import schema
 
 PRIVACY_NOTE = "the default for an unproven privacy or security claim is to make it true and prove it, never to delete it"
-ORDER = {"decision": 0, "claims-x": 1, "patch": 2, "disposition": 3, "allowlist": 4, "deferred": 5, "owner-edit": 6, "claims-u": 7}
+# each kind its own rank: two kinds never tie, so their differently shaped `_sort` keys are never compared
+ORDER = {"decision": 0, "lost-layer": 0.5, "claims-x": 1, "consistency": 1.5, "patch": 2, "intake": 2.5, "disposition": 3,
+         "allowlist": 4, "deferred": 5, "owner-edit": 6, "claims-u": 7, "publish": 8}
 OWNER_EDIT_DIRS = ("config/", "gorilla-patchset/", "harness/", "decisions/")    # files the build or the gate reads
 
 
@@ -646,10 +652,22 @@ def from_owner_edits(ctx):
     return out
 
 
+def _migrate(name):
+    """A migration-control producer (fieldkit/migrate/briefs.py), imported when it runs (it imports this module)."""
+    def run(ctx):
+        from ..migrate import briefs as mb
+        return getattr(mb, name)(ctx)
+    run.__name__ = name
+    return run
+
+
 PRODUCERS = {"decision": from_decisions, "patch": from_patches, "claims": from_claims, "disposition": from_dispositions,
-             "allowlist": from_allowlist, "deferred": from_deferred, "owner-edit": from_owner_edits}
+             "allowlist": from_allowlist, "deferred": from_deferred, "owner-edit": from_owner_edits,
+             "lost-layer": _migrate("from_lost_layer"), "consistency": _migrate("from_consistency"),
+             "intake": _migrate("from_intake"), "publish": _migrate("from_publish")}
 PREFIX = {"B-DECISION-": "decision", "B-PATCH-": "patch", "B-CLAIMS-": "claims", "B-DISPOSITION-": "disposition",
-          "B-ALLOW-": "allowlist", "B-DEFERRED-": "deferred", "B-EDIT-": "owner-edit"}
+          "B-ALLOW-": "allowlist", "B-DEFERRED-": "deferred", "B-EDIT-": "owner-edit", "B-LOSTLAYER-": "lost-layer",
+          "B-CONSISTENCY-": "consistency", "B-INTAKE-": "intake", "B-PUBLISH-": "publish"}
 
 
 def kind_of(brief_id):
