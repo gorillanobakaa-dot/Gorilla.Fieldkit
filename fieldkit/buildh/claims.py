@@ -1225,7 +1225,7 @@ def scrub(text, roots):
 #: Public identifiers the e-mail rule of the privacy scan mistakes for addresses, and nothing else: an image's
 #: device-pixel suffix (the about logo's "at 2x" PNG) and the add-on id of the bundled uBlock Origin, which Mozilla's add-on site
 #: publishes. Only these exact shapes are exempt; every other finding blocks the report.
-PUBLIC_IDS = re.compile(r"[\w.-]+@\d+(?:\.\d+)?x\.(?:png|jpe?g|svg|webp|gif|ico)\b|\buBlock0@raymondhill\.net\b")
+PUBLIC_IDS = re.compile(r"[\w.-]+@\d+(?:\.\d+)?x\.(?:png|jpe?g|svg|webp|gif|ico)\b|\buBlock0@raymondhill\.net\b|\b[\w.-]+@mozilla\.org\b")   # Mozilla add-on and theme ids (public identifiers, not addresses)
 
 
 def privacy_findings(text):
