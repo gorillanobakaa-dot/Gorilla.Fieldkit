@@ -17,3 +17,23 @@ def test_a_pref_the_patch_added_counts_when_a_decision_locked_it():
     assert verify._locked_variant('pref("a.b", false);', have)
     assert not verify._locked_variant('pref("a.b", true);', have)
     assert not verify._locked_variant('pref("a.b", false, locked);', {'pref("a.b", false);'})
+
+
+def test_an_unsorted_mozbuild_list_is_found_sorted_and_comments_travel(tmp_path):
+    from fieldkit.buildh import mozbuild_rules as m
+    p = tmp_path / "moz.build"
+    p.write_text('EXTRA_JS_MODULES += [\n    "AboutNewTab.sys.mjs",\n    # mode\n    "Gorilla.sys.mjs",\n'
+                 '    "AIWindowStub.sys.mjs",\n]\nSOURCES["a.c"].flags += [\n    "-z",\n    "-a",\n]\n', encoding="utf-8")
+    assert [v for _, _, v in m.unsorted_lists(p.read_text(encoding="utf-8"))] == ["AIWindowStub.sys.mjs"]
+    assert m.fix_unsorted_lists(p) == ["EXTRA_JS_MODULES"]
+    t = p.read_text(encoding="utf-8")
+    assert t.index("AboutNewTab") < t.index("AIWindowStub") < t.index("# mode") < t.index("Gorilla.sys.mjs")
+    assert m.unsorted_lists(t) == [] and '"-z",\n    "-a"' in t
+
+
+def test_a_hot_laptop_cools_before_any_load():
+    from fieldkit.buildh import buildrun
+    temps = iter([86.0, 80.0, 70.0])
+    waited = []
+    assert buildrun.cool_down(lambda m: None, sleep=waited.append, read=lambda: next(temps)) == 70.0
+    assert waited == [30, 30]

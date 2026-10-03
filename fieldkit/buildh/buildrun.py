@@ -352,6 +352,26 @@ def sweep_excised_dist(dist_bin, say):
     return removed
 
 
+def fix_mozbuild_unsorted(t, root, say, lines):
+    """mach: UnsortedError in a moz.build list -> the list sorted (comments kept with their entry), recorded, retried."""
+    from . import handedit
+    from .mozbuild_rules import unsorted_from_log, fix_unsorted_lists
+    path = unsorted_from_log(lines)
+    if not path:
+        return False, "the moz.build path is not in the error text"
+    w = Path(t["workdir"])
+    try:
+        rel = Path(path.replace("/", os.sep)).resolve().relative_to(w.resolve()).as_posix()
+    except ValueError:
+        return False, f"{path} is not inside the tree"
+    fixed = fix_unsorted_lists(w / rel)
+    if not fixed:
+        return False, f"{rel}: no unsorted list found"
+    handedit.record(t["id"], [rel], f"build stop mozbuild-unsorted: {', '.join(fixed)} sorted", kind="port")
+    say(f"  {rel}: {', '.join(fixed)} sorted")
+    return True, f"{rel}: {fixed}"
+
+
 def fix_mozbuild_empty(t, root, say, lines):
     """mach: "Variable X assigned an empty value" -> the statement removed, recorded, retried."""
     from . import handedit
@@ -402,6 +422,7 @@ STOPS = [
     (r"failed with 3221225786|0xC000013A|STATUS_CONTROL_C_EXIT", "console-interrupt", fix_retry),
     (r"A jar\.mn exists but it\s+is not referenced in the moz\.build file", "jar-manifest-undeclared", fix_jar_manifest),
     (r"Variable \w+ assigned an empty value", "mozbuild-empty-assignment", fix_mozbuild_empty),
+    (r"UnsortedError|An attempt was made to add an unsorted sequence", "mozbuild-unsorted", fix_mozbuild_unsorted),
     (r"Cannot find the target C compiler|clang-cl STILL not on PATH", "clang-cl-missing", None),
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
     (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", fix_thermal_cooldown),
@@ -489,6 +510,26 @@ def _boot_time():
         return None
 
 
+START_MAX_C = 75.0       # a build or a proof never starts above this reading
+COOL_WAIT_S = 1800
+
+
+def cool_down(say, sleep=time.sleep, clock=time.time, read=None):
+    """2026-10-03 15:08: build 17 began its proof at 85 C, right after a reset. Wait (up to 30 min) until the hottest
+    readable CPU source is under START_MAX_C. -> the last reading, or None when nothing reads."""
+    from ..thermal import sensors
+    def hottest():
+        vals = [v for _, f in sensors.PROVIDERS for v in [f()] if v is not None]
+        return max(vals) if vals else None
+    read = read or hottest
+    t0, t = clock(), read()
+    while t is not None and t >= START_MAX_C and clock() - t0 < COOL_WAIT_S:
+        say(f"  cooling: {t:.0f} C >= {START_MAX_C:.0f} C before any load; waiting")
+        sleep(30)
+        t = read()
+    return t
+
+
 def thermal_sensor(say, retry=True):
     """The first CPU sensor proven against load (fieldkit.thermal.sensors.best). -> (name, fn) or (None, None).
     2026-10-03 14:24: the proof itself (every core at 100%, uncapped, 80 s, a lagging surface sensor) reset the laptop.
@@ -496,6 +537,7 @@ def thermal_sensor(say, retry=True):
     from ..thermal import sensors, governor
     import json as _json
     governor.restore_stale_cap(say)                      # a crash may have left the processor capped
+    cool_down(say)                                         # never start loading a laptop that is already hot
     c = _proof_cache()
     try:
         prev = _json.loads(c.read_text(encoding="utf-8"))
@@ -643,7 +685,7 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
             if fix is None or attempt > RETRIES or repeat:
                 say(stop_guidance(fix, attempt, repeat))
                 return {"ok": False, "stops": stops, "log": str(log_path)}
-            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object, fix_jar_manifest, fix_mozbuild_empty) else fix(t, root, say)
+            ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object, fix_jar_manifest, fix_mozbuild_empty, fix_mozbuild_unsorted) else fix(t, root, say)
             t = task.load(task_id)                      # a fix may have recorded steps and checkpointed
             task.journal(t, "build-fix", stage=stage, signature=name, ok=ok, what=what)
             if not ok:

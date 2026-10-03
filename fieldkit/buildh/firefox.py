@@ -441,6 +441,9 @@ def syntax_problems(workdir, files):
                     from .mozbuild_rules import empty_assignments
                     for ln, var in empty_assignments(text):
                         out.append(f"{rel}: line {ln}: mozbuild refuses an empty {var} assignment")
+                    from .mozbuild_rules import unsorted_lists
+                    for ln, var, val in unsorted_lists(text):
+                        out.append(f"{rel}: line {ln}: mozbuild refuses an unsorted {var} list (at {val})")
             elif rel.endswith(".json") and not rel.endswith((".in.json", ".jsonc")) and "/test" not in rel:
                 json.loads(text)
             elif rel.endswith((".mjs", ".js")) and "/test" not in rel and not rel.endswith(".min.js"):

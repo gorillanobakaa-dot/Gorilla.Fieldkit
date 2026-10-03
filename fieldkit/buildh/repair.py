@@ -188,6 +188,15 @@ def run(task_id, say=print):
             if fixed:
                 handedit.record(task_id, [rel], f"repair: {what} (mozbuild refuses an empty value)", kind="port")
             continue
+        if "mozbuild refuses an unsorted" in rest:
+            from .mozbuild_rules import fix_unsorted_lists
+            fixed = fix_unsorted_lists(w / rel)
+            what = f"mozbuild list(s) sorted: {fixed}"
+            say(f"  [{'repaired' if fixed else 'refused'}] {rel}: {what}")
+            (repaired if fixed else refused).append(f"{rel}: {what}")
+            if fixed:
+                handedit.record(task_id, [rel], f"repair: {what} (mozbuild refuses an unsorted list)", kind="port")
+            continue
         m = re.search(r"line (\d+)", rest)
         if not m or not rel.endswith((".mjs", ".js")):
             refused.append(prob)
