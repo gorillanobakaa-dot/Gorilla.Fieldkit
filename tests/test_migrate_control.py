@@ -289,3 +289,10 @@ def test_one_writer_at_a_time(mig, monkeypatch):
 
 
 ALIVE = {"v": True}
+
+
+def test_an_open_ticket_can_be_picked_up_as_work(mig):
+    plan.init(mig.make())
+    tk = guard.park("t1", "later work")
+    w = guard.work(mig.make(), tk["id"])
+    assert w["item"] == tk["id"] and w["stage"] == "S6"

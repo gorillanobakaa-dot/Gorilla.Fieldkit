@@ -117,6 +117,19 @@ def work(m, item_id, by="cli"):
     stage = p["stage"]
     g, ids = stage_items(m, stage)
     if item_id not in ids:
+        # 2026-10-03: carried red items of EARLIER stages must be green before S9, so working on them is the plan,
+        # not a side quest; an open parked ticket may be picked up deliberately. Only LATER stages stay refused.
+        earlier = [s for s in plan.IDS[:plan.IDS.index(stage)]]
+        for s in earlier:
+            g2, ids2 = stage_items(m, s)
+            if item_id in ids2 and not ids2[item_id].get("ok"):    # only a CARRIED (red) item; green ones are done
+                ids = {item_id: dict(ids2[item_id], carried_from=s)}
+                break
+        else:
+            tk = next((t for t in open_tickets(m.tid) if t["id"] == item_id), None)
+            if tk:
+                ids = {item_id: {"id": item_id, "what": tk.get("why", ""), "command": None, "brief": None, "ok": False}}
+    if item_id not in ids:
         owner = next((s for s in plan.IDS if s != stage and item_id in stage_items(m, s)[1]), None)
         red = [i["id"] for i in g["red"]][:6]
         raise task.Refused((f"{item_id} belongs to {owner} {plan.STAGE[owner]['name']}, " if owner else f"{item_id} is not an item of ")
@@ -125,7 +138,7 @@ def work(m, item_id, by="cli"):
                            + f". The open items of {stage}: {', '.join(red) or 'none (advance)'}")
     gi = ids[item_id]
     w = {"item": gi["id"], "asked": item_id, "stage": stage, "since": time.strftime("%Y-%m-%d %H:%M:%S"), "by": by,
-         "what": gi["what"], "command": gi.get("command"), "brief": gi.get("brief")}
+         "what": gi["what"], "command": gi.get("command"), "brief": gi.get("brief"), "carried_from": gi.get("carried_from")}
     d = plan.state_dir(m.tid)
     d.mkdir(parents=True, exist_ok=True)
     _wpath(m.tid).write_text(json.dumps(w, indent=1) + "\n", encoding="utf-8", newline="\n")

@@ -86,6 +86,10 @@ groups:
     title: Install the built browser and prove it
     sources: [buildh/capture.py, buildh/claims.py, buildh/decisions.py, buildh/install.py, buildh/leaks.py, buildh/proof.py, buildh/throwaway.py]
 
+  - name: netbench
+    title: Network benches B1-B5 (bytes, load time, throughput, HTTP/3 buffers, RAM, keepalive) through an emulated link, local servers only
+    sources: ["netbench/*.py"]
+
   - name: decision-briefs
     title: Decision briefs, never a bare question (what is affected, every option, its cost, the recorded answer)
     sources: ["briefs/*.py"]

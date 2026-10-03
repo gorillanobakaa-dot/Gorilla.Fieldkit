@@ -17,6 +17,11 @@
                                                                 migration control: stages S0-S9, gates, SITREP, drift
                                                                 guard (fieldkit/migrate); --park "why" on record, repair,
                                                                 build-run or decide parks a ticket instead of running
+    fieldkit build-harness netbench [TASK] [--bench B1,...] [--profile normal|satellite|slow] [--install-dir D]
+                                       [--label NAME] [--links L,...] [--repeat N] [--out DIR]
+                                                                network benches B1-B5 against local servers through an
+                                                                emulated link (fieldkit/netbench)
+    fieldkit build-harness netbench compare A B                 before/after deltas of two netbench results
 
 Without TASK, the current task is used (the last one started).
 The model gets four MCP tools: build_harness_status, build_harness_next, build_harness_submit, and the read-only
@@ -418,6 +423,9 @@ def run(a, emit):
     if act == "migrate":                                      # migration control: plan, gates, SITREP (fieldkit/migrate)
         from ..migrate import cli as mc
         return mc.run(a, emit, current_id)
+    if act == "netbench":                                     # network benches B1-B5, local servers only (fieldkit/netbench)
+        from ..netbench import cli as nbc
+        return nbc.run(a, emit, current_id)
     # the drift guard: under migration control, record/repair/build-run/decide need a work item of the current stage
     # (or --park "why"), and writers (record, repair, build-run, install, leakgate, submit) run one at a time
     from ..migrate import guard as _guard

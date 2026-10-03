@@ -46,6 +46,16 @@ def _sequence_present(body, lines, gap=3):
     return False
 
 
+def _locked_variant(line, have):
+    """A pref line the patch added unlocked counts as present when the tree has the SAME pref and value, now locked:
+    a later decision strengthened it (2026-10-03: intl.multilingual.* became `, locked` and verify called the 05.PREFS
+    step a false completion). Never the other way round: a lost lock is not accepted."""
+    t = line.strip()
+    if not t.startswith("pref(") or not t.endswith(");") or t.endswith(", locked);"):
+        return False
+    return (t[:-2] + ", locked);") in have
+
+
 def score_hunk(body, hunk, file=""):
     """-> (verdict, detail). `body` is the target file's lines, or None when the file does not exist."""
     if file.endswith(".ftl") and body is not None:
@@ -82,7 +92,7 @@ def score_hunk(body, hunk, file=""):
     have = {l.strip() for l in body}
     if not add and not rem:
         return "NO-SIGNAL", "only short, blank or punctuation lines: cannot be judged by text"
-    add_in = [l for l in add if l in have]
+    add_in = [l for l in add if l in have or _locked_variant(l, have)]
     # a removal is judged inside the hunk's own span when it can be pinned: `color: inherit;` living elsewhere in
     # the file made two correct CSS merges 'not in the tree' and reopened them (live run 14, h15/h16)
     frame = firefox._span(body, {"lines": [l for l in hunk["lines"] if not l.startswith("-")]})   # context only

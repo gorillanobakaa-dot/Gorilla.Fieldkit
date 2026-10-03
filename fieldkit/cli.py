@@ -39,6 +39,7 @@
     fieldkit build-harness latest|vault|start|approve|next|status|submit|unblock|log ...
                                                  Firefox & kernel builds in small checked steps (see buildh/cli.py)
     fieldkit build-harness migrate plan|sitrep|check|advance|work ... TASK
+    fieldkit build-harness netbench [TASK] [--bench B1,...] / compare A B   network benches, local servers only
                                                  migration control: stages, gates, SITREP, drift guard (see migrate/cli.py)
 
 Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets, failed stage).
@@ -673,10 +674,11 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench"])
     bh.add_argument("--park", help="migration control: do NOT run this record/repair/build-run/decide; park it as a ticket with this reason")
     bh.add_argument("--static", action="store_true", help="visual: only the static layer (the ported tree; no browser is started)")
-    bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>)")
+    bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>); "
+                                  "netbench: the results folder (default <firefox.root>/bench)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
     bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")
     bh.add_argument("args", nargs="*")
@@ -688,7 +690,11 @@ def build_parser():
                                                           "claims: every claim PROVEN, every patch IMPLEMENTED or explained")
     bh.add_argument("--report", help="claims: where to write the public audit report (default <owner>/claims/AUDIT-<major>.md)")
     bh.add_argument("--release", action="store_true", help="leakgate: release run (full durations, 3 repetitions, packets required)")
-    bh.add_argument("--repeat", type=int, help="leakgate: repetitions per scenario")
+    bh.add_argument("--repeat", type=int, help="leakgate: repetitions per scenario; netbench: repetitions per bench (default 3)")
+    bh.add_argument("--bench", help="netbench: comma list of B1,B2,B3,B4,B5 (default all)")
+    bh.add_argument("--profile", choices=["normal", "satellite", "slow"], help="netbench: browser mode level (default normal)")
+    bh.add_argument("--links", help="netbench: comma list of broadband,starlink,geo,austere (default all)")
+    bh.add_argument("--label", help="netbench: the name of this result (e.g. before-build16)")
     bh.add_argument("--soak", type=int, help="leakgate: startup-idle duration in seconds (spec: 1800 or 3600)")
     bh.add_argument("--firewall", action="store_true", help="leakgate (elevated): outbound block rule for the direct build copy, removed at the end")
     bh.add_argument("--packets-only", action="store_true", dest="packets_only", help="capture: only the frame-level pktmon pass (needs an admin shell)")
