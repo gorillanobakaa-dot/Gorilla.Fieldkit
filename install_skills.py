@@ -2,14 +2,14 @@
 
     python install_skills.py            install/update
     python install_skills.py --check    report what is installed, change nothing
-    python install_skills.py --remove   remove the fieldkit-* skills it installed
+    python install_skills.py --remove   remove the fieldkit-* and gorilla-* skills it installed
 
 Targets (only those whose parent folder exists, plus ~/.claude/skills):
     ~/.claude/skills   Claude Code
     ~/.agents/skills   Codex, Gemini CLI (the shared .agents alias)
     ~/.gemini/skills   Gemini CLI
 
-Only folders named fieldkit-* are ever written or removed. A copy is updated
+Only folders named fieldkit-* or gorilla-* are ever written or removed. A copy is updated
 only when its content differs, so running this twice changes nothing.
 """
 import argparse
@@ -40,7 +40,7 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--remove", action="store_true")
     a = ap.parse_args(argv)
-    skills = sorted(p for p in SRC.iterdir() if p.is_dir() and p.name.startswith("fieldkit-"))
+    skills = sorted(p for p in SRC.iterdir() if p.is_dir() and p.name.startswith(("fieldkit-", "gorilla-")))
     for t in targets():
         for s in skills:
             dest = t / s.name

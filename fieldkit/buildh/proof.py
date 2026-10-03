@@ -28,7 +28,11 @@ PREF_SOURCES = (("modules/libpref/init/all.js", "greprefs.js", "omni.ja"),
 # xml/, mathml/ and uBlock's _locales/ml/ on 02 Oct; these are prefixes, matched at a path-component boundary.
 EXCISED_PACKAGED = ("chrome/toolkit/content/global/ml/", "moz-src/toolkit/components/ml/actors/", "moz-src/toolkit/components/ml/MLModelHubService.sys.mjs",
                     "moz-src/browser/components/aiwindow/", "chrome/browser/content/browser/aiwindow/",
-                    "moz-src/browser/components/genai/", "chrome/browser/content/browser/genai/", "modules/GenAI.sys.mjs")
+                    "moz-src/browser/components/genai/", "chrome/browser/content/browser/genai/", "modules/GenAI.sys.mjs",
+                    # 2026-10-02 (decisions D-157-03/04): Mozilla's extra themes and the translations model dumps
+                    "chrome/browser/content/builtin-themes/light/", "chrome/browser/content/builtin-themes/dark/",
+                    "chrome/browser/content/builtin-themes/alpenglow/",
+                    "defaults/settings/main/translations-models.json", "defaults/settings/main/translations-wasm.json")
 
 
 def _norm(v):
@@ -138,13 +142,9 @@ STARTUP_BAD = re.compile(r"JavaScript error:.*(SyntaxError|No such JSWindowActor
 
 def startup_row(install_dir, seconds=25):
     """Headless start on a throwaway profile; stderr+stdout read for the three classes above."""
-    import tempfile, time
+    from . import throwaway
     exe = Path(install_dir) / "firefox.exe"
-    prof = Path(tempfile.mkdtemp(prefix="gproof_"))
-    (prof / "user.js").write_text("\n".join([
-        'user_pref("browser.shell.checkDefaultBrowser", false);',
-        'user_pref("browser.aboutwelcome.enabled", false);',
-        'user_pref("devtools.console.stdout.chrome", true);', ""]), encoding="utf-8")
+    prof = throwaway.profile("gproof_", throwaway.USER_JS + 'user_pref("devtools.console.stdout.chrome", true);\n')
     with open(prof / "stderr.txt", "wb") as err, open(prof / "stdout.txt", "wb") as out:
         proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), "about:blank"], stdout=out, stderr=err)
         try:
@@ -154,8 +154,10 @@ def startup_row(install_dir, seconds=25):
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     text = (prof / "stderr.txt").read_text(encoding="utf-8", errors="replace") + (prof / "stdout.txt").read_text(encoding="utf-8", errors="replace")
     lines = sorted({l.strip()[:200] for l in text.splitlines() if STARTUP_BAD.search(l)})
+    kept = throwaway.keep(prof, "stderr.txt", "stdout.txt")
+    throwaway.discard(prof)
     return {"check": "startup: headless, no module/actor errors, no missing URLs, no dead category hooks", "ok": not lines,
-            "evidence": f"{seconds} s headless; {len(lines)} bad line(s)" + (f": {lines[0]}" if lines else ""), "bad": lines, "log": str(prof)}
+            "evidence": f"{seconds} s headless; {len(lines)} bad line(s)" + (f": {lines[0]}" if lines else ""), "bad": lines, "log": str(kept)}
 
 
 # ---------------------------------------------------------------- egress: the browser's own HTTP log
@@ -202,10 +204,10 @@ def judge_hosts(hosts, page_host=None):
 def egress_row(install_dir, url="https://www.anthropic.com/legal/archive/21d66aa9-68f6-4356-ba01-2825b0f81805", seconds=75):
     """Headless, throwaway profile, MOZ_LOG=nsHttp:3 to a file, the page loaded, `seconds` of life: no vendor host
     may appear. Unknown third parties are listed (the page's own CDNs mostly), never silently passed."""
-    import os as _os, tempfile
+    import os as _os
+    from . import throwaway
     exe = Path(install_dir) / "firefox.exe"
-    prof = Path(tempfile.mkdtemp(prefix="gegress_"))
-    (prof / "user.js").write_text('user_pref("browser.shell.checkDefaultBrowser", false);\nuser_pref("browser.aboutwelcome.enabled", false);\n', encoding="utf-8")
+    prof = throwaway.profile("gegress_")
     env = dict(_os.environ, MOZ_LOG="nsHttp:3,timestamp", MOZ_LOG_FILE=str(prof / "http.log"))
     proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -218,10 +220,12 @@ def egress_row(install_dir, url="https://www.anthropic.com/legal/archive/21d66aa
     hosts = http_hosts(text)
     vendor, unknown = judge_hosts(hosts, url.split("/")[2])
     bad = [f"{h} x{n}: {u}" for h, (n, u) in sorted(vendor.items(), key=lambda x: -x[1][0])]
+    kept = throwaway.keep(prof, "http.log*")
+    throwaway.discard(prof)
     return {"check": "egress: the browser asks no Mozilla/Firefox host for anything (its own HTTP log)", "ok": not vendor,
             "evidence": f"{len(hosts)} host(s) in {seconds} s on {url.split('/')[2]}; vendor {len(vendor)}, unknown third parties {len(unknown)}"
                         + (f"; {bad[:3]}" if bad else "") + (f"; unknown: {sorted(unknown)[:6]}" if unknown else ""),
-            "bad": bad, "unknown": sorted(unknown), "log": str(prof)}
+            "bad": bad, "unknown": sorted(unknown), "log": str(kept)}
 
 
 # ad and tracker hosts a stock browser contacts on a news front page; the bundled uBlock Origin (Manifest V2,
@@ -234,10 +238,10 @@ AD_HOSTS = ("doubleclick.net", "googlesyndication.com", "googleadservices.com", 
 def adblock_row(install_dir, url="https://www.theguardian.com/international", seconds=60):
     """The page must load (its own host in the log) and no ad/tracker host may appear: proves the bundled uBlock
     Origin is active and MV2 blocking works in this Firefox."""
-    import os as _os, tempfile
+    import os as _os
+    from . import throwaway
     exe = Path(install_dir) / "firefox.exe"
-    prof = Path(tempfile.mkdtemp(prefix="gadblock_"))
-    (prof / "user.js").write_text('user_pref("browser.shell.checkDefaultBrowser", false);\nuser_pref("browser.aboutwelcome.enabled", false);\n', encoding="utf-8")
+    prof = throwaway.profile("gadblock_")
     env = dict(_os.environ, MOZ_LOG="nsHttp:3,timestamp", MOZ_LOG_FILE=str(prof / "http.log"))
     proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -248,6 +252,7 @@ def adblock_row(install_dir, url="https://www.theguardian.com/international", se
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in sorted(prof.glob("http.log*")))
     hosts = http_hosts(text)
+    throwaway.discard(prof)
     return judge_adblock(hosts, url)
 
 

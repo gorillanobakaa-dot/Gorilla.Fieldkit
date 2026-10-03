@@ -82,9 +82,9 @@ def offered():
 
 
 def call_tool(name, args):
+    """-> (text, is_error). Every refusal is a normal answer with a NEXT line, not a crash."""
     if name not in {t["name"] for t in offered()}:
         return f"no tool {name!r} on this server", True
-    """-> (text, is_error). Every refusal is a normal answer with a NEXT line, not a crash."""
     try:
         if name == "discover":
             hits = agent.discover(args.get("goal", ""))
@@ -108,9 +108,11 @@ def call_tool(name, args):
         if name == "run":
             rec = agent.run(args.get("tool", ""), args.get("inputs") or {}, mode=args.get("mode") or "apply",
                             approve=False)                      # never from a model
-            return _text(rec["answer"]), not rec.get("ok", True)
+            # an error if the tool failed OR its verify checks failed (read-only tools included)
+            return _text(rec["answer"]), not rec.get("ok", True) or rec.get("verified") is False
         if name == "undo":
-            return _text(agent.undo(args.get("run_id", ""))["answer"]), False
+            res = agent.undo(args.get("run_id", ""))           # no approve here: edited files stay refused
+            return _text(res["answer"]), not res.get("ok", True)
         if name == "next":
             from .cli import _pipeline_path
             d = nxt.decide(Pipeline.load(_pipeline_path(args.get("pipeline", "")), strict=False))
@@ -120,7 +122,6 @@ def call_tool(name, args):
         if name.startswith("build_harness_"):
             from .buildh import cli as bh
             return bh.mcp_call(name, args)
-        return f"no tool {name!r}", True
     except agent.Refused as e:
         return f"REFUSED: {e}", False
     except SystemExit as e:

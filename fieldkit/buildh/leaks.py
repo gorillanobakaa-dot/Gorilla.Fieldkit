@@ -89,8 +89,8 @@ def measure(install_dir, seconds=45):
     srv = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    prof = Path(tempfile.mkdtemp(prefix="gleaks_"))
-    (prof / "user.js").write_text('user_pref("browser.shell.checkDefaultBrowser", false);\nuser_pref("browser.aboutwelcome.enabled", false);\n', encoding="utf-8")
+    from . import throwaway
+    prof = throwaway.profile("gleaks_")
     proc = subprocess.Popen([str(Path(install_dir) / "firefox.exe"), "-headless", "-no-remote", "-profile", str(prof), f"http://127.0.0.1:{port}/"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     t0 = time.time()
@@ -98,6 +98,7 @@ def measure(install_dir, seconds=45):
         time.sleep(0.5)
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     srv.shutdown()
+    throwaway.discard(prof)
     return _Handler.result
 
 

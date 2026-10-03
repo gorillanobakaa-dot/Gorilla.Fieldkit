@@ -1,0 +1,42 @@
+name: gorilla-documentation-ibm-style
+description: >-
+  Gorilla.Documentation.IBM.Style: document every group of fieldkit/ in two
+  tracks (layman and developer) with DualTrackAgent's dual_track.py, under the
+  Gorilla philosophy. plan (coverage, what is stale) > prep (stage sources,
+  dual_track prep, writer brief) > fill (a model or a person writes each
+  .filled.json; BLOCKED with the exact files until then) > render (dual_track
+  render + Gorilla checks) > check > index. Ask `fieldkit next
+  gorilla-documentation-ibm-style` for the one next thing. Groups default to
+  the stale ones; --var groups="exam office" names them.
+vars:
+  groups: ""
+stages:
+  - id: plan
+    run: {python: "fieldkit.gdocs.stages:plan", args: {groups: "{groups}"}}
+    verify:
+      - {python: {target: "fieldkit.gdocs.stages:coverage"}}
+
+  - id: prep
+    run: {python: "fieldkit.gdocs.stages:prep", args: {groups: "{groups}"}}
+    verify:
+      - {python: {target: "fieldkit.gdocs.stages:prep_current", args: {groups: "{groups}"}}}
+
+  - id: fill
+    run: {python: "fieldkit.gdocs.stages:fill", args: {groups: "{groups}"}}
+    verify:
+      - {python: {target: "fieldkit.gdocs.stages:fill", args: {groups: "{groups}"}}}
+
+  - id: render
+    run: {python: "fieldkit.gdocs.stages:render", args: {groups: "{groups}"}}
+    verify:
+      - {python: {target: "fieldkit.gdocs.stages:none_stale", args: {groups: "{groups}"}}}
+
+  - id: check
+    run: {python: "fieldkit.gdocs.stages:check", args: {groups: "{groups}"}}
+    verify:
+      - {python: {target: "fieldkit.gdocs.stages:check", args: {groups: "{groups}"}}}
+
+  - id: index
+    run: {python: "fieldkit.gdocs.stages:index"}
+    verify:
+      - {python: {target: "fieldkit.gdocs.stages:index_current"}}

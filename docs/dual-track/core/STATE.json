@@ -1,0 +1,36 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "core",
+ "metrics": {
+  "developer": {
+   "commands": 23,
+   "words_total": 5888
+  },
+  "layman": {
+   "commands": 56,
+   "concept_rows": 13,
+   "glossary_terms": 13,
+   "trust_steps": 6,
+   "usage_steps": 10,
+   "words_total": 7283
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 91,
+  "layman": 98
+ },
+ "sources": {
+  "core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "core/checks.py": "0ce25ffd12914030080765b3f94d401f16b6cd8233329be9e46d58fa6244250b",
+  "core/host.py": "d87429c1e869f450bd8ecb8d9fd89c65cdc4c079f81e37daf05294d9ed55664e",
+  "core/next.py": "20ae613b9d7b7cc8a9ac17a743cecf6708a8c10c3e17b12d2ab0f1f6aea4641a",
+  "core/pipeline.py": "ff9b7efb4347eb654329ed15111893bd1e4caf6e7e53fd744bb3b7727f50c4f5",
+  "core/privacy.py": "dd26f7b03bf8034f5f0d85ddaa2066e3a211d224abebe975540fd6dc1a3f4891",
+  "core/proc.py": "60eb56826e51c775b74b4facfd85d0681f607956c2a5285ddbea78b0d4897517",
+  "core/settings.py": "0a7953a4d72bc306b4210cb252cf8bfdb4287ca53bd8835053c20fcc2a667eb2",
+  "core/snapshot.py": "80b9530b2af7a6bd1fcdc10d010f42ef5685c7180f5d1adb4fcf9d588449d19c"
+ },
+ "title": "The core engine (pipelines, next, privacy, settings, snapshots)"
+}

@@ -6,6 +6,11 @@ import pytest
 
 from fieldkit.office import check, create, read, scrub
 
+
+@pytest.fixture(autouse=True)
+def _backups(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_OFFICE_BACKUPS", str(tmp_path / "backups"))
+
 DOCX = {"type": "docx", "title": "Field report", "blocks": [
     {"heading": "Findings", "level": 1},
     {"paragraph": "The pump failed at 14:00."},
@@ -103,7 +108,8 @@ def test_scrub_removes_names_but_not_text(tmp_path):
     fields = {x[1] for x in found}
     assert {"creator", "lastModifiedBy", "title"} <= fields and "subject" not in fields
     res = scrub.scrub(f, ["Jane Public"])
-    assert res["removed"] and (tmp_path / "essay.docx.bak").exists()
+    assert res["removed"] and not (tmp_path / "essay.docx.bak").exists()      # never beside the file
+    assert res["backup"] and str(tmp_path / "backups") in res["backup"]
     assert scrub.inspect(f, ["Jane Public"]) == []
     assert "Jane Public wrote this line." in read.read(f)
     assert check.check(f)["problems"] == []

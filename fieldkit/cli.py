@@ -5,7 +5,7 @@
     fieldkit tools check [--run-tests] [--id ...]  exists? safe to probe? tested?
 
     fieldkit office read FILE [--engine builtin|markitdown|docling] [--out F]
-    fieldkit office create SPEC.(json|yaml) OUT
+    fieldkit office create SPEC.(json|yaml) OUT [--force]
     fieldkit office check FILE...
     fieldkit office scrub FILE... [--check] [--term WORD...] [--no-backup]
     fieldkit office deliver FILE...              check, scrub names, recheck, privacy scan: safe to send?
@@ -33,6 +33,7 @@
     fieldkit lifecycle SPEC.yaml --approve       install, verify, uninstall; report leftovers (exit 3)
     fieldkit exam run --model ID... [--toolset raw kit] [--task ...]   measure models with/without the kit
     fieldkit exam report
+    fieldkit docs plan|prep|fill|render|check|index [GROUP...]   dual-track docs (Gorilla.Documentation.IBM.Style)
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
     fieldkit build-harness latest|vault|start|approve|next|status|submit|unblock|log ...
@@ -140,7 +141,7 @@ def cmd_office(a):
         return 0
     if a.action == "create":
         spec = settings.read_file(a.files[0])
-        rep = create.create(spec, a.files[1])
+        rep = create.create(spec, a.files[1], force=a.force)
         _emit(rep, a.json)
         return 0
     if a.action == "check":
@@ -166,7 +167,7 @@ def cmd_office(a):
         reps = []
         for f in a.files:
             key = hashlib.sha256(str(Path(f).resolve()).lower().encode()).hexdigest()[:12]
-            pipe = Pipeline.load(PIPE_DIR / "office-deliver.yaml", overrides={"file": f},
+            pipe = Pipeline.load(PIPE_DIR / "office-deliver.yaml", overrides={"file": f, "no_backup": "1" if a.no_backup else ""},
                                  state_dir=settings.ROOT / "state" / "office-deliver" / key)
             reps.append({"file": f} | pipe.run(force=True))
 
@@ -344,7 +345,7 @@ def cmd_agent(a):
             _emit(agent.describe(a.args[0]), a.json)
             return 0
         if a.action == "undo":
-            res = agent.undo(a.args[0])
+            res = agent.undo(a.args[0], approve=getattr(a, "approve", False))
             _emit(res, a.json, lambda r: print(chr(10).join(r["answer"])))
             return 0
         rec = agent.run(a.args[0], _inputs(a.input), mode=a.mode, approve=a.approve)
@@ -447,12 +448,18 @@ def cmd_snapshot(a):
         parts = [p for p in ("services", "tasks", "programs", "processes") if getattr(a, p)]
         if not a.path and not parts:
             raise SystemExit("say what to record: --path DIR and/or --services --tasks --programs --processes")
-        out = snapshot.take(a.names[0], a.path or [], parts)
+        try:
+            out = snapshot.take(a.names[0], a.path or [], parts)
+        except ValueError as e:
+            raise SystemExit(f"fieldkit: {e}")
         _emit({"snapshot": str(out)}, a.json)
         return 0
     if not a.names or len(a.names) != 2:
         raise SystemExit("snapshot diff needs two names: BEFORE AFTER")
-    d = snapshot.diff(*a.names)
+    try:
+        d = snapshot.diff(*a.names)
+    except ValueError as e:
+        raise SystemExit(f"fieldkit: {e}")
     _emit(d, a.json, lambda d: print(chr(10).join(snapshot.summary_lines(d))))
     return 3 if d else 0
 
@@ -534,8 +541,11 @@ def build_parser():
     o.add_argument("--engine", default="builtin", choices=["builtin", "markitdown", "docling"])
     o.add_argument("--out")
     o.add_argument("--check", action="store_true", help="scrub: report only")
-    o.add_argument("--term", nargs="*", help="scrub: extra words to hunt (names, IDs)")
-    o.add_argument("--no-backup", action="store_true")
+    o.add_argument("--term", action="extend", nargs="+", metavar="WORD",
+                   help="scrub: extra words to hunt; put them after the files, or repeat: --term A --term B")
+    o.add_argument("--no-backup", action="store_true",
+                   help="scrub/deliver: keep no backup (backups go to state/office-backups, never beside the file)")
+    o.add_argument("--force", action="store_true", help="create: replace an existing output file")
     o.set_defaults(fn=cmd_office)
 
     p = sub.add_parser("pipeline", parents=[common])
@@ -638,6 +648,9 @@ def build_parser():
     ex.add_argument("--max-rounds", type=int, default=10)
     ex.set_defaults(fn=cmd_exam)
 
+    from .gdocs import cli as gdocs_cli                  # fieldkit docs ... (fieldkit/gdocs/cli.py)
+    gdocs_cli.register(sub, common)
+
     k = sub.add_parser("kernel", parents=[common])
     ks = k.add_subparsers(dest="action", required=True)
     lv = ks.add_parser("localversion", parents=[common])
@@ -658,7 +671,8 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "creep", "brief", "deferred", "verify", "snapshot"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "creep", "brief", "deferred", "verify", "snapshot", "visual"])
+    bh.add_argument("--static", action="store_true", help="visual: only the static layer (the ported tree; no browser is started)")
     bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
     bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")
@@ -667,12 +681,13 @@ def build_parser():
     bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
     bh.add_argument("--no-backup", action="store_true", dest="no_backup", help="install: skip the backup (never the default)")
     bh.add_argument("--drive", action="store_true", help="post-install: allow the checks that take the keyboard (announced, 20 s countdown)")
+    bh.add_argument("--strict", action="store_true", help="decisions: a pending decision counts as not done (release, baseline)")
     bh.add_argument("--release", action="store_true", help="leakgate: release run (full durations, 3 repetitions, packets required)")
     bh.add_argument("--repeat", type=int, help="leakgate: repetitions per scenario")
     bh.add_argument("--soak", type=int, help="leakgate: startup-idle duration in seconds (spec: 1800 or 3600)")
     bh.add_argument("--firewall", action="store_true", help="leakgate (elevated): outbound block rule for the direct build copy, removed at the end")
     bh.add_argument("--packets-only", action="store_true", dest="packets_only", help="capture: only the frame-level pktmon pass (needs an admin shell)")
-    bh.add_argument("--only", help="post-install: comma list of check names to run")
+    bh.add_argument("--only", help="post-install: comma list of check names to run; visual: comma list of about: pages (a partial run is never OK)")
     bh.add_argument("--restore", help="install: put a backup directory back instead of installing")
     bh.add_argument("--install-dir", dest="install_dir", help="install: the directory to install into (default: the registered install)")
     bh.add_argument("--build", action="store_true", help="preflight: also check what a compile needs (disk, fan control)")
@@ -728,11 +743,13 @@ def cmd_thermal(a):
     gov.start()
     import time as _t
     end = _t.time() + a.seconds
-    while _t.time() < end and gov.is_alive():
-        _t.sleep(3)
-        print(f"  {fn()} C  cap {gov.cap}%  peak {gov.peak}")
-    gov.stop()
-    gov.join(timeout=15)
+    try:                                                   # Ctrl+C must still put the power plan's cap back
+        while _t.time() < end and gov.is_alive():
+            _t.sleep(3)
+            print(f"  {fn()} C  cap {gov.cap}%  peak {gov.peak}")
+    finally:
+        gov.stop()
+        gov.join(timeout=15)
     return 0
 
 

@@ -100,10 +100,8 @@ def test_copy(zip_path, dest, policies=None):
 
 
 def _profile():
-    prof = Path(tempfile.mkdtemp(prefix="gcap_"))
-    (prof / "user.js").write_text('user_pref("browser.shell.checkDefaultBrowser", false);\n'
-                                  'user_pref("browser.aboutwelcome.enabled", false);\n', encoding="utf-8")
-    return prof
+    from . import throwaway
+    return throwaway.profile("gcap_")
 
 
 def _tree_pids(root_pid):
@@ -135,9 +133,13 @@ def _sockets(pids):
     return {tuple(l.split(" ", 2)) for l in ps.splitlines() if l.count(" ") >= 2}
 
 
-def run_browser(exe, url, seconds, env_extra=None, sample_sockets=True):
-    """Start, sample the process tree's sockets every ~2 s, stop exactly what was started. -> (profile dir, sockets)."""
-    prof = _profile()
+def run_browser(exe, url, seconds, env_extra=None, sample_sockets=True, prof=None):
+    """Start, sample the process tree's sockets every ~2 s, stop exactly what was started. -> (profile dir, sockets).
+    A profile made here is deleted after the run; one passed in (`prof`) is the caller's to read and discard."""
+    from . import throwaway
+    own = prof is None
+    if own:
+        prof = _profile()
     env = dict(os.environ, **(env_extra or {}))
     proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -152,6 +154,8 @@ def run_browser(exe, url, seconds, env_extra=None, sample_sockets=True):
         time.sleep(2)
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     time.sleep(1)
+    if own:
+        throwaway.discard(prof)
     return prof, socks
 
 
@@ -218,8 +222,10 @@ def dns_run(exe, scenarios=SCENARIOS, say=print):
         prof = _profile()
         log = prof / "dns.log"
         env = {"MOZ_LOG": "nsHostResolver:5,timestamp", "MOZ_LOG_FILE": str(log)}
-        prof, socks = run_browser(exe, url, secs, env_extra=env)
+        prof, socks = run_browser(exe, url, secs, env_extra=env, prof=prof)
         text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in sorted(Path(log.parent).glob("dns.log*")))
+        from . import throwaway
+        throwaway.discard(prof)
         names = sorted({m.group(1).lower() for m in DNS_LINE.finditer(text)})
         results[name] = {"url": url, "names": names, "sockets": sorted(socks)}
     return results

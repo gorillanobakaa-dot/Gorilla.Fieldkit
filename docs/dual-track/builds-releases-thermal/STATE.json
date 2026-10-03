@@ -1,0 +1,36 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "builds-releases-thermal",
+ "metrics": {
+  "developer": {
+   "commands": 28,
+   "words_total": 3843
+  },
+  "layman": {
+   "commands": 80,
+   "concept_rows": 11,
+   "glossary_terms": 10,
+   "trust_steps": 6,
+   "usage_steps": 6,
+   "words_total": 5797
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 96,
+  "layman": 96
+ },
+ "sources": {
+  "build/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "build/kernel.py": "338e5967a8a1871a09f4a2ee54391983637fa57ebc9d6f576bccb5030b0ca472",
+  "build/lifecycle.py": "a739e7772fb315008ea4247aeb81656ec5abb4e39f6ccae3153be2da4446194d",
+  "build/refcheck.py": "1c10f5118a4d8fa9f1c75610e4bd1856d4b158847b2304105d84fcc84c622838",
+  "build/triage.py": "7c33100734a2d5cc8a4931ea61daee21dd76425cb013e752beb8accd62034fad",
+  "release.py": "3b419c6cc832c77a44e9898653825c2e1efad15012bd440e7c7a7505be8ba859",
+  "thermal/__init__.py": "f4a14af5ff7466e363db0150a671ddf221f84c9380743548a03ad2113687a091",
+  "thermal/governor.py": "bd45764ee6403892888cae3cee07cadcb13963c05e47bfd72b13279a983715ee",
+  "thermal/sensors.py": "51ae5451e8c2a20cccaabee58a19da4503dea49b33461c3a2bca105cacf8e159"
+ },
+ "title": "Builds, release checks and the thermal governor"
+}

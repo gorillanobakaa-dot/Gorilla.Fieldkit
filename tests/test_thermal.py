@@ -152,3 +152,42 @@ def test_a_slow_die_sensor_is_regraded_after_a_longer_load(monkeypatch):
     monkeypatch.setattr(sensors, "PROVIDERS", (("fake", lambda: next(readings)),))
     name, fn, detail = sensors.best(prove=True, settle=0, samples=6, interval=0, load=lambda n: [P()])
     assert name == "fake" and "[die sensor]" in detail and "after a 60 s load" in detail
+
+
+def test_thermal_watch_stops_and_joins_the_governor_on_ctrl_c(monkeypatch):
+    """fieldkit/cli.py `thermal watch`: a KeyboardInterrupt in the watch loop must still run gov.stop() and
+    gov.join(): the governor restores the original processor cap when its thread ends. Fake sensor, fake
+    governor: no powercfg, no thread."""
+    import argparse
+    import time as _time
+    import pytest
+    from fieldkit import cli
+    events = []
+
+    class FakeGov:
+        cap, peak = 80, 41.0
+
+        def __init__(self, sensor, **kw):
+            events.append(("init", kw.get("target_c")))
+
+        def start(self):
+            events.append("start")
+
+        def is_alive(self):
+            return True
+
+        def stop(self):
+            events.append("stop")
+
+        def join(self, timeout=None):
+            events.append(("join", timeout))
+
+    def ctrl_c(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(sensors, "best", lambda prove=False: ("fake-cpu", lambda: 40.0, "proven by the test"))
+    monkeypatch.setattr(governor, "Governor", FakeGov)
+    monkeypatch.setattr(_time, "sleep", ctrl_c)
+    with pytest.raises(KeyboardInterrupt):
+        cli.cmd_thermal(argparse.Namespace(action="watch", seconds=60, target=75.0))
+    assert events == [("init", 75.0), "start", "stop", ("join", 15)]

@@ -33,6 +33,20 @@ def rel_to_tree(path, workdir):
     return p[len(w):] if p.lower().startswith(w.lower()) else p
 
 
+def inside_tree(path, workdir):
+    """The file a compiler line names, resolved (symlinks and `..` followed), or None when it lies outside the
+    working copy. A log line is not trusted to name a file this tool may write: only files under the task's
+    workdir are ever edited."""
+    w = Path(workdir).resolve()
+    p = Path(str(path).replace("\\", "/"))
+    p = (p if p.is_absolute() else w / p).resolve()
+    try:
+        p.relative_to(w)
+    except ValueError:
+        return None
+    return p
+
+
 def excised_header(hdr, excised_dirs):
     """Is this header's first path component one the fork removes (e.g. mozilla/llama/ <- backends/llama)?"""
     parts = hdr.replace("\\", "/").split("/")

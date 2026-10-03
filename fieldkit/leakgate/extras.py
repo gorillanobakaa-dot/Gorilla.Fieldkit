@@ -3,8 +3,9 @@
   DohServer      DNS LEAK TEST: a deterministic resolver. The build copy is pinned to it by policy (DNSOverHTTPS,
                  Locked, Fallback false = TRR-only), so every name the browser resolves arrives here; allowlisted
                  names get real answers, everything else NXDOMAIN; every query is logged.
-  certificates   CERTIFICATE TEST: leaf certificates signed by the run's CA (valid, expired, wrong host) and one
-                 self-signed (unknown CA), served on local HTTPS ports for the /certs page.
+  certificates   CERTIFICATE TEST: leaf certificates signed by the run's CA (valid, expired, wrong host), one
+                 self-signed and one from an unknown issuer, served on local HTTPS ports for the /certs and
+                 /certerror pages.
   graceful_close SHUTDOWN TEST "close normally": WM_CLOSE to the browser's top-level windows (no keyboard, no focus).
   periodicity    PERIODICITY TEST: request intervals per host from the decrypted flow timestamps.
   tls_details    TLS TEST: ClientHello (SNI, ALPN, offered versions) and ServerHello (version, cipher) from frames.
@@ -35,8 +36,9 @@ def _load_ca(ca_pem):
     return cert, key
 
 
-def make_cert(out_dir, name, ca_pem=None, host="127.0.0.1", expired=False, self_signed=False):
-    """-> (cert_path, key_path) for a leaf. IP SAN 127.0.0.1 unless `host` is a DNS name."""
+def make_cert(out_dir, name, ca_pem=None, host="127.0.0.1", expired=False, self_signed=False, unknown_ca=False):
+    """-> (cert_path, key_path) for a leaf. IP SAN 127.0.0.1 unless `host` is a DNS name. `unknown_ca`: signed by a
+    throwaway CA that exists nowhere else, so the browser reports SEC_ERROR_UNKNOWN_ISSUER (not the self-signed error)."""
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes, serialization
@@ -50,7 +52,10 @@ def make_cert(out_dir, name, ca_pem=None, host="127.0.0.1", expired=False, self_
         san = x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(host))])
     except ValueError:
         san = x509.SubjectAlternativeName([x509.DNSName(host)])
-    if self_signed or not ca_pem:
+    if unknown_ca:
+        issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "leakgate throwaway CA (never installed)")])
+        sign_key = ec.generate_private_key(ec.SECP256R1())
+    elif self_signed or not ca_pem:
         issuer, sign_key = subject, key
     else:
         ca_cert, sign_key = _load_ca(ca_pem)
@@ -81,9 +86,10 @@ def https_server(cert, key, handler_cls, bind="127.0.0.1"):
 
 
 class CertServers:
-    """valid (signed by the run's CA), expired, wrong-host, self-signed: each on its own local HTTPS port."""
+    """valid (signed by the run's CA), expired, wrong-host, self-signed, unknown issuer (a CA nobody trusts, for the
+    top-level about:certerror scenario): each on its own local HTTPS port."""
 
-    KINDS = ("valid", "expired", "wronghost", "selfsigned")
+    KINDS = ("valid", "expired", "wronghost", "selfsigned", "unknownissuer")
 
     def __init__(self, work, ca_pem):
         class H(_Quiet):
@@ -96,7 +102,8 @@ class CertServers:
                 self.wfile.write(b)
         self.servers = {}
         specs = {"valid": dict(ca_pem=ca_pem), "expired": dict(ca_pem=ca_pem, expired=True),
-                 "wronghost": dict(ca_pem=ca_pem, host="wrong.example.invalid"), "selfsigned": dict(self_signed=True)}
+                 "wronghost": dict(ca_pem=ca_pem, host="wrong.example.invalid"), "selfsigned": dict(self_signed=True),
+                 "unknownissuer": dict(unknown_ca=True)}
         for k, spec in specs.items():
             c, key = make_cert(Path(work) / "certs", k, **spec)
             self.servers[k] = https_server(c, key, H)

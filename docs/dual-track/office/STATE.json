@@ -1,0 +1,33 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "office",
+ "metrics": {
+  "developer": {
+   "commands": 15,
+   "words_total": 4871
+  },
+  "layman": {
+   "commands": 30,
+   "concept_rows": 12,
+   "glossary_terms": 13,
+   "trust_steps": 9,
+   "usage_steps": 9,
+   "words_total": 8166
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 91,
+  "layman": 98
+ },
+ "sources": {
+  "office/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "office/check.py": "6ac8dda69386a2f858de8d963b60a37837a54904f52b5ebccbf5f1a10e4d0081",
+  "office/create.py": "e7215079034bbd29180665254cfc4bedd781c71fd874b79e6d93570371c511db",
+  "office/deliver.py": "54811b3714b17a65a510e23ff292659cb143e196405cb78c6f3bcfe7f47c1d0f",
+  "office/read.py": "e8850d7238adaf04720c41c384afd84ede4b1c6c2ba9404e36ff74f929379cdc",
+  "office/scrub.py": "ec6015184b6ca77bb091111de1e7177010a87d63c9af22f87f86ff71401c7ef2"
+ },
+ "title": "Office documents (read, create, check, scrub, deliver)"
+}

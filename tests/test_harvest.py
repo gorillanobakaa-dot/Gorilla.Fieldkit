@@ -11,7 +11,8 @@ def _mk(root, rel, text):
 def test_index_reads_each_language_without_running(tmp_path):
     _mk(tmp_path, "srcA/icons.py", '"""Render crisp icon frames from one master.\n\nEvery size separately."""\n'
         'import argparse, PIL\nimport winreg\n\ndef render():\n    pass\n\n'
-        'if __name__ == "__main__":\n    p = argparse.ArgumentParser()\n    p.add_argument("--size")\n')
+        'if __name__ == "__main__":\n    p = argparse.ArgumentParser()\n    p.add_argument("--size")\n'
+        '    p.parse_args()\n')
     _mk(tmp_path, "srcA/boom.py", 'raise SystemExit("this must never run")\n')
     _mk(tmp_path, "srcB/fix.ps1", "<#\n.SYNOPSIS\n  Restart the hotspot safely.\n#>\nparam([string]$Ssid)\n"
         "function Restart-Hotspot { Stop-Service x }\n")

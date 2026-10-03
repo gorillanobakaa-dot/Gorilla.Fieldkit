@@ -12,11 +12,10 @@ network, with the evidence the harness can check. Categories:
   OWNER-DECISION      a trade-off only the owner can make; never approved by a blanket approval
   OPEN                nothing stops it yet; never approvable - it gets cut
 
-A model writes these; the owner approves them. OPEN and OWNER-DECISION entries are never auto-approved.
+A model writes these; the owner approves them, at a real terminal only. There is no approval function in this
+module: a chat route (`approve_from_chat`) that skipped the terminal check was removed with the unused `build()`.
 """
 import io
-import json
-import time
 import zipfile
 from pathlib import Path
 
@@ -101,23 +100,3 @@ def classify(rel, info, shipped):
         return "not-shipped", "absent from both packaged omni.ja archives of the build"
     return "OPEN", "nothing in the tree stops this file from sending yet"
 
-
-def build(inventory, shipped, previous=None):
-    out = {}
-    for rel, info in sorted(inventory.items()):
-        cat, why = classify(rel, info, shipped)
-        prev = (previous or {}).get(rel) or {}
-        keep = prev.get("approval") if prev.get("disposition") == cat and prev.get("evidence") == why else None
-        out[rel] = {"component": info["component"], "apis": info["apis"], "disposition": cat, "evidence": why, "approval": keep}
-    return out
-
-
-def approve_from_chat(dispositions, quote, when=None):
-    """Record the owner's chat approval on every entry that is not OPEN or OWNER-DECISION. -> ids approved."""
-    done = []
-    for k, d in dispositions.items():
-        if d["disposition"] in ("OPEN", "OWNER-DECISION") or d.get("approval"):
-            continue
-        d["approval"] = {"by": "owner", "how": "chat", "at": when or time.strftime("%Y-%m-%d %H:%M:%S"), "quote": quote}
-        done.append(k)
-    return done

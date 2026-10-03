@@ -102,11 +102,11 @@ STRACE_CONNECT = re.compile(r"connect\(\d+, \{sa_family=AF_INET6?, sin6?_port=ht
 STRACE_EXEC = re.compile(r'execve\("([^"]+)"')
 
 
-def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_port, watch, allowed_names, say=print):
+def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_port, watch, allowed_names, say=print, prefs=None):
     """Linux twin of sensors.run_one, inside the namespace. -> (events, artifacts)."""
     work = Path(workdir)
     work.mkdir(parents=True, exist_ok=True)
-    prof = se.new_profile(work, f"{name}-{mode}")
+    prof = se.new_profile(work, f"{name}-{mode}", prefs)
     pcap, dropped_mark = work / f"tcpdump-{name}-{mode}.pcap", time.time()
     dns = dnsmasq_start(work, allowed_names)
     tcpd = subprocess.Popen(["ip", "netns", "exec", NS, "tcpdump", "-i", "any", "-s", "0", "-w", str(pcap)],
@@ -143,6 +143,8 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
         ip = m.group(2) or m.group(3)
         if ip and not ip.startswith(("127.", "::1", HOST_IP)):
             ev.append({**base, "sensor": "strace", "kind": "dest-ip", "value": ip, "port": int(m.group(1)), "detail": "connect()"})
+        elif ip and ip.startswith(("127.", "::1")):          # judged only in lan-probe (the closed loopback port)
+            ev.append({**base, "sensor": "strace", "kind": "dest-lan", "value": ip, "port": int(m.group(1)), "detail": "connect()"})
     for m in STRACE_EXEC.finditer(text):
         ev.append({**base, "sensor": "strace", "kind": "process", "value": Path(m.group(1)).name, "detail": m.group(1)})
     for l in leftover:
@@ -162,6 +164,11 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
             ev.append({**base, "sensor": "nftables", "kind": "dest-ip", "value": dst.group(1) if dst else "?",
                        "port": int(dpt.group(1)) if dpt else None, "detail": "BLOCKED by the DROP policy (attempted egress)"})
     ev += [{**base, "sensor": "tcpdump", **e} for e in parse_pcap_classic(pcap, canaries)]
+    # per-scenario fail-closed coverage (gate.action_checks): the sensor ran even if it saw nothing
+    if text:
+        ev.append({**base, "sensor": "strace", "kind": "coverage", "value": f"strace log {len(text)} chars"})
+    if pcap.is_file() and pcap.stat().st_size > 0:
+        ev.append({**base, "sensor": "tcpdump", "kind": "coverage", "value": f"pcap {pcap.stat().st_size} bytes"})
     if shutil.which("zeek"):
         subprocess.run(["zeek", "-r", str(pcap), f"Log::default_logdir={work / ('zeek-' + name + '-' + mode)}"], capture_output=True)
     if shutil.which("suricata"):

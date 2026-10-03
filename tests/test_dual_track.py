@@ -69,9 +69,10 @@ def test_prep_writes_both_tracks_with_the_source_inside(tool, tmp_path):
         assert "return a + b" in prep["user_prompt"] and prep["json_schema"]["type"] == "object"
 
 
-@pytest.mark.xfail(strict=True, reason="known fault: prep prints a render command with --validate, a flag "
-                                       "render no longer has (validation is on by default)")
-def test_prep_prints_a_render_command_that_runs(tool, tmp_path):
+def test_prep_prints_a_render_command_that_runs(tool, tmp_path, request):
+    if tool.parent.name != "DualTrackAgent":           # fixed in DualTrackAgent 2026-10-02 (render accepts --validate)
+        request.node.add_marker(pytest.mark.xfail(strict=True, reason="known fault in this older copy: prep prints "
+                                                  "a render command with --validate, a flag its render lacks"))
     code, out = run(tool, "code", "prep", src(tmp_path, CLEAN), "--output-dir", tmp_path / "docs")
     cmd = re.search(r"dual_track\.py (code render .+)", out).group(1).split()
     code, out = run(tool, *cmd)

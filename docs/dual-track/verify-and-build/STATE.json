@@ -1,0 +1,42 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "verify-and-build",
+ "metrics": {
+  "developer": {
+   "commands": 35,
+   "words_total": 4556
+  },
+  "layman": {
+   "commands": 35,
+   "concept_rows": 12,
+   "glossary_terms": 12,
+   "trust_steps": 5,
+   "usage_steps": 9,
+   "words_total": 7014
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 92,
+  "layman": 97
+ },
+ "sources": {
+  "buildh/audit.py": "13f633db57fc818c1cf7da9914d16ad81af5ee9c75e7f4f70437aa720dca54c2",
+  "buildh/buildrun.py": "2a82ee2170dada15527d4bab1b578f633f05cbfe0055781308be986ee11ef03f",
+  "buildh/claude_watch.py": "94db967bea1b73a303a4d801ff02f78d636a317c0f3af446a50b78426e86a97b",
+  "buildh/compare.py": "a953a0e0d66c6d586182de067480da23df1619c2b9a1e86a2d8857435761980f",
+  "buildh/compile.py": "f7c35929a2e868ad31bcc8ef8c30e19d2e4527a7da3ee00d1e4a1f09ab23e089",
+  "buildh/creepfix.py": "490b8928a6c98104cfbfcee0d2649a57c0dc03ce55674c97752a52a2d627f559",
+  "buildh/icons.py": "b0978a2949ef6057bf3755e55bfa47a0122be4da8d1444339fd2ec2cf5892c19",
+  "buildh/mozbuild_rules.py": "f0f9966553c908a87288bb4880213595a1ff2943d04250e2703ad4d7b6eedd77",
+  "buildh/ownercheck.py": "9133adbef0705b45a30b62996361206a5732294bc5cdef36f0a4c85a6b4e3847",
+  "buildh/preflight.py": "9b05cb1da17df8bbbf50e3219d288fbda0f624a285d95ca1857a41cf5e012b0d",
+  "buildh/recorder.py": "fbf35393895269599ceb1f8779c07c53cfafcdf00023b561e99debb2ca596d5f",
+  "buildh/repair.py": "e72fe35c70982e51af87e1ef0c1182f2a4ab0ced73bf7e910c63fb9edafedc49",
+  "buildh/symbols.py": "8fa0a6a84442510e135bd6bfd21545ae2201d826bcd76dbd5a98ee1615f76008",
+  "buildh/truthbound.py": "1f9109b1cb20ce8672d13dc53cf6c5467a7718228bb107ff5ff7ea01ec03eafe",
+  "buildh/verify.py": "5d0dd18dbb2cb745261b42de6acd6bbb8a20d57cec609e31668143c21ca193be"
+ },
+ "title": "Verify the ported tree, repair it and run the build"
+}

@@ -1,0 +1,36 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "leakgate",
+ "metrics": {
+  "developer": {
+   "commands": 9,
+   "words_total": 3698
+  },
+  "layman": {
+   "commands": 8,
+   "concept_rows": 10,
+   "glossary_terms": 15,
+   "trust_steps": 6,
+   "usage_steps": 7,
+   "words_total": 6152
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 90,
+  "layman": 97
+ },
+ "sources": {
+  "leakgate/__init__.py": "97c9159634f5cb8b627c5f7e2fd34a19638785f704c0de6d201bafac7efada13",
+  "leakgate/allow.py": "d632bda6b0fc2e1c71ed0ee5cd0261d76490c68cdf277c5eb0ab84284199fe08",
+  "leakgate/audit.py": "5088744e0bfcd1ee0594c8561f6f5046cfb9d2d6715a6b99984a7efe1cac3ad8",
+  "leakgate/dispositions.py": "cb5d05f143b30f28e471600052d14bc1de08256a0a83fe380ce20815be159f6a",
+  "leakgate/extras.py": "d3f48f3d7dc00c5b6af2a010b1f6fd8a5857dc6d4baabbbc2c8360efb15005d1",
+  "leakgate/gate.py": "bb9b7a70d2e3edeab329afa064e8112abf4656782d116696be63cff86ecf5de3",
+  "leakgate/linux.py": "fae17f08ff72008d50de46d518e1e3a1c79cfd6cb5511e8c7065c1f76e1bd84e",
+  "leakgate/scenarios.py": "11441b0b8c86bd9a30e29175868a9e5de7c874d32ca726be375b490c1cbb8f0e",
+  "leakgate/sensors.py": "ab21335814211ce53e296f75a4e787a41c3e60c8293a2f4b01fe40e9ee797c4e"
+ },
+ "title": "Leakgate, the fail-closed leak and telemetry release gate"
+}

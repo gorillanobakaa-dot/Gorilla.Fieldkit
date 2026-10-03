@@ -101,7 +101,8 @@ def build_copy(zip_path, dest, policies=None):
     return dest
 
 
-def new_profile(root, name):
+def new_profile(root, name, prefs=None):
+    """A fresh profile; `prefs` {name: value} are appended to user.js (per-scenario test prefs, scenarios.prefs_for)."""
     prof = Path(root) / f"profile-{name}"
     if prof.exists():
         shutil.rmtree(prof, ignore_errors=True)
@@ -114,7 +115,8 @@ def new_profile(root, name):
         'user_pref("browser.download.folderList", 2);',
         'user_pref("browser.download.dir", "%s");' % str(dl).replace("\\", "\\\\"),
         'user_pref("browser.download.useDownloadDir", true);',
-        'user_pref("browser.download.always_ask_before_handling_new_types", false);', ""]), encoding="utf-8")
+        'user_pref("browser.download.always_ask_before_handling_new_types", false);']
+        + ['user_pref(%s, %s);' % (json.dumps(k), json.dumps(v)) for k, v in (prefs or {}).items()] + [""]), encoding="utf-8")
     return prof
 
 
@@ -231,7 +233,27 @@ def fs_diff(before, after):
 
 
 # ------------------------------------------------------------------------------------------- packets
+_WATCHDOG = None
+
+
+def pktmon_watchdog():
+    """2026-10-02: a release run died mid-scenario and its capture kept recording every connection on the laptop for
+    seven hours. A hidden watchdog, started once per gate process, runs `pktmon stop` the moment the gate process is
+    gone, however it ended (crash, closed window, killed). It inherits the gate's elevation."""
+    global _WATCHDOG
+    if _WATCHDOG is not None and _WATCHDOG.poll() is None:
+        return
+    import os
+    if os.name != "nt":
+        return
+    ps = f"Wait-Process -Id {os.getpid()} -ErrorAction SilentlyContinue; pktmon stop | Out-Null"
+    _WATCHDOG = subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def pktmon_start(etl):
+    pktmon_watchdog()
     subprocess.run(["pktmon", "stop"], capture_output=True)
     subprocess.run(["pktmon", "filter", "remove"], capture_output=True)
     subprocess.run(["pktmon", "start", "--capture", "--pkt-size", "0", "--file-name", str(etl)], capture_output=True)
@@ -313,11 +335,37 @@ def parse_pcap(path, local_ports, canaries=()):
 
 
 # ------------------------------------------------------------------------------------------- one run
+def lan_address(host):
+    """True for a private, link-local or loopback IP literal (the Local Network Access address spaces)."""
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return (a.is_private or a.is_link_local or a.is_loopback) and not a.is_unspecified and not a.is_multicast
+
+
+def coverage_events(base, sampled, necko_text, mitm_alive, pcap, mode, packets):
+    """One `coverage` event per sensor that demonstrably ran in this scenario and mode, even when it saw nothing.
+    The per-scenario fail-closed check (gate.action_checks) needs them: no coverage event = the sensor collected
+    nothing = failure. The global sensor check in gate.judge ignores them."""
+    out = []
+    if sampled:
+        out.append({**base, "sensor": "sockets", "kind": "coverage", "value": f"{sampled} samples"})
+    if mode == "direct" and necko_text:
+        out += [{**base, "sensor": s, "kind": "coverage", "value": f"necko log {len(necko_text)} chars"} for s in ("necko-http", "necko-dns")]
+    if mode in ("proxied", "poisoned") and mitm_alive:
+        out.append({**base, "sensor": "mitm", "kind": "coverage", "value": "mitmdump ran for the whole scenario"})
+    if packets and pcap and Path(pcap).is_file() and Path(pcap).stat().st_size > 0:
+        out.append({**base, "sensor": "pktmon", "kind": "coverage", "value": f"pcap {Path(pcap).stat().st_size} bytes"})
+    return out
+
+
 def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_port=None, watch=10, packets=False, say=print,
-            graceful=False, poison=False):
+            graceful=False, poison=False, prefs=None):
     """Run one scenario in one mode. -> (events, artifacts dict)."""
     work = Path(workdir)
-    prof = new_profile(work, f"{name}-{mode}")
+    prof = new_profile(work, f"{name}-{mode}", prefs)
     log = work / f"necko-{name}-{mode}.log"
     env = dict(os.environ)
     if mode == "direct":
@@ -355,6 +403,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
             closed_normally = True
         except subprocess.TimeoutExpired:
             closed_normally = False
+    mitm_alive = mitm is not None and mitm.poll() is None
     sampler.stop_flag.set()
     sampler.join(timeout=30)
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
@@ -394,6 +443,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     for p in sorted(prof.rglob("*")):
         if p.is_file():
             ev.append({**base, "sensor": "filesystem", "kind": "file", "value": p.relative_to(prof).as_posix()})
+    text = ""
     if mode == "direct":
         text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in sorted(work.glob(f"necko-{name}-{mode}.log*")))
         for m in URL_RX.finditer(text):
@@ -406,6 +456,8 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
             h = m.group(1).lower()
             if HOSTNAME.match(h):
                 ev.append({**base, "sensor": "necko-socket", "kind": "dest", "value": h, "port": int(m.group(2))})
+            elif lan_address(h):                  # judged only in lan-probe (LAN_POLICY); loopback includes the local server
+                ev.append({**base, "sensor": "necko-socket", "kind": "dest-lan", "value": h.strip("[]"), "port": int(m.group(2))})
         for cname, c in canaries:
             for line in text.splitlines():
                 if c in line and "127.0.0.1" not in line and "localhost" not in line and ("uri=" in line or "host" in line):
@@ -429,6 +481,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     if packets:
         for e in parse_pcap(pcap, local_ports, canaries):
             ev.append({**base, "sensor": "pktmon", **e})
+    ev += coverage_events(base, len(sampler.timeline), text, mitm_alive, pcap, mode, packets)
     dedup, seen = [], set()
     for e in ev:
         k = (e["sensor"], e["kind"], e["value"], e.get("port"))

@@ -33,9 +33,8 @@ from ..core import settings
 
 TEST_RESULTS = settings.ROOT / "state" / "test-results.json"
 LEVELS = ("gathered", "carded", "tested", "verified")
-SAFETY = ("read-only", "reversible", "irreversible", "unknown")
-# harvest "touches" -> card effects that change something
-CHANGING = {"deletes-files", "registry", "services", "processes", "power", "git", "admin"}
+# harvest "touches" and AST-detected effects -> card effects that change something
+CHANGING = {"writes-files", "deletes-files", "registry", "services", "processes", "power", "git", "admin"}
 
 
 # -- inputs from argparse, read without running -----------------------------------
@@ -81,6 +80,94 @@ def _effects(touches):
     return sorted(eff)
 
 
+# -- what a Python script writes, deletes or starts, read from its syntax tree -----------
+_WRITE_CALLS = {"shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.copytree", "shutil.copymode",
+                "shutil.copystat", "shutil.move", "shutil.make_archive", "shutil.unpack_archive",
+                "os.rename", "os.renames", "os.replace", "os.makedirs", "os.mkdir", "os.symlink", "os.link",
+                "os.chmod", "os.truncate", "os.open", "os.utime", "json.dump", "pickle.dump", "marshal.dump",
+                "yaml.dump", "yaml.safe_dump", "tomli_w.dump", "plistlib.dump", "csv.writer", "csv.DictWriter",
+                "tempfile.mkstemp", "tempfile.mkdtemp", "urllib.request.urlretrieve"}
+_DELETE_CALLS = {"shutil.rmtree", "os.remove", "os.unlink", "os.rmdir", "os.removedirs"}
+_PROCESS_CALLS = {"os.system", "os.popen", "os.startfile", "os.kill", "os.killpg",
+                  "asyncio.create_subprocess_exec", "asyncio.create_subprocess_shell"}
+_PROCESS_PREFIXES = ("subprocess.", "os.exec", "os.spawn", "os.posix_spawn", "multiprocessing.")
+# method names that write whatever object they are called on (Path, workbook, figure, data frame...)
+_WRITE_METHODS = {"write_text", "write_bytes", "touch", "mkdir", "symlink_to", "hardlink_to", "chmod",
+                  "save", "savefig", "to_csv", "to_excel", "to_json", "to_parquet", "to_pickle", "rename", "extractall"}
+_DELETE_METHODS = {"unlink", "rmdir", "rmtree"}
+_OPEN_CALLS = {"open": 1, "io.open": 1, "codecs.open": 1, "gzip.open": 1, "bz2.open": 1, "lzma.open": 1,
+               "tarfile.open": 1, "zipfile.ZipFile": 1}       # name -> index of the mode argument
+
+
+def _aliases(tree):
+    """Local name -> dotted origin, from imports: `import shutil as sh`, `from os import remove`."""
+    out = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                out[(a.asname or a.name).split(".")[0]] = a.name if a.asname else a.name.split(".")[0]
+        elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            for a in n.names:
+                out[a.asname or a.name] = f"{n.module}.{a.name}"
+    return out
+
+
+def _qualified(func, aliases):
+    parts = []
+    node = func
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    head = aliases.get(node.id, node.id)
+    return ".".join([head] + parts[::-1])
+
+
+def _mode_writes(call, index):
+    """True when an open-like call's mode (positional `index` or mode=) can write. Unknown mode -> True."""
+    mode = next((k.value for k in call.keywords if k.arg == "mode"), None)
+    if mode is None and len(call.args) > index:
+        mode = call.args[index]
+    if mode is None:
+        return False                                  # default mode is read
+    if isinstance(mode, ast.Constant) and isinstance(mode.value, str):
+        return any(c in mode.value for c in "wax+")
+    return True
+
+
+def code_effects(path):
+    """-> set of effects a Python file can have (writes-files, deletes-files, processes), from its syntax
+    tree; nothing is executed. None when the file cannot be parsed (then nothing can be assumed)."""
+    try:
+        tree = ast.parse(Path(path).read_text(encoding="utf-8-sig", errors="replace"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    aliases = _aliases(tree)
+    eff = set()
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        name = _qualified(n.func, aliases) or ""
+        method = n.func.attr if isinstance(n.func, ast.Attribute) else None
+        if name in _OPEN_CALLS:
+            if _mode_writes(n, _OPEN_CALLS[name]):
+                eff.add("writes-files")
+        elif method == "open" and _mode_writes(n, 0):          # Path(...).open("w")
+            eff.add("writes-files")
+        if name in _WRITE_CALLS:
+            eff.add("writes-files")
+        if name in _DELETE_CALLS:
+            eff.add("deletes-files")
+        if name in _PROCESS_CALLS or name.startswith(_PROCESS_PREFIXES):
+            eff.add("processes")
+        if method in _WRITE_METHODS and name not in _OPEN_CALLS:
+            eff.add("writes-files")
+        if method in _DELETE_METHODS:
+            eff.add("deletes-files")
+    return eff
+
+
 def guess_safety(effects, probe):
     """Inferred, never trusted as reviewed: no changing effect seen -> read-only (draft)."""
     if set(effects) & CHANGING:
@@ -94,10 +181,19 @@ def draft_card(entry):
     path = entry["path"] if "path" in entry else entry["id"]
     inputs = argparse_inputs(path) if str(path).endswith(".py") else \
         [{"name": o, "flag": f"-{o}", "type": "str", "required": False, "help": ""} for o in entry.get("options", [])]
-    effects = _effects(entry.get("touches"))
+    effects = set(_effects(entry.get("touches")))
+    safety = None
+    if str(path).endswith(".py"):
+        found = code_effects(path)
+        if found is None:
+            safety = "unknown"                         # unreadable code: never guess read-only
+        else:
+            effects |= found
+    effects = sorted(effects)
+    safety = safety or guess_safety(effects, entry.get("probe"))
     return {"id": entry["id"], "title": entry.get("title") or "", "path": str(path),
             "entry": _entry_for(path, entry.get("language")), "inputs": inputs, "effects": effects,
-            "safety": guess_safety(effects, entry.get("probe")), "safety_basis": "inferred from code",
+            "safety": safety, "safety_basis": "inferred from code",
             "modes": {}, "tests": [], "platforms": entry.get("platforms") or [],
             "portable": entry.get("portable", True), "probe": entry.get("probe"), "draft": True, "reviewed": False}
 

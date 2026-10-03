@@ -94,6 +94,11 @@ def run(task_id, build=False, model=False, fix_locks=False, lm_url=LM_STUDIO, fa
         fan = _running("TPFanControl.exe")
         row("fan control running (keeps the laptop at 70 C)", fan or not fan_required,
             "running" if fan else ("NOT running - a long build will run hot" if fan_required else "not running (needed for builds)"))
+    if build:
+        # crisp icons and 2x headroom before anything is compiled (fieldkit/visual, static layer)
+        from .. import visual
+        vr = visual.preflight_row(t)
+        row(vr["check"], vr["ok"], vr["evidence"])
     if model:
         try:
             ids = [m["id"] for m in json.load(urllib.request.urlopen(lm_url, timeout=5))["data"]]

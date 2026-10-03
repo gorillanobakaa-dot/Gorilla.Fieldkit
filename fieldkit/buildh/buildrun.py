@@ -236,7 +236,11 @@ def fix_creep_include(t, root, say, lines=()):
     done, what = [], []
     for src, hdr in creepfix.missing_headers(lines):
         rel = creepfix.rel_to_tree(src, w)
-        p = w / rel
+        p = creepfix.inside_tree(rel, w)
+        if p is None:
+            what.append(f"{rel}: outside the working copy {w}: refused, nothing written")
+            continue
+        rel = p.relative_to(w.resolve()).as_posix()
         if not p.is_file() or not creepfix.excised_header(hdr, excised):
             what.append(f"{rel}: {hdr} is not from an excised component: a person decides")
             continue
@@ -360,7 +364,7 @@ def fix_mozbuild_empty(t, root, say, lines):
     fixed = fix_empty_assignments(w / rel)
     if not fixed:
         return False, f"{rel}: no empty assignment found for {var}"
-    handedit.record(t["id"], [rel], f"build stop mozbuild-empty-assignment: {fixed} removed")
+    handedit.record(t["id"], [rel], f"build stop mozbuild-empty-assignment: {fixed} removed", kind="port")
     say(f"  {rel}: empty {fixed} assignment removed")
     return True, f"{rel}: {fixed}"
 
@@ -389,6 +393,18 @@ STOPS = [
     (r"No space left on device|not enough space|ENOSPC", "disk-full", None),
     (r"Temperature stayed above|THERMAL ABORT|THERMAL WATCHDOG|THERMAL GOVERNOR|temperature source went static|does not respond to load", "thermal", None),
 ]
+
+
+def stop_guidance(fix, attempt, repeat):
+    """Why the loop gives up on a stop, always followed by what to do next (an unknown stop used to print only
+    "no known fix": the guidance was bound to the other branch of a conditional expression)."""
+    if fix is None:
+        why = "no known fix"
+    elif repeat:
+        why = "the same stop again after its fix: no progress"
+    else:
+        why = f"still stopping after {attempt - 1} fix attempt(s)"
+    return f"  {why}; the signature and the first errors are in the journal; write the tool, add it to STOPS, run again"
 
 
 def classify(lines):
@@ -568,8 +584,7 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
             for e in errs[:5]:
                 say("    " + e)
             if fix is None or attempt > RETRIES or repeat:
-                say("  no known fix" if fix is None else "  the same stop again after its fix: no progress"
-                    + "; the signature and the first errors are in the journal; write the tool, add it to STOPS, run again")
+                say(stop_guidance(fix, attempt, repeat))
                 return {"ok": False, "stops": stops, "log": str(log_path)}
             ok, what = fix(t, root, say, lines) if fix in (fix_fluent, fix_toolchain, fix_creep_include, fix_corrupt_object, fix_jar_manifest, fix_mozbuild_empty) else fix(t, root, say)
             t = task.load(task_id)                      # a fix may have recorded steps and checkpointed

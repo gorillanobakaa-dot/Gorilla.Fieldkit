@@ -428,11 +428,17 @@ def run(a, emit):
     if act == "install":
         from . import install as inst
         if getattr(a, "restore", None):
-            info = inst.restore(a.restore, a.install_dir or inst.find_install(), say=lambda m: print(m, flush=True))
+            target = a.install_dir or inst.find_install()
+            if not target:
+                r = inst.no_target()
+                emit(r, lambda r: print(f"RESTORE REFUSED: {r['why']}\n{r['next']}"))
+                return 3
+            info = inst.restore(a.restore, target, say=lambda m: print(m, flush=True))
             emit({"ok": True, "restored": info}, lambda r: print(f"restored: {r['restored']}"))
             return 0
         r = inst.run(tid, do_backup=not getattr(a, "no_backup", False), say=lambda m: print(m, flush=True), install_dir=a.install_dir)
-        emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))))
+        emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))
+                                + (f"\n{r['next']}" if r.get("next") else "")))
         return 0 if r.get("ok") else 3
     if act == "export-hand":
         from . import export as ex, buildrun
@@ -461,9 +467,23 @@ def run(a, emit):
             if not _t.owner_terminal():
                 raise _t.Refused("the baseline is the owner's to set, at a real terminal")
             st = _js.loads((owner / "state" / "leakgate_result.json").read_text(encoding="utf-8"))
+            boot = False
             if st.get("FINAL_RESULT") != "PASS" or not st.get("release_run"):
-                raise _t.Refused("a baseline is taken only from a release-mode PASS")
-            p = lg.save_baseline(st["artifacts"], owner, t["meta"]["upstream"]["version"])
+                full = _js.loads((Path(st["artifacts"]) / "test-results.json").read_text(encoding="utf-8"))
+                full["release_run"] = bool(st.get("release_run"))
+                ok, why = lg.bootstrap_eligible(full, owner)
+                if not ok:
+                    raise _t.Refused(f"a baseline is taken only from a release-mode PASS, or as the first baseline: {why}")
+                boot = True
+                print(f"first baseline: {why}. Run leakgate --release again: it must PASS before anything is published.")
+            from . import decisions as _dec, install as _inst
+            dres = _dec.check(owner, t["workdir"], _inst.find_install(), strict=True)
+            if not dres["ok"]:
+                print("\n".join(_dec.lines(dres)))
+                raise _t.Refused("the baseline is this build WITH its decisions: every decision must be ENFORCED first "
+                                 "(fieldkit build-harness decisions TASK --strict)")
+            p = lg.save_baseline(st["artifacts"], owner, t["meta"]["upstream"]["version"], bootstrap=boot,
+                                 decisions={"sha256": dres["sha256"], "ids": [x["id"] for x in dres["rows"]]})
             print(f"baseline saved: {p}")
             return 0
         if act == "leakgate-propose":
@@ -545,11 +565,40 @@ def run(a, emit):
         r = truthbound.run(tid, repo155, truth155, say=lambda m: print(m, flush=True))
         emit(r, lambda r: print(f"TRUTHBOUND {'OK' if r['ok'] else 'NOT OK'}: {r['changed']} changed files, {len(r['unexplained'])} unexplained"))
         return 0 if r["ok"] else 3
+    if act == "visual":
+        # crisp icons and aligned pages: the ported tree, then a throwaway COPY of the install (fieldkit/visual)
+        import sys as _sys
+        from .. import visual
+        from . import install as inst
+        t = task.load(tid)
+        static_only = bool(getattr(a, "static", False))
+        target = None if static_only else (a.install_dir or inst.find_install())
+        pages = tuple(p.strip() for p in (getattr(a, "only", None) or "").split(",") if p.strip())
+
+        def say(m):
+            print(m, file=_sys.stderr, flush=True)
+        if not static_only:
+            say(f"visual: the runtime layer starts a HEADLESS throwaway copy of {target} (no window, no keyboard); "
+                "the install and your profiles are only read")
+        r = visual.check(t, static_only=static_only, install_dir=target, only=pages, say=say)
+        emit(r, lambda r: print("\n".join(visual.lines(r))))
+        return 0 if r["ok"] else 3
+    if act == "decisions":
+        from . import decisions as dec, buildrun, install as inst
+        t = task.load(tid)
+        owner = Path(buildrun._owner_root(t))
+        target = a.install_dir or inst.find_install()
+        r = dec.check(owner, t["workdir"], target, strict=getattr(a, "strict", False))
+        emit(r, lambda r: print("\n".join(dec.lines(r))))
+        return 0 if r["ok"] else 3
     if act == "post-install":
         from . import install as inst
         r = inst.post_install(tid, install_dir=a.install_dir, only=set(a.only.split(",")) if getattr(a, "only", None) else None,
                               say=lambda m: print(m, flush=True), drive=getattr(a, "drive", False))
-        emit(r, lambda r: print("POST-INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or [(x["name"], x["rc"]) for x in r.get("results", []) if x["rc"] != 0]))))
+        emit(r, lambda r: print("POST-INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or "")
+                                + "".join(f"\n  {x.get('status') or 'FAIL'}: {x['name']}" + (f" ({x['why']})" if x.get("why") else "")
+                                          for x in r.get("results", []) if x.get("status") != "ok"))
+                                + (f"\n{r['next']}" if r.get("next") else "")))
         return 0 if r.get("ok") else 3
     if act == "creep":
         from . import verify as vf
@@ -560,8 +609,14 @@ def run(a, emit):
         return 0
     if act == "record":
         from . import handedit
-        files = [x for x in a.args[1:]] if len(a.args) > 1 else []
-        ids = handedit.record(tid, files, a.note or "")
+        # `record TASK kind=privacy|port FILE...`: the kind decides the patch-set group on export (no flag of its own:
+        # fieldkit/cli.py owns the parser)
+        rest = [x for x in a.args[1:]] if len(a.args) > 1 else []
+        kinds = [x.split("=", 1)[1] for x in rest if x.startswith("kind=")]
+        files = [x for x in rest if not x.startswith("kind=")]
+        if len(kinds) > 1:
+            raise task.Refused("one kind= per record")
+        ids = handedit.record(tid, files, a.note or "", kind=kinds[0] if kinds else None)
         emit({"ok": True, "recorded": ids}, lambda r: print("recorded: " + ", ".join(r["recorded"])))
         return 0
     if act == "build-run":

@@ -1,0 +1,99 @@
+# Documentation groups for `fieldkit docs` (Gorilla.Documentation.IBM.Style).
+#
+# Each group is documented as one unit, in two tracks (layman and developer),
+# by DualTrackAgent's dual_track.py. `sources` are globs relative to fieldkit/.
+# Every .py file under fieldkit/ (except __init__.py and __main__.py) must match
+# exactly one group: `fieldkit docs check` fails and lists the orphans otherwise.
+#
+# Staging: `fieldkit docs prep` copies a group's files flat into
+# docs/_staging/<group>/ (git-ignored), with "/" in the path written as "__"
+# (build/kernel.py -> build__kernel.py), because dual_track.py skips any folder
+# named build/ and names topics after the folder.
+#
+# TODO (tool card, not added: another agent is editing fieldkit/desk/): add to
+# fieldkit/desk/tools.yaml an entry
+#   id: fieldkit-docs, title: "Dual-track documentation (Gorilla.Documentation.IBM.Style)",
+#   harness: fieldkit, platforms: [windows, linux], changes: true (writes docs/ and docs/_staging/),
+#   usage: "fieldkit docs plan | prep [GROUP...] | render [GROUP...] | check [--strict] | index",
+#   test: tests/test_gdocs.py, skill: skills/gorilla-documentation-ibm-style/SKILL.md
+
+groups:
+  - name: agent-door
+    title: The agent door (command line, agent interface, MCP server)
+    sources: [__init__.py, agent.py, cli.py, mcp.py]
+
+  - name: core
+    title: The core engine (pipelines, next, privacy, settings, snapshots)
+    sources: ["core/*.py"]
+
+  - name: tool-collection
+    title: The tool desk (registry, cards, readiness, gather, harvest)
+    sources: ["desk/*.py", gather.py, harvest.py]
+
+  - name: office
+    title: Office documents (read, create, check, scrub, deliver)
+    sources: ["office/*.py"]
+
+  - name: builds-releases-thermal
+    title: Builds, release checks and the thermal governor
+    sources: ["build/*.py", release.py, "thermal/*.py"]
+
+  - name: exam
+    title: The exam (small models with and without the kit)
+    sources: ["exam/*.py"]
+
+  - name: port-engine
+    title: The Firefox port engine (build harness tasks and decisions)
+    sources:
+      - buildh/__init__.py
+      - buildh/answer.py
+      - buildh/cli.py
+      - buildh/decision.py
+      - buildh/deferred.py
+      - buildh/export.py
+      - buildh/firefox.py
+      - buildh/fluent.py
+      - buildh/handedit.py
+      - buildh/keyed.py
+      - buildh/prefs.py
+      - buildh/relocate.py
+      - buildh/snapshot.py
+      - buildh/task.py
+      - buildh/upstream.py
+      - buildh/vault.py
+      - buildh/worker.py
+
+  - name: verify-and-build
+    title: Verify the ported tree, repair it and run the build
+    sources:
+      - buildh/audit.py
+      - buildh/buildrun.py
+      - buildh/claude_watch.py
+      - buildh/compare.py
+      - buildh/compile.py
+      - buildh/creepfix.py
+      - buildh/icons.py
+      - buildh/mozbuild_rules.py
+      - buildh/ownercheck.py
+      - buildh/preflight.py
+      - buildh/recorder.py
+      - buildh/repair.py
+      - buildh/symbols.py
+      - buildh/truthbound.py
+      - buildh/verify.py
+
+  - name: install-and-proof
+    title: Install the built browser and prove it
+    sources: [buildh/capture.py, buildh/decisions.py, buildh/install.py, buildh/leaks.py, buildh/proof.py, buildh/throwaway.py]
+
+  - name: leakgate
+    title: Leakgate, the fail-closed leak and telemetry release gate
+    sources: ["leakgate/*.py"]
+
+  - name: visual
+    title: Visual quality, crisp icons and aligned pages of the built browser
+    sources: ["visual/*.py"]
+
+  - name: documentation
+    title: Gorilla.Documentation.IBM.Style, the documentation workflow itself
+    sources: ["gdocs/*.py"]

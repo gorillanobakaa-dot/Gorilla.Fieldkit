@@ -14,3 +14,17 @@ harvest/
 exam-results/
 local/
 vault/
+
+# internal notes, repair logs and owner lists: never public
+_private/
+
+# fieldkit docs (Gorilla.Documentation.IBM.Style): working files stay local; commit the rendered
+# .md files, PRECHECK.md, STATE.json, README.md and MEASUREMENTS.md only
+docs/_staging/
+docs/dual-track/**/*.prep.json
+docs/dual-track/**/*.filled.json
+docs/dual-track/**/*_layman.json
+docs/dual-track/**/*_developer.json
+docs/dual-track/**/*_audit.json
+docs/dual-track/**/PRECHECK.json
+docs/dual-track/**/PAYLOAD.*

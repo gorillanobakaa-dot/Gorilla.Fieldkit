@@ -16,6 +16,7 @@ moved member        `X.MEMBER` where X's module no longer defines MEMBER (upstre
 Every repair is recorded as a hand step (`handedit.record`) so the verifier judges it like any hand port.
 """
 import re
+import shutil
 from pathlib import Path
 
 from . import firefox, handedit, symbols, task
@@ -24,6 +25,14 @@ MARKER = re.compile(r"GORILLA excised", re.I)
 STRINGS = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
 EXPORT_OBJ = re.compile(r"^export\s+(?:const|var|let)\s+(\w+)\s*=\s*(?:Object\.freeze\()?\{", re.M)
 LAZY_BLOCK = re.compile(r"(ChromeUtils\.defineESModuleGetters\(\s*lazy\s*,\s*\{)(.*?)(\n\}\s*\))", re.S)
+
+
+def prove(path):
+    """`node --check` as the proof of a repair -> None only when node is installed AND the file parses. A missing
+    node is a failed proof (firefox.node_check returns None for it, which here would have read as a pass)."""
+    if not shutil.which("node"):
+        return "node is not installed: the repair cannot be proven"
+    return firefox.node_check(path)
 
 
 def _depth_change(line):
@@ -54,7 +63,7 @@ def dangling_excision(workdir, rel, err_line):
         return False, f"{len(removed)} lines would go: too much to call an orphaned tail"
     new = lines[:marker + 1] + lines[end + 1:]
     p.write_bytes(nl.decode().join(new).encode("utf-8"))
-    err = firefox.node_check(p)
+    err = prove(p)
     if err:
         p.write_bytes(raw)
         return False, f"still does not parse after dropping {len(removed)} lines ({err[:80]}); restored"
@@ -117,7 +126,7 @@ def renamed_member(workdir, rel, ident, member, old_text, new_text):
     text, n = re.subn(r"\b(?:lazy\.)?" + re.escape(ident) + r"\." + re.escape(member) + r"\b", target, text)
     text = text.replace(f"lazy.lazy.", "lazy.")
     p.write_bytes(text.encode("utf-8"))
-    err = firefox.node_check(p)
+    err = prove(p)
     left = [x for x in symbols.missing_members(w, rel) if x.startswith(f"{key} ")]
     if err or left:
         p.write_bytes(raw)
@@ -152,7 +161,7 @@ def moved_member(workdir, rel, ident, member):
         text = text[:m.end(2)] + f'{nl.decode()}  {name}: "{uri}",' + text[m.end(2):]
     text, n = re.subn(r"\b(?:lazy\.)?" + re.escape(ident) + r"\." + re.escape(member) + r"\b", f"lazy.{name}.{member}", text)
     p.write_bytes(text.encode("utf-8"))
-    err = firefox.node_check(p)
+    err = prove(p)
     left = [x for x in symbols.missing_members(w, rel) if x.startswith(f"{ident}.{member} ")]
     if err or left:
         p.write_bytes(raw)
@@ -177,7 +186,7 @@ def run(task_id, say=print):
             say(f"  [{'repaired' if fixed else 'refused'}] {rel}: {what}")
             (repaired if fixed else refused).append(f"{rel}: {what}")
             if fixed:
-                handedit.record(task_id, [rel], f"repair: {what} (mozbuild refuses an empty value)")
+                handedit.record(task_id, [rel], f"repair: {what} (mozbuild refuses an empty value)", kind="port")
             continue
         m = re.search(r"line (\d+)", rest)
         if not m or not rel.endswith((".mjs", ".js")):
@@ -187,7 +196,7 @@ def run(task_id, say=print):
         say(f"  [{'repaired' if ok else 'refused'}] {rel}: {what}")
         (repaired if ok else refused).append(f"{rel}: {what}")
         if ok:
-            handedit.record(task_id, [rel], f"repair: dangling excision - {what}")
+            handedit.record(task_id, [rel], f"repair: dangling excision - {what}", kind="port")
     def pristine(rel):
         """The upstream file this tree started from (root commit), or None."""
         b = subprocess.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True) if root else None
@@ -212,7 +221,7 @@ def run(task_id, say=print):
         say(f"  [{'repaired' if ok else 'refused'}] {rel}: {what}")
         (repaired if ok else refused).append(f"{rel}: {what}")
         if ok:
-            handedit.record(task_id, [rel], f"repair: moved member - {what}")
+            handedit.record(task_id, [rel], f"repair: moved member - {what}", kind="port")
     t = task.load(task_id)
     task.journal(t, "repair", repaired=repaired[:20], refused=refused[:20])
     return {"ok": not refused, "repaired": repaired, "refused": refused}

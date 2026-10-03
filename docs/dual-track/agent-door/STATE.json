@@ -1,0 +1,31 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "agent-door",
+ "metrics": {
+  "developer": {
+   "commands": 23,
+   "words_total": 4646
+  },
+  "layman": {
+   "commands": 37,
+   "concept_rows": 11,
+   "glossary_terms": 10,
+   "trust_steps": 6,
+   "usage_steps": 8,
+   "words_total": 6362
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 91,
+  "layman": 97
+ },
+ "sources": {
+  "__init__.py": "c8362ce0a4ad6120f905457db4648cc0ca1336262bee53afd44b2d6ca0981f22",
+  "agent.py": "18a9765202c144075d4e818b5d52bf4a74206d192e4f56311cb2c02ddfdb7d5c",
+  "cli.py": "cdc17aaded0a0b35d39832d1f8c17862fce3987b65d0049326882c86a0694f30",
+  "mcp.py": "548c2b0d98513a7a242163c003a283cdeeb856b7ef56567e018e4d178dc6f007"
+ },
+ "title": "The agent door (command line, agent interface, MCP server)"
+}

@@ -9,6 +9,10 @@ cuts; a step on a file an earlier privacy step touched stays privacy, so every f
 
 One patch per checkpoint, named NNN-<slug>.patch, headed by the reason recorded with the hand step. The commit
 pairs come from the task's own checkpoints and the reasons from its journal; nothing is rewritten by hand.
+
+Which group a patch goes in is the `kind` recorded with the hand step (`record ... kind=privacy|port`). Only a step
+recorded without one falls back to a keyword search in its reason, and every patch's kind and where it came from
+is printed, so the maintainer reviews the split before anything is published.
 """
 import json
 import re
@@ -16,6 +20,7 @@ import subprocess
 from pathlib import Path
 
 from . import task
+from .handedit import KINDS
 
 PRIVACY = re.compile(r"egress|telemetry|PHYSICAL LOCK|privacy|excis|Merino|Normandy|Sync|GMP|geolocation|UITour|"
                      r"Discovery Stream|ClientID|canary|pingsender|nmhproxy|desktop-launcher|ml |ML |aiwindow|genai|AI |"
@@ -27,7 +32,7 @@ def _git(w, *a):
 
 
 def hand_commits(t):
-    """-> [(commit, files, why, when)] for each hand-edit checkpoint, oldest first."""
+    """-> [(commit, files, why, when, recorded kind or None)] for each hand-edit checkpoint, oldest first."""
     w = Path(t["workdir"])
     notes = []
     for line in (task.STATE / t["id"] / "journal.jsonl").read_text(encoding="utf-8").splitlines():
@@ -42,9 +47,23 @@ def hand_commits(t):
     out = []
     for c, when, subj in commits:
         files = _git(w, "show", "--name-only", "--format=", c).split()
-        why = next((" / ".join(n.get("why") or []) for n in notes if set(n.get("files") or []) == set(files)), subj)
-        out.append((c, files, why, when))
+        note = next((n for n in notes if set(n.get("files") or []) == set(files)), None)
+        why = " / ".join(note.get("why") or []) if note else subj
+        out.append((c, files, why, when, (note or {}).get("kind")))
     return out
+
+
+def kind_of(why, files, recorded, privacy_files):
+    """-> (kind, how it was decided). The recorded kind wins; keywords only when none was recorded. A file an
+    earlier privacy cut touched keeps every later patch in the privacy group, because 21.PORT.FIXES applies before
+    22.EGRESS.LOCKDOWN and the later patch was made on top of the cut."""
+    if privacy_files & set(files):
+        if recorded == "port":
+            return "privacy", "recorded port, KEPT privacy: an earlier privacy cut of the same file must apply first"
+        return "privacy", "recorded" if recorded == "privacy" else "follows an earlier privacy cut of the same file"
+    if recorded in KINDS:
+        return recorded, "recorded"
+    return ("privacy" if PRIVACY.search(why or "") else "port"), "keyword guess, nothing recorded: review"
 
 
 NARRATION = [(r"^\s*20\d\d-\d\d-\d\d\s*", ""), (r"^build \d+ (stop|proof)\s*:\s*", ""), (r"^build \d+,\s*", ""),
@@ -70,13 +89,13 @@ def export(task_id, patchset_root, version, say=print, dry=False):
     t = task.load(task_id)
     w = Path(t["workdir"])
     groups = {"privacy": Path(patchset_root) / f"22.EGRESS.LOCKDOWN.{version}", "port": Path(patchset_root) / f"21.PORT.FIXES.{version}"}
-    written = {"privacy": [], "port": []}
+    written = {"privacy": [], "port": [], "kinds": []}
     privacy_files = set()
-    for i, (c, files, why, when) in enumerate(hand_commits(t), 1):
-        kind = "privacy" if PRIVACY.search(why) or privacy_files & set(files) else "port"
+    for i, (c, files, why, when, recorded) in enumerate(hand_commits(t), 1):
+        kind, how = kind_of(why, files, recorded, privacy_files)
         if kind == "privacy":
             privacy_files |= set(files)
-        diff = _git(w, "diff", "--no-color", "--no-renames", f"{c}^", c)
+        diff = _git(w, "diff", "--no-color", "--no-renames", "--binary", f"{c}^", c)     # logos are binary
         if not diff.strip():
             continue
         # the public repo's rule: technical notes, not a diary - no dates, no build narration, no local commit ids
@@ -84,6 +103,8 @@ def export(task_id, patchset_root, version, say=print, dry=False):
         head = f"# Gorilla {version} {'privacy cut' if kind == 'privacy' else 'port fix'}\n# {note}\n# Files: {', '.join(files)}\n\n"
         name = f"{i:03d}-{slug(note)}.patch"
         written[kind].append((name, note))
+        written["kinds"].append((name, kind, how))
+        say(f"  [{'privacy cut' if kind == 'privacy' else 'port fix'}] {name} ({how})")
         if not dry:
             groups[kind].mkdir(parents=True, exist_ok=True)
             (groups[kind] / name).write_text(head + diff, encoding="utf-8", newline="\n")
@@ -97,4 +118,7 @@ def export(task_id, patchset_root, version, say=print, dry=False):
             (g / "README.md").write_text(f"# {g.name}\n\n{intro} Apply in order, after the snapshot groups.\n\n"
                                          + "\n".join(f"- `{n}`: {w}" for n, w in written[kind]) + "\n", encoding="utf-8", newline="\n")
         say(f"  {g.name}: {len(written[kind])} patch(es)")
+    guessed = [n for n, _, how in written["kinds"] if how.startswith("keyword")]
+    say("  REVIEW the kind of every patch above before publishing"
+        + (f"; {len(guessed)} were guessed from keywords (record them with kind=privacy or kind=port)" if guessed else ""))
     return written

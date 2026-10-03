@@ -70,10 +70,11 @@ def verdict(data, kind, value, scenario, port=None):
     return ("allowed" if e.get("approval") else "pending"), e["id"]
 
 
-def approve(path, ids, say=print, terminal=None):
-    """Owner only, at a real terminal: prints each entry in full, then records the approval."""
+def approve(path, ids, say=print):
+    """Owner only, at a real terminal: prints each entry in full, then records the approval. There is no parameter
+    that stands in for the terminal check (a `terminal=True` argument used to)."""
     from ..buildh import task
-    if not (terminal if terminal is not None else task.owner_terminal()):
+    if not task.owner_terminal():
         raise task.Refused("approval is the owner's, at a real terminal; an agent's shell has none")
     data = load(path)
     done = []
@@ -89,10 +90,58 @@ def approve(path, ids, say=print, terminal=None):
 PROPOSABLE = ("process", "file", "file-system", "udp", "listener")
 
 
+def _video():
+    from . import scenarios as sc
+    return sc.VIDEO_COMPROMISE, sc.MOZILLA_HOSTS
+
+
+def video_candidates(data, events):
+    """-> {(scenario, kind): {host}} for the one exception to "hosts are never proposed": the video compromise
+    (decision D-157-12). A destination or DNS name is proposable only when it was observed IN its own video scenario
+    (drm-request, h264-call), matches that scenario's maker hosts (Google's Widevine hosts, Cisco's OpenH264 host),
+    is not a Mozilla host and no entry covers it yet. The entry it becomes is scoped to that scenario only."""
+    video, mozilla = _video()
+    out = {}
+    for e in events:
+        if e.get("kind") not in ("dest", "sni", "dns"):
+            continue
+        scen, host = e.get("scenario"), (e.get("value") or "").lower()
+        if scen not in video or not any(fnmatch.fnmatch(host, g) for g in video[scen]):
+            continue
+        if any(fnmatch.fnmatch(host, g) for g in mozilla):
+            continue
+        kind = "dns" if e["kind"] == "dns" else "dest"
+        if match(data, kind, host, scen):
+            continue
+        out.setdefault((scen, kind), set()).add(host)
+    return out
+
+
+def scope_problems(data):
+    """Allowlist entries that break the video compromise's scope (ALLOWLIST_POLICY): a Widevine/OpenH264 host allowed
+    outside its own scenario, or a Mozilla host allowed in a video scenario."""
+    video, mozilla = _video()
+    out = []
+    for e in data.get("entries", []):
+        if e.get("kind") not in ("dest", "dns"):
+            continue
+        scen = e.get("scenarios", "*")
+        for v in e.get("values", []):
+            v = v.lower()
+            for vs, globs in video.items():
+                if any(fnmatch.fnmatch(v, g) or fnmatch.fnmatch(g, v) for g in globs) and scen != [vs]:
+                    out.append(f"{e.get('id')}: {v} is a video-compromise host and may be allowed only in scenario {vs} (D-157-12), not {scen}")
+            if any(fnmatch.fnmatch(v, g) or fnmatch.fnmatch(g, v) for g in mozilla) and (scen == "*" or set(scen) & set(video)):
+                out.append(f"{e.get('id')}: {v} is a Mozilla host allowed in a video scenario ({scen}): the video compromise "
+                           "never goes through Mozilla (D-157-12)")
+    return out
+
+
 def propose(path, events, run_name, say=print):
     """Add UNAPPROVED entries for observations of the proposable kinds that no entry covers (destinations and DNS
-    names are never proposed from observation: an unexpected host stays unexpected until the owner writes it in).
-    -> ids added."""
+    names are never proposed from observation: an unexpected host stays unexpected until the owner writes it in),
+    with one exception: the video compromise hosts seen in their own scenario (video_candidates), proposed scoped to
+    that scenario and unapproved. -> ids added."""
     data = load(path)
     groups = {}
     for e in events:
@@ -102,6 +151,21 @@ def propose(path, events, run_name, say=print):
             continue
         groups.setdefault(e["kind"], set()).add(e["value"])
     added = []
+    for (scen, kind), hosts in sorted(video_candidates(data, events).items()):
+        eid = f"video-{scen}-{kind}-{run_name}"
+        maker = "Google (Widevine CDM)" if scen == "drm-request" else "Cisco (OpenH264)"
+        data["entries"].append({
+            "id": eid, "kind": kind, "values": sorted(hosts), "scenarios": [scen],
+            "component": f"GMP plugin download from {maker}", "source_file": "toolkit/modules/GMPInstallManager.sys.mjs",
+            "purpose": (f"OBSERVED in leakgate run {run_name}: the video compromise (decision D-157-12), the plugin fetched "
+                        f"straight from {maker} because the page in scenario {scen} needed it. Scoped to {scen} only; "
+                        "nothing here is approved until the maintainer confirms it at a real terminal"),
+            "trigger": "a page asks for protected video (EME Widevine) or an H.264 call", "expected_frequency": "once, when first needed",
+            "expected_payload": "plugin archive download (no user data)", "security_impact": "maintainer to assess: third-party binary, checksum-verified",
+            "privacy_impact": f"{maker} sees the user's IP address once", "test": f"leakgate {scen}",
+            "date": time.strftime("%Y-%m-%d"), "release": "157.0", "approval": None})
+        added.append(eid)
+        say(f"  proposed {eid} (scenario {scen} only): {sorted(hosts)}")
     for kind, vals in groups.items():
         eid = f"observed-{kind}-{run_name}"
         data["entries"].append({

@@ -328,10 +328,16 @@ def verify(task_id):
         v, d = scores.get(key, (None, None))
         if s.get("done_by") == "hand" or s.get("hand_port"):
             a = s.get("args") or {}
-            b = body(a["file"]) if a.get("file") else None
+            if isinstance(a.get("hunk"), dict) and a["hunk"].get("binary"):     # a binary hand edit: judged by its bytes
+                import hashlib
+                f = w / a["file"]
+                ok = f.is_file() and hashlib.sha256(f.read_bytes()).hexdigest() == a["hunk"].get("sha256")
+                v, d = ("APPLIED", "binary hand edit holds") if ok else ("NOT-APPLIED", "binary hand edit: the file is not the recorded bytes")
+            b = body(a["file"]) if a.get("file") and not (isinstance(a.get("hunk"), dict) and a["hunk"].get("binary")) else None
             pristine = _git(w, "show", f"{root[0]}:{a['file']}").splitlines() if root and a.get("file") else None
-            why = firefox.hand_port_holds(b, a["hunk"], pristine or None, firefox.hand_keeps(s.get("hand_note")))                 if b is not None else ["the file does not exist"]
-            v, d = ("APPLIED", "hand port holds") if not why else ("NOT-APPLIED", "hand port: " + "; ".join(why)[:160])
+            if not (isinstance(a.get("hunk"), dict) and a["hunk"].get("binary")):
+                why = firefox.hand_port_holds(b, a["hunk"], pristine or None, firefox.hand_keeps(s.get("hand_note")))                 if b is not None else ["the file does not exist"]
+                v, d = ("APPLIED", "hand port holds") if not why else ("NOT-APPLIED", "hand port: " + "; ".join(why)[:160])
         if v is None:                                   # a relocated step: its file is not the patch's (relocate.py)
             v, d = score_hunk(body(a["file"]), a["hunk"], a["file"]) if (a := s.get("args") or {}).get("hunk") else (None, None)
         # an OBSOLETE step whose lines the tree still holds (renamed or not) was closed wrongly: reopened like a

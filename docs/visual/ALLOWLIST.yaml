@@ -1,0 +1,32 @@
+# Visual-quality allowlist for `fieldkit build-harness visual` (fieldkit/visual).
+#
+# Known, ACCEPTED exceptions only, each with a reason a reader can check. An entry without rule, item and why is
+# a problem, and a problem fails the check. Accepting a finding is the maintainer's decision: add an entry here
+# only when the maintainer has said yes, and write who and when.
+#
+#   accept:
+#     - rule: ICON-002                     # the rule id from the report (static: ICON-*, ICO-*, ASSET-*, CSS-*,
+#                                          #   BRAND-*; runtime: RT-*)
+#       item: "browser/branding/gorilla/wizWatermark.bmp"   # fnmatch glob against the reported item
+#       match: "different artwork"         # optional: a substring the evidence must contain
+#       why: "installer artwork, no master exists; checked by eye 2026-10-02"
+#       by: maintainer
+#       date: 2026-10-02
+#
+# Entries that match nothing are listed as stale in every report, so a fixed problem's exception is noticed.
+
+# Where each raster's master is. First matching glob (relative to the tree) wins. {owner} is the owner's
+# Gorilla.firefox repository, {tree} the ported source tree.
+masters:
+  - files: "browser/branding/gorilla/**"
+    master: "{owner}/gorilla-patchset/deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png"
+    why: "the canonical gorilla master, 2598x2626 (doctrine ICON-DOCTRINE-WINDOWS.md section 0; the folder name lies)"
+
+css:
+  # chrome CSS checked in addition to what git finds (added/modified since the upstream release, or says GORILLA)
+  include: []
+  exclude:
+    - glob: "browser/extensions/ublock-origin/**"
+      why: "uBlock Origin's own stylesheets, vendored as released by its authors; not Gorilla chrome and not ours to change"
+
+accept: []

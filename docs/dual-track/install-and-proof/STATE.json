@@ -1,0 +1,32 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "install-and-proof",
+ "metrics": {
+  "developer": {
+   "commands": 11,
+   "words_total": 5968
+  },
+  "layman": {
+   "commands": 23,
+   "concept_rows": 15,
+   "glossary_terms": 12,
+   "trust_steps": 6,
+   "usage_steps": 6,
+   "words_total": 8455
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 91,
+  "layman": 98
+ },
+ "sources": {
+  "buildh/capture.py": "264f19465e99d2668e4c04a9325135bf52af972751f5996c60653c7b087dcb5c",
+  "buildh/install.py": "3d04dd5883669fe51b684863d9760ed35e51307733771bae8445a31e61437e56",
+  "buildh/leaks.py": "e6134712f378ddec81ad3920e7642663c3fb522a362ed14c5d99600060cbc4c2",
+  "buildh/proof.py": "877f48f7aad313db6c0d3f407cc46db1302701e30509c9a2d62165f112b8bd1c",
+  "buildh/throwaway.py": "148a79fb744247b0afb1dd5df93971ae18999a805ed489cfbf5673ce1d645c26"
+ },
+ "title": "Install the built browser and prove it"
+}

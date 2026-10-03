@@ -33,7 +33,7 @@ TELEMETRY_FILES = ("datareporting/*", "saved-telemetry-pings/*", "crashes/*", "m
                    "shield-preference-experiments.json", "storage/permanent/chrome/idb/*remote-settings*",
                    "*pending_pings*", "*glean*")
 POLICIES = ("NETWORK_POLICY", "TELEMETRY_POLICY", "DNS_POLICY", "PROCESS_POLICY", "FILESYSTEM_POLICY", "SOCKET_POLICY",
-            "WEBRTC_POLICY", "PROXY_POLICY", "IPV6_POLICY", "CANARY_POLICY", "SHUTDOWN_POLICY", "REPRODUCIBILITY_POLICY",
+            "WEBRTC_POLICY", "LAN_POLICY", "PROXY_POLICY", "IPV6_POLICY", "CANARY_POLICY", "SHUTDOWN_POLICY", "REPRODUCIBILITY_POLICY",
             "SOURCE_POLICY", "BINARY_POLICY", "DEPENDENCY_POLICY", "TLS_POLICY", "REGRESSION_POLICY", "ALLOWLIST_POLICY")
 
 
@@ -96,18 +96,35 @@ def configure_record(objdir=Path("C:/gfobj"), mozconfig=Path.home() / "Documents
     return out
 
 
+def stop_started(p, wait=10):
+    """Stop a process THIS gate started, by its PID (with its children on Windows); nothing else is touched.
+    taskkill exists only on Windows: the Linux runner terminates its own child and kills it if it lingers."""
+    if p.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
+        return
+    p.terminate()
+    try:
+        p.wait(timeout=wait)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait(timeout=wait)
+
+
 def ensure_ca(work):
     conf = Path(work) / "mitm-conf"
     conf.mkdir(parents=True, exist_ok=True)
     ca = conf / "mitmproxy-ca-cert.pem"
     if not ca.exists():
-        mitmdump = shutil.which("mitmdump") or str(Path(sys.executable).parent / "Scripts" / "mitmdump.exe")
+        mitmdump = shutil.which("mitmdump") or str(Path(sys.executable).parent / "Scripts" / "mitmdump.exe" if sys.platform == "win32"
+                                                   else Path(sys.executable).parent / "mitmdump")
         p = subprocess.Popen([mitmdump, "--listen-port", str(se.free_port()), "--set", f"confdir={conf}", "-q"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         t0 = time.time()
         while not ca.exists() and time.time() - t0 < 30:
             time.sleep(0.5)
-        subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
+        stop_started(p)
     return ca
 
 
@@ -138,7 +155,8 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
                              "UNEXPECTED_REMOTE_SETTINGS", "UNEXPECTED_UPDATES", "UNEXPECTED_CANARIES", "UNATTRIBUTED_WIRE_DNS",
                              "PENDING_APPROVAL")}
     fail = {p: [] for p in POLICIES}
-    sensors_seen = {e["sensor"] for e in events}
+    # a `coverage` event says a sensor ran in one scenario (gate.action_checks); it is not an observation
+    sensors_seen = {e["sensor"] for e in events if e["kind"] != "coverage"}
 
     def note(policy, listname, e, why):
         item = f"[{e['scenario']}/{e['mode']}/{e['sensor']}] {e['kind']} {e['value']}" + (f":{e['port']}" if e.get("port") else "") + f" - {why}"
@@ -155,6 +173,10 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
                                  (REMOTE_SETTINGS_HOSTS, "UNEXPECTED_REMOTE_SETTINGS"), (UPDATE_HOSTS, "UNEXPECTED_UPDATES")):
                 if _fn(host, globs):
                     note("TELEMETRY_POLICY", lname, e, "telemetry/experiment/remote-settings/update host")
+            if k in ("dest", "sni", "dns"):
+                pol, lname = ("DNS_POLICY", "UNEXPECTED_DNS") if k == "dns" else ("NETWORK_POLICY", "UNEXPECTED_DESTINATIONS")
+                for why in video_rule(host, scen):
+                    note(pol, lname, e, why)
             if k == "dns-wire" and host not in names_by_scenario.get(scen, set()):
                 if VENDOR_HOST.search(host) or any(host == a or host.endswith("." + a) for a in AD_HOSTS):
                     note("DNS_POLICY", "UNEXPECTED_DNS", e, "vendor/tracker name on the wire that no browser sensor saw (bypass?)")
@@ -245,6 +267,113 @@ def reproducibility(events, repeat):
     return out
 
 
+def video_rule(host, scen):
+    """The video compromise (decision D-157-12), whatever the allowlist says: in a video scenario no Mozilla host, and a
+    video plugin host (Widevine/OpenH264 makers) only in its own scenario. -> reasons to fail (empty = no objection;
+    inside its own scenario a maker host still needs an approved, scenario-scoped allowlist entry)."""
+    out = []
+    if scen in sc.VIDEO_COMPROMISE and _fn(host, sc.MOZILLA_HOSTS):
+        out.append(f"a Mozilla host in the video scenario {scen}: the video compromise never goes through Mozilla (D-157-12)")
+    for own, globs in sc.VIDEO_COMPROMISE.items():
+        if own != scen and _fn(host, globs):
+            out.append(f"a video plugin host outside its scenario {own}: fetched only when a page needs it (D-157-12)")
+    return out
+
+
+def required_coverage(mode, packets, linux=False):
+    """Sensors that must show they ran in every user-action scenario run (fail closed per scenario)."""
+    if linux:
+        return {"strace", "tcpdump"}
+    need = {"process-tree", "filesystem", "sockets"}
+    if mode == "direct":
+        need |= {"necko-http", "necko-dns"} | ({"pktmon"} if packets else set())
+    elif mode in ("proxied", "poisoned"):
+        need |= {"mitm"}
+    return need
+
+
+def _lan_left(e, closed_ports):
+    from . import sensors as _se
+    v = str(e.get("value") or "")
+    if not _se.lan_address(v):
+        return False
+    if v.startswith("127.") or v in ("::1", "[::1]"):
+        return e.get("port") is not None and int(e["port"]) in closed_ports
+    return True
+
+
+def action_checks(ran, events, results, requests, packets, linux=False):
+    """Fail-closed checks of the user-action scenarios (scenarios.ACTION_SCENARIOS) that ran. -> (fail, lists):
+    fail {"NETWORK_POLICY": [...], "LAN_POLICY": [...]}, lists {"LAN_REQUESTS_LEFT": [...]}.
+      - every mode of every such scenario: each required sensor shows it ran (coverage or any event), else FAIL;
+      - a page that must report (scenarios.REPORTING) never POSTed its result: the action never happened, FAIL;
+      - a local path the scenario needs (scenarios.SERVED, e.g. the .exe) was never served, FAIL;
+      - lan-probe: any socket/packet/necko evidence of a request to a private, link-local or the closed loopback
+        address fails LAN_POLICY (the page is public by pref; a headless run has nobody to answer a permission
+        prompt, so a request that left went without one), as does a fetch the page saw succeed."""
+    fail = {"NETWORK_POLICY": [], "LAN_POLICY": []}
+    lists = {"LAN_REQUESTS_LEFT": []}
+    results = [r for r in results if isinstance(r, dict)]
+    by = {}
+    for e in events:
+        by.setdefault((e.get("scenario"), e.get("mode")), set()).add(e.get("sensor"))
+    for scen in sc.ACTION_SCENARIOS:
+        if scen not in ran:
+            continue
+        modes = sorted(m for (s_, m) in by if s_ == scen)
+        if not modes:
+            fail["NETWORK_POLICY"].append(f"[{scen}] no sensor collected anything: the scenario did not run")
+        for m in modes:
+            missing = sorted(required_coverage(m, packets, linux) - by[(scen, m)])
+            if missing:
+                fail["NETWORK_POLICY"].append(f"[{scen}/{m}] sensor(s) collected nothing in this scenario: {missing}")
+        if scen in sc.REPORTING and not any(r.get("scenario") == scen for r in results):
+            fail["NETWORK_POLICY"].append(f"[{scen}] the page never reported: the user action was not exercised")
+        for path in sc.SERVED.get(scen, ()):
+            if not any(str(q.get("path", "")).split("?")[0] == path for q in requests):
+                fail["NETWORK_POLICY"].append(f"[{scen}] the local server never served {path}: the user action was not exercised")
+    if "lan-probe" in ran:
+        reports = [r for r in results if r.get("scenario") == "lan-probe"]
+        closed = {int(r["closed"]) for r in reports if str(r.get("closed", "")).isdigit()}
+        if not reports:
+            fail["LAN_POLICY"].append("the LAN probe page never reported")
+        if not any(e.get("scenario") == "lan-probe" and e.get("sensor") in ("sockets", "strace", "pktmon", "tcpdump") for e in events):
+            fail["LAN_POLICY"].append("no socket-level sensor collected in lan-probe: whether the requests left is unknown")
+        for e in events:
+            if e.get("scenario") == "lan-probe" and e.get("kind") in ("dest-ip", "dest-lan") and _lan_left(e, closed):
+                item = f"[lan-probe/{e.get('mode')}/{e.get('sensor')}] {e['value']}:{e.get('port')}"
+                lists["LAN_REQUESTS_LEFT"].append(item)
+                fail["LAN_POLICY"].append(item + " - a public page reached the local network with no permission granted")
+        for r in reports:
+            for k, t in (r.get("targets") or {}).items():
+                if isinstance(t, dict) and t.get("result") == "reached":
+                    fail["LAN_POLICY"].append(f"[lan-probe] the page reached {t.get('url', k)}: Local Network Access did not stop it")
+    return fail, lists
+
+
+def source_messages(st):
+    """SOURCE_POLICY failures from audit.static_audit: every inventoried file without an approved disposition fails;
+    the ones with no disposition at all (newly inventoried) are named, so the maintainer can decide them."""
+    out = []
+    if st["unapproved"]:
+        out.append(f"{len(st['unapproved'])} of {st['count']} network-capable source files have no approved disposition"
+                   + (f"; {len(st['new_since_previous'])} new since release N-1" if st["new_since_previous"] else ""))
+    und = st.get("undecided") or []
+    if und:
+        out.append(f"{len(und)} inventoried file(s) with no disposition at all (maintainer to decide): {und[:12]}")
+    return out
+
+
+def vendor_messages(bi):
+    """BINARY_POLICY failures of the HOST INVENTORY: vendor https/wss hosts in omni.ja that nothing decided."""
+    un = bi.get("vendor_unlisted") or []
+    if not un:
+        return []
+    pend = set(bi.get("vendor_pending") or [])
+    return [f"{len(un)} vendor host(s) in omni.ja with no approved disposition or allowlist entry"
+            + (f" ({len(pend)} only pending)" if pend else "") + f": {un[:40]}"]
+
+
 # ---------------------------------------------------------------------------------------------- run
 def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
         previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
@@ -314,13 +443,14 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     else:
         server = sc.Server()
     events, artifacts, scen_hosts = [], {}, {}
+    closed_port = se.free_port()                       # nothing listens here: the lan-probe's loopback target
     try:
         for name, target, secs, args, hosts, watch in sc.SCENARIOS:
             if only and name not in only:
                 continue
             scen_hosts[name] = hosts
-            if name == "certs":
-                target = "/certs?" + "&".join(f"{k}={p}" for k, p in certsrv.ports().items())
+            target = sc.target_for(name, target, certsrv.ports(), closed_port)
+            prefs = sc.prefs_for(name, server.bind, server.port)
             secs = sc.QUICK.get(name, secs) if quick else secs
             if name == "startup-idle" and soak:
                 secs = int(soak)
@@ -338,11 +468,11 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
                     if linux:
                         allowed = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") for v in e.get("values", [])] + list(hosts)
                         ev, art = lx.run_one(bdir, server.url(target), secs, args, work / "runs",
-                                             f"{name}-r{rep}", mode, canaries, port, watch, allowed, say=say)
+                                             f"{name}-r{rep}", mode, canaries, port, watch, allowed, say=say, prefs=prefs)
                     else:
                         ev, art = se.run_one(bdir, server.url(target), secs, args, work / "runs", f"{name}-r{rep}", mode, canaries,
                                              proxy_port=port, watch=watch, packets=packets and mode == "direct", say=say,
-                                             graceful=name in sc.GRACEFUL, poison=mode == "poisoned")
+                                             graceful=name in sc.GRACEFUL, poison=mode == "poisoned", prefs=prefs)
                     for e in ev:
                         e["scenario"], e["rep"] = name, rep
                     events.extend(ev)
@@ -364,6 +494,11 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
         events.append({"scenario": "(dns-controlled)", "mode": "dns-controlled", "sensor": "doh-server", "kind": "dns", "value": q["name"],
                        "detail": f"type {q['type']} {'answered' if q['answered'] else 'NXDOMAIN'}", "rep": 0})
     fail, lists = judge(events, allow, scen_hosts, [direct, proxied, dnsctl], server.results, repeat, packets, quick)
+    afail, alists = action_checks(set(scen_hosts), events, server.results, server.requests, packets, linux)
+    for pol, items in afail.items():
+        fail[pol].extend(items)
+    lists.update(alists)
+    (work / "page-results.json").write_text(json.dumps(server.results, indent=1), encoding="utf-8")
     # fallbacks under poisoned responses: a host seen only when every answer was garbage
     for scen in sc.POISONED:
         normal = {e["value"] for e in events if e["scenario"] == scen and e["mode"] == "proxied" and e["kind"] == "dest"}
@@ -418,22 +553,21 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
             elif n > 2 * max(b, 1):
                 fail["REGRESSION_POLICY"].append(f"{h}: {n} requests vs {b} in the baseline of {base.get('release')}")
     else:
-        fail["REGRESSION_POLICY"].append("no approved baseline (leakgate/baseline.json): run leakgate-baseline after the first approved release PASS")
+        fail["REGRESSION_POLICY"].append(NO_BASELINE + ": the maintainer seeds it with leakgate-baseline from a release run that failed only on this")
     if not packets:
         fail["TLS_POLICY"].append("packet sensor not run: negotiated TLS versions unverified")
     if repeat >= 3:
         fail["REPRODUCIBILITY_POLICY"].extend(reproducibility(events, repeat))
-    for p in al.problems(allow):
+    for p in al.problems(allow) + al.scope_problems(allow):
         fail["ALLOWLIST_POLICY"].append(p)
     if not allow.get("entries"):
         fail["ALLOWLIST_POLICY"].append(f"no allowlist at {allow_path}")
     say("  static source audit ...")
     st = audit.static_audit(workdir_tree, dispositions, n_minus_1_tree)
-    if st["unapproved"]:
-        fail["SOURCE_POLICY"].append(f"{len(st['unapproved'])} of {st['count']} network-capable source files have no approved disposition"
-                                     + (f"; {len(st['new_since_previous'])} new since release N-1" if st["new_since_previous"] else ""))
+    fail["SOURCE_POLICY"].extend(source_messages(st))
     say("  binary audit ...")
-    bi = audit.binary_audit(direct, previous_zip, dispositions)
+    bi = audit.binary_audit(direct, previous_zip, dispositions, allow)
+    fail["BINARY_POLICY"].extend(vendor_messages(bi))
     if not previous_zip:
         fail["BINARY_POLICY"].append("no previous release to diff against")
     if bi["unapproved_new"]:
@@ -490,7 +624,27 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     return result, events, st, bi
 
 
-def save_baseline(run_dir, owner_root, release):
+NO_BASELINE = "no approved baseline (leakgate/baseline.json)"
+
+
+def bootstrap_eligible(results, owner_root):
+    """The first baseline. REGRESSION fails while no baseline exists, and a baseline came only from a release PASS,
+    so none could ever be made (found 2026-10-02). A release run whose ONLY failure is that missing baseline may
+    seed it; every other rule must have passed. Returns (ok, why)."""
+    if (Path(owner_root) / "leakgate" / "baseline.json").is_file():
+        return False, "a baseline already exists: only a release PASS may replace it"
+    if not results.get("release_run"):
+        return False, "not a release run"
+    failed = [p for p in POLICIES if results.get(p) != "PASS"]
+    if failed != ["REGRESSION_POLICY"]:
+        return False, "other rules failed too: " + ", ".join(p for p in failed if p != "REGRESSION_POLICY")
+    why = (results.get("WHY") or {}).get("REGRESSION_POLICY") or []
+    if not why or any(not str(w).startswith(NO_BASELINE) for w in why):
+        return False, "REGRESSION failed for a reason other than the missing baseline"
+    return True, "a release run in which every rule passed except the missing baseline"
+
+
+def save_baseline(run_dir, owner_root, release, bootstrap=False, decisions=None):
     """After an approved release PASS: request counts per host become the regression baseline."""
     run_dir = Path(run_dir)
     counts = {}
@@ -499,7 +653,8 @@ def save_baseline(run_dir, owner_root, release):
             f = json.loads(l)
             if f.get("kind") == "http":
                 counts[f["host"]] = counts.get(f["host"], 0) + 1
-    out = {"release": release, "from_run": run_dir.name, "request_counts": counts}
+    out = {"release": release, "from_run": run_dir.name, "bootstrap": bool(bootstrap), "decisions": decisions,
+           "request_counts": counts}
     p = Path(owner_root) / "leakgate" / "baseline.json"
     p.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
     return p

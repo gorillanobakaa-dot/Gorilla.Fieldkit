@@ -43,10 +43,17 @@ def _docx(path):
             t = Table(child, d)
             rows = [[c.text.strip().replace("|", "\\|") for c in r.cells] for r in t.rows]
             if rows:
-                out.append("| " + " | ".join(rows[0]) + " |")
-                out.append("|" + "---|" * len(rows[0]))
-                out += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+                out.append(_md_table(rows))
     return "\n\n".join(out)
+
+
+def _md_table(rows):
+    """One Markdown table as ONE block: rows on consecutive lines (a blank line between rows ends the table)."""
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    lines = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * width]
+    lines += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+    return "\n".join(lines)
 
 
 def _xlsx(path):
@@ -55,16 +62,13 @@ def _xlsx(path):
     out = []
     for ws in wb.worksheets:
         out.append(f"## {ws.title}")
-        rows = [["" if v is None else str(v) for v in row] for row in ws.iter_rows(values_only=True)]
+        rows = [["" if v is None else str(v).replace("|", "\\|") for v in row]
+                for row in ws.iter_rows(values_only=True)]
         rows = [r for r in rows if any(c.strip() for c in r)]
         if not rows:
             out.append("(empty)")
             continue
-        width = max(len(r) for r in rows)
-        rows = [r + [""] * (width - len(r)) for r in rows]
-        out.append("| " + " | ".join(rows[0]) + " |")
-        out.append("|" + "---|" * width)
-        out += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+        out.append(_md_table(rows))
     wb.close()
     return "\n\n".join(out)
 

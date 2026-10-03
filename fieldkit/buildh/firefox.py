@@ -1882,6 +1882,11 @@ def check_port(t, s, patch, file, hunk, **kw):
     target = Path(t["workdir"]) / file
     if not target.is_file():
         return {"ok": False, "why": [f"{file} does not exist; this hunk needs the owner"]}
+    if isinstance(hunk, dict) and hunk.get("binary"):              # a binary hand edit is judged by its bytes
+        import hashlib
+        got = hashlib.sha256(target.read_bytes()).hexdigest()
+        return {"ok": got == hunk.get("sha256"), "why": [] if got == hunk.get("sha256") else
+                [f"{file} is not the recorded binary (sha256 {got[:12]} vs {str(hunk.get('sha256'))[:12]})"]}
     before = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True).stdout.decode(
         "utf-8", "replace").splitlines()
     after = target.read_text(encoding="utf-8", errors="replace").splitlines()

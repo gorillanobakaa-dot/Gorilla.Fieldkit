@@ -16,6 +16,16 @@ from pathlib import Path
 
 from . import firefox, task
 
+#: what a hand step is, for the export into the patch set: a privacy cut (22.EGRESS.LOCKDOWN) or a port fix
+#: (21.PORT.FIXES). Recorded explicitly; export falls back to keywords in the reason only when it is missing.
+KINDS = ("privacy", "port")
+
+
+def check_kind(kind):
+    if kind is not None and kind not in KINDS:
+        raise task.Refused(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
+    return kind
+
 
 def diff_hunks(workdir, rel):
     """The working tree's diff of `rel` against HEAD, parsed into hunks (firefox.parse_patch)."""
@@ -23,6 +33,19 @@ def diff_hunks(workdir, rel):
                        encoding="utf-8", errors="replace")
     parsed = firefox.parse_patch(r.stdout) if r.stdout.strip() else []
     return parsed[0]["hunks"] if parsed else []
+
+
+def binary_hunks(workdir, rel, commit=None):
+    """A binary file (a logo PNG) has no text hunks, so it got no step and was never exported (2026-10-02: the About
+    logo). -> [{"binary": True, "sha256": ...}] when `rel` is binary in the commit (or the working tree's diff), else []."""
+    import hashlib
+    args = ["show", "--numstat", "--format=", commit, "--", rel] if commit else ["diff", "--numstat", "--", rel]
+    r = subprocess.run(["git", "-C", str(workdir), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if not any(l.startswith("-\t-\t") for l in r.stdout.splitlines()):
+        return []
+    data = (subprocess.run(["git", "-C", str(workdir), "show", f"{commit}:{rel}"], capture_output=True).stdout if commit
+            else (Path(workdir) / rel).read_bytes())
+    return [{"binary": True, "sha256": hashlib.sha256(data).hexdigest()}]
 
 
 def commit_hunks(workdir, commit, rel):
@@ -33,8 +56,9 @@ def commit_hunks(workdir, commit, rel):
     return parsed[0]["hunks"] if parsed else []
 
 
-def record_from_commit(task_id, commit, files, why, group="hand"):
+def record_from_commit(task_id, commit, files, why, group="hand", kind=None):
     """Re-create the hand steps of a checkpoint commit (no checkpoint is made: the commit already exists)."""
+    check_kind(kind)
     t = task.load(task_id)
     w = Path(t["workdir"])
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -42,7 +66,7 @@ def record_from_commit(task_id, commit, files, why, group="hand"):
     added = []
     at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
     for rel in files:
-        for n, h in enumerate(merge_moves(commit_hunks(w, commit, rel)), 1):
+        for n, h in enumerate(merge_moves(commit_hunks(w, commit, rel)) or binary_hunks(w, rel, commit), 1):
             sid = f"hand-{group}-{Path(rel).name}-{stamp}-h{n}"
             if sid in have:
                 continue
@@ -57,7 +81,7 @@ def record_from_commit(task_id, commit, files, why, group="hand"):
     if not added:
         raise task.Refused(f"commit {commit[:10]} has no hunks for {files}")
     task.save(t)
-    task.journal(t, "hand-edit", steps=added, files=list(files), why=[why, f"recovered from checkpoint {commit[:10]}"])
+    task.journal(t, "hand-edit", steps=added, files=list(files), why=[why, f"recovered from checkpoint {commit[:10]}"], kind=kind)
     return added
 
 
@@ -96,9 +120,11 @@ def merge_moves(hunks):
     return out
 
 
-def record(task_id, files, why, group="hand"):
+def record(task_id, files, why, group="hand", kind=None):
     """Turn the working tree's edits of `files` into done hand-port steps (one per hunk), checkpoint them.
-    -> [step ids]. Refuses when a file has no diff or when other files changed too (nothing is recorded blind)."""
+    -> [step ids]. Refuses when a file has no diff or when other files changed too (nothing is recorded blind).
+    `kind` (privacy | port) says which patch-set group the export puts the edit in."""
+    check_kind(kind)
     t = task.load(task_id)
     w = Path(t["workdir"])
     changed = set(task.changed_files(t))
@@ -113,7 +139,7 @@ def record(task_id, files, why, group="hand"):
     added = []
     at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
     for rel in files:
-        for n, h in enumerate(merge_moves(diff_hunks(w, rel)), 1):
+        for n, h in enumerate(merge_moves(diff_hunks(w, rel)) or binary_hunks(w, rel), 1):
             sid = f"hand-{group}-{Path(rel).name}-{stamp}-h{n}"
             if sid in have:
                 continue
@@ -129,5 +155,5 @@ def record(task_id, files, why, group="hand"):
         raise task.Refused("nothing to record")
     task.checkpoint(t, f"hand edit ({group}): {', '.join(Path(f).name for f in files)}")
     task.save(t)
-    task.journal(t, "hand-edit", steps=added, files=list(files), why=[why])
+    task.journal(t, "hand-edit", steps=added, files=list(files), why=[why], kind=kind)
     return added

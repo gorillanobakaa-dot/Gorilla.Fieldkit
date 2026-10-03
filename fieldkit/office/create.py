@@ -20,6 +20,8 @@ Spec shapes (one "type" per file):
 Metadata: author/last-modified-by are written EMPTY unless the spec sets
 "author" - the file should not carry the machine owner's name by accident.
 """
+import os
+import tempfile
 from pathlib import Path
 
 from . import check as _check
@@ -127,15 +129,38 @@ def _pdf(spec, out):
 WRITERS = {"docx": _docx, "xlsx": _xlsx, "pptx": _pptx, "pdf": _pdf}
 
 
-def create(spec, out):
-    """Write `out` from `spec`, then check it. Returns the check report."""
-    kind = spec.get("type") or Path(out).suffix.lstrip(".").lower()
+def create(spec, out, force=False):
+    """Write `out` from `spec`, then check it. Returns the check report.
+
+    An existing `out` is never overwritten unless force=True. The file is
+    written under a temporary name in the same folder and checked there; only a
+    file that passes its own check is moved to `out`, so a failed check leaves
+    no bad file behind (and an existing file untouched).
+    """
+    out = Path(out)
+    ext = out.suffix.lstrip(".").lower()
+    kind = spec.get("type") or ext
     if kind not in WRITERS:
         raise ValueError(f"type must be one of {sorted(WRITERS)}, got {kind!r}")
-    out = Path(out)
+    if ext != kind:
+        raise ValueError(f"{out.name}: spec type is {kind!r} but the file name ends .{ext}; "
+                         f"name the output .{kind} or change the spec's type")
+    if out.exists() and not force:
+        raise FileExistsError(f"{out} already exists; refusing to overwrite it (use --force to replace it)")
     out.parent.mkdir(parents=True, exist_ok=True)
-    WRITERS[kind](spec, out)
-    report = _check.check(out)
-    if report["problems"]:
-        raise RuntimeError(f"{out.name} was written but failed its own check: {report['problems']}")
+    fd, tmp = tempfile.mkstemp(prefix=".fieldkit-create-", suffix=out.suffix, dir=out.parent)
+    os.close(fd)
+    tmp = Path(tmp)
+    try:
+        WRITERS[kind](spec, tmp)
+        report = _check.check(tmp)
+        if report["problems"]:
+            raise RuntimeError(f"{out.name} failed its own check and was not written: {report['problems']}")
+        if out.exists() and not force:          # appeared while we were writing
+            raise FileExistsError(f"{out} already exists; refusing to overwrite it (use --force to replace it)")
+        os.replace(tmp, out)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    report["file"] = str(out)
     return report

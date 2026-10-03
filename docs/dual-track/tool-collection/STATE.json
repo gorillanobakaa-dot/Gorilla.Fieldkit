@@ -1,0 +1,34 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "tool-collection",
+ "metrics": {
+  "developer": {
+   "commands": 20,
+   "words_total": 3649
+  },
+  "layman": {
+   "commands": 63,
+   "concept_rows": 10,
+   "glossary_terms": 9,
+   "trust_steps": 5,
+   "usage_steps": 9,
+   "words_total": 5098
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 92,
+  "layman": 98
+ },
+ "sources": {
+  "desk/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "desk/cards.py": "c710259c24ded32b6ee134cb3802390ef3eba5a28d25f4cc5009689157f366a3",
+  "desk/discover.py": "169f8772b105c9cee243ccaaf27741d0c943a769aa5294bc4731b539eab29a5f",
+  "desk/readiness.py": "2764f3e227bf39d27492a72f3089641d2bc31ff2bdea7e76163660c029380194",
+  "desk/registry.py": "fbfdc26d41c4aaabb49e4ae339610a5e1892eac504e0e68695e3752ff7c4189b",
+  "gather.py": "1a43eb47b6ad0be6b0dc5a9ac2b14b91a6f3c14d0024a599ea842b69dc3f1569",
+  "harvest.py": "2c3bae674f0ea95cc4454f08464253d09d89ab3c5b22f5031bb54efac4e8210e"
+ },
+ "title": "The tool desk (registry, cards, readiness, gather, harvest)"
+}

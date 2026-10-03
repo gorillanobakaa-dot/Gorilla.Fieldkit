@@ -80,7 +80,9 @@ def run(spec_path, approve=False, state_dir=None):
             left = [k for k in ch["added"] if not any(fnmatch.fnmatch(k, pat) or fnmatch.fnmatch(Path(k).name, pat)
                                                      for pat in allowed)]
             changed = list(ch["changed"])
-            if left or changed:
+            if ch.get("not_compared"):                   # unread is not clean: fail closed
+                leftovers[part] = {"added": left, "changed": changed, "not_compared": ch["not_compared"]}
+            elif left or changed:
                 leftovers[part] = {"added": left, "changed": changed}
     clean = ok and not leftovers and "after-uninstall" in snaps
     return {"name": spec["name"], "steps": steps, "leftovers": leftovers, "clean": clean,
@@ -95,5 +97,7 @@ def lines(r):
         out += [f"       {v}" for v in s["verify"]]
     for part, ch in r["leftovers"].items():
         out.append(f"  LEFTOVERS in {part}:")
+        if ch.get("not_compared"):
+            out.append(f"       NOT COMPARED: {ch['not_compared']}")
         out += [f"       + {k}" for k in ch["added"][:20]] + [f"       ~ {k}" for k in ch["changed"][:20]]
     return out

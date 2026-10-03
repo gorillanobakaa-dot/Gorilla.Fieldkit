@@ -1,0 +1,44 @@
+{
+ "brief_sha256": "d93dcd4cfb861ec4",
+ "gorilla_check": "PASS",
+ "group": "port-engine",
+ "metrics": {
+  "developer": {
+   "commands": 21,
+   "words_total": 5128
+  },
+  "layman": {
+   "commands": 40,
+   "concept_rows": 13,
+   "glossary_terms": 13,
+   "trust_steps": 7,
+   "usage_steps": 12,
+   "words_total": 7813
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 92,
+  "layman": 98
+ },
+ "sources": {
+  "buildh/__init__.py": "939c8c151a883e1b42735fa26ff1b9c07460c7df156d2c40d87b0be517226eef",
+  "buildh/answer.py": "e9de2912914eace9db5ae71cbb9d819acb319371928fc6ae871fe856ebf6ef37",
+  "buildh/cli.py": "2c573910695e3ad9ad197b161097e88e89648bc07772f6382f5e2d2faf25642c",
+  "buildh/decision.py": "5f3dcdad0368a66266b930a9102264a3a01f39f0c45c072d2970194c68c0859f",
+  "buildh/deferred.py": "717c1b6f3d2bce0d6206602533ad9abc79120d1315b8a8f4c8af31fec1a91483",
+  "buildh/export.py": "062cf9de1e2ed6bf22f12185404d7f4cb52b668a364f811b8bc953dc01517eaf",
+  "buildh/firefox.py": "1f77515b37f9678ada8567aed938d5dc6e92ca69c8e1f964ba0628268c551a80",
+  "buildh/fluent.py": "f1140fe56d603a8e7d4a4036904b9cad59896501876f1a82b04fa1e9d6de7e65",
+  "buildh/handedit.py": "92cff5a5e340f0958a5028f4c337d160feea9c4135177a7158fee3a5c20fdd86",
+  "buildh/keyed.py": "f7da6238be378372fd08439b2590f0ad85a758710b94e749ad39ddc4d071a0e8",
+  "buildh/prefs.py": "0d047d2628bdcbe9375d3f4daaf131f0d3d1102f439aacfb2ce0d9fdc969a9a3",
+  "buildh/relocate.py": "794b25023e047525f06162fccc8684ed8b83121f795a5624685f11cae15601be",
+  "buildh/snapshot.py": "f306ab6ad093e2f38c5ec2613a4dbdc0eb8a50107187b4d563551b4c1fc422ee",
+  "buildh/task.py": "dae77e1758c6f7e793aeee877736e92c399804d4d7b4ab4ff96e1e5af5b680c0",
+  "buildh/upstream.py": "9ebda2f36e6588e085e785d365c4599e5db35ca3101e1c6798813e5d33f5c238",
+  "buildh/vault.py": "9c8f3972ddbd3aa7d195ce2086cdc2def029d15071fe312f254720e0c22fda95",
+  "buildh/worker.py": "e325689a2f837958b74bdcaffe56e56ad7ee7aebc23ce4a7a50f67714918b27e"
+ },
+ "title": "The Firefox port engine (build harness tasks and decisions)"
+}

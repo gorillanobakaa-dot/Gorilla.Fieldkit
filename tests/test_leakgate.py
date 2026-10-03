@@ -22,12 +22,17 @@ def test_unexpected_pending_allowed():
     assert al.problems({"entries": [{"id": "x", "kind": "dest"}]})
 
 
-def test_approval_refused_without_a_terminal(tmp_path):
+def test_approval_refused_without_a_terminal(tmp_path, monkeypatch):
     p = tmp_path / "allow.json"
     al.save(p, {"version": 1, "entries": [_entry()]})
+    monkeypatch.setattr(task, "owner_terminal", lambda: False)
     with pytest.raises(task.Refused, match="real terminal"):
-        al.approve(p, {"e1"}, terminal=False)
-    assert al.approve(p, {"*proposed*"}, say=lambda m: None, terminal=True) == ["e1"]
+        al.approve(p, {"e1"})
+    with pytest.raises(TypeError):
+        al.approve(p, {"e1"}, terminal=True)                     # no argument stands in for the terminal any more
+    assert al.load(p)["entries"][0]["approval"] is None
+    monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    assert al.approve(p, {"*proposed*"}, say=lambda m: None) == ["e1"]
     assert al.load(p)["entries"][0]["approval"]["how"] == "terminal"
 
 
@@ -67,3 +72,65 @@ def test_missing_packets_and_repeats_fail():
     fail, _ = gate.judge(ALL_SENSORS, {"entries": [_entry(id="f", kind="file", values=["*"], approval={"by": "o"})]}, {}, ["C:/b"], [], 1, False, True)
     assert fail["REPRODUCIBILITY_POLICY"] and any("packet-level" in x for x in fail["NETWORK_POLICY"])
     assert not fail["FILESYSTEM_POLICY"] and not fail["CANARY_POLICY"]
+
+
+def test_no_approval_path_exists_without_the_owner_terminal_check():
+    """Every function in leakgate that writes an approval (or is named approve*) must call task.owner_terminal()
+    itself, with no parameter able to stand in for it. The chat route approve_from_chat() is gone."""
+    import ast
+    from pathlib import Path
+    import fieldkit.leakgate as lg
+    offenders, approvers = [], []
+    for f in sorted(Path(lg.__file__).parent.glob("*.py")):
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+            src = ast.unparse(fn)
+            writes = any(isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant) and n.slice.value == "approval"
+                         and isinstance(n.ctx, ast.Store) for n in ast.walk(fn))
+            if fn.name.startswith("approve") or writes:
+                approvers.append(f"{f.name}:{fn.name}")
+                if "owner_terminal()" not in src or "terminal" in [a.arg for a in fn.args.args + fn.args.kwonlyargs]:
+                    offenders.append(f"{f.name}:{fn.name}")
+    assert approvers == ["allow.py:approve"] and offenders == []
+    from fieldkit.leakgate import dispositions
+    assert not hasattr(dispositions, "approve_from_chat") and not hasattr(dispositions, "build")
+
+
+def test_ensure_ca_stops_only_the_mitmdump_it_started_on_every_platform(tmp_path, monkeypatch):
+    started, calls = [], []
+
+    class P:
+        pid = 777001
+
+        def __init__(self, *a, **k):
+            started.append(self)
+            self.terminated = self.killed = False
+            (tmp_path / "w" / "mitm-conf" / "mitmproxy-ca-cert.pem").write_text("CA", encoding="utf-8")
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(gate.subprocess, "Popen", P)
+    monkeypatch.setattr(gate.subprocess, "run", lambda cmd, *a, **k: calls.append(cmd))
+    monkeypatch.setattr(gate.se, "free_port", lambda: 1)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    ca = gate.ensure_ca(tmp_path / "w")
+    assert ca.read_text() == "CA" and started[0].terminated and calls == []          # no taskkill on Linux
+    ca.unlink()
+    monkeypatch.setattr(gate.sys, "platform", "win32")
+    gate.ensure_ca(tmp_path / "w")
+    assert calls == [["taskkill", "/PID", "777001", "/T", "/F"]] and not started[1].terminated
+    # already exited: nothing is sent to anyone
+    calls.clear()
+    done = type("Done", (), {"poll": lambda self: 0, "pid": 5})()
+    gate.stop_started(done)
+    assert calls == []

@@ -13,8 +13,9 @@ DOC = {"type": "docx", "title": "Field report", "author": "Jane Public",
 
 
 @pytest.fixture(autouse=True)
-def _terms(monkeypatch):
+def _terms(monkeypatch, tmp_path):
     monkeypatch.setattr(privacy, "private_terms", lambda local=None: ["Jane Public"])
+    monkeypatch.setenv("FIELDKIT_OFFICE_BACKUPS", str(tmp_path / "backups"))
 
 
 def _run(tmp_path, f):
@@ -32,7 +33,8 @@ def test_named_document_comes_out_clean(tmp_path):
     rep = _run(tmp_path, f)
     assert rep["ok"] and _status(rep) == {"check": "done", "scrub": "done", "privacy": "done"}, rep
     assert scrub.inspect(f, ["Jane Public"]) == []
-    assert (tmp_path / "report.docx.bak").exists()
+    assert not (tmp_path / "report.docx.bak").exists()                # backup is not beside the file
+    assert list((tmp_path / "backups").rglob("report.docx"))          # it is in the backup folder
 
 
 def test_private_text_inside_stops_delivery(tmp_path):

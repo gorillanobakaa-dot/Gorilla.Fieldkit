@@ -1,0 +1,33 @@
+{
+ "adopted_from": "hand-made docs/_groups copies (2026-10-02); written before the writer brief existed",
+ "brief_sha256": null,
+ "gorilla_check": "PASS",
+ "group": "exam",
+ "metrics": {
+  "developer": {
+   "commands": 7,
+   "words_total": 2775
+  },
+  "layman": {
+   "commands": 14,
+   "concept_rows": 7,
+   "glossary_terms": 7,
+   "trust_steps": 4,
+   "usage_steps": 5,
+   "words_total": 3622
+  }
+ },
+ "rendered": "2026-10-02",
+ "scores": {
+  "developer": 88,
+  "layman": 97
+ },
+ "sources": {
+  "exam/__init__.py": "fc29afaef16e670ea27a93c67a8774d0a58231424a719ec461022da844c0b5b6",
+  "exam/fixture.py": "c7407c7e11000a178198123da21fc644d1bd69052425419c476021ffc608ed0e",
+  "exam/runner.py": "4822b83377a13d9b63086bc2c5457f6bc5510631cf8eb8dfcc3b05ee6b5000a3",
+  "exam/tasks.py": "5112c39a1cd83d273872d8d4abcda7b01e97c28e586f7011db1362caa41b5e76",
+  "exam/tools.py": "5afaa9bc21eafc2b2f1261c3e608f370a64f6052df5c98cecfa3a354fa5269da"
+ },
+ "title": "The exam (small models with and without the kit)"
+}
