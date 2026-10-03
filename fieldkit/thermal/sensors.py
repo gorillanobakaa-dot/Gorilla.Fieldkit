@@ -167,18 +167,30 @@ def grade(idle, hi):
     return "die" if hi - idle >= DIE_RISE else "surface"
 
 
-def prove_live(fn, settle=8, samples=6, interval=2.0, rise=2.0, threads=None, load=_load):
+PROOF_CEILING = 80.0  # the proof stops loading at this reading (2026-10-03 14:24: an unguarded proof reset the laptop)
+
+
+def prove_live(fn, settle=8, samples=6, interval=2.0, rise=2.0, threads=None, load=_load, ceiling=PROOF_CEILING):
     """Saturate the cores and require the reading to RISE by `rise` degrees or move by that much. -> (ok, detail).
     A source that does not move while twelve threads spin is not watching the silicon. `detail` ends with the grade."""
     import os
     idle = fn()
     if idle is None:
         return False, "no reading"
-    procs = load(threads or os.cpu_count() or 4)
+    procs = load(threads or max(1, (os.cpu_count() or 4) // 2))      # half the threads: enough to move a live sensor
     seen = []
     try:
-        time.sleep(settle)
+        waited = 0.0
+        while waited < settle:                                     # watch the ceiling while settling too
+            time.sleep(1.0)
+            waited += 1.0
+            t = fn()
+            if t is not None and t >= ceiling:
+                seen.append(t)
+                break
         for _ in range(samples):
+            if seen and seen[-1] >= ceiling:
+                break                                              # hot enough: stop loading NOW
             t = fn()
             if t is not None:
                 seen.append(t)

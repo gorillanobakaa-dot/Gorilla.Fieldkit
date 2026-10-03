@@ -473,16 +473,59 @@ def wait_for_idle(say, busy_max=35.0, timeout=600, sleep=time.sleep):
         sleep(20)
 
 
+PROOF_CAP = 60          # % max processor state while the sensor proof loads the cores (it runs before the governor)
+PROOF_REUSE_S = 12 * 3600
+
+
+def _proof_cache():
+    return task.STATE / "thermal-proof.json"
+
+
+def _boot_time():
+    try:
+        import psutil
+        return int(psutil.boot_time())
+    except Exception:
+        return None
+
+
 def thermal_sensor(say, retry=True):
-    """The first CPU sensor proven against load (fieldkit.thermal.sensors.best). -> (name, fn) or (None, None)."""
-    from ..thermal import sensors
+    """The first CPU sensor proven against load (fieldkit.thermal.sensors.best). -> (name, fn) or (None, None).
+    2026-10-03 14:24: the proof itself (every core at 100%, uncapped, 80 s, a lagging surface sensor) reset the laptop.
+    Now: a sensor proven this boot is reused for 12 h; a new proof runs with the processor capped and stops at a ceiling."""
+    from ..thermal import sensors, governor
+    import json as _json
+    c = _proof_cache()
+    try:
+        prev = _json.loads(c.read_text(encoding="utf-8"))
+    except Exception:
+        prev = None
+    fns = dict(sensors.PROVIDERS)
+    if prev and prev.get("boot") == _boot_time() and time.time() - prev.get("when", 0) < PROOF_REUSE_S and prev.get("name") in fns \
+            and fns[prev["name"]]() is not None:
+        name, fn, detail = prev["name"], fns[prev["name"]], prev["detail"] + " (proven earlier this boot; not re-stressed)"
+        say(f"  thermal source: {name} - {detail[:200]}")
+        surface = "[surface sensor]" in detail
+        if surface:
+            say(f"  only a surface sensor: the compile runs with the cap held at {SURFACE_CAP}% of base (no die reading on this machine)")
+        return name, fn, surface
     busy = wait_for_idle(say)
-    name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
-    if name is None and retry:
-        # one more try after a minute: a plateau from earlier load needs time to fall before a rise can show
-        say(f"  thermal proof failed once (busy {busy if busy is None else round(busy)}%); waiting 60 s and proving again")
-        time.sleep(60)
+    before = governor.read_cap()
+    governor.set_cap(PROOF_CAP)
+    try:
         name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
+        if name is None and retry:
+            # one more try after a minute: a plateau from earlier load needs time to fall before a rise can show
+            say(f"  thermal proof failed once (busy {busy if busy is None else round(busy)}%); waiting 60 s and proving again")
+            time.sleep(60)
+            name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
+    finally:
+        governor.set_cap(before if before else 100)
+    if name:
+        try:
+            c.write_text(_json.dumps({"boot": _boot_time(), "when": time.time(), "name": name, "detail": detail}), encoding="utf-8")
+        except OSError:
+            pass
     say(f"  thermal source: {name or 'NONE'} - {detail[:200]}")
     surface = "[surface sensor]" in (detail or "")
     if surface:

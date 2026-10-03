@@ -191,3 +191,17 @@ def test_thermal_watch_stops_and_joins_the_governor_on_ctrl_c(monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         cli.cmd_thermal(argparse.Namespace(action="watch", seconds=60, target=75.0))
     assert events == [("init", 75.0), "start", "stop", ("join", 15)]
+
+
+def test_the_sensor_proof_stops_loading_at_the_ceiling():
+    from fieldkit.thermal import sensors
+    readings = iter([40.0] + [82.0] * 50)
+    killed = []
+
+    class P:
+        def kill(self):
+            killed.append(1)
+
+    ok, detail = sensors.prove_live(lambda: next(readings), settle=8, samples=6, interval=0.0, threads=2,
+                                    load=lambda n: [P() for _ in range(n)], ceiling=80.0)
+    assert ok and killed == [1, 1] and "82.0" in detail
