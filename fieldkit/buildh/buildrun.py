@@ -330,6 +330,31 @@ def fix_jar_manifest(t, root, say, lines):
     return True, f"{rel}: declared + emptied jar.mn"
 
 
+def stale_resources(objdir, branding, say=print):
+    """2026-10-03 build 17: newtab.ico was rebuilt with all its sizes, but the incremental build kept the 07:53
+    firefox.exe.res (the .rc does not depend on the .ico), so firefox.exe embedded the old icon and the final check
+    failed. Delete every compiled .res under the objdir that is older than the newest branding image. -> [removed]."""
+    import glob
+    b = Path(branding)
+    if not b.is_dir():
+        return []
+    imgs = [f for ext in ("*.ico", "*.bmp", "*.png") for f in b.rglob(ext)]
+    if not imgs:
+        return []
+    newest = max(f.stat().st_mtime for f in imgs)
+    removed = []
+    for res in glob.glob(str(Path(objdir) / "**" / "*.res"), recursive=True):
+        try:
+            if Path(res).stat().st_mtime < newest:
+                Path(res).unlink()
+                removed.append(res)
+        except OSError:
+            pass
+    if removed:
+        say(f"  stale resources: {len(removed)} compiled .res older than the branding images removed (they embed the icons)")
+    return removed
+
+
 def sweep_excised_dist(dist_bin, say):
     """Delete, under dist/bin, every path the proof's EXCISED_PACKAGED prefixes name. -> [removed]."""
     from .proof import EXCISED_PACKAGED
@@ -630,6 +655,16 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
 
 def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface, stops, log_path, say):
     from . import compile as cg
+    try:                                                   # icons are baked into firefox.exe by the .res
+        from .compile import mozconfig_path as _mp, objdir as _od
+        from . import icons as _icons
+        _odir = _od(_mp(root))
+        _moz = _mp(root)
+        _brand = _icons.branding_dir(Path(_moz).read_text(encoding="utf-8", errors="replace")) if _moz and Path(_moz).is_file() else None
+        if _odir and _brand:
+            stale_resources(_odir, Path(t["workdir"]) / _brand, say)
+    except Exception as _e:
+        say(f"  stale resources: not checked ({_e})")
     for stage in stages:
         if stage == "package":
             # a jar.mn that loses entries leaves the files it once installed in dist/bin, and the packager ships

@@ -37,3 +37,19 @@ def test_a_hot_laptop_cools_before_any_load():
     waited = []
     assert buildrun.cool_down(lambda m: None, sleep=waited.append, read=lambda: next(temps)) == 70.0
     assert waited == [30, 30]
+
+
+def test_a_compiled_resource_older_than_the_icons_is_removed(tmp_path):
+    import os
+    import time
+    from fieldkit.buildh import buildrun
+    od, br = tmp_path / "obj", tmp_path / "branding"
+    (od / "browser" / "app").mkdir(parents=True)
+    br.mkdir()
+    res = od / "browser" / "app" / "firefox.exe.res"
+    res.write_bytes(b"old")
+    old = time.time() - 3600
+    os.utime(res, (old, old))
+    (br / "newtab.ico").write_bytes(b"new")
+    assert buildrun.stale_resources(od, br, lambda m: None) == [str(res)]
+    assert not res.exists()
