@@ -495,6 +495,7 @@ def thermal_sensor(say, retry=True):
     Now: a sensor proven this boot is reused for 12 h; a new proof runs with the processor capped and stops at a ceiling."""
     from ..thermal import sensors, governor
     import json as _json
+    governor.restore_stale_cap(say)                      # a crash may have left the processor capped
     c = _proof_cache()
     try:
         prev = _json.loads(c.read_text(encoding="utf-8"))

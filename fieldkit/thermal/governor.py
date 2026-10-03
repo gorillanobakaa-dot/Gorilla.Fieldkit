@@ -41,10 +41,53 @@ def read_cap():
     return None
 
 
+def _marker():
+    from ..core import settings
+    return settings.ROOT / "state" / "cap-original.json"
+
+
 def set_cap(pct):
+    """Set PROCTHROTTLEMAX. The first lowering writes the original value to a marker, so a crash that skips the
+    restore is undone by `restore_stale_cap()` on the next run (2026-10-03: a reset left the laptop at 40%)."""
+    import json
+    m = _marker()
+    if not m.exists():
+        orig = read_cap()
+        if orig is not None and int(pct) < orig:
+            try:
+                m.parent.mkdir(parents=True, exist_ok=True)
+                m.write_text(json.dumps({"original": orig}), encoding="utf-8")
+            except OSError:
+                pass
     for rail in ("/setacvalueindex", "/setdcvalueindex"):
         _powercfg(rail, "scheme_current", "sub_processor", "PROCTHROTTLEMAX", str(int(pct)))
     _powercfg("/setactive", "scheme_current")          # apply
+    if m.exists():
+        try:
+            import json as _j
+            if int(pct) >= _j.loads(m.read_text(encoding="utf-8")).get("original", 101):
+                m.unlink()                              # back at (or above) the original: nothing to undo
+        except (OSError, ValueError):
+            pass
+
+
+def restore_stale_cap(say=print):
+    """A marker left by a crashed run means the cap was never put back: restore the recorded original."""
+    import json
+    m = _marker()
+    if not m.exists():
+        return None
+    try:
+        orig = int(json.loads(m.read_text(encoding="utf-8"))["original"])
+    except (OSError, ValueError, KeyError):
+        orig = 100
+    set_cap(orig)
+    try:
+        m.unlink()
+    except OSError:
+        pass
+    say(f"  power cap: a crashed run had left it lowered; restored to {orig}%")
+    return orig
 
 
 class Governor(threading.Thread):
