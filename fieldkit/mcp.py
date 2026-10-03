@@ -9,6 +9,8 @@ has no approve argument here; irreversible and unknown-safety tools answer with
 a refusal telling the model to show the owner a preview. The owner approves on
 the command line: `fieldkit agent run TOOL --input k=v --approve`.
 Approval must come from a person, not from text a model produced.
+The same holds for decisions: build_harness_briefs lists the open decision briefs read-only;
+there is no tool that records an answer (`fieldkit build-harness decide`, real terminal only).
 """
 import json
 import os
@@ -49,6 +51,10 @@ TOOLS = [
     {"name": "build_harness_submit", "description": "Say the job is done. The harness checks your change; if it "
      "fails, your change is put back and you get the reasons. Never claim it works yourself.",
      "inputSchema": {"type": "object", "properties": {"note": {"type": "string"}}}},
+    {"name": "build_harness_briefs", "description": "Read-only. The decisions waiting for the person, each as a full "
+     "brief (what is affected, verbatim; every option and its cost; the recommendation). Show the brief instead of "
+     "asking a question. Optional id: one brief in full. You cannot record an answer: only the person can, at a terminal.",
+     "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}}},
 ]
 
 

@@ -35,6 +35,13 @@ def diff_hunks(workdir, rel):
     return parsed[0]["hunks"] if parsed else []
 
 
+def _tag(rel):
+    """Six hex chars of the path: two moz.build or jar.mn files edited in one call no longer share a step id
+    (2026-10-03: hand-hand-moz.build-...-h1 existed three times)."""
+    import hashlib
+    return hashlib.sha1(rel.encode("utf-8")).hexdigest()[:6]
+
+
 def binary_hunks(workdir, rel, commit=None):
     """A binary file (a logo PNG) has no text hunks, so it got no step and was never exported (2026-10-02: the About
     logo). -> [{"binary": True, "sha256": ...}] when `rel` is binary in the commit (or the working tree's diff), else []."""
@@ -67,7 +74,7 @@ def record_from_commit(task_id, commit, files, why, group="hand", kind=None):
     at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
     for rel in files:
         for n, h in enumerate(merge_moves(commit_hunks(w, commit, rel)) or binary_hunks(w, rel, commit), 1):
-            sid = f"hand-{group}-{Path(rel).name}-{stamp}-h{n}"
+            sid = f"hand-{group}-{Path(rel).name}-{stamp}-{_tag(rel)}-h{n}"
             if sid in have:
                 continue
             t["steps"].insert(at, {"id": sid, "kind": "model", "status": "done", "done_by": "hand", "hand_port": True,
@@ -140,7 +147,7 @@ def record(task_id, files, why, group="hand", kind=None):
     at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
     for rel in files:
         for n, h in enumerate(merge_moves(diff_hunks(w, rel)) or binary_hunks(w, rel), 1):
-            sid = f"hand-{group}-{Path(rel).name}-{stamp}-h{n}"
+            sid = f"hand-{group}-{Path(rel).name}-{stamp}-{_tag(rel)}-h{n}"
             if sid in have:
                 continue
             t["steps"].insert(at, {"id": sid, "kind": "model", "status": "done", "done_by": "hand", "hand_port": True,

@@ -59,6 +59,27 @@ fieldkit lifecycle SPEC --approve                install, verify, uninstall; lis
 6. **Report the platform honestly.** A Debian-only stage on Windows reports
    `not-this-platform`, and it is not faked.
 
+## Decisions: a model never asks a bare question
+
+A model never asks a bare question; it runs `briefs` and shows the brief.
+
+```
+fieldkit build-harness briefs TASK [--json] [--technical]   every open decision, each a full brief
+fieldkit build-harness brief show ID [--task TASK]          one brief in full (MCP: build_harness_briefs)
+fieldkit build-harness decide ID OPTION --words "..."       the maintainer only, at a real terminal
+```
+
+- A brief shows what is affected, word for word (counts, excerpts, file:line, where it is
+  linked from), every option with what it changes, its cost to users and to the project's
+  credibility, a recommendation with its reason, and what will be recorded. The code
+  (`fieldkit/briefs/schema.py`) refuses a brief that lacks any of these.
+- Show the brief as it is. Do not shorten it into "should I do X?". Do not summarise the
+  excerpts: they are there so the person reads the content itself.
+- An unproven privacy or security claim is made true and proven, never deleted: a brief
+  that recommends deleting one is refused.
+- You cannot record an answer. `decide` needs a real terminal, the brief shown first, and
+  the person's own words; the MCP door has no decide tool.
+
 ## Layout
 
 ```
@@ -68,6 +89,7 @@ fieldkit/build    triage + signatures/*.yaml, kernel, refcheck, pipelines/*.yaml
 fieldkit/desk     registry + tools.yaml, discover (every gathered script)
 fieldkit/exam     fixture, tasks + graders, raw/kit toolsets, runner (model measurement)
 fieldkit/agent.py, mcp.py         the agent interface (CLI and MCP)
+fieldkit/briefs   decision briefs: schema (validation, rendering), producers, record (owner only)
 fieldkit/release.py              the release gate
 fieldkit/gather.py, harvest.py   bring tools in; index what they do
 skills/           SKILL.md pointers, installed by install_skills.py

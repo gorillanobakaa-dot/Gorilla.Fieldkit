@@ -671,7 +671,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "claims", "creep", "brief", "deferred", "verify", "snapshot", "visual"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual"])
     bh.add_argument("--static", action="store_true", help="visual: only the static layer (the ported tree; no browser is started)")
     bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
@@ -696,6 +696,7 @@ def build_parser():
     bh.add_argument("--model", action="store_true", help="preflight: also check that the model server answers")
     bh.add_argument("--technical", action="store_true", help="brief: the full technical brief instead of the plain-words one")
     bh.add_argument("--do", help="brief: the exact sentence the brief told you to type, to carry out the safe fix")
+    bh.add_argument("--words", help="decide: what the maintainer decided, in their own words (recorded as the provenance)")
     bh.add_argument("--task")
     bh.add_argument("--pin", help="start: a stable version instead of the latest (e.g. 155.0.1)")
     bh.add_argument("--source", help="start: repository URL or local git path holding the release tag")

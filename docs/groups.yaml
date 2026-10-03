@@ -86,6 +86,10 @@ groups:
     title: Install the built browser and prove it
     sources: [buildh/capture.py, buildh/claims.py, buildh/decisions.py, buildh/install.py, buildh/leaks.py, buildh/proof.py, buildh/throwaway.py]
 
+  - name: decision-briefs
+    title: Decision briefs, never a bare question (what is affected, every option, its cost, the recorded answer)
+    sources: ["briefs/*.py"]
+
   - name: leakgate
     title: Leakgate, the fail-closed leak and telemetry release gate
     sources: ["leakgate/*.py"]

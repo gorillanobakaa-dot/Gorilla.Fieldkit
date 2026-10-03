@@ -32,7 +32,17 @@ EXCISED_PACKAGED = ("chrome/toolkit/content/global/ml/", "moz-src/toolkit/compon
                     # 2026-10-02 (decisions D-157-03/04): Mozilla's extra themes and the translations model dumps
                     "chrome/browser/content/builtin-themes/light/", "chrome/browser/content/builtin-themes/dark/",
                     "chrome/browser/content/builtin-themes/alpenglow/",
-                    "defaults/settings/main/translations-models.json", "defaults/settings/main/translations-wasm.json")
+                    "defaults/settings/main/translations-models.json", "defaults/settings/main/translations-wasm.json",
+                    # 2026-10-03 (decision D-157-03): Firefox Translations removed from the tree (emptied jar.mn files,
+                    # actors dropped). Stale copies in dist/bin from earlier builds would be packaged again without
+                    # this. The language detector (modules/translations/) and the stub actors/TranslationsParent.sys.mjs
+                    # stay on purpose and are NOT listed.
+                    "chrome/toolkit/content/global/translations/", "chrome/browser/content/browser/translations/",
+                    "chrome/browser/skin/classic/browser/translations/",
+                    "chrome/browser/skin/classic/browser/translations-companion.svg",
+                    "actors/TranslationsChild.sys.mjs", "actors/TranslationsEngineChild.sys.mjs",
+                    "actors/TranslationsEngineParent.sys.mjs", "actors/AboutTranslationsChild.sys.mjs",
+                    "actors/AboutTranslationsParent.sys.mjs")
 
 
 def _norm(v):

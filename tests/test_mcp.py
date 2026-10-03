@@ -27,7 +27,7 @@ def test_handshake_list_and_call_over_stdio():
     assert out[0]["result"]["serverInfo"]["name"] == "fieldkit"
     names = {t["name"] for t in out[1]["result"]["tools"]}
     assert {"discover", "describe", "run", "undo", "next", "readiness",
-            "build_harness_status", "build_harness_next", "build_harness_submit"} == names
+            "build_harness_status", "build_harness_next", "build_harness_submit", "build_harness_briefs"} == names
     text = out[2]["result"]["content"][0]["text"]
     assert "office-scrub" in text and text.rstrip().splitlines()[-1].startswith("NEXT:")
     assert out[3]["error"]["code"] == -32601

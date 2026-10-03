@@ -10,9 +10,13 @@
     fieldkit build-harness unblock TASK STEP retry|skip      the owner
     fieldkit build-harness log [TASK]
     fieldkit build-harness watch|report [TASK] [--session ID]   the recorder: live, or the whole run
+    fieldkit build-harness briefs TASK [--json] [--technical]   every open decision, as a full brief (fieldkit/briefs)
+    fieldkit build-harness brief show ID [--task TASK]          one brief in full (logged as shown)
+    fieldkit build-harness decide ID OPTION --words "..."       the maintainer records the answer (real terminal only)
 
 Without TASK, the current task is used (the last one started).
-The model gets three MCP tools: build_harness_status, build_harness_next, build_harness_submit.
+The model gets four MCP tools: build_harness_status, build_harness_next, build_harness_submit, and the read-only
+build_harness_briefs. It never gets a tool that records a decision.
 """
 import json
 import time
@@ -77,6 +81,24 @@ def mcp_call(name, args):
                 return (f"BLOCKED at {r['step']}: {'; '.join(r.get('why') or [])}\n"
                         "NEXT: stop and tell the owner. Do not work around it."), False
             return f"{r['state']}\nNEXT: tell the owner the job is finished.", False
+        if name == "build_harness_briefs":
+            # read-only: a model shows the person the brief; it can never record the answer (no decide tool exists)
+            from ..briefs import producers, schema
+            ctx = producers.Context(tid)
+            want = str(args.get("id") or "").strip()
+            if want:
+                try:
+                    b = producers.find(ctx, want)
+                except schema.Invalid as e:
+                    return f"{e}\nNEXT: call build_harness_briefs without an id to list the open briefs.", False
+                return ("\n".join(schema.render(b)) + "\nNEXT: show this whole brief to the person, word for word. Do not "
+                        "shorten it into a question. Only the person can answer, at a real terminal."), False
+            got = producers.collect(ctx)
+            text = producers.listing_lines(got, tid, limit=25)
+            if got["briefs"]:
+                text += ["", "The first brief in full:", ""] + schema.render(got["briefs"][0])
+            return "\n".join(text) + ("\nNEXT: show the person the brief in full; never ask a bare question. To read another, "
+                                      "call build_harness_briefs with its id."), False
         if name == "build_harness_submit":
             r = task.submit(tid, note=args.get("note", ""), by="model")
             if r["ok"]:
@@ -329,6 +351,38 @@ def drive(tid, a):
     return 3
 
 
+def _briefs(act, a, emit):
+    """briefs TASK [--json] [--technical] | brief show ID [--task TASK] | brief show TASK ID | decide ID OPTION --words W"""
+    from ..briefs import producers, record, schema
+    try:
+        if act == "briefs":
+            tid = current_id(a.task or (a.args[0] if a.args else None))
+            got = producers.collect(producers.Context(tid))
+            if getattr(a, "technical", False) and not getattr(a, "json", False):
+                for b in got["briefs"]:
+                    print("\n".join(schema.render(b, technical=True)) + "\n" + "=" * 100)
+            emit({"task": tid, "briefs": got["briefs"], "problems": got["problems"]},
+                 lambda r: print("\n".join(producers.listing_lines(got, tid))))
+            return 3 if got["briefs"] or got["problems"] else 0
+        if act == "brief":
+            rest = a.args[1:]
+            if not rest:
+                raise task.Refused("brief show ID [--task TASK]: which brief? list them with: fieldkit build-harness briefs TASK")
+            tid = current_id(a.task or (rest[0] if len(rest) > 1 else None))
+            b = producers.find(producers.Context(tid), rest[-1])
+            digest = record.mark_shown(tid, b)
+            emit({**b, "sha256": digest}, lambda _: print("\n".join(schema.render(b, technical=getattr(a, "technical", False)))))
+            return 0
+        if len(a.args) != 2:
+            raise task.Refused("decide BRIEF-ID OPTION --words \"your own words\" [--task TASK]")
+        tid = current_id(a.task)
+        r = record.decide(tid, a.args[0], a.args[1], getattr(a, "words", None))
+        emit(r, lambda r: print(f"RECORDED {r['brief']} -> {r['option']} (brief sha256 {r['sha256'][:12]}): {r['recorded']}"))
+        return 0
+    except schema.Invalid as e:
+        raise task.Refused(str(e))
+
+
 def run(a, emit):
     """The `fieldkit build-harness` command. `emit(obj, lines_fn)` prints JSON or text."""
     act = a.action
@@ -357,6 +411,8 @@ def run(a, emit):
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
                                     f"NEXT: the owner reads the plan and runs: fieldkit build-harness approve {r['task']}")) or 0
+    if act in ("briefs", "decide") or (act == "brief" and a.args and a.args[0] == "show"):
+        return _briefs(act, a, emit)
     words = [x for x in a.args if x != "baseline"]            # `audit baseline` is not a task name
     tid = current_id(a.task or (words[0] if words else None))
     if act == "approve":
@@ -480,12 +536,16 @@ def run(a, emit):
             dres = _dec.check(owner, t["workdir"], _inst.find_install(), strict=True)
             if not dres["ok"]:
                 print("\n".join(_dec.lines(dres)))
+                from ..briefs import producers as _bp
+                print("\n".join(_bp.gate_lines(tid, kinds={"decision"}, decisions_res=dres)))
                 raise _t.Refused("the baseline is this build WITH its decisions: every decision must be ENFORCED first "
                                  "(fieldkit build-harness decisions TASK --strict)")
             from . import claims as _cl
             cres = _cl.run(tid, install_dir=_inst.find_install(), strict=True, write=False)
             if not cres["ok"]:
                 print("\n".join(_cl.lines(cres)))
+                from ..briefs import producers as _bp
+                print("\n".join(_bp.gate_lines(tid, kinds={"patch", "claims"}, claims_res=cres)))
                 raise _t.Refused("the baseline is this build WITH what we publish about it: every public claim must be PROVEN "
                                  "and every enabled patch IMPLEMENTED or explained first (fieldkit build-harness claims TASK --strict)")
             p = lg.save_baseline(st["artifacts"], owner, t["meta"]["upstream"]["version"], bootstrap=boot,
@@ -496,7 +556,9 @@ def run(a, emit):
             last = sorted(p for p in workroot.iterdir() if (p / "events.jsonl").is_file())[-1]
             events = [_js.loads(l) for l in (last / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
             added = la.propose(la.path_for(owner), events, last.name, say=say)
-            print(f"proposed {len(added)} entr(ies) from {last.name}; approve with: fieldkit build-harness leakgate-approve {tid}  (owner, real terminal)")
+            print(f"proposed {len(added)} entr(ies) from {last.name}; nothing is approved.")
+            from ..briefs import producers as _bp                # each proposal as a full brief, not a bare "approve?"
+            print("\n".join(_bp.gate_lines(tid, kinds={"allowlist"})))
             return 0
         res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
         backups = Path.home() / "Documents" / "Gorilla.Firefox.Backups"
@@ -613,6 +675,9 @@ def run(a, emit):
                                 + "".join(f"\n  {x.get('status') or 'FAIL'}: {x['name']}" + (f" ({x['why']})" if x.get("why") else "")
                                           for x in r.get("results", []) if x.get("status") != "ok"))
                                 + (f"\n{r['next']}" if r.get("next") else "")))
+        if not r.get("ok") and not getattr(a, "json", False):
+            from ..briefs import producers as _bp            # what needs the maintainer, as full briefs, not a bare line
+            print("\n".join(_bp.gate_lines(tid, install_dir=r.get("target"))))
         return 0 if r.get("ok") else 3
     if act == "creep":
         from . import verify as vf
@@ -637,6 +702,11 @@ def run(a, emit):
         from . import buildrun
         r = buildrun.run(tid, force=bool(getattr(a, "force", False)), say=lambda m: print(m, flush=True))
         emit(r, lambda r: print("BUILD " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or [s["signature"] for s in r.get("stops", [])]))))
+        if not r.get("ok") and not getattr(a, "json", False):
+            # the briefs that can stop a build; the claims and patch briefs need the 2-minute claims audit (`briefs TASK`)
+            from ..briefs import producers as _bp
+            print("\n".join(_bp.gate_lines(tid, kinds={"decision", "deferred", "owner-edit", "disposition", "allowlist"})))
+            print(f"claims and patch briefs: fieldkit build-harness briefs {tid}")
         return 0 if r.get("ok") else 3
     if act in ("build-gate", "build-verify"):
         from . import compile as cg
