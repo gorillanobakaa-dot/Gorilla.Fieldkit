@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 MARK = ".fieldkit-throwaway"
-PREFIXES = ("gcap_", "gleaks_", "gproof_", "gegress_", "gadblock_", "gstartup_", "gnetbench_")
+PREFIXES = ("gcap_", "gleaks_", "gproof_", "gegress_", "gadblock_", "gstartup_", "gnetbench_", "gprobe_")
 USER_JS = ('user_pref("browser.shell.checkDefaultBrowser", false);\n'
            'user_pref("browser.aboutwelcome.enabled", false);\n')
 

@@ -525,6 +525,30 @@ def run(a, emit):
         r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True))
         print("register new groups in config/patch_policy.json if they are not there; then prove the set: build-harness replay " + tid)
         return 0
+    if act == "release-check":
+        from . import releasecheck as rc_
+        rows = rc_.run(tid, say=lambda m: print(m, flush=True), skip_post_install="--fast" in a.args or getattr(a, "build", False))
+        return 0 if all(r["ok"] for r in rows) else 3
+    if act == "probe":
+        # probe TASK js=<file|name> [url=...] [wait=S] [omni=<jar>:<member>=<file> ...]: a question to (or a JS fix
+        # tried in) a throwaway copy of the installed build, without a build
+        from . import probe as pb, buildrun
+        kv = [x for x in a.args[1:] if "=" in x]
+        opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=")))}
+        omni = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("omni="))
+        files = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("file="))
+        if "js" not in opts:
+            raise task.Refused("probe needs js=<file or one of " + ", ".join(p.stem for p in pb.PROBES.glob("*.js")) + ">")
+        from . import install as _inst
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir")
+        r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)), omni=omni or None,
+                   say=lambda m: print(m, flush=True), files=files or None)
+        for l in r["lines"]:
+            print("  " + l)
+        print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
+        return 0 if r["done"] else 3
     if act == "techniques":
         from . import techniques as tq
         t = task.load(tid)

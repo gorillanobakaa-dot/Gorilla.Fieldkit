@@ -1,0 +1,61 @@
+"""probe: a copy of the build answers a question; omni members of the COPY can be replaced to try a JS fix."""
+import zipfile
+
+import pytest
+
+from fieldkit.buildh import probe
+
+
+def test_omni_members_are_replaced_in_the_copy_only(tmp_path):
+    app = tmp_path / "app" / "browser"
+    app.mkdir(parents=True)
+    with zipfile.ZipFile(app / "omni.ja", "w") as z:
+        z.writestr("modules/A.sys.mjs", "old")
+        z.writestr("modules/B.sys.mjs", "keep")
+    fix = tmp_path / "A.sys.mjs"
+    fix.write_text("new", encoding="utf-8")
+    done = probe.patch_omni(tmp_path / "app", {"browser/omni.ja:modules/A.sys.mjs": fix})
+    assert done == ["browser/omni.ja:modules/A.sys.mjs"]
+    with zipfile.ZipFile(app / "omni.ja") as z:
+        assert z.read("modules/A.sys.mjs") == b"new" and z.read("modules/B.sys.mjs") == b"keep"
+    with pytest.raises(KeyError):
+        probe.patch_omni(tmp_path / "app", {"browser/omni.ja:modules/Nope.sys.mjs": fix})
+
+
+def test_ready_made_probes_exist_and_resolve_by_name():
+    names = {p.stem for p in probe.PROBES.glob("*.js")}
+    assert {"newtab-gates", "remote-settings-dumps", "search-icon"} <= names
+    assert probe.resolve_js("newtab-gates").name == "newtab-gates.js"
+
+
+def test_the_autoconfig_wrapper_reports_and_always_ends():
+    cfg = probe.CFG.format(wait=1, wait_ms=1000, body="    say('x');")
+    assert "GPROBE " in cfg and "GPROBE-DONE" in cfg and "catch (e)" in cfg
+
+
+def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
+    from fieldkit.buildh import releasecheck as rc, task, buildrun, install
+    outs = {"techniques": (0, "OK   T-1"), "decisions": (0, "DECISIONS OK (strict)"), "replay": (3, "REPLAY FAILED: 1"),
+            "claims": (0, '{"totals": {"claims": 1, "CONTRADICTED": 0, "STALE": 0, "UNPROVEN": 1, "patches": 1, "patches_failing": 0}}')}
+    monkeypatch.setattr(rc, "_run", lambda args, timeout=0: outs[args[0]])
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid})
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "leakgate_result.json").write_text('{"release_run": true, "FINAL_RESULT": "PASS", "BUILD": "1"}', encoding="utf-8")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "application.ini").write_text("BuildID=1\n", encoding="utf-8")
+    monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
+    monkeypatch.setattr(install, "find_install", lambda: str(tmp_path / "app"))
+    rows = rc.run("t", say=lambda m: None, skip_post_install=True)
+    assert [r["check"] for r in rows if not r["ok"]] == ["replay"]
+
+
+def test_files_of_an_unpacked_build_are_replaced_in_the_copy(tmp_path):
+    app = tmp_path / "app"
+    (app / "browser" / "chrome").mkdir(parents=True)
+    (app / "browser" / "chrome" / "theme.css").write_text("a{}", encoding="utf-8")
+    fix = tmp_path / "theme.css"
+    fix.write_text("a{color:cyan}", encoding="utf-8")
+    assert probe.replace_files(app, {"browser/chrome/theme.css": fix}) == ["browser/chrome/theme.css"]
+    assert (app / "browser" / "chrome" / "theme.css").read_text(encoding="utf-8") == "a{color:cyan}"
+    with pytest.raises(FileNotFoundError):
+        probe.replace_files(app, {"browser/chrome/nope.css": fix})
