@@ -1891,8 +1891,21 @@ def hand_port_holds(now, hunk, pristine=None, keeps=()):
             if not w.startswith("you removed")]
 
 
+def deletes_whole_file(hunk):
+    """A hunk that removes a file: a binary step marked deleted, or a text hunk with removals only, from line 1 to none."""
+    if isinstance(hunk, dict) and hunk.get("binary"):
+        return bool(hunk.get("deleted"))
+    # a text deletion: removals only, and the header says the new side is empty ("+0,0"); a hunk that removes some
+    # lines from a file that stays has a non-empty new side and is judged as an edit
+    lines = hunk.get("lines") if isinstance(hunk, dict) else None
+    return bool(lines) and all(l.startswith(("-", "\\")) for l in lines) and \
+        re.search(r"\+0,0 @@", str(hunk.get("header", ""))) is not None
+
+
 def check_port(t, s, patch, file, hunk, **kw):
     target = Path(t["workdir"]) / file
+    if deletes_whole_file(hunk):                                       # 2026-10-04: a deletion is done when the file is gone
+        return {"ok": not target.exists(), "why": [] if not target.exists() else [f"{file} should be deleted and still exists"]}
     if not target.is_file():
         return {"ok": False, "why": [f"{file} does not exist; this hunk needs the owner"]}
     if isinstance(hunk, dict) and hunk.get("binary"):              # a binary hand edit is judged by its bytes

@@ -18,6 +18,31 @@
 # Where each raster's master is. First matching glob (relative to the tree) wins. {owner} is the owner's
 # Gorilla.firefox repository, {tree} the ported source tree.
 masters:
+  # Installer art: the gorilla is one part of the picture. `region: [x0, y0, x1, y1]` (raster pixels, right/bottom
+  # exclusive) is the square the logo was pasted into, `flip: true` mirrors it back. Measured 2026-10-04 from the
+  # generator's placement (working scripts/generate_windows_branding_assets.py) and re-measured on the written files
+  # (bounding box of the pixels that differ from the background colour).
+  - files: "browser/branding/gorilla/wizHeader.bmp"
+    master: "{owner}/gorilla-patchset/deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png"
+    region: [97, 5, 144, 52]
+    why: "MUI header strip 150x57: the gorilla is the 47 px square inset on the right, on white"
+  - files: "browser/branding/gorilla/wizHeaderRTL.bmp"
+    master: "{owner}/gorilla-patchset/deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png"
+    region: [6, 5, 53, 52]
+    flip: true
+    why: "right-to-left header strip: wizHeader.bmp mirrored, the gorilla inset on the left"
+  - files: "browser/branding/gorilla/wizWatermark.bmp"
+    master: "{owner}/gorilla-patchset/deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png"
+    region: [23, 62, 141, 180]
+    why: "MUI welcome/finish panel 164x314: the gorilla is the 118 px square in the upper part, on the dark panel"
+  - files: "browser/branding/gorilla/stubinstaller/bgstub.jpg"
+    master: "{owner}/gorilla-patchset/deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png"
+    region: [487, 226, 856, 595]
+    why: "stub installer backdrop 1344x822: the gorilla is the 369 px square in the centre, on the dark panel"
+  - files: "browser/branding/gorilla/document_pdf.*"
+    master: "{owner}/gorilla-patchset/masters/document_pdf-1024.png"
+    why: "the PDF document icon is its own artwork (page, red PDF band, gorilla): a 1024 px composition built from
+      the gorilla master by working scripts/generate_windows_branding_assets.py, 2026-10-04"
   - files: "browser/branding/gorilla/**"
     master: "{owner}/gorilla-patchset/deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png"
     why: "the canonical gorilla master, 2598x2626 (doctrine ICON-DOCTRINE-WINDOWS.md section 0; the folder name lies)"

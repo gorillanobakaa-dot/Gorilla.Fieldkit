@@ -189,6 +189,22 @@ body { margin: 0; font: 14px sans-serif; }
 .mi { display: block; }
 .mi label { display: inline-block; }
 #m2 label { margin-left: 30px; }
+#spillbox { width: 60px; }
+#spill { width: 40px; white-space: nowrap; }
+#widebox { overflow: hidden; width: 2000px; }
+#cutoff { position: relative; left: 1500px; width: 100px; }
+#parkbox { position: relative; overflow: hidden; width: 200px; margin-left: 300px; }
+#parkbox input { position: absolute; left: -100px; top: 0; }
+#inkpair a { display: inline-block; width: 100px; }
+#ink2 { margin-left: -20px; text-align: right; }
+#fitbox { width: 200px; }
+#fits { display: inline-block; width: 16px; white-space: nowrap; }
+#boxbox { width: 100px; }
+#boxover { width: 150px; height: 10px; background: #ccc; }
+#badgebox { position: relative; width: 100px; height: 20px; }
+#badge { position: absolute; right: -10px; top: 0; width: 30px; height: 10px; }
+#bleedbox { width: 100px; padding: 0 20px; }
+#bleed { margin-inline: -20px; height: 10px; background: #ccc; }
 </style></head><body>
 <img id="up" src="%PNG%" alt="">
 <img id="broken" src="resource://gvisual/does-not-exist.png" alt="" width="16" height="16">
@@ -202,11 +218,24 @@ body { margin: 0; font: 14px sans-serif; }
   <div role="menuitem" class="mi" id="m3"><label>third</label></div>
   <div role="menuitem" class="mi" id="m4"><label>fourth</label></div>
 </div>
+<div id="spillbox"><div id="spill">this text spills well past its parent</div></div>
+<div id="widebox"><div id="cutoff"><button>cut off</button></div></div>
+<div id="parkbox"><input type="radio" name="p" id="park1"><input type="radio" name="p" id="park2"><span>legend</span></div>
+<div id="inkpair"><a href="#" id="ink1">ab</a><a href="#" id="ink2">cd</a></div>
+<div id="fitbox"><span id="fits">Today</span></div>
+<div id="boxbox"><div id="boxover"></div></div>
+<div id="badgebox"><div id="badge"></div></div>
+<div id="bleedbox"><div id="bleed"></div></div>
 </body></html>
 """
-# what the probe must find on the control page (metrics key -> the planted element's id)
-CONTROL_EXPECT = {"images": "up", "broken": "broken", "clipped": "clip", "overlaps": "pair", "outside": "far",
-                  "zero_size": "zero", "misaligned": "m2"}
+# what the probe must find on the control page (metrics key -> the planted elements' ids)
+CONTROL_EXPECT = {"images": ("up",), "broken": ("broken",), "clipped": ("clip", "spill"), "overlaps": ("pair",),
+                  "outside": ("far", "cutoff"), "zero_size": ("zero",), "misaligned": ("m2",),
+                  "overflowing": ("boxover",)}
+# what the probe must NOT report (2026-10-04): radios parked inside an overflow:hidden box, two links whose boxes
+# overlap where neither draws anything, and text drawn past its own narrow box but well inside its parent
+# a badge placed past its box on purpose (absolute, negative offset) and a full-bleed strip (negative margins)
+CONTROL_CLEAN = {"overlaps": ("park1", "ink1"), "clipped": ("fits",), "outside": ("park1",), "overflowing": ("badge", "bleed")}
 
 CHILD_MJS = r"""// GVisualChild.sys.mjs - fieldkit visual runtime probe (throwaway copy only)
 import { measure } from "resource://gvisual/GVisualMeasure.sys.mjs";
@@ -323,11 +352,137 @@ function painted(cs, rect, nat, res, layer) {
   return [w, h];
 }
 
+// ---- geometry helpers (2026-10-04): what the user can actually see of a box, and where it really paints
+const HTMLNS = "http://www.w3.org/1999/xhtml";
+const FORM = new Set(["input", "select", "textarea", "button"]);
+const REPLACED = new Set(["img", "svg", "video", "canvas", "iframe", "embed", "object", "image", "picture"]);
+const INF = { l: -Infinity, t: -Infinity, r: Infinity, b: Infinity };
+
+// the parent in the flattened tree: a slotted node's slot, else its parent, else (top of a shadow tree) the host
+function flatParent(e) {
+  return e.assignedSlot || e.parentElement || (e.getRootNode && e.getRootNode().host) || null;
+}
+
+function makesFixedBlock(cs) {
+  return cs.transform !== "none" || cs.perspective !== "none" || cs.filter !== "none" ||
+    (cs.backdropFilter && cs.backdropFilter !== "none") || /paint|layout|strict|content/.test(cs.contain || "");
+}
+
+// the ancestors whose overflow can clip `el`: an absolutely positioned box escapes non-positioned ancestors,
+// a fixed one escapes everything up to a transformed/contained ancestor; the root and body clip via the viewport
+function* clipAncestors(win, el) {
+  let pos = win.getComputedStyle(el).position;
+  const top = win.document.documentElement, body = win.document.body;
+  for (let a = flatParent(el); a && a.nodeType === 1; a = flatParent(a)) {
+    if (a === top || a === body) break;
+    const cs = win.getComputedStyle(a);
+    if (cs.display === "contents") continue;
+    const fixedBlock = makesFixedBlock(cs);
+    if (pos === "fixed" && !fixedBlock) continue;
+    if (pos === "absolute" && cs.position === "static" && !fixedBlock) continue;
+    yield [a, cs];
+    pos = cs.position;
+  }
+}
+
+function padBox(a, cs) {
+  const r = a.getBoundingClientRect();
+  return { l: r.left + (parseFloat(cs.borderLeftWidth) || 0), r: r.right - (parseFloat(cs.borderRightWidth) || 0),
+           t: r.top + (parseFloat(cs.borderTopWidth) || 0), b: r.bottom - (parseFloat(cs.borderBottomWidth) || 0) };
+}
+
+function contentBox(a, cs) {
+  const p = padBox(a, cs);
+  return { l: p.l + (parseFloat(cs.paddingLeft) || 0), r: p.r - (parseFloat(cs.paddingRight) || 0),
+           t: p.t + (parseFloat(cs.paddingTop) || 0), b: p.b - (parseFloat(cs.paddingBottom) || 0) };
+}
+
+const isClip = v => v === "hidden" || v === "clip";
+
+// the region `el` can paint in: the padding box of every ancestor that hides overflow (per axis), then the
+// viewport horizontally when vw is given. Not vertically: the document scrolls, a control below the fold is seen.
+function clipRegion(win, el, vw) {
+  const c = Object.assign({}, INF);
+  for (const [a, cs] of clipAncestors(win, el)) {
+    const cx = isClip(cs.overflowX), cy = isClip(cs.overflowY);
+    if (!cx && !cy) continue;
+    const p = padBox(a, cs);
+    if (cx) { c.l = Math.max(c.l, p.l); c.r = Math.min(c.r, p.r); }
+    if (cy) { c.t = Math.max(c.t, p.t); c.b = Math.min(c.b, p.b); }
+  }
+  if (vw != null) { c.l = Math.max(c.l, 0); c.r = Math.min(c.r, vw); }
+  return c;
+}
+
+function isect(a, b) {
+  const l = Math.max(a.l != null ? a.l : a.left, b.l != null ? b.l : b.left);
+  const r = Math.min(a.r != null ? a.r : a.right, b.r != null ? b.r : b.right);
+  const t = Math.max(a.t != null ? a.t : a.top, b.t != null ? b.t : b.top);
+  const bt = Math.min(a.b != null ? a.b : a.bottom, b.b != null ? b.b : b.bottom);
+  return { l, r, t, b: bt, w: r - l, h: bt - t };
+}
+
+const solid = c => c && c !== "transparent" && !/^rgba\(.*,\s*0\)$/.test(c);
+
+// does the box itself paint (a background or a border), or is it a native form control drawn whole?
+function paintsBox(el, cs) {
+  if (solid(cs.backgroundColor) || (cs.backgroundImage && cs.backgroundImage !== "none")) return true;
+  for (const s of ["Top", "Right", "Bottom", "Left"]) {
+    if ((parseFloat(cs["border" + s + "Width"]) || 0) > 0 && cs["border" + s + "Style"] !== "none" &&
+        cs["border" + s + "Style"] !== "hidden" && solid(cs["border" + s + "Color"])) return true;
+  }
+  return el.namespaceURI === HTMLNS && FORM.has(el.localName) && cs.appearance !== "none";
+}
+
+function rectsOf(list) {
+  return [...list].filter(r => r.width > 0 && r.height > 0).map(r => ({ l: r.left, r: r.right, t: r.top, b: r.bottom }));
+}
+
+// the rectangles of an element's OWN text nodes (not its descendants'), measured with a Range
+function ownTextRects(doc, el) {
+  const out = [];
+  const range = doc.createRange();
+  for (const n of el.childNodes) {
+    if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+    range.selectNodeContents(n);
+    out.push(...rectsOf(range.getClientRects()));
+  }
+  return out;
+}
+
+// painted ink: the own box when it paints, else its text and whatever descendants paint (replaced elements,
+// boxes with a background or border, native controls), clipped to the region the element can paint in
+function inkRects(win, el, cs, region) {
+  const doc = el.ownerDocument;
+  let rects;
+  if (paintsBox(el, cs)) rects = rectsOf(el.getClientRects());
+  else {
+    rects = ownTextRects(doc, el);
+    const subs = [];
+    let sr = null;
+    try { sr = el.openOrClosedShadowRoot; } catch (e) {}
+    let n = 0;
+    for (const d of [...walk(el), ...(sr ? walk(sr) : [])]) {
+      if (++n > 400) { rects = rectsOf(el.getClientRects()); subs.length = 0; break; }   // too big to tell: whole box
+      if (!visible(d)) continue;
+      rects.push(...ownTextRects(doc, d));
+      const dcs = win.getComputedStyle(d);
+      if (REPLACED.has(d.localName) || paintsBox(d, dcs)) subs.push(...rectsOf(d.getClientRects()));
+    }
+    rects.push(...subs);
+  }
+  return rects.map(r => isect(r, region)).filter(r => r.w > 0 && r.h > 0);
+}
+
+function boxRects(el, region) {
+  return rectsOf(el.getClientRects()).map(r => isect(r, region)).filter(r => r.w > 0 && r.h > 0);
+}
+
 export async function measure(win, root, opts) {
   const dpr = win.devicePixelRatio;
   const vw = win.document.documentElement.clientWidth || win.innerWidth;
   const out = { dpr, elements: 0, images: [], images_ok: 0, vector_icons: 0, broken: [], zero_size: [], clipped: [],
-                overlaps: [], outside: [], misaligned: [], page_scrolls_sideways: false, truncated: [],
+                overlaps: [], outside: [], overflowing: [], misaligned: [], page_scrolls_sideways: false, truncated: [],
                 pictures_seen: [], components_seen: [] };
   const push = (k, v) => { if (out[k].length < CAP) out[k].push(v); else if (!out.truncated.includes(k)) out.truncated.push(k); };
   // what the page actually shows (RT-CONTENT): every picture painted in a visible box, every custom element shown
@@ -393,43 +548,114 @@ export async function measure(win, root, opts) {
     if (hasText && !inField && !["input", "textarea", "select", "option", "script", "style", "title"].includes(tag) && el.clientWidth > 0) {
       const ox = cs.overflowX;
       const scrollable = ox === "auto" || ox === "scroll";
-      if (!scrollable && el.scrollWidth > el.clientWidth + 1) {
-        const how = (ox === "hidden" || ox === "clip" || cs.textOverflow === "ellipsis") ? "clipped" : "spills";
-        push("clipped", { sel: sel(el), how, text: el.textContent.trim().slice(0, 60), scroll: el.scrollWidth, client: el.clientWidth });
+      if (scrollable) {
+        // a scroller shows its text by scrolling
+      } else if (isClip(ox) || cs.textOverflow === "ellipsis") {
+        if (el.scrollWidth > el.clientWidth + 1)
+          push("clipped", { sel: sel(el), how: "clipped", text: el.textContent.trim().slice(0, 60), scroll: el.scrollWidth, client: el.clientWidth });
+      } else {
+        // overflow visible: the text is drawn whole. It is a defect only where it is cut (it leaves the parent's
+        // content box or the region its ancestors let it paint in) or runs into a sibling (2026-10-04)
+        const tr = ownTextRects(el.ownerDocument, el);
+        const pb = padBox(el, cs);
+        const out1 = tr.filter(t => t.r > pb.r + 1 || t.l < pb.l - 1);
+        if (out1.length) {
+          const why = [];
+          let par = flatParent(el);
+          while (par && par.nodeType === 1 && win.getComputedStyle(par).display === "contents") par = flatParent(par);
+          if (par && par.nodeType === 1 && par !== win.document.documentElement) {
+            const cb = contentBox(par, win.getComputedStyle(par));
+            if (out1.some(t => t.r > cb.r + 1 || t.l < cb.l - 1)) why.push("leaves its parent's content box");
+          }
+          const reg = clipRegion(win, el, opts.chrome ? null : vw);
+          if (out1.some(t => t.r > reg.r + 1 || t.l < reg.l - 1)) why.push("is cut off by an ancestor or the window edge");
+          if (par) {
+            for (const s of par.children) {
+              if (s === el || !visible(s)) continue;
+              const sb = s.getBoundingClientRect();
+              if (sb.width <= 0 || sb.height <= 0) continue;
+              const own = isect(r, sb);
+              if (own.w > 1 && own.h > 1) continue;      // a sibling laid over this box on purpose, not hit by spill
+              if (out1.some(t => { const o = isect(t, sb); return o.w > 1 && o.h > 1; })) { why.push("runs into " + sel(s)); break; }
+            }
+          }
+          if (why.length) {
+            const tl = Math.min(...tr.map(t => t.l)), trr = Math.max(...tr.map(t => t.r));
+            push("clipped", { sel: sel(el), how: "spills", text: el.textContent.trim().slice(0, 60),
+                              scroll: Math.round(trr - tl), client: el.clientWidth, why: why.join("; ") });
+          }
+        }
       }
     }
     // ---- horizontally outside the viewport (pages only; popups live in their own windows)
     if (!opts.chrome && r.width > 1 && r.height > 1 && (r.right > vw + 1 || r.left < -1) &&
         (hasText || pics.length || CONTROLS.has(tag))) {
-      let a = el.parentElement, inScroller = false;
-      while (a) {
-        const ax = win.getComputedStyle(a).overflowX;
-        if (ax !== "visible") { inScroller = true; break; }
-        a = a.parentElement;
+      // only a scroller (auto/scroll) makes off-screen content reachable; an ancestor that hides overflow does
+      // not excuse it: judge what is left after its clip against the window (2026-10-04)
+      let inScroller = false;
+      for (const [, acs] of clipAncestors(win, el)) {
+        if (acs.overflowX === "auto" || acs.overflowX === "scroll") { inScroller = true; break; }
       }
+      const reg = clipRegion(win, el, null);
+      const vis = isect(r, reg);
+      const goneByClip = vis.w <= 1 || vis.h <= 1;     // wholly hidden by an ancestor: parked on purpose
       const hidden = cs.position === "absolute" && (r.right < 0 || r.left > vw) && (cs.clipPath !== "none" || r.width <= 1);
-      if (!inScroller && !hidden) push("outside", { sel: sel(el), rect: [Math.round(r.left), Math.round(r.right)], viewport: vw });
+      if (!inScroller && !hidden && !goneByClip && (vis.r > vw + 1 || vis.l < -1))
+        push("outside", { sel: sel(el), rect: [Math.round(vis.l), Math.round(vis.r)], viewport: vw });
+    }
+    // ---- a box wider than its parent lets it be (2026-10-04): an in-flow HTML box whose border box leaves its
+    // overflow:visible parent's content box sideways. Not judged: boxes placed on purpose (absolute/fixed,
+    // relative with an offset, transformed), inline and table-internal boxes, a side a negative margin explains.
+    if (!opts.chrome && el.namespaceURI === HTMLNS && r.width > 0 && r.height > 0 && cs.transform === "none" &&
+        !["absolute", "fixed"].includes(cs.position) && cs.display !== "inline" && !cs.display.startsWith("table-") &&
+        !(cs.position === "relative" && ((parseFloat(cs.left) || 0) !== 0 || (parseFloat(cs.right) || 0) !== 0))) {
+      let par = flatParent(el);
+      while (par && par.nodeType === 1 && win.getComputedStyle(par).display === "contents") par = flatParent(par);
+      if (par && par.nodeType === 1 && par.namespaceURI === HTMLNS && par !== win.document.documentElement) {
+        const pcs = win.getComputedStyle(par);
+        if (pcs.overflowX === "visible" && pcs.display !== "inline" && !pcs.display.startsWith("table-") &&
+            par.getBoundingClientRect().width > 0) {
+          const cb = contentBox(par, pcs);
+          const ml = parseFloat(cs.marginLeft) || 0, mr = parseFloat(cs.marginRight) || 0;
+          const overL = cb.l - r.left, overR = r.right - cb.r;
+          const badL = overL > 1 && !(ml < 0 && overL <= -ml + 1);
+          const badR = overR > 1 && !(mr < 0 && overR <= -mr + 1);
+          if (badL || badR)
+            push("overflowing", { sel: sel(el), parent: sel(par), rect: [Math.round(r.left), Math.round(r.right)],
+                                  content: [Math.round(cb.l), Math.round(cb.r)], by: Math.round(Math.max(overL, overR)) });
+        }
+      }
     }
     // ---- sibling controls for the overlap check
     const role = el.getAttribute && el.getAttribute("role");
-    // controls parked off-screen (the visually-hidden radio pattern) are not laid out against each other
-    if ((CONTROLS.has(tag) || ROLES.has(role)) && r.width > 0 && r.height > 0 && r.right > 0 && (opts.chrome || r.left < vw)) {
+    // controls parked out of sight (off-screen, or inside an ancestor that hides overflow: the visually-hidden
+    // radio pattern) are not laid out against each other: only what is left after the clip joins a group
+    if ((CONTROLS.has(tag) || ROLES.has(role)) && r.width > 0 && r.height > 0) {
+      const region = clipRegion(win, el, opts.chrome ? null : vw);
+      const vis = isect(r, region);
       const parent = el.parentElement || (el.getRootNode && el.getRootNode().host);
-      if (parent) { if (!groups.has(parent)) groups.set(parent, []); groups.get(parent).push([el, r]); }
+      if (parent && vis.w > 1 && vis.h > 1) { if (!groups.has(parent)) groups.set(parent, []); groups.get(parent).push([el, cs, region]); }
     }
     if (tag === "menupopup" || tag === "panelview" || role === "menu" || (opts.chrome && tag === "panel")) menus.push(el);
   }
   if (opts.chrome && root && (root.localName === "menupopup" || root.localName === "panel")) menus.push(root);
+  const inkCache = new Map();
   for (const [, kids] of groups) {
     for (let i = 0; i < kids.length; i++) for (let j = i + 1; j < kids.length; j++) {
-      const [a] = kids[i], [b] = kids[j];
+      const [a, csa, rga] = kids[i], [b, csb, rgb] = kids[j];
       if (a.contains(b) || b.contains(a)) continue;
-      // per line box: two links in one wrapped paragraph have overlapping bounding boxes but never touch
+      // per line box (two links in one wrapped paragraph have overlapping bounding boxes but never touch), on the
+      // clipped boxes, and only where one control's painted ink meets the other's box (2026-10-04): two transparent
+      // boxes overlapping where neither draws anything are not a visible defect
+      const boxA = boxRects(a, rga), boxB = boxRects(b, rgb);
+      if (!boxA.some(ra => boxB.some(rb => { const o = isect(ra, rb); return o.w > 1 && o.h > 1; }))) continue;
+      if (!inkCache.has(a)) inkCache.set(a, inkRects(win, a, csa, rga));
+      if (!inkCache.has(b)) inkCache.set(b, inkRects(win, b, csb, rgb));
+      const inkA = inkCache.get(a), inkB = inkCache.get(b);
       let best = null;
-      for (const ra of a.getClientRects()) for (const rb of b.getClientRects()) {
-        const ow = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
-        const oh = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
-        if (ow > 1 && oh > 1 && (!best || ow * oh > best[0] * best[1])) best = [Math.round(ow), Math.round(oh)];
+      for (const [P, Q] of [[inkA, boxB], [boxA, inkB]]) for (const ra of P) for (const rb of Q) {
+        const o = isect(ra, rb);
+        if (o.w > 1 && o.h > 1 && (!best || o.w * o.h > best[0] * best[1])) best = [Math.round(o.w), Math.round(o.h)];
       }
       if (best) push("overlaps", { a: sel(a), b: sel(b), overlap: best });
     }

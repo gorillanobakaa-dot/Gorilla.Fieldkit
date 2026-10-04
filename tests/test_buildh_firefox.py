@@ -305,3 +305,16 @@ def test_no_flag_on_a_step_can_switch_the_port_check_off(world):
     flagged = firefox.check_port(t, {"id": "b", "answer_key_used": True}, "08.Look/accent.patch", "theme.css", hunk)
     assert plain == flagged
     assert not plain["ok"]
+
+
+def test_a_deletion_is_done_when_the_file_is_gone_and_only_then(tmp_path):
+    # 2026-10-04: macOS-only branding files deleted by hand could not be recorded or verified
+    whole = {"header": "@@ -1,2 +0,0 @@", "lines": ["-a", "-b"]}
+    part = {"header": "@@ -10,3 +9,0 @@", "lines": ["-a"]}
+    assert firefox.deletes_whole_file(whole) and not firefox.deletes_whole_file(part)
+    assert firefox.deletes_whole_file({"binary": True, "deleted": True})
+    assert not firefox.deletes_whole_file({"binary": True, "sha256": "x"})
+    t = {"workdir": str(tmp_path)}
+    assert firefox.check_port(t, {"id": "d"}, "p", "gone.icns", {"binary": True, "deleted": True})["ok"]
+    (tmp_path / "back.icns").write_bytes(b"x")
+    assert not firefox.check_port(t, {"id": "d"}, "p", "back.icns", {"binary": True, "deleted": True})["ok"]

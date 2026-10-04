@@ -381,3 +381,161 @@ def test_missing_evidence_fails_no_branding_dir_no_master(tmp_path, master, mast
     unreadable.write_bytes(b"not a png")
     res = static.check(tree, "browser/branding/gorilla", upstream_commit=up, allow=allow_for(tmp_path, master_file))
     assert any(i["item"].endswith("broken.png") and i["verdict"] == "UNVERIFIABLE" for i in res["items"])
+
+
+# ------------------------------------------------------------------------------------------- 2026-10-04: more accurate
+def resource_tree(tmp_path, master):
+    """fake_tree plus a jar.mn that registers resource://mytheme/ the way toolkit/mozapps/extensions does."""
+    tree, _ = fake_tree(tmp_path, master)
+    ext = tree / "toolkit" / "mozapps" / "extensions"
+    (ext / "mytheme").mkdir(parents=True)
+    (ext / "mytheme" / "icon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"/>',
+                                             encoding="utf-8")
+    true_down(master, 40).save(ext / "mytheme" / "small.png")
+    (ext / "jar.mn").write_text("toolkit.jar:\n% resource mytheme %content/mozapps/extensions/mytheme/\n"
+                                "  content/mozapps/extensions/mytheme (mytheme/*.svg)\n"
+                                "  content/mozapps/extensions/mytheme/small.png (mytheme/small.png)\n"
+                                "% resource gre-alias resource://gre/somewhere/\n", encoding="utf-8")
+    git(tree, "add", "-A")
+    git(tree, "commit", "-q", "-m", "resource")
+    return tree
+
+
+def test_resource_urls_resolve_through_the_jar_mn_resource_lines(tmp_path, master):
+    tree = resource_tree(tmp_path, master)
+    ix = chrome.Index(tree, "browser/branding/gorilla")
+    ext = tree / "toolkit" / "mozapps" / "extensions" / "mytheme"
+    assert ix.resolve_resource("resource://mytheme/icon.svg") == (True, (ext / "icon.svg").resolve())
+    assert ix.resolve_resource("resource://mytheme/small.png?x#y") == (True, (ext / "small.png").resolve())
+    assert ix.resolve_resource("resource://mytheme/gone.svg") == (True, None)
+    assert ix.resolve_resource("resource://nobody-registers-this/icon.svg") == (False, None)
+    # an alias onto another resource: URL is not a jar path and is not treated as one
+    assert ix.resolve_resource("resource://gre-alias/x.svg") == (False, None)
+    assert chrome.resolve("resource://mytheme/icon.svg", tree / "x.css", ix)[1] == "file"
+    assert chrome.resolve("resource://mytheme/gone-for-good.svg", tree / "x.css", ix) == (None, "missing")
+    assert chrome.resolve("resource://nobody-registers-this/icon.svg", tree / "x.css", ix) == (None, "external")
+
+
+def test_a_resource_url_is_measured_and_a_missing_one_fails_instead_of_being_unverifiable(tmp_path, master):
+    tree = resource_tree(tmp_path, master)
+    p = tree / "browser" / "base" / "x.css"
+    p.write_text('.a { background-image: url("resource://mytheme/icon.svg"); width: 40px; }\n'
+                 '.b { background-image: url("resource://mytheme/small.png"); width: 40px; }\n'
+                 '.c { background-image: url("resource://mytheme/gone-for-good.svg"); width: 40px; }\n'
+                 '.d { background-image: url("resource://runtime-only/icon.svg"); width: 40px; }\n', encoding="utf-8")
+    items = css.check_file(p, "browser/base/x.css", chrome.Index(tree, "browser/branding/gorilla"), tree)
+    by = {i["item"].split(" ")[1]: i for i in items}
+    assert by[".a"]["verdict"] == "PASS" and "vector" in by[".a"]["evidence"]
+    assert by[".b"]["verdict"] == "FAIL" and "1.00x" in by[".b"]["evidence"]       # measured: 40 px into 40 px
+    assert by[".c"]["rule"] == "ASSET-MISSING" and by[".c"]["verdict"] == "FAIL"
+    assert by[".d"]["verdict"] == "UNVERIFIABLE"                                    # unregistered: still not a pass
+
+
+def four_brandings(tmp_path, dirs=("nightly", "official", "aurora", "unofficial")):
+    root = tmp_path / "tree" / "browser" / "branding"
+    shared = "M10 10 L 20 20 L 30 10 L 40 20 L 50 10 L 60 20 L 70 10 L 80 20 Z"      # the "PDF" letters
+    logo = "M5 5 C 10 40 30 40 60 5 C 70 30 90 30 95 5 L 95 95 L 5 95 Z M 1 1 L 2 2"  # one channel's logo
+    for d in dirs:
+        c = root / d / "content"
+        c.mkdir(parents=True)
+        extra = '<path d="%s"/>' % logo if d == "nightly" else ""
+        (c / "document_pdf.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"><path d="%s"/>%s</svg>'
+                                            % (shared, extra), encoding="utf-8")
+    gb = root / "gorilla" / "content"
+    gb.mkdir(parents=True)
+    return root, gb, shared, logo
+
+
+def test_path_data_every_mozilla_channel_carries_is_neutral_but_a_channel_logo_is_still_caught(tmp_path):
+    root, gb, shared, logo = four_brandings(tmp_path)
+    _, paths = leftovers.mozilla_index(root)
+    assert " ".join(shared.split()) not in paths and " ".join(logo.split()) in paths
+    (gb / "pdf.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"><path d="%s"/><image href="x"/></svg>'
+                                % shared, encoding="utf-8")
+    (gb / "logo.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"><path d="%s"/></svg>' % logo,
+                                 encoding="utf-8")
+    items = {(i["rule"], i["item"].rsplit("/", 1)[-1]): i["verdict"] for i in leftovers.check(gb.parent, tmp_path / "tree")}
+    assert items[("BRAND-002", "pdf.svg")] == "PASS"
+    assert items[("BRAND-002", "logo.svg")] == "FAIL"
+
+
+def test_with_a_mozilla_channel_absent_nothing_is_excluded(tmp_path):
+    root, _, shared, _ = four_brandings(tmp_path, dirs=("nightly", "official", "aurora"))
+    _, paths = leftovers.mozilla_index(root)
+    assert " ".join(shared.split()) in paths          # "all four" is unproven with three: stay strict
+
+
+def strip(master, size=(150, 57), region=(97, 5, 144, 52), bg=(255, 255, 255), logo=None, flip=False):
+    """An installer strip like wizHeader.bmp: an opaque field with the logo pasted into `region`."""
+    side = region[2] - region[0]
+    c = Image.new("RGB", size, bg)
+    lg = logo if logo is not None else rasters.squarify(master).resize((side, side), Image.LANCZOS)
+    c.paste(lg, region[:2], lg)
+    return c.transpose(Image.FLIP_LEFT_RIGHT) if flip else c
+
+
+def test_a_region_measures_the_logo_inset_in_installer_art(tmp_path, master):
+    sq = rasters.squarify(master)
+    im = strip(master)
+    v, ev, _ = rasters.provenance(im, sq, master_squared=True)
+    assert v != "PASS"                                      # the whole strip is not the master's artwork
+    v, ev, nums = rasters.provenance(im, sq, master_squared=True, region=(97, 5, 144, 52))
+    assert v == "PASS", ev
+    assert nums["region"] == [97, 5, 144, 52] and nums["background"] == [255, 255, 255]
+    softlogo = soft(sq, 47).convert("RGBA")
+    v, ev, _ = rasters.provenance(strip(master, logo=softlogo), sq, master_squared=True, region=(97, 5, 144, 52))
+    assert v == "FAIL", ev                                  # a region is no excuse for a blurred logo
+
+
+def test_an_opaque_region_is_compared_against_the_master_on_its_own_background(tmp_path, master):
+    sq = rasters.squarify(master)
+    region = (23, 62, 141, 180)
+    im = strip(master, size=(164, 314), region=region, bg=(12, 12, 14))
+    v, ev, nums = rasters.provenance(im, sq, master_squared=True, region=region)
+    assert v == "PASS", ev
+    assert nums["background"] == [12, 12, 14]
+    # the same crop judged against the master on white would see a different picture: the flattening matters
+    flat = Image.new("RGBA", sq.size, (12, 12, 14, 255))
+    flat.alpha_composite(sq)
+    crop = im.crop(region)
+    assert rasters.colour_distance(rasters.squarify(crop), flat) < rasters.colour_distance(rasters.squarify(crop), sq)
+
+
+def test_flip_mirrors_a_right_to_left_strip_back_and_a_bad_region_is_unverifiable(tmp_path, master):
+    sq = rasters.squarify(master)
+    im = strip(master, flip=True)                           # logo now at x 6..53
+    v, ev, nums = rasters.provenance(im, sq, master_squared=True, region=(6, 5, 53, 52), flip=True)
+    assert v == "PASS", ev
+    assert nums["flip"] is True
+    v, ev, _ = rasters.provenance(im, sq, master_squared=True, region=(100, 5, 160, 52))
+    assert v == "UNVERIFIABLE" and "not inside" in ev
+
+
+def test_region_and_flip_in_the_allowlist_are_validated_and_reach_the_static_layer(tmp_path, master, master_file):
+    p = tmp_path / "geo.yaml"
+    m = str(master_file).replace("\\", "/")
+    p.write_text('masters:\n  - files: "browser/branding/gorilla/wizHeader.bmp"\n    master: "%s"\n'
+                 '    region: [97, 5, 144, 52]\n    why: header strip\n'
+                 '  - files: "browser/branding/gorilla/wizHeaderRTL.bmp"\n    master: "%s"\n'
+                 '    region: [6, 5, 53, 52]\n    flip: true\n    why: mirrored strip\n'
+                 '  - files: "browser/branding/gorilla/**"\n    master: "%s"\n    why: catch-all\naccept: []\n' % (m, m, m),
+                 encoding="utf-8")
+    a = allowmod.load(p)
+    assert not a["problems"]
+    assert allowmod.geometry(allowmod.master_for("browser/branding/gorilla/wizHeaderRTL.bmp", a)[1]) == ((6, 5, 53, 52), True)
+    assert allowmod.geometry(allowmod.master_for("browser/branding/gorilla/icon.png", a)[1]) == (None, False)
+    tree, up = fake_tree(tmp_path, master)
+    gb = tree / "browser" / "branding" / "gorilla"
+    strip(master).save(gb / "wizHeader.bmp")
+    strip(master, flip=True).save(gb / "wizHeaderRTL.bmp")
+    res = static.check(tree, "browser/branding/gorilla", upstream_commit=up, allow=a)
+    got = {i["item"]: i for i in res["items"] if i["rule"] == "ICON-002" and "wizHeader" in i["item"]}
+    assert got["browser/branding/gorilla/wizHeader.bmp"]["verdict"] == "PASS"
+    assert got["browser/branding/gorilla/wizHeaderRTL.bmp"]["verdict"] == "PASS"
+    assert "mirrored" in got["browser/branding/gorilla/wizHeaderRTL.bmp"]["evidence"]
+    for bad in ("[97, 5, 44, 52]", "[1, 2, 3]", "[0.5, 1, 4, 4]", "[-1, 0, 4, 4]"):
+        q = tmp_path / "bad.yaml"
+        q.write_text('masters:\n  - files: "x"\n    master: "y"\n    region: %s\n    why: w\n' % bad, encoding="utf-8")
+        assert allowmod.load(q)["problems"], bad
+    q.write_text('masters:\n  - files: "x"\n    master: "y"\n    flip: "yes"\n    why: w\n', encoding="utf-8")
+    assert allowmod.load(q)["problems"]

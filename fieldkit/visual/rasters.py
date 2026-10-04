@@ -101,20 +101,53 @@ def is_alpha_trivial(im):
     return lo == hi
 
 
-def provenance(raster, master, ratio=PROVENANCE_RATIO, master_squared=False, cache=None):
+def provenance(raster, master, ratio=PROVENANCE_RATIO, master_squared=False, cache=None, region=None, flip=False):
     """ICON-002 with the vacuity guard. -> (verdict, evidence, numbers). Both arguments are PIL images; pass
     master_squared=True when `master` is already squarify()'d (saves re-cropping a 2600 px master per raster), and
-    one `cache` dict per run (and per master object) to reuse the master's downsample per size."""
+    one `cache` dict per run (and per master object) to reuse the master's downsample per size.
+
+    `region` (x0, y0, x1, y1) measures only that part of the raster (installer art: the logo inset in a strip), and
+    `flip` mirrors it back first (the right-to-left strip). A cropped part with no transparency was flattened onto
+    a background, so the master is flattened onto that background too (the part's top-left pixel) instead of being
+    compared as if it sat on white."""
     Image, _, _ = _pil()
-    got_sq, ref_sq = squarify(raster), (master if master_squared else squarify(master))
+    nums = {"raster": list(raster.size)}
+    bg = None
+    if region is not None:
+        x0, y0, x1, y1 = region
+        w, h = raster.size
+        if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
+            return ("UNVERIFIABLE", f"region {list(region)} is not inside the {w}x{h} raster: the allowlist's region "
+                    f"is wrong, nothing was measured", nums)
+        raster = raster.crop((x0, y0, x1, y1))
+        nums["region"] = list(region)
+        if raster.convert("RGBA").split()[3].getextrema()[0] == 255:
+            bg = raster.convert("RGB").getpixel((0, 0))
+            nums["background"] = list(bg)
+    if flip:
+        raster = raster.transpose(Image.FLIP_LEFT_RIGHT)
+        nums["flip"] = True
+    ref_sq = master if master_squared else squarify(master)
+    base_id = id(ref_sq)
+    if bg is not None:
+        bkey = ("flattened", base_id, bg)
+        if cache is not None and bkey in cache:
+            ref_sq = cache[bkey]
+        else:
+            flat = Image.new("RGBA", ref_sq.size, tuple(bg) + (255,))
+            flat.alpha_composite(ref_sq.convert("RGBA"))
+            ref_sq = flat
+            if cache is not None:
+                cache[bkey] = flat
+    got_sq = squarify(raster)
     n = got_sq.size[0]
-    nums = {"raster": list(raster.size), "squared": n, "master_squared": ref_sq.size[0]}
+    nums.update(squared=n, master_squared=ref_sq.size[0])
     if n < 4:
         return "UNVERIFIABLE", "the picture is empty or under 4 px after cropping", nums
     if ref_sq.size[0] <= n * OUTRESOLVE:
         return ("UNVERIFIABLE", f"master {ref_sq.size[0]} px does not out-resolve the raster ({n} px): a reference "
                 f"built from it proves nothing", nums)
-    key = (id(ref_sq), n)
+    key = (base_id, bg, n)
     if cache is not None and key in cache:
         ref, e_ref, e_deg = cache[key]
     else:

@@ -4,7 +4,10 @@
                directories (nightly, official, aurora, unofficial): placeholder art shipped as ours (doctrine 6a:
                every .ico was once Mozilla's blue globe). Build files (moz.build, jar.mn) may legitimately match.
     BRAND-002  an SVG in the Gorilla branding directory carries path data from one of Mozilla's branding SVGs: the
-               Nightly or Firefox wordmark (2026-10-02: the About window showed "Nightly").
+               Nightly or Firefox wordmark (2026-10-02: the About window showed "Nightly"). Path data that every one
+               of the four Mozilla branding directories carries is channel-neutral (the "PDF" letters of
+               document_pdf.svg, 2026-10-04), not a brand mark, and is not indexed; a shape only some channels carry
+               (a logo, a wordmark) still is. With any of the four directories absent nothing is excluded.
     BRAND-003  user-visible text (comments removed) in the branding directory names Nightly, Firefox or a mozilla.org
                host. Legitimate mentions go in the allowlist file with a reason.
 """
@@ -49,12 +52,14 @@ def _sha(p):
 
 
 def mozilla_index(branding_root):
-    """-> ({sha256: 'nightly/content/x.svg'}, {path d: 'nightly/content/about-wordmark.svg'})"""
-    hashes, paths = {}, {}
+    """-> ({sha256: 'nightly/content/x.svg'}, {path d: 'nightly/content/about-wordmark.svg'}). The path index leaves
+    out path data present in ALL FOUR Mozilla branding directories (channel-neutral, see BRAND-002)."""
+    hashes, paths, per_dir = {}, {}, {}
     for name in MOZILLA_BRANDING:
         d = Path(branding_root) / name
         if not d.is_dir():
             continue
+        mine = per_dir.setdefault(name, set())
         for f in sorted(d.rglob("*")):
             if not f.is_file():
                 continue
@@ -62,7 +67,12 @@ def mozilla_index(branding_root):
             hashes.setdefault(_sha(f), rel)
             if f.suffix.lower() == ".svg":
                 for m in PATH_D.finditer(f.read_text(encoding="utf-8", errors="replace")):
-                    paths.setdefault(" ".join(m.group(1).split()), rel)
+                    key = " ".join(m.group(1).split())
+                    paths.setdefault(key, rel)
+                    mine.add(key)
+    if len(per_dir) == len(MOZILLA_BRANDING):
+        for key in set.intersection(*per_dir.values()):
+            del paths[key]
     return hashes, paths
 
 

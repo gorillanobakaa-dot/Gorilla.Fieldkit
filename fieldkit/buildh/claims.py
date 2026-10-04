@@ -838,12 +838,40 @@ def load_register(owner_root):
 def save_register(owner_root, reg):
     p = Path(owner_root) / REGISTER
     p.parent.mkdir(parents=True, exist_ok=True)
-    body = yaml.safe_dump({"version": 1, "patch_decisions": reg.get("patch_decisions") or {},
-                           "sources_excluded": reg.get("sources_excluded") or {}, "claims": reg["claims"]},
-                          sort_keys=False, allow_unicode=True, width=4096, default_flow_style=None)
+    retired = reg.get("retired")
+    if retired is None and p.is_file():        # a save that does not handle retired entries keeps them as they are
+        retired = (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("retired")
+    data = {"version": 1, "patch_decisions": reg.get("patch_decisions") or {},
+            "sources_excluded": reg.get("sources_excluded") or {}, "claims": reg["claims"]}
+    if retired:
+        data["retired"] = retired
+    body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=4096, default_flow_style=None)
     with open(p, "w", encoding="utf-8", newline="\n") as f:
         f.write(HEADER + "\n" + body)
     return p
+
+
+def retire_stale(task_id, install_dir=None, today=None):
+    """Move every STALE entry (its document no longer says it, or no longer exists) from `claims` to `retired`, with
+    the date and the reason. The current wording of a changed sentence is registered as a new claim by the next
+    audit, so nothing the documents say goes unjudged; the old wording stays on record instead of being deleted.
+    2026-10-04: 58 stale entries had sat in the register through every build since the docs were rewritten.
+    -> sorted retired ids."""
+    from . import buildrun, task
+    owner = buildrun._owner_root(task.load(task_id))
+    res = run(task_id, install_dir=install_dir, write=False)
+    stale = {c["id"]: c.get("why") or "stale" for c in res["claims"] if c.get("verdict") == "STALE"}
+    p = Path(owner) / REGISTER
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    keep, retired = [], list(data.get("retired") or [])
+    for c in data.get("claims") or []:
+        if c.get("id") in stale:
+            retired.append({**c, "retired": today or time.strftime("%Y-%m-%d"), "retired_why": stale[c["id"]]})
+        else:
+            keep.append(c)
+    save_register(owner, {"claims": keep, "patch_decisions": data.get("patch_decisions") or {},
+                          "sources_excluded": data.get("sources_excluded") or {}, "retired": retired})
+    return sorted(stale)
 
 
 def merge(reg, found, sc, prefs):

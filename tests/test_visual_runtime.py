@@ -22,9 +22,9 @@ def clean_metrics(**over):
 
 def control(dpr=1, drop=()):
     m = clean_metrics(dpr=dpr)
-    for key, ident in probe_js.CONTROL_EXPECT.items():
+    for key, idents in probe_js.CONTROL_EXPECT.items():
         if key not in drop:
-            m[key] = [{"sel": f"div#{ident}", "a": f"div#{ident} > button", "item": f"div#{ident}"}]
+            m[key] = [{"sel": f"div#{i}", "a": f"div#{i} > button", "item": f"div#{i}"} for i in idents]
     return {"url": "resource://gvisual/control.html", "loaded": True, "metrics": m}
 
 
@@ -175,6 +175,80 @@ def test_the_allowlist_accepts_a_runtime_finding_with_a_reason():
          "accept": [{"rule": "RT-CLIP", "item": "about:robots@1x span#day*", "why": "Mozilla's chart labels overflow by design; maintainer, 2026-10-02"}]}
     res = allowmod.summarise(items, a, "runtime")
     assert res["ok"] and res["counts"]["accepted"] == 1
+
+
+def test_a_probe_that_reports_a_planted_clean_lookalike_is_unverifiable():
+    c = control(1)
+    c["metrics"]["overlaps"].append({"a": "input#park1", "b": "input#park2", "overlap": [16, 16]})
+    items = runtime.judge(runs(d1=good_run(1, control=c)))
+    assert ("RT-CONTROL", "control@1x overlaps (clean)", "UNVERIFIABLE") in verdicts(items)
+    assert ("RT-CONTROL", "control@2x overlaps (clean)", "PASS") in verdicts(items)
+    assert not summary(items)["ok"]
+    # one of two planted defects of a kind missed is still blind
+    c = control(1)
+    c["metrics"]["outside"] = [x for x in c["metrics"]["outside"] if "#cutoff" not in json.dumps(x)]
+    it = next(i for i in runtime.judge(runs(d1=good_run(1, control=c))) if i["item"] == "control@1x outside")
+    assert it["verdict"] == "UNVERIFIABLE" and "#cutoff" in it["evidence"]
+
+
+def write_policies(inst, policies):
+    (inst / "distribution").mkdir(parents=True, exist_ok=True)
+    (inst / "distribution" / "policies.json").write_text(json.dumps({"policies": policies}), encoding="utf-8")
+
+
+def test_policies_json_names_the_pages_that_must_be_blocked(tmp_path):
+    assert runtime.policy_blocked(tmp_path) == {}
+    write_policies(tmp_path, {"DisableTelemetry": True, "DisableFirefoxStudies": True, "BlockAboutConfig": False,
+                              "PasswordManagerEnabled": False, "DisableDeveloperTools": True})
+    b = runtime.policy_blocked(tmp_path)
+    assert b["about:telemetry"] == "DisableTelemetry" and b["about:logins"] == "PasswordManagerEnabled"
+    assert {"about:debugging", "about:devtools-toolbox", "about:profiling"} <= set(b)
+    assert "about:config" not in b                                    # set to false: not blocked
+    (tmp_path / "distribution" / "policies.json").write_text("{ not json", encoding="utf-8")
+    assert "<unreadable>" in runtime.policy_blocked(tmp_path)
+
+
+def test_a_page_blocked_by_policy_passes_only_when_it_shows_the_blocked_page():
+    d = good_run(1, pages=("about:telemetry", "about:config", "about:robots"))
+    d["pages"][0].update(loaded=False, final_url="about:neterror?e=blockedByPolicy&u=about%3Atelemetry",
+                         error="an error page loaded instead: about:neterror?e=blockedByPolicy")
+    blocked = {"about:telemetry": "DisableTelemetry", "about:config": "BlockAboutConfig"}
+    items = runtime.judge(runs(d1=d, d2=good_run(2, pages=("about:telemetry", "about:config", "about:robots"))),
+                          blocked=blocked)
+    v = verdicts(items)
+    assert ("RT-POLICY", "about:telemetry@1x", "PASS") in v
+    assert ("RT-POLICY", "about:config@1x", "FAIL") in v               # loaded normally despite the policy
+    assert ("RT-POLICY", "about:telemetry@2x", "FAIL") in v            # loaded normally in the 2x run
+    assert not any(i["rule"] in ("RT-LOAD", "RT-PAGE") and i["item"].startswith(("about:telemetry", "about:config"))
+                   for i in items)
+    assert not summary(items)["ok"]
+    unread = runtime.judge(runs(), blocked={"<unreadable>": "policies.json: bad"})
+    assert ("RT-POLICY", "dpr 1", "FAIL") in verdicts(unread)
+
+
+def test_a_page_redirected_to_another_listed_page_is_judged_once_where_it_ended():
+    pages = ("about:home", "about:welcome", "about:robots")
+    d = good_run(1, pages=pages)
+    d["pages"][1]["final_url"] = "about:home"
+    d["pages"][1]["metrics"] = clean_metrics(overlaps=[{"a": "button#x", "b": "button#y", "overlap": [9, 9]}])
+    items = runtime.judge(runs(d1=d, d2=good_run(2, pages=pages)))
+    [it] = [i for i in items if i["item"] == "about:welcome@1x"]
+    assert it["rule"] == "RT-LOAD" and it["verdict"] == "PASS" and "redirected to about:home, measured there" in it["evidence"]
+    # a redirect to a page that is not itself measured is judged where it landed, as before
+    d = good_run(1, pages=pages)
+    d["pages"][1]["final_url"] = "about:blank"
+    assert ("RT-PAGE", "about:welcome@1x", "PASS") in verdicts(runtime.judge(runs(d1=d, d2=good_run(2, pages=pages))))
+
+
+def test_the_measuring_script_carries_the_clip_ink_and_text_range_rules():
+    js = probe_js.MEASURE_MJS
+    for needle in ("function clipRegion(", "function inkRects(", "function ownTextRects(", "createRange()",
+                   'acs.overflowX === "auto" || acs.overflowX === "scroll"', "inkA, boxB], [boxA, inkB"):
+        assert needle in js, needle
+    html = probe_js.CONTROL_HTML
+    for ids in list(probe_js.CONTROL_EXPECT.values()) + list(probe_js.CONTROL_CLEAN.values()):
+        for i in ids:
+            assert f'id="{i}"' in html, i
 
 
 # ------------------------------------------------------------------------------------------- the throwaway copy
@@ -347,3 +421,19 @@ def test_the_cli_knows_the_visual_action():
     from fieldkit import cli
     a = cli.build_parser().parse_args(["build-harness", "visual", "t1", "--static"])
     assert a.action == "visual" and a.static
+
+
+def test_a_box_wider_than_its_parent_is_rt_box_and_the_control_plants_one_and_two_lookalikes():
+    row = {"sel": "div#boxover", "parent": "div#boxbox", "rect": [0, 150], "content": [0, 100], "by": 50}
+    [it] = runtime.judge_metrics("about:robots@1x", clean_metrics(overflowing=[row]), 1)
+    assert it["rule"] == "RT-BOX" and it["verdict"] == "FAIL" and "by 50 px" in it["evidence"]
+    assert "boxover" in probe_js.CONTROL_EXPECT["overflowing"]
+    assert {"badge", "bleed"} <= set(probe_js.CONTROL_CLEAN["overflowing"])
+    assert 'push("overflowing"' in probe_js.MEASURE_MJS
+    c = control(1, drop=("overflowing",))
+    items = runtime.judge(runs(d1=good_run(1, control=c)))
+    assert ("RT-CONTROL", "control@1x overflowing", "UNVERIFIABLE") in verdicts(items)
+    c = control(1)
+    c["metrics"]["overflowing"].append({"sel": "div#bleed", "parent": "div#bleedbox"})
+    items = runtime.judge(runs(d1=good_run(1, control=c)))
+    assert ("RT-CONTROL", "control@1x overflowing (clean)", "UNVERIFIABLE") in verdicts(items)

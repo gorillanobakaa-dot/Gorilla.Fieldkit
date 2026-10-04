@@ -10,6 +10,9 @@ measure the file behind it. jar.mn says where every packaged file comes from:
 
 `#include` is inlined (sources stay relative to the including jar.mn), `#if`/`#ifdef` are evaluated for a Windows
 desktop build (unknown symbols count as true), `(dir/*.svg)` wildcards are expanded, `% override` is applied.
+`% resource <name> %<jar path>/` lines map resource://<name>/... through the same file map (2026-10-04: before that
+every resource: URL was reported "external" and never measured, so a missing file behind one was never found).
+A resource: package that no jar.mn registers (registered at run time, or by the GRE) stays "external".
 Only the active branding directory and the Windows themes are indexed: the tree also carries Mozilla's nightly,
 official, aurora and unofficial branding and the Linux/macOS themes, which register the same URLs.
 """
@@ -103,6 +106,7 @@ class Index:
         self.tree = Path(tree)
         self.files = {}          # (jar, jar path) -> source Path
         self.reg = {}            # (package, provider) -> (jar, jar path prefix)
+        self.res = {}            # resource:// host -> (jar, jar path prefix)
         self.overrides = {}
         self.manifests = []
         self._names = None
@@ -138,6 +142,9 @@ class Index:
                         self.reg[(parts[1], parts[0])] = (jar, path[1:])
                 elif len(parts) >= 3 and parts[0] == "override":
                     self.overrides[parts[1]] = parts[2]
+                elif len(parts) >= 3 and parts[0] == "resource" and parts[2].startswith("%"):
+                    # `% resource name %res/name/` - a jar path; `resource://gre/...` aliases are not files here
+                    self.res[parts[1]] = (jar, parts[2][1:])
                 continue
             if jar is None or s.startswith("[") or s.startswith("relativesrcdir"):
                 continue
@@ -159,6 +166,14 @@ class Index:
                 continue                       # locale merge sources
             self.files[(jar, target)] = (base / (src or Path(target).name)).resolve()
 
+    def _hits(self, name):
+        """Every tracked file called `name`, anywhere in the tree."""
+        if self._names is None:
+            self._names = {}
+            for rel in _all_tracked(self.tree):
+                self._names.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
+        return self._names.get(name, [])
+
     def by_name(self, url):
         """Fallback for a package registered at run time (built-in add-ons such as formautofill register their
         chrome from api.js, not jar.mn): the one tracked file with the URL's file name under a path that names the
@@ -167,13 +182,30 @@ class Index:
         if not m:
             return None, 0
         pkg, name = m.groups()
-        if self._names is None:
-            self._names = {}
-            for rel in _all_tracked(self.tree):
-                self._names.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
-        hits = self._names.get(name, [])
+        hits = self._hits(name)
         mine = [h for h in hits if pkg in h]
         return ((self.tree / mine[0]) if len(mine) == 1 else None), len(hits)
+
+    def _in_jar(self, jar, path):
+        p = self.files.get((jar, path))
+        if p is None:
+            # an entry under a directory target (`content/x/assets (assets/*)` registered without a trailing slash)
+            for (j, t), src in self.files.items():
+                if j == jar and fnmatch.fnmatch(path, t):
+                    return src
+        return p
+
+    def resolve_resource(self, url):
+        """resource:// URL -> (registered?, source Path or None). Registered means a jar.mn in the tree maps the
+        host with `% resource`; only then can the URL be judged missing."""
+        url = url.split("#")[0].split("?")[0]
+        m = re.match(r"resource://([\w.-]+)/(.*)$", url)
+        if not m or m.group(1) not in self.res:
+            return False, None
+        jar, prefix = self.res[m.group(1)]
+        if not m.group(2):
+            return True, None
+        return True, self._in_jar(jar, prefix + m.group(2))
 
     def resolve(self, url):
         """chrome:// URL -> source Path in the tree, or None."""
@@ -215,7 +247,14 @@ def resolve(url, css_file, index):
         if q and Path(q).is_file():
             return q, "file"
         return None, "missing" if anywhere == 0 else "unresolved"
+    if u.startswith("resource://"):
+        registered, p = index.resolve_resource(u)
+        if registered:
+            if p and Path(p).is_file():
+                return p, "file"
+            name = u.split("#")[0].split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+            return None, "missing" if not index._hits(name) else "unresolved"
     if re.match(r"^[a-z][\w+.-]*:", u):
-        return None, "external"         # resource:, moz-icon:, http: ... not a tree file we can measure
+        return None, "external"         # moz-icon:, http:, an unregistered resource: ... not a tree file
     p = (Path(css_file).parent / u.split("#")[0].split("?")[0]).resolve()
     return (p, "file") if p.is_file() else (None, "missing")

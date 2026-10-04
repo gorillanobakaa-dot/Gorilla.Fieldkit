@@ -736,6 +736,9 @@ def run(a, emit):
     if act == "claims":
         # what the public repository claims, against the tree and the installed build (fieldkit/buildh/claims.py)
         from . import claims as cl, install as inst
+        if "retire-stale" in a.args:          # claims TASK retire-stale: STALE entries move to `retired:`
+            ids = cl.retire_stale(tid, install_dir=a.install_dir or inst.find_install())
+            print(f"retired {len(ids)} stale claim(s): {', '.join(ids[:12])}{' ...' if len(ids) > 12 else ''}")
         r = cl.run(tid, install_dir=a.install_dir or inst.find_install(), report_path=getattr(a, "report", None),
                    strict=getattr(a, "strict", False))
         emit({k: v for k, v in r.items() if k not in ("claims", "patch_audit")} | {"worst_gaps": cl.worst_gaps(r)},

@@ -50,8 +50,16 @@ def binary_hunks(workdir, rel, commit=None):
     r = subprocess.run(["git", "-C", str(workdir), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not any(l.startswith("-\t-\t") for l in r.stdout.splitlines()):
         return []
-    data = (subprocess.run(["git", "-C", str(workdir), "show", f"{commit}:{rel}"], capture_output=True).stdout if commit
-            else (Path(workdir) / rel).read_bytes())
+    # a binary the edit DELETES (2026-10-04: macOS-only Mozilla art removed from the branding) has no bytes to hash:
+    # its step records the deletion, and the verifier checks that the file is gone
+    if commit:
+        r = subprocess.run(["git", "-C", str(workdir), "show", f"{commit}:{rel}"], capture_output=True)
+        data = r.stdout if r.returncode == 0 else None
+    else:
+        p = Path(workdir) / rel
+        data = p.read_bytes() if p.is_file() else None
+    if data is None:
+        return [{"binary": True, "deleted": True, "sha256": None}]
     return [{"binary": True, "sha256": hashlib.sha256(data).hexdigest()}]
 
 

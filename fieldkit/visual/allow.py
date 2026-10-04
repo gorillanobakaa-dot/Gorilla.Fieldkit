@@ -30,6 +30,7 @@ def load(path=None):
     for i, m in enumerate(masters):
         if not m.get("files") or not m.get("master") or not str(m.get("why") or "").strip():
             problems.append(f"masters[{i}] needs files, master and why")
+        problems += [f"masters[{i}] {p}" for p in geometry_problems(m)]
     css = data.get("css") or {}
     excl = css.get("exclude") or []
     for i, e in enumerate(excl):
@@ -39,8 +40,33 @@ def load(path=None):
             "accept": accept, "problems": problems}
 
 
+def geometry_problems(entry):
+    """A masters: entry's optional `region: [x0, y0, x1, y1]` (the part of the raster that is the master's artwork,
+    in raster pixels, right/bottom exclusive) and `flip: true` (that part is mirrored, as in a right-to-left
+    installer strip). A malformed one is a problem, never silently ignored."""
+    out = []
+    r = entry.get("region")
+    if r is not None:
+        ok = (isinstance(r, (list, tuple)) and len(r) == 4 and all(isinstance(v, int) and not isinstance(v, bool)
+                                                                   for v in r))
+        if not ok or not (0 <= r[0] < r[2] and 0 <= r[1] < r[3]):
+            out.append(f"region must be four whole pixel numbers [x0, y0, x1, y1] with x0 < x1 and y0 < y1, got {r!r}")
+    if "flip" in entry and not isinstance(entry["flip"], bool):
+        out.append(f"flip must be true or false, got {entry['flip']!r}")
+    return out
+
+
+def geometry(entry):
+    """-> (region tuple or None, flip bool) of a masters: entry (None entry: no geometry)."""
+    if not entry or geometry_problems(entry):
+        return None, False
+    r = entry.get("region")
+    return (tuple(r) if r is not None else None), bool(entry.get("flip", False))
+
+
 def master_for(rel, allow, owner_root=None, tree=None):
-    """-> (master Path or None, the masters entry or None) for a raster's tree-relative path."""
+    """-> (master Path or None, the masters entry or None) for a raster's tree-relative path. The entry carries the
+    optional region/flip (geometry())."""
     for m in allow.get("masters") or []:
         if fnmatch.fnmatch(rel, m["files"]):
             raw = str(m["master"]).replace("{owner}", str(owner_root or "")).replace("{tree}", str(tree or ""))

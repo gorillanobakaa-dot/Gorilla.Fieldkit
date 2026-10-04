@@ -151,7 +151,30 @@ def copy_install(install_dir, ca_pem, say=print):
     data.setdefault("policies", {}).setdefault("Certificates", {}).setdefault("Install", []).append(str(ca))
     pol.parent.mkdir(exist_ok=True)
     pol.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    install_quit_hook(dest)
     return root, dest
+
+
+# A clean shutdown on request (2026-10-04). Browser.stop() used to end the browser with taskkill /F only; a forced
+# kill can leave the disk cache index unwritten, so B1's restart visit at 5 KB/s found an empty cache while the
+# same build kept it on the Starlink link. A person closes the browser; so does the bench now: the copy carries an
+# autoconfig script that quits normally when QUIT_FILE appears in the profile, and stop() waits for that before it
+# falls back to the forced kill.
+QUIT_FILE = "netbench-quit"
+QUIT_CFG = """// fieldkit netbench: quit normally when the bench asks (a file in the profile), like a person closing the window
+const { setInterval: __nbI } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
+const __nbQuit = Services.dirsvc.get("ProfD", Ci.nsIFile);
+__nbQuit.append("%s");
+__nbI(() => { if (__nbQuit.exists()) { Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit); } }, 250);
+""" % QUIT_FILE
+
+
+def install_quit_hook(app_dir):
+    (Path(app_dir) / "defaults" / "pref").mkdir(parents=True, exist_ok=True)
+    (Path(app_dir) / "defaults" / "pref" / "gnetbench-autoconfig.js").write_bytes(
+        b'pref("general.config.filename", "gnetbench.cfg");\npref("general.config.obscure_value", 0);\n'
+        b'pref("general.config.sandbox_enabled", false);\n')
+    (Path(app_dir) / "gnetbench.cfg").write_bytes(QUIT_CFG.encode("utf-8"))
 
 
 def user_js(prefs):
@@ -187,6 +210,8 @@ class Browser:
         self.proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(profile), url], env=env,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.pid = self.proc.pid
+        self.profile = Path(profile)
+        self.clean_exit = False
         self.started = time.perf_counter()
         self.seen = {}                    # pid -> (create_time, role)
         self.samples = []                 # (t, {pid: (role, rss, private)})
@@ -230,16 +255,28 @@ class Browser:
     def alive(self):
         return self.proc.poll() is None
 
-    def stop(self):
-        """taskkill /T on our PID, then any recorded descendant still alive (same PID AND same start time)."""
+    def stop(self, clean_wait=30):
+        """A normal quit first (QUIT_FILE; the copy's autoconfig acts on it), then taskkill /T on our PID and any
+        recorded descendant still alive (same PID AND same start time). -> PIDs that had to be killed."""
         self._stop.set()
         if self._sampler:
             self._sampler.join(5)
         self.track()
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(self.pid), "/T", "/F"], capture_output=True)
-        else:
-            self.proc.kill()
+        try:
+            (self.profile / QUIT_FILE).write_bytes(b"quit\n")
+            self.proc.wait(clean_wait)
+            self.clean_exit = True
+        except (OSError, subprocess.TimeoutExpired):
+            self.clean_exit = False
+        try:
+            (self.profile / QUIT_FILE).unlink()
+        except OSError:
+            pass
+        if not self.clean_exit:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(self.pid), "/T", "/F"], capture_output=True)
+            else:
+                self.proc.kill()
         try:
             self.proc.wait(15)
         except subprocess.TimeoutExpired:

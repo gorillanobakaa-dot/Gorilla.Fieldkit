@@ -86,8 +86,10 @@ def _raster_items(tree, branding, owner_root, allow):
         if m is None:
             items.append(_item("ICON-002", item, "UNVERIFIABLE", what))
             return
-        v, ev, nums = rasters.provenance(im, m, master_squared=True, cache=sizes)
-        items.append(dict(_item("ICON-002", item, v, ev + f" [master {Path(what).name}]"), numbers=nums))
+        region, flip = allowmod.geometry(allowmod.master_for(rel, allow, owner_root, tree)[1])
+        v, ev, nums = rasters.provenance(im, m, master_squared=True, cache=sizes, region=region, flip=flip)
+        where = (f" region {list(region)}" if region else "") + (" mirrored" if flip else "")
+        items.append(dict(_item("ICON-002", item, v, ev + f" [master {Path(what).name}{where}]"), numbers=nums))
 
     for f in sorted(Path(branding).rglob("*")):
         if not f.is_file():
