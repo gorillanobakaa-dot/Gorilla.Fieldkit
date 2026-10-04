@@ -209,6 +209,49 @@ def watch_after_kill(build_dir, seconds):
     return list(seen.values())
 
 
+# ------------------------------------------------------------------------------------------- DNS witness
+# Windows' own DNS-client log: every query with the process that made it (event 3006, logged inside the caller).
+# 2026-10-04: one lookup of incoming.telemetry.mozilla.org per 4-hour run, seen only on the wire, never by the
+# browser's logs; nothing could say which program asked. With this witness the gate names it.
+DNS_CLIENT_LOG = "Microsoft-Windows-DNS-Client/Operational"
+
+
+def dnsclient_enable():
+    """Switch the DNS-client log on. -> its previous state (True/False), or None when it could not be read."""
+    r = subprocess.run(["wevtutil", "gl", DNS_CLIENT_LOG], capture_output=True, text=True, errors="replace")
+    if r.returncode != 0:
+        return None
+    prev = "enabled: true" in r.stdout.lower()
+    if not prev:
+        subprocess.run(["wevtutil", "sl", DNS_CLIENT_LOG, "/e:true"], capture_output=True)
+    return prev
+
+
+def dnsclient_restore(prev):
+    """Put the log back as it was (only switched off again when it was off before)."""
+    if prev is False:
+        subprocess.run(["wevtutil", "sl", DNS_CLIENT_LOG, "/e:false"], capture_output=True)
+
+
+def dnsclient_queries(since_iso):
+    """-> [(iso time, pid, query name)] logged since `since_iso`."""
+    ps = ("$s=[datetime]::Parse('" + since_iso + "'); "
+          "Get-WinEvent -FilterHashtable @{LogName='" + DNS_CLIENT_LOG + "'; Id=3006; StartTime=$s} -ErrorAction SilentlyContinue | "
+          "ForEach-Object { \"$($_.TimeCreated.ToString('o'))|$($_.ProcessId)|$($_.Properties[0].Value)\" }")
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
+    rows = []
+    for line in out.splitlines():
+        parts = line.strip().split("|", 2)
+        if len(parts) == 3 and parts[1].isdigit():
+            rows.append((parts[0], int(parts[1]), parts[2].strip().lower().rstrip(".")))
+    return rows
+
+
+def process_names(rows):
+    """{pid: "name (path)"} from a process snapshot."""
+    return {r["ProcessId"]: f"{r.get('Name') or '?'} ({r.get('ExecutablePath') or 'no path'})" for r in rows}
+
+
 # ------------------------------------------------------------------------------------------- filesystem
 def watch_dirs():
     env = os.environ
@@ -392,6 +435,9 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     etl, pcap = work / f"pkt-{name}-{mode}.etl", work / f"pkt-{name}-{mode}.pcapng"
     if packets:
         pktmon_start(etl)
+    import datetime as _dt
+    dns_since = _dt.datetime.now().isoformat()
+    names_before = process_names(snapshot_processes()) if packets else {}
     before = fs_snapshot(watch_dirs())
     from . import extras
     head = [] if graceful else ["-headless"]
@@ -423,6 +469,12 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
 
     ev = []
     base = {"scenario": name, "mode": mode}
+    if packets:                                   # the DNS witness: who asked for each name in this window
+        names = {**names_before, **process_names(snapshot_processes())}
+        ours = set(sampler.procs)
+        for when, pid, q in dnsclient_queries(dns_since):
+            ev.append({**base, "sensor": "dns-client", "kind": "dns-attribution", "value": q, "pid": pid,
+                       "in_build": pid in ours, "detail": f"{when} pid {pid} {names.get(pid, 'exited before the snapshot')}"})
     if graceful and closed_normally is False:
         ev.append({**base, "sensor": "process-tree", "kind": "shutdown-failed", "value": "the browser did not exit within 45 s of WM_CLOSE"})
     for r in sampler.procs.values():

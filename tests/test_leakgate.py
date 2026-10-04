@@ -145,3 +145,41 @@ def test_the_scenarios_own_host_holds_for_wire_dns_but_a_vendor_name_still_fails
     fail, lists = gate.judge(events, allow, {"page": ["www.anthropic.com"]}, ["C:/build"], [], 3, True, False)
     assert not any("anthropic" in x for x in lists["UNEXPECTED_DNS"])
     assert any("incoming.telemetry" in x for x in lists["UNEXPECTED_TELEMETRY"])      # still fails closed
+
+
+def test_proposals_are_stable_patterns_not_random_names():
+    assert al.generalise("file", "03c63d37.sqlite-wal") == "*.sqlite-wal"
+    assert al.generalise("file", "prefs.js") == "prefs.js"
+    assert al.generalise("udp", "0.0.0.0:55838") == "0.0.0.0:*"
+    assert al.generalise("udp", "0.0.0.0:5353") == "0.0.0.0:5353"          # a fixed, low port stays exact
+
+
+def test_benign_profile_folders_collapse_but_reporting_folders_stay_visible():
+    assert al.generalise("file", "storage/default/moz-extension+++x/idb/1.sqlite") == "storage/*"
+    assert al.generalise("file", "datareporting/state.json") == "datareporting/state.json"
+    assert al.generalise("file", "saved-telemetry-pings/0a1b2c3d-1111-2222-3333-444455556666") == "saved-telemetry-pings/*"
+    assert al.generalise("file", "{1a2b3c4d-1111-2222-3333-444455556666}.json") == "*.json"
+
+
+def test_the_dns_witness_pseudo_scenario_knows_the_tests_own_hosts():
+    allow = {"entries": [_entry(id="f", kind="file", values=["*"], approval={"by": "owner"})]}
+    events = ALL_SENSORS + [_ev(scenario="(dns-controlled)", sensor="doh-server", kind="dns", value="www.anthropic.com"),
+                            _ev(scenario="(dns-controlled)", sensor="doh-server", kind="dns", value="incoming.telemetry.mozilla.org")]
+    fail, lists = gate.judge(events, allow, {"page": ["www.anthropic.com"]}, ["C:/build"], [], 3, True, False)
+    assert not any("anthropic" in x for x in lists["UNEXPECTED_DNS"])
+    assert any("incoming.telemetry" in x for x in lists["UNEXPECTED_TELEMETRY"])
+
+
+def test_the_dns_witness_names_another_program_but_never_excuses_the_browser():
+    allow = {"entries": [_entry(id="f", kind="file", values=["*"], approval={"by": "owner"})]}
+    wire = _ev(sensor="pktmon", kind="dns-wire", value="incoming.telemetry.mozilla.org", rep=0)
+    other = _ev(sensor="dns-client", kind="dns-attribution", value="incoming.telemetry.mozilla.org", rep=0,
+                pid=42, in_build=False, detail="2026-10-04T04:23 pid 42 python.exe (C:/mozilla-build/python.exe)")
+    fail, lists = gate.judge(ALL_SENSORS + [wire, other], allow, {}, ["C:/build"], [], 3, True, False)
+    assert lists["OTHER_PROGRAMS"] and "python.exe" in lists["OTHER_PROGRAMS"][0]
+    assert not lists["UNEXPECTED_TELEMETRY"]
+    ours = dict(other, in_build=True, detail="2026-10-04T04:23 pid 7 firefox.exe (C:/build/firefox.exe)")
+    fail, lists = gate.judge(ALL_SENSORS + [wire, ours], allow, {}, ["C:/build"], [], 3, True, False)
+    assert lists["UNEXPECTED_TELEMETRY"] and any("BY THE BROWSER" in x for x in lists["UNEXPECTED_DNS"])
+    fail, lists = gate.judge(ALL_SENSORS + [wire], allow, {}, ["C:/build"], [], 3, True, False)
+    assert lists["UNEXPECTED_TELEMETRY"]                        # no witness: still fails closed

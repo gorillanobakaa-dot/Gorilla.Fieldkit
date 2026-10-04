@@ -696,7 +696,7 @@ def build_parser():
     bh.add_argument("--release", action="store_true", help="leakgate: release run (full durations, 3 repetitions, packets required)")
     bh.add_argument("--repeat", type=int, help="leakgate: repetitions per scenario; netbench: repetitions per bench (default 3)")
     bh.add_argument("--bench", help="netbench: comma list of B1,B2,B3,B4,B5 (default all)")
-    bh.add_argument("--profile", choices=["normal", "satellite", "slow"], help="netbench: browser mode level (default normal)")
+    bh.add_argument("--profile", choices=["normal", "satellite", "slow", "satellite-emulated", "slow-emulated", "upstream-buffers", "upstream-memcache", "upstream-both"], help="netbench: browser mode level or RAM variant (default normal)")
     bh.add_argument("--links", help="netbench: comma list of broadband,starlink,geo,austere (default all)")
     bh.add_argument("--label", help="netbench: the name of this result (e.g. before-build16)")
     bh.add_argument("--soak", type=int, help="leakgate: startup-idle duration in seconds (spec: 1800 or 3600)")

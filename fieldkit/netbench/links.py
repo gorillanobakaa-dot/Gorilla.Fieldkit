@@ -74,12 +74,27 @@ SLOW = dict(SATELLITE, **{
     "gfx.downloadable_fonts.enabled": False,           # S6
     "network.http.max-persistent-connections-per-server": 6,   # S11
 })
-MODES = {"normal": {}, "satellite": SATELLITE, "slow": SLOW}
+MODES = {
+    "normal": {},
+    # the REAL switch (Gorilla.Satellite mode in Settings): GorillaLinkMode applies the level itself, so the bench
+    # measures the shipped code, not a copy of its values (2026-10-04)
+    "satellite": {"gorilla.linkmode": 1},
+    "slow": {"gorilla.linkmode": 2},
+    # the study's emulations, kept for builds without the switch
+    "satellite-emulated": SATELLITE,
+    "slow-emulated": SLOW,
+    # RAM decision (study F3, F7; D-157-30: the lighter one wins if it is not slower)
+    "upstream-buffers": {"network.buffer.cache.size": 32768, "network.buffer.cache.count": 24},
+    "upstream-memcache": {"browser.cache.memory.capacity": -1},
+    "upstream-both": {"network.buffer.cache.size": 32768, "network.buffer.cache.count": 24,
+                      "browser.cache.memory.capacity": -1},
+}
 NOT_EMULATED = {
-    "normal": [],
-    "satellite": ["S13 persistent cache (needs the maintainer's decision)"],
-    "slow": ["S4 uBlock Origin switches (no pref)", "S7 Save-Data (not in 157)", "S9 text-first reader (code)",
-             "S13 persistent cache (decision)", "S16 uBO list pause (uBO setting)"],
+    "normal": [], "satellite": [], "slow": ["S9 text-first reader (not built)"],
+    "satellite-emulated": ["S13 persistent cache"],
+    "slow-emulated": ["S4 uBlock Origin switches (no pref)", "S7 Save-Data", "S9 text-first reader (code)",
+                      "S13 persistent cache", "S16 uBO list pause (uBO setting)"],
+    "upstream-buffers": [], "upstream-memcache": [], "upstream-both": [],
 }
 
 

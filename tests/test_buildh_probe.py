@@ -59,3 +59,25 @@ def test_files_of_an_unpacked_build_are_replaced_in_the_copy(tmp_path):
     assert (app / "browser" / "chrome" / "theme.css").read_text(encoding="utf-8") == "a{color:cyan}"
     with pytest.raises(FileNotFoundError):
         probe.replace_files(app, {"browser/chrome/nope.css": fix})
+
+
+def test_new_files_are_added_only_into_an_existing_folder(tmp_path):
+    app = tmp_path / "app"
+    (app / "browser" / "skin").mkdir(parents=True)
+    (app / "browser" / "skin" / "old.svg").write_text("<svg/>", encoding="utf-8")
+    icon = tmp_path / "new.svg"
+    icon.write_text("<svg id='n'/>", encoding="utf-8")
+    assert probe.replace_files(app, {}, {"browser/skin/new.svg": icon}) == ["browser/skin/new.svg (new)"]
+    assert (app / "browser" / "skin" / "new.svg").read_text(encoding="utf-8") == "<svg id='n'/>"
+    with pytest.raises(FileExistsError):          # replacing is file=, not add=
+        probe.replace_files(app, {}, {"browser/skin/old.svg": icon})
+    with pytest.raises(FileNotFoundError):        # a typo in the folder is refused, not created
+        probe.replace_files(app, {}, {"browser/skni/new2.svg": icon})
+
+
+def test_an_early_return_in_a_probe_still_reports_done():
+    # the body is pasted inside try { }; DONE must come from finally, or `return` skips it and the run times out
+    cfg = probe.CFG.format(wait=1, wait_ms=1000, body="    return;")
+    tail = cfg[cfg.index("    return;"):]
+    assert "finally { done(); }" in tail
+    assert tail.count("done()") == 1

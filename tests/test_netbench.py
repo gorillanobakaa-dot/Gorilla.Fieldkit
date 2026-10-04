@@ -53,8 +53,10 @@ def test_pick_links_and_modes_refuse_unknown_names():
     with pytest.raises(ValueError):
         links.pick_links("moon")
     assert links.mode_prefs("normal") == {}
-    assert links.mode_prefs("slow")["gfx.downloadable_fonts.enabled"] is False
-    assert links.mode_prefs("slow")["media.autoplay.default"] == 5          # includes satellite
+    assert links.mode_prefs("slow") == {"gorilla.linkmode": 2}              # the real switch, not a copy
+    assert links.mode_prefs("slow-emulated")["gfx.downloadable_fonts.enabled"] is False
+    assert links.mode_prefs("slow-emulated")["media.autoplay.default"] == 5  # includes satellite
+    assert links.mode_prefs("upstream-memcache") == {"browser.cache.memory.capacity": -1}
     with pytest.raises(ValueError):
         links.mode_prefs("turbo")
 

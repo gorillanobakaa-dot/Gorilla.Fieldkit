@@ -109,6 +109,17 @@ def test_a_source_change_after_the_gate_is_caught(world):
     assert "the tree is the one that was gated" in failing(cg.verify("c1", run_binary=False))
 
 
+def test_an_uncommitted_edit_after_the_gate_is_named_not_called_unchanged(world):
+    # build 22 (2026-10-04): the row failed on an uncommitted edit while its evidence said "unchanged since the gate"
+    cg.gate("c1")
+    (world["w"] / "a.txt").write_text("edited during the build\n")
+    _build(world, age=+5)
+    row = next(r for r in cg.verify("c1", run_binary=False) if r["check"] == "the tree is the one that was gated")
+    assert not row["ok"]
+    assert "unchanged" not in row["evidence"]
+    assert "1 file(s) edited and not committed: a.txt" in row["evidence"]
+
+
 def test_a_changed_mozconfig_after_the_gate_is_caught(world):
     cg.gate("c1")
     (world["h"] / "config" / "mozconfig.win64").write_text("ac_add_options --enable-something-else\n")

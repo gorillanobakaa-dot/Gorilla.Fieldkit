@@ -147,14 +147,17 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     def allowed(kind, value, scen, port=None):
         # the scenario's own destinations hold for every witness, the packet capture's DNS too (2026-10-04: the
         # "page" scenario's www.anthropic.com was FAIL as dns-wire while allowed as dns)
-        if kind in ("dest", "dns", "sni", "dns-wire") and _fn(value, scenario_hosts.get(scen, [])):
+        # the DoH witness of dns-controlled mode records under the pseudo-scenario "(dns-controlled)": a host any
+        # scenario defines is the test's own (2026-10-04: www.anthropic.com of the "page" scenario was flagged)
+        own = scenario_hosts.get(scen, []) if not str(scen).startswith("(") else [h for hs in scenario_hosts.values() for h in hs]
+        if kind in ("dest", "dns", "sni", "dns-wire") and _fn(value, own):
             return "allowed", "test-definition"
         k = {"sni": "dest", "dns-wire": "dns"}.get(kind, kind)
         return al.verdict(allow, k, value, scen, port)
 
     lists = {k: [] for k in ("UNEXPECTED_DESTINATIONS", "UNEXPECTED_DNS", "UNEXPECTED_PROCESSES", "UNEXPECTED_EXECUTABLES",
                              "UNEXPECTED_FILES", "UNEXPECTED_SOCKETS", "UNEXPECTED_TELEMETRY", "UNEXPECTED_EXPERIMENTS",
-                             "UNEXPECTED_REMOTE_SETTINGS", "UNEXPECTED_UPDATES", "UNEXPECTED_CANARIES", "UNATTRIBUTED_WIRE_DNS",
+                             "UNEXPECTED_REMOTE_SETTINGS", "UNEXPECTED_UPDATES", "UNEXPECTED_CANARIES", "UNATTRIBUTED_WIRE_DNS", "OTHER_PROGRAMS",
                              "PENDING_APPROVAL")}
     fail = {p: [] for p in POLICIES}
     # a `coverage` event says a sensor ran in one scenario (gate.action_checks); it is not an observation
@@ -171,6 +174,14 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
         k, v, scen = e["kind"], e["value"], e["scenario"]
         if k in ("dest", "sni", "dns", "dns-wire"):
             host = v.lower()
+            if k == "dns-wire" and host not in names_by_scenario.get(scen, set()):
+                who = [a for a in events if a["kind"] == "dns-attribution" and a["value"] == host
+                       and a["scenario"] == scen and a["mode"] == e["mode"] and a.get("rep") == e.get("rep")]
+                if who and not any(a.get("in_build") for a in who):
+                    # the DNS witness names another program on this machine: not the browser, and never hidden
+                    lists["OTHER_PROGRAMS"].append(f"[{scen}/{e['mode']}] {host} asked by "
+                                                   + "; ".join(sorted({a['detail'].split(' ', 1)[1] for a in who})))
+                    continue
             for globs, lname in ((TELEMETRY_HOSTS, "UNEXPECTED_TELEMETRY"), (EXPERIMENT_HOSTS, "UNEXPECTED_EXPERIMENTS"),
                                  (REMOTE_SETTINGS_HOSTS, "UNEXPECTED_REMOTE_SETTINGS"), (UPDATE_HOSTS, "UNEXPECTED_UPDATES")):
                 if _fn(host, globs):
@@ -182,6 +193,11 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             if k == "dns-wire" and allowed(k, host, scen)[1] == "test-definition":
                 continue
             if k == "dns-wire" and host not in names_by_scenario.get(scen, set()):
+                who = [a for a in events if a["kind"] == "dns-attribution" and a["value"] == host
+                       and a["scenario"] == scen and a["mode"] == e["mode"] and a.get("rep") == e.get("rep")]
+                if who:
+                    note("DNS_POLICY", "UNEXPECTED_DNS", e, "looked up BY THE BROWSER (DNS witness: " + who[0]["detail"] + ")")
+                    continue
                 if VENDOR_HOST.search(host) or any(host == a or host.endswith("." + a) for a in AD_HOSTS):
                     note("DNS_POLICY", "UNEXPECTED_DNS", e, "vendor/tracker name on the wire that no browser sensor saw (bypass?)")
                 else:
@@ -394,6 +410,7 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
         if not st0["ok"]:
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
     packets = True if linux else se.is_admin()
+    dns_prev = se.dnsclient_enable() if packets and not linux else None   # the DNS witness, put back afterwards
     if release:
         repeat, quick = max(repeat, 3), False
     work = Path(workroot) / time.strftime("%Y%m%d-%H%M%S")
@@ -485,6 +502,8 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
                         events.append({"scenario": name, "mode": mode, "sensor": "mitm", "kind": "proxy-bypass", "value": "proxy did not take",
                                        "detail": "the page itself never reached mitmproxy"})
     finally:
+        if packets and not linux:
+            se.dnsclient_restore(dns_prev)
         server.close()
         doh.close()
         certsrv.close()

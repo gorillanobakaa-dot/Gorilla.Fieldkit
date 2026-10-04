@@ -530,13 +530,14 @@ def run(a, emit):
         rows = rc_.run(tid, say=lambda m: print(m, flush=True), skip_post_install="--fast" in a.args or getattr(a, "build", False))
         return 0 if all(r["ok"] for r in rows) else 3
     if act == "probe":
-        # probe TASK js=<file|name> [url=...] [wait=S] [omni=<jar>:<member>=<file> ...]: a question to (or a JS fix
+        # probe TASK js=<file|name> [url=...] [wait=S] [omni=<jar>:<member>=<file> ...] [file=..] [add=..]: a question to (or a JS fix
         # tried in) a throwaway copy of the installed build, without a build
         from . import probe as pb, buildrun
         kv = [x for x in a.args[1:] if "=" in x]
-        opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=")))}
+        opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=", "add=")))}
         omni = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("omni="))
         files = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("file="))
+        added = dict(x[4:].rsplit("=", 1) for x in kv if x.startswith("add="))
         if "js" not in opts:
             raise task.Refused("probe needs js=<file or one of " + ", ".join(p.stem for p in pb.PROBES.glob("*.js")) + ">")
         from . import install as _inst
@@ -544,7 +545,7 @@ def run(a, emit):
         if not inst:
             raise task.Refused("no installed build found: give --install-dir")
         r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)), omni=omni or None,
-                   say=lambda m: print(m, flush=True), files=files or None)
+                   say=lambda m: print(m, flush=True), files=files or None, added=added or None)
         for l in r["lines"]:
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))

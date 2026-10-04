@@ -8,6 +8,7 @@ Entry:
   expected_payload, security_impact, privacy_impact, test, date, release, approval (null | {by, at, how}).
 """
 import fnmatch
+import re
 import json
 import time
 from pathlib import Path
@@ -137,6 +138,34 @@ def scope_problems(data):
     return out
 
 
+_GUID = re.compile(r"\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?")
+_HEXRUN = re.compile(r"(?<![0-9a-z])[0-9a-f]{6,}(?![0-9a-z])")
+# profile folders whose contents are the user's own browsing state, written with per-run names: approved as a folder.
+# Folders that would show reporting (datareporting, saved-telemetry-pings, crashes, minidumps) are NOT here: a file
+# appearing there stays visible, exact.
+BENIGN_DIRS = ("storage", "cache2", "startupcache", "bookmarkbackups", "sessionstore-backups", "shader-cache",
+               "thumbnails", "jumplistcache")
+EPHEMERAL = 49152                                     # Windows' dynamic port range starts here
+
+
+def generalise(kind, value):
+    """An observation as a STABLE pattern, so an approval still holds on the next run (2026-10-04: proposals listed
+    3,429 file names, most random like 03c63d37.sqlite, and 183 ephemeral UDP ports; approving them proved nothing).
+    Random hex runs and GUIDs in file names become *, a local UDP socket on an ephemeral port becomes <addr>:*.
+    Anything else is kept exact. Hosts are never generalised (and never proposed)."""
+    v = (value or "").lower()
+    if kind in ("file", "file-system"):
+        top = v.replace("\\", "/").split("/", 1)
+        if len(top) == 2 and top[0] in BENIGN_DIRS:
+            return top[0] + "/*"
+        return _HEXRUN.sub("*", _GUID.sub("*", v))
+    if kind == "udp":
+        addr, _, port = v.rpartition(":")
+        if port.isdigit() and int(port) >= EPHEMERAL:
+            return f"{addr}:*"
+    return v
+
+
 def propose(path, events, run_name, say=print):
     """Add UNAPPROVED entries for observations of the proposable kinds that no entry covers (destinations and DNS
     names are never proposed from observation: an unexpected host stays unexpected until the owner writes it in),
@@ -149,7 +178,7 @@ def propose(path, events, run_name, say=print):
             continue
         if match(data, e["kind"], e["value"], e["scenario"]):
             continue
-        groups.setdefault(e["kind"], set()).add(e["value"])
+        groups.setdefault(e["kind"], set()).add(generalise(e["kind"], e["value"]))
     added = []
     for (scen, kind), hosts in sorted(video_candidates(data, events).items()):
         eid = f"video-{scen}-{kind}-{run_name}"

@@ -1,7 +1,7 @@
 """Ask a running build a question, or try a JavaScript fix, without spending a build.
 
     fieldkit build-harness probe <task> js=<probe.js|name> [url=about:blank] [wait=15] [omni=<jar>:<member>=<file> ...]
-                                    [file=<path in the build>=<file> ...] [--install-dir <build>]
+                                    [file=<path in the build>=<file> ...] [add=<new path in the build>=<file> ...] [--install-dir <build>]
 
 Fastest loop for CSS, themes and JS: point --install-dir at the objdir's UNPACKED dist/bin (no omni.ja; every
 chrome file is a plain file) and give file= replacements; the copy runs your change in seconds, without a build.
@@ -41,7 +41,9 @@ __gT(async () => {{
   try {{
 {body}
   }} catch (e) {{ say("error", String(e), e && e.stack ? e.stack.split("\\n")[0] : ""); }}
-  done();
+  // finally: a probe that stops early with `return` (no window, nothing found) still reports DONE, instead of the
+  // run waiting for its timeout and calling a finished probe TIMED OUT (2026-10-04)
+  finally {{ done(); }}
 }}, {wait_ms});
 """
 
@@ -75,21 +77,32 @@ def patch_omni(app_dir, patches):
     return sorted(f"{j}:{m}" for j, ms in by_jar.items() for m in ms)
 
 
-def replace_files(app_dir, files):
+def replace_files(app_dir, files, added=None):
     """files: {"browser/chrome/browser/skin/classic/browser/master-redirect.css": Path(local)} -> copied into the COPY.
     For an UNPACKED build (the objdir's dist/bin: chrome, modules and CSS as plain files, no omni.ja), which is the
-    fast way to try themes, CSS and JS: no archive to rewrite, no build (the owner's Linux workflow, 2026-10-04)."""
+    fast way to try themes, CSS and JS: no archive to rewrite, no build (the owner's Linux workflow, 2026-10-04).
+    added: the same, for files the change CREATES (a new icon, a new .ftl); their folder must already exist, so a
+    typo in the path is still refused instead of silently creating a file nothing reads."""
     done = []
     for rel, local in files.items():
         dest = Path(app_dir) / rel
         if not dest.is_file():
-            raise FileNotFoundError(f"{rel} is not a file of this build (packed builds keep it in omni.ja: use omni=)")
+            raise FileNotFoundError(f"{rel} is not a file of this build (packed builds keep it in omni.ja: use omni=;"
+                                    f" a file the change creates: use add=)")
         dest.write_bytes(Path(local).read_bytes())
         done.append(rel)
+    for rel, local in (added or {}).items():
+        dest = Path(app_dir) / rel
+        if dest.exists():
+            raise FileExistsError(f"{rel} already exists in this build: use file= to replace it")
+        if not dest.parent.is_dir():
+            raise FileNotFoundError(f"{dest.parent.relative_to(app_dir)} is not a folder of this build")
+        dest.write_bytes(Path(local).read_bytes())
+        done.append(rel + " (new)")
     return sorted(done)
 
 
-def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None):
+def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None):
     """-> {"lines": [...], "done": bool, "patched": [...], "seconds": float}"""
     body = resolve_js(js).read_text(encoding="utf-8")
     copy = Path(tempfile.mkdtemp(prefix="gprobe_app_"))
@@ -98,7 +111,7 @@ def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=
     try:
         app = copy / "app"
         shutil.copytree(install_dir, app)
-        patched = (patch_omni(app, omni) if omni else []) + (replace_files(app, files) if files else [])
+        patched = (patch_omni(app, omni) if omni else []) + (replace_files(app, files or {}, added) if (files or added) else [])
         (app / "defaults" / "pref").mkdir(parents=True, exist_ok=True)
         (app / "defaults" / "pref" / "gprobe-autoconfig.js").write_text(
             'pref("general.config.filename", "gprobe.cfg");\npref("general.config.obscure_value", 0);\n'

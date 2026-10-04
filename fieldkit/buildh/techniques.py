@@ -166,12 +166,37 @@ TECHNIQUES.append({
     "signals": [
         {"name": "pre-connect-check", "kind": "must_have", "path": "netwerk/protocol/http/DnsAndConnectSocket.cpp",
          "text": "PHYSICAL LOCK (D-157-16): the local-network check runs BEFORE the connection"},
+        {"name": "proxy-path-check", "kind": "must_have", "path": "netwerk/protocol/http/nsHttpChannel.cpp",
+         "text": "PHYSICAL LOCK (D-157-16): local network access through a proxy"},
         {"name": "socket-creators", "kind": "watch",
          "pathspec": ["netwerk/protocol/http", ":!**/test/**", ":!**/tests/**"],
          "regex": r"(sts|STS)->Create(Routed)?Transport\(", "guard_lines": 70,
          "allow": {"netwerk/protocol/http/ConnectionEstablisher.cpp":
                    "Happy Eyeballs path: network.http.happy_eyeballs_enabled is @IS_NIGHTLY_BUILD@, off in release builds; "
                    "apply T-157-16-A here when Mozilla enables it"}},
+    ],
+})
+
+TECHNIQUES.append({
+    "id": "T-157-01-A",
+    "title": "Nothing about updates is written outside the profile",
+    "decision": "D-157-01",
+    "found": "2026-10-04, release leak gate on build 21: Settings wrote ProgramData/Mozilla-<id>/updates/<hash>/update-config.json",
+    "problem": ("Per-installation update settings live in a machine-wide file under ProgramData, written when Settings "
+                "opens, although Gorilla has no updater (--disable-updater)."),
+    "concept": ("With no updater, the update setting is an ordinary profile pref: UpdateUtils.PER_INSTALLATION_PREFS_SUPPORTED "
+                "is false, so nothing is read from or written to the machine-wide update folder."),
+    "apply": ["Keep PER_INSTALLATION_PREFS_SUPPORTED false in UpdateUtils (or its successor).",
+              "Re-check every writer of the update root (signal 'update-root-writers') in a new Firefox."],
+    "verify": ["leak gate FILESYSTEM_POLICY: no file under ProgramData/Mozilla-*", "decision D-157-01 checks"],
+    "signals": [
+        {"name": "per-install-off", "kind": "must_have", "path": "toolkit/modules/UpdateUtils.sys.mjs",
+         "text": "PHYSICAL LOCK (D-157-01): nothing about updates is written outside the profile"},
+        {"name": "update-root-writers", "kind": "watch",
+         "pathspec": ["toolkit/modules", "browser/components/preferences", ":!**/test/**", ":!**/tests/**"],
+         "regex": r"writeUpdateConfig\(", "guard_lines": 60,
+         "allow": {"toolkit/modules/UpdateUtils.sys.mjs":
+                   "the writer itself; unreachable while PER_INSTALLATION_PREFS_SUPPORTED is false (checked by per-install-off)"}},
     ],
 })
 

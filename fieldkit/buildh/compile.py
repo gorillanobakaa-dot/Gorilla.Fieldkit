@@ -119,8 +119,14 @@ def verify(task_id, run_binary=True):
         return rows
     rec = json.loads(p.read_text(encoding="utf-8"))
     wd = Path(rec["workdir"])
-    row("the tree is the one that was gated", _git(wd, "rev-parse", "HEAD^{tree}") == rec["tree"] and not _git(wd, "status", "--porcelain"),
-        "unchanged since the gate" if _git(wd, "rev-parse", "HEAD^{tree}") == rec["tree"] else "the source changed after the gate")
+    # 2026-10-04 (build 22): the row failed on uncommitted edits while its evidence said "unchanged since the gate",
+    # because the evidence looked at the commit only. Both halves now speak for themselves.
+    same_commit = _git(wd, "rev-parse", "HEAD^{tree}") == rec["tree"]
+    dirty = [l.strip().split(None, 1)[-1] for l in _git(wd, "status", "--porcelain").splitlines() if l.strip()]
+    row("the tree is the one that was gated", same_commit and not dirty,
+        "unchanged since the gate" if same_commit and not dirty else
+        "; ".join(x for x in ("the committed source changed after the gate" if not same_commit else "",
+                              f"{len(dirty)} file(s) edited and not committed: {', '.join(dirty[:4])}" if dirty else "") if x))
     moz = mozconfig_path()
     row("mozconfig unchanged since the gate", moz.is_file() and _sha(moz) == rec["mozconfig_sha256"],
         "unchanged" if moz.is_file() and _sha(moz) == rec["mozconfig_sha256"] else "mozconfig differs from what was gated")
