@@ -150,7 +150,10 @@ def score_hunk(body, hunk, file=""):
     # not scattered copies in other blocks (moz.build h2, tokens-brand.css h5 on 2026-10-01: `script=`,
     # `entry_point=` live in every GeneratedFile block; a frame pinned on the wrong copy must not matter either)
     rem_in = rem if rem and _sequence_present(scope, rem) else []
-    if rem and not rem_in:
+    # ... and only when the hunk's own added lines are not all there: with every added line in place the removed
+    # lines were REPLACED as the patch says, and a look-alike nearby is another line (build 27, nsHttpChannel.cpp:
+    # the removed `s == ...::Private;` was matched to an earlier `nsILoadInfo::IPAddressSpace target = ...`)
+    if rem and not rem_in and not (add and len(add_in) == len(add)):
         pairs = firefox.renamed_near(body, hunk, rem, added)
         if pairs:                                       # live run 16: renamed by upstream, not gone
             return "NOT-APPLIED", f"{len(pairs)} removed line(s) still present under new names: " + \
