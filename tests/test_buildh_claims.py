@@ -447,3 +447,40 @@ def test_the_leakgate_baseline_refuses_when_the_strict_claims_audit_fails(tmp_pa
     with pytest.raises(task.Refused, match="public claim must be PROVEN"):
         bcli.run(a, lambda obj, human: None)
     assert seen == {"strict": True, "write": False}
+
+
+def test_the_published_audit_report_is_not_read_back_as_claims(tmp_path):
+    pub = tmp_path / "gorilla-patchset"
+    pub.mkdir()
+    (pub / "README.md").write_text("# Gorilla\n\nThe browser never calls home.\n", encoding="utf-8")
+    (pub / "AUDIT-157.md").write_text(C.AUDIT_REPORT_HEAD + " Gorilla Unleashed 157.0\n\nCONTRADICTED C-1: ...\n", encoding="utf-8")
+    rels = C.public_files(tmp_path)
+    assert "gorilla-patchset/README.md" in rels
+    assert "gorilla-patchset/AUDIT-157.md" not in rels
+
+
+def test_a_patch_explained_by_a_maintainer_decision_proves_its_claims():
+    ctx = {"patches": {"07.T/x.patch": {"group": "07.T", "patch": "07.T/x.patch", "verdict": "PARTIAL", "implemented_pct": 92.3,
+                                        "explained": True, "decision": "D-157-03"}}, "excluded": set(), "disabled": set()}
+    ok, ev = C._patch(ctx, "07.T/x.patch")
+    assert ok and "D-157-03" in ev
+    assert C._group(ctx, "07.T")[0]
+    ctx["patches"]["07.T/x.patch"].update(explained=False, decision=None)
+    assert not C._patch(ctx, "07.T/x.patch")[0] and not C._group(ctx, "07.T")[0]
+
+
+def test_a_deleted_file_is_named_by_its_minus_line():
+    from fieldkit.buildh import firefox
+    text = ("diff --git a/x/keep.mjs b/x/keep.mjs\n--- a/x/keep.mjs\n+++ b/x/keep.mjs\n@@ -1,2 +1,1 @@\n a\n-b\n"
+            "diff --git a/x/gone.mjs b/x/gone.mjs\ndeleted file mode 100644\n--- a/x/gone.mjs\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-c\n")
+    f = firefox.parse_patch(text)
+    assert [x["file"] for x in f] == ["x/keep.mjs", "x/gone.mjs"] and f[1].get("deleted")
+    assert f[0]["hunks"][0]["lines"] == [" a", "-b"]
+
+
+def test_a_sentence_that_says_a_flag_is_not_used_does_not_link_to_it():
+    sc = {"patches": [], "texts": {}, "groups": [], "targets": {}}
+    ev = C.seed_evidence({"text": "You might expect a --disable-telemetry flag in mozconfig.", "source": "x.md", "line": 1}, sc, {})
+    assert not any("mozconfig_has" in e for e in ev)
+    ev = C.seed_evidence({"text": "The build uses --disable-default-browser-agent.", "source": "x.md", "line": 1}, sc, {})
+    assert any("mozconfig_has" in e for e in ev)

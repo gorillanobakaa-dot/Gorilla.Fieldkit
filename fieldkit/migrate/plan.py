@@ -508,8 +508,8 @@ def gate_S9(m, deep=True):
     ok = bool(rp) and rp[-1].get("ok") and rp[-1].get("tree") == m.tree()
     out.append(item("S9.replay", ok, "the public patch set replayed onto pristine upstream gives this tree",
                     f"{rp[-1]['t']}: tree {str(rp[-1].get('tree'))[:10]}" if rp else
-                    "no replay proof recorded (the harness has no replay command yet: the scratch-index replay of RUNBOOK.md, by hand)",
-                    "the scratch-index replay in RUNBOOK.md", needs="human"))
+                    "no replay proof recorded",
+                    f"{FH} replay {m.tid}"))
     pv = m.cache("privacy")
     ok, why = _fresh(m, pv, "tree")
     out.append(item("S9.privacy", ok and not pv["data"].get("findings"), "privacy scan of what git would publish is clean",

@@ -46,14 +46,32 @@ def _sequence_present(body, lines, gap=3):
     return False
 
 
+_PREF = re.compile(r'^pref\(\s*"([^"]+)"\s*,\s*(.+?)\s*(,\s*locked\s*)?\)\s*;$')
+_PREF_CACHE = {}
+
+
+def _pref_key(line):
+    m = _PREF.match(line.strip())
+    return (m.group(1), re.sub(r"\s+", " ", m.group(2)), bool(m.group(3))) if m else None
+
+
 def _locked_variant(line, have):
-    """A pref line the patch added unlocked counts as present when the tree has the SAME pref and value, now locked:
-    a later decision strengthened it (2026-10-03: intl.multilingual.* became `, locked` and verify called the 05.PREFS
-    step a false completion). Never the other way round: a lost lock is not accepted."""
-    t = line.strip()
-    if not t.startswith("pref(") or not t.endswith(");") or t.endswith(", locked);"):
+    """A pref line the patch added counts as present when the tree has the SAME pref and value, now locked, or the same
+    line with other spacing: a later decision strengthened it (2026-10-03: intl.multilingual.* became `, locked` and
+    verify called the 05.PREFS step a false completion), and the in-place consolidation collapsed the column padding
+    (`pref("network.prefetch-next",    false);`), so 7 of firefox.js #53's lines read as missing in the claims audit.
+    Never the other way round: a lost lock is not accepted."""
+    want = _pref_key(line)
+    if not want:
         return False
-    return (t[:-2] + ", locked);") in have
+    key = id(have)
+    cached = _PREF_CACHE.get(key)
+    if cached is None or cached[0] is not have:
+        cached = (have, {k for k in map(_pref_key, have) if k})
+        _PREF_CACHE.clear()
+        _PREF_CACHE[key] = cached
+    name, value, locked = want
+    return (name, value, True) in cached[1] or (not locked and (name, value, False) in cached[1])
 
 
 def score_hunk(body, hunk, file=""):

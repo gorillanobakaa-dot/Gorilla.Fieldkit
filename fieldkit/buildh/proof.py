@@ -24,6 +24,10 @@ PRE_IF = re.compile(r"^\s*#\s*(if|ifdef|ifndef)\b")
 PRE_END = re.compile(r"^\s*#\s*endif\b")
 PREF_SOURCES = (("modules/libpref/init/all.js", "greprefs.js", "omni.ja"),
                 ("browser/app/profile/firefox.js", "defaults/preferences/firefox.js", "browser/omni.ja"))
+# The branding prefs ship as their own defaults file and load after firefox.js. Read by shipped_prefs and the claims
+# audit's tree prefs (2026-10-03: app.update.url.manual, set there, was reported "not set"); kept out of PREF_SOURCES
+# so the port-intent diff and the migration ledger are unchanged.
+BRANDING_PREFS = ("browser/branding/gorilla/pref/firefox-branding.js", "defaults/preferences/firefox-branding.js", "browser/omni.ja")
 # packaged path PREFIXES of excised components (omni.ja layout, not source layout). Substring matching caught
 # xml/, mathml/ and uBlock's _locales/ml/ on 02 Oct; these are prefixes, matched at a path-component boundary.
 EXCISED_PACKAGED = ("chrome/toolkit/content/global/ml/", "moz-src/toolkit/components/ml/actors/", "moz-src/toolkit/components/ml/MLModelHubService.sys.mjs",
@@ -85,7 +89,7 @@ def pref_intent(workdir):
 def shipped_prefs(install_dir):
     """{name: (value, flag)} as the installed browser's defaults have them (firefox.js wins over greprefs.js)."""
     out = {}
-    for _, member, ja in PREF_SOURCES:
+    for _, member, ja in PREF_SOURCES + (BRANDING_PREFS,):
         try:
             with zipfile.ZipFile(Path(install_dir) / ja) as z:
                 text = z.read(member).decode("utf-8", "replace")

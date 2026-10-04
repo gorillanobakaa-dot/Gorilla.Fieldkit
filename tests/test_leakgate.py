@@ -134,3 +134,14 @@ def test_ensure_ca_stops_only_the_mitmdump_it_started_on_every_platform(tmp_path
     done = type("Done", (), {"poll": lambda self: 0, "pid": 5})()
     gate.stop_started(done)
     assert calls == []
+
+
+def test_the_scenarios_own_host_holds_for_wire_dns_but_a_vendor_name_still_fails():
+    allow = {"entries": [_entry(id="f", kind="file", values=["*"], approval={"by": "owner"})]}
+    events = ALL_SENSORS + [
+        _ev(scenario="page", sensor="pktmon", kind="dns-wire", value="www.anthropic.com"),
+        _ev(scenario="startup-idle", sensor="pktmon", kind="dns-wire", value="incoming.telemetry.mozilla.org"),
+    ]
+    fail, lists = gate.judge(events, allow, {"page": ["www.anthropic.com"]}, ["C:/build"], [], 3, True, False)
+    assert not any("anthropic" in x for x in lists["UNEXPECTED_DNS"])
+    assert any("incoming.telemetry" in x for x in lists["UNEXPECTED_TELEMETRY"])      # still fails closed

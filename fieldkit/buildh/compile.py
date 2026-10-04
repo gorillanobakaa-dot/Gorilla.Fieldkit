@@ -88,6 +88,11 @@ def gate(task_id, harness_root=None, write=True):
     from . import verify as vf
     for name, ok, evidence in vf.problems(vf.verify(task_id)):
         row(name, ok, evidence)
+    # the IDEAS behind Gorilla's fixes (fieldkit/buildh/techniques.py): a lost lock, or a new waiter / download path
+    # in a later Firefox, stops the build before it compiles (2026-10-03: the blank new tab, T-157-31-A)
+    from . import techniques
+    for name, ok, evidence in techniques.gate_rows(wd) if (wd / "browser/config/version.txt").is_file() else []:
+        row(name, ok, evidence)
     moz = mozconfig_path(harness_root)
     row("mozconfig present", moz.is_file(), str(moz))
     od = objdir(moz) if moz.is_file() else None

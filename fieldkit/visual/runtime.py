@@ -23,6 +23,7 @@ Rules (each per page and per DPR; FAIL and UNVERIFIABLE fail the row):
     RT-UPSCALE    a raster painted larger than its pixels (painted CSS px x DPR > natural px by more than 5 %)
     RT-BROKEN     an image that does not load (natural width 0)
     RT-ZERO       a visible element with an icon whose box is 0 wide or 0 high
+    RT-CONTENT    a page that must show something does: the new tab and start page show the Gorilla logo and the search box
     RT-CLIP       text wider than its own box (clipped, ellipsis, or spilling out)
     RT-OVERLAP    two sibling controls overlap by more than 1 px both ways
     RT-OFFSCREEN  content outside the viewport horizontally, or the page scrolls sideways
@@ -281,6 +282,29 @@ def judge_metrics(where, m, dpr):
     return list(merged.values())
 
 
+# What a page must SHOW, not just load (2026-10-03: build 19's new tab and start page loaded, measured 34 elements and
+# no picture, and passed: the new-tab app never started, so neither the Gorilla logo nor the search box existed).
+CONTENT_EXPECT = {
+    "about:newtab": {"pictures": ["about-logo"], "components": ["content-search-handoff-ui"]},
+    "about:home": {"pictures": ["about-logo"], "components": ["content-search-handoff-ui"]},
+}
+
+
+def judge_content(url, where, m):
+    want = CONTENT_EXPECT.get((url or "").split("#")[0].split("?")[0])
+    if not want:
+        return []
+    if "pictures_seen" not in m:
+        return [_it("RT-CONTENT", where, "UNVERIFIABLE", "the probe did not record what the page shows (old probe)")]
+    pics, comps = m.get("pictures_seen") or [], m.get("components_seen") or []
+    miss = [f"picture *{x}*" for x in want.get("pictures", []) if not any(x in u for u in pics)]
+    miss += [f"<{x}>" for x in want.get("components", []) if x not in comps]
+    if miss:
+        return [_it("RT-CONTENT", where, "FAIL", f"the page does not show {', '.join(miss)} "
+                    f"({m.get('elements')} elements, {len(pics)} picture(s), {len(comps)} component(s) shown)")]
+    return []
+
+
 def judge_run(dpr, data, launch_info=None, started=False):
     """Items for one DPR run. `data` is the JSON the probe wrote (None when it wrote nothing)."""
     items = []
@@ -314,7 +338,7 @@ def judge_run(dpr, data, launch_info=None, started=False):
         if not isinstance(m, dict) or not m.get("elements"):
             items.append(_it("RT-METRIC", where, "UNVERIFIABLE", f"no measurements: {p.get('metric_error') or 'missing'}"))
             continue
-        found = judge_metrics(where, m, dpr)
+        found = judge_metrics(where, m, dpr) + judge_content(p.get("url"), where, m)
         items += found
         if not found:
             items.append(_it("RT-PAGE", where, "PASS",

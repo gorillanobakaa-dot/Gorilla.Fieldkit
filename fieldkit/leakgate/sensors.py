@@ -122,7 +122,7 @@ def new_profile(root, name, prefs=None):
 
 # ------------------------------------------------------------------------------------------- process + sockets
 _PS_SNAPSHOT = r"""
-$all = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine
+$all = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine, @{n='Created';e={ if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { 0 } }}
 $all | ConvertTo-Json -Compress -Depth 2
 """
 
@@ -146,7 +146,14 @@ def tree(rows, root_pid):
     if root_pid in by_pid:
         out.append(by_pid[root_pid])
     while q:
-        for k in kids.get(q.pop(), []):
+        parent = q.pop()
+        born = (by_pid.get(parent) or {}).get("Created") or 0
+        for k in kids.get(parent, []):
+            # Windows reuses process ids: a process whose recorded parent id now belongs to OUR process, but which was
+            # created BEFORE it, is not its child (2026-10-03: Edge's startup boost, started by Windows, was counted
+            # as a child of the test browser because its dead parent's id had been given to firefox.exe).
+            if born and (k.get("Created") or 0) and k["Created"] < born:
+                continue
             if k["ProcessId"] not in seen:
                 seen.add(k["ProcessId"])
                 out.append(k)

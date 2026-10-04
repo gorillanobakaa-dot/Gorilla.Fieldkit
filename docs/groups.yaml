@@ -57,8 +57,10 @@ groups:
       - buildh/keyed.py
       - buildh/prefs.py
       - buildh/relocate.py
+      - buildh/replay.py
       - buildh/snapshot.py
       - buildh/task.py
+      - buildh/techniques.py
       - buildh/upstream.py
       - buildh/vault.py
       - buildh/worker.py

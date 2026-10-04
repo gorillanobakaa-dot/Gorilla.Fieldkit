@@ -141,12 +141,21 @@ def record(task_id, files, why, group="hand", kind=None):
     missing = [f for f in files if f not in changed]
     if missing:
         raise task.Refused(f"no diff in: {missing[:5]}")
+    for rel in files:
+        # 2026-10-03: a NEW file is untracked, so `git diff` showed nothing and it got no step (silently), while the
+        # checkpoint still committed it. Intent-to-add makes its whole content a diff like any other edit.
+        r = subprocess.run(["git", "-C", str(w), "ls-files", "--error-unmatch", "--", rel], capture_output=True)
+        if r.returncode != 0:
+            subprocess.run(["git", "-C", str(w), "add", "-N", "--", rel], capture_output=True, check=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     have = {s["id"] for s in t["steps"]}
     added = []
     at = next((i for i, s in enumerate(t["steps"]) if s["id"].startswith("final")), len(t["steps"]))
     for rel in files:
-        for n, h in enumerate(merge_moves(diff_hunks(w, rel)) or binary_hunks(w, rel), 1):
+        hunks = merge_moves(diff_hunks(w, rel)) or binary_hunks(w, rel)
+        if not hunks:
+            raise task.Refused(f"{rel}: changed, but no hunk could be read from it (nothing is recorded blind)")
+        for n, h in enumerate(hunks, 1):
             sid = f"hand-{group}-{Path(rel).name}-{stamp}-{_tag(rel)}-h{n}"
             if sid in have:
                 continue

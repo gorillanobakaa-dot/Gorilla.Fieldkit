@@ -145,7 +145,9 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
                 pass
 
     def allowed(kind, value, scen, port=None):
-        if kind in ("dest", "dns", "sni") and _fn(value, scenario_hosts.get(scen, [])):
+        # the scenario's own destinations hold for every witness, the packet capture's DNS too (2026-10-04: the
+        # "page" scenario's www.anthropic.com was FAIL as dns-wire while allowed as dns)
+        if kind in ("dest", "dns", "sni", "dns-wire") and _fn(value, scenario_hosts.get(scen, [])):
             return "allowed", "test-definition"
         k = {"sni": "dest", "dns-wire": "dns"}.get(kind, kind)
         return al.verdict(allow, k, value, scen, port)
@@ -177,6 +179,8 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
                 pol, lname = ("DNS_POLICY", "UNEXPECTED_DNS") if k == "dns" else ("NETWORK_POLICY", "UNEXPECTED_DESTINATIONS")
                 for why in video_rule(host, scen):
                     note(pol, lname, e, why)
+            if k == "dns-wire" and allowed(k, host, scen)[1] == "test-definition":
+                continue
             if k == "dns-wire" and host not in names_by_scenario.get(scen, set()):
                 if VENDOR_HOST.search(host) or any(host == a or host.endswith("." + a) for a in AD_HOSTS):
                     note("DNS_POLICY", "UNEXPECTED_DNS", e, "vendor/tracker name on the wire that no browser sensor saw (bypass?)")

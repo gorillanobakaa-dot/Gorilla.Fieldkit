@@ -36,11 +36,21 @@ TRIVIAL = re.compile(r"^[\s{}()\[\];,]*$")        # braces and punctuation prove
 def parse_patch(text):
     """-> [{"file": path, "hunks": [{"header": "@@ ..", "lines": [...]}]}] for a unified diff."""
     files, cur, hunk = [], None, None
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
         if line.startswith("+++ "):
             path = line[4:].split("\t")[0].strip()
+            deleted = path == "/dev/null"
+            if deleted and i and lines[i - 1].startswith("--- "):
+                # a deleted file is named on its --- line (2026-10-03: patch 045's deletion was judged as a file
+                # called "/dev/null" that does not exist, and failed the claims audit)
+                path = lines[i - 1][4:].split("\t")[0].strip()
+            if hunk is not None and hunk["lines"] and i and hunk["lines"][-1] == lines[i - 1] and lines[i - 1].startswith("--- "):
+                hunk["lines"].pop()                    # the next file's --- header, read as a removed line of this hunk
             path = path[2:] if path.startswith(("a/", "b/")) else path
             cur = {"file": path, "hunks": []}
+            if deleted:
+                cur["deleted"] = True
             files.append(cur)
             hunk = None
         elif line.startswith("--- ") and (hunk is None or not hunk["lines"] or cur is None):

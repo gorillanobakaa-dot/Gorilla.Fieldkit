@@ -76,3 +76,17 @@ def test_save_merges_steps_another_process_added(tmp_path, monkeypatch):
     disk = task.load("t")
     assert [s["id"] for s in disk["steps"]] == ["s1", "hand-x", "final-checks"] and disk["steps"][0]["status"] == "done"
     assert [c["commit"] for c in disk["checkpoints"]] == ["aaa"] and disk["merged_steps"][0]["ids"] == ["hand-x"]   # checkpoints: not merged (rewind removes them on purpose)
+
+
+def test_a_new_file_gets_its_step_instead_of_being_skipped(tmp_path, monkeypatch):
+    # 2026-10-03: about.svg (new, untracked) was committed by the checkpoint but got no step
+    w = _repo(tmp_path)
+    t = {"id": "he", "workflow": "firefox-upgrade", "workdir": str(w), "approved": True, "checkpoints": [], "meta": {},
+         "steps": [{"id": "final-checks", "kind": "script", "status": "pending"}]}
+    monkeypatch.setattr(task, "load", lambda tid: t)
+    monkeypatch.setattr(task, "save", lambda t_: None)
+    monkeypatch.setattr(task, "journal", lambda t_, ev, **kw: None)
+    (w / "dom/new.svg").write_text("<svg/>\n", encoding="utf-8")
+    ids = handedit.record("he", ["dom/new.svg"], "a new file")
+    assert len(ids) == 1
+    assert any(l == "+<svg/>" for l in t["steps"][0]["args"]["hunk"]["lines"])

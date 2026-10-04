@@ -218,3 +218,12 @@ def test_a_removed_block_with_only_trivial_context_counts_as_present_only_when_i
     not_done = [")", "", "GeneratedFile(", '    "aiwindow-nova/manifest.json",', '    script="process_tokens.py",',
                 '    entry_point="process_tokens",', ")", ""] + done[2:]
     assert verify.score_hunk(not_done, hunk, "moz.build")[0] == "NOT-APPLIED"
+
+
+def test_a_pref_line_with_other_spacing_or_now_locked_is_present():
+    from fieldkit.buildh.verify import _locked_variant
+    have = {'pref("network.prefetch-next", false, locked);', 'pref("a.b", 3);'}
+    assert _locked_variant('pref("network.prefetch-next",                       false);', have)
+    assert _locked_variant('pref("a.b",    3);', have)
+    assert not _locked_variant('pref("a.b", 4);', have)                    # a different value is not present
+    assert not _locked_variant('pref("a.b", 3, locked);', have)            # a lost lock is not accepted

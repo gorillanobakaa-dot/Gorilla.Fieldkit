@@ -40,6 +40,8 @@
                                                  Firefox & kernel builds in small checked steps (see buildh/cli.py)
     fieldkit build-harness migrate plan|sitrep|check|advance|work ... TASK
     fieldkit build-harness netbench [TASK] [--bench B1,...] / compare A B   network benches, local servers only
+    fieldkit build-harness replay TASK              the public patch set on pristine upstream = the compiled tree (S9)
+    fieldkit build-harness techniques TASK          the ideas behind Gorilla's fixes: do they still hold in this tree?
                                                  migration control: stages, gates, SITREP, drift guard (see migrate/cli.py)
 
 Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets, failed stage).
@@ -674,7 +676,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques"])
     bh.add_argument("--park", help="migration control: do NOT run this record/repair/build-run/decide; park it as a ticket with this reason")
     bh.add_argument("--static", action="store_true", help="visual: only the static layer (the ported tree; no browser is started)")
     bh.add_argument("--out", help="snapshot: where to write the captured set (default Build.Work/snapshot-<version>); "

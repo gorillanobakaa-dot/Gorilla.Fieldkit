@@ -101,6 +101,7 @@ TELEMETRY_CLAIM = re.compile(
     r"(off|disabl\w*|stripp\w*|remov\w*|kill\w*|never|cut|dead|starv\w*|silenc\w*|no-op)\b", re.I)
 DECISION_REF = re.compile(r"\bD-\d{3}-\d{2}\b")
 BUILD_FLAG = re.compile(r"(?<![\w-])--(disable|enable)-[a-z0-9][a-z0-9-]*[a-z0-9]")
+NEGATED_FLAG = re.compile(r"\b(no|not|never|without|isn't|doesn't|there is no|might expect|would expect|instead of)\b[^.;:]*$", re.I)
 PATHLIKE = re.compile(r"(?<![\w/.-])((?:[\w.-]+/)+[\w.@-]+\.(?:cpp|h|mjs|js|jsm|rs|py|ftl|css|ipdl|build|mn|json|yaml|toml|"
                       r"webidl|idl|xhtml|html|in|ini|c|cc|mm))\b")
 BACKTICK = re.compile(r"`([^`\s]{3,120})`")
@@ -230,9 +231,23 @@ def patch_units(text):
     return out
 
 
+AUDIT_REPORT_HEAD = "# Claims audit:"
+
+
+def is_audit_report(path):
+    """True for a report this module wrote (2026-10-03: the published gorilla-patchset/AUDIT-157.md was read back as
+    6,351 'claims', 789 of them 'contradicted' - the audit was auditing its own quotations of earlier verdicts)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.readline().startswith(AUDIT_REPORT_HEAD)
+    except OSError:
+        return False
+
+
 def public_files(owner_root):
     """The public documents: what git publishes from the public patch set (README and notes, not code, not NEW_FILES,
-    not manifests), plus the owner repo's README.md and docs/PRIVACY-AND-HARDENING.md. -> [relative posix paths]."""
+    not manifests, not this module's own published report), plus the owner repo's README.md and
+    docs/PRIVACY-AND-HARDENING.md. -> [relative posix paths]."""
     owner = Path(owner_root)
     pub = owner / "gorilla-patchset"
     rels = []
@@ -242,6 +257,8 @@ def public_files(owner_root):
     for f in sorted(tracked):
         low = f.lower()
         if "/new_files/" in low or low.endswith(".manifest.txt") or not low.endswith((".md", ".txt")):
+            continue
+        if is_audit_report(pub / f):
             continue
         rels.append(f"gorilla-patchset/{f}")
     for f in ("README.md", "docs/PRIVACY-AND-HARDENING.md"):
@@ -701,7 +718,7 @@ def tree_prefs(workdir):
     """{name: value} the ported tree's all.js and firefox.js set (the last line wins): the dictionary that says which
     backticked names in prose are prefs."""
     out = {}
-    for src, _, _ in proof.PREF_SOURCES:
+    for src, _, _ in proof.PREF_SOURCES + (proof.BRANDING_PREFS,):
         p = Path(workdir) / src
         if p.is_file():
             for k, (v, _, _) in proof.pref_lines(p.read_text(encoding="utf-8", errors="replace")).items():
@@ -736,8 +753,12 @@ def seed_evidence(claim, sc, prefs):
         add("decision", "D-157-00")
     for d in sorted(set(DECISION_REF.findall(text))):
         add("decision", d)
-    for f in sorted(set(m.group(0) for m in BUILD_FLAG.finditer(text))):
-        add("mozconfig_has", {"file": WIN_MOZCONFIG, "text": f"ac_add_options {f}"})
+    for m in BUILD_FLAG.finditer(text):
+        # "no --disable-telemetry exists upstream", "You might expect a --disable-telemetry flag": a sentence that
+        # says a flag is NOT used is not evidence that it is (2026-10-04: three true claims were CONTRADICTED)
+        if NEGATED_FLAG.search(text[max(0, m.start() - 40):m.start()]):
+            continue
+        add("mozconfig_has", {"file": WIN_MOZCONFIG, "text": f"ac_add_options {m.group(0)}"})
     enabled = {g for g, _ in sc["groups"]}
     for g in sorted(set(GROUP_REF.findall(text))):
         if g in enabled:
@@ -829,6 +850,13 @@ def merge(reg, found, sc, prefs):
     """Register entries + freshly extracted claims -> (entries to judge, new entries). Existing entries are kept as they
     are; an extracted claim not yet registered gets the next id and seeded evidence."""
     have = {(c["source"], c["sha256"]) for c in reg["claims"]}
+    # evidence the extractor seeded and nobody reviewed yet follows the extractor: re-derived on every run, so a fixed
+    # seeding rule reaches existing claims too (reviewed entries - no `seeded: auto` - are never touched)
+    by_key = {(c["source"], c["sha256"]): c for c in found}
+    for c in reg["claims"]:
+        f = by_key.get((c["source"], c["sha256"]))
+        if f and c.get("seeded") == "auto" and all(e.get("seeded") == "auto" for e in c.get("evidence") or []):
+            c["evidence"] = seed_evidence(f, sc, prefs)
     nums = [int(m.group(1)) for c in reg["claims"] if (m := re.match(r"C-(\d+)$", str(c.get("id"))))]
     nxt = max(nums, default=0) + 1
     new = []
@@ -930,7 +958,9 @@ def _decision(ctx, did):
         raise Unreadable(f"{did} could not be checked: {'; '.join(r['evidence'])[:160]}")
     if r["verdict"] == "PENDING":
         raise Unreadable(f"{did} is decided but pending (not in the build)")
-    return r["verdict"] == "ENFORCED", f"{did} {r['verdict']}"
+    # a recorded trade-off (ACCEPTED) is in force as much as an enforced check: the release rule is "every entry
+    # ENFORCED or a recorded trade-off" (2026-10-03: claims naming D-157-30, the standing policy, were CONTRADICTED)
+    return r["verdict"] in ("ENFORCED", "ACCEPTED"), f"{did} {r['verdict']}"
 
 
 def _patch(ctx, rel):
@@ -942,7 +972,11 @@ def _patch(ctx, rel):
         if g in ctx["disabled"]:
             raise Unreadable(f"{rel}: group {g} is not enabled for this build")
         raise Unreadable(f"{rel} is not a patch of the patch set")
-    return p["verdict"] == "IMPLEMENTED", f"{rel}: {p['verdict']} ({p['implemented_pct']}%)"
+    # a patch the patch table counts as explained (OBSOLETE-EXPLAINED, DROPPED, or PARTIAL/MISSING with a maintainer
+    # decision on record) proves its claims too: 2026-10-03, TranslationsParent PARTIAL under D-157-03 still turned
+    # 50 claims of the translations patch CONTRADICTED
+    why = f"; explained by {p['decision']}" if p.get("decision") else ""
+    return p["verdict"] == "IMPLEMENTED" or bool(p.get("explained")), f"{rel}: {p['verdict']} ({p['implemented_pct']}%){why}"
 
 
 def _group(ctx, g):
@@ -951,7 +985,7 @@ def _group(ctx, g):
         if g in ctx["disabled"]:
             raise Unreadable(f"group {g} is not enabled for this build")
         raise Unreadable(f"group {g} has no patches in scope")
-    bad = [p["patch"] for p in ps if p["verdict"] not in PATCH_EXPLAINED]
+    bad = [p["patch"] for p in ps if p["verdict"] not in PATCH_EXPLAINED and not p.get("explained")]
     return not bad, f"{g}: {len(ps) - len(bad)} of {len(ps)} patches implemented or explained" + (f"; e.g. {bad[0]}" if bad else "")
 
 
@@ -1039,7 +1073,11 @@ def audit(owner_root, workdir, install_dir=None, steps=(), journal=None, strict=
     if write_register and (new or not reg["exists"]):
         reg_path = save_register(owner, {"claims": claims, "patch_decisions": reg["patch_decisions"], "sources_excluded": excl})
     claims = [c for c in claims if c["source"] not in excl]
-    ctx = {"owner": str(owner), "workdir": str(workdir), "install": str(install_dir) if install_dir else None,
+    # claims registered from our own published report before is_audit_report existed stay in the append-only
+    # register, but are not judged: they quote earlier verdicts, they are not claims about the browser
+    own = {s for s in {c["source"] for c in claims} if is_audit_report(owner / s)}
+    claims = [c for c in claims if c["source"] not in own]
+    ctx ={"owner": str(owner), "workdir": str(workdir), "install": str(install_dir) if install_dir else None,
            "build_id": installed_build_id(install_dir), "journal": journal, "sources": {},
            "patches": {p["patch"]: p for p in pa["patches"]}, "excluded": pa["excluded"], "disabled": pa["disabled"]}
     found_keys = {(c["source"], c["sha256"]) for c in found}

@@ -523,8 +523,21 @@ def run(a, emit):
         import json as _js
         pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
         r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True))
-        print("register new groups in config/patch_policy.json if they are not there; prove them with the scratch-index replay in RUNBOOK.md")
+        print("register new groups in config/patch_policy.json if they are not there; then prove the set: build-harness replay " + tid)
         return 0
+    if act == "techniques":
+        from . import techniques as tq
+        t = task.load(tid)
+        res = tq.scan(t["workdir"])
+        if a.json:
+            print(json.dumps(res, indent=1))
+        else:
+            print("\n".join(tq.lines(res, verbose=True)))
+        return 0 if all(r["ok"] for r in res) else 3
+    if act == "replay":
+        from . import replay as rp
+        r = rp.run(tid, say=lambda m: print(m, flush=True))
+        return 0 if r["ok"] else 3
     if act in ("leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline"):
         from ..leakgate import gate as lg, allow as la
         from . import buildrun, verify as vf

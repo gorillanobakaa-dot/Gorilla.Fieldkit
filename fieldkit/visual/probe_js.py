@@ -327,8 +327,11 @@ export async function measure(win, root, opts) {
   const dpr = win.devicePixelRatio;
   const vw = win.document.documentElement.clientWidth || win.innerWidth;
   const out = { dpr, elements: 0, images: [], images_ok: 0, vector_icons: 0, broken: [], zero_size: [], clipped: [],
-                overlaps: [], outside: [], misaligned: [], page_scrolls_sideways: false, truncated: [] };
+                overlaps: [], outside: [], misaligned: [], page_scrolls_sideways: false, truncated: [],
+                pictures_seen: [], components_seen: [] };
   const push = (k, v) => { if (out[k].length < CAP) out[k].push(v); else if (!out.truncated.includes(k)) out.truncated.push(k); };
+  // what the page actually shows (RT-CONTENT): every picture painted in a visible box, every custom element shown
+  const seenPics = new Set(), seenTags = new Set();
   const cache = new Map();
   const groups = new Map();
   const menus = [];
@@ -339,6 +342,7 @@ export async function measure(win, root, opts) {
     const cs = win.getComputedStyle(el);
     const r = el.getBoundingClientRect();
     const tag = el.localName;
+    if (tag.includes("-") && r.width > 0 && r.height > 0 && seenTags.size < 400 && !seenTags.has(tag)) { seenTags.add(tag); out.components_seen.push(tag); }
     // ---- pictures
     const pics = [];
     if (tag === "img" && (el.currentSrc || el.src)) pics.push({ kind: "img", url: el.currentSrc || el.src, res: 1, el: true });
@@ -354,6 +358,7 @@ export async function measure(win, root, opts) {
       }
     }
     for (const p of pics) {
+      if (r.width > 0 && r.height > 0 && seenPics.size < 400 && !seenPics.has(p.url)) { seenPics.add(p.url); out.pictures_seen.push(p.url.slice(0, 200)); }
       // the root's background paints the canvas, whatever the root's own box is
       if ((r.width === 0 || r.height === 0) && tag !== "html" && tag !== "body") {
         push("zero_size", { sel: sel(el), kind: p.kind, url: p.url.slice(0, 160), rect: [r.width, r.height] });

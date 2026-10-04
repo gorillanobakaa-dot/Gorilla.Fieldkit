@@ -108,6 +108,16 @@ def export(task_id, patchset_root, version, say=print, dry=False):
         if not dry:
             groups[kind].mkdir(parents=True, exist_ok=True)
             (groups[kind] / name).write_text(head + diff, encoding="utf-8", newline="\n")
+    # export owns every numbered patch in these two groups: one it did not write this time is stale (2026-10-03: a
+    # renamed note left 027-...-pref-block.patch beside 027-...-pref-block-maintai.patch, and a replay would have
+    # applied both). Removing them keeps the set equal to the record.
+    keep = {n for k in ("privacy", "port") for n, _ in written[k]}
+    for kind, g in groups.items():
+        for old in sorted(g.glob("[0-9][0-9][0-9]-*.patch")) if g.is_dir() else []:
+            if old.name not in {n for n, _ in written[kind]}:
+                say(f"  stale: {g.name}/{old.name} removed ({'now in the other group' if old.name in keep else 'no longer written'})")
+                if not dry:
+                    old.unlink()
     for kind, g in groups.items():
         if written[kind] and not dry:
             intro = ("Repairs needed to carry Gorilla's patches onto Firefox " + version + "." if kind == "port" else
