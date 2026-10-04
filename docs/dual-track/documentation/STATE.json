@@ -5,26 +5,26 @@
  "metrics": {
   "developer": {
    "commands": 21,
-   "words_total": 2352
+   "words_total": 2455
   },
   "layman": {
-   "commands": 20,
+   "commands": 22,
    "concept_rows": 11,
    "glossary_terms": 9,
    "trust_steps": 5,
    "usage_steps": 7,
-   "words_total": 4558
+   "words_total": 4729
   }
  },
- "rendered": "2026-10-02",
+ "rendered": "2026-10-04",
  "scores": {
   "developer": 91,
-  "layman": 98
+  "layman": 97
  },
  "sources": {
   "gdocs/__init__.py": "ba79afe1ad0c8cd1a9109fe7d90fd80f3e4111de7e891b8b7fdfddae7cd5645e",
   "gdocs/checks.py": "2688f701ade79022db0c1b090df669981947cab62e394797895d158ec3eae5f0",
-  "gdocs/cli.py": "ff13c2d4148819a60734ecd43f95e07178de8891ab94e4376054079a7e31c4f2",
+  "gdocs/cli.py": "41cbe2f202da598deea59d7433ee4fb018bbf84b7768e63b9fa8af0e236f0adc",
   "gdocs/dualtrack.py": "ccbf56b7c74821ac62b3be7c7d720a7eb8389fadee57f680547730497a69a45d",
   "gdocs/groups.py": "fa6888880fc3e5a6db7aafa69f99c8bcc39f54377b8407d4bd956e7ac55f4a51",
   "gdocs/stages.py": "1030b786aff5db77f557eff6199d832867a548bc4793016c04809f4539dc94be",

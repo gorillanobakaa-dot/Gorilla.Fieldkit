@@ -6,16 +6,24 @@
     fieldkit docs render [GROUP...]            dual_track render + Gorilla checks (default: stale groups; exit 3)
     fieldkit docs check [GROUP...] [--strict]  coverage + Gorilla checks on committed docs (exit 3); --strict: stale fails
     fieldkit docs index                        write docs/dual-track/README.md
+    fieldkit docs guide                        print the guide to writing for a reader who has never opened a terminal
 
 Registered in fieldkit/cli.py by `register(sub, common)`.
 """
 import json
+from pathlib import Path
+
+# The long explanation of the layman track: why each rule exists and how to
+# follow it, for any project. WRITER_BRIEF.md beside it is the short rulebook the
+# checker enforces. Kept as a separate file on purpose: the brief's hash is part
+# of every group's freshness, so a word changed there makes every document stale.
+GUIDE = Path(__file__).resolve().parent / "LAYMAN_GUIDE.md"
 
 
 def register(sub, common):
     d = sub.add_parser("docs", parents=[common],
-                       help="dual-track documentation (Gorilla.Documentation.IBM.Style): plan, prep, render, check")
-    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index"])
+                       help="dual-track documentation (Gorilla.Documentation.IBM.Style): plan, prep, render, check, guide")
+    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index", "guide"])
     d.add_argument("groups", nargs="*", help="group names from docs/groups.yaml (default: see each action)")
     d.add_argument("--force", action="store_true", help="prep: re-prep even when the prep files are current")
     d.add_argument("--strict", action="store_true", help="check: a stale group is a failure (release gate)")
@@ -30,7 +38,26 @@ def _emit(data, as_json, human):
         human(data)
 
 
+def _guide(as_json):
+    """Print the layman-writing guide. Reads one file that ships with the package;
+    changes nothing and needs no group, so it works in any folder."""
+    try:
+        text = GUIDE.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"fieldkit docs: the guide could not be read ({GUIDE}): {e}")
+        return 1
+    if as_json:
+        print(json.dumps({"path": str(GUIDE), "lines": text.count("\n"), "text": text},
+                         indent=1, ensure_ascii=False))
+    else:
+        print(text)
+        print("NEXT: fieldkit docs plan   (for Fieldkit's own documents), or write from the guide above")
+    return 0
+
+
 def cmd_docs(a):
+    if a.action == "guide":
+        return _guide(a.json)
     from . import groups as G
     from . import workflow as W
     try:

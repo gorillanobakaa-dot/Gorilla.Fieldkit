@@ -446,6 +446,7 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | Port, build, install and prove Gorilla Firefox | `fieldkit build-harness ...` (part 7 to 10 above) |
 | Release gate for leaks and telemetry | `fieldkit build-harness leakgate TASK --release` |
 | Write or check the dual-track documentation | `fieldkit docs plan / prep / render / check` |
+| Learn how to write for a reader who has never opened a terminal | `fieldkit docs guide` |
 
 Pipelines that ship: `office-deliver`, `firefox-windows` (drives the Gorilla Firefox build
 harness) and `debian-kernel`. Triage knows Firefox on Windows, the Debian kernel and Debian
@@ -543,7 +544,7 @@ fieldkit/exam     fixture, tasks and graders, toolsets, runner
 fieldkit/thermal  proven temperature sensors, the build governor
 fieldkit/buildh   Gorilla Firefox build harness: port, verify, repair, build-run, install, proof
 fieldkit/leakgate the fail-closed leak and telemetry release gate
-fieldkit/gdocs    Gorilla.Documentation.IBM.Style: fieldkit docs plan/prep/fill/render/check/index
+fieldkit/gdocs    Gorilla.Documentation.IBM.Style: fieldkit docs plan/prep/fill/render/check/index/guide
 docs/             groups.yaml, dual-track/<group>/ layman and developer tracks, MEASUREMENTS.md
 fieldkit/agent.py, mcp.py, release.py, gather.py, harvest.py
 skills/           short SKILL.md pointers; install_skills.py puts them where agents look

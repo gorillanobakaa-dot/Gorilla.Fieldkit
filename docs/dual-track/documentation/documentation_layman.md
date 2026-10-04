@@ -1,6 +1,6 @@
 # How Fieldkit makes sure every part of it is explained twice: once for you, once for programmers — Plain Language Guide
 
-> Generated 2026-10-02 from `documentation`
+> Generated 2026-10-04 from `documentation`
 
 ---
 
@@ -143,6 +143,10 @@ The pages that existed before this tool were written by hand-run steps. Their re
 ### A wrong command may be quoted, if the page says it is wrong
 
 Sometimes the code itself names a command that does not exist. A page may quote it to warn you, but the same line must say "not registered" or "does not exist".
+
+### A longer guide for writers comes with the tool
+
+The checks in this tool can count sections and find banned words. They cannot tell whether a comparison is true or whether a step is small enough to follow. So the tool also carries a long written guide, in the file `LAYMAN_GUIDE.md`, that explains why each rule exists and shows wrong and right examples. It is like the difference between a marking sheet and a teacher: the marking sheet says what is missing, the teacher says how to do it. To read it, type `fieldkit docs guide` and press Enter. That command prints the guide and changes nothing on your computer. The guide is written for any project, not only for Fieldkit. Whether writers who read it produce better pages is not measured.
 
 ## What This Means For You
 
@@ -297,6 +301,8 @@ Documentation is where most people meet a project, and documentation is usually 
 | An invented number that exists elsewhere in the code passes the number rule | 🤖 model inference | *(none — model judgment)* |
 | Running prep or render alongside another editor can overwrite their work | 🤖 model inference | *(none — model judgment)* |
 | Not tested on Linux in this form | 🤖 model inference | *(none — model judgment)* |
+| `fieldkit docs guide` prints a guide and changes nothing | 📄 stated in input | changes nothing and needs no group, so it works in any folder |
+| The guide's effect on the quality of pages is unknown | 🤖 model inference | *(none — model judgment)* |
 
 
 ---

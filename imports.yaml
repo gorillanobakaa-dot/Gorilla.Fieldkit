@@ -24,10 +24,12 @@ sources:
 - name: code-review-toolkit
   github: gorillanobakaa-dot/code-review-toolkit
   what: Local static-analysis and security review pipeline (36 analysers, normalised JSON findings)
-  include: ["*.py", "tests/**", "*.toml", "*.json", "*.yaml", "*.yml", "README.md", "requirements*.txt"]
+  include: ["*.py", "tests/**", "rule_docs/**", "configs/**", "*.toml", "*.json", "*.yaml", "*.yml", "README.md", "requirements*.txt"]
   tests:                                   # plain scripts, not pytest files
     - [python, tests/test_parsers.py]
     - [python, tests/test_position.py]
+    - [python, tests/test_coverage.py]
+    - [python, tests/test_rules.py]         # needs rule_docs/, which is why it is in `include`
 
 - name: searchfox-tools
   github: gorillanobakaa-dot/searchfox-tools

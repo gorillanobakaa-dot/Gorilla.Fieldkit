@@ -31,6 +31,7 @@ fieldkit docs fill [GROUP...]      # which .filled.json files are missing or inv
 fieldkit docs render [GROUP...]    # dual_track render, then the Gorilla checks (exit 3 with every reason)
 fieldkit docs check [--strict]     # coverage + checks on the committed docs; --strict: stale fails too
 fieldkit docs index                # docs/dual-track/README.md: links, scores, last render, stale flag
+fieldkit docs guide                # the long guide to the layman track, for any project: why each rule exists, with examples
 ```
 
 Or as a pipeline: `fieldkit pipeline run gorilla-documentation-ibm-style --only <stage>`

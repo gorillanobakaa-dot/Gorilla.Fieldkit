@@ -284,3 +284,37 @@ def test_brief_ships_with_the_package():
                  "claim_sources", "What this cannot do"):
         assert rule in text
     assert settings.ROOT / "fieldkit" / "gdocs" / "WRITER_BRIEF.md" == W.BRIEF
+
+
+def test_layman_guide_ships_with_the_package_and_is_printed(capsys):
+    """`fieldkit docs guide` prints the long guide to writing for a non-technical reader."""
+    from fieldkit.gdocs import cli as gcli
+    assert gcli.GUIDE == settings.ROOT / "fieldkit" / "gdocs" / "LAYMAN_GUIDE.md"
+    text = gcli.GUIDE.read_text(encoding="utf-8")
+    # The three phrases of the maintainer's requirement each have their section.
+    for part in ("Spoon-feed", "Never dumbed down", "Analogies", "The worst case, honestly",
+                 "What this cannot do", "not measured", "Pass:", "Fail:", "Before you publish"):
+        assert part in text, part
+    args = PARSER.parse_args(["docs", "guide"])
+    assert args.fn(args) == 0
+    out = capsys.readouterr().out
+    assert "who has never opened a terminal" in out and "NEXT:" in out
+
+
+def test_layman_guide_obeys_its_own_rules():
+    """A guide that breaks the rules it teaches is how a rule becomes decoration."""
+    from fieldkit.gdocs import cli as gcli
+    text = gcli.GUIDE.read_text(encoding="utf-8")
+    # Every `fieldkit ...` command it shows must exist.
+    for line in text.splitlines():
+        if line.startswith("fieldkit "):
+            PARSER.parse_args(line.split()[1:])
+    assert ":\\Users\\" not in text and "/home/" not in text and "@" not in text
+    assert "\r\n" not in gcli.GUIDE.read_bytes().decode("utf-8")
+
+
+def test_layman_guide_as_json(capsys):
+    args = PARSER.parse_args(["docs", "guide", "--json"])
+    assert args.fn(args) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["path"].endswith("LAYMAN_GUIDE.md") and data["lines"] > 100 and "## 6. Analogies" in data["text"]

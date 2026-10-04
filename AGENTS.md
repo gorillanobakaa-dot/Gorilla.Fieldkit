@@ -33,6 +33,8 @@ fieldkit agent discover|describe|run|undo ...     the agent interface: preview, 
 fieldkit mcp                                     the same interface over MCP (stdio)
 fieldkit cards list|show / readiness             each tool's contract and trust level
 fieldkit release check|prove SPEC                published == tested; every claim proven, per platform
+fieldkit docs plan|prep|fill|render|check        dual-track documentation: a layman track and a developer track
+fieldkit docs guide                              how to write for a reader who has never opened a terminal
 fieldkit lifecycle SPEC --approve                install, verify, uninstall; list what was left behind
 ```
 

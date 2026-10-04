@@ -1,6 +1,6 @@
 # `fieldkit.gdocs`: the dual-track documentation workflow (Gorilla.Documentation.IBM.Style) around DualTrackAgent's `dual_track.py`
 
-> Generated 2026-10-02 | Source: `documentation`
+> Generated 2026-10-04 | Source: `documentation`
 
 ---
 
@@ -30,6 +30,7 @@ The source documents four choices against alternatives. (1) Flat staging instead
 | `--json` | `bool` | `false` | Machine output. | From the shared `common` parser. |
 | `FIELDKIT_DUAL_TRACK` | `env path` | `unset` | First place `dualtrack.path()` looks. | Then `"dual_track"` in `fieldkit.local.json`. |
 | `--var groups=...` | `pipeline var` | `""` | Names groups for the pipeline stages; space or comma separated. | Empty means the stale groups. |
+| `docs guide` | `action` | `n/a` | Prints `fieldkit/gdocs/LAYMAN_GUIDE.md`; with `--json`, an object with `path`, `lines` and `text`. | Handled before `groups` and `workflow` are imported, so it needs no `docs/groups.yaml` and reads one file. |
 
 ## API Surface
 
@@ -46,6 +47,7 @@ The source documents four choices against alternatives. (1) Flat staging instead
 | `workflow.index()` | Write `docs/dual-track/README.md`. | Writes one file. |
 | `checks.check_layman / check_developer` | The deterministic checks per track. | none |
 | `checks.check_command(cmd, parser)` | Subcommand, action and option names against `fieldkit.cli.build_parser()`. | none |
+| `gdocs.cli._guide(as_json)` | Reads `cli.GUIDE` (`LAYMAN_GUIDE.md` beside the module) and prints it, followed by a `NEXT:` line. Returns 0, or 1 if the file cannot be read. | none |
 
 ## Kill Switches
 
@@ -250,6 +252,8 @@ fieldkit next gorilla-documentation-ibm-style
 | Removing the package breaks every fieldkit command until the register lines go | 🤖 model inference | *(none — model judgment)* |
 | Number rule may accept invented numbers present elsewhere | 🤖 model inference | *(none — model judgment)* |
 | Non-editable installs lack WRITER_BRIEF.md | 🤖 model inference | *(none — model judgment)* |
+| The guide is a separate file so that editing it does not make every group stale | 📄 stated in input | the brief's hash is part |
+| `docs guide` works outside a Fieldkit checkout that has no groups file | 🤖 model inference | *(none — model judgment)* |
 
 
 ---
