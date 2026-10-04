@@ -90,3 +90,19 @@ def test_a_new_file_gets_its_step_instead_of_being_skipped(tmp_path, monkeypatch
     ids = handedit.record("he", ["dom/new.svg"], "a new file")
     assert len(ids) == 1
     assert any(l == "+<svg/>" for l in t["steps"][0]["args"]["hunk"]["lines"])
+
+
+def test_a_line_ending_flip_is_detected(tmp_path):
+    # 2026-10-04: text-mode writes on Windows turned LF files into CRLF and whole files were recorded as edited
+    w = tmp_path / "w"
+    w.mkdir()
+    subprocess.run(["git", "init", "-q", str(w)], check=True)
+    (w / "a.ftl").write_bytes(b"one\ntwo\n")
+    subprocess.run(["git", "-C", str(w), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q",
+                    "-m", "x"], check=True)
+    (w / "a.ftl").write_bytes(b"one\r\nTWO\r\n")
+    assert handedit.eol_flipped(w, "a.ftl")
+    (w / "a.ftl").write_bytes(b"one\nTWO\n")
+    assert not handedit.eol_flipped(w, "a.ftl")
+    assert not handedit.eol_flipped(w, "missing.ftl")

@@ -127,6 +127,24 @@ def merge_moves(hunks):
     return out
 
 
+def _crlf(data):
+    return data.count(b"\r\n") > data.count(b"\n") // 2
+
+
+def eol_flipped(workdir, rel):
+    """True when the working file's line endings (CRLF or LF) differ from the committed version's. 2026-10-04: Python
+    text-mode writes on Windows turned six LF files of the Firefox tree into CRLF, and the hand steps recorded
+    whole-file rewrites (3,520 changed lines for a two-line edit of browser.ftl). A new file has nothing to differ
+    from: it must simply be LF unless the tree is CRLF."""
+    p = Path(workdir) / rel
+    if not p.is_file():
+        return False
+    r = subprocess.run(["git", "-C", str(workdir), "show", f"HEAD:{rel}"], capture_output=True)
+    if r.returncode != 0 or not r.stdout:
+        return False
+    return _crlf(r.stdout) != _crlf(p.read_bytes())
+
+
 def record(task_id, files, why, group="hand", kind=None):
     """Turn the working tree's edits of `files` into done hand-port steps (one per hunk), checkpoint them.
     -> [step ids]. Refuses when a file has no diff or when other files changed too (nothing is recorded blind).
@@ -141,6 +159,10 @@ def record(task_id, files, why, group="hand", kind=None):
     missing = [f for f in files if f not in changed]
     if missing:
         raise task.Refused(f"no diff in: {missing[:5]}")
+    flipped = [f for f in files if eol_flipped(w, f)]
+    if flipped:
+        raise task.Refused(f"line endings changed (every line would count as edited): {flipped[:5]}. Restore the "
+                           "file's own style (write bytes; on Windows a text-mode write turns LF into CRLF), then record")
     for rel in files:
         # 2026-10-03: a NEW file is untracked, so `git diff` showed nothing and it got no step (silently), while the
         # checkpoint still committed it. Intent-to-add makes its whole content a diff like any other edit.
