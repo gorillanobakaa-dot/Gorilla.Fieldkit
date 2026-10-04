@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -155,6 +156,34 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
         k = {"sni": "dest", "dns-wire": "dns"}.get(kind, kind)
         return al.verdict(allow, k, value, scen, port)
 
+    # the DNS witness ran in a window when it recorded at least one lookup there; the UDP ports build processes held
+    witness_ran = {}
+    build_udp_ports = set()
+    for e in events:
+        if e["kind"] == "dns-attribution":
+            witness_ran[(e["scenario"], e["mode"], e.get("rep"))] = True
+        elif e["kind"] == "udp":
+            m = re.search(r":(\d+)$", str(e.get("value", "")))
+            if m:
+                build_udp_ports.add(int(m.group(1)))
+    # alias -> names it was the CNAME target of, per scenario, read from DNS answers on the wire
+    aliases = {}
+    for e in events:
+        if e["kind"] == "dns-cname":
+            aliases.setdefault((e["scenario"], e["target"].rstrip(".")), set()).add(e["value"].rstrip("."))
+
+    def cname_of_allowed(host, scen, depth=0):
+        for parent in aliases.get((scen, host), ()):
+            if allowed("dns", parent, scen)[0] == "allowed" or (depth < 6 and cname_of_allowed(parent, scen, depth + 1)):
+                return True
+        return False
+
+    for e in events:                # addresses the wire's own DNS answers gave to names allowed in that scenario
+        if e["kind"] == "dns-a":
+            name = e["value"].rstrip(".")
+            if allowed("dns", name, e["scenario"])[0] == "allowed" or cname_of_allowed(name, e["scenario"]):
+                resolved.setdefault(e["scenario"], set()).add(e["ip"])
+
     lists = {k: [] for k in ("UNEXPECTED_DESTINATIONS", "UNEXPECTED_DNS", "UNEXPECTED_PROCESSES", "UNEXPECTED_EXECUTABLES",
                              "UNEXPECTED_FILES", "UNEXPECTED_SOCKETS", "UNEXPECTED_TELEMETRY", "UNEXPECTED_EXPERIMENTS",
                              "UNEXPECTED_REMOTE_SETTINGS", "UNEXPECTED_UPDATES", "UNEXPECTED_CANARIES", "UNATTRIBUTED_WIRE_DNS", "OTHER_PROGRAMS",
@@ -192,11 +221,21 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
                     note(pol, lname, e, why)
             if k == "dns-wire" and allowed(k, host, scen)[1] == "test-definition":
                 continue
+            if k == "dns-wire" and cname_of_allowed(host, scen):
+                continue                                  # the alias of a host that is itself allowed here
             if k == "dns-wire" and host not in names_by_scenario.get(scen, set()):
                 who = [a for a in events if a["kind"] == "dns-attribution" and a["value"] == host
                        and a["scenario"] == scen and a["mode"] == e["mode"] and a.get("rep") == e.get("rep")]
                 if who:
                     note("DNS_POLICY", "UNEXPECTED_DNS", e, "looked up BY THE BROWSER (DNS witness: " + who[0]["detail"] + ")")
+                    continue
+                m = re.search(r":(\d+)$", e.get("detail", ""))
+                if witness_ran.get((scen, e["mode"], e.get("rep"))) and m and int(m.group(1)) not in build_udp_ports:
+                    # The browser resolves through Windows' DNS client (TRR is locked off), and the witness records every
+                    # such lookup with its PID. This query has no record and left from a UDP port no build process
+                    # held: a program with its own resolver (Chromium-based apps send type 65 queries this way).
+                    lists["OTHER_PROGRAMS"].append(f"[{scen}/{e['mode']}] {host} sent outside the Windows DNS client "
+                                                   f"({e.get('detail', '')}): not a build process's socket")
                     continue
                 if VENDOR_HOST.search(host) or any(host == a or host.endswith("." + a) for a in AD_HOSTS):
                     note("DNS_POLICY", "UNEXPECTED_DNS", e, "vendor/tracker name on the wire that no browser sensor saw (bypass?)")
@@ -272,11 +311,20 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     return fail, lists
 
 
-def reproducibility(events, repeat):
-    """Host sets per scenario must be identical across repetitions."""
+def reproducibility(events, repeat, allow=None):
+    """Host sets per scenario must be identical across repetitions. Hosts the maintainer approved for EVERY scenario
+    (scenarios "*": the ad blocker's list updates) are left out: that traffic is background work on its own clock,
+    so which run it lands in varies (2026-10-04, build 26: drm-request "differed" only by uBlock Origin list hosts).
+    A host approved for one scenario only, or not approved, must still appear in every run or in none."""
+    def background(e):
+        if not allow:
+            return False
+        kind = "dns" if e["kind"] == "dns" else "dest"
+        m = al.match(allow, kind, e["value"], e["scenario"], e.get("port"))
+        return bool(m and m.get("approval") and m.get("scenarios", "*") == "*")
     by = {}
     for e in events:
-        if e["kind"] in ("dest", "dns", "sni") and e["mode"] == "direct":
+        if e["kind"] in ("dest", "dns", "sni") and e["mode"] == "direct" and not background(e):
             by.setdefault((e["scenario"], e.get("rep", 0)), set()).add(e["value"])
     out = []
     for scen in {s for s, _ in by}:
@@ -580,7 +628,7 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     if not packets:
         fail["TLS_POLICY"].append("packet sensor not run: negotiated TLS versions unverified")
     if repeat >= 3:
-        fail["REPRODUCIBILITY_POLICY"].extend(reproducibility(events, repeat))
+        fail["REPRODUCIBILITY_POLICY"].extend(reproducibility(events, repeat, allow))
     for p in al.problems(allow) + al.scope_problems(allow):
         fail["ALLOWLIST_POLICY"].append(p)
     if not allow.get("entries"):

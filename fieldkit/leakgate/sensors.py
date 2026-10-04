@@ -382,6 +382,23 @@ def parse_pcap(path, local_ports, canaries=()):
                         ev.append({"kind": "dns-wire", "value": q.name.lower(), "detail": f"qtype {q.type} from {src}:{l4.sport}"})
                 except Exception:
                     pass
+            if isinstance(l4, dpkt.udp.UDP) and l4.sport == 53:
+                # answers: the CNAME chain of a name (2026-10-04: Windows' DNS client chased cdn.jsdelivr.net to
+                # cdn.jsdelivr.net.cdn.cloudflare.net for the browser; the gate must know that name is the approved
+                # host's own alias, from the wire, not from a list)
+                try:
+                    for rr in dpkt.dns.DNS(l4.data).an:
+                        if rr.type == dpkt.dns.DNS_CNAME:
+                            ev.append({"kind": "dns-cname", "value": rr.name.lower(), "target": rr.cname.lower(),
+                                       "detail": f"answer from {src}"})
+                        elif rr.type in (dpkt.dns.DNS_A, dpkt.dns.DNS_AAAA):
+                            # the addresses a name really had in THIS run (CDN addresses rotate: resolving again at
+                            # judging time gave other addresses, and an approved host's packets read as unknown)
+                            fam2 = socket.AF_INET if rr.type == dpkt.dns.DNS_A else socket.AF_INET6
+                            ev.append({"kind": "dns-a", "value": rr.name.lower(), "ip": socket.inet_ntop(fam2, rr.rdata),
+                                       "detail": f"answer from {src}"})
+                except Exception:
+                    pass
             if isinstance(l4, dpkt.tcp.TCP) and l4.sport in local_ports:
                 s = tls_sni(payload)
                 ev.append({"kind": "dest-ip", "value": dst, "port": l4.dport, "detail": "tcp"})
