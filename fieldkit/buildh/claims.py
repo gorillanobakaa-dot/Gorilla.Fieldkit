@@ -445,6 +445,9 @@ def _block_check(body, hunk):
 def _hand_holds(tree, s):
     a = s.get("args") or {}
     h = a.get("hunk")
+    if firefox.deletes_whole_file(h):                       # a recorded deletion holds while the file is gone
+        gone = tree.raw(a["file"]) is None
+        return gone, "deleted, as recorded" if gone else "the file should be deleted and still exists"
     if isinstance(h, dict) and h.get("binary"):
         raw = tree.raw(a["file"])
         ok = raw is not None and hashlib.sha256(raw).hexdigest() == h.get("sha256")

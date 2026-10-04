@@ -227,3 +227,14 @@ def test_a_pref_line_with_other_spacing_or_now_locked_is_present():
     assert _locked_variant('pref("a.b",    3);', have)
     assert not _locked_variant('pref("a.b", 4);', have)                    # a different value is not present
     assert not _locked_variant('pref("a.b", 3, locked);', have)            # a lost lock is not accepted
+
+
+def test_a_port_step_is_superseded_only_by_a_later_hand_step_that_removes_exactly_its_missing_lines():
+    from fieldkit.buildh import verify as vf
+    port = {"id": "port-a-h1", "status": "done", "args": {"file": "x.css", "hunk": {"lines": ["+keep", "+dead"]}}}
+    hand = {"id": "hand-x-h1", "status": "done", "done_by": "hand", "args": {"file": "x.css", "hunk": {"lines": ["-dead"]}}}
+    other = {"id": "hand-y-h1", "status": "done", "done_by": "hand", "args": {"file": "x.css", "hunk": {"lines": ["-else"]}}}
+    assert vf.superseded_by_hand([port, hand], port, ["keep"]) == "hand-x-h1"
+    assert vf.superseded_by_hand([port, other], port, ["keep"]) is None          # a missing line nobody removed
+    assert vf.superseded_by_hand([hand, port], port, ["keep"]) is None           # an EARLIER hand step does not count
+    assert vf.superseded_by_hand([port, hand], port, ["keep", "dead"]) is None   # nothing missing

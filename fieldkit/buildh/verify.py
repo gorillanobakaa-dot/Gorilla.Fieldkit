@@ -25,6 +25,31 @@ SHORT = 12          # a line shorter than this proves nothing on its own
 SPECIFIC = 25       # a removed line this long, still present, proves the hunk is not in
 
 
+
+def superseded_by_hand(steps, step, now):
+    """A port step whose added lines are missing from the tree only because a LATER hand step removed exactly those
+    lines (2026-10-04: patch 08.Look browser-shared.css h17 added a nova CSS block that could never match; the one-pass
+    fix removed it). -> the later step's id, or None. Every missing added line must be one the later step removes;
+    anything else missing is still a false completion."""
+    a = step.get("args") or {}
+    h, f = a.get("hunk"), a.get("file")
+    if not isinstance(h, dict) or not f or now is None:
+        return None
+    have = {l.strip() for l in now}
+    missing = {l[1:].strip() for l in h.get("lines", []) if l.startswith("+") and l[1:].strip() and l[1:].strip() not in have}
+    if not missing:
+        return None
+    ids = [s["id"] for s in steps]
+    after = ids.index(step["id"]) + 1 if step["id"] in ids else len(ids)
+    for later in steps[after:]:
+        la = later.get("args") or {}
+        if later.get("status") != "done" or la.get("file") != f or not (later.get("done_by") == "hand" or later.get("hand_port")):
+            continue
+        removed = {l[1:].strip() for l in (la.get("hunk") or {}).get("lines", []) if l.startswith("-")}
+        if missing <= removed:
+            return later["id"]
+    return None
+
 def _judgeable(lines, floor):
     return [l.strip() for l in lines if len(l.strip()) >= floor and not firefox.TRIVIAL.match(l.strip())]
 
@@ -354,7 +379,11 @@ def verify(task_id):
         if s["status"] not in ("done", "obsolete") or s.get("skipped_by_owner") or s.get("dropped_by_owner"):
             continue
         v, d = scores.get(key, (None, None))
-        if s.get("done_by") == "hand" or s.get("hand_port"):
+        if (s.get("done_by") == "hand" or s.get("hand_port")) and firefox.deletes_whole_file((s.get("args") or {}).get("hunk")):
+            # a hand step that DELETES a file (2026-10-04, macOS leftovers): done when the file is gone
+            gone = not (w / s["args"]["file"]).exists()
+            v, d = ("APPLIED", "deleted, as recorded") if gone else ("NOT-APPLIED", "the file should be deleted and still exists")
+        elif s.get("done_by") == "hand" or s.get("hand_port"):
             a = s.get("args") or {}
             if isinstance(a.get("hunk"), dict) and a["hunk"].get("binary"):     # a binary hand edit: judged by its bytes
                 import hashlib
@@ -370,6 +399,10 @@ def verify(task_id):
             v, d = score_hunk(body(a["file"]), a["hunk"], a["file"]) if (a := s.get("args") or {}).get("hunk") else (None, None)
         # an OBSOLETE step whose lines the tree still holds (renamed or not) was closed wrongly: reopened like a
         # false completion (live run 16: Tabbrowser.sys.mjs h4, closed as obsolete with the code still there)
+        if v in ("NOT-APPLIED", "PARTIAL") and not (s.get("done_by") == "hand" or s.get("hand_port")):
+            later = superseded_by_hand(t["steps"], s, body(s["args"]["file"]) if (s.get("args") or {}).get("file") else None)
+            if later:
+                v, d = "SUPERSEDED", f"a later hand step removed these lines on purpose: {later}"
         if v in ("NOT-APPLIED", "PARTIAL"):
             rep["false_completions"].append({"step": s["id"], "verdict": v, "detail": d, "done_by": s.get("done_by", "model")})
     # 3. files that are byte-identical to the owner's OLD tree. Harmless when upstream did not touch the file
@@ -423,11 +456,16 @@ def verify(task_id):
     # 5. new files not in the tree. A new file a recorded hand step then changed (2026-10-02: AIWindowStub gained a
     # method 157 asks for) is judged by that step, not by the byte-identity with the patch set's copy.
     hand_edited = {s.get("args", {}).get("file") for s in t["steps"] if s.get("hand_port") and s.get("status") == "done"}
+    deleted_by_hand = {s.get("args", {}).get("file") for s in t["steps"] if s.get("status") == "done"
+                       and (s.get("hand_port") or s.get("done_by") == "hand")
+                       and firefox.deletes_whole_file((s.get("args") or {}).get("hunk"))}
     for g, spec in groups.items():
         if spec.get("status") != "enabled":
             continue
         for src, rel in firefox.new_files(pset, g):
             d = w / rel
+            if not d.is_file() and rel in deleted_by_hand:
+                continue          # a later recorded hand step deletes it on purpose (replay: added, then deleted)
             if not d.is_file():
                 rep["missing_new_files"].append(f"{g}/NEW_FILES/{rel}")
             elif d.read_bytes() != src.read_bytes() and rel not in hand_edited:
