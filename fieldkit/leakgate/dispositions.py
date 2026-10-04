@@ -12,8 +12,9 @@ network, with the evidence the harness can check. Categories:
   OWNER-DECISION      a trade-off only the owner can make; never approved by a blanket approval
   OPEN                nothing stops it yet; never approvable - it gets cut
 
-A model writes these; the owner approves them, at a real terminal only. There is no approval function in this
-module: a chat route (`approve_from_chat`) that skipped the terminal check was removed with the unused `build()`.
+A model writes these; the owner approves them, at a real terminal only (`approve_from`, which checks the terminal
+itself and takes no argument that stands in for it). A chat route (`approve_from_chat`) that skipped the terminal
+check was removed with the unused `build()`.
 """
 import io
 import zipfile
@@ -100,3 +101,39 @@ def classify(rel, info, shipped):
         return "not-shipped", "absent from both packaged omni.ja archives of the build"
     return "OPEN", "nothing in the tree stops this file from sending yet"
 
+
+NEVER_BLANKET = ("OPEN", "OWNER-DECISION")
+
+
+def approve_from(disp_path, proposed_path, named=(), say=print):
+    """Owner only, at a real terminal: the proposals of `proposed_path` ({key: entry}, written by a model, approval
+    null) become approved entries of dispositions.json. OPEN is never approved (it gets cut); OWNER-DECISION only
+    when its key is named on the command line. Every entry is printed before anything is written.
+    -> {"approved": [keys], "left": [(key, why)]}"""
+    import collections
+    import json
+    import time
+    from ..buildh import task
+    if not task.owner_terminal():
+        raise task.Refused("approval is the owner's, at a real terminal; an agent's shell has none")
+    disp_path, proposed_path = Path(disp_path), Path(proposed_path)
+    proposed = json.loads(proposed_path.read_text(encoding="utf-8"))
+    data = json.loads(disp_path.read_text(encoding="utf-8")) if disp_path.is_file() else {}
+    take, left = {}, []
+    for k, e in proposed.items():
+        d = e.get("disposition")
+        if d == "OPEN" or (e.get("proposal") or {}).get("needs_fix"):
+            left.append((k, "OPEN / needs a fix: never approved, it gets cut"))
+        elif d == "OWNER-DECISION" and k not in named:
+            left.append((k, "an owner decision: approved only when named on the command line"))
+        else:
+            take[k] = e
+    for d, n in sorted(collections.Counter(e["disposition"] for e in take.values()).items()):
+        say(f"  {n:4d}  {d}")
+    for k, e in sorted(take.items()):
+        say(f"{k}\n    {e['disposition']}: {(e.get('evidence') or '')[:300]}")
+    at = time.strftime("%Y-%m-%d %H:%M:%S")
+    for k, e in take.items():
+        data[k] = {**e, "approval": {"by": "owner", "at": at, "how": "terminal", "from": proposed_path.name}}
+    disp_path.write_text(json.dumps(data, indent=1, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    return {"approved": sorted(take), "left": left}

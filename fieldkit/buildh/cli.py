@@ -579,7 +579,7 @@ def run(a, emit):
         from . import replay as rp
         r = rp.run(tid, say=lambda m: print(m, flush=True))
         return 0 if r["ok"] else 3
-    if act in ("leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline"):
+    if act in ("leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions"):
         from ..leakgate import gate as lg, allow as la
         from . import buildrun, verify as vf
         import json as _js
@@ -592,6 +592,18 @@ def run(a, emit):
             print(f"approved {len(done)}: {done}")
             return 0
         workroot = task.STATE / "leakgate" / tid
+        if act == "leakgate-dispositions":
+            # `leakgate-dispositions TASK [KEY...]`: the newest proposed-dispositions-*.json of this task; a KEY names
+            # an OWNER-DECISION entry to approve too (never part of the blanket)
+            from ..leakgate import dispositions as _ld
+            files = sorted(workroot.glob("proposed-dispositions-*.json"), key=lambda p: p.stat().st_mtime)
+            if not files:
+                raise task.Refused(f"no proposed-dispositions-*.json in {workroot}")
+            r = _ld.approve_from(owner / "leakgate" / "dispositions.json", files[-1], named=set(a.args[1:]), say=say)
+            print(f"approved {len(r['approved'])} from {files[-1].name}; left {len(r['left'])}")
+            for k, why in r["left"]:
+                print(f"  LEFT {k}: {why}")
+            return 0
         if act == "leakgate-baseline":
             from . import task as _t
             if not _t.owner_terminal():

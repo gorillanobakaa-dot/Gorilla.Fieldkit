@@ -91,7 +91,7 @@ def test_no_approval_path_exists_without_the_owner_terminal_check():
                 approvers.append(f"{f.name}:{fn.name}")
                 if "owner_terminal()" not in src or "terminal" in [a.arg for a in fn.args.args + fn.args.kwonlyargs]:
                     offenders.append(f"{f.name}:{fn.name}")
-    assert approvers == ["allow.py:approve"] and offenders == []
+    assert approvers == ["allow.py:approve", "dispositions.py:approve_from"] and offenders == []
     from fieldkit.leakgate import dispositions
     assert not hasattr(dispositions, "approve_from_chat") and not hasattr(dispositions, "build")
 

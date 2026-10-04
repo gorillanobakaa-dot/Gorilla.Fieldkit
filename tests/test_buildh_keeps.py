@@ -54,3 +54,24 @@ def test_a_copy_of_the_old_file_is_harmless_when_upstream_only_touched_removed_l
     # the hunk removes another block: upstream's new line is not inside what the fork removes
     monkeypatch.setattr(verify, "hunks_in_scope", lambda hr: [("g", "p", "f/moz.build", 1, {"lines": ["-Other(", "-    z.json,", "-)"]})])
     assert not verify._upstream_changes_inside_removed_blocks(new, old, "f/moz.build", "hr")
+
+
+def test_a_declared_removed_line_is_not_reported_as_renamed_onto_an_earlier_gorilla_line():
+    """Build 27 (2026-10-04): nsHttpChannel.cpp. The hunk removes `s == ...::Private;`; a few lines above stands
+    Gorilla's own earlier `nsILoadInfo::IPAddressSpace target = literal.GetIpAddressSpace();` (not in pristine), and
+    the rename check called it the removed line under new names. The note's `keeps:` loses its `;` in hand_keeps."""
+    hunk = {"lines": [
+        "         if (NS_SUCCEEDED(trigAddr.InitFromString(trigHost))) {",
+        "-          auto s = trigAddr.GetIpAddressSpace();",
+        "-          fromLanPage = s == nsILoadInfo::IPAddressSpace::Local ||",
+        "-                        s == nsILoadInfo::IPAddressSpace::Private;",
+        "+          fromLanPage = trigAddr.GetIpAddressSpace() == target;",
+        "         }"]}
+    pristine = ["nsresult nsHttpChannel::Connect() {", "  return NS_OK;", "}"]
+    after = ["nsresult nsHttpChannel::Connect() {",
+             "      nsILoadInfo::IPAddressSpace target = literal.GetIpAddressSpace();",
+             "         if (NS_SUCCEEDED(trigAddr.InitFromString(trigHost))) {",
+             "          fromLanPage = trigAddr.GetIpAddressSpace() == target;",
+             "         }", "  return NS_OK;", "}"]
+    keeps = firefox.hand_keeps("why\nkeeps: s == nsILoadInfo::IPAddressSpace::Private;")
+    assert not [w for w in firefox.hand_port_check(pristine, after, hunk, pristine, keeps) if "new names" in w]

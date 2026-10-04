@@ -1852,7 +1852,10 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     # Remote Settings lock removed `: AppConstants.REMOTE_SETTINGS_SERVER_URLS[0];` and the check pointed at the
     # pre-existing `AppConstants.REMOTE_SETTINGS_SERVER_URLS.includes(...)` as its new name)
     pre = {l.strip() for l in (pristine if pristine is not None else before)}
-    for a, b in [(a, b) for a, b in renamed_near(after, hunk, removed, added) if b.strip() not in pre][:3]:
+    # ... nor one the submit note declares (`keeps: <removed line>`): 2026-10-04, a removed `s == ...::Private;` was
+    # matched to Gorilla's own earlier declaration of another variable a few lines above (not in pristine)
+    for a, b in [(a, b) for a, b in renamed_near(after, hunk, removed, added)
+                 if b.strip() not in pre and a.strip().rstrip(";") not in {k.rstrip(";") for k in kept}][:3]:   # hand_keeps splits on `;`
         why.append(f"line still there under new names: `{a[:60]}` is now `{b[:60]}`")
     text_after = "\n".join(scope_after)
     norm = lambda tok: tok.strip("\"'`").lstrip("_#$")       # `this._x`, `this.#x` and `lazy.x` are one name (live run 16)
