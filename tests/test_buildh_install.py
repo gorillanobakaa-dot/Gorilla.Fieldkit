@@ -96,6 +96,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_claims_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_visual_row", lambda t, target, say=print: [])
+    monkeypatch.setattr(inst, "_ui_rows", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
@@ -229,6 +230,7 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_claims_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_visual_row", lambda t, target, say=print: [])
+    monkeypatch.setattr(inst, "_ui_rows", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
@@ -308,3 +310,12 @@ def test_restore_puts_the_profiles_back_only_into_their_own_folder(tmp_path, mon
 def test_restore_refuses_without_a_target():
     with pytest.raises(task.Refused, match="--install-dir"):
         inst.restore("nowhere", None)
+
+
+def test_throwaway_firefox_copies_in_temp_do_not_block_the_cache_clear(tmp_path):
+    from fieldkit.buildh import install as ins
+    temp = tmp_path / "Temp"
+    bench = str(temp / "gnetbench_x" / "browser" / "firefox.exe")
+    real = str(tmp_path / "Gorilla Unleashed" / "firefox.exe")
+    assert ins.blocking_firefox([bench, ""], temp=temp) == []
+    assert ins.blocking_firefox([bench, real], temp=temp) == [real]

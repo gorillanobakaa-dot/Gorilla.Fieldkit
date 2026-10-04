@@ -91,6 +91,10 @@ def gate(task_id, harness_root=None, write=True):
     # the IDEAS behind Gorilla's fixes (fieldkit/buildh/techniques.py): a lost lock, or a new waiter / download path
     # in a later Firefox, stops the build before it compiles (2026-10-03: the blank new tab, T-157-31-A)
     from . import techniques
+    # the UI rules (fieldkit/buildh/uicheck.py): certain mistakes in the lines Gorilla added, before compiling
+    from . import uicheck
+    for name, ok, evidence in uicheck.gate_rows(wd) if (wd / "browser/config/version.txt").is_file() else []:
+        row(name, ok, evidence)
     for name, ok, evidence in techniques.gate_rows(wd) if (wd / "browser/config/version.txt").is_file() else []:
         row(name, ok, evidence)
     moz = mozconfig_path(harness_root)

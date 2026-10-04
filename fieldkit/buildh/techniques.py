@@ -200,6 +200,106 @@ TECHNIQUES.append({
     ],
 })
 
+TECHNIQUES.append({
+    "id": "T-157-32-A",
+    "title": "A menu Gorilla adds is drawn in the Gorilla colours by a rule scoped to it",
+    "decision": "D-157-32",
+    "found": "2026-10-04, build 23: the Gorilla.Satellite toolbar menu showed cyan text on system grey (contrast 1.25:1)",
+    "problem": ("The Gorilla theme forces EVERY menupopup and menuitem to the system colours with !important "
+                "(master-redirect.css 'PANEL STYLING RESTORED': menupopup {appearance:auto; background-color:Menu; "
+                "color:MenuText}). A menu owned by a toolbar button inherits the toolbar's cyan text, so it ends up "
+                "cyan on the system's light grey."),
+    "concept": ("Never theme menus globally. Give each menu Gorilla adds its own rule, scoped by the owner's id "
+                "('#owner > menupopup'), with !important on appearance:none, the background, the text colour "
+                "(var(--toolbar-text-color), the theme's cyan), the hover and the separators, so it beats the theme's "
+                "global rule."),
+    "apply": ["For a new Gorilla menu, copy the '#gorilla-satellite-button > menupopup' block in toolbarbuttons.css "
+              "under the new owner's id.",
+              "Prove it with fieldkit build-harness ui-check (contrast of every item against what is painted)."],
+    "verify": ["ui-check: UI rule UI-MENU, and every menu item at contrast 4.5:1 or more"],
+    "signals": [
+        {"name": "scoped-menu-rule", "kind": "must_have", "path": "browser/themes/shared/toolbarbuttons.css",
+         "text": "background-color: #000000 !important;"},
+        {"name": "theme-forces-system-menus", "kind": "must_have", "path": "browser/themes/shared/master-redirect.css",
+         "text": "background-color: Menu !important;"},
+        {"name": "gorilla-menus", "kind": "watch", "pathspec": ["browser/modules", ":!**/test/**", ":!**/tests/**"],
+         "regex": r"createXULElement\([[:space:]]*.menupopup", "guard_lines": 3,
+         "allow": {"browser/modules/webrtcUI.sys.mjs": "upstream camera/microphone sharing menu: system text on the "
+                   "system menu colour, readable as the theme intends (it inherits no toolbar cyan)"}},
+    ],
+})
+
+TECHNIQUES.append({
+    "id": "T-157-32-B",
+    "title": "Hover text covers the whole Settings row, not the 16-pixel radio circle",
+    "decision": "D-157-32",
+    "found": "2026-10-04: Gorilla.Satellite mode's long explanations never appeared on hover in Settings",
+    "problem": ("The moz-* input widgets (moz-radio, moz-checkbox) treat `title` as a 'mapped' property: it is "
+                "removed from the host and put on the inner <input> only, which nobody hovers."),
+    "concept": "MozBaseInputElement.render() also puts the title on the label wrapper, so the label and description show it.",
+    "apply": ["Keep title=${ifDefined(this.title)} on the .label-wrapper span in lit-utils.mjs (or its successor).",
+              "Settings items that want hover text pass controlAttrs {'data-l10n-attrs': 'title'} and a .title in the FTL."],
+    "verify": ["probe satellite-settings: 'hover over row' text present for every option"],
+    "signals": [
+        {"name": "row-title", "kind": "must_have", "path": "toolkit/content/widgets/lit-utils.mjs",
+         "text": '<span class="label-wrapper" title=${ifDefined(this.title)}>'},
+        {"name": "mapped-title", "kind": "watch", "pathspec": ["toolkit/content/widgets/lit-utils.mjs"],
+         "regex": r"title: \{ type: String, mapped: true \}", "guard_lines": 200, "allow": {}},
+    ],
+})
+
+TECHNIQUES.append({
+    "id": "T-157-32-C",
+    "title": "Gorilla code reaches a window through ownerDocument.defaultView, never ownerGlobal",
+    "decision": "D-157-32",
+    "found": ("2026-10-04, build 23: the satellite menu's handler threw and showed every item; the same mistake in "
+              "the FF155 theme fix THEME_FIX_LOG 39 (autocomplete popup height) had been throwing unnoticed"),
+    "problem": ("Node.ownerGlobal is a chrome-only shortcut that this Firefox 157 tree's WebIDL does not define: it is "
+                "undefined, so `x.ownerGlobal.anything` throws at the moment it runs, not at load."),
+    "concept": "Use the standard ownerDocument.defaultView. uicheck rule UI-API checks every line Gorilla added.",
+    "apply": ["Replace ownerGlobal with ownerDocument.defaultView in Gorilla code.",
+              "If a future tree defines ownerGlobal again, UI-API stops flagging it by itself (it reads the WebIDL)."],
+    "verify": ["ui-check: UI rule UI-API; the probe's 'no script error while menus and Settings open'"],
+    "signals": [
+        {"name": "satellite-menu-window", "kind": "must_have", "path": "browser/modules/GorillaLinkMode.sys.mjs",
+         "text": "const win = () => button.ownerDocument.defaultView;"},
+        {"name": "autocomplete-window", "kind": "must_have", "path": "toolkit/content/widgets/autocomplete-popup.js",
+         "text": "new this.ownerDocument.defaultView.ResizeObserver("},
+        {"name": "owner-global", "kind": "watch", "pathspec": ["browser/modules/Gorilla*", ":!**/test/**"],
+         "regex": r"\.ownerGlobal", "guard_lines": 3, "allow": {}},
+    ],
+})
+
+TECHNIQUES.append({
+    "id": "T-157-33-A",
+    "title": "Per-site choices are made before the page is requested, per tab",
+    "decision": "D-157-33",
+    "found": "2026-10-04: satellite mode's mobile identity, per-site desktop version and no-JavaScript",
+    "problem": ("A per-site choice applied after the page arrived (reload on location change) downloads the page twice, "
+                "which is what a 5 KB/s link cannot afford."),
+    "concept": ("An http-on-modify-request observer, registered only while a level needs it, looks at every top-level "
+                "document request and sets the tab's BrowsingContext.customUserAgent and allowJavascript from the "
+                "site's permission (gorilla-desktop-site, gorilla-javascript-site) before the request leaves. Leaving "
+                "the level resets every open tab. javascript.enabled is never touched, so browser pages keep working."),
+    "apply": ["Keep the observer, the two permission types and _resetTabs in GorillaLinkMode.sys.mjs.",
+              "Prove with probe satellite-mobile against a local echo page."],
+    "verify": ["probe satellite-mobile: identity and JS per level, per-site switch, reset after Off"],
+    "signals": [
+        {"name": "per-site-js", "kind": "must_have", "path": "browser/modules/GorillaLinkMode.sys.mjs",
+         "text": 'const JS_SITE_PERM = "gorilla-javascript-site";'},
+        {"name": "per-site-desktop", "kind": "must_have", "path": "browser/modules/GorillaLinkMode.sys.mjs",
+         "text": 'const DESKTOP_SITE_PERM = "gorilla-desktop-site";'},
+        {"name": "tabs-reset", "kind": "must_have", "path": "browser/modules/GorillaLinkMode.sys.mjs",
+         "text": "_resetTabs(mobile, noJs) {"},
+        {"name": "per-site-observer", "kind": "watch", "pathspec": ["browser/modules", ":!**/test/**", ":!**/tests/**"],
+         "regex": r"http-on-modify-request", "guard_lines": 400,
+         "allow": {"browser/modules/ASWebAuthSessionService.sys.mjs": "upstream macOS web-authentication session: it "
+                   "watches its own login requests, no per-site page choice",
+                   "browser/modules/GorillaLinkMode.sys.mjs": "the per-site observer itself (T-157-33-A); a new "
+                   "observer anywhere else in browser/modules must be looked at"}},
+    ],
+})
+
 GUARD = re.compile(r"GORILLA (TECHNIQUE|UNLEASHED)")
 
 

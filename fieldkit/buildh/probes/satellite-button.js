@@ -45,8 +45,10 @@ button.open = true;
 await Promise.race([shown, sleep(3000)]);
 say("menu open:", popup.state);
 const items = [...popup.querySelectorAll("menuitem")];
+{ const cs = win.getComputedStyle(popup); say("menu colours: background", cs.backgroundColor, "| text", cs.color, "| appearance", cs.appearance,
+    "| content background", cs.getPropertyValue("--panel-background-color")); }
 for (const it of items) {
-  say("  item", it.getAttribute("value") ?? "-", "|", it.getAttribute("label"), it.getAttribute("checked") == "true" ? "[ticked]" : "",
+  say("  item", it.getAttribute("value") ?? "-", "|", it.getAttribute("label"), it.getAttribute("checked") == "true" ? "[ticked]" : "", it.hidden ? "[HIDDEN]" : "",
       "| hover:", (it.getAttribute("tooltiptext") || "(none)").slice(0, 70));
 }
 // does the hover text really appear? move the mouse onto "Very slow link" and wait for the tooltip

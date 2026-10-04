@@ -26,6 +26,7 @@ import os
 import re
 import secrets
 import shutil
+import tempfile
 import subprocess
 import sys
 import time
@@ -214,13 +215,24 @@ def local_profiles():
     return out
 
 
+def blocking_firefox(paths, temp=None):
+    """The running firefox.exe paths that can hold a real profile's startup cache. Throwaway copies under the temp
+    folder (netbench, probe, leak-gate runs) use their own throwaway profiles and do not count: 2026-10-04 the
+    install of build 23 was refused because two bench browsers were running from %TEMP%/gnetbench_*."""
+    temp = str(Path(temp or tempfile.gettempdir()).resolve()).lower()
+    return [x.strip() for x in paths if x.strip() and not str(Path(x.strip()).resolve()).lower().startswith(temp)]
+
+
 def clear_startup_caches(say=print):
     """Delete every profile's startupCache. Firefox keys that cache on the BuildID; two different builds with one
     BuildID (02 Oct, builds 2-6) left the owner's profile running the broken build's compiled scripts while a
     fresh profile ran the new one. -> [cleared dirs]. Refuses while Firefox runs."""
-    if subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Process firefox -ErrorAction SilentlyContinue | Select-Object -First 1"],
-                      capture_output=True, text=True).stdout.strip():
-        raise task.Refused("Firefox is running: close it before the startup caches are cleared")
+    r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "Get-Process firefox -ErrorAction SilentlyContinue | ForEach-Object { $_.Path }"],
+                       capture_output=True, text=True, errors="replace")
+    users = blocking_firefox(r.stdout.splitlines())
+    if users:
+        raise task.Refused(f"Firefox is running ({users[0]}): close it before the startup caches are cleared")
     cleared = []
     for prof in local_profiles():
         sc = prof / "startupCache"
@@ -435,7 +447,7 @@ POST_INSTALL = (
     ("verify_address_bar", ["--install", "{dir}", "--yes"]),    # real window: typing an address navigates (title changes)
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
-PROOF_CHECKS = frozenset({"prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims"})
+PROOF_CHECKS = frozenset({"prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
@@ -491,6 +503,12 @@ def _visual_row(t, target, say=print):
     return [visual.proof_row(t, target, say=say)]
 
 
+def _ui_rows(t, target, say=print):
+    """Readable, working menus and Gorilla Settings controls (fieldkit buildh/uicheck.py; born 2026-10-04)."""
+    from . import uicheck
+    return uicheck.rows(t["workdir"], target, say=say)
+
+
 def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, drive=False, sleep=time.sleep):
     """Run the owner's post-install checks against the installed build. -> {"ok", "results": [{name, rc, status, log}],
     "skipped"}. Fails closed: OK only when every requested check (all of them, or the --only names) RAN and passed;
@@ -516,7 +534,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         from . import verify as vf
         truth = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]) if t.get("meta", {}).get("harness_root") else None
         from . import leaks
-        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []):
+        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []) + (_ui_rows(t, target, say) if "ui" in want else []):
             say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
             results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "status": "ok" if row["ok"] else "FAIL",
                             "log": row.get("log"), "lines": row.get("bad", [])[:10]})

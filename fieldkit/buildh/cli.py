@@ -545,11 +545,27 @@ def run(a, emit):
         if not inst:
             raise task.Refused("no installed build found: give --install-dir")
         r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)), omni=omni or None,
+                   timeout=float(opts.get("timeout", 90)),
                    say=lambda m: print(m, flush=True), files=files or None, added=added or None)
         for l in r["lines"]:
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
+    if act == "ui-check":
+        # ui-check TASK [--static] [--install-dir D]: the UI rules on the tree, then (unless --static) the readable-
+        # and-working probe on a copy of the installed build (fieldkit/buildh/uicheck.py)
+        from . import uicheck, install as _inst
+        t = task.load(tid)
+        rows = [{"check": f"UI rule {r['rule']}", "ok": r["ok"], "evidence": r["evidence"]} for r in uicheck.lint(t["workdir"])]
+        if not getattr(a, "static", False):
+            inst = a.install_dir or _inst.find_install()
+            if not inst:
+                raise task.Refused("no installed build found: give --install-dir, or --static for the tree rules only")
+            rows += uicheck.probe_rows(inst)
+        for r in rows:
+            print(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:300]}")
+        print("UI OK" if all(r["ok"] for r in rows) else "UI NOT OK")
+        return 0 if all(r["ok"] for r in rows) else 3
     if act == "techniques":
         from . import techniques as tq
         t = task.load(tid)

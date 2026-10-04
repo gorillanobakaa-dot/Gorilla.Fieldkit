@@ -79,7 +79,9 @@ MODES = {
     # the REAL switch (Gorilla.Satellite mode in Settings): GorillaLinkMode applies the level itself, so the bench
     # measures the shipped code, not a copy of its values (2026-10-04)
     "satellite": {"gorilla.linkmode": 1},
-    "slow": {"gorilla.linkmode": 2},
+    # JavaScript stays on: the bench page reports its own timings with a script (2026-10-04: with D-157-33 no-JS
+    # every timing came back UNMEASURED). The no-JS saving is measured on real sites (probe realsite-weight).
+    "slow": {"gorilla.linkmode": 2, "gorilla.linkmode.no_javascript": False},
     # the study's emulations, kept for builds without the switch
     "satellite-emulated": SATELLITE,
     "slow-emulated": SLOW,

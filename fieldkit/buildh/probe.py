@@ -1,7 +1,8 @@
 """Ask a running build a question, or try a JavaScript fix, without spending a build.
 
     fieldkit build-harness probe <task> js=<probe.js|name> [url=about:blank] [wait=15] [omni=<jar>:<member>=<file> ...]
-                                    [file=<path in the build>=<file> ...] [add=<new path in the build>=<file> ...] [--install-dir <build>]
+                                    [file=<path in the build>=<file> ...] [add=<new path in the build>=<file> ...] [timeout=S]
+                                    [--install-dir <build>]
 
 Fastest loop for CSS, themes and JS: point --install-dir at the objdir's UNPACKED dist/bin (no omni.ja; every
 chrome file is a plain file) and give file= replacements; the copy runs your change in seconds, without a build.
