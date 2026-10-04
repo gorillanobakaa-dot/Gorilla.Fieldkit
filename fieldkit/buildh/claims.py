@@ -519,6 +519,8 @@ def hunk_status(tree, rel, file, n, h, idx, steps_by_id, relocated, later=None, 
         if ok:
             return "HAND-PORTED", d, True
     body = tree.body(file)
+    if firefox.deletes_whole_file(h) and tree.raw(file) is None:
+        return "APPLIED", "the patch deletes this file and it is gone", True
     v, d = score(body, h, file, tree.pristine(file))
     if v == "NO-SIGNAL":
         v, d = _block_check(body, h)
@@ -552,13 +554,50 @@ def hunk_status(tree, rel, file, n, h, idx, steps_by_id, relocated, later=None, 
         if sup:
             return "SUPERSEDED", f"a later patch of the set changes these lines again: {', '.join(sup)}", True
         return "OBSOLETE", "code gone upstream (" + d + "); no recorded decision", False
-    sup = _superseded(body, h, file, later, order)
+    sup = _superseded(body, h, file, later, order) or _superseded_reworked(body, h, file, later, order, d)
     if sup:
         return "SUPERSEDED", f"a later patch of the set changes these lines again: {', '.join(sup)} ({d})", True
     if v == "UNJUDGEABLE":
         return "UNJUDGEABLE", d, False
     extra = "; the record says obsolete, the tree disagrees" if s and s.get("status") == "obsolete" else ""
     return "NOT-APPLIED", (f"[{v}] " if v != "NOT-APPLIED" else "") + d + extra, False
+
+
+def _superseded_reworked(body, h, file, later, order, detail):
+    """Iterative edits of one file exported as several patches (2026-10-04: GorillaLinkMode.sys.mjs grew over one day in
+    patches 057-071). Two cases the exact rule above cannot see, both only when a LATER patch of the set edits the file:
+    - "misplaced": every line the hunk adds is in the file; only its neighbourhood moved, because later patches inserted
+      lines around it;
+    - a removed line that survives only inside a longer line (\"under new names\"): a later patch added that longer line.
+    -> [patch rels] or []."""
+    if body is None or not later or order is None:
+        return []
+    after = [x for x in later.get(file, []) if x[0] > order]
+    if not after:
+        return []
+    removed, added, _ = firefox.hunk_sides(h)
+    have = [l.strip() for l in body]
+    have_set = set(have)
+    if "misplaced" in (detail or ""):
+        new = [l.strip() for l in added if len(l.strip()) >= vf.SHORT and not firefox.TRIVIAL.match(l.strip())]
+        if new and all(l in have_set for l in new):
+            return sorted({rel for _, rel, _, _ in after})
+        return []
+    if "under new names" in (detail or ""):
+        who = set()
+        added_now = {a.strip() for a in added}
+        for l in (r.strip() for r in removed):
+            if len(l) < vf.SPECIFIC or l in added_now:
+                continue
+            carriers = [t for t in have if l in t and t != l]
+            if not carriers and l not in have_set:
+                continue
+            hit = [rel for _, rel, _, add in after if any(c in add for c in carriers) or l in add]
+            if not hit:
+                return []
+            who.add(hit[0])
+        return sorted(who)
+    return []
 
 
 def _superseded(body, h, file, later, order):
@@ -665,6 +704,9 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
                         "decision": pd.get("decision") if decided else None, "fail": not explained})
     # NEW_FILES and DELETED_FILES
     hand_edited = {(s.get("args") or {}).get("file") for s in steps if s.get("hand_port") and s.get("status") == "done"}
+    deleted_by_hand = {(s.get("args") or {}).get("file") for s in steps if s.get("status") == "done"
+                       and (s.get("hand_port") or s.get("done_by") == "hand")
+                       and firefox.deletes_whole_file((s.get("args") or {}).get("hunk"))}
     replaced = {}                       # a recorded replace-files step copied bytes from a NON-public snapshot set
     for s in steps:
         a = s.get("args") or {}
@@ -678,7 +720,9 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
         for src, rel in firefox.new_files(sc["pset"], g):
             raw = tree.raw(rel)
             rf = replaced.get(g)
-            if raw is None:
+            if raw is None and rel in deleted_by_hand:
+                v = "DELETED-BY-HAND-STEP"       # a later recorded step deletes it on purpose (replay: added, then deleted)
+            elif raw is None:
                 v = "MISSING"
             elif raw == src.read_bytes():
                 v = "IDENTICAL"

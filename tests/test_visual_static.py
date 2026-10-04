@@ -290,6 +290,74 @@ def test_an_svg_that_embeds_a_png_is_judged_by_the_png(tmp_path, master):
     assert it["verdict"] == "FAIL" and "0.67x" in it["evidence"]
 
 
+def test_an_icon_rule_for_the_same_selector_gives_the_box_a_list_style_image_is_drawn_into(tmp_path, master):
+    logo = 'url("chrome://branding/content/about-logo.png")'  # 1000x1000
+    [it] = css_items(tmp_path, master, f'#w {{ list-style-image: {logo}; }}\n'
+                     '#w > .button-box > .button-icon { width: 16px; height: 16px; }')
+    assert it["verdict"] == "PASS" and ".button-icon" in it["evidence"] and "62.50x" in it["evidence"]
+    [it] = css_items(tmp_path / "b", master, f'#w {{ list-style-image: {logo}; }}\n#w .toolbarbutton-icon {{ width: 600px; }}')
+    assert it["verdict"] == "FAIL" and "1.67x" in it["evidence"]
+    # a hover state, a non-icon descendant or another button's icon is not this rule's box
+    [it] = css_items(tmp_path / "c", master, f'#w {{ list-style-image: {logo}; }}\n#w:hover > .button-icon {{ width: 16px; }}\n'
+                     '#w > .label { width: 16px; }\n#wx > .button-icon { width: 16px; }')
+    assert it["verdict"] == "UNVERIFIABLE"
+    # every selector of the rule needs its icon box
+    [it] = css_items(tmp_path / "d", master, f'#w, #v {{ list-style-image: {logo}; }}\n#w > .button-icon {{ width: 16px; }}')
+    assert it["verdict"] == "UNVERIFIABLE"
+
+
+def test_an_unsized_image_set_is_judged_against_its_1x_candidate_in_both_dimensions(tmp_path, master):
+    iset = ('.x { list-style-image: image-set(url("chrome://branding/content/about-logo.png"), '
+            'url("chrome://branding/content/about-logo@2x.png") 2x); }')  # privacy-scan: allow (a file name or a fake address, not an email)
+    [it] = css_items(tmp_path, master, iset, logo=true_down(master, 500))      # 500 + 1000
+    assert it["verdict"] == "PASS" and "2.00x" in it["evidence"] and "500x500" in it["evidence"]
+    [it] = css_items(tmp_path / "b", master, iset, logo=true_down(master, 1000).resize((1000, 600)))  # 2x is 1000x1000
+    assert it["verdict"] == "FAIL" and "1.00x" in it["evidence"]
+    [it] = css_items(tmp_path / "e", master, iset, logo=true_down(master, 500).resize((500, 250)))
+    assert it["verdict"] == "PASS" and "500x250" in it["evidence"] and "2.00x" in it["evidence"]
+    [it] = css_items(tmp_path / "c", master, '.x { list-style-image: image-set(url("chrome://branding/content/about-logo.png") 1x); }')
+    assert it["verdict"] == "FAIL" and "no 2x candidate" in it["evidence"]
+    items = css_items(tmp_path / "d", master, '.x { list-style-image: image-set(url("chrome://branding/content/about-logo.png"), '
+                      'url("chrome://branding/content/gone@2x.png") 2x); }')  # privacy-scan: allow (a file name or a fake address, not an email)
+    assert {i["rule"]: i["verdict"] for i in items} == {"ASSET-MISSING": "FAIL", "ASSET-002": "UNVERIFIABLE"}
+
+
+def test_min_and_clamp_bound_the_box_and_only_an_exact_calc_is_exact(tmp_path, master):
+    assert css.length("min(80%, 500px)") == (500.0, False)
+    assert css.length("min(400px, 500px)") == (400.0, True)
+    assert css.length("clamp(100px, 50%, 400px)") == (400.0, False)
+    assert css.length("calc(400px + 2 * 50px)") == (500.0, True)
+    assert css.length("calc(100% - 4px)") == (None, False)
+    assert css.length("max(10%, 50px)") == (None, False)
+    logo = 'url("chrome://branding/content/about-logo.png")'  # 1000x1000
+    [it] = css_items(tmp_path, master, f'.x {{ background: #000 {logo} no-repeat center / min(80%, 500px) !important; }}')
+    assert it["verdict"] == "PASS" and "at most 500px" in it["evidence"] and "2.00x or more" in it["evidence"]
+    # below 2x against an upper bound proves nothing: UNVERIFIABLE, never FAIL and never PASS
+    [it] = css_items(tmp_path / "b", master, f'.x {{ background-image: {logo}; background-size: min(80%, 600px); }}')
+    assert it["verdict"] == "UNVERIFIABLE" and "1.67x" in it["evidence"]
+    # the px term of a % calc() is not the box (it used to be read as a 4px box and pass)
+    [it] = css_items(tmp_path / "c", master, f'.x {{ background-image: {logo}; background-size: calc(100% - 4px); }}')
+    assert it["verdict"] == "UNVERIFIABLE"
+    [it] = css_items(tmp_path / "d", master, f'.x {{ background-image: {logo}; background-size: calc(400px + 200px); }}')
+    assert it["verdict"] == "FAIL" and "1.67x" in it["evidence"]
+
+
+def test_an_unsized_background_is_drawn_at_its_intrinsic_size_unless_another_rule_may_size_it(tmp_path, master):
+    logo = 'url("chrome://branding/content/about-logo.png")'  # 1000x1000
+    [it] = css_items(tmp_path, master, f'.store .android button {{ background-image: {logo}; }}\n'
+                     'span.other { background-size: 10px; }')       # a <span> rule cannot size a <button>
+    assert it["verdict"] == "FAIL" and "intrinsic size" in it["evidence"] and "1.00x" in it["evidence"]
+    [it] = css_items(tmp_path / "b", master, f'.store .android button {{ background-image: {logo}; }}\n'
+                     '.buttons li button { background-size: contain; width: 250px; height: 200px; }')
+    assert it["verdict"] == "UNVERIFIABLE" and "5.00x" in it["evidence"] and "needs the DOM" in it["evidence"]
+    [it] = css_items(tmp_path / "c", master, f'.store .android button {{ background-image: {logo}; }}\n'
+                     '.buttons li button { background-size: cover; width: 800px; height: 100px; }')
+    assert it["verdict"] == "FAIL" and "1.25x" in it["evidence"]
+    # contain/cover with no px box of its own stays unmeasured
+    [it] = css_items(tmp_path / "d", master, f'.x {{ background-image: {logo}; background-size: contain; }}')
+    assert it["verdict"] == "UNVERIFIABLE"
+
+
 # ------------------------------------------------------------------------------------------- leftovers
 def test_mozilla_wordmarks_art_and_names_are_found_and_comments_are_not(tmp_path, master):
     tree, _ = fake_tree(tmp_path, master)
