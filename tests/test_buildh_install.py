@@ -319,3 +319,16 @@ def test_throwaway_firefox_copies_in_temp_do_not_block_the_cache_clear(tmp_path)
     real = str(tmp_path / "Gorilla Unleashed" / "firefox.exe")
     assert ins.blocking_firefox([bench, ""], temp=temp) == []
     assert ins.blocking_firefox([bench, real], temp=temp) == [real]
+
+
+def test_desktop_icons_row_fails_without_iconkit_and_reads_its_verdict(tmp_path, monkeypatch):
+    from fieldkit.buildh import install as ins
+    monkeypatch.setattr(ins.os, "name", "nt")
+    monkeypatch.setattr(ins, "ICONKIT", tmp_path / "missing.py")
+    assert not ins.desktop_icons_row(apply=False)["ok"]
+    kit = tmp_path / "iconkit.py"
+    kit.write_text('print("  ok   A.lnk: largest frame 256 px")\nprint("  FILE B.lnk: largest frame 32 px")\n',
+                   encoding="utf-8")
+    monkeypatch.setattr(ins, "ICONKIT", kit)
+    row = ins.desktop_icons_row(apply=False)
+    assert not row["ok"] and "B.lnk" in row["evidence"]

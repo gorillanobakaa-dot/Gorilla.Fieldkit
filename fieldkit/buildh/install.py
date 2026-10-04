@@ -244,6 +244,33 @@ def clear_startup_caches(say=print):
     return cleared
 
 
+ICONKIT = Path.home() / "Documents" / "Scripts" / "IconKit" / "iconkit.py"
+
+
+def desktop_icons_row(say=print, apply=True):
+    """Desktop icons sharp after an install. Every install replaces firefox.exe, whose icons Explorer's icon cache keeps,
+    so the Gorilla shortcut (and others) go soft (2026-10-04, maintainer: "everytime you install or do stuff that messes
+    around with the icon cache you need to check"). IconKit's `cache --apply` rebuilds the cache: Explorer restarts after
+    a countdown (taskbar and File Explorer windows close and come back; programs and unsaved work are untouched), then
+    `cache` checks that every desktop icon file holds a sharp frame at the desktop size. Announce installs in chat."""
+    check = "desktop icons: icon cache rebuilt, every desktop icon file sharp"
+    if os.name != "nt":
+        return {"check": check, "ok": True, "evidence": "not Windows: nothing to do"}
+    if not ICONKIT.is_file():
+        return {"check": check, "ok": False, "evidence": f"IconKit missing ({ICONKIT}): cache not rebuilt; icons may be soft"}
+    if apply:
+        say("  desktop icons: rebuilding Explorer's icon cache (IconKit; Explorer restarts after a countdown)")
+        subprocess.run([sys.executable, str(ICONKIT), "cache", "--apply"], capture_output=True, text=True, timeout=300)
+    r = subprocess.run([sys.executable, str(ICONKIT), "cache"], capture_output=True, text=True, errors="replace", timeout=120)
+    # IconKit marks each desktop icon "ok", "FILE" (the icon file lacks a sharp frame) or "????" (unreadable)
+    bad = [l.strip() for l in r.stdout.splitlines() if l.strip().startswith(("FILE", "????"))]
+    seen = [l for l in r.stdout.splitlines() if l.strip().startswith("ok ")]
+    verdict = next((l for l in r.stdout.splitlines() if l.startswith("VERDICT")), "")
+    return {"check": check, "ok": bool(seen) and not bad,
+            "evidence": ("cache rebuilt; " if apply else "") + f"{len(seen)} icon(s) sharp" +
+            (f"; not sharp: {bad[:3]}" if bad else "") + (f"; {verdict[9:90]}" if verdict and bad else "")}
+
+
 def caches_row():
     left = [str(p / "startupCache") for p in local_profiles() if (p / "startupCache").is_dir() and any((p / "startupCache").iterdir())]
     return {"check": "profiles: no stale startup cache from an earlier build", "ok": not left,
@@ -428,7 +455,7 @@ def run(task_id, do_backup=True, say=print, install_dir=None, use_installer=Fals
     else:
         rc, secs = install(installer, target, say=say)
     cleared = clear_startup_caches(say=say)
-    rows = verify(target, version, marker=marker) + [caches_row()]
+    rows = verify(target, version, marker=marker) + [caches_row(), desktop_icons_row(say=say)]
     ok = rc == 0 and all(r["ok"] for r in rows)
     task.journal(t, "install", installer=str(installer), target=str(target), rc=rc, seconds=round(secs), ok=ok,
                  rows=[(r["check"], r["ok"]) for r in rows], backup=str(bdir) if bdir else None, caches_cleared=cleared)
