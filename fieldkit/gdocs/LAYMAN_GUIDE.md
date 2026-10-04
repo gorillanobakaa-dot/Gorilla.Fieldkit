@@ -434,3 +434,70 @@ A checker cannot tell whether an analogy is true, whether a step is small
 enough, or whether the worst case is the real worst case. Those are your job. A
 document can pass every machine check and still fail the reader. The checklist
 in section 12 is for the part no machine does.
+
+---
+
+## 14. Where the document goes: on the page, never behind it
+
+A layman document that nobody opens was never published.
+
+On 4 October 2026 three releases went out with a complete, checked plain-language
+document attached to the release, and this at the bottom of the page:
+
+> **Full notes**
+> - `v0.1.137-release-notes.layman.md`, plain English
+
+The page itself held a summary. The reader the document was written for, someone
+deciding on that page whether to download anything, was the one reader who would
+never see it. A person who has never opened a terminal does not open an attached
+file with `.md` on the end. The link was also written in a form that does not
+open from a release page at all.
+
+It is like printing the instructions for a medicine and then locking them in the
+pharmacy's filing cabinet, with a note on the box saying where the cabinet is.
+
+The rule:
+
+- **The plain-language text goes on the page the reader lands on, in full.**
+  Not a summary of it. Not a link to it.
+- **It comes first.** The developer text follows it, also in full.
+- **The page opens by answering three questions**, each under its own heading,
+  before anything else:
+  1. *What is this program?* Assume the reader has never heard of it.
+  2. *Should you download this version?* Yes, no, or only if, with reasons, and
+     when not to.
+  3. *Why this matters to you.* One comparison from ordinary life, then what it
+     means for them in one line.
+- **Every link is a full web address.** A link such as `docs/GUIDE.md` does not
+  open from a release page.
+
+This is not left to memory. The page is built and checked by a command:
+
+```
+fieldkit release-page compose --opening OPENING.md --layman LAYMAN.md --developer DEVELOPER.md --out PAGE.md
+```
+
+It refuses to write a page that breaks the rule, and prints every reason. To
+check a page that already exists:
+
+```
+fieldkit release-page check PAGE.md --layman LAYMAN.md --developer DEVELOPER.md
+```
+
+The opening is the one part you write by hand, and the part that decides whether
+the reader stays. Section 6 is how to find its comparison.
+
+---
+
+## 15. Why any of this is done
+
+The reasons are in one document, the Gorilla Open Source Philosophy. Read it
+before you write anything for a reader:
+
+```
+fieldkit docs philosophy
+```
+
+Its shortest form: open source gave the world the recipe and forgot to teach
+people how to cook. Publishing the code is not the same as being understood. The
+explanation is not an extra. It is the work.

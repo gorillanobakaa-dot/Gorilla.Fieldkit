@@ -447,6 +447,9 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | Release gate for leaks and telemetry | `fieldkit build-harness leakgate TASK --release` |
 | Write or check the dual-track documentation | `fieldkit docs plan / prep / render / check` |
 | Learn how to write for a reader who has never opened a terminal | `fieldkit docs guide` |
+| Read why: the Gorilla Open Source Philosophy | `fieldkit docs philosophy` |
+| Build a release page with both documents on it, plain language first | `fieldkit release-page compose` |
+| Check a release page before publishing it | `fieldkit release-page check PAGE` |
 
 Pipelines that ship: `office-deliver`, `firefox-windows` (drives the Gorilla Firefox build
 harness) and `debian-kernel`. Triage knows Firefox on Windows, the Debian kernel and Debian

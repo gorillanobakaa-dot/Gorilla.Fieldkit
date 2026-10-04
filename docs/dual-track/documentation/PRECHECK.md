@@ -1,6 +1,6 @@
 # Offline Pre-Check: documentation
 
-*Generated 2026-10-04 17:27:44 by rules only. No model was involved, so everything below is a deterministic finding about the files as they are on disk.*
+*Generated 2026-10-04 21:00:54 by rules only. No model was involved, so everything below is a deterministic finding about the files as they are on disk.*
 
 ## Files Scanned
 
@@ -8,9 +8,10 @@
 |---|---|---|---|---|---|
 | `gdocs____init__.py` | py | 18 | 15 | 3 | `ba79afe1ad0c8cd1` |
 | `gdocs__checks.py` | py | 490 | 414 | 119 | `2688f701ade79022` |
-| `gdocs__cli.py` | py | 169 | 144 | 57 | `41cbe2f202da598d` |
+| `gdocs__cli.py` | py | 237 | 202 | 73 | `b2d69dda4f34d5f5` |
 | `gdocs__dualtrack.py` | py | 64 | 50 | 8 | `ccbf56b7c74821ac` |
 | `gdocs__groups.py` | py | 173 | 134 | 35 | `fa6888880fc3e5a6` |
+| `gdocs__releasepage.py` | py | 173 | 138 | 28 | `b0353caa77e9e8dd` |
 | `gdocs__stages.py` | py | 108 | 84 | 42 | `1030b786aff5db77` |
 | `gdocs__workflow.py` | py | 418 | 352 | 99 | `9b3fe0effdf2a2f2` |
 

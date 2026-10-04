@@ -7,6 +7,9 @@
     fieldkit docs check [GROUP...] [--strict]  coverage + Gorilla checks on committed docs (exit 3); --strict: stale fails
     fieldkit docs index                        write docs/dual-track/README.md
     fieldkit docs guide                        print the guide to writing for a reader who has never opened a terminal
+    fieldkit docs philosophy                   print the Gorilla Open Source Philosophy: why any of this is done
+    fieldkit release-page compose --opening F --layman F --developer F [--extra F] --out F
+    fieldkit release-page check PAGE [--layman F] [--developer F]   (exit 3 with every reason)
 
 Registered in fieldkit/cli.py by `register(sub, common)`.
 """
@@ -23,11 +26,25 @@ GUIDE = Path(__file__).resolve().parent / "LAYMAN_GUIDE.md"
 def register(sub, common):
     d = sub.add_parser("docs", parents=[common],
                        help="dual-track documentation (Gorilla.Documentation.IBM.Style): plan, prep, render, check, guide")
-    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index", "guide"])
+    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index", "guide", "philosophy"])
     d.add_argument("groups", nargs="*", help="group names from docs/groups.yaml (default: see each action)")
     d.add_argument("--force", action="store_true", help="prep: re-prep even when the prep files are current")
     d.add_argument("--strict", action="store_true", help="check: a stale group is a failure (release gate)")
     d.set_defaults(fn=cmd_docs)
+
+    # The release page is built and checked by code, because a page written by
+    # hand hid the plain-language track behind a link three releases running.
+    # See releasepage.py.
+    r = sub.add_parser("release-page", parents=[common],
+                       help="build or check a release page: both tracks in full on the page, plain language first")
+    r.add_argument("action", choices=["compose", "check"])
+    r.add_argument("page", nargs="?", help="check: the page to check")
+    r.add_argument("--opening", help="compose: the opening (what it is, should you download it, why it matters)")
+    r.add_argument("--layman", help="the rendered plain-language track")
+    r.add_argument("--developer", help="the rendered developer track")
+    r.add_argument("--extra", help="compose: optional material placed between the two tracks")
+    r.add_argument("--out", help="compose: where to write the page")
+    r.set_defaults(fn=cmd_release_page)
     return d
 
 
@@ -55,9 +72,60 @@ def _guide(as_json):
     return 0
 
 
+def _read(path):
+    return Path(path).read_text(encoding="utf-8")
+
+
+def cmd_release_page(a):
+    from . import releasepage as RP
+    try:
+        if a.action == "compose":
+            missing = [n for n in ("opening", "layman", "developer", "out") if not getattr(a, n)]
+            if missing:
+                print("fieldkit release-page compose: needs --" + " --".join(missing))
+                return 2
+            page = RP.compose(_read(a.opening), _read(a.layman), _read(a.developer),
+                              _read(a.extra) if a.extra else "")
+            findings = RP.check(page, _read(a.layman), _read(a.developer))
+            if findings:
+                # Nothing is written: a page that fails is not left lying about
+                # where it can be published by mistake.
+                for f in findings:
+                    print("REFUSED: " + f)
+                print(f"\nNEXT: fix the opening ({a.opening}) and compose again; "
+                      "`fieldkit docs guide` explains what the opening must say")
+                return 3
+            Path(a.out).write_text(page, encoding="utf-8", newline="\n")
+            _emit({"written": a.out, "bytes": len(page.encode("utf-8"))}, a.json,
+                  lambda r: print(f"wrote {r['written']} ({r['bytes']} bytes): both tracks in full, plain language first\n"
+                                  f"NEXT: fieldkit release-page check {r['written']} --layman {a.layman} --developer {a.developer}"))
+            return 0
+        if not a.page:
+            print("fieldkit release-page check: needs the page to check")
+            return 2
+        findings = RP.check(_read(a.page), _read(a.layman) if a.layman else "",
+                            _read(a.developer) if a.developer else "")
+        _emit({"page": a.page, "findings": findings}, a.json,
+              lambda r: print("\n".join("FAIL: " + f for f in r["findings"]) if r["findings"]
+                              else f"OK: {r['page']} carries both tracks in full, plain language first, with no link away"))
+        return 3 if findings else 0
+    except OSError as e:
+        print(f"fieldkit release-page: {e}")
+        return 1
+
+
 def cmd_docs(a):
     if a.action == "guide":
         return _guide(a.json)
+    if a.action == "philosophy":
+        from . import releasepage as RP
+        text = RP.philosophy_text()
+        if a.json:
+            print(json.dumps({"path": str(RP.PHILOSOPHY), "text": text}, indent=1, ensure_ascii=False))
+        else:
+            print(text)
+            print("NEXT: fieldkit docs guide   (how to write the plain-language track this asks for)")
+        return 0
     from . import groups as G
     from . import workflow as W
     try:

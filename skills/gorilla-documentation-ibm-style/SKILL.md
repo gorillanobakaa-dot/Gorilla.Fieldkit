@@ -32,6 +32,12 @@ fieldkit docs render [GROUP...]    # dual_track render, then the Gorilla checks 
 fieldkit docs check [--strict]     # coverage + checks on the committed docs; --strict: stale fails too
 fieldkit docs index                # docs/dual-track/README.md: links, scores, last render, stale flag
 fieldkit docs guide                # the long guide to the layman track, for any project: why each rule exists, with examples
+fieldkit docs philosophy           # why: read it before writing for a reader
+fieldkit release-page compose --opening O.md --layman L.md --developer D.md --out PAGE.md
+                                   # a release page with BOTH tracks in full on it, plain language first; refuses
+                                   # a page that links to the notes instead, or opens without saying what the
+                                   # program is, whether to download it and why it matters
+fieldkit release-page check PAGE.md --layman L.md --developer D.md   # exit 3 with every reason
 ```
 
 Or as a pipeline: `fieldkit pipeline run gorilla-documentation-ibm-style --only <stage>`

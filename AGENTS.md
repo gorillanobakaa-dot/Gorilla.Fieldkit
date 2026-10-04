@@ -35,6 +35,8 @@ fieldkit cards list|show / readiness             each tool's contract and trust 
 fieldkit release check|prove SPEC                published == tested; every claim proven, per platform
 fieldkit docs plan|prep|fill|render|check        dual-track documentation: a layman track and a developer track
 fieldkit docs guide                              how to write for a reader who has never opened a terminal
+fieldkit docs philosophy                         why: the Gorilla Open Source Philosophy. Read it before writing for a reader
+fieldkit release-page compose|check              build or check a release page: both tracks in full ON the page, plain language first
 fieldkit lifecycle SPEC --approve                install, verify, uninstall; list what was left behind
 ```
 
@@ -48,6 +50,11 @@ fieldkit lifecycle SPEC --approve                install, verify, uninstall; lis
 - **Measure.** `fieldkit exam` shows whether the kit really helps a given model.
 
 ## Rules this code enforces, and that you should keep to
+
+0. **The explanation is the product.** Every release page carries the plain-language
+   document in full, on the page, before the developer one, and opens by saying what the
+   program is, whether to download it and why it matters. Never a summary with a link.
+   Build the page with `fieldkit release-page compose`; it refuses a page that breaks this.
 
 1. **Verify the artefact, not the exit code.** A stage is done only when its verify
    checks pass.

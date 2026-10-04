@@ -196,17 +196,31 @@ class Sampler(threading.Thread):
             self.stop_flag.wait(self.interval)
 
 
-def watch_after_kill(build_dir, seconds):
-    """-> processes whose executable is under build_dir seen during `seconds` after the kill."""
+def watch_after_kill(build_dir, seconds, killed_at=None):
+    """-> processes from build_dir that outlive the browser: still running at the END of the `seconds` window, or
+    started after the kill (a relaunch or a detached task). 2026-10-04 (build 26 gate): every process merely SEEN in the
+    window counted, and taskkill returns before Windows has finished removing the processes it ends, so a process in
+    the middle of dying read as "alive after shutdown" (8 times in one run). Each returned row says why it counts."""
     bd = str(Path(build_dir)).lower()
-    seen = {}
+    killed_ft = int(((killed_at or time.time()) + 11644473600) * 10_000_000)      # Windows FILETIME of the kill
+    seen, last = {}, {}
     t0 = time.time()
-    while time.time() - t0 < seconds:
+    while True:
+        last = {}
         for r in snapshot_processes():
             if (r.get("ExecutablePath") or "").lower().startswith(bd):
                 seen.setdefault(r["ProcessId"], r)
+                last[r["ProcessId"]] = r
+        if time.time() - t0 >= seconds:
+            break
         time.sleep(2)
-    return list(seen.values())
+    out = []
+    for pid, r in seen.items():
+        if pid in last:
+            out.append({**r, "why": f"still running {seconds} s after the browser was closed"})
+        elif (r.get("Created") or 0) > killed_ft:
+            out.append({**r, "why": "started after the browser was closed"})
+    return out
 
 
 # ------------------------------------------------------------------------------------------- DNS witness
@@ -459,8 +473,9 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     mitm_alive = mitm is not None and mitm.poll() is None
     sampler.stop_flag.set()
     sampler.join(timeout=30)
+    killed_at = time.time()
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
-    after_kill = watch_after_kill(build_dir, watch)
+    after_kill = watch_after_kill(build_dir, watch, killed_at=killed_at)
     after = fs_snapshot(watch_dirs())
     if packets:
         pktmon_stop(etl, pcap)
@@ -482,7 +497,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                    "detail": r.get("ExecutablePath") or "", "cmd": (r.get("CommandLine") or "")[:300]})
     for r in after_kill:
         ev.append({**base, "sensor": "process-tree", "kind": "process-after-shutdown", "value": (r.get("Name") or "?").lower(),
-                   "detail": r.get("ExecutablePath") or ""})
+                   "detail": f"{r.get('why', '')}: pid {r.get('ProcessId')} {(r.get('CommandLine') or r.get('ExecutablePath') or '')[:200]}"})
     local_ports = set()
     for s in sampler.socks:
         proto, state, laddr, lport, raddr, rport, pid = s

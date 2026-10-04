@@ -31,6 +31,9 @@ The source documents four choices against alternatives. (1) Flat staging instead
 | `FIELDKIT_DUAL_TRACK` | `env path` | `unset` | First place `dualtrack.path()` looks. | Then `"dual_track"` in `fieldkit.local.json`. |
 | `--var groups=...` | `pipeline var` | `""` | Names groups for the pipeline stages; space or comma separated. | Empty means the stale groups. |
 | `docs guide` | `action` | `n/a` | Prints `fieldkit/gdocs/LAYMAN_GUIDE.md`; with `--json`, an object with `path`, `lines` and `text`. | Handled before `groups` and `workflow` are imported, so it needs no `docs/groups.yaml` and reads one file. |
+| `release-page compose` | `command` | `n/a` | Builds a release page from `--opening`, `--layman`, `--developer` and optional `--extra`, in a fixed order, and writes it to `--out`. | Runs `releasepage.check` on the result first; on any finding prints `REFUSED:` lines, writes nothing and exits 3. |
+| `release-page check PAGE` | `command` | `n/a` | Lists every reason a page must not be published; `--layman` and `--developer` add the full-text checks. | Exit 3 when there are findings, 0 otherwise, 1 if a file cannot be read. |
+| `docs philosophy` | `action` | `n/a` | Prints `fieldkit/gdocs/PHILOSOPHY.md`; with `--json`, an object with `path` and `text`. | Reads one file that ships with the package. |
 
 ## API Surface
 
@@ -48,6 +51,8 @@ The source documents four choices against alternatives. (1) Flat staging instead
 | `checks.check_layman / check_developer` | The deterministic checks per track. | none |
 | `checks.check_command(cmd, parser)` | Subcommand, action and option names against `fieldkit.cli.build_parser()`. | none |
 | `gdocs.cli._guide(as_json)` | Reads `cli.GUIDE` (`LAYMAN_GUIDE.md` beside the module) and prints it, followed by a `NEXT:` line. Returns 0, or 1 if the file cannot be read. | none |
+| `releasepage.compose(opening, layman_md, developer_md, extra='')` | Opening, then the plain-language track in full under a marker comment, then `extra`, then the developer track in full. Each track loses its own title block and has its headings demoted one level outside code fences. | none |
+| `releasepage.check(page, layman_md='', developer_md='')` | Findings for: an opening heading missing or (for what-it-is) below line 40; a track whose whitespace-normalised text is not on the page; the developer marker before the plain-language marker; a link to a `release-notes.layman.md` or `.developer.md` file; a relative link or image; a `Full notes` heading. | none |
 
 ## Kill Switches
 
@@ -254,6 +259,9 @@ fieldkit next gorilla-documentation-ibm-style
 | Non-editable installs lack WRITER_BRIEF.md | 🤖 model inference | *(none — model judgment)* |
 | The guide is a separate file so that editing it does not make every group stale | 📄 stated in input | the brief's hash is part |
 | `docs guide` works outside a Fieldkit checkout that has no groups file | 🤖 model inference | *(none — model judgment)* |
+| compose refuses a failing page instead of writing it | 📄 stated in input | Nothing is written: a page that fails is not left lying about |
+| The checks are textual and do not assess the quality of the opening | 📄 stated in input | Judge whether the opening is well written |
+| Matching the track by normalised text means any edit to the track on the page is reported as missing | 🤖 model inference | *(none — model judgment)* |
 
 
 ---

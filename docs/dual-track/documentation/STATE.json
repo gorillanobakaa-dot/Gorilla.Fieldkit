@@ -5,15 +5,15 @@
  "metrics": {
   "developer": {
    "commands": 21,
-   "words_total": 2455
+   "words_total": 2723
   },
   "layman": {
-   "commands": 22,
+   "commands": 24,
    "concept_rows": 11,
    "glossary_terms": 9,
    "trust_steps": 5,
    "usage_steps": 7,
-   "words_total": 4729
+   "words_total": 5087
   }
  },
  "rendered": "2026-10-04",
@@ -24,9 +24,10 @@
  "sources": {
   "gdocs/__init__.py": "ba79afe1ad0c8cd1a9109fe7d90fd80f3e4111de7e891b8b7fdfddae7cd5645e",
   "gdocs/checks.py": "2688f701ade79022db0c1b090df669981947cab62e394797895d158ec3eae5f0",
-  "gdocs/cli.py": "41cbe2f202da598deea59d7433ee4fb018bbf84b7768e63b9fa8af0e236f0adc",
+  "gdocs/cli.py": "b2d69dda4f34d5f5b6f58b652f999d89fa1d9edb3dae8f40b09977d45e5ebd15",
   "gdocs/dualtrack.py": "ccbf56b7c74821ac62b3be7c7d720a7eb8389fadee57f680547730497a69a45d",
   "gdocs/groups.py": "fa6888880fc3e5a6db7aafa69f99c8bcc39f54377b8407d4bd956e7ac55f4a51",
+  "gdocs/releasepage.py": "b0353caa77e9e8dd39a9654d1f3aa2b86516dd1e775bd873023af5a42567f870",
   "gdocs/stages.py": "1030b786aff5db77f557eff6199d832867a548bc4793016c04809f4539dc94be",
   "gdocs/workflow.py": "9b3fe0effdf2a2f2b100e9fef07624a9480f6ef83d7da27d121e7d7766142e2e"
  },

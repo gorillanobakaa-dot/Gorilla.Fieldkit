@@ -148,6 +148,14 @@ Sometimes the code itself names a command that does not exist. A page may quote 
 
 The checks in this tool can count sections and find banned words. They cannot tell whether a comparison is true or whether a step is small enough to follow. So the tool also carries a long written guide, in the file `LAYMAN_GUIDE.md`, that explains why each rule exists and shows wrong and right examples. It is like the difference between a marking sheet and a teacher: the marking sheet says what is missing, the teacher says how to do it. To read it, type `fieldkit docs guide` and press Enter. That command prints the guide and changes nothing on your computer. The guide is written for any project, not only for Fieldkit. Whether writers who read it produce better pages is not measured.
 
+### A release page is built by the tool, so the plain explanation cannot be left off it
+
+A release page is the web page where a person decides whether to download a new version. Three times in one day, a writer put a short summary on that page and attached the full plain-language explanation as a separate file, with a link to it at the bottom. The reader the explanation was written for would never open that file. It is like printing the instructions for a medicine and then locking them in the pharmacy's filing cabinet, with a note on the box saying where the cabinet is. So the tool now builds the page itself. You give it three files: an opening you write by hand, the plain-language explanation, and the developer explanation. It puts them on one page in a fixed order, plain language first, both in full. To build a page, type `fieldkit release-page compose --opening OPENING.md --layman LAYMAN.md --developer DEVELOPER.md --out PAGE.md` and press Enter. If the opening does not say what the program is, whether to download it and why it matters, or if the page sends the reader to another file, the tool writes nothing and lists every reason. The tool cannot judge whether the opening is well written; that part is still the writer's job.
+
+### The reasons for all of this come with the tool
+
+The tool carries a document called the Gorilla Open Source Philosophy, which explains why every piece of work gets a plain-language explanation as well as a technical one. It is like the page at the front of a rule book that says what the rules are for. To read it, type `fieldkit docs philosophy` and press Enter. That command prints the document and changes nothing on your computer.
+
 ## What This Means For You
 
 ### Battery, Processor & Memory
@@ -303,6 +311,9 @@ Documentation is where most people meet a project, and documentation is usually 
 | Not tested on Linux in this form | 🤖 model inference | *(none — model judgment)* |
 | `fieldkit docs guide` prints a guide and changes nothing | 📄 stated in input | changes nothing and needs no group, so it works in any folder |
 | The guide's effect on the quality of pages is unknown | 🤖 model inference | *(none — model judgment)* |
+| The page builder writes nothing when a rule is broken | 📄 stated in input | Nothing is written: a page that fails is not left lying about |
+| The page builder cannot judge the quality of the opening | 📄 stated in input | Judge whether the opening is well written |
+| A non-technical reader would not open an attached file | 🤖 model inference | *(none — model judgment)* |
 
 
 ---

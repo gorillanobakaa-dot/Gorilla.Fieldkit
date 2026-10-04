@@ -35,6 +35,8 @@
     fieldkit exam report
     fieldkit docs plan|prep|fill|render|check|index [GROUP...]   dual-track docs (Gorilla.Documentation.IBM.Style)
     fieldkit docs guide                          how to write for a reader who has never opened a terminal
+    fieldkit docs philosophy                     why: the Gorilla Open Source Philosophy
+    fieldkit release-page compose|check          a release page with both tracks in full on it, plain language first
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
     fieldkit build-harness latest|vault|start|approve|next|status|submit|unblock|log ...
