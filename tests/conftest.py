@@ -25,3 +25,31 @@ for _k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX", "GIT_OBJE
     _os.environ.pop(_k, None)
 _os.environ["FIELDKIT_RECORDER"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-recorder-"), "mcp.jsonl")
 _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test-office-backups-")
+
+
+# Tests never look a name up on the real network (2026-10-06: during the build 27 release leak test the commit hook's
+# test run resolved incoming.telemetry.mozilla.org, www.anthropic.com and ublockorigin.github.io, and the gate's DNS
+# witness had to work out that it was not the browser). Loopback names and IP literals still resolve.
+import ipaddress as _ip
+import socket as _socket
+
+_real_getaddrinfo = _socket.getaddrinfo
+
+
+def _offline_getaddrinfo(host, *args, **kwargs):
+    h = host.decode() if isinstance(host, bytes) else host
+    if h in (None, "", "localhost") or str(h).endswith(".localhost"):
+        return _real_getaddrinfo(host, *args, **kwargs)
+    try:
+        _ip.ip_address(str(h).strip("[]"))
+        return _real_getaddrinfo(host, *args, **kwargs)
+    except ValueError:
+        raise _socket.gaierror(11001, f"tests are offline: {h} was not looked up")
+
+
+def _offline_gethostbyaddr(addr):
+    raise _socket.herror(1, f"tests are offline: no reverse lookup of {addr}")
+
+
+_socket.getaddrinfo = _offline_getaddrinfo
+_socket.gethostbyaddr = _offline_gethostbyaddr
