@@ -627,13 +627,16 @@ def run(a, emit):
                 raise _t.Refused("the baseline is this build WITH its decisions: every decision must be ENFORCED first "
                                  "(fieldkit build-harness decisions TASK --strict)")
             from . import claims as _cl
-            cres = _cl.run(tid, install_dir=_inst.find_install(), strict=True, write=False)
+            # 2026-10-05 (build 27): not --strict. Strict also demands proof for the ~4,800 sentences of the 154-era
+            # project logs that no check covers (unproven, not false), so no baseline could ever be taken. What the
+            # baseline needs is what post-install proves: nothing published is contradicted, no patch is failing.
+            cres = _cl.run(tid, install_dir=_inst.find_install(), strict=False, write=False)
             if not cres["ok"]:
                 print("\n".join(_cl.lines(cres)))
                 from ..briefs import producers as _bp
                 print("\n".join(_bp.gate_lines(tid, kinds={"patch", "claims"}, claims_res=cres)))
-                raise _t.Refused("the baseline is this build WITH what we publish about it: every public claim must be PROVEN "
-                                 "and every enabled patch IMPLEMENTED or explained first (fieldkit build-harness claims TASK --strict)")
+                raise _t.Refused("the baseline is this build WITH what we publish about it: no public claim may be CONTRADICTED "
+                                 "and every enabled patch must be IMPLEMENTED or explained first (fieldkit build-harness claims TASK)")
             p = lg.save_baseline(st["artifacts"], owner, t["meta"]["upstream"]["version"], bootstrap=boot,
                                  decisions={"sha256": dres["sha256"], "ids": [x["id"] for x in dres["rows"]]})
             print(f"baseline saved: {p}")

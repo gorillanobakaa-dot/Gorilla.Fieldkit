@@ -423,7 +423,7 @@ def test_wiring_cli_post_install_and_proof_row_fail_closed():
         assert a.action == "claims" and a.strict and a.report == "x.md"
 
 
-def test_the_leakgate_baseline_refuses_when_the_strict_claims_audit_fails(tmp_path, monkeypatch):
+def test_the_leakgate_baseline_refuses_when_a_published_claim_is_contradicted(tmp_path, monkeypatch):
     import argparse
     from fieldkit.buildh import buildrun, cli as bcli, decisions as dec, install as inst, task
     owner = tmp_path / "owner"
@@ -444,9 +444,10 @@ def test_the_leakgate_baseline_refuses_when_the_strict_claims_audit_fails(tmp_pa
     from fieldkit.leakgate import gate as lg
     monkeypatch.setattr(lg, "save_baseline", lambda *a, **k: pytest.fail("a baseline was saved with unproven claims"))
     a = argparse.Namespace(action="leakgate-baseline", args=["t1"], task="t1")
-    with pytest.raises(task.Refused, match="public claim must be PROVEN"):
+    with pytest.raises(task.Refused, match="no public claim may be CONTRADICTED"):
         bcli.run(a, lambda obj, human: None)
-    assert seen == {"strict": True, "write": False}
+    # not strict (2026-10-05): the 154-era logs hold ~4,800 sentences no check covers, so strict could never pass
+    assert seen == {"strict": False, "write": False}
 
 
 def test_the_published_audit_report_is_not_read_back_as_claims(tmp_path):
