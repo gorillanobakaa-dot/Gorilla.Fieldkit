@@ -178,15 +178,25 @@ class Sampler(threading.Thread):
     """Process tree + sockets every `interval` s until stopped; then the post-kill watch looks for any process whose
     executable lives in the build directory (a relaunch, an updater, a crash helper)."""
 
-    def __init__(self, root_pid, interval=2.0):
+    def __init__(self, root_pid, interval=2.0, build_dir=None):
         super().__init__(daemon=True)
         self.root, self.interval, self.stop_flag = root_pid, interval, threading.Event()
+        self.build_dir = str(build_dir).lower() if build_dir else None
         self.procs, self.socks, self.timeline = {}, set(), []
 
     def run(self):
         t0 = time.time()
         while not self.stop_flag.is_set():
-            rows = tree(snapshot_processes(), self.root)
+            snap = snapshot_processes()
+            rows = tree(snap, self.root)
+            # 2026-10-05 (build 27 gate): started from an ELEVATED shell, Firefox's launcher process starts the browser
+            # de-elevated through the shell, so the real browser is not a child of the process we started; the
+            # tree walk never saw it, WM_CLOSE never reached its window and it ran on. Every process running from
+            # this scene's own build copy is the browser's.
+            if self.build_dir:
+                have = {r["ProcessId"] for r in rows}
+                rows += [r for r in snap if r["ProcessId"] not in have
+                         and (r.get("ExecutablePath") or "").lower().startswith(self.build_dir)]
             for r in rows:
                 self.procs.setdefault(r["ProcessId"], r)
             s = snapshot_sockets([r["ProcessId"] for r in rows])
@@ -194,6 +204,12 @@ class Sampler(threading.Thread):
             self.timeline.append({"t": round(time.time() - t0, 1), "processes": len(rows), "sockets": len(s),
                                   "remote": sorted({f"{x[4]}:{x[5]}" for x in s if x[0] == "tcp" and x[4] not in ("", "0.0.0.0", "::", "127.0.0.1", "::1")})})
             self.stop_flag.wait(self.interval)
+
+
+def build_pids(build_dir):
+    """-> ids of the processes running from this build copy (each scene and mode has its own copy)."""
+    bd = str(Path(build_dir)).lower()
+    return [r["ProcessId"] for r in snapshot_processes() if (r.get("ExecutablePath") or "").lower().startswith(bd)]
 
 
 def watch_after_kill(build_dir, seconds, killed_at=None):
@@ -475,23 +491,25 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     cmd = [str(Path(build_dir) / "firefox.exe")] + head + ["-no-remote", "-profile", str(prof)] + list(args) + [url]
     proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             startupinfo=extras.startupinfo_minimized() if graceful else None)
-    sampler = Sampler(proc.pid)
+    sampler = Sampler(proc.pid, build_dir=build_dir)
     sampler.start()
     time.sleep(seconds)
     closed_normally = None
     if graceful:
-        pids = set(sampler.procs) | {proc.pid}
+        pids = set(sampler.procs) | {proc.pid} | set(build_pids(build_dir))
         extras.graceful_close(pids)
-        try:
-            proc.wait(timeout=45)
-            closed_normally = True
-        except subprocess.TimeoutExpired:
-            closed_normally = False
+        # the process we started is only the launcher (it exits at once): wait for the build's own processes
+        deadline = time.time() + 45
+        while build_pids(build_dir) and time.time() < deadline:
+            time.sleep(1)
+        closed_normally = not build_pids(build_dir)
     mitm_alive = mitm is not None and mitm.poll() is None
     sampler.stop_flag.set()
     sampler.join(timeout=30)
     killed_at = time.time()
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    for pid in build_pids(build_dir):                 # a de-elevated browser is not in the launcher's tree
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
     after_kill = watch_after_kill(build_dir, watch, killed_at=killed_at)
     after = fs_snapshot(watch_dirs())
     if packets:
