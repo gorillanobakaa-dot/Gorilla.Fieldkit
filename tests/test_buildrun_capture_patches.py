@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from fieldkit.buildh import buildrun, export, replay
+from fieldkit.buildh import buildrun, changecheck, export, replay
 
 
 @pytest.fixture
@@ -24,9 +24,10 @@ def test_export_runs_before_replay_with_the_patch_set_and_major(owner, monkeypat
     monkeypatch.setattr(export, "export", lambda tid, root, major, say=print: calls.append(("export", tid, root, major)))
     monkeypatch.setattr(replay, "run", lambda tid, say=print: calls.append(("replay", tid)) or
                         {"ok": True, "failures": [], "differ": []})
+    monkeypatch.setattr(changecheck, "commit_patches", lambda owner, msg, say=print: calls.append(("commit",)) or (True, "committed"))
     r = buildrun.capture_patches(T, "task-x", say=lambda m: None)
-    assert r == {"replay": "OK"}
-    assert calls == [("export", "task-x", owner / "gorilla-patchset/patches", "157"), ("replay", "task-x")]
+    assert r == {"replay": "OK", "commit": (True, "committed")}
+    assert calls == [("export", "task-x", owner / "gorilla-patchset/patches", "157"), ("replay", "task-x"), ("commit",)]
 
 
 def test_a_set_that_does_not_reproduce_the_tree_makes_the_build_not_ok(owner, monkeypatch):

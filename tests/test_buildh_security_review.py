@@ -201,9 +201,15 @@ def test_record_takes_the_kind_as_a_kind_token(monkeypatch):
     import argparse
     from fieldkit.buildh import cli as bh
     got = []
+    from fieldkit.buildh import changecheck
     monkeypatch.setattr(handedit, "record", lambda tid, files, note, kind=None: got.append((tid, files, note, kind)) or ["s1"])
+    checked = {"ok": True}
+    monkeypatch.setattr(changecheck, "run", lambda tid, say=print, note=None: got.append(("check-change", tid)) or {"ok": checked["ok"]})
     a = argparse.Namespace(action="record", args=["t1", "kind=privacy", "a/x.cpp", "b/y.cpp"], task=None, note="cut")
-    assert bh.run(a, lambda o, f: None) == 0 and got == [("t1", ["a/x.cpp", "b/y.cpp"], "cut", "privacy")]
+    assert bh.run(a, lambda o, f: None) == 0
+    assert got == [("t1", ["a/x.cpp", "b/y.cpp"], "cut", "privacy"), ("check-change", "t1")]   # every record is checked at once
+    checked["ok"] = False
+    assert bh.run(a, lambda o, f: None) == 3                                                       # and a failed check fails the record
     a = argparse.Namespace(action="record", args=["t1", "kind=port", "kind=privacy", "a/x.cpp"], task=None, note="x")
     with pytest.raises(task.Refused, match="one kind="):
         bh.run(a, lambda o, f: None)

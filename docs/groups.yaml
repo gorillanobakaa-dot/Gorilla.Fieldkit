@@ -60,6 +60,7 @@ groups:
       - buildh/releasecheck.py
       - buildh/relocate.py
       - buildh/replay.py
+      - buildh/changecheck.py
       - buildh/snapshot.py
       - buildh/task.py
       - buildh/techniques.py

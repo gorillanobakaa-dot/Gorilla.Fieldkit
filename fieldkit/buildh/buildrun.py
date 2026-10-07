@@ -738,7 +738,7 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
     return res
 
 
-def capture_patches(t, task_id, say=print):
+def capture_patches(t, task_id, say=print, note=None):
     """Every green build turns its hand steps into public patches and proves the set (owner, 2026-10-07: "THIS
     SHOULD BE DONE AUTOMATICALLY"). Until then export-hand + replay ran only when someone remembered, and the
     release gate was the first place a missing patch would show. Fail closed: a set that does not reproduce the
@@ -751,6 +751,9 @@ def capture_patches(t, task_id, say=print):
     say("  patches: replay (pristine + public patch set = compiled tree)")
     r = rp.run(task_id, say=say)
     if r["ok"]:
-        return {"replay": "OK"}
+        from . import changecheck
+        ok, ev = changecheck.commit_patches(owner, note or f"{t['meta']['upstream']['version']}: hand steps exported after a green check", say)
+        say(f"  patches: {ev}")
+        return {"replay": "OK", "commit": (ok, ev)} if ok else {"ok": False, "replay": "OK", "commit": (ok, ev), "why": ev}
     return {"ok": False, "replay": "FAILED", "why": "the public patch set does not reproduce the compiled tree "
             f"({len(r['failures'])} failure(s), {len(r['differ'])} differing path(s)); fix the patches, then replay again"}

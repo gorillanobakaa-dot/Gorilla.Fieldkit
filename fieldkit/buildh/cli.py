@@ -807,7 +807,14 @@ def run(a, emit):
             raise task.Refused("one kind= per record")
         ids = handedit.record(tid, files, a.note or "", kind=kinds[0] if kinds else None)
         emit({"ok": True, "recorded": ids}, lambda r: print("recorded: " + ", ".join(r["recorded"])))
-        return 0
+        # every recorded change is checked and exported at once, not when someone remembers (owner, 2026-10-07)
+        from . import changecheck
+        r = changecheck.run(tid, say=lambda m: print(m, flush=True), note=a.note)
+        return 0 if r["ok"] else 3
+    if act == "check-change":
+        from . import changecheck
+        r = changecheck.run(tid, say=lambda m: print(m, flush=True), note=a.note)
+        return 0 if r["ok"] else 3
     if act == "build-run":
         from . import buildrun
         r = buildrun.run(tid, force=bool(getattr(a, "force", False)), say=lambda m: print(m, flush=True))

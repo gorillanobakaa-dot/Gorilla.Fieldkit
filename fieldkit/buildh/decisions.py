@@ -108,7 +108,17 @@ def _check(kind, arg, ctx):
         has = arg["text"].replace("\r\n", "\n") in p.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
         return (has if kind == "tree_contains" else not has), f"{arg['path']}: {'has' if has else 'lacks'} {arg['text'][:60]!r}"
     if kind == "pref":
-        if not install:
+        if not install and workdir and ctx.get("source_prefs"):
+            # no build yet: judge the source tree's default-pref files (check-change after every source edit). Opt-in
+            # only: a public claim is proven on the shipped artefact, never on the source (test_buildh_claims)
+            from . import proof
+            if "tree_prefs" not in ctx:
+                ctx["tree_prefs"] = proof.tree_prefs(workdir)
+            got = ctx["tree_prefs"].get(arg["name"])
+            if got and got[2]:
+                raise Unreadable(f"{arg['name']} is set under #if in the tree; the install decides it")
+            ctx["shipped"] = {n: v[:2] for n, v in ctx["tree_prefs"].items()}
+        elif not install:
             raise Unreadable("no installed browser")
         if "shipped" not in ctx:
             from . import proof
@@ -199,9 +209,9 @@ def _image_sharp(workdir, arg):
     return have >= ratio * want, f"{arg['path']} edge energy {have:.1f} vs {want:.1f} from {arg['master']} (need {ratio:.0%})"
 
 
-def check(owner_root, workdir=None, install_dir=None, strict=False):
+def check(owner_root, workdir=None, install_dir=None, strict=False, source_prefs=False):
     reg = load(owner_root)
-    ctx = {"owner": owner_root, "workdir": workdir, "install": install_dir}
+    ctx = {"owner": owner_root, "workdir": workdir, "install": install_dir, "source_prefs": source_prefs}
     rows = []
     for e in reg["entries"]:
         st = e.get("status")

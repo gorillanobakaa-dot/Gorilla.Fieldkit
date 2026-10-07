@@ -100,6 +100,18 @@ def shipped_prefs(install_dir):
     return out
 
 
+def tree_prefs(workdir):
+    """{name: (value, flag, conditional)} as the SOURCE tree's default-pref files have them, in the order the install
+    loads them (all.js, firefox.js, branding: the later file wins). For checks that run before anything is built
+    (build-harness check-change, 2026-10-07); a line under #if is marked, since only the build decides it."""
+    out = {}
+    for src in [s for s, _, _ in PREF_SOURCES] + [BRANDING_PREFS[0]]:
+        p = Path(workdir) / src
+        if p.is_file():
+            out.update(pref_lines(p.read_text(encoding="utf-8", errors="replace")))
+    return out
+
+
 def prefs_row(workdir, install_dir):
     intent = pref_intent(workdir)
     have = shipped_prefs(install_dir)
