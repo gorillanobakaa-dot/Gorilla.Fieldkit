@@ -731,4 +731,26 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
     for r in rows:
         say(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence']}")
     task.journal(t, "build-verified", ok=all(r["ok"] for r in rows))
-    return {"ok": all(r["ok"] for r in rows), "stops": stops, "log": str(log_path), "rows": rows}
+    ok = all(r["ok"] for r in rows)
+    res = {"ok": ok, "stops": stops, "log": str(log_path), "rows": rows}
+    if ok:
+        res.update(capture_patches(t, task_id, say))
+    return res
+
+
+def capture_patches(t, task_id, say=print):
+    """Every green build turns its hand steps into public patches and proves the set (owner, 2026-10-07: "THIS
+    SHOULD BE DONE AUTOMATICALLY"). Until then export-hand + replay ran only when someone remembered, and the
+    release gate was the first place a missing patch would show. Fail closed: a set that does not reproduce the
+    compiled tree makes the build NOT OK."""
+    from . import export as ex, replay as rp
+    owner = Path(_owner_root(t))
+    pol = json.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+    say("  patches: export-hand (hand steps -> public patch set)")
+    ex.export(task_id, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=say)
+    say("  patches: replay (pristine + public patch set = compiled tree)")
+    r = rp.run(task_id, say=say)
+    if r["ok"]:
+        return {"replay": "OK"}
+    return {"ok": False, "replay": "FAILED", "why": "the public patch set does not reproduce the compiled tree "
+            f"({len(r['failures'])} failure(s), {len(r['differ'])} differing path(s)); fix the patches, then replay again"}
