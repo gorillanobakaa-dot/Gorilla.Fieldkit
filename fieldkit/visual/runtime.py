@@ -26,9 +26,9 @@ Rules (each per page and per DPR; FAIL and UNVERIFIABLE fail the row):
     RT-UPSCALE    a raster painted larger than its pixels (painted CSS px x DPR > natural px by more than 5 %)
     RT-BROKEN     an image that does not load (natural width 0)
     RT-ZERO       a visible element with an icon whose box is 0 wide or 0 high
-    RT-TINYLOGO   the Gorilla artwork (about-logo*, about.*) painted smaller than TINY_PX CSS px on its longer side:
-                  at that size its detail is lost and it only costs memory and decoding (owner, 2026-10-07: "I would
-                  rather NOT have any icon at all"); the icon ladder (iconNN.png) is recorded, not judged
+    RT-TINYLOGO   a Gorilla picture (about-logo*, about.*, the iconNN.png ladder, document*) painted smaller than
+                  TINY_PX CSS px on its longer side: at that size its detail is lost and it only costs memory and
+                  decoding (owner, 2026-10-07: "I would rather NOT have any icon at all"; 2026-10-08: the ladder too)
     RT-CONTENT    a page that must show something does: the new tab and start page show the Gorilla logo and the search box
     RT-CLIP       text wider than its own box: clipped or ellipsed, or (overflow visible) spilling out where it is
                   cut off, leaves its parent's content box or runs into a sibling
@@ -255,7 +255,8 @@ def stop_leftovers(copy):
 
 # ------------------------------------------------------------------------------------------- judgement
 TINY_PX = 64
-ARTWORK = re.compile(r"^chrome://branding/content/(about-logo|about\.)", re.I)
+# the artwork AND the small icon ladder (owner 2026-10-08: no Gorilla drawn small anywhere in the browser)
+ARTWORK = re.compile(r"^chrome://branding/content/(about-logo|about\.|icon\d+\.|document)", re.I)
 
 
 def _it(rule, item, verdict, evidence):

@@ -21,6 +21,9 @@ def _tree(tmp_path, extra=None):
         "toolkit/content/widgets/moz-page-nav/moz-page-nav.css":
             "  > .logo {\n    /* GORILLA D-157-35: no 24 px Gorilla beside the page title (Settings) */\n    display: none;\n",
         "browser/base/content/aboutRobots.css": '.title { background-image: url("chrome://branding/content/about-logo.png"); }\n',
+        "browser/themes/shared/identity-block/identity-block.css":
+            "/* GORILLA D-157-35: no 16 px Gorilla in the address bar on browser pages; the label stays */\n",
+        "toolkit/themes/windows/global/wizard.css": '.wizard-header { list-style-image: url("chrome://branding/content/icon128.png"); }\n',
     }
     files.update(extra or {})
     for rel, text in files.items():
@@ -33,8 +36,8 @@ def _tree(tmp_path, extra=None):
     return w
 
 
-def _result(w):
-    return next(r for r in techniques.scan(w) if r["id"] == "T-157-35-A")
+def _result(w, tid="T-157-35-A"):
+    return next(r for r in techniques.scan(w) if r["id"] == tid)
 
 
 def test_a_tree_with_one_master_holds(tmp_path):
@@ -57,7 +60,18 @@ def test_the_master_back_to_the_svg_fails(tmp_path):
     assert names == {"master-is-the-png", "retired-logo-files"}
 
 
-def test_rt_tinylogo_judges_only_the_artwork_drawn_small():
+def test_small_icons_hold_where_allowed_and_fail_anywhere_new(tmp_path):
+    assert _result(_tree(tmp_path / "ok"), "T-157-35-B")["ok"]          # wizard.css is on the allow list (128 px)
+    w = _tree(tmp_path / "new", {"toolkit/content/aboutX.html": '<link rel="icon" href="chrome://branding/content/icon32.png">\n'})
+    bad = [s for s in _result(w, "T-157-35-B")["signals"] if not s["ok"]]
+    assert [s["name"] for s in bad] == ["small-gorilla-icons"] and "aboutX.html" in bad[0]["detail"]
+    w = _tree(tmp_path / "chip", {"browser/themes/shared/identity-block/identity-block.css":
+                                  "#identity-icon { list-style-image: url(chrome://branding/content/icon16.png); }\n"})
+    names = {s["name"] for s in _result(w, "T-157-35-B")["signals"] if not s["ok"]}
+    assert names == {"chip-hidden", "small-gorilla-icons"}
+
+
+def test_rt_tinylogo_judges_any_gorilla_drawn_small():
     m = {"branding": [
         {"sel": "div.logo", "kind": "background", "url": "chrome://branding/content/about-logo.png", "natural": [1400, 1400],
          "painted": [24, 24]},
@@ -66,8 +80,9 @@ def test_rt_tinylogo_judges_only_the_artwork_drawn_small():
         {"sel": "td img", "kind": "img", "url": "chrome://branding/content/icon32.png", "natural": [32, 32], "painted": [16, 16]},
     ]}
     items = [i for i in runtime.judge_metrics("about:preferences@1x", m, 1) if i["rule"] == "RT-TINYLOGO"]
-    assert len(items) == 1 and items[0]["verdict"] == "FAIL" and "div.logo" in items[0]["item"]
-    assert "24x24 CSS px" in items[0]["evidence"]
+    # the 24 px artwork AND the 16 px ladder icon fail (owner 2026-10-08); the 551 px logo does not
+    assert [i["item"].split(" ", 1)[1] for i in items] == ["div.logo", "td img"]
+    assert all(i["verdict"] == "FAIL" for i in items) and "24x24 CSS px" in items[0]["evidence"]
 
 
 def _png(path, size):

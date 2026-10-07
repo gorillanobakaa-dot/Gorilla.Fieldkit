@@ -356,6 +356,45 @@ TECHNIQUES.append({
     ],
 })
 
+TECHNIQUES.append({
+    "id": "T-157-35-B",
+    "title": "No small Gorilla icon drawn by the browser (tab icons, address bar, rows, dialogs)",
+    "decision": "D-157-35",
+    "found": "2026-10-08: the 16-128 px icon ladder still drew a tiny Gorilla in tabs, the address bar and lists",
+    "problem": ("The small icon files (iconNN.png, document.ico, document_pdf.svg) are the Gorilla shrunk to 16-48 px: "
+                "the artwork is lost at that size and each one is another picture to decode. Firefox names them as tab "
+                "icons, the address-bar chip of browser pages, process rows, dialogs and handler rows."),
+    "concept": ("Inside the browser the Gorilla is drawn large or not at all. Tab icons and page favicons name no "
+                "Gorilla; the address-bar chip shows the label only; rows and dialogs that need a symbol use Firefox's "
+                "neutral ones (info, reload, pdf, page, folder). The ladder stays for Windows (the program and its file "
+                "types use the .ico files) and in the places listed in `allow`, each with its reason."),
+    "apply": ["Remove the name (a <link rel=icon>, a map entry) or swap in a neutral chrome://global/skin/icons/ symbol.",
+              "A new use found by this watch: remove it, or add it to allow with the reason it is never drawn small.",
+              "Prove with probe small-gorilla (tab icons and the chip) and visual RT-TINYLOGO."],
+    "verify": ["this technique in the build gate and check-change", "probe small-gorilla", "visual RT-TINYLOGO"],
+    "signals": [
+        {"name": "chip-hidden", "kind": "must_have", "path": "browser/themes/shared/identity-block/identity-block.css",
+         "text": "GORILLA D-157-35: no 16 px Gorilla in the address bar on browser pages"},
+        {"name": "small-gorilla-icons", "kind": "watch",
+         "pathspec": ["browser", "toolkit", ":!**/test/**", ":!**/tests/**", ":!*.md", ":!**/*.stories.mjs", ":!**/storybook/**"],
+         "regex": r"chrome://branding/content/(icon(16|32|48|64|128)\.png|document\.ico|document_pdf\.svg)",
+         "guard_lines": 0,
+         "allow": {
+             "browser/components/asrouter/modules/InfoBar.sys.mjs": "messaging-system infobars: Gorilla never shows them",
+             "browser/components/asrouter/modules/PanelTestProvider.sys.mjs": "test messages for the messaging system",
+             "browser/components/backup/BackupService.sys.mjs": "written into a backup archive file, not drawn by the browser",
+             "browser/components/shell/CustomIconManager.sys.mjs": "the custom application icon chooser's 64 px preview",
+             "browser/components/urlbar/UrlbarProviderCalculator.sys.mjs": "Mozilla's calculator easter egg (left for the Mozilla-artwork sweep)",
+             "browser/components/urlbar/content/UrlbarView.mjs": "Mozilla's calculator easter egg sprite (left for the Mozilla-artwork sweep)",
+             "browser/components/urlbar/UrlbarProviderQuickSuggestContextualOptIn.sys.mjs": "Firefox Suggest opt-in: Suggest is off",
+             "toolkit/mozapps/extensions/content/components/addon-mlmodel-details.mjs": "ML model cards: ML is off (D-157-21)",
+             "toolkit/mozapps/extensions/content/components/mlmodel-card-list-additions.mjs": "ML model cards: ML is off (D-157-21)",
+             "toolkit/themes/osx/global/wizard.css": "128 px wizard header, macOS",
+             "toolkit/themes/windows/global/wizard.css": "128 px wizard header",
+         }},
+    ],
+})
+
 GUARD = re.compile(r"GORILLA (TECHNIQUE|UNLEASHED)")
 
 
@@ -394,7 +433,16 @@ def _grep(workdir, regex, pathspec):
     return out
 
 
-COMMENT = re.compile(r"^\s*(//|/?\*|#)")
+COMMENT = re.compile(r"^\s*(//|/?\*)")
+# "#" starts a comment only where it is one: in CSS it is an id selector, so `#identity-icon { ... }` on one line was
+# skipped as a comment and a forbidden name in it went unseen (found 2026-10-08 by test_buildh_techniques_one_logo)
+HASH_COMMENT = re.compile(r"^\s*#")
+HASH_FILES = (".py", ".sh", ".mn", ".build", ".yaml", ".yml", ".toml", ".properties", ".ftl", ".ini", ".cfg", ".txt",
+              ".configure", ".mozbuild")
+
+
+def _is_comment(path, text):
+    return bool(COMMENT.match(text)) or (path.lower().endswith(HASH_FILES) and bool(HASH_COMMENT.match(text)))
 KEYWORDS = {"if", "for", "while", "switch", "catch", "with", "return", "function"}
 HEADER = re.compile(r"^(\s*)(?:export\s+)?(?:async\s+|static\s+|get\s+|set\s+)*(?:function\s*\*?\s*)?([#$\w]+)\s*\((?:[^;]*\)\s*\{|\{?)\s*$")
 
@@ -442,7 +490,7 @@ def scan(workdir):
             else:
                 hits = []
                 for path, n, text in _grep(w, s["regex"], s["pathspec"]):
-                    if COMMENT.match(text):
+                    if _is_comment(path, text):
                         continue                          # our own rationale text names the pattern
                     why = s.get("allow", {}).get(path)
                     g = _guarded(w, path, n, t["id"], s.get("guard_lines", 20))
