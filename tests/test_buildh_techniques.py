@@ -62,4 +62,5 @@ def test_a_new_waiter_a_lost_lock_or_returned_code_fails(tmp_path, monkeypatch):
 def test_the_real_registry_is_complete():
     for t in tq.TECHNIQUES:
         assert t["problem"] and t["concept"] and t["apply"] and t["verify"] and t["decision"].startswith("D-")
-        assert any(s["kind"] == "watch" for s in t["signals"]), t["id"]
+        # every technique looks for NEW places in the tree: a watch, or append_only (every changed generated file)
+        assert any(s["kind"] in ("watch", "append_only") for s in t["signals"]), t["id"]
