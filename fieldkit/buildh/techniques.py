@@ -324,6 +324,38 @@ TECHNIQUES.append({
     ],
 })
 
+TECHNIQUES.append({
+    "id": "T-157-35-A",
+    "title": "One master Gorilla logo, linked everywhere; never drawn tiny",
+    "decision": "D-157-35",
+    "found": ("2026-10-07, build 28: the logo shipped as 11 files; an SVG wrapping a 1400 px PNG cost 12-21 MB per "
+              "process, and the artwork was drawn at 24 px beside page titles"),
+    "problem": ("Every different file that holds the Gorilla is decoded and kept on its own, and an SVG that wraps a "
+                "raster is decoded at full size in every process that shows it, whatever size it is drawn at. Models "
+                "kept adding copies (1x/2x PNGs, private copies, wrappers) because that is what Firefox's own branding "
+                "does. Drawn below 64 px the artwork's detail is lost and it only costs decoding."),
+    "concept": ("One plain raster master, chrome://branding/content/about-logo.png (1400 px, Lanczos-made from the "
+                "canonical 2598 px master): one cache entry per process, decoded at the size each page draws it. "
+                "--gorilla-master-icon names it. Nowhere is it drawn smaller than 64 CSS px; the 16-128 px icon "
+                "ladder (iconNN.png) is the only small Gorilla, where an application icon is required."),
+    "apply": ["Point every reference at about-logo.png (an image-set 1x/2x becomes the one url).",
+              "Remove the artwork where it is drawn tiny (visual rule RT-TINYLOGO lists every place, with its size).",
+              "Never add another file holding the artwork; never wrap a raster in an SVG.",
+              "Measure with probe image-memory before and after; compare the probe's pictures."],
+    "verify": ["this technique in the build gate and check-change", "visual RT-TINYLOGO", "probe image-memory",
+               "owner gate check_logo_provenance.py (ICON-002, ASSET-002) on about-logo.png"],
+    "signals": [
+        {"name": "master-is-the-png", "kind": "must_have", "path": "browser/themes/shared/master-redirect.css",
+         "text": '--gorilla-master-icon: url("chrome://branding/content/about-logo.png");'},
+        {"name": "no-page-title-logo", "kind": "must_have", "path": "toolkit/content/widgets/moz-page-nav/moz-page-nav.css",
+         "text": "GORILLA D-157-35: no 24 px Gorilla beside the page title"},
+        {"name": "retired-logo-files", "kind": "watch", "pathspec": ["browser", "toolkit", "docshell", ":!**/test/**",
+                                                                     ":!**/tests/**", ":!*.md"],
+         "regex": r"chrome://branding/content/(about-logo\.svg|about-logo@2x|about-logo-private|about\.svg|about\.png)",
+         "guard_lines": 0, "allow": {}},
+    ],
+})
+
 GUARD = re.compile(r"GORILLA (TECHNIQUE|UNLEASHED)")
 
 

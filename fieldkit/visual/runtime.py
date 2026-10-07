@@ -26,6 +26,9 @@ Rules (each per page and per DPR; FAIL and UNVERIFIABLE fail the row):
     RT-UPSCALE    a raster painted larger than its pixels (painted CSS px x DPR > natural px by more than 5 %)
     RT-BROKEN     an image that does not load (natural width 0)
     RT-ZERO       a visible element with an icon whose box is 0 wide or 0 high
+    RT-TINYLOGO   the Gorilla artwork (about-logo*, about.*) painted smaller than TINY_PX CSS px on its longer side:
+                  at that size its detail is lost and it only costs memory and decoding (owner, 2026-10-07: "I would
+                  rather NOT have any icon at all"); the icon ladder (iconNN.png) is recorded, not judged
     RT-CONTENT    a page that must show something does: the new tab and start page show the Gorilla logo and the search box
     RT-CLIP       text wider than its own box: clipped or ellipsed, or (overflow visible) spilling out where it is
                   cut off, leaves its parent's content box or runs into a sibling
@@ -45,6 +48,7 @@ show their offline state.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -250,6 +254,10 @@ def stop_leftovers(copy):
 
 
 # ------------------------------------------------------------------------------------------- judgement
+TINY_PX = 64
+ARTWORK = re.compile(r"^chrome://branding/content/(about-logo|about\.)", re.I)
+
+
 def _it(rule, item, verdict, evidence):
     return {"layer": "runtime", "rule": rule, "item": item, "verdict": verdict, "evidence": evidence}
 
@@ -261,6 +269,11 @@ def judge_metrics(where, m, dpr):
         items.append(_it("RT-UPSCALE", f"{where} {x.get('sel')}", "FAIL",
                          f"{x.get('kind')} {x.get('url')}: {x['natural'][0]}x{x['natural'][1]} px painted at "
                          f"{x['painted'][0]}x{x['painted'][1]} CSS px x {dpr} = {x.get('upscale')}x upscaled (blurry)"))
+    for x in m.get("branding") or []:
+        if ARTWORK.match(x.get("url") or "") and max(x["painted"]) < TINY_PX:
+            items.append(_it("RT-TINYLOGO", f"{where} {x.get('sel')}", "FAIL",
+                             f"{x.get('kind')} {x.get('url')} ({x['natural'][0]} px) painted at {x['painted'][0]}x"
+                             f"{x['painted'][1]} CSS px: the artwork is lost at that size; remove it there"))
     for x in m.get("broken") or []:
         items.append(_it("RT-BROKEN", f"{where} {x.get('sel')}", "FAIL", f"{x.get('kind')} {x.get('url')} does not load"))
     for x in m.get("zero_size") or []:

@@ -164,7 +164,7 @@ def _check(kind, arg, ctx):
     if kind == "image_sharp":
         if not workdir:
             raise Unreadable("no ported tree")
-        return _image_sharp(Path(workdir), arg)
+        return _image_sharp(Path(workdir), arg, owner)
     if kind == "fieldkit_test":
         # its own temporary folder: pytest's shared pytest-current link, once made by an ELEVATED run (the owner's
         # leakgate-baseline window, 2026-10-06), cannot be replaced by a normal account, and every later run then exits
@@ -183,12 +183,16 @@ def _energy(im):
     return ImageStat.Stat(im.convert("L").filter(ImageFilter.FIND_EDGES)).mean[0]
 
 
-def _image_sharp(workdir, arg):
+def _image_sharp(workdir, arg, owner=None):
     import base64
     import io
     import re
     from PIL import Image
-    raster, master = workdir / arg["path"], workdir / arg["master"]
+    # `owner:<path>`: the master lives in the owner repo (D-157-35: the canonical 2598 px master is in
+    # gorilla-patchset/deb_template, and the tree keeps only the one 1400 px about-logo.png made from it)
+    m_arg = arg["master"]
+    master = (Path(owner) / m_arg[6:]) if m_arg.startswith("owner:") and owner else workdir / m_arg
+    raster = workdir / arg["path"]
     if not raster.is_file() or not master.is_file():
         raise Unreadable(f"missing {arg['path'] if not raster.is_file() else arg['master']}")
     if master.suffix == ".svg":

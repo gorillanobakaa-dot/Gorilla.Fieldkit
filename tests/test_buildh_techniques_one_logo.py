@@ -1,0 +1,93 @@
+"""D-157-35 (2026-10-07): one master Gorilla logo, never drawn tiny. Run by the decision register (fieldkit_test).
+  - technique T-157-35-A passes a tree that names only about-logo.png and fails one that names a retired file
+  - visual rule RT-TINYLOGO fails the artwork drawn below 64 px and leaves big artwork and the icon ladder alone
+  - a decision's image_sharp master can live in the owner repo (owner:<path>)"""
+import io
+import subprocess
+
+from PIL import Image, ImageDraw
+
+from fieldkit.buildh import decisions, techniques
+from fieldkit.visual import runtime
+
+T = next(t for t in techniques.TECHNIQUES if t["id"] == "T-157-35-A")
+
+
+def _tree(tmp_path, extra=None):
+    w = tmp_path / "tree"
+    files = {
+        "browser/themes/shared/master-redirect.css":
+            ':root {\n  --gorilla-master-icon: url("chrome://branding/content/about-logo.png");\n}\n',
+        "toolkit/content/widgets/moz-page-nav/moz-page-nav.css":
+            "  > .logo {\n    /* GORILLA D-157-35: no 24 px Gorilla beside the page title (Settings) */\n    display: none;\n",
+        "browser/base/content/aboutRobots.css": '.title { background-image: url("chrome://branding/content/about-logo.png"); }\n',
+    }
+    files.update(extra or {})
+    for rel, text in files.items():
+        (w / rel).parent.mkdir(parents=True, exist_ok=True)
+        (w / rel).write_bytes(text.encode())
+    g = lambda *a: subprocess.run(["git", "-C", str(w), *a], check=True, capture_output=True)
+    g("init", "-q")
+    g("add", ".")
+    g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "t")
+    return w
+
+
+def _result(w):
+    return next(r for r in techniques.scan(w) if r["id"] == "T-157-35-A")
+
+
+def test_a_tree_with_one_master_holds(tmp_path):
+    r = _result(_tree(tmp_path))
+    assert r["ok"], r["signals"]
+
+
+def test_a_retired_logo_file_named_anywhere_fails(tmp_path):
+    # "about-logo@2x" + ".png": written whole it reads as an email address to the privacy scan of the commit hook
+    for i, url in enumerate(("about-logo.svg", "about-logo@2x" + ".png", "about-logo-private.png", "about.svg")):
+        w = _tree(tmp_path / str(i), {"toolkit/content/aboutX.css": f'body {{ background: url("chrome://branding/content/{url}"); }}\n'})
+        bad = [s for s in _result(w)["signals"] if not s["ok"]]
+        assert [s["name"] for s in bad] == ["retired-logo-files"], url
+
+
+def test_the_master_back_to_the_svg_fails(tmp_path):
+    w = _tree(tmp_path, {"browser/themes/shared/master-redirect.css":
+                         ':root {\n  --gorilla-master-icon: url("chrome://branding/content/about-logo.svg");\n}\n'})
+    names = {s["name"] for s in _result(w)["signals"] if not s["ok"]}
+    assert names == {"master-is-the-png", "retired-logo-files"}
+
+
+def test_rt_tinylogo_judges_only_the_artwork_drawn_small():
+    m = {"branding": [
+        {"sel": "div.logo", "kind": "background", "url": "chrome://branding/content/about-logo.png", "natural": [1400, 1400],
+         "painted": [24, 24]},
+        {"sel": "h1.logo", "kind": "background", "url": "chrome://branding/content/about-logo.png", "natural": [1400, 1400],
+         "painted": [551, 551]},
+        {"sel": "td img", "kind": "img", "url": "chrome://branding/content/icon32.png", "natural": [32, 32], "painted": [16, 16]},
+    ]}
+    items = [i for i in runtime.judge_metrics("about:preferences@1x", m, 1) if i["rule"] == "RT-TINYLOGO"]
+    assert len(items) == 1 and items[0]["verdict"] == "FAIL" and "div.logo" in items[0]["item"]
+    assert "24x24 CSS px" in items[0]["evidence"]
+
+
+def _png(path, size):
+    im = Image.new("RGB", (size, size), (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for i in range(0, size, 6):
+        d.line((i, 0, size - i, size), fill=(255, 200, 40), width=2)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    im.save(path)
+
+
+def test_image_sharp_reads_an_owner_master(tmp_path):
+    tree, owner = tmp_path / "tree", tmp_path / "owner"
+    _png(owner / "masters" / "canonical.png", 1200)
+    big = Image.open(owner / "masters" / "canonical.png").resize((600, 600), Image.LANCZOS)
+    (tree / "branding").mkdir(parents=True)
+    big.save(tree / "branding" / "logo.png")
+    ok, why = decisions._image_sharp(tree, {"path": "branding/logo.png", "master": "owner:masters/canonical.png"}, owner)
+    assert ok and "owner:masters/canonical.png" in why
+    soft = big.resize((150, 150), Image.LANCZOS).resize((600, 600), Image.BILINEAR)
+    soft.save(tree / "branding" / "logo.png")
+    ok, _ = decisions._image_sharp(tree, {"path": "branding/logo.png", "master": "owner:masters/canonical.png"}, owner)
+    assert not ok

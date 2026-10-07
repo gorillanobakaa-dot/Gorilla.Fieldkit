@@ -534,7 +534,8 @@ def run(a, emit):
         # tried in) a throwaway copy of the installed build, without a build
         from . import probe as pb, buildrun
         kv = [x for x in a.args[1:] if "=" in x]
-        opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=", "add=")))}
+        opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=", "add=", "sub=")))}
+        subs = [tuple(x[4:].split("=>", 1)) for x in kv if x.startswith("sub=") and "=>" in x]
         omni = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("omni="))
         files = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("file="))
         added = dict(x[4:].rsplit("=", 1) for x in kv if x.startswith("add="))
@@ -546,7 +547,7 @@ def run(a, emit):
             raise task.Refused("no installed build found: give --install-dir")
         r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)), omni=omni or None,
                    timeout=float(opts.get("timeout", 90)),
-                   say=lambda m: print(m, flush=True), files=files or None, added=added or None)
+                   say=lambda m: print(m, flush=True), files=files or None, added=added or None, subs=subs or None)
         for l in r["lines"]:
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))

@@ -1,6 +1,7 @@
 """Ask a running build a question, or try a JavaScript fix, without spending a build.
 
     fieldkit build-harness probe <task> js=<probe.js|name> [url=about:blank] [wait=15] [omni=<jar>:<member>=<file> ...]
+                                    [sub=<old text>=><new text> ...]  (every text member of both omni archives)
                                     [file=<path in the build>=<file> ...] [add=<new path in the build>=<file> ...] [timeout=S]
                                     [--install-dir <build>]
 
@@ -103,7 +104,35 @@ def replace_files(app_dir, files, added=None):
     return sorted(done)
 
 
-def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None):
+TEXT_MEMBER = (".css", ".js", ".mjs", ".html", ".xhtml", ".json", ".svg", ".ftl", ".xml")
+
+
+def substitute(app_dir, pairs):
+    """pairs: [(old, new)] -> every text member of omni.ja and browser/omni.ja in the COPY that holds an `old` has it
+    replaced by `new`. Born 2026-10-07: pointing every page of a build at ONE logo file and measuring the memory took
+    a throwaway script; it is an option now (`sub=OLD=>NEW`, repeatable). -> ["jar:member", ...] rewritten."""
+    done = []
+    for jar in ("omni.ja", "browser/omni.ja"):
+        src = Path(app_dir) / jar
+        if not src.is_file():
+            continue
+        tmp = src.with_suffix(".sub")
+        with zipfile.ZipFile(src) as zi, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zo:
+            for info in zi.infolist():
+                data = zi.read(info.filename)
+                if info.filename.lower().endswith(TEXT_MEMBER):
+                    new = data
+                    for old, rep in pairs:
+                        new = new.replace(old.encode("utf-8"), rep.encode("utf-8"))
+                    if new != data:
+                        done.append(f"{jar}:{info.filename}")
+                        data = new
+                zo.writestr(info, data)
+        tmp.replace(src)
+    return done
+
+
+def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None, subs=None):
     """-> {"lines": [...], "done": bool, "patched": [...], "seconds": float}"""
     body = resolve_js(js).read_text(encoding="utf-8")
     copy = Path(tempfile.mkdtemp(prefix="gprobe_app_"))
@@ -113,6 +142,10 @@ def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=
         app = copy / "app"
         shutil.copytree(install_dir, app)
         patched = (patch_omni(app, omni) if omni else []) + (replace_files(app, files or {}, added) if (files or added) else [])
+        if subs:
+            rewritten = substitute(app, subs)
+            say(f"  probe: sub= rewrote {len(rewritten)} text member(s)")
+            patched += rewritten
         (app / "defaults" / "pref").mkdir(parents=True, exist_ok=True)
         (app / "defaults" / "pref" / "gprobe-autoconfig.js").write_text(
             'pref("general.config.filename", "gprobe.cfg");\npref("general.config.obscure_value", 0);\n'

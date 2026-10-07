@@ -275,6 +275,9 @@ const CONTROLS = new Set(["button", "a", "input", "select", "textarea", "toolbar
   "moz-button", "moz-toggle", "moz-checkbox", "moz-radio", "toolbaritem", "checkbox", "radio", "menulist"]);
 const ROLES = new Set(["button", "menuitem", "link", "tab", "checkbox", "radio", "menuitemcheckbox", "menuitemradio"]);
 const VECTOR = /\.svg(\?|#|$)|^data:image\/svg/i;
+// the Gorilla artwork and the icon ladder (RT-TINYLOGO, 2026-10-07): measured even when the file is an SVG, because
+// about-logo.svg wraps a 1400 px raster
+const BRANDING = /^chrome:\/\/branding\/content\/(about-logo|about\.|icon\d+\.|document)/i;
 
 function sel(el) {
   const parts = [];
@@ -482,7 +485,7 @@ export async function measure(win, root, opts) {
   const dpr = win.devicePixelRatio;
   const vw = win.document.documentElement.clientWidth || win.innerWidth;
   const out = { dpr, elements: 0, images: [], images_ok: 0, vector_icons: 0, broken: [], zero_size: [], clipped: [],
-                overlaps: [], outside: [], overflowing: [], misaligned: [], page_scrolls_sideways: false, truncated: [],
+                overlaps: [], outside: [], overflowing: [], misaligned: [], page_scrolls_sideways: false, truncated: [], branding: [],
                 pictures_seen: [], components_seen: [] };
   const push = (k, v) => { if (out[k].length < CAP) out[k].push(v); else if (!out.truncated.includes(k)) out.truncated.push(k); };
   // what the page actually shows (RT-CONTENT): every picture painted in a visible box, every custom element shown
@@ -520,7 +523,8 @@ export async function measure(win, root, opts) {
         continue;
       }
       if (r.width === 0 || r.height === 0) continue;
-      if (VECTOR.test(p.url) || cs.MozImageRegion && cs.MozImageRegion !== "auto") { out.vector_icons++; continue; }
+      const art = BRANDING.test(p.url);
+      if (!art && (VECTOR.test(p.url) || cs.MozImageRegion && cs.MozImageRegion !== "auto")) { out.vector_icons++; continue; }
       let nat;
       if (p.kind === "img") nat = { w: el.naturalWidth, h: el.naturalHeight, ok: el.complete && el.naturalWidth > 0 };
       else nat = await natural(win, p.url, cache);
@@ -539,6 +543,7 @@ export async function measure(win, root, opts) {
       const up = Math.max((w * dpr) / nat.w, (h * dpr) / nat.h);
       const rec = { sel: sel(el), kind: p.kind, url: p.url.slice(0, 160), natural: [nat.w, nat.h],
                     painted: [Math.round(w * 10) / 10, Math.round(h * 10) / 10], dpr, upscale: Math.round(up * 100) / 100 };
+      if (art) push("branding", rec);
       if (up > 1.05) push("images", rec); else out.images_ok++;
     }
     // ---- text clipped by its own box

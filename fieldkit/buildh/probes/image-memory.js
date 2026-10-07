@@ -7,6 +7,7 @@
 // Output lines:
 //   IMG|<page>|<process>|<url>|<WxH>|<bytes>
 //   IMG-PAGE|<page>|<images>|<total bytes>
+//   IMG-PICTURE|<page>|<png path>
 //   IMG-ERROR|<what>|<message>
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 if (!win) { say("IMG-ERROR|window|no browser window"); return; }
@@ -43,6 +44,25 @@ function summarise(page, rows) {
   say(`IMG-PAGE|${page}|${by.size}|${total}`);
 }
 
+// a picture of each page, drawn by Firefox itself (no desktop screenshot), to judge sharpness by eye
+const IO = win.IOUtils;                 // not defined in the autoconfig sandbox; the chrome window exposes it
+const stamp = Date.now();
+async function picture(page, tab) {
+  try {
+    const bmp = await tab.linkedBrowser.browsingContext.currentWindowGlobal.drawSnapshot(null, 1, "black");
+    const c = win.document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
+    c.width = bmp.width; c.height = bmp.height;
+    c.getContext("2d").drawImage(bmp, 0, 0);
+    const blob = await new Promise(r => c.toBlob(r, "image/png"));
+    const f = Services.dirsvc.get("TmpD", Ci.nsIFile);
+    f.append("gprobe-shots");
+    if (!f.exists()) { f.create(Ci.nsIFile.DIRECTORY_TYPE, 0o755); }
+    f.append(`image-memory-${stamp}-${page.replace(/[^a-z]/g, "")}.png`);
+    await IO.write(f.path, new Uint8Array(await blob.arrayBuffer()));
+    say(`IMG-PICTURE|${page}|${f.path}`);
+  } catch (e) { say(`IMG-ERROR|picture ${page}|${e}`); }
+}
+
 const pages = ["about:blank", "about:newtab", "about:home", "about:preferences", "about:addons", "about:privatebrowsing"];
 for (const url of pages) {
   try {
@@ -53,5 +73,6 @@ for (const url of pages) {
     win.gBrowser.selectedTab = tab;
     await sleep(6000);
     summarise(url, await report());
+    if (url != "about:blank") { await picture(url, tab); }
   } catch (e) { say(`IMG-ERROR|${url}|${e}`); }
 }
