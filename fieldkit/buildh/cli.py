@@ -811,6 +811,14 @@ def run(a, emit):
         from . import changecheck
         r = changecheck.run(tid, say=lambda m: print(m, flush=True), note=a.note)
         return 0 if r["ok"] else 3
+    if act == "images":
+        from . import images as _img, install as _inst
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir")
+        r = _img.scan(inst)
+        emit(r, lambda r: print("\n".join(_img.lines(r))))
+        return 0
     if act == "check-change":
         from . import changecheck
         r = changecheck.run(tid, say=lambda m: print(m, flush=True), note=a.note)
