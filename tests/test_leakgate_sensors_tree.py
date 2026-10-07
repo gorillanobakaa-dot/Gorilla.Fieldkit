@@ -33,3 +33,27 @@ def test_the_sampler_follows_a_browser_that_is_not_in_the_launchers_tree(monkeyp
     s.join(timeout=5)
     assert set(s.procs) == {900, 901}
     assert sensors.build_pids(r"C:\x\build-direct") == [900, 901]
+
+
+def test_a_packet_is_another_programs_only_when_that_program_held_the_port_at_that_moment():
+    """2026-10-06 (owner): WhatsApp wakes on every message and the Claude app keeps talking; a packet capture names
+    no process, and the browser's old ports get reused. The owner of a port is taken from the socket table sampled
+    around the packet's own time. No sample near it: unknown, and the packet stays the browser's (fail closed)."""
+    from fieldkit.leakgate import sensors
+    o = sensors.PortOwners(slack=3.0)
+    o.add(100.0, [("udp", "Bound", "0.0.0.0", "50000", "", "", "11")], build_pids={11})      # browser holds 50000
+    o.add(110.0, [("udp", "Bound", "0.0.0.0", "50000", "", "", "77")], build_pids={11})      # then WhatsApp does
+    assert o.owner("udp", 50000, 101.0) == ("build", 11)
+    assert o.owner("udp", 50000, 111.0) == ("other", 77)
+    assert o.owner("udp", 50000, 105.5) == (None, None)            # between samples: unknown -> the browser's
+    assert o.owner("tcp", 50000, 111.0) == (None, None)            # another protocol is another port
+
+
+def test_a_foreign_packet_is_named_under_other_programs_and_fails_nothing():
+    from fieldkit.leakgate import gate
+    ev = [{"scenario": "drm-request", "mode": "direct", "sensor": "pktmon", "kind": "foreign-packet",
+           "value": "57.144.63.32", "port": 443, "detail": "tcp from local port 50001, held then by pid 77 (WhatsApp.Root.exe)",
+           "rep": 0}]
+    fail, lists = gate.judge(ev, {"entries": []}, {"drm-request": []}, [], [], 3, True, False)
+    assert not [x for x in fail["NETWORK_POLICY"] if "57.144.63.32" in x]
+    assert any("WhatsApp.Root.exe" in x for x in lists["OTHER_PROGRAMS"])

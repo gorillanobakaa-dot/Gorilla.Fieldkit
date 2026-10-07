@@ -184,6 +184,43 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             if allowed("dns", name, e["scenario"])[0] == "allowed" or cname_of_allowed(name, e["scenario"]):
                 resolved.setdefault(e["scenario"], set()).add(e["ip"])
 
+    # 2026-10-06 (build 27 run 20261005-200543). Windows' DNS client answers a repeated name from its cache, so a scene
+    # can use an address whose answer crossed the wire only in an EARLIER scene: uBlock Origin's list download to
+    # cdn.jsdelivr.net (104.17.208.5, over QUIC) failed WEBRTC_POLICY although the browser had asked for that very
+    # name in the scene. The names the BUILD asked in a scene (its own sensors, or the DNS witness naming a build
+    # process) get every address the wire gave those names anywhere in the run, when the name is allowed there.
+    answers, alias_parents = {}, {}
+    for e in events:
+        if e["kind"] == "dns-a":
+            answers.setdefault(e["value"].rstrip("."), set()).add(e["ip"])
+        elif e["kind"] == "dns-cname":
+            alias_parents.setdefault(e["target"].rstrip("."), set()).add(e["value"].rstrip("."))
+
+    def allowed_here(name, scen, depth=0):
+        if allowed("dns", name, scen)[0] == "allowed":
+            return True
+        return depth < 6 and any(allowed_here(pn, scen, depth + 1) for pn in alias_parents.get(name, ()))
+
+    def window(e):
+        return (e["scenario"], e["mode"], e.get("rep"))
+    asked_by_build, asked_by_other = {}, {}
+    for e in events:
+        if e["kind"] == "dns-attribution":
+            (asked_by_build if e.get("in_build") else asked_by_other).setdefault(window(e), set()).add(e["value"].rstrip("."))
+        elif e["kind"] in ("dest", "dns", "sni") and e.get("sensor") != "pktmon":
+            asked_by_build.setdefault(window(e), set()).add(str(e["value"]).rstrip("."))
+    for (scen, _mode, _rep), names in asked_by_build.items():
+        for n in names:
+            if n in answers and allowed_here(n, scen):
+                resolved.setdefault(scen, set()).update(answers[n])
+    # this machine's own addresses: the source of its DNS queries on the wire
+    machine_ips = set()
+    for e in events:
+        if e["kind"] == "dns-wire":
+            m = re.search(r"from (\S+):\d+$", e.get("detail", ""))
+            if m and se.lan_address(m.group(1)):
+                machine_ips.add(m.group(1))
+
     lists = {k: [] for k in ("UNEXPECTED_DESTINATIONS", "UNEXPECTED_DNS", "UNEXPECTED_PROCESSES", "UNEXPECTED_EXECUTABLES",
                              "UNEXPECTED_FILES", "UNEXPECTED_SOCKETS", "UNEXPECTED_TELEMETRY", "UNEXPECTED_EXPERIMENTS",
                              "UNEXPECTED_REMOTE_SETTINGS", "UNEXPECTED_UPDATES", "UNEXPECTED_CANARIES", "UNATTRIBUTED_WIRE_DNS", "OTHER_PROGRAMS",
@@ -251,6 +288,18 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
         elif k == "dest-ip":
             if v in resolved.get(scen, set()):
                 continue
+            # A packet capture names no process: a port the browser once held can be reused by another program
+            # later in the window (2026-10-06: a QUIC packet to 160.79.104.10, the address of claude.ai,
+            # api.anthropic.com and www.anthropic.com, while only other programs had asked for those names in that
+            # scene; a TCP packet to 57.144.63.32, WhatsApp's mmx-ds.cdn.whatsapp.net). When the wire's own answers
+            # tie the address to names, the DNS witness ran in this window, the build asked none of those names here
+            # and another program asked at least one, the packet is that program's.
+            names = {n for n, ips in answers.items() if v in ips}
+            if (names and witness_ran.get(window(e)) and not names & asked_by_build.get(window(e), set())
+                    and names & asked_by_other.get(window(e), set())):
+                lists["OTHER_PROGRAMS"].append(f"[{scen}/{e['mode']}] {v}:{e.get('port')} ({', '.join(sorted(names))}): "
+                                               "asked for in this window by another program, never by the build")
+                continue
             verdict, eid = al.verdict(allow, "ip", v, scen, e.get("port"))
             if verdict != "allowed":
                 note("NETWORK_POLICY", "UNEXPECTED_DESTINATIONS", e, "an address no named destination resolves to (" + e.get("detail", "") + ")")
@@ -269,6 +318,12 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             note("SHUTDOWN_POLICY", "UNEXPECTED_PROCESSES", e, "a build process alive after shutdown")
         elif k in ("listener", "udp"):
             verdict, eid = al.verdict(allow, k, v, scen)
+            # this machine's own LAN address changes with the network (2026-10-06: the hotspot moved the laptop from
+            # 172.22.82.96 to 10.169.253.96 and every WebRTC socket on it was "unexpected"); an allowlist entry
+            # names it as <this-machine>
+            ip = v.rsplit(":", 1)[0].strip("[]")
+            if verdict != "allowed" and ip in machine_ips:
+                verdict, eid = al.verdict(allow, k, "<this-machine>:" + v.rsplit(":", 1)[1], scen)
             if verdict != "allowed":
                 note("SOCKET_POLICY", "UNEXPECTED_SOCKETS", e, verdict)
             if k == "listener" and not v.startswith(("127.", "[::1]", "::1")):
@@ -279,6 +334,9 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             verdict, eid = al.verdict(allow, k, v, scen)
             if verdict != "allowed":
                 note("FILESYSTEM_POLICY", "UNEXPECTED_FILES", e, verdict)
+        elif k == "foreign-packet":
+            # a packet from a port another program held at that moment (sensors.PortOwners): named, not the browser's
+            lists["OTHER_PROGRAMS"].append(f"[{scen}/{e['mode']}] {v}:{e.get('port')} {e.get('detail', '')}")
         elif k == "proxy-bypass":
             note("PROXY_POLICY", "UNEXPECTED_DESTINATIONS", e, "direct connection while a proxy was pinned")
         elif k == "canary":
@@ -694,6 +752,59 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     (work / "test-results.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     return result, events, st, bi
 
+
+
+# policies whose items come from judge() over the stored events (the rest come from audits, the baseline or counts)
+JUDGED = ("NETWORK_POLICY", "TELEMETRY_POLICY", "DNS_POLICY", "PROCESS_POLICY", "FILESYSTEM_POLICY", "SOCKET_POLICY",
+          "WEBRTC_POLICY", "PROXY_POLICY", "IPV6_POLICY", "CANARY_POLICY", "SHUTDOWN_POLICY")
+_JUDGE_ITEM = re.compile(r"^\[[^\]/]+/[^\]/]+/[^\]]+\] ")
+
+
+def rejudge(run_dir, owner_root, why=""):
+    """Judge a finished run again with the current judge and allowlist: the SAME evidence (events.jsonl, the page
+    results), nothing re-measured. Items judge() produces are replaced; every other item (action checks, audits,
+    regression, reproducibility) is carried over unchanged, so a re-judge can only remove judging errors. The original
+    result is kept as test-results.original.json and the new one says REJUDGED: what changed, when, and why.
+    2026-10-06: build 27 run 20261005-200543 failed on another program's QUIC and TCP packets, a cached-DNS address
+    of the ad blocker's list host and the laptop's changed LAN address; re-measuring would have cost four hours."""
+    run_dir, owner_root = Path(run_dir), Path(owner_root)
+    old = json.loads((run_dir / "test-results.json").read_text(encoding="utf-8"))
+    orig = run_dir / "test-results.original.json"
+    if not orig.is_file():
+        orig.write_text(json.dumps(old, indent=1), encoding="utf-8")
+    events = [json.loads(l) for l in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    allow = al.load(al.path_for(owner_root))
+    scen_hosts = {name: hosts for name, _t, _s, _a, hosts, _w in sc.SCENARIOS}
+    pr = run_dir / "page-results.json"
+    results = json.loads(pr.read_text(encoding="utf-8")) if pr.is_file() else []
+    copies = [run_dir / "build-direct", run_dir / "build-proxied", run_dir / "build-dns"]
+    reps = {e.get("rep", 0) for e in events}
+    fail, lists = judge(events, allow, scen_hosts, copies, results, repeat=len(reps), packets=True, quick=False)
+    new, changes = dict(old), {}
+    why_old = old.get("WHY", {})
+    for pol in POLICIES:
+        if pol in JUDGED:
+            items = fail[pol] + [x for x in why_old.get(pol, []) if not _JUDGE_ITEM.match(x)]
+        elif pol == "ALLOWLIST_POLICY":
+            items = al.problems(allow) + al.scope_problems(allow) + ([] if allow.get("entries") else ["no allowlist"])
+        else:
+            items = why_old.get(pol, []) if old.get(pol) != "PASS" else []
+        status = "PASS" if not items else "FAIL"
+        if status != old.get(pol) or items[:40] != why_old.get(pol, []):
+            changes[pol] = {"before": old.get(pol), "after": status, "removed": [x for x in why_old.get(pol, []) if x not in items],
+                            "added": [x for x in items if x not in why_old.get(pol, [])][:40]}
+        new[pol] = status
+        if items:
+            new.setdefault("WHY", {})[pol] = items[:40]
+        else:
+            new.get("WHY", {}).pop(pol, None)
+    for k, v in lists.items():
+        new[k] = sorted(set(v))
+    new["FINAL_RESULT"] = "PASS" if all(new[p] == "PASS" for p in POLICIES) else "FAIL"
+    new["REJUDGED"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "why": why, "changes": changes,
+                       "original": orig.name, "evidence": "events.jsonl and page-results.json of this run, unchanged"}
+    (run_dir / "test-results.json").write_text(json.dumps(new, indent=1), encoding="utf-8")
+    return new, changes
 
 NO_BASELINE = "no approved baseline (leakgate/baseline.json)"
 

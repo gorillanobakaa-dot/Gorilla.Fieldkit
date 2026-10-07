@@ -579,7 +579,7 @@ def run(a, emit):
         from . import replay as rp
         r = rp.run(tid, say=lambda m: print(m, flush=True))
         return 0 if r["ok"] else 3
-    if act in ("leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions"):
+    if act in ("leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge"):
         from ..leakgate import gate as lg, allow as la
         from . import buildrun, verify as vf
         import json as _js
@@ -592,6 +592,24 @@ def run(a, emit):
             print(f"approved {len(done)}: {done}")
             return 0
         workroot = task.STATE / "leakgate" / tid
+        if act == "leakgate-rejudge":
+            # `leakgate-rejudge TASK [RUN]`: the same evidence judged again by the current judge and allowlist
+            runs = sorted(p for p in workroot.iterdir() if (p / "events.jsonl").is_file())
+            run_dir = workroot / a.args[1] if len(a.args) > 1 else runs[-1]
+            new, changes = lg.rejudge(run_dir, owner, why=a.note or "")
+            for pol, c in changes.items():
+                print(f"  {pol}: {c['before']} -> {c['after']}  (removed {len(c['removed'])}, added {len(c['added'])})")
+                for x in c["added"][:10]:
+                    print(f"      + {x}")
+            st_path = owner / "state" / "leakgate_result.json"
+            st = _js.loads(st_path.read_text(encoding="utf-8")) if st_path.is_file() else {}
+            if Path(st.get("artifacts") or "") == run_dir:
+                st.update(FINAL_RESULT=new["FINAL_RESULT"], policies={p: new[p] for p in lg.POLICIES},
+                          rejudged=new["REJUDGED"]["at"])
+                st_path.write_text(_js.dumps(st, indent=1), encoding="utf-8")
+            print(f"REJUDGED {run_dir.name}: FINAL_RESULT {new['FINAL_RESULT']}; failing: "
+                  f"{[p for p in lg.POLICIES if new[p] != 'PASS']}")
+            return 0
         if act == "leakgate-dispositions":
             # `leakgate-dispositions TASK [KEY...]`: the newest proposed-dispositions-*.json of this task; a KEY names
             # an OWNER-DECISION entry to approve too (never part of the blanket)

@@ -53,6 +53,19 @@ def fake_world(tmp_path, monkeypatch):
             _post(origin + "/result", rep)
         if origin and scen == "download-exe":
             urllib.request.urlopen(origin + "/tiny.exe", timeout=10).read()
+        if origin and scen == "early-hints":
+            # a browser loads the page (raw socket: urllib treats the 103 as the final response)
+            import socket
+            hostport = origin.split("//", 1)[1]
+            s = socket.create_connection((hostport.split(":")[0], int(hostport.split(":")[1])), timeout=10)
+            s.sendall(b"GET /early-hints HTTP/1.1\r\nHost: " + hostport.encode() + b"\r\n\r\n")
+            got = b""
+            while b"</body>" not in got:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                got += chunk
+            s.close()
         ev = [{"scenario": name, "mode": mode, "sensor": s, "kind": "coverage", "value": "ran"}
               for s in gate.required_coverage(mode, packets)]
         return ev, {}

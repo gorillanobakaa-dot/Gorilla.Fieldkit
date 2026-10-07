@@ -156,8 +156,13 @@ def _check(kind, arg, ctx):
             raise Unreadable("no ported tree")
         return _image_sharp(Path(workdir), arg)
     if kind == "fieldkit_test":
-        r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", arg], cwd=FIELDKIT,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
+        # its own temporary folder: pytest's shared pytest-current link, once made by an ELEVATED run (the owner's
+        # leakgate-baseline window, 2026-10-06), cannot be replaced by a normal account, and every later run then exits
+        # non-zero with every test passed (build 28 read four decisions as VIOLATED for that alone)
+        import tempfile
+        base = tempfile.mkdtemp(prefix="fk-decision-test-")
+        r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", base, arg],
+                           cwd=FIELDKIT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
         tail = (r.stdout.strip().splitlines() or ["no output"])[-1]
         return r.returncode == 0, f"{arg}: {tail}"
     raise Unreadable(f"unknown check {kind}")

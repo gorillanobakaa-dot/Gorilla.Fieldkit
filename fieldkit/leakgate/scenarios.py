@@ -24,6 +24,12 @@ User-action scenarios (ACTION_SCENARIOS) exercise leaks that fire only when the 
                        OpenH264 is needed. Allowed external: Cisco's ciscobinary.openh264.org only, only here, after
                        the same maintainer approval; any Mozilla host fails.
   profile-idle-actions opens about:preferences#privacy and about:welcome. Expect no external destination.
+  early-hints          the main document answers first with "103 Early Hints": a preconnect to an https host the user
+                       never opened (D-157-14: no speculative connection may follow, not even a DNS lookup) and a
+                       cross-site preload of a tracker script (uBlock Origin must stop it, or early-hint preloads
+                       slip past the ad blocker). Expect no external destination. Added 2026-10-07 (audit B1): a
+                       103 preconnect carried its own 10-connection allowance past speculative-parallel-limit 0, and
+                       no scene ever sent a 103, so four release runs could not see it.
 Every one of them fails closed: a page that never reports, a download the server never served, or a sensor that
 collected nothing in that scenario is a failure (gate.action_checks).
 """
@@ -61,12 +67,20 @@ SCENARIOS = [
     ("drm-request", "/drm", 90, [], [], 30),
     ("h264-call", "/h264", 90, [], [], 30),
     ("profile-idle-actions", "about:preferences#privacy", 45, ["-new-tab", "about:welcome"], [], 10),
+    ("early-hints", "/early-hints", 45, [], [], 10),
     ("shutdown-graceful", REAL_PAGE, 60, [], ["www.anthropic.com", "*.anthropic.com"], 60),
 ]
-ACTION_SCENARIOS = ("certerror-toplevel", "download-exe", "lan-probe", "drm-request", "h264-call", "profile-idle-actions")
+ACTION_SCENARIOS = ("certerror-toplevel", "download-exe", "lan-probe", "drm-request", "h264-call", "profile-idle-actions",
+                    "early-hints")
 # pages that must POST {"scenario": name, ...} to /result, and local paths the server must have served (fail closed)
-REPORTING = ("certerror-toplevel", "download-exe", "lan-probe", "drm-request", "h264-call")
-SERVED = {"download-exe": ("/tiny.exe",)}
+REPORTING = ("certerror-toplevel", "download-exe", "lan-probe", "drm-request", "h264-call", "early-hints")
+SERVED = {"download-exe": ("/tiny.exe",), "early-hints": ("/early-hints",)}
+# the 103 reply of the early-hints scene: neither host may ever be contacted
+EARLY_HINTS_PRECONNECT = "https://gorilla-leakgate-early-hints.example"
+EARLY_HINTS_PRELOAD = "https://www.googletagmanager.com/gtm.js?id=GTM-GORILLALEAKGATE"
+EARLY_HINTS_PAGE = """<!doctype html><meta charset=utf-8><title>early hints</title><body>early hints
+<script>setTimeout(() => fetch("/result", {method: "POST", body: JSON.stringify({scenario: "early-hints", loaded: true})}), 3000);</script>
+</body>"""
 # the video compromise (decision D-157-12): candidate hosts per scenario. These are NOT allowlist entries: they say
 # which hosts leakgate-propose may propose (scoped to that one scenario) and which hosts fail anywhere else.
 VIDEO_COMPROMISE = {"drm-request": ("dl.google.com", "*.gvt1.com"),          # Widevine CDM, straight from Google
@@ -271,7 +285,14 @@ class Server:
             def do_GET(self):
                 outer.requests.append({"method": "GET", "path": self.path, "headers": dict(self.headers)})
                 p = self.path.split("?")[0]
-                if p == "/canary":
+                if p == "/early-hints":
+                    # 103 first, on the same connection, then the page (HTTP/1.x: Firefox honours a 103 there too)
+                    self.wfile.write((f"{self.protocol_version} 103 Early Hints\r\n"
+                                      f"Link: <{EARLY_HINTS_PRECONNECT}>; rel=preconnect\r\n"
+                                      f"Link: <{EARLY_HINTS_PRELOAD}>; rel=preload; as=script\r\n\r\n").encode("ascii"))
+                    self.wfile.flush()
+                    self._send(EARLY_HINTS_PAGE)
+                elif p == "/canary":
                     self._send(CANARY_PAGE % CANARIES, extra=[("Set-Cookie", "gc=%s; Path=/; SameSite=Lax" % CANARIES["cookie"])])
                 elif p == "/workers":
                     self._send(WORKERS_PAGE)

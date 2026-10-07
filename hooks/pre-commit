@@ -2,7 +2,10 @@
 # Fieldkit pre-commit: no commit unless the tests pass and nothing private is staged.
 # Installed with: git config core.hooksPath hooks
 cd "$(git rev-parse --show-toplevel)" || exit 1
-if ! python -m pytest -q -p no:cacheprovider >/dev/null 2>&1; then
+# own temporary folder: a pytest-current link once made by an elevated run cannot be replaced by a normal account,
+# and pytest then exits non-zero with every test passed (2026-10-07: every commit refused for that alone)
+BT="$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-hook-$$")"
+if ! python -m pytest -q -p no:cacheprovider --basetemp "$BT" >/dev/null 2>&1; then
   echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"; exit 1
 fi
 if ! python -m fieldkit privacy scan . --git >/dev/null 2>&1; then

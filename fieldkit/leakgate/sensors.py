@@ -161,6 +161,41 @@ def tree(rows, root_pid):
     return out
 
 
+def snapshot_all_sockets():
+    """-> every TCP connection and UDP endpoint on the machine with its owning process (one PowerShell call)."""
+    ps = ("Get-NetTCPConnection -ErrorAction SilentlyContinue | ForEach-Object { \"tcp|$($_.State)|$($_.LocalAddress)|"
+          "$($_.LocalPort)|$($_.RemoteAddress)|$($_.RemotePort)|$($_.OwningProcess)\" }; "
+          "Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object { \"udp|Bound|$($_.LocalAddress)|"
+          "$($_.LocalPort)|||$($_.OwningProcess)\" }")
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, errors="replace").stdout
+    return [tuple(l.strip().split("|")) for l in out.splitlines() if l.count("|") == 6]
+
+
+class PortOwners:
+    """Who held each local port, sample by sample (time, proto, port, pid). A packet capture names no process, and a
+    port the browser held can be reused by another program seconds later (2026-10-06, build 27 gate: WhatsApp, which
+    wakes on every incoming message, and the Claude desktop app failed NETWORK_POLICY through reused ports).
+    owner(proto, port, ts) -> ("build" | "other" | None, pid): "other" only when every sample near the packet shows a
+    process outside the build holding that port; no sample near it -> None, and the packet stays the browser's."""
+
+    def __init__(self, slack=3.0):
+        self.samples, self.slack, self.build = [], slack, set()
+
+    def add(self, t, rows, build_pids):
+        self.build |= set(build_pids)
+        for r in rows:
+            if r[3].isdigit() and r[6].isdigit():
+                self.samples.append((t, r[0], int(r[3]), int(r[6])))
+
+    def owner(self, proto, port, ts):
+        near = [pid for t, pr, po, pid in self.samples if pr == proto and po == port and abs(t - ts) <= self.slack]
+        if not near:
+            return None, None
+        if any(pid in self.build for pid in near):
+            return "build", next(pid for pid in near if pid in self.build)
+        return "other", near[0]
+
+
 def snapshot_sockets(pids):
     if not pids:
         return []
@@ -183,6 +218,7 @@ class Sampler(threading.Thread):
         self.root, self.interval, self.stop_flag = root_pid, interval, threading.Event()
         self.build_dir = str(build_dir).lower() if build_dir else None
         self.procs, self.socks, self.timeline = {}, set(), []
+        self.owners = PortOwners()
 
     def run(self):
         t0 = time.time()
@@ -199,7 +235,10 @@ class Sampler(threading.Thread):
                          and (r.get("ExecutablePath") or "").lower().startswith(self.build_dir)]
             for r in rows:
                 self.procs.setdefault(r["ProcessId"], r)
-            s = snapshot_sockets([r["ProcessId"] for r in rows])
+            pids = {r["ProcessId"] for r in rows}
+            every = snapshot_all_sockets()
+            self.owners.add(time.time(), every, pids)
+            s = [x for x in every if x[6].isdigit() and int(x[6]) in pids]
             self.socks.update(s)
             self.timeline.append({"t": round(time.time() - t0, 1), "processes": len(rows), "sockets": len(s),
                                   "remote": sorted({f"{x[4]}:{x[5]}" for x in s if x[0] == "tcp" and x[4] not in ("", "0.0.0.0", "::", "127.0.0.1", "::1")})})
@@ -364,9 +403,10 @@ def tls_sni(payload):
     return None
 
 
-def parse_pcap(path, local_ports, canaries=()):
+def parse_pcap(path, local_ports, canaries=(), owners=None, names=None):
     """-> events from frames: SNI/TCP/UDP of the browser's ports, every DNS query on the wire in the window,
-    canaries in any non-loopback payload."""
+    canaries in any non-loopback payload. With `owners` (PortOwners), a packet from a port that another program held
+    at that moment is reported as kind "foreign-packet" (named, never hidden) instead of as the browser's."""
     import dpkt
     ev = []
     if not Path(path).is_file():
@@ -415,6 +455,14 @@ def parse_pcap(path, local_ports, canaries=()):
                                        "detail": f"answer from {src}"})
                 except Exception:
                     pass
+            if isinstance(l4, (dpkt.tcp.TCP, dpkt.udp.UDP)) and l4.sport in local_ports and owners is not None:
+                proto = "tcp" if isinstance(l4, dpkt.tcp.TCP) else "udp"
+                who, pid = owners.owner(proto, l4.sport, _ts)
+                if who == "other" and not (proto == "udp" and l4.dport == 53):
+                    ev.append({"kind": "foreign-packet", "value": dst, "port": l4.dport,
+                               "detail": f"{proto} from local port {l4.sport}, held then by pid {pid} "
+                                         f"({(names or {}).get(pid, 'exited before the snapshot')})"})
+                    continue
             if isinstance(l4, dpkt.tcp.TCP) and l4.sport in local_ports:
                 s = tls_sni(payload)
                 ev.append({"kind": "dest-ip", "value": dst, "port": l4.dport, "detail": "tcp"})
@@ -588,7 +636,8 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                     if c.encode() in block:
                         ev.append({**base, "sensor": "mitm", "kind": "canary", "value": cname, "detail": first[:200]})
     if packets:
-        for e in parse_pcap(pcap, local_ports, canaries):
+        owner_names = {**names_before, **process_names(snapshot_processes())} if packets else {}
+        for e in parse_pcap(pcap, local_ports, canaries, owners=sampler.owners, names=owner_names):
             ev.append({**base, "sensor": "pktmon", **e})
     ev += coverage_events(base, len(sampler.timeline), text, mitm_alive, pcap, mode, packets)
     dedup, seen = [], set()
