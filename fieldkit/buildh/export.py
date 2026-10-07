@@ -90,12 +90,25 @@ def export(task_id, patchset_root, version, say=print, dry=False):
     w = Path(t["workdir"])
     groups = {"privacy": Path(patchset_root) / f"22.EGRESS.LOCKDOWN.{version}", "port": Path(patchset_root) / f"21.PORT.FIXES.{version}"}
     written = {"privacy": [], "port": [], "kinds": []}
+    deleted = {"privacy": set(), "port": set()}
     privacy_files = set()
     for i, (c, files, why, when, recorded) in enumerate(hand_commits(t), 1):
         kind, how = kind_of(why, files, recorded, privacy_files)
         if kind == "privacy":
             privacy_files |= set(files)
-        diff = _git(w, "diff", "--no-color", "--no-renames", "--binary", f"{c}^", c)     # logos are binary
+        # a deleted file goes to the group's DELETED_FILES.manifest.txt, not into the patch: a deletion patch carries
+        # the whole old file (2026-10-07: patch 070 was 8.1 MB of removed macOS art; the retired logo copies would
+        # have added 10 MB more), and replay and the port apply the manifest after the group's patches anyway
+        # only a file still gone at the end of the record: one a later edit creates again keeps its deletion in this
+        # patch (replay, 2026-10-07: 045 deletes smartwindow-themes-notice.mjs, 046 re-creates it empty; the manifest,
+        # applied after the group's patches, removed it again)
+        gone = [p for p in _git(w, "diff", "--name-only", "--no-renames", "--diff-filter=D", f"{c}^", c).splitlines() if p.strip()]
+        final = [p for p in gone if not _git(w, "ls-tree", "--name-only", "HEAD", "--", p).strip()]
+        again = [p for p in gone if p not in final]
+        deleted[kind].update(final)
+        diff = _git(w, "diff", "--no-color", "--no-renames", "--binary", "--diff-filter=d", f"{c}^", c)     # logos are binary
+        if again:
+            diff += _git(w, "diff", "--no-color", "--no-renames", "--binary", f"{c}^", c, "--", *again)
         if not diff.strip():
             continue
         # the public repo's rule: technical notes, not a diary - no dates, no build narration, no local commit ids
@@ -118,6 +131,17 @@ def export(task_id, patchset_root, version, say=print, dry=False):
                 say(f"  stale: {g.name}/{old.name} removed ({'now in the other group' if old.name in keep else 'no longer written'})")
                 if not dry:
                     old.unlink()
+    # export owns the manifest of its groups too: rewritten from the record every time, removed when nothing is deleted
+    for kind, g in groups.items():
+        man = g / "DELETED_FILES.manifest.txt"
+        if dry:
+            continue
+        if deleted[kind]:
+            g.mkdir(parents=True, exist_ok=True)
+            man.write_text("".join(p + "\n" for p in sorted(deleted[kind])), encoding="utf-8", newline="\n")
+            say(f"  {g.name}: {len(deleted[kind])} deleted file(s) in DELETED_FILES.manifest.txt")
+        elif man.is_file():
+            man.unlink()
     for kind, g in groups.items():
         if written[kind] and not dry:
             intro = ("Repairs needed to carry Gorilla's patches onto Firefox " + version + "." if kind == "port" else
@@ -125,6 +149,9 @@ def export(task_id, patchset_root, version, say=print, dry=False):
                      "returns before the code that would send, with a `GORILLA UNLEASHED - PHYSICAL LOCK` comment, so no preference "
                      "can turn it back on. Verified on the built browser by its own HTTP log, a decrypting proxy, the socket table "
                      "and the packaged archives.")
+            if deleted[kind]:
+                intro += (f" Files the edits delete are listed in DELETED_FILES.manifest.txt ({len(deleted[kind])}), "
+                          "removed after the patches are applied.")
             (g / "README.md").write_text(f"# {g.name}\n\n{intro} Apply in order, after the snapshot groups.\n\n"
                                          + "\n".join(f"- `{n}`: {w}" for n, w in written[kind]) + "\n", encoding="utf-8", newline="\n")
         say(f"  {g.name}: {len(written[kind])} patch(es)")

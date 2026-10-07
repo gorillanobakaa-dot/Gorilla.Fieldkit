@@ -176,7 +176,13 @@ def record(task_id, files, why, group="hand", kind=None):
         # checkpoint still committed it. Intent-to-add makes its whole content a diff like any other edit.
         r = subprocess.run(["git", "-C", str(w), "ls-files", "--error-unmatch", "--", rel], capture_output=True)
         if r.returncode != 0:
-            subprocess.run(["git", "-C", str(w), "add", "-N", "--", rel], capture_output=True, check=True)
+            in_head = subprocess.run(["git", "-C", str(w), "cat-file", "-e", f"HEAD:{rel}"], capture_output=True).returncode == 0
+            if in_head and not (w / rel).exists():
+                # 2026-10-07: removed with `git rm` (staged): back into the index, so the deletion is a working-tree
+                # change like any other (it was taken for a new file and `git add -N` failed on the missing path)
+                subprocess.run(["git", "-C", str(w), "reset", "-q", "--", rel], capture_output=True, check=True)
+            else:
+                subprocess.run(["git", "-C", str(w), "add", "-N", "--", rel], capture_output=True, check=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     have = {s["id"] for s in t["steps"]}
     added = []
