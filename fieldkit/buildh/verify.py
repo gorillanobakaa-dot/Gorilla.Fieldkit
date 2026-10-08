@@ -486,7 +486,7 @@ def verify(task_id):
     #    removed, or a port that added a copy): Firefox's parser keeps the last and the build's l10n lint fails
     #    Measured against the owner's TRUTH when the harness is a snapshot (live run 16: nine of ten doubled ids are
     #    doubled in the owner's running 155 tree as well, so they are the port, not damage), else the pristine tree.
-    rep["ftl_duplicates"] = []
+    rep["ftl_duplicates"], rep["ftl_shape"], rep["ftl_removed"] = [], [], []
     if root:
         import collections
         from . import fluent
@@ -508,6 +508,20 @@ def verify(task_id):
             if dup or lost:
                 rep["ftl_duplicates"].append(f"{rel}: " + (f"doubled {dup[:3]}" if dup else "") + (" " if dup and lost else "")
                                              + (f"lost {lost[:3]}" if lost else ""))
+            # 7b. message shape against pristine, with Mozilla's parser (fluent.shape_diff): an id still there that lost
+            #     its value or an attribute leaves code reading it with nothing (fails); removed ids are listed only,
+            #     the fork removes messages on purpose (an accidental loss is the row above)
+            up = subprocess.run(["git", "-C", str(w), "show", f"{root[0]}:{rel}"], capture_output=True)
+            if up.returncode == 0:
+                try:
+                    sd = fluent.shape_diff(up.stdout.decode("utf-8", "replace"), "\n".join(now))
+                except fluent.ParserMissing:
+                    sd = None                              # the syntax row reports the missing parser
+                if sd and sd["lost"]:
+                    rep["ftl_shape"].append(f"{rel}: " + ", ".join(f"{k} lost {'/'.join(g)}" for k, g in sd["lost"][:3])
+                                            + (f" (+{len(sd['lost']) - 3})" if len(sd["lost"]) > 3 else ""))
+                if sd and sd["removed"]:
+                    rep["ftl_removed"].append(f"{rel}: {len(sd['removed'])} id(s), e.g. {sd['removed'][:2]}")
     return rep
 
 
@@ -545,10 +559,15 @@ def problems(rep):
             ("tree: no upstream file gone without a patch", not ud, "none" if not ud else f"{len(ud)}, e.g. {ud[0]}"),
             ("tree: every UPPER_CASE member read from an import still exists in that module", not rep.get("symbols"),
              "all resolve" if not rep.get("symbols") else f"{len(rep['symbols'])}: {rep['symbols'][:2]}"),
-            ("tree: every changed build or JS file parses (moz.build, .py, .json, .mjs, .js)", not rep.get("syntax"),
+            # "JS file parses" is how buildrun knows this row is one `repair` may fix: keep those words in the name
+            ("tree: every changed build or JS file parses, Fluent too (moz.build, .py, .json, .mjs, .js, .ftl)", not rep.get("syntax"),
              "all parse" if not rep.get("syntax") else f"{len(rep['syntax'])}: {rep['syntax'][:2]}"),
             ("tree: Fluent messages as often as in the owner's tree", not rep.get("ftl_duplicates"),
-             "none" if not rep.get("ftl_duplicates") else f"{len(rep['ftl_duplicates'])} file(s), e.g. {rep['ftl_duplicates'][0]}")] + \
+             "none" if not rep.get("ftl_duplicates") else f"{len(rep['ftl_duplicates'])} file(s), e.g. {rep['ftl_duplicates'][0]}"),
+            ("tree: no Fluent message lost its value or an attribute (against pristine)", not rep.get("ftl_shape"),
+             ("none" if not rep.get("ftl_shape") else f"{len(rep['ftl_shape'])} file(s), e.g. {rep['ftl_shape'][0]}")
+             + (f"; ids removed (on purpose?) in {len(rep['ftl_removed'])} file(s), e.g. {rep['ftl_removed'][0]}"
+                if rep.get("ftl_removed") else ""))] + \
            [("verifier could run", not rep["problems"], "; ".join(rep["problems"]) or "ok")]
 
 

@@ -16,6 +16,7 @@ dependencies = [
   "python-pptx>=1.0",
   "reportlab>=4",
   "pypdfium2>=4",
+  "fluent.syntax>=0.19",   # Mozilla's Fluent parser: .ftl files of a port must parse (buildh/fluent.py)
 ]
 
 [project.optional-dependencies]

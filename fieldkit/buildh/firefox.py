@@ -435,10 +435,12 @@ def syntax_problems(workdir, files):
     `node --check`. A dangling `GeneratedFile(` left by a merge stopped the 157 build at configure (live run 16);
     a half-removed actor block in DesktopActorRegistry.sys.mjs (2026-10-02) BUILT and then killed every window
     actor in the installed browser: no address bar, no extensions. A JS module that does not parse is a stop
-    before the build, not after the install."""
+    before the build, not after the install. Fluent .ftl files with Mozilla's own parser (fluent.parse_errors): an
+    entry it rejects is dropped by Firefox too, and the build does not stop for it (2026-10-08: ipProtection.ftl in
+    the 157 tree, a select expression on one line, its button label lost)."""
     import ast, shutil
     out = []
-    no_node = False
+    no_node = no_fluent = False
     for rel in files:
         p = Path(workdir) / rel
         if not p.is_file():
@@ -465,10 +467,21 @@ def syntax_problems(workdir, files):
                 err = node_check(p)
                 if err:
                     out.append(f"{rel}: {err[:120]}")
+            elif rel.endswith(".ftl") and "/test" not in rel:
+                if re.search(r"^#(ifdef|ifndef|if |filter|include|expand|define)\b", text, re.M):
+                    continue                               # preprocessed at build time: not plain Fluent yet
+                from . import fluent
+                try:
+                    for ln, code, msg in fluent.parse_errors(text):
+                        out.append(f"{rel}: line {ln}: Fluent parse error {code}: {msg[:80]} (Firefox drops the message)")
+                except fluent.ParserMissing:
+                    no_fluent = True
         except (SyntaxError, ValueError) as e:
             out.append(f"{rel}: {str(e).splitlines()[0][:120]}")
     if no_node:
         out.append("node is not installed: changed .js/.mjs files were NOT syntax-checked")
+    if no_fluent:
+        out.append("fluent.syntax is not installed: changed .ftl files were NOT parsed (pip install fluent.syntax)")
     return out
 
 

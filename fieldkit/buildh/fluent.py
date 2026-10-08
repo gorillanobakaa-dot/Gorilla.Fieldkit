@@ -13,6 +13,17 @@ operations deleted the wrong lines three times. Fluent files have a grammar, so:
   port(lines, hunk)     -> new lines: each changed id rewritten in the file's own style; ids that no longer
                            exist are returned as 'gone' with rename candidates (the owner decides)
   check(before, after, hunk) -> problems: every intended id has the intended content, nothing else changed
+
+The splitter above is line-based and forgiving on purpose (it ports); it cannot tell whether a file PARSES. Two
+checks use Mozilla's own Fluent parser (the fluent.syntax package, a declared dependency) instead:
+
+  parse_errors(text)    -> [(line, code, message)] for every entry the parser rejects (Junk). Firefox drops such an
+                           entry, so its message shows as an empty label. 2026-10-01 a throwaway script (ftl.py)
+                           compared Junk counts and message shapes of the 157 port's .ftl files with pristine by hand;
+                           2026-10-08 the same check, made permanent, found a select expression written on one line
+                           in the 157 tree's browser/locales/en-US/browser/ipProtection.ftl (E0003; the message is lost).
+  shape(text)           -> {id: (has value, (attribute names))}; shape_diff(pristine, now) -> removed ids, and ids whose
+                           value or attributes were lost (code that reads `.label` of such a message gets nothing)
 """
 import re
 
@@ -22,6 +33,56 @@ ATTR = re.compile(r"^\.([\w-]+)\s*=\s*(.*)$")
 
 class Ambiguous(ValueError):
     pass
+
+
+class ParserMissing(RuntimeError):
+    """fluent.syntax is not installed: nothing was parsed (reported as a tool gap, never as a pass)."""
+
+
+def _parse(text):
+    try:
+        from fluent.syntax import FluentParser
+    except ImportError as e:
+        raise ParserMissing("fluent.syntax is not installed (pip install fluent.syntax)") from e
+    return FluentParser(with_spans=True).parse(text)
+
+
+def parse_errors(text):
+    """-> [(line, code, message)] one per Junk entry: where the parser gave up (the annotation's line)."""
+    from fluent.syntax import ast
+    out = []
+    for e in _parse(text).body:
+        if isinstance(e, ast.Junk):
+            at = e.annotations[0] if e.annotations else None
+            pos = at.span.start if at and at.span else e.span.start
+            out.append((text.count("\n", 0, pos) + 1, at.code if at else "E0000",
+                        at.message if at else "unparsed text"))
+    return out
+
+
+def shape(text):
+    """-> {id: (has_value, (attribute names, sorted))}; terms are named with their leading '-'."""
+    from fluent.syntax import ast
+    out = {}
+    for e in _parse(text).body:
+        if isinstance(e, (ast.Message, ast.Term)):
+            name = ("-" if isinstance(e, ast.Term) else "") + e.id.name
+            out[name] = (e.value is not None, tuple(sorted(a.id.name for a in e.attributes)))
+    return out
+
+
+def shape_diff(pristine_text, now_text):
+    """-> {"removed": [ids], "lost": [(id, what it lost)]}: ids of the pristine file that are gone, and ids still
+    there that lost their value or an attribute. Added ids, values and attributes are not reported."""
+    was, now = shape(pristine_text), shape(now_text)
+    lost = []
+    for k, (val, attrs) in was.items():
+        if k not in now:
+            continue
+        gone = ([] if not val or now[k][0] else ["value"]) + [f".{a}" for a in attrs if a not in now[k][1]]
+        if gone:
+            lost.append((k, gone))
+    return {"removed": sorted(k for k in was if k not in now), "lost": sorted(lost)}
 
 
 def _norm(text):
