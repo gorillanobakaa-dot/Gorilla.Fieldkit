@@ -501,6 +501,29 @@ def vendor_messages(bi):
 
 
 # ---------------------------------------------------------------------------------------------- run
+PLAN_FILE = "gate-plan.json"
+
+
+def modes_for(name, quick):
+    """The build copies a scenario runs on, in order: direct and proxied always, the controlled resolver for
+    DNS_CONTROLLED, poisoned answers for POISONED in a release run; the graceful-shutdown scene on direct and proxied
+    only."""
+    if name in sc.GRACEFUL:
+        return ["direct", "proxied"]
+    modes = ["direct", "proxied"]
+    if name in sc.DNS_CONTROLLED:
+        modes.append("dns-controlled")
+    if name in sc.POISONED and not quick:
+        modes.append("poisoned")
+    return modes
+
+
+def planned_runs(repeat=1, quick=True, only=None):
+    """Every scenario run a gate will start, as its profile names it ("<scenario>-r<rep>-<mode>"), in order."""
+    return [f"{name}-r{rep}-{mode}" for name, *_ in sc.SCENARIOS if not only or name in only
+            for rep in range(repeat) for mode in modes_for(name, quick)]
+
+
 def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
         previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
     owner_root = Path(owner_root)
@@ -561,6 +584,12 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     manifest = build_manifest(direct, workdir_tree, upstream, allow_path, spec_path)
     say(f"leakgate: build {manifest['BUILD']} ({manifest['VERSION']}), packets {'ON' if packets else 'OFF (not elevated)'}, "
         f"repeat {repeat}, {'quick' if quick else 'release'} durations -> {work}")
+    # the run's own record of what it will do, for `leakgate-status` while it runs (2026-10-06: the hourly sitrep of a
+    # 4-hour release run had the run folder, the gate's PID and the 141 expected runs typed in by hand)
+    (work / PLAN_FILE).write_text(json.dumps({
+        "pid": os.getpid(), "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "build": manifest["BUILD"], "repeat": repeat,
+        "quick": quick, "release": release, "only": sorted(only) if only else None, "soak": soak,
+        "runs": planned_runs(repeat, quick, only)}, indent=1), encoding="utf-8")
     canaries = list(sc.CANARIES.items())
     if linux:
         sport = se.free_port()
@@ -582,13 +611,8 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
             if name == "startup-idle" and soak:
                 secs = int(soak)
             watch = min(watch, 10) if quick else watch
-            modes = [("direct", direct), ("proxied", proxied)]
-            if name in sc.DNS_CONTROLLED:
-                modes.append(("dns-controlled", dnsctl))
-            if name in sc.POISONED and not quick:
-                modes.append(("poisoned", proxied))
-            if name in sc.GRACEFUL:
-                modes = [("direct", direct), ("proxied", proxied)]
+            copies = {"direct": direct, "proxied": proxied, "dns-controlled": dnsctl, "poisoned": proxied}
+            modes = [(m, copies[m]) for m in modes_for(name, quick)]
             for rep in range(repeat):
                 for mode, bdir in modes:
                     say(f"  {name} [{mode}] run {rep + 1}/{repeat}: {secs} s + {watch} s after shutdown")

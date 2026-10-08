@@ -9,12 +9,20 @@ network, with the evidence the harness can check. Categories:
   dead-caller-cut     its only caller is cut in source (evidence names the caller)
   local-only          it only reads resource:, chrome:, file:, blob: or moz-extension: URLs
   user-initiated      the network action happens only when the user asks for it (evidence says how)
+  not-a-sender        it names a host or touches the network layer but sends nothing itself (evidence says why)
   OWNER-DECISION      a trade-off only the owner can make; never approved by a blanket approval
   OPEN                nothing stops it yet; never approvable - it gets cut
 
 A model writes these; the owner approves them, at a real terminal only (`approve_from`, which checks the terminal
 itself and takes no argument that stands in for it). A chat route (`approve_from_chat`) that skipped the terminal
 check was removed with the unused `build()`.
+
+Proposals (`propose`, `build-harness leakgate-proposal`): reviewers (models or people) write result files, one row
+per item they checked; `propose` merges them into proposed-dispositions-<label>.json in the task's leak-gate folder,
+the one place `leakgate-dispositions` reads, and writes the owner's review document beside it. It never approves:
+every entry carries "approval": null, a row that brings an approval of its own is refused, and an existing proposal
+file is never overwritten (the owner may already have approved from it). Born 2026-10-04 (build 26: 150 rows from
+four reviewers merged by a throwaway script with the run, the build number and two corrections typed in).
 """
 import io
 import zipfile
@@ -137,3 +145,185 @@ def approve_from(disp_path, proposed_path, named=(), say=print):
         data[k] = {**e, "approval": {"by": "owner", "at": at, "how": "terminal", "from": proposed_path.name}}
     disp_path.write_text(json.dumps(data, indent=1, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return {"approved": sorted(take), "left": left}
+
+
+# ---------------------------------------------------------------------------------------------- proposals
+KINDS = ("cut-in-source", "not-shipped", "not-built", "dead-remote-settings", "dead-caller-cut", "local-only",
+         "user-initiated", "not-a-sender", "OWNER-DECISION", "OPEN")
+CATEGORIES = (("source", "Source files (SOURCE_POLICY)"), ("host-vendor", "Vendor hosts in omni.ja (BINARY_POLICY)"),
+              ("crate", "Rust crates new since release N-1 (DEPENDENCY_POLICY)"),
+              ("host-new", "Embedded hosts new since release N-1 (BINARY_POLICY)"),
+              ("binary", "Executables and imports (BINARY_POLICY)"))
+COMPONENT = {"host-vendor": "Embedded vendor host (omni.ja)", "host-new": "Embedded host new since release N-1",
+             "crate": "Rust crate new since release N-1", "binary": "Executable / DLL"}
+
+
+class Invalid(ValueError):
+    pass
+
+
+def _key(row):
+    return row.get("key") or ("host:" + row["host"] if row.get("host") else None)
+
+
+def category(row):
+    k = _key(row) or ""
+    if k.startswith("host:"):
+        return "host-new" if row.get("set") == "new-since-N-1" else "host-vendor"
+    if k.startswith("crate:"):
+        return "crate"
+    if k.startswith(("exe:", "pe:")):
+        return "binary"
+    return "source"
+
+
+def merge(result_rows, override_rows=()):
+    """Reviewer rows -> {key: row}, checked. Each row: key (or host), what, reachable, disposition, reason, evidence.
+    Refused (Invalid, listing every problem, nothing written): an unknown kind, no evidence or reason, a key two
+    reviewers both wrote, an override for a key nobody wrote, any row carrying an approval."""
+    rows, why = {}, []
+    for r in result_rows:
+        k = _key(r)
+        if not k:
+            why.append(f"a row with neither key nor host: {str(r)[:80]}")
+        elif k in rows:
+            why.append(f"{k}: written twice (each item is decided once; correct it with an override file)")
+        else:
+            rows[k] = r
+    for r in override_rows:
+        k = _key(r)
+        if k not in rows:
+            why.append(f"{k}: an override for an item no result file has")
+        else:
+            rows[k] = {**rows[k], **r}
+    for k, r in rows.items():
+        if r.get("approval"):
+            why.append(f"{k}: carries an approval; approval is the owner's, at a real terminal, never a reviewer's")
+        if r.get("disposition") not in KINDS:
+            why.append(f"{k}: unknown disposition {r.get('disposition')!r} (one of {', '.join(KINDS)})")
+        if not r.get("evidence"):
+            why.append(f"{k}: no evidence (path:line the owner can open)")
+        if not r.get("reason"):
+            why.append(f"{k}: no reason")
+    if why:
+        raise Invalid("; ".join(why[:40]) + (f"; ... {len(why) - 40} more" if len(why) > 40 else ""))
+    return rows
+
+
+def entries(rows, inventory, run_name, build=None, by="model, not approved", date=None):
+    """{key: row} -> {key: entry} in dispositions.json's own shape, approval null on every one."""
+    import time
+    date = date or time.strftime("%Y-%m-%d")
+    out, missing = {}, []
+    for k, r in rows.items():
+        cat = category(r)
+        if cat == "source":
+            inv = inventory.get(k)
+            if inv is None:
+                missing.append(k)
+                continue
+            comp, apis = inv.get("component"), inv.get("apis", [])
+        else:
+            comp, apis = COMPONENT[cat], []
+        ev = r["evidence"] if isinstance(r["evidence"], list) else [str(r["evidence"])]
+        out[k] = {"component": comp, "apis": apis, "disposition": r["disposition"],
+                  "evidence": r["reason"] + " | " + "; ".join(ev), "approval": None,
+                  "proposal": {"by": by, "date": date, "build": build, "run": run_name, "what": r.get("what"),
+                               "reachable": r.get("reachable"), "needs_fix": r["disposition"] == "OPEN"}}
+    if missing:
+        raise Invalid(f"source item(s) not in the run's source inventory (a typo, or another run): {missing[:10]}")
+    return out
+
+
+def _esc(s):
+    return str(s).replace("|", "\\|").replace("\n", " ")
+
+
+def review_lines(rows, task_id, run_name, json_path, legend=None, notes=None, date=None):
+    """The owner's review document: counts, the NEEDS FIX items first, then every item by category with its evidence."""
+    import collections
+    import time
+    date = date or time.strftime("%Y-%m-%d")
+    cats = {k: category(r) for k, r in rows.items()}
+    L = ["# Leak gate: proposed dispositions for the owner to decide", "",
+         f"Prepared {date} by a model from run `{run_name}` of task `{task_id}`. **Nothing here is approved.** Every entry "
+         "in the proposed file carries `\"approval\": null`. Under D-157-10 only the maintainer approves, at a real "
+         f"terminal: `fieldkit build-harness leakgate-dispositions {task_id}` (OPEN is never approved; an OWNER-DECISION "
+         "only when its key is named on that command line).", ""]
+    if legend:
+        L += ["Paths: " + "; ".join(f"`{k}` = `{v}`" for k, v in legend.items()) + ".", ""]
+    L += [f"Proposed file: `{json_path}` (same shape as `leakgate/dispositions.json`).", "", "## Counts", "",
+          "| category | " + " | ".join(KINDS) + " | total |", "|---|" + "---|" * (len(KINDS) + 1)]
+    for cat, title in CATEGORIES:
+        c = collections.Counter(r["disposition"] for k, r in rows.items() if cats[k] == cat)
+        if c:
+            L.append(f"| {title.split(' (')[0]} | " + " | ".join(str(c.get(x) or "") for x in KINDS) + f" | {sum(c.values())} |")
+    L.append("")
+    if any("pref lock" in str(r.get("reason", "")).lower() for r in rows.values()):
+        L += ["Reasons that say *Pref lock, not a source cut* rest on a locked pref and not on a PHYSICAL LOCK: weaker than "
+              "a source cut, since someone who edits the omni.ja or the profile's prefs could reopen them.", ""]
+    opens = [k for k, r in sorted(rows.items()) if r["disposition"] == "OPEN"]
+    L += [f"## 1. NEEDS FIX ({len(opens)}) - not approvable; these get cut", ""]
+    if opens:
+        L += ["| item | what it is | reachable? | why | evidence |", "|---|---|---|---|---|"]
+        for k in opens:
+            r = rows[k]
+            ev = r["evidence"] if isinstance(r["evidence"], list) else [r["evidence"]]
+            L.append(f"| `{_esc(k)}` | {_esc(r.get('what', ''))} | {_esc(r.get('reachable', ''))} | {_esc(r['reason'])} | "
+                     + "<br>".join(f"`{_esc(e)}`" for e in ev) + " |")
+    else:
+        L.append("None.")
+    L.append("")
+    if notes:
+        L += [notes.rstrip(), ""]
+    n = 2
+    for cat, title in CATEGORIES:
+        keys = sorted((k for k in rows if cats[k] == cat), key=lambda k: (rows[k]["disposition"] != "OPEN", k))
+        if not keys:
+            continue
+        L += [f"## {n}. {title} - {len(keys)}", "", "| item | what it is | reachable? | proposed disposition | reason | evidence path:line |",
+              "|---|---|---|---|---|---|"]
+        n += 1
+        for k in keys:
+            r = rows[k]
+            ev = r["evidence"] if isinstance(r["evidence"], list) else [r["evidence"]]
+            disp = "**OPEN (NEEDS FIX)**" if r["disposition"] == "OPEN" else r["disposition"]
+            L.append(f"| `{_esc(k)}` | {_esc(r.get('what', ''))} | {_esc(r.get('reachable', ''))} | {disp} | {_esc(r['reason'])} | "
+                     + "<br>".join(f"`{_esc(e)}`" for e in ev) + " |")
+        L.append("")
+    return L
+
+
+def propose(task_id, run_dir, result_files, override_files=(), label=None, notes_file=None, legend=None,
+            review_path=None, by="model, not approved", date=None):
+    """Reviewer result files -> the proposal and its review document. The proposal goes to the task's leak-gate
+    folder (the run's parent), where `leakgate-dispositions` reads it, and nowhere else; it is never overwritten.
+    -> {"json", "review", "entries", "counts", "open"}"""
+    import collections
+    import json
+    run_dir = Path(run_dir)
+    load = lambda p: json.loads(Path(p).read_text(encoding="utf-8"))          # noqa: E731
+    rows = merge([r for f in result_files for r in load(f)], [r for f in override_files for r in load(f)])
+    inv_path = run_dir / "source-inventory.json"
+    inventory = load(inv_path).get("inventory", {}) if inv_path.is_file() else {}
+    build = None
+    if (run_dir / "test-results.json").is_file():
+        build = load(run_dir / "test-results.json").get("BUILD")
+    label = label or run_dir.name
+    if not label.replace("-", "").replace("_", "").replace(".", "").isalnum():
+        raise Invalid(f"label {label!r}: letters, digits, '-', '_' and '.' only")
+    out = run_dir.parent / f"proposed-dispositions-{label}.json"
+    if out.exists():
+        raise Invalid(f"{out} exists: a proposal is never overwritten (the owner may have approved from it); choose another label")
+    ents = entries(rows, inventory, run_dir.name, build=build, by=by, date=date)
+    review = Path(review_path) if review_path else run_dir.parent / f"REVIEW-{label}-dispositions.md"
+    if review.exists():
+        raise Invalid(f"{review} exists: not overwritten; choose another label or review= path")
+    notes = Path(notes_file).read_text(encoding="utf-8") if notes_file else None
+    text = "\n".join(review_lines(rows, task_id, run_dir.name, out, legend=legend, notes=notes, date=date)) + "\n"
+    out.write_text(json.dumps(ents, indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    review.write_text(text, encoding="utf-8", newline="\n")
+    counts = {cat: dict(collections.Counter(rows[k]["disposition"] for k in rows if category(rows[k]) == cat))
+              for cat, _ in CATEGORIES}
+    return {"json": str(out), "review": str(review), "entries": len(ents), "counts": counts,
+            "open": sorted(k for k, r in rows.items() if r["disposition"] == "OPEN")}

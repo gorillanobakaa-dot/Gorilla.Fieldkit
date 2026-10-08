@@ -48,6 +48,9 @@
     fieldkit build-harness probe TASK js=NAME       ask a copy of the build a question / try a JS fix without a build
     fieldkit build-harness probe-compare A B        two saved probe outputs (TOK|...): LOST / changed / now-set
     fieldkit build-harness stats TASK [--since D]   the task's journal counted: builds, attempts, stops, hand edits
+    fieldkit build-harness leakgate-status TASK     a (running) leak gate: runs started of expected, alive, CPU since start
+    fieldkit build-harness leakgate-context TASK [HOST...]  each host in the install's omni.ja: path:line and context
+    fieldkit build-harness leakgate-proposal TASK RESULT.json...  reviewers' rows -> proposed dispositions (never approved)
     fieldkit build-harness release-check TASK       every release check in order, one verdict, the fix for each failure
                                                  migration control: stages, gates, SITREP, drift guard (see migrate/cli.py)
 
@@ -684,7 +687,8 @@ def build_parser():
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh",
-                                       "probe-compare", "stats"])
+                                       "probe-compare", "stats", "leakgate-status", "leakgate-context",
+                                       "leakgate-proposal"])
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
     bh.add_argument("--park", help="migration control: do NOT run this record/repair/build-run/decide; park it as a ticket with this reason")

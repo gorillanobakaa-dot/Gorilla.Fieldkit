@@ -186,6 +186,71 @@ def vendor_host_check(schemes, where, dispositions, allow=None):
             "vendor_where": {h: where.get(h, []) for h in unlisted}}
 
 
+def host_context(install_dir, hosts, where=None, width=160, per_member=8):
+    """Every occurrence of each host in the text members of omni.ja and browser/omni.ja, read straight from the
+    archives, with jar:member:line and `width` characters either side: the evidence a disposition cites
+    ("browser/omni.ja:chrome/.../X.sys.mjs:644"). Born 2026-10-04: 107 vendor hosts of build 26 were reviewed from
+    extracted omni folders with a throwaway script; a disposition must point at the shipped text, so this reads the
+    install's own archives. Every text member is searched (the audit's `where` lists stop at five places);
+    `where`: {host: ["jar:member" | "xul.dll", ...]} (binary-hosts.json `where`/`vendor_where`) only adds the
+    places that are not archive text (xul.dll), reported as binary, never searched as text.
+    -> {host: [{"where", "line", "text"}] | [{"where", "binary": True}] | []} (an empty list: not found in any text)"""
+    inst = Path(install_dir)
+    rx = {h: re.compile(r"(?<![\w.-])" + re.escape(h) + r"(?![\w-]|\.[\w-])", re.I) for h in hosts}   # not a longer name
+    out = {h: [] for h in hosts}
+    for h in hosts:
+        for w in (where or {}).get(h, []):
+            if ":" not in w:
+                out[h].append({"where": w, "binary": True})
+    for ja in ("omni.ja", "browser/omni.ja"):
+        if not (inst / ja).is_file():
+            continue
+        with zipfile.ZipFile(inst / ja) as z:
+            for n in z.namelist():
+                if not n.endswith(TEXT_EXT):
+                    continue
+                spec = f"{ja}:{n}"
+                text = z.read(n).decode("utf-8", "replace")
+                low = text.lower()
+                for h in hosts:
+                    if h.lower() not in low:
+                        continue
+                    found = 0
+                    for i, line in enumerate(text.split("\n"), 1):
+                        for m in rx[h].finditer(line):
+                            found += 1
+                            if found > per_member:
+                                break
+                            s = max(0, m.start() - width)
+                            out[h].append({"where": spec, "line": i, "text": line[s:m.end() + width].strip()})
+                        if found > per_member:
+                            break
+    return out
+
+
+def hosts_to_review(data):
+    """A hosts list -> (hosts, where). Accepts a run's binary-hosts.json (the hosts still needing a decision:
+    unapproved new ones and unlisted vendor ones), a list of {"host", "where"} rows, or a list of names."""
+    if isinstance(data, dict):
+        hosts = list(dict.fromkeys(list(data.get("unapproved_new") or []) + list(data.get("vendor_unlisted") or [])))
+        where = {**(data.get("where") or {}), **(data.get("vendor_where") or {})}
+        return hosts, {h: where.get(h, []) for h in hosts}
+    hosts = [r["host"] if isinstance(r, dict) else str(r) for r in data]
+    return hosts, {r["host"]: r.get("where") or [] for r in data if isinstance(r, dict)}
+
+
+def context_lines(ctx):
+    out = []
+    for h, rows in ctx.items():
+        out.append(f"===== {h}")
+        if not rows:
+            out.append("  ?? not found in any text member of omni.ja / browser/omni.ja")
+        for r in rows:
+            out.append(f"  -- {r['where']} (binary: not searched as text)" if r.get("binary")
+                       else f"  {r['where']}:{r['line']}: ...{r['text']}...")
+    return out
+
+
 def binary_audit(install_dir, previous_zip, dispositions, allow=None):
     inst = Path(install_dir)
     schemes = {}

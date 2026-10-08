@@ -27,6 +27,15 @@
                                                                 (fieldkit/buildh/probe_compare.py)
     fieldkit build-harness stats [TASK] [--since D] [--until D] the journal counted: builds, attempts, stops, hand
                                                                 edits, automation, installs, heat (buildh/stats.py)
+    fieldkit build-harness leakgate-status [TASK] [run=STAMP] [thermal=LOG] [hot=70]
+                                                                a (running) gate: runs started of expected, alive,
+                                                                result, CPU since it started (leakgate/status.py)
+    fieldkit build-harness leakgate-context [TASK] [HOST ...] [hosts=FILE.json] [run=STAMP] [width=160]
+                                                                every occurrence of each host in the install's omni.ja,
+                                                                path:line + context (leakgate/audit.py host_context)
+    fieldkit build-harness leakgate-proposal [TASK] RESULT.json ... [override=F] [label=L] [notes=F] [review=F]
+                                                                reviewers' rows -> proposed-dispositions-<label>.json,
+                                                                approval null; the owner approves at a real terminal
 
 Without TASK, the current task is used (the last one started).
 The model gets four MCP tools: build_harness_status, build_harness_next, build_harness_submit, and the read-only
@@ -654,6 +663,73 @@ def run(a, emit):
         from . import replay as rp
         r = rp.run(tid, say=lambda m: print(m, flush=True))
         return 0 if r["ok"] else 3
+    if act == "leakgate-status":
+        # leakgate-status TASK [run=STAMP] [thermal=LOG] [hot=70]: progress of a (running) gate and the CPU since it
+        # started, from the run's own files; read only, safe while the gate runs (fieldkit/leakgate/status.py)
+        from ..leakgate import status as lst
+        from . import buildrun
+        kv = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        tlog = kv.get("thermal")
+        if not tlog:
+            try:
+                tlog = Path(buildrun._owner_root(task.load(tid))) / "state" / "thermal_watch.log"
+            except (task.Refused, OSError, KeyError, TypeError):
+                tlog = None
+        r = lst.status(tid, kv.get("run"), thermal_log=tlog, hot=float(kv.get("hot", 70)))
+        emit(r, lambda r: print("\n".join(lst.lines(r))))
+        return 0
+    if act == "leakgate-context":
+        # leakgate-context TASK [HOST ...] [hosts=FILE.json] [run=STAMP] [width=160] [per=8] [--install-dir D]: every
+        # occurrence of each host in the install's omni.ja archives, path:line and context, for disposition evidence.
+        # No HOST and no hosts=: the hosts the newest run (or run=) still needs a decision for. Read only.
+        from ..leakgate import audit as lau, status as lst
+        from . import install as _inst
+        kv = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        names = [x for x in a.args[1:] if "=" not in x]
+        if kv.get("hosts"):
+            hosts, where = lau.hosts_to_review(json.loads(Path(kv["hosts"]).read_text(encoding="utf-8")))
+        elif names:
+            hosts, where = names, {}
+        else:
+            src = lst.run_dir(tid, kv.get("run")) / "binary-hosts.json"
+            if not src.is_file():
+                raise task.Refused(f"no {src}: name the hosts, or hosts=FILE.json")
+            hosts, where = lau.hosts_to_review(json.loads(src.read_text(encoding="utf-8")))
+            print(f"{len(hosts)} host(s) still need a decision in {src.parent.name}", flush=True)
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir (a run's build-direct copy works too)")
+        ctx = lau.host_context(inst, hosts, where=where, width=int(kv.get("width", 160)), per_member=int(kv.get("per", 8)))
+        emit({"install": str(inst), "hosts": ctx}, lambda r: print("\n".join(lau.context_lines(ctx))))
+        return 0 if all(ctx.values()) else 3
+    if act == "leakgate-proposal":
+        # leakgate-proposal TASK RESULT.json ... [override=FILE.json ...] [label=NAME] [notes=FILE.md] [run=STAMP]
+        # [review=FILE.md]: reviewers' rows -> proposed-dispositions-<label>.json (approval null on every entry) in the
+        # task's leak-gate folder, plus the owner's review document. A proposal only: approving stays the owner's,
+        # at a real terminal (leakgate-dispositions); nothing here can approve (fieldkit/leakgate/dispositions.py)
+        from ..leakgate import dispositions as _ld, status as lst
+        from . import buildrun, install as _inst
+        rest = a.args[1:]
+        files = [x for x in rest if "=" not in x]
+        overrides = [x.split("=", 1)[1] for x in rest if x.startswith("override=")]
+        kv = dict(x.split("=", 1) for x in rest if "=" in x and not x.startswith("override="))
+        if not files:
+            raise task.Refused("leakgate-proposal TASK RESULT.json ...: the reviewers' result files (rows of key or host, "
+                               "what, reachable, disposition, reason, evidence)")
+        t = task.load(tid)
+        legend = {"<tree>": t.get("workdir"), "<install>": _inst.find_install(), "<owner>": buildrun._owner_root(t)}
+        try:
+            r = _ld.propose(tid, lst.run_dir(tid, kv.get("run")), files, overrides, label=kv.get("label"),
+                            notes_file=kv.get("notes"), legend={k: v for k, v in legend.items() if v},
+                            review_path=kv.get("review"))
+        except _ld.Invalid as e:
+            raise task.Refused(f"nothing written: {e}")
+        emit(r, lambda r: print(f"proposed {r['entries']} disposition(s): {r['json']}\nreview for the owner: {r['review']}\n"
+                                + "".join(f"  {c}: {n}\n" for c, n in r["counts"].items() if n)
+                                + (f"NEEDS FIX (never approvable): {r['open']}\n" if r["open"] else "")
+                                + f"NOTHING IS APPROVED. The maintainer reads the review and decides, at a real terminal: "
+                                  f"fieldkit build-harness leakgate-dispositions {tid}"))
+        return 0
     if act in ("leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge"):
         from ..leakgate import gate as lg, allow as la
         from . import buildrun, verify as vf

@@ -122,3 +122,13 @@ def test_a_silent_page_fails_closed_through_the_real_run(fake_world):
     res, _ = fake_world(["lan-probe", "drm-request"], silent=["lan-probe", "drm-request"])
     assert res["LAN_POLICY"] == "FAIL" and "the LAN probe page never reported" in res["WHY"]["LAN_POLICY"]
     assert any("[drm-request] the page never reported" in x for x in res["WHY"]["NETWORK_POLICY"])
+
+
+def test_the_gate_writes_its_plan_first_and_runs_exactly_that(fake_world):
+    """gate-plan.json (read by leakgate-status while the gate runs) names every run the gate then starts, in order."""
+    import os
+    from pathlib import Path
+    res, calls = fake_world(sc.ACTION_SCENARIOS)
+    plan = json.loads((Path(res["ARTIFACTS"]) / gate.PLAN_FILE).read_text(encoding="utf-8"))
+    assert plan["runs"] == [f"{c['scenario']}-r0-{c['mode']}" for c in calls]
+    assert plan["pid"] == os.getpid() and plan["quick"] is True and plan["repeat"] == 1
