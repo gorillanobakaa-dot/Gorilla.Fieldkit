@@ -19,6 +19,9 @@ Kinds:
   revisit   a 20 kB page sent with Cache-Control "private, max-age=0, must-revalidate" (like news front pages);
             every request is logged, with the request's own cache headers, so a revisit served from the cache
             shows as a missing request.
+  bad-cert  HTTPS on 127.0.0.1 with a throwaway self-signed certificate made for the run (no authority signed it):
+            the browser shows its real certificate error page (2026-10-08: screenshots of every hidden about: page,
+            the error pages by their real cause; probe error-pages).
 """
 import http.server
 import re
@@ -42,7 +45,37 @@ def _revisit(handler):
     return body, {"content-type": "text/html", "cache-control": "private, max-age=0, must-revalidate"}
 
 
-KINDS = {"echo-ua": _echo_ua, "revisit": _revisit}
+def _bad_cert(handler):
+    return b"<!doctype html><title>bad-cert</title><p>should never be shown", {"content-type": "text/html"}
+
+
+KINDS = {"echo-ua": _echo_ua, "revisit": _revisit, "bad-cert": _bad_cert}
+TLS_KINDS = {"bad-cert"}
+
+
+def self_signed(folder):
+    """A throwaway key and self-signed certificate for 127.0.0.1, valid one day -> (cert path, key path)."""
+    import datetime
+    import ipaddress
+    from pathlib import Path
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "gorilla probe (self-signed, not trusted)")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number()).not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), False)
+            .sign(key, hashes.SHA256()))
+    folder = Path(folder)
+    c, k = folder / "probe-cert.pem", folder / "probe-key.pem"
+    c.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    k.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+                                    serialization.NoEncryption()))
+    return c, k
 
 
 class Page:
@@ -74,6 +107,15 @@ class Page:
 
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.port = self.httpd.server_address[1]
+        self._tmp = None
+        if kind in TLS_KINDS:
+            import ssl
+            import tempfile
+            self._tmp = tempfile.mkdtemp(prefix="gprobe_cert_")
+            cert, key = self_signed(self._tmp)
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(cert, key)
+            self.httpd.socket = ctx.wrap_socket(self.httpd.socket, server_side=True)
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
 
@@ -81,6 +123,9 @@ class Page:
         self.httpd.shutdown()
         self.httpd.server_close()
         self.thread.join(5)
+        if self._tmp:
+            import shutil
+            shutil.rmtree(self._tmp, ignore_errors=True)
 
 
 def port_free(port):

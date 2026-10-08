@@ -259,7 +259,10 @@ for (const n of Object.keys(Cc).filter(c => c.startsWith(PFX)).map(c => c.slice(
 let count = 0;
 if (!WALK) {
   const names = Object.keys(Cc).filter(c => c.startsWith(PFX)).map(c => c.slice(PFX.length))
-    .filter(n => n && !n.startsWith("crash") && n != "blank" && n != "srcdoc" && (!ONLY.length || ONLY.includes(n))).sort();
+    // by default no crash page, no about:blank or about:srcdoc; named in only= they are opened too (screenshots of
+    // every hidden page, 2026-10-08) - except the two that take the whole browser or its graphics process down
+    .filter(n => n && (ONLY.length ? ONLY.includes(n) && !["crashparent", "crashgpu"].includes(n)
+                                   : !n.startsWith("crash") && n != "blank" && n != "srcdoc")).sort();
   for (const name of names) {
     count++;
     current = name;
