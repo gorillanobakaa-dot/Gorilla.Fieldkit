@@ -59,3 +59,28 @@ def test_sweep_removes_only_old_idle_probe_copies(monkeypatch, tmp_path):
     monkeypatch.setattr(probe, "stop_in", lambda f: [])
     assert probe.sweep_copies(say=lambda m: None) == 1
     assert not old.exists() and fresh.exists() and busy.exists() and foreign.exists()
+
+
+def test_tree_since_maps_a_fluent_source_to_its_shipped_member(tmp_path):
+    """Fluent files ship with comments stripped, so they never match byte for byte: the en-US source is mapped to
+    localization/en-US/<rest> (2026-10-08: string fixes could only be judged after the build)."""
+    import subprocess
+    import zipfile
+    w = tmp_path / "tree"
+    (w / "browser" / "locales" / "en-US" / "browser").mkdir(parents=True)
+    f = w / "browser" / "locales" / "en-US" / "browser" / "aboutDialog.ftl"
+    f.write_bytes(b"# licence\nversion = { $v }\n")
+    g = lambda *a: subprocess.run(["git", "-C", str(w), *a], check=True, capture_output=True)
+    g("init", "-q")
+    g("add", ".")
+    g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "a")
+    f.write_bytes(b"# licence\nversion = { $v } built { $b }\n")
+    g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "b")
+    inst = tmp_path / "inst"
+    (inst / "browser").mkdir(parents=True)
+    with zipfile.ZipFile(inst / "browser" / "omni.ja", "w") as z:
+        z.writestr("localization/en-US/browser/aboutDialog.ftl", "version = { $v }\n")      # comments stripped
+    zipfile.ZipFile(inst / "omni.ja", "w").close()
+    got, skipped = probe.tree_since(w, "HEAD~1", inst, tmp_path / "out")
+    assert list(got) == ["browser/omni.ja:localization/en-US/browser/aboutDialog.ftl"] and not skipped
+    assert got["browser/omni.ja:localization/en-US/browser/aboutDialog.ftl"].read_bytes().endswith(b"built { $b }\n")

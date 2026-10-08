@@ -202,6 +202,9 @@ def verify(task_id, run_binary=True):
         rows.extend(srows)
         rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None)["rows"])
     if all(r["ok"] for r in rows):
+        if built_id:
+            from . import buildstamp
+            buildstamp.remember(task_id, built_id, rec.get("head"), rec["tree"])
         res = {"task": task_id, "verified_at": time.strftime("%Y-%m-%d %H:%M:%S"), "tree": rec["tree"],
                "build_id": built_id,
                "artifacts": {k: {"file": str(v[0]), "sha256": _sha(v[0])} for k, v in found.items() if v}}

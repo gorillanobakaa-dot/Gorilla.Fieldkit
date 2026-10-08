@@ -141,21 +141,64 @@ def test_live_lines_say_what_matters():
     assert "MISSING TEXT" in ap.live("ABOUT-L10N|preferences|x-id|moz-button")
 
 
-def test_prebuild_reads_a_copy_with_the_trees_changes_and_is_never_a_comparison_base(monkeypatch, tmp_path):
-    from fieldkit.buildh import compile as cg, install as inst, probe
-    rec = tmp_path / "build-record.json"
-    rec.write_text('{"head": "abc1234567"}', encoding="utf-8")
-    monkeypatch.setattr(cg, "_record_path", lambda tid: rec)
+def test_prebuild_starts_from_the_installed_builds_source_and_fails_only_on_what_got_worse(monkeypatch, tmp_path):
+    from fieldkit.buildh import buildstamp, install as inst, probe
     monkeypatch.setattr(inst, "find_install", lambda: None)
     assert ap.prebuild({"workdir": "w"}, "t", say=lambda m: None) is None                 # nothing to read against
     monkeypatch.setattr(inst, "find_install", lambda: tmp_path / "inst")
-    monkeypatch.setattr(inst, "installed", lambda d: {"build_id": "20261008103725"})
-    monkeypatch.setattr(probe, "tree_since", lambda w, since, target, out: ({"omni.ja:x.js": tmp_path / "x.js"}, [("a.cpp", "compiled")]))
+    monkeypatch.setattr(inst, "installed", lambda d: {"build_id": "20261008045117"})
+    monkeypatch.setattr(buildstamp, "head_of", lambda tid, bid: None)
+    r = ap.prebuild({"workdir": "w"}, "t", say=lambda m: None)
+    assert r["ok"] and not r["rows"] and "no record of the source" in r["notes"][0]       # unknown source: said, not judged
+    monkeypatch.setattr(buildstamp, "head_of", lambda tid, bid: "ac4b98712e")
     seen = {}
+    monkeypatch.setattr(probe, "tree_since", lambda w, since, target, out: seen.update(since=since) or
+                        ({"omni.ja:x.js": tmp_path / "x.js"}, [("a.cpp", "compiled")]))
+    base = ap.parse(["ABOUT|studies|content|about:studies|S|0|0|0|listed", "ABOUT-SUMMARY|1|0|1|0|0"])
+    monkeypatch.setattr(ap, "latest", lambda bid: base)
+    after = {"lines": ["ABOUT|studies|content|about:studies|S|173|0|2|listed", "ABOUT-SUMMARY|1|0|0|0|0"]}
     def run(target, bid, say=print, partial=False, **kw):
-        seen.update(partial=partial, omni=kw.get("omni"), bid=bid)
-        return {"rows": [{"check": "c", "ok": True, "evidence": ""}]}
+        assert partial and kw["omni"] == {"omni.ja:x.js": str(tmp_path / "x.js")}
+        parsed = ap.parse(after["lines"])
+        return {"rows": ap.verdict(parsed), "parsed": parsed}
     monkeypatch.setattr(ap, "run", run)
     r = ap.prebuild({"workdir": "w"}, "t", say=lambda m: None)
-    assert r["ok"] and seen["partial"] and seen["omni"] == {"omni.ja:x.js": str(tmp_path / "x.js")}
+    assert seen["since"] == "ac4b98712e" and r["ok"] and any("shows text again" in n for n in r["notes"])
     assert any("a.cpp" in n for n in r["notes"])
+    after["lines"] = ["ABOUT|studies|content|about:studies|S|0|0|0|listed",
+                      "ABOUT-ERR|studies|TypeError: boom|chrome://x.js", "ABOUT-SUMMARY|1|0|1|1|0"]
+    r = ap.prebuild({"workdir": "w"}, "t", say=lambda m: None)
+    assert not r["ok"] and "new error: TypeError: boom" in r["rows"][0]["evidence"]
+
+
+def test_regressions_are_what_got_worse_not_what_was_already_wrong():
+    base = ap.parse(["ABOUT|studies|content|about:studies|S|0|0|0|listed",
+                     "ABOUT|preferences|parent|about:preferences|P|900|0|9|listed",
+                     "ABOUT-L10N|preferences|old-missing|moz-button", "ABOUT-SUMMARY|2|0|1|0|0"])
+    new = ap.parse(["ABOUT|studies|content|about:studies|S|0|0|0|listed",                   # still blank: not new
+                    "ABOUT|preferences|parent|about:preferences|P|300|0|9|listed",          # lost most of its text
+                    "ABOUT-L10N|preferences|old-missing|moz-button",
+                    "ABOUT-L10N|preferences|new-missing|moz-fieldset",
+                    "ABOUT-ERR|preferences|TypeError: x is undefined|chrome://browser/content/p.js",
+                    "ABOUT-ERR|certerror|ReferenceError: RPMGetBoolPref is not defined|x",       # a known artefact
+                    "ABOUT-NET|preferences|https://example.org/|browser", "ABOUT-SUMMARY|2|0|1|1|1"])
+    worse = ap.regressions(base, new)
+    assert "about:preferences lost its text: 900 -> 300 characters" in worse
+    assert "about:preferences missing text: new-missing" in worse
+    assert any("new error: TypeError" in l for l in worse) and not any("RPMGet" in l for l in worse)
+    assert "new request: https://example.org/" in worse
+    assert not any("studies" in l or "old-missing" in l for l in worse)
+
+
+def test_head_of_finds_the_source_of_a_build_id_in_the_journal(tmp_path, monkeypatch):
+    from fieldkit.buildh import buildstamp, task
+    monkeypatch.setattr(task, "STATE", tmp_path)
+    (tmp_path / "t").mkdir()
+    (tmp_path / "t" / "journal.jsonl").write_text(
+        '{"t": "2026-10-08 03:16:32", "event": "build-start", "head": "aaa"}\n'
+        '{"t": "2026-10-08 04:50:53", "event": "build-start", "head": "bbb"}\n'
+        '{"t": "2026-10-08 09:25:46", "event": "build-start", "head": "ccc"}\n', encoding="utf-8")
+    assert buildstamp.head_of("t", "20261008045117") == "bbb"
+    assert buildstamp.head_of("t", "20261008120000") is None                    # nothing in the 15 minutes before
+    buildstamp.remember("t", "20261008120000", "ddd", "tree")
+    assert buildstamp.head_of("t", "20261008120000") == "ddd"                   # builds.jsonl first

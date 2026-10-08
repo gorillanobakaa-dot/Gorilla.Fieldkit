@@ -219,6 +219,11 @@ def compare(prev, cur):
             out.append(f"about:{n} draws a new picture: {u[:90]}")
         for u in sorted(pa - pb):
             out.append(f"about:{n} no longer draws: {u[:90]}")
+        ma, mb = {m["id"] for m in x.get("missing_l10n", [])}, {m["id"] for m in y.get("missing_l10n", [])}
+        for i in sorted(mb - ma):
+            out.append(f"about:{n} missing text: {i}")
+        for i in sorted(ma - mb):
+            out.append(f"about:{n} text restored: {i}")
         ea, eb = {e["msg"] for e in x.get("errors", [])}, {e["msg"] for e in y.get("errors", [])}
         for m in sorted(eb - ea):
             out.append(f"about:{n} new error: {m[:100]}")
@@ -229,12 +234,18 @@ def compare(prev, cur):
     return out
 
 
+def probe_sha():
+    """Which version of the probe made a reading (a baseline from an older probe would make old faults look new)."""
+    import hashlib
+    return hashlib.sha256((Path(__file__).parent / "probes" / "about-pages.js").read_bytes()).hexdigest()[:16]
+
+
 def save(parsed, raw_lines, build_id, install_dir):
     STATE.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     p = STATE / f"about-pages-{stamp}.json"
-    p.write_text(json.dumps({"build_id": build_id, "install": str(install_dir), "when": stamp, **parsed}, indent=1),
-                 encoding="utf-8")
+    p.write_text(json.dumps({"build_id": build_id, "install": str(install_dir), "when": stamp, "probe": probe_sha(),
+                             **parsed}, indent=1), encoding="utf-8")
     (STATE / f"about-pages-{stamp}.txt").write_text("\n".join(raw_lines) + "\n", encoding="utf-8")
     return p
 
@@ -328,25 +339,73 @@ def run(install_dir, build_id, say=print, timeout=900, only=(), walk=False, dwel
             "done": r["done"], "previous": (prev or {}).get("when")}
 
 
-def prebuild(t, task_id, say=print):
-    """Before the compile: the tree's packaged-as-is changes since the last build (JS, CSS, Fluent, HTML) applied to a
-    copy of the installed browser, every about: page read -> {"ok", "rows", "notes"}, or None when there is nothing to
-    read against (no install, no earlier build). C++ and build-time-generated files cannot be applied to a copy: they
-    are listed in the notes and judged after the build (build-verify)."""
-    import tempfile
-    from . import compile as cg, install as inst, probe
-    target = inst.find_install()
-    rec = cg._record_path(task_id)
-    if not target or not rec.is_file():
-        say("  pre-build about: pages: skipped (" + ("no installed build" if not target else "no earlier build recorded") + ")")
+REGRESSION = (" lost its text", " new error: ", " now lands on ", " missing text: ")
+
+
+def regressions(base, new):
+    """What a change made worse, from compare(base, new): pages that lost their text or now land elsewhere, new script
+    errors (not the known artefacts or tab-closing teardown), new missing strings, any new request."""
+    out = []
+    for l in compare(base, new):
+        if l.startswith("new request: "):
+            out.append(l)
+        elif any(k in l for k in REGRESSION):
+            if " new error: " in l:
+                msg = l.split(" new error: ", 1)[1]
+                if known_artefact(msg) or msg in ("unhandled rejection: undefined", "uncaught exception: undefined"):
+                    continue
+            out.append(l)
+    return out
+
+
+def latest(build_id):
+    """The newest full (not partial) saved run of `build_id` made by THIS version of the probe -> parsed run or None."""
+    if not STATE.is_dir():
         return None
-    since = json.loads(rec.read_text(encoding="utf-8"))["head"]
-    got, skipped = probe.tree_since(t["workdir"], since, target, tempfile.mkdtemp(prefix="gprobe_tree_"))
-    notes = [f"tree {since[:10]}..HEAD: {len(got)} packaged member(s) applied to a copy of {target}"]
-    notes += [f"judged after the build only: {p} ({why})" for p, why in skipped[:8]]
+    for f in sorted(STATE.glob("about-pages-*.json"), reverse=True):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if d.get("build_id") == build_id and d.get("probe") == probe_sha():
+            return d
+    return None
+
+
+def prebuild(t, task_id, say=print):
+    """Before the compile: does the planned change break an about: page? The tree's packaged-as-is changes (JS, CSS,
+    Fluent, HTML) since the INSTALLED build's own source are applied to a copy of it, every page is read, and the
+    result is held against the installed build's reading -> {"ok", "rows", "notes"}, or None when there is nothing
+    to read against. ok = nothing got worse. Faults the installed build already has, and anything a C++ or
+    build-time-generated change fixes, are judged after the compile (build-verify)."""
+    import tempfile
+    from . import buildstamp, install as inst, probe
+    target = inst.find_install()
+    if not target:
+        say("  pre-build about: pages: skipped (no installed build)")
+        return None
     bid = (inst.installed(target) or {}).get("build_id")
+    since = buildstamp.head_of(task_id, bid)
+    if not since:
+        return {"ok": True, "rows": [], "notes": [f"skipped: no record of the source the installed build {bid} was made from"]}
+    got, skipped = probe.tree_since(t["workdir"], since, target, tempfile.mkdtemp(prefix="gprobe_tree_"))
+    notes = [f"tree {since[:10]} (installed build {bid})..HEAD: {len(got)} packaged member(s) applied to a copy of {target}"]
+    notes += [f"judged after the build only: {p} ({why})" for p, why in skipped[:8]]
+    base = latest(bid)
+    if base is None:                                      # no reading of the installed build yet: take one now
+        run(target, bid, say=say)
+        base = latest(bid)
+        notes.append(f"read the installed build {bid} first (no earlier reading kept)")
     r = run(target, bid, say=say, partial=True, omni={k: str(v) for k, v in got.items()} or None)
-    return {"ok": all(x["ok"] for x in r["rows"]), "rows": r["rows"], "notes": notes}
+    worse = regressions(base, r["parsed"]) if base else []
+    better = [l for l in (compare(base, r["parsed"]) if base else [])
+              if l.endswith("characters") and "shows text again" in l or "error gone" in l or "text restored" in l]
+    still = [f"{x['check']}: {x['evidence'][:120]}" for x in r["rows"] if not x["ok"]]
+    rows = [{"check": "pre-build: the planned changes break no about: page", "ok": not worse,
+             "evidence": ("; ".join(worse[:6]) + (f" (+{len(worse) - 6})" if len(worse) > 6 else "")) if worse else
+                         f"nothing got worse; {len(better)} thing(s) better; {len(still)} finding(s) still open (judged after the build)"}]
+    notes += [f"better: {l}" for l in better[:8]] + [f"still open: {l}" for l in still[:6]]
+    return {"ok": not worse, "rows": rows, "notes": notes}
 
 
 def rows(install_dir, build_id, say=print):

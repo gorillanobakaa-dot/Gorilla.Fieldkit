@@ -30,6 +30,7 @@ order (probe_servers.py; 2026-10-04 the Satellite probes needed two hand-started
 Two saved outputs of a probe with KIND|key|...|value lines (design-tokens: TOK) are compared with
 `build-harness probe-compare A B` (probe_compare.py).
 """
+import re
 import shutil
 import subprocess
 import tempfile
@@ -121,12 +122,13 @@ def tree_since(workdir, since, install_dir, out_dir, until="HEAD"):
     -> ({"jar:member": local path}, [(path, why not applied)])"""
     import hashlib
     git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(workdir), *a], capture_output=True)
-    index = {}
+    index, names = {}, {}
     for jar in ("omni.ja", "browser/omni.ja"):
         with zipfile.ZipFile(Path(install_dir) / jar) as z:
             for n in z.namelist():
                 if not n.endswith("/"):
                     index.setdefault(hashlib.sha256(z.read(n)).hexdigest(), []).append(f"{jar}:{n}")
+                    names.setdefault(n, []).append(f"{jar}:{n}")
     out, skipped = {}, []
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     rows = git("diff", "--name-status", "--no-renames", since, until).stdout.decode("utf-8", "replace").splitlines()
@@ -137,6 +139,11 @@ def tree_since(workdir, since, install_dir, out_dir, until="HEAD"):
             continue
         old, new = git("show", f"{since}:{path}").stdout, git("show", f"{until}:{path}").stdout
         members = index.get(hashlib.sha256(old).hexdigest(), [])
+        if not members:
+            # Fluent files ship with their comments stripped, so they never match byte for byte: the en-US source
+            # <area>/locales/en-US/<rest>.ftl is the member localization/en-US/<rest>.ftl (Fluent ignores comments)
+            loc = re.match(r"^[\w/.-]*?/locales/en-US/(.+\.ftl)$", path)
+            members = names.get(f"localization/en-US/{loc.group(1)}", []) if loc else []
         if not members:
             skipped.append((path, "not packaged as-is (preprocessed, generated or bundled at build time)"))
             continue

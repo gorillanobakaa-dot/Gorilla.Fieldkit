@@ -76,6 +76,53 @@ def about_rows(app_dir, recorded=None, say=print, timeout=120):
     return rows
 
 
+def remember(task_id, build_id, head, tree):
+    """build-verify: this BuildID was made from this head and tree (state/<task>/builds.jsonl, one line per build)."""
+    import json
+    import time
+    from . import task
+    if not build_id:
+        return
+    p = task.STATE / task_id / "builds.jsonl"
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"build_id": build_id, "head": head, "tree": tree, "verified_at": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")
+
+
+def head_of(task_id, bid, journal=None):
+    """The source commit a BuildID was built from -> head or None: builds.jsonl first, else the journal's last
+    build-start up to 15 minutes before the BuildID (the BuildID is set seconds after build-start)."""
+    import json
+    from . import task
+    p = task.STATE / task_id / "builds.jsonl"
+    if p.is_file():
+        for line in reversed(p.read_text(encoding="utf-8").splitlines()):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d.get("build_id") == bid and d.get("head"):
+                return d["head"]
+    t = when(bid)
+    j = Path(journal) if journal else task.STATE / task_id / "journal.jsonl"
+    if not t or not j.is_file():
+        return None
+    best = None
+    for line in j.read_text(encoding="utf-8").splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get("event") != "build-start" or not d.get("head"):
+            continue
+        try:
+            at = datetime.datetime.strptime(d["t"], "%Y-%m-%d %H:%M:%S")
+        except (KeyError, ValueError):
+            continue
+        if t - datetime.timedelta(minutes=15) <= at <= t:
+            best = d["head"]
+    return best
+
+
 def built_rows(objdir, gate_at, say=print):
     """build-verify rows for dist/bin: a BuildID newer than the gate, and the About line showing it -> (rows, BuildID)."""
     app = Path(objdir) / "dist" / "bin"
