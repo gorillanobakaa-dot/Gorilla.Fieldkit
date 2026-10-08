@@ -88,6 +88,7 @@ groups:
       - buildh/preflight.py
       - buildh/recorder.py
       - buildh/repair.py
+      - buildh/stats.py
       - buildh/symbols.py
       - buildh/truthbound.py
       - buildh/verify.py

@@ -25,6 +25,8 @@
     fieldkit build-harness probe-compare A B [prefix=TOK] [keys=2] [value=last|all] [limit=N]
                                                                 two saved probe outputs: LOST / changed / now-set
                                                                 (fieldkit/buildh/probe_compare.py)
+    fieldkit build-harness stats [TASK] [--since D] [--until D] the journal counted: builds, attempts, stops, hand
+                                                                edits, automation, installs, heat (buildh/stats.py)
 
 Without TASK, the current task is used (the last one started).
 The model gets four MCP tools: build_harness_status, build_harness_next, build_harness_submit, and the read-only
@@ -980,6 +982,12 @@ def run(a, emit):
         rows = cmp.compare(t["workdir"], a.reference, files, out_dir=task.STATE / tid)
         emit(rows, lambda r: print("\n".join(cmp.lines(r)) + f"\n\nsaved: {task.STATE / tid / 'compare.diff'}"))
         return 0 if all(r["result"] == "same" for r in rows) else 3
+    if act == "stats":
+        # stats TASK [--since D] [--until D]: the journal counted (builds, attempts, stops, hand edits, installs, heat)
+        from . import stats
+        r = stats.run(tid, since=getattr(a, "since", None), until=getattr(a, "until", None))
+        emit(r, lambda r: print("\n".join(stats.lines(r))))
+        return 0
     if act == "log":
         f = task.STATE / tid / "journal.jsonl"
         for line in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else [])[-40:]:
