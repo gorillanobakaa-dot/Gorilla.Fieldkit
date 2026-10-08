@@ -601,6 +601,21 @@ def run(a, emit):
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
+    if act == "satellite":
+        # satellite TASK [--install-dir D] [omni=..] [sub=..] [tree-since=..]: Satellite mode judged on a copy - identity
+        # and scripts per level and per kind of site, call sites included (satellite.py)
+        from . import satellite, install as _inst
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir")
+        opts, change, notes = _change_args(a.args[1:], tid, inst, "gprobe_tree_", say=lambda m: print(m, flush=True))
+        rows = satellite.rows(inst, say=lambda m: print(m, flush=True), need_call_list=opts.get("need-list", "1") != "0",
+                              omni=change.get("omni"), files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
+        for n in notes:
+            print("  note: " + n)
+        for row in rows:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        return 0 if all(r["ok"] for r in rows) else 3
     if act == "about-pages":
         # about-pages TASK [--install-dir D] [only=a,b] [walk=1 dwell=S countdown=S] [tree-since=..] [sub=..] [omni=..] [timeout=S]: every about: page of a copy
         # of the installed build opened, read and judged, kept and compared with the last other build (aboutpages.py)

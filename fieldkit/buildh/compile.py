@@ -201,6 +201,9 @@ def verify(task_id, run_binary=True):
         srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None)
         rows.extend(srows)
         rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None)["rows"])
+        # Satellite mode, every level and every kind of site (satellite.py: probes satellite-mobile, satellite-calls)
+        from . import satellite
+        rows.extend(satellite.rows(dist / "bin", say=lambda m: None))
     if all(r["ok"] for r in rows):
         if built_id:
             from . import buildstamp
