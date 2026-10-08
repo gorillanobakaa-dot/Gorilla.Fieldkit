@@ -438,6 +438,12 @@ def _change_args(args, tid, inst, tmp_prefix, say=print):
 def run(a, emit):
     """The `fieldkit build-harness` command. `emit(obj, lines_fn)` prints JSON or text."""
     act = a.action
+    if act == "window":
+        # window COMMAND [ARGS ...]: that build-harness command in its own visible window that outlives this session
+        from . import window
+        r = window.launch(list(a.args))
+        print(f"started in its own window (PID {r['pid']}); everything it prints is also in {r['log']}")
+        return 0
     if act == "latest":
         return emit(upstream.latest(a.args[0]), None) or 0
     if act == "probe-compare":

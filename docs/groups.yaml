@@ -86,6 +86,7 @@ groups:
       - buildh/aboutpages.py
       - buildh/buildstamp.py
       - buildh/satellite.py
+      - buildh/window.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py
