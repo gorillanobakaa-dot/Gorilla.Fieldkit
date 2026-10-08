@@ -529,6 +529,15 @@ def hunk_status(tree, rel, file, n, h, idx, steps_by_id, relocated, later=None, 
     if firefox.deletes_whole_file(h) and tree.raw(file) is None:
         return "APPLIED", "the patch deletes this file and it is gone", True
     v, d = score(body, h, file, tree.pristine(file))
+    if v == "NO-SIGNAL" and _deletion_holds(body, h, tree.pristine(file)):
+        # a hunk that only deletes short lines ('logo', in a list): its context may be changed by a later patch of
+        # the set (2026-10-08: 084 removed 'logo', next to 'logging', which D-157-36 removed later), but the deletion
+        # itself is judged by the deleted lines: pristine had them, the tree has none of them anywhere
+        v, d = "APPLIED", "a deletion: every line it removes is gone from the file (pristine had them)"
+    if v not in ("APPLIED", "NO-SIGNAL") and _dedupe_holds(body, h, tree.pristine(file)):
+        # removing a doubled copy (2026-10-08: patch 087 removed the second copy of two onboarding.ftl messages):
+        # the lines it removes are still there once, as the copy that was kept; judged by count against pristine
+        v, d = "APPLIED", "removed a doubled copy: the file has these lines as often as pristine upstream"
     if v == "NO-SIGNAL":
         v, d = _block_check(body, h)
         if v == "OBSOLETE-CANDIDATE":
@@ -573,6 +582,33 @@ def hunk_status(tree, rel, file, n, h, idx, steps_by_id, relocated, later=None, 
         return "UNJUDGEABLE", d, False
     extra = "; the record says obsolete, the tree disagrees" if s and s.get("status") == "obsolete" else ""
     return "NOT-APPLIED", (f"[{v}] " if v != "NOT-APPLIED" else "") + d + extra, False
+
+
+def _deletion_holds(body, h, pristine):
+    """True for a hunk that adds nothing and whose every non-blank removed line was in pristine and is now in no line
+    of the file (exact, stripped). Conservative: a removed `}` that exists elsewhere in the file never passes."""
+    if body is None or pristine is None:
+        return False
+    removed, added, _ = firefox.hunk_sides(h)
+    gone = [l.strip() for l in removed if l.strip()]
+    if not gone or any(a.strip() for a in added):
+        return False
+    have, had = {l.strip() for l in body}, {l.strip() for l in pristine}
+    return all(l in had and l not in have for l in gone)
+
+
+def _dedupe_holds(body, h, pristine):
+    """True for a hunk that adds nothing, removes at least one distinctive line, and leaves every removed line in the
+    file exactly as often as pristine has it (at least once): the removal of a second copy someone had added."""
+    from collections import Counter
+    if body is None or pristine is None:
+        return False
+    removed, added, _ = firefox.hunk_sides(h)
+    gone = [l.strip() for l in removed if l.strip()]
+    if not gone or any(a.strip() for a in added) or not any(len(l) >= vf.SPECIFIC for l in gone):
+        return False
+    have, had = Counter(l.strip() for l in body), Counter(l.strip() for l in pristine)
+    return all(had[l] >= 1 and have[l] == had[l] for l in set(gone))
 
 
 def _superseded_reworked(body, h, file, later, order, detail):

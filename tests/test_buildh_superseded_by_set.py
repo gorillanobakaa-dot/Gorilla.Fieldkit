@@ -77,3 +77,26 @@ def test_the_dist_sweep_removes_only_deleted_uninstalled_files_in_omni_folders(t
     removed = buildrun.sweep_deleted_dist(od, w, say=lambda m: None)
     assert removed == ["browser/chrome/browser/content/branding/about-logo.svg"]
     assert (chrome / "about-logo.png").exists() and (od / "dist" / "bin" / "README.txt").exists()
+
+
+def test_a_deletion_only_hunk_holds_when_its_lines_are_gone_even_if_a_later_patch_changed_its_context():
+    """2026-10-08: patch 084 removed 'logo', from a list; D-157-36 later removed the neighbouring 'logging', and the
+    hunk (too short to judge by text) read as failing, contradicting 6 public claims."""
+    h = {"lines": ["     'license',", "     'logging',", "-    'logo',", "     'memory',"], "header": "@@ -17,4 +17,3 @@"}
+    pristine = ["about_pages = [", "    'license',", "    'logging',", "    'logo',", "    'memory',", "]"]
+    now = ["about_pages = [", "    'license',", "    # GORILLA D-157-36: no about:logging", "    'memory',", "]"]
+    assert claims._deletion_holds(now, h, pristine)
+    assert not claims._deletion_holds(now + ["    'logo',"], h, pristine)          # back somewhere: not held
+    h2 = {"lines": ["     x", "-}", "     y"], "header": "@@"}
+    assert not claims._deletion_holds(["a", "}"], h2, ["a", "}", "}"])           # a generic line elsewhere: never
+
+
+def test_removing_a_doubled_copy_holds_when_the_file_has_pristines_count():
+    """2026-10-08: patch 087 removed the second copy of two onboarding.ftl messages; the lines still exist once (the
+    kept copy) and the audit called the patch MISSING."""
+    h = {"lines": ["     .label = Thanks", "-onboarding-checklist-minimize =", "-    .label = Minimize", " "], "header": "@@"}
+    pristine = ["onboarding-checklist-minimize =", "    .label = Minimize", "other = x"]
+    kept = ["onboarding-checklist-minimize =", "    .label = Minimize", "other = x"]
+    assert claims._dedupe_holds(kept, h, pristine)
+    assert not claims._dedupe_holds(kept + ["onboarding-checklist-minimize =", "    .label = Minimize"], h, pristine)  # still doubled
+    assert not claims._dedupe_holds(["other = x"], h, pristine)                                  # both copies gone
