@@ -22,6 +22,9 @@
                                                                 network benches B1-B5 against local servers through an
                                                                 emulated link (fieldkit/netbench)
     fieldkit build-harness netbench compare A B                 before/after deltas of two netbench results
+    fieldkit build-harness probe-compare A B [prefix=TOK] [keys=2] [value=last|all] [limit=N]
+                                                                two saved probe outputs: LOST / changed / now-set
+                                                                (fieldkit/buildh/probe_compare.py)
 
 Without TASK, the current task is used (the last one started).
 The model gets four MCP tools: build_harness_status, build_harness_next, build_harness_submit, and the read-only
@@ -392,11 +395,51 @@ def _briefs(act, a, emit):
         raise task.Refused(str(e))
 
 
+def _change_args(args, tid, inst, tmp_prefix, say=print):
+    """omni= / file= / add= / sub= / tree-since= / tree-until= words of a command line -> (options, change dict, notes).
+    The change goes into a throwaway COPY of the install (probe, visual); `options` are the other key=value words.
+    tree-since=build means the commit the installed build was compiled from."""
+    from . import probe as pb
+    kv = [x for x in args if "=" in x]
+    opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=", "add=", "sub=")))}
+    since = opts.pop("tree-since", None)
+    until = opts.pop("tree-until", "HEAD")
+    change = {"omni": dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("omni=")),
+              "files": dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("file=")),
+              "added": dict(x[4:].rsplit("=", 1) for x in kv if x.startswith("add=")),
+              "subs": [tuple(x[4:].split("=>", 1)) for x in kv if x.startswith("sub=") and "=>" in x]}
+    notes = []
+    if since:
+        # the source changes since a commit ("build": the commit the installed build was compiled from)
+        import tempfile as _tf
+        from . import compile as _cg
+        if since == "build":
+            since = json.loads(_cg._record_path(tid).read_text(encoding="utf-8"))["head"]
+        got, skipped = pb.tree_since(task.load(tid)["workdir"], since, inst, _tf.mkdtemp(prefix=tmp_prefix), until)
+        change["omni"].update({k: str(v) for k, v in got.items()})
+        notes.append(f"tree-since {since[:10]}: {len(got)} member(s) replaced; {len(skipped)} change(s) not applied:")
+        notes += [f"  {path}: {why}" for path, why in skipped]
+    for n in notes:
+        say(f"  {n}")
+    return opts, {k: v for k, v in change.items() if v}, notes
+
+
 def run(a, emit):
     """The `fieldkit build-harness` command. `emit(obj, lines_fn)` prints JSON or text."""
     act = a.action
     if act == "latest":
         return emit(upstream.latest(a.args[0]), None) or 0
+    if act == "probe-compare":
+        # probe-compare A B [prefix=TOK] [keys=2] [value=last|all] [limit=200]: two saved probe outputs, read only
+        from . import probe_compare as pc
+        files = [x for x in a.args if "=" not in x]
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        if len(files) != 2:
+            raise task.Refused("probe-compare A B: two files holding a probe's output (before, after)")
+        r = pc.run(files[0], files[1], prefix=opts.get("prefix", "TOK"), keys=int(opts.get("keys", 2)),
+                   value=opts.get("value", "last"))
+        emit(r, lambda r: print("\n".join(pc.lines(r, limit=int(opts.get("limit", 200))))))
+        return 3 if r["LOST"] else 0
     if act == "vault":
         sub, rest = a.args[0], a.args[1:]
         if sub == "measure":
@@ -533,36 +576,17 @@ def run(a, emit):
         # probe TASK js=<file|name> [url=...] [wait=S] [omni=<jar>:<member>=<file> ...] [file=..] [add=..]: a question to (or a JS fix
         # tried in) a throwaway copy of the installed build, without a build
         from . import probe as pb, buildrun
-        kv = [x for x in a.args[1:] if "=" in x]
-        opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=", "add=", "sub=")))}
-        since = opts.pop("tree-since", None)
-        until = opts.pop("tree-until", "HEAD")
-        subs = [tuple(x[4:].split("=>", 1)) for x in kv if x.startswith("sub=") and "=>" in x]
-        omni = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("omni="))
-        files = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("file="))
-        added = dict(x[4:].rsplit("=", 1) for x in kv if x.startswith("add="))
-        if "js" not in opts:
-            raise task.Refused("probe needs js=<file or one of " + ", ".join(p.stem for p in pb.PROBES.glob("*.js")) + ">")
         from . import install as _inst
         inst = a.install_dir or _inst.find_install()
+        if "js" not in dict(x.split("=", 1) for x in a.args[1:] if "=" in x):
+            raise task.Refused("probe needs js=<file or one of " + ", ".join(p.stem for p in pb.PROBES.glob("*.js")) + ">")
         if not inst:
             raise task.Refused("no installed build found: give --install-dir")
-        if since:
-            # the source changes since a commit ("build": the commit the installed build was compiled from)
-            import json as _js
-            import tempfile as _tf
-            from . import compile as _cg
-            if since == "build":
-                since = _js.loads(_cg._record_path(tid).read_text(encoding="utf-8"))["head"]
-            got, skipped = pb.tree_since(task.load(tid)["workdir"], since, inst, _tf.mkdtemp(prefix="gprobe_tree_"), until)
-            omni.update({k: str(v) for k, v in got.items()})
-            print(f"  tree-since {since[:10]}: {len(got)} member(s) replaced; {len(skipped)} change(s) not applied:", flush=True)
-            for path, why in skipped:
-                print(f"    {path}: {why}", flush=True)
-        r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)), omni=omni or None,
-                   timeout=float(opts.get("timeout", 90)),
-                   say=lambda m: print(m, flush=True), files=files or None, added=added or None, subs=subs or None)
-        for l in r["lines"]:
+        opts, change, _notes = _change_args(a.args[1:], tid, inst, "gprobe_tree_", say=lambda m: print(m, flush=True))
+        r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)),
+                   omni=change.get("omni"), timeout=float(opts.get("timeout", 90)), say=lambda m: print(m, flush=True),
+                   files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
+        for l in r["timeline"]:                  # the probe's lines and its local pages' requests, in time order
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
@@ -801,10 +825,16 @@ def run(a, emit):
 
         def say(m):
             print(m, file=_sys.stderr, flush=True)
+        change = None
+        if any(x.startswith(("omni=", "file=", "add=", "sub=", "tree-since=")) for x in a.args[1:]):
+            # a candidate fix put into the runtime COPY (2026-10-04: four CSS/JS fixes proven on their pages this way)
+            if static_only:
+                raise task.Refused("omni=/file=/add=/sub=/tree-since= change the runtime copy; --static starts no browser")
+            _opts, change, _notes = _change_args(a.args[1:], tid, target, "gvisual_tree_", say=say)
         if not static_only:
             say(f"visual: the runtime layer starts a HEADLESS throwaway copy of {target} (no window, no keyboard); "
-                "the install and your profiles are only read")
-        r = visual.check(t, static_only=static_only, install_dir=target, only=pages, say=say)
+                "the install and your profiles are only read" + ("; the COPY carries the change given" if change else ""))
+        r = visual.check(t, static_only=static_only, install_dir=target, only=pages, say=say, change=change or None)
         emit(r, lambda r: print("\n".join(visual.lines(r))))
         return 0 if r["ok"] else 3
     if act == "decisions":

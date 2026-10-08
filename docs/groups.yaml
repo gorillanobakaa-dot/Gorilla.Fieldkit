@@ -57,6 +57,8 @@ groups:
       - buildh/keyed.py
       - buildh/prefs.py
       - buildh/probe.py
+      - buildh/probe_compare.py
+      - buildh/probe_servers.py
       - buildh/releasecheck.py
       - buildh/relocate.py
       - buildh/replay.py

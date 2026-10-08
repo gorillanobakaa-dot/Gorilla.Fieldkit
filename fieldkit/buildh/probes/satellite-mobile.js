@@ -1,6 +1,8 @@
 // Gorilla.Satellite mode, mobile pages and the cache (D-157-33): which identity does a site receive (header and
 // navigator) at each level, does "This site: desktop version" switch one site back, and are the cache settings
-// in place? Needs a local page on 127.0.0.1:8765 that puts navigator.userAgent in its title and logs the header.
+// in place? Needs a local page on 127.0.0.1:8765 that puts navigator.userAgent in its title and logs the header;
+// `build-harness probe` starts it for the run (fieldkit/buildh/probe_servers.py) and prints every request it got.
+// gprobe-server: echo-ua 8765
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 if (!win) { say("no browser window"); return; }
 const { setTimeout: wait } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");

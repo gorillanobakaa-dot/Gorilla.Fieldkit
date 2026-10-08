@@ -4,7 +4,11 @@ Why (2026-10-02): the About window showed a blurry logo (a 500 px PNG made from 
 against 29.3 from the 1200 px master) and Mozilla's "Nightly" wordmark, and the only logo check looked at one
 file, about-logo.svg. This module is the whole check, so nobody reinvents it:
 
-    fieldkit build-harness visual TASK [--static] [--install-dir D]
+    fieldkit build-harness visual TASK [--static] [--install-dir D] [--only about:x,about:y]
+                                       [omni=<jar>:<member>=<file> ...] [file=..] [add=..] [sub=OLD=>NEW ...]
+                                       [tree-since=<commit|build>] [tree-until=<commit>]
+    (the change options put a candidate fix into the runtime COPY, as build-harness probe does: a preview of the
+    pages it touches without a build; such a run is never OK)
 
 Layer 1, static (static.py; preflight --build and the post-install row): the ported tree's branding rasters
 (provenance against the master, with the doctrine's vacuity guard), .ico ladders, size slots, every
@@ -39,8 +43,9 @@ def task_context(t):
     return Path(t["workdir"]), branding, (Path(owner) if owner else None), commit
 
 
-def check(t, static_only=False, install_dir=None, say=print, allow=None, only=()):
-    """Both layers for a loaded task. -> {"ok", "static", "runtime" (None with static_only)}."""
+def check(t, static_only=False, install_dir=None, say=print, allow=None, only=(), change=None):
+    """Both layers for a loaded task. -> {"ok", "static", "runtime" (None with static_only)}. `change`: omni members,
+    files or substitutions applied to the runtime COPY (runtime.run); such a run is a preview, never OK."""
     from . import allow as allowmod, runtime, static
     allow = allow if allow is not None else allowmod.load()
     tree, branding, owner, commit = task_context(t)
@@ -52,7 +57,7 @@ def check(t, static_only=False, install_dir=None, say=print, allow=None, only=()
             rt = allowmod.summarise([{"layer": "runtime", "rule": "RT-RUN", "item": "setup", "verdict": "FAIL",
                                       "evidence": f"no installed build at {install_dir}"}], allow, "runtime")
         else:
-            rt = runtime.run(install_dir, only=only, say=say, allow=allow)
+            rt = runtime.run(install_dir, only=only, say=say, allow=allow, change=change)
     ok = st["ok"] and (static_only or bool(rt and rt["ok"]))
     return {"ok": ok, "static": st, "runtime": rt, "static_only": static_only}
 

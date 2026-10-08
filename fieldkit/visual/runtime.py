@@ -480,16 +480,26 @@ def evidence_dir(stamp=None):
     return d
 
 
-def run(install_dir, only=(), page_ms=PAGE_MS, say=print, keep_dir=None, allow=None, dprs=DPRS):
-    """Layer 2 end to end. -> summary (allow.summarise) plus evidence/ runs."""
+def run(install_dir, only=(), page_ms=PAGE_MS, say=print, keep_dir=None, allow=None, dprs=DPRS, change=None):
+    """Layer 2 end to end. -> summary (allow.summarise) plus evidence/ runs.
+
+    change: {"omni": {"jar:member": file}, "files": {...}, "added": {...}, "subs": [(old, new)]} applied to the COPY
+    before the runs (buildh.probe.apply_change), to see a fix on the pages it touches without a build. Born
+    2026-10-04: four CSS/JS fixes were proven this way by a throwaway script wrapping copy_build. A changed copy is
+    a preview of the change, never a proof of the installed build: the result is NOT OK and says so."""
     allow = allow if allow is not None else allowmod.load()
     ev = Path(keep_dir) if keep_dir else evidence_dir()
     ev.mkdir(parents=True, exist_ok=True)
     root = make_root()
     runs = {}
+    patched = []
     try:
         say(f"  copying {install_dir} -> {root} (the install is only read)")
         copy = copy_build(install_dir, root)
+        if change:
+            from ..buildh import probe
+            patched = probe.apply_change(copy, say=say, **change)
+            say(f"  the copy carries the change: {len(patched)} member(s)/file(s) replaced")
         for dpr in dprs:
             out = root / f"results-dpr{dpr}.json"
             probe = write_probe(copy, out, dpr, only, page_ms)
@@ -509,9 +519,10 @@ def run(install_dir, only=(), page_ms=PAGE_MS, say=print, keep_dir=None, allow=N
             runs[dpr] = {"data": data, "launch": li, "started": started}
             say(f"  DPR {dpr}: rc {li['rc']}, {li['seconds']} s, autoconfig {'ran' if started else 'DID NOT RUN'}, "
                 f"{len((data or {}).get('pages') or [])} page(s), complete {bool((data or {}).get('complete'))}")
-    except Refused as e:
+    except (Refused, KeyError, FileNotFoundError, FileExistsError) as e:
+        # KeyError / FileNotFoundError / FileExistsError: a change= naming a member or file the build does not have
         res = allowmod.summarise([_it("RT-RUN", "setup", "FAIL", f"refused: {e}")], allow, "runtime")
-        res.update(evidence=str(ev), runs={})
+        res.update(evidence=str(ev), runs={}, patched=patched)
         return res
     finally:
         gone = discard(root)
@@ -528,6 +539,11 @@ def run(install_dir, only=(), page_ms=PAGE_MS, say=print, keep_dir=None, allow=N
     if res_note:
         res["problems"].append(res_note)
         res["ok"] = False
-    res.update(evidence=str(ev), runs={d: {k: v for k, v in r.items() if k != "data"} for d, r in runs.items()})
+    if change:
+        res["problems"].append(f"the copy was changed ({len(patched)} member(s)/file(s)): a preview of the change, "
+                               "not a proof of the installed build")
+        res["ok"] = False
+    res.update(evidence=str(ev), runs={d: {k: v for k, v in r.items() if k != "data"} for d, r in runs.items()},
+               patched=patched)
     (ev / "runtime-report.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     return res

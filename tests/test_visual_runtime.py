@@ -437,3 +437,54 @@ def test_a_box_wider_than_its_parent_is_rt_box_and_the_control_plants_one_and_tw
     c["metrics"]["overflowing"].append({"sel": "div#bleed", "parent": "div#bleedbox"})
     items = runtime.judge(runs(d1=good_run(1, control=c)))
     assert ("RT-CONTROL", "control@1x overflowing (clean)", "UNVERIFIABLE") in verdicts(items)
+
+
+def test_a_change_goes_into_the_copy_only_and_the_run_is_a_preview_never_ok(tmp_path, temp_root, monkeypatch):
+    """visual omni=/file=/sub=: a candidate fix on the pages it touches without a build (2026-10-04, four CSS/JS
+    fixes proven by a throwaway script that wrapped copy_build); the install is only read, the run is never OK."""
+    import zipfile
+    inst = fake_install(tmp_path)
+    (inst / "omni.ja").unlink()
+    with zipfile.ZipFile(inst / "omni.ja", "w") as z:
+        z.writestr("chrome/toolkit/skin/classic/global/aboutLicense.css", "old")
+    fix = tmp_path / "aboutLicense.css.new"
+    fix.write_text("fixed", encoding="utf-8")
+    seen = []
+
+    def fake_launch(copy, prof, dpr, timeout_s):
+        with zipfile.ZipFile(Path(copy) / "omni.ja") as z:
+            seen.append(z.read("chrome/toolkit/skin/classic/global/aboutLicense.css"))
+        (Path(copy) / "gvisual" / "started.txt").write_text("ran")
+        cfg = (Path(copy) / "gvisual.cfg").read_text(encoding="utf-8")
+        Path(json.loads(cfg.split("const OUT = ")[1].split(";")[0])).write_text(json.dumps(good_run(dpr)), encoding="utf-8")
+        return {"rc": 0, "seconds": 1.0, "timed_out": False, "pid": 1}
+    monkeypatch.setattr(runtime, "launch", fake_launch)
+    a = {"path": "t", "masters": [], "css_include": [], "css_exclude": [], "accept": [], "problems": []}
+    change = {"omni": {"omni.ja:chrome/toolkit/skin/classic/global/aboutLicense.css": str(fix)}}
+    res = runtime.run(inst, say=lambda m: None, keep_dir=tmp_path / "evidence", allow=a, change=change)
+    assert seen == [b"fixed", b"fixed"]                                          # both DPR runs saw the fix
+    assert res["patched"] == ["omni.ja:chrome/toolkit/skin/classic/global/aboutLicense.css"]
+    assert not res["ok"] and any("preview of the change" in p for p in res["problems"])
+    with zipfile.ZipFile(inst / "omni.ja") as z:                               # the install itself is untouched
+        assert z.read("chrome/toolkit/skin/classic/global/aboutLicense.css") == b"old"
+    # a member the build does not have: refused, never measured as if it had been applied
+    bad = {"omni": {"omni.ja:chrome/nope.css": str(fix)}}
+    res = runtime.run(inst, say=lambda m: None, keep_dir=tmp_path / "e2", allow=a, change=bad)
+    assert not res["ok"] and res["items"][0]["rule"] == "RT-RUN" and "nope.css" in res["items"][0]["evidence"]
+    assert not list(temp_root.glob("gvisual_*"))                               # every throwaway copy is gone
+
+
+def test_the_visual_command_takes_the_probe_change_options(monkeypatch, tmp_path):
+    from fieldkit import cli, visual
+    from fieldkit.buildh import task
+    got = {}
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "workdir": str(tmp_path)})
+    monkeypatch.setattr(visual, "check", lambda t, **kw: got.update(kw) or {"ok": False, "static": None, "runtime": None})
+    monkeypatch.setattr(visual, "lines", lambda r: ["VISUAL NOT OK"])
+    fix = tmp_path / "x.css"
+    fix.write_text("x", encoding="utf-8")
+    rc = cli.main(["build-harness", "visual", "t1", f"omni=omni.ja:chrome/x.css={fix}", "sub=old-logo.png=>new-logo.png",
+                   "--install-dir", str(tmp_path), "--only", "about:license"])
+    assert rc == 3 and got["only"] == ("about:license",)
+    assert got["change"] == {"omni": {"omni.ja:chrome/x.css": str(fix)}, "subs": [("old-logo.png", "new-logo.png")]}
+    assert cli.main(["build-harness", "visual", "t1", f"omni=omni.ja:chrome/x.css={fix}", "--static"]) == 2

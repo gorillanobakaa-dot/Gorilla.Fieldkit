@@ -1,6 +1,8 @@
 // Very slow link opens a page it already has from the cache, without asking the site (D-157-33 B), even when the page
 // says "private, max-age=0, must-revalidate"; Reload still asks. Needs a local page on 127.0.0.1:8766 that sends that
 // header and logs every request (the netbench B1 "warm" visit cannot show this: each visit there has a new address).
+// `build-harness probe` starts that page for the run (fieldkit/buildh/probe_servers.py) and prints every request.
+// gprobe-server: revisit 8766
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 if (!win) { say("no browser window"); return; }
 const { setTimeout: wait } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
