@@ -377,6 +377,65 @@ def sweep_excised_dist(dist_bin, say):
     return removed
 
 
+def deleted_sources(workdir):
+    """Every file the tree has deleted since its pristine root, by history (a file Gorilla added and later removed is
+    in no pristine..HEAD diff), and that does not exist again. -> {basename: [paths]}"""
+    w = str(workdir)
+    root = subprocess.run(["git", "-C", w, "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
+    if not root:
+        return {}
+    out = subprocess.run(["git", "-C", w, "log", "--diff-filter=D", "--name-only", "--format=", f"{root[0]}..HEAD"],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+    gone = {}
+    for rel in {l.strip() for l in out.splitlines() if l.strip()}:
+        if not (Path(workdir) / rel).exists():
+            gone.setdefault(Path(rel).name, []).append(rel)
+    return gone
+
+
+def installed_dests(objdir):
+    """Every destination the build's install manifests (objdir/faster/install_dist_bin*) still install, as written in
+    the manifest (relative to the manifest's base under dist/bin). Format: a version line, then type<US>dest<US>..."""
+    dests = set()
+    for m in Path(objdir, "faster").glob("install_dist_bin*"):
+        try:
+            for line in m.read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
+                parts = line.split("\x1f")
+                if len(parts) >= 2 and parts[1]:
+                    dests.add(parts[1].replace("\\", "/"))
+        except OSError:
+            continue
+    return dests
+
+
+OMNI_DIRS = {"chrome", "modules", "actors", "moz-src", "res"}
+
+
+def sweep_deleted_dist(objdir, workdir, say=print):
+    """Before packaging: remove from dist/bin every file the source tree deleted that no install manifest installs any
+    more. A jar.mn entry removed with its file leaves the copy an earlier build installed, and the packager ships it
+    (2026-10-08: the retired logo files of D-157-35 were back in omni.ja; sweep_excised_dist only knew a hand-kept
+    list). Conservative: the file's name must be one the tree deleted AND its path must match no manifest entry.
+    -> [removed, relative to dist/bin]"""
+    gone = deleted_sources(workdir)
+    dist = Path(objdir) / "dist" / "bin"
+    if not gone or not dist.is_dir():
+        return []
+    dests = installed_dests(objdir)
+    removed = []
+    for name in gone:
+        for f in dist.rglob(name):
+            rel = f.relative_to(dist).as_posix()
+            if not any(part in OMNI_DIRS for part in rel.split("/")[:-1]):
+                continue                                  # only what the packager puts in omni.ja, never binaries
+            if f.is_file() and not any(rel == d or rel.endswith("/" + d) for d in dests):
+                f.unlink()
+                removed.append(rel)
+    if removed:
+        say(f"  dist/bin sweep: {len(removed)} file(s) the tree deleted removed before packaging: {removed[:3]}")
+    return removed
+
+
 def fix_mozbuild_unsorted(t, root, say, lines):
     """mach: UnsortedError in a moz.build list -> the list sorted (comments kept with their entry), recorded, retried."""
     from . import handedit
@@ -672,7 +731,7 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
             from .compile import mozconfig_path, objdir as _objdir
             od = _objdir(mozconfig_path(root))
             if od:
-                swept = sweep_excised_dist(Path(od) / "dist" / "bin", say)
+                swept = sweep_excised_dist(Path(od) / "dist" / "bin", say) + sweep_deleted_dist(od, t["workdir"], say)
                 if swept:
                     task.journal(t, "dist-sweep", removed=swept[:20])
             # the installer's outer icon lives in a vendored 7-Zip stub consumed at package time: brand it first

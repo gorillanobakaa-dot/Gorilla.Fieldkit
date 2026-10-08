@@ -320,6 +320,10 @@ class Tree:
     def __init__(self, workdir):
         self.w = Path(workdir)
         self.cache, self.pcache, self._cat = {}, {}, None
+        # a file the patch set ADDS has no pristine copy; its first copy in the set (NEW_FILES) is the reference the
+        # rename check needs (2026-10-08: jar.mn kept about-logo.png when about-logo.svg went, and with no reference
+        # the png read as the svg "under a new name")
+        self.new_file_sources = {}
         r = subprocess.run(["git", "-C", str(self.w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True, env=GIT_ENV)
         self.root = (r.stdout.split() or [None])[0]
         r = subprocess.run(["git", "-C", str(self.w), "rev-parse", "HEAD"], capture_output=True, text=True, env=GIT_ENV)
@@ -354,6 +358,9 @@ class Tree:
                 self.pcache[rel] = data.decode("utf-8", "replace").splitlines()
             else:
                 self.pcache[rel] = None
+            if self.pcache[rel] is None and rel in self.new_file_sources:
+                src = Path(self.new_file_sources[rel])
+                self.pcache[rel] = src.read_text(encoding="utf-8", errors="replace").splitlines() if src.is_file() else None
         return self.pcache[rel]
 
     def close(self):
@@ -494,7 +501,7 @@ def _same_change(step, h):
     return _change(sh) == _change(h)
 
 
-def hunk_status(tree, rel, file, n, h, idx, steps_by_id, relocated, later=None, order=None):
+def hunk_status(tree, rel, file, n, h, idx, steps_by_id, relocated, later=None, order=None, set_deleted=()):
     """-> (status, detail, explained). A step of the task record speaks for this hunk only when it carries the same
     change (the same removed and added lines): the task was ported from a snapshot of the patch set, and a public
     patch whose hunk differs from the one the record names is judged by the tree alone."""
@@ -553,8 +560,13 @@ def hunk_status(tree, rel, file, n, h, idx, steps_by_id, relocated, later=None, 
         sup = _superseded(body, h, file, later, order)
         if sup:
             return "SUPERSEDED", f"a later patch of the set changes these lines again: {', '.join(sup)}", True
+        if body is None and file in set_deleted:
+            return "SUPERSEDED", "the set deletes this file afterwards (a group's DELETED_FILES.manifest.txt)", True
         return "OBSOLETE", "code gone upstream (" + d + "); no recorded decision", False
-    sup = _superseded(body, h, file, later, order) or _superseded_reworked(body, h, file, later, order, d)
+    # when the scorer found no removed line left in the hunk's window, a generic removed line elsewhere in the file
+    # (`-moz-context-properties: fill;` in another rule) is not evidence against a later patch (2026-10-08)
+    window_clean = "0 removed line(s) still present" in (d or "")
+    sup = _superseded(body, h, file, later, order, window_clean) or _superseded_reworked(body, h, file, later, order, d)
     if sup:
         return "SUPERSEDED", f"a later patch of the set changes these lines again: {', '.join(sup)} ({d})", True
     if v == "UNJUDGEABLE":
@@ -600,7 +612,7 @@ def _superseded_reworked(body, h, file, later, order, detail):
     return []
 
 
-def _superseded(body, h, file, later, order):
+def _superseded(body, h, file, later, order, window_clean=False):
     """The patches applied AFTER this one (policy order, then file order) that remove every added line the tree lacks
     and add back every removed line the tree still has (22.EGRESS.LOCKDOWN.157: 013 takes out the pref block 012
     adds). -> [patch rels] or []."""
@@ -609,7 +621,8 @@ def _superseded(body, h, file, later, order):
     removed, added, _ = firefox.hunk_sides(h)
     have = {l.strip() for l in body}
     miss = [l.strip() for l in added if len(l.strip()) >= vf.SHORT and not firefox.TRIVIAL.match(l.strip()) and l.strip() not in have]
-    still = [l.strip() for l in removed if len(l.strip()) >= vf.SPECIFIC and l.strip() in have and l.strip() not in {a.strip() for a in added}]
+    still = [] if window_clean else \
+        [l.strip() for l in removed if len(l.strip()) >= vf.SPECIFIC and l.strip() in have and l.strip() not in {a.strip() for a in added}]
     if not miss and not still:
         return []
     after = [x for x in later.get(file, []) if x[0] > order]
@@ -679,6 +692,13 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
     idx, by_id, reloc = _step_index(steps), {s["id"]: s for s in steps}, _relocations(steps)
     patch_decisions = patch_decisions or {}
     later, order = later_index(sc), {rel: i for i, rel in enumerate(sc["patches"])}
+    set_deleted = set()
+    for g, _spec in sc["groups"]:
+        for src, nrel in firefox.new_files(sc["pset"], g):
+            tree.new_file_sources.setdefault(nrel, src)
+        man = sc["pset"] / g / "DELETED_FILES.manifest.txt"
+        if man.is_file():
+            set_deleted.update(l.strip() for l in man.read_text(encoding="utf-8").splitlines() if l.strip())
     out = []
     for g, spec in sc["groups"]:
         ex = set(spec.get("exclude", []))
@@ -693,7 +713,7 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
                         hunks.append({"file": f["file"], "n": n, "status": "DROPPED-BY-MAINTAINER", "explained": True,
                                       "detail": "excluded by the patch policy: " + norm(spec.get("exclude_reason", ""))[:200]})
                         continue
-                    stt, d, e = hunk_status(tree, rel, f["file"], n, h, idx, by_id, reloc, later, order.get(rel))
+                    stt, d, e = hunk_status(tree, rel, f["file"], n, h, idx, by_id, reloc, later, order.get(rel), set_deleted)
                     hunks.append({"file": f["file"], "n": n, "status": stt, "detail": d, "explained": e})
             verdict, pct, gaps = patch_verdict(hunks)
             pd = patch_decisions.get(rel) or {}
