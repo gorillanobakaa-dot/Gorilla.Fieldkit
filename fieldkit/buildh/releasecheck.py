@@ -36,7 +36,10 @@ def _tail(out, n=3):
 
 
 def release_docs_manifest(t):
-    """<owner>/<patch set root>/../release/<version>/release-docs.yaml (gorilla-patchset/release/157.0/...), or None."""
+    """The release's documents manifest, or None. First <owner>/release-docs/<version>/release-docs.yaml: PRIVATE, because
+    its source list names internal files (the migration plan, the register, audits) that must not be published with
+    the documents (2026-10-08). Then the public patch set's releases/<version>/ and release/<version>/ (the folder the
+    157 release documents really use is releases/)."""
     from . import buildrun
     try:
         owner = Path(buildrun._owner_root(t))
@@ -44,7 +47,9 @@ def release_docs_manifest(t):
         version = t["meta"]["upstream"]["version"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    return owner / Path(pol["patchset_root"]).parent / "release" / version / "release-docs.yaml"
+    candidates = [owner / "release-docs" / version / "release-docs.yaml"] + [
+        owner / Path(pol["patchset_root"]).parent / d / version / "release-docs.yaml" for d in ("releases", "release")]
+    return next((c for c in candidates if c.is_file()), candidates[0])
 
 
 def run(task_id, say=print, skip_post_install=False):
