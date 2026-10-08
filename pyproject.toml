@@ -17,6 +17,9 @@ dependencies = [
   "reportlab>=4",
   "pypdfium2>=4",
   "fluent.syntax>=0.19",   # Mozilla's Fluent parser: .ftl files of a port must parse (buildh/fluent.py)
+  # netbench (already imported by it; undeclared, so CI could not even collect its tests since 2026-10-04):
+  "psutil>=5.9",           # per-process CPU and memory of the browser under test (netbench/browser.py)
+  "h2>=4.1",               # the local HTTP/2 test server netbench measures against (netbench/servers.py)
 ]
 
 [project.optional-dependencies]
