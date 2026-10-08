@@ -54,7 +54,6 @@ EXPECTED_EMPTY = {
     "reader": "Reader View of the page named in its URL",
     "framecrashed": "drawn inside a frame that crashed",
     "messagepreview": "previews a message given in its URL",
-    "downloads": "the download list, empty in a fresh profile",
 }
 # script errors that come from opening a page by its address rather than the way the browser opens it
 KNOWN_ARTEFACTS = [

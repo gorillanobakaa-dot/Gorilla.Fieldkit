@@ -100,6 +100,11 @@ function gInspect(doc) {
       const el = n.parentElement;
       if (el && !/^(script|style|template|noscript)$/i.test(el.localName) && el.getClientRects().length && n.data.trim()) { parts.push(n.data.trim()); }
     }
+    // XUL <label>/<description value="..."> draw their text from the attribute, not a text node (about:downloads'
+    // "There are no Gorilla downloads." read as blank, 2026-10-08)
+    for (const el of r.querySelectorAll("label[value], description[value]")) {
+      if (el.getClientRects().length && el.getAttribute("value").trim()) { parts.push(el.getAttribute("value").trim()); }
+    }
     for (const el of r.querySelectorAll("*")) { if (el.shadowRoot) { textOf(el.shadowRoot); } }
   };
   const root = doc.body || doc.documentElement;
@@ -271,9 +276,16 @@ if (!WALK) {
   let doc = await home();
   const links = doc ? [...doc.querySelectorAll("a[href^='about:']")].map(a => a.getAttribute("href")) : [];
   say(`ABOUT-WALK|${links.length} links on about:about|${DWELL} ms per page`);
+  if (!ONLY.length || ONLY.includes("about")) {         // about:about itself, as it loaded
+    current = "about";
+    count++;
+    say("ABOUT-NOW|about");
+    await report("about", tab, hiddenOf("about"));
+  }
   for (const href of links) {
     const name = href.slice(6).split(/[?#]/)[0];
-    if (!name || name.startsWith("crash") || (ONLY.length && !ONLY.includes(name))) { continue; }
+    // not its link to itself (a link to the page you are on opens nothing new): about:about was read when it loaded
+    if (!name || name == "about" || name.startsWith("crash") || (ONLY.length && !ONLY.includes(name))) { continue; }
     count++;
     doc = await home();
     const a = doc && [...doc.querySelectorAll("a[href^='about:']")].find(x => x.getAttribute("href") == href);
