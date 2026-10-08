@@ -84,6 +84,7 @@ groups:
       - buildh/images.py
       - buildh/weigh.py
       - buildh/aboutpages.py
+      - buildh/buildstamp.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py

@@ -309,7 +309,7 @@ def live(line):
 
 
 def run(install_dir, build_id, say=print, timeout=900, only=(), walk=False, dwell=None, on_line=None, visible=None,
-        **change):
+        partial=False, **change):
     """Probe, parse, judge, keep, compare -> {"rows", "changes", "path", "parsed", "done"}. `only`: just those pages
     (a partial run is kept but never used as the comparison base). walk=True: a visible window walking about:about's
     links (also kept apart from the comparison base: it reads only the listed pages)."""
@@ -321,11 +321,32 @@ def run(install_dir, build_id, say=print, timeout=900, only=(), walk=False, dwel
     if not r["done"]:
         rows.insert(0, {"check": "about-pages: the probe finished", "ok": False,
                         "evidence": f"timed out after {r['seconds']} s with {len(parsed['pages'])} page(s) read"})
-    partial = bool(only) or walk
+    partial = partial or bool(only) or walk
     path = save(parsed, r["lines"], build_id if not partial else f"{build_id}-partial", install_dir)
     prev = previous(build_id, before=path) if not partial else None
     return {"rows": rows, "changes": compare(prev, parsed) if prev else None, "path": path, "parsed": parsed,
             "done": r["done"], "previous": (prev or {}).get("when")}
+
+
+def prebuild(t, task_id, say=print):
+    """Before the compile: the tree's packaged-as-is changes since the last build (JS, CSS, Fluent, HTML) applied to a
+    copy of the installed browser, every about: page read -> {"ok", "rows", "notes"}, or None when there is nothing to
+    read against (no install, no earlier build). C++ and build-time-generated files cannot be applied to a copy: they
+    are listed in the notes and judged after the build (build-verify)."""
+    import tempfile
+    from . import compile as cg, install as inst, probe
+    target = inst.find_install()
+    rec = cg._record_path(task_id)
+    if not target or not rec.is_file():
+        say("  pre-build about: pages: skipped (" + ("no installed build" if not target else "no earlier build recorded") + ")")
+        return None
+    since = json.loads(rec.read_text(encoding="utf-8"))["head"]
+    got, skipped = probe.tree_since(t["workdir"], since, target, tempfile.mkdtemp(prefix="gprobe_tree_"))
+    notes = [f"tree {since[:10]}..HEAD: {len(got)} packaged member(s) applied to a copy of {target}"]
+    notes += [f"judged after the build only: {p} ({why})" for p, why in skipped[:8]]
+    bid = (inst.installed(target) or {}).get("build_id")
+    r = run(target, bid, say=say, partial=True, omni={k: str(v) for k, v in got.items()} or None)
+    return {"ok": all(x["ok"] for x in r["rows"]), "rows": r["rows"], "notes": notes}
 
 
 def rows(install_dir, build_id, say=print):

@@ -305,6 +305,8 @@ def test_gate_runs_repair_once_when_only_the_repairable_rows_fail(monkeypatch, t
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "workdir": str(tmp_path), "meta": {}, "steps": []})
     monkeypatch.setattr(task, "journal", lambda t, ev, **kw: None)
     monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
+    from fieldkit.buildh import aboutpages
+    monkeypatch.setattr(aboutpages, "prebuild", lambda t, tid, say=print: None)   # its own test below
     monkeypatch.setattr(buildrun, "owner_preflight_ok", lambda root, say: (False, False, [{"name": "stop-here"}]))
     r = buildrun.run("t", say=lambda m: None)
     assert calls == {"gate": 2, "repair": 1} and r["why"].startswith("the owner's preflight")
@@ -329,3 +331,18 @@ def test_dist_sweep_removes_stale_excised_paths(tmp_path):
     removed = buildrun.sweep_excised_dist(d, lambda m: None)
     assert "chrome/toolkit/content/global/ml/" in removed
     assert not (d / "chrome/toolkit/content/global/ml").exists() and (d / "chrome/toolkit/content/global/xml/XMLPrettyPrint.css").exists()
+
+
+def test_a_failing_pre_build_about_pages_run_stops_the_build_before_the_compile(monkeypatch, tmp_path):
+    """2026-10-08: the about: pages are read before the compile too (owner: checks "before or after the build ...
+    preferably both"); a FAIL there stops build-run before the owner's preflight and the compile."""
+    from fieldkit.buildh import buildrun, compile as cg, task, aboutpages
+    monkeypatch.setattr(cg, "gate", lambda tid, harness_root=None, write=True: [{"check": "x", "ok": True, "evidence": ""}])
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "workdir": str(tmp_path), "meta": {}, "steps": []})
+    monkeypatch.setattr(task, "journal", lambda t, ev, **kw: None)
+    monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
+    monkeypatch.setattr(aboutpages, "prebuild", lambda t, tid, say=print: {"ok": False, "notes": [],
+                        "rows": [{"check": "about-pages: every listed page shows its text", "ok": False, "evidence": "blank: about:studies"}]})
+    monkeypatch.setattr(buildrun, "owner_preflight_ok", lambda root, say: (_ for _ in ()).throw(AssertionError("went on")))
+    r = buildrun.run("t", say=lambda m: None)
+    assert r["why"] == "pre-build about: pages" and not r["ok"]

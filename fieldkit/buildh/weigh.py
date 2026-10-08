@@ -129,7 +129,7 @@ def run(install_dir, pages=DEFAULT_PAGES, reps=3, omni=None, subs=None, say=prin
                 "mode": {"clean": clean, "settle": settle, "before": str(before_install or install_dir), "after": str(install_dir)}}
     finally:
         for copy, _app, _p in copies.values():
-            shutil.rmtree(copy, ignore_errors=True)
+            probe.remove_copy(copy)
 
 
 def save(result, notes=()):

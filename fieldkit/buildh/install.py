@@ -475,7 +475,7 @@ POST_INSTALL = (
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
 PROOF_CHECKS = frozenset({"prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui",
-                          "about"})
+                          "about", "stamp"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
@@ -537,6 +537,17 @@ def _ui_rows(t, target, say=print):
     return uicheck.rows(t["workdir"], target, say=say)
 
 
+def _stamp_rows(task_id, target, say=print):
+    """The installed browser is the build build-verify recorded, and Help > About shows its stamp (D-157-38)."""
+    import json as _json
+    from . import buildstamp
+    res = task.STATE / task_id / "build-result.json"
+    recorded = None
+    if res.is_file():
+        recorded = _json.loads(res.read_text(encoding="utf-8")).get("build_id") or ""
+    return buildstamp.about_rows(target, recorded=recorded, say=say)
+
+
 def _about_rows(target, say=print):
     """Every about: page read and judged on a copy of the install (fieldkit buildh/aboutpages.py; born 2026-10-08)."""
     from . import aboutpages
@@ -568,7 +579,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         from . import verify as vf
         truth = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]) if t.get("meta", {}).get("harness_root") else None
         from . import leaks
-        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []) + (_ui_rows(t, target, say) if "ui" in want else []) + (_about_rows(target, say) if "about" in want else []):
+        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []) + (_ui_rows(t, target, say) if "ui" in want else []) + (_about_rows(target, say) if "about" in want else []) + (_stamp_rows(task_id, target, say) if "stamp" in want else []):
             say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
             results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "status": "ok" if row["ok"] else "FAIL",
                             "log": row.get("log"), "lines": row.get("bad", [])[:10]})

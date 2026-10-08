@@ -692,6 +692,19 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         say("BUILD GATE FAILED: " + "; ".join(f"{r['check']}: {r['evidence']}" for r in bad[:3]))
         return {"ok": False, "why": "build gate", "rows": rows}
     say("build gate passed")
+    # before the compile, the browser as it will be (owner 2026-10-08: checks "to be run before or after the build ...
+    # preferably both so we can catch the mistakes"): every about: page of a copy of the installed browser with the
+    # tree's JS/CSS/Fluent changes since the last build; build-verify reads the built one after the compile
+    from . import aboutpages
+    pre = aboutpages.prebuild(t, task_id, say=lambda m: None)
+    if pre is not None:
+        for n in pre["notes"]:
+            say("  pre-build: " + n)
+        for r in pre["rows"]:
+            say(f"  pre-build [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:200]}")
+        if not pre["ok"]:
+            task.journal(t, "build-refused", why=["pre-build about: pages failed"])
+            return {"ok": False, "why": "pre-build about: pages", "rows": pre["rows"]}
     may, needs_force, blockers = owner_preflight_ok(root, say)
     if not may:
         return {"ok": False, "why": "the owner's preflight reports a blocker a build cannot resolve", "blockers": blockers}

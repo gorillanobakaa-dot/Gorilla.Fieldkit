@@ -139,3 +139,23 @@ def test_live_lines_say_what_matters():
     assert "allowed" in ap.live("ABOUT-NET|about|https://ublockorigin.github.io/x|extension " + ap.UBLOCK_ID)
     assert ap.live("ABOUT-ERR|certerror|ReferenceError: RPMGetBoolPref is not defined|x.mjs").startswith("   error (known:")
     assert "MISSING TEXT" in ap.live("ABOUT-L10N|preferences|x-id|moz-button")
+
+
+def test_prebuild_reads_a_copy_with_the_trees_changes_and_is_never_a_comparison_base(monkeypatch, tmp_path):
+    from fieldkit.buildh import compile as cg, install as inst, probe
+    rec = tmp_path / "build-record.json"
+    rec.write_text('{"head": "abc1234567"}', encoding="utf-8")
+    monkeypatch.setattr(cg, "_record_path", lambda tid: rec)
+    monkeypatch.setattr(inst, "find_install", lambda: None)
+    assert ap.prebuild({"workdir": "w"}, "t", say=lambda m: None) is None                 # nothing to read against
+    monkeypatch.setattr(inst, "find_install", lambda: tmp_path / "inst")
+    monkeypatch.setattr(inst, "installed", lambda d: {"build_id": "20261008103725"})
+    monkeypatch.setattr(probe, "tree_since", lambda w, since, target, out: ({"omni.ja:x.js": tmp_path / "x.js"}, [("a.cpp", "compiled")]))
+    seen = {}
+    def run(target, bid, say=print, partial=False, **kw):
+        seen.update(partial=partial, omni=kw.get("omni"), bid=bid)
+        return {"rows": [{"check": "c", "ok": True, "evidence": ""}]}
+    monkeypatch.setattr(ap, "run", run)
+    r = ap.prebuild({"workdir": "w"}, "t", say=lambda m: None)
+    assert r["ok"] and seen["partial"] and seen["omni"] == {"omni.ja:x.js": str(tmp_path / "x.js")}
+    assert any("a.cpp" in n for n in r["notes"])

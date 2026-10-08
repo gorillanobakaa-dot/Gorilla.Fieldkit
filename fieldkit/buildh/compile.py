@@ -8,6 +8,9 @@ hours: it is the owner's action, through Gorilla.firefox's own orchestrator). It
   build-verify  AFTER: the tree and mozconfig are unchanged since the gate; the installer and zip are NEWER than
                 the gate (the owner's own harness once recorded a seven-month-old dist); a real size; the built
                 firefox.exe reports the pinned version; hashes are written to build-result.json.
+                Then the browser that came out (dist/bin), before any install (2026-10-08): its BuildID is from this
+                build and Help > About shows it (buildstamp.py, D-157-38), and every about: page is read and judged
+                (aboutpages.py). build-result.json records the BuildID; post-install holds the install to it.
 """
 import hashlib
 import json
@@ -189,8 +192,18 @@ def verify(task_id, run_binary=True):
                 if s.get("post_build") and s["status"] not in ("done", "obsolete"):
                     s["status"], s["done_by"] = "done", "build-verify"
             task.save(t)
+    # after the build, before any install: the browser that came out, read the way post-install reads the installed
+    # one (owner 2026-10-08: checks "to be run before or after the build ... preferably both so we can catch the
+    # mistakes"): its build stamp, and every about: page (blank pages, missing strings, script errors, requests)
+    built_id = None
+    if run_binary and exe.is_file():
+        from . import aboutpages, buildstamp
+        srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None)
+        rows.extend(srows)
+        rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None)["rows"])
     if all(r["ok"] for r in rows):
         res = {"task": task_id, "verified_at": time.strftime("%Y-%m-%d %H:%M:%S"), "tree": rec["tree"],
+               "build_id": built_id,
                "artifacts": {k: {"file": str(v[0]), "sha256": _sha(v[0])} for k, v in found.items() if v}}
         (task.STATE / task_id / "build-result.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     return rows

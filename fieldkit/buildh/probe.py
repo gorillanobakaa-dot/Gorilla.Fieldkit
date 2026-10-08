@@ -190,13 +190,82 @@ def apply_change(app, omni=None, files=None, added=None, subs=None, say=print):
     return patched
 
 
+COPY_PREFIX = "gprobe_app_"
+COPY_MARK = ".fieldkit-probe-copy"
+
+
+def processes_in(folder):
+    """-> [pid] of every process whose program lives inside `folder` (a probe copy: the path is unique to this run,
+    so these are ours and nothing of the owner's). Windows only; [] elsewhere or when the query fails."""
+    import json as _json
+    import sys as _sys
+    if _sys.platform != "win32":
+        return []
+    root = str(Path(folder).resolve()).lower()
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | "
+                              "Select-Object ProcessId, ExecutablePath | ConvertTo-Json -Compress"],
+                             capture_output=True, text=True, timeout=60).stdout
+        rows = _json.loads(out or "[]")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    rows = rows if isinstance(rows, list) else [rows]
+    return [r["ProcessId"] for r in rows if str(r.get("ExecutablePath", "")).lower().startswith(root + "\\")]
+
+
+def stop_in(folder):
+    """Stop every process running from `folder`, by PID (tree) -> [pid]."""
+    pids = processes_in(folder)
+    for pid in pids:
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    return pids
+
+
+def remove_copy(copy, tries=6, sleep=time.sleep):
+    """Delete a probe copy: stop what still runs from it, then retry while Windows holds files open -> True when gone."""
+    copy = Path(copy)
+    for i in range(tries):
+        if i:
+            stop_in(copy)
+            sleep(2)
+        shutil.rmtree(copy, ignore_errors=True)
+        if not copy.exists():
+            return True
+    return False
+
+
+def sweep_copies(older_than_s=3600, say=print, now=None):
+    """Delete probe copies left by earlier runs (marked, older than an hour, nothing running from them) -> count."""
+    now = now or time.time()
+    gone = 0
+    for d in Path(tempfile.gettempdir()).glob(COPY_PREFIX + "*"):
+        try:
+            if not d.is_dir() or now - d.stat().st_mtime < older_than_s:
+                continue
+            # marked copies, and the unmarked ones made before the mark existed (an app/firefox.exe inside)
+            if not ((d / COPY_MARK).is_file() or (d / "app" / "firefox.exe").is_file()):
+                continue
+        except OSError:
+            continue
+        if processes_in(d):
+            continue
+        if remove_copy(d, tries=2):
+            gone += 1
+    if gone:
+        say(f"  probe: removed {gone} copy(ies) left by earlier runs")
+    return gone
+
+
 def prepare_copy(install_dir, js, wait=15, omni=None, files=None, added=None, subs=None, say=print, body=None):
     """One throwaway copy of the install with the change applied and the probe wired in -> (copy dir, app dir,
     [patched]). Launch it as often as needed with launch(); remove the copy dir afterwards. (Split out of run() on
     2026-10-08 so build-harness weigh can open every page in a fresh browser without copying the build each time.)
     `body`: the probe text to use instead of the file's (run() passes it with its local page ports rewritten)."""
     body = body if body is not None else resolve_js(js).read_text(encoding="utf-8")
-    copy = Path(tempfile.mkdtemp(prefix="gprobe_app_"))
+    sweep_copies(say=say)
+    copy = Path(tempfile.mkdtemp(prefix=COPY_PREFIX))
+    (copy / COPY_MARK).write_text("made by fieldkit build-harness probe; deleted after the run\n", encoding="utf-8")
     app = copy / "app"
     shutil.copytree(install_dir, app)
     patched = apply_change(app, omni=omni, files=files, added=added, subs=subs, say=say)
@@ -217,7 +286,11 @@ def launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
     prof = throwaway.profile("gprobe_", PROFILE_JS)
     try:
         t0 = time.time()
-        proc = subprocess.Popen([str(Path(app) / "firefox.exe")] + (["-headless"] if headless else []) + ["-no-remote", "-profile", str(prof), url],
+        # -wait-for-browser: on Windows firefox.exe is a launcher that starts the real browser and exits; with it the
+        # launcher stays until the browser ends, so the PID this run stops is the browser's parent (2026-10-08: two
+        # visible walk browsers outlived their runs)
+        proc = subprocess.Popen([str(Path(app) / "firefox.exe")] + (["-headless"] if headless else [])
+                                + ["-wait-for-browser", "-no-remote", "-profile", str(prof), url],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                                 errors="replace")
         lines, times, finished = [], [], False
@@ -240,6 +313,7 @@ def launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
         finally:
             killer.cancel()
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+            stop_in(Path(app))                     # and anything else still running from this copy, by PID
         return {"lines": lines, "times": times, "done": finished, "seconds": round(time.time() - t0, 1)}
     finally:
         throwaway.discard(prof)
@@ -266,7 +340,8 @@ def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=
             say(f"  probe: {Path(js).name} in a copy of {install_dir}" + (f", with {len(patched)} replaced member(s)" if patched else ""))
             r = launch(app, url=url, timeout=timeout, headless=headless, on_line=on_line)
         finally:
-            shutil.rmtree(copy, ignore_errors=True)
+            if not remove_copy(copy):
+                say(f"  probe: could not remove {copy} (files still held); the next run removes it")
         reqs = probe_servers.requests(pages)
     return {**r, "patched": patched, "requests": reqs, "timeline": timeline(r, reqs)}
 
