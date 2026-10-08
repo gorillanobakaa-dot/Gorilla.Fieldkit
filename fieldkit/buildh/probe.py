@@ -208,14 +208,17 @@ def prepare_copy(install_dir, js, wait=15, omni=None, files=None, added=None, su
     return copy, app, patched
 
 
-def launch(app, url="about:blank", timeout=90):
+def launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
     """One headless run of a prepared copy on a FRESH throwaway profile -> {"lines", "times" (the clock time each
-    line arrived), "done", "seconds"}. Only the process this started is stopped (taskkill /PID /T)."""
+    line arrived), "done", "seconds"}. Only the process this started is stopped (taskkill /PID /T).
+    headless=False opens a normal window (the owner watches it: about-pages walk=1); on_line(line) is called with
+    each probe line as it arrives, for a live view."""
     prof = throwaway.profile("gprobe_", PROFILE_JS)
     try:
         t0 = time.time()
-        proc = subprocess.Popen([str(Path(app) / "firefox.exe"), "-headless", "-no-remote", "-profile", str(prof), url],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+        proc = subprocess.Popen([str(Path(app) / "firefox.exe")] + (["-headless"] if headless else []) + ["-no-remote", "-profile", str(prof), url],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                                errors="replace")
         lines, times, finished = [], [], False
         import threading
         killer = threading.Timer(timeout, lambda: subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
@@ -229,6 +232,8 @@ def launch(app, url="about:blank", timeout=90):
                 if line.startswith("GPROBE "):
                     lines.append(line[7:].rstrip())
                     times.append(time.time())
+                    if on_line:
+                        on_line(lines[-1])
                 if time.time() - t0 > timeout:
                     break
         finally:
@@ -247,7 +252,8 @@ def timeline(r, reqs):
     return [text for _, _, text in sorted(rows, key=lambda x: (x[0], x[1]))]
 
 
-def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None, subs=None):
+def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None, subs=None,
+        headless=True, on_line=None):
     """-> {"lines": [...], "done": bool, "patched": [...], "seconds": float, "requests": [...], "timeline": [...]}
     The local pages the probe declares run only while the browser does (probe_servers.py)."""
     from . import probe_servers
@@ -257,7 +263,7 @@ def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=
                                           say=say, body=body)
         try:
             say(f"  probe: {Path(js).name} in a copy of {install_dir}" + (f", with {len(patched)} replaced member(s)" if patched else ""))
-            r = launch(app, url=url, timeout=timeout)
+            r = launch(app, url=url, timeout=timeout, headless=headless, on_line=on_line)
         finally:
             shutil.rmtree(copy, ignore_errors=True)
         reqs = probe_servers.requests(pages)

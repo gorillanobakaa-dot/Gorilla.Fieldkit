@@ -83,6 +83,7 @@ groups:
       - buildh/icons.py
       - buildh/images.py
       - buildh/weigh.py
+      - buildh/aboutpages.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py

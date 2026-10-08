@@ -84,7 +84,7 @@ def test_a_probe_run_has_its_pages_up_while_the_browser_runs_and_reports_their_r
         (tmp_path / "copy").mkdir(exist_ok=True)
         return tmp_path / "copy", tmp_path / "copy" / "app", []
 
-    def fake_launch(app, url="about:blank", timeout=90):
+    def fake_launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
         import time
         t0 = time.time()
         get(port["n"], "/level0", {"User-Agent": "UA-0"})

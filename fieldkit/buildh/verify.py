@@ -561,7 +561,7 @@ def verify(task_id):
     #    removed, or a port that added a copy): Firefox's parser keeps the last and the build's l10n lint fails
     #    Measured against the owner's TRUTH when the harness is a snapshot (live run 16: nine of ten doubled ids are
     #    doubled in the owner's running 155 tree as well, so they are the port, not damage), else the pristine tree.
-    rep["ftl_duplicates"], rep["ftl_shape"], rep["ftl_removed"] = [], [], []
+    rep["ftl_duplicates"], rep["ftl_shape"], rep["ftl_removed"], rep["ftl_doubled"], rep["ftl_orphans"] = [], [], [], [], []
     if root:
         import collections
         from . import fluent
@@ -579,7 +579,9 @@ def verify(task_id):
             lost = []
             if truth and (truth / rel).is_file():
                 up = collections.Counter(e["id"] for e in fluent.entries(_git(w, "show", f"{root[0]}:{rel}").splitlines()))
-                lost = [i for i, n in was.items() if cnt[i] < n and up[i]]
+                # lost = fewer copies than BOTH the owner's tree and pristine: an id the owner's tree had twice and
+                # pristine once is not lost when the tree keeps one (2026-10-08: seven doubles removed, row 7c)
+                lost = [i for i, n in was.items() if up[i] and cnt[i] < min(n, up[i])]
             if dup or lost:
                 rep["ftl_duplicates"].append(f"{rel}: " + (f"doubled {dup[:3]}" if dup else "") + (" " if dup and lost else "")
                                              + (f"lost {lost[:3]}" if lost else ""))
@@ -597,6 +599,25 @@ def verify(task_id):
                                             + (f" (+{len(sd['lost']) - 3})" if len(sd["lost"]) > 3 else ""))
                 if sd and sd["removed"]:
                     rep["ftl_removed"].append(f"{rel}: {len(sd['removed'])} id(s), e.g. {sd['removed'][:2]}")
+                # 7c. an id twice in the file where pristine 157 has it once: Firefox keeps the first and logs
+                #     "Attempt to override" on every page that loads the file (2026-10-08: seven ids in five files, all
+                #     doubled in the owner's 155 tree too, so row 7, measured against that tree, never saw them)
+                try:
+                    extra = sorted(set(fluent.duplicates("\n".join(now)))
+                                   - set(fluent.duplicates(up.stdout.decode("utf-8", "replace"))))
+                except fluent.ParserMissing:
+                    extra = []
+                if extra:
+                    rep["ftl_doubled"].append(f"{rel}: {extra[:3]}" + (f" (+{len(extra) - 3})" if len(extra) > 3 else ""))
+        # 7d. an id the fork removed that code in the tree still names: the element shows nothing (2026-10-08: four in
+        #     Settings, lost when 08.Look rebuilt preferences.ftl from the 155 file)
+        ftl = [r for r in changed if r.endswith(".ftl")]
+        if ftl:
+            try:
+                rep["ftl_orphans"] = [f"{rel}: {i} (named in {', '.join(at[:2])})"
+                                      for rel, i, at in fluent.orphans(w, root[0], files=ftl)]
+            except fluent.ParserMissing:
+                rep["ftl_orphans"] = []
     return rep
 
 
@@ -642,7 +663,11 @@ def problems(rep):
             ("tree: no Fluent message lost its value or an attribute (against pristine)", not rep.get("ftl_shape"),
              ("none" if not rep.get("ftl_shape") else f"{len(rep['ftl_shape'])} file(s), e.g. {rep['ftl_shape'][0]}")
              + (f"; ids removed (on purpose?) in {len(rep['ftl_removed'])} file(s), e.g. {rep['ftl_removed'][0]}"
-                if rep.get("ftl_removed") else ""))] + \
+                if rep.get("ftl_removed") else "")),
+            ("tree: no Fluent id defined twice in a file where pristine has it once", not rep.get("ftl_doubled"),
+             "none" if not rep.get("ftl_doubled") else f"{len(rep['ftl_doubled'])} file(s), e.g. {rep['ftl_doubled'][0]}"),
+            ("tree: no removed Fluent message that code still names", not rep.get("ftl_orphans"),
+             "none" if not rep.get("ftl_orphans") else f"{len(rep['ftl_orphans'])}: {rep['ftl_orphans'][:2]}")] + \
            [("verifier could run", not rep["problems"], "; ".join(rep["problems"]) or "ok")]
 
 

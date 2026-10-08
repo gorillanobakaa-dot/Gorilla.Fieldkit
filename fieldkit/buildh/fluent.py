@@ -24,6 +24,8 @@ checks use Mozilla's own Fluent parser (the fluent.syntax package, a declared de
                            in the 157 tree's browser/locales/en-US/browser/ipProtection.ftl (E0003; the message is lost).
   shape(text)           -> {id: (has value, (attribute names))}; shape_diff(pristine, now) -> removed ids, and ids whose
                            value or attributes were lost (code that reads `.label` of such a message gets nothing)
+  orphans(workdir, pristine) -> removed ids the tree's code still names (an element left with no text: 2026-10-08,
+                           four in Settings); duplicates(text) -> ids defined twice in one file
 """
 import re
 
@@ -83,6 +85,102 @@ def shape_diff(pristine_text, now_text):
         if gone:
             lost.append((k, gone))
     return {"removed": sorted(k for k in was if k not in now), "lost": sorted(lost)}
+
+
+def orphans(workdir, pristine, files=None):
+    """Messages the fork REMOVED that the tree's code still names -> [(ftl rel, id, [files naming it])].
+
+    2026-10-08: the 08.Look patch rebuilt preferences.ftl from the 155 file and dropped four messages 157 added
+    (settings-keyboard-shortcuts-group, ...); Settings drew a heading, a link and two buttons with no text, and Fluent
+    rejected the page's translate promises with no reason (14 "uncaught exception: undefined"). shape_diff listed
+    them among the fork's deliberate removals; a removed id that code still names is not deliberate.
+    `files`: the .ftl files to look at (default: every .ftl that differs from `pristine`)."""
+    import subprocess
+    from pathlib import Path
+    w = str(workdir)
+    git = lambda *a: subprocess.run(["git", "-C", w, *a], capture_output=True)
+    if files is None:
+        files = [l for l in git("diff", "--name-only", pristine, "--", "*.ftl").stdout.decode().splitlines() if l]
+    removed = {}
+    for rel in files:
+        up = git("show", f"{pristine}:{rel}")
+        now = Path(w) / rel
+        if up.returncode != 0 or not now.is_file():
+            continue
+        try:
+            sd = shape_diff(up.stdout.decode("utf-8", "replace"), now.read_text(encoding="utf-8", errors="replace"))
+        except ParserMissing:
+            raise
+        for i in sd["removed"]:
+            removed.setdefault(i.lstrip("-"), []).append(rel)
+    if not removed:
+        return []
+    # one git grep for all ids, then exact matches (an id is bounded by anything but a word character or '-')
+    args = ["grep", "-n", "-F", "-I"] + [x for i in removed for x in ("-e", i)] + ["--", ".", ":!*.ftl", ":!**/test/**", ":!**/tests/**"]
+    hits = {}
+    out = git(*args).stdout.decode("utf-8", "replace")
+    for line in out.splitlines():
+        path = line.split(":", 1)[0]
+        for i in removed:
+            if i in line and re.search(r"(?<![\w-])" + re.escape(i) + r"(?![\w-])", line):
+                hits.setdefault(i, set()).add(path)
+    return sorted((rel, i, sorted(hits[i])[:5]) for i, rels in removed.items() if i in hits for rel in rels)
+
+
+def duplicates(text):
+    """-> [ids defined more than once in one file] (Firefox keeps the first and logs "Attempt to override")."""
+    import collections
+    from fluent.syntax import ast
+    n = collections.Counter(("-" if isinstance(e, ast.Term) else "") + e.id.name
+                            for e in _parse(text).body if isinstance(e, (ast.Message, ast.Term)))
+    return sorted(k for k, c in n.items() if c > 1)
+
+
+def drop_second_copies(lines):
+    """-> (new lines, [(id, kept line, removed line)]): every id defined twice keeps its FIRST copy (the one Firefox
+    uses) and loses the others, each with its own comment block (never a "##" heading or a GORILLA comment); a
+    GORILLA REPAIR graft comment left with no entry under it goes too. The copies must be identical (else ValueError):
+    nothing visible changes. Born 2026-10-08 (seven doubled ids in five 157 files, from 2026-07 grafts)."""
+    ents = entries(lines)
+    by = {}
+    for e in ents:
+        by.setdefault(e["id"], []).append(e)
+    drop, report = set(), []
+    for k, copies in by.items():
+        if len(copies) < 2:
+            continue
+        if len({tuple(e["parts"]) for e in copies}) != 1:      # every part, by name AND normalised text
+            raise ValueError(f"{k}: the copies differ; choose by hand")
+        for e in copies[1:]:
+            start, top = e["start"], e["start"]
+            while top > 0 and lines[top - 1].startswith("#"):
+                top -= 1
+            if lines[top:start] and not any(l.startswith(("##", "# GORILLA")) for l in lines[top:start]):
+                start = top
+            end = e["end"]
+            if end < len(lines) and not lines[end].strip() and start > 0 and not lines[start - 1].strip():
+                end += 1
+            drop.update(range(start, end))
+            report.append((k, copies[0]["start"] + 1, e["start"] + 1))
+    out = [l for n, l in enumerate(lines) if n not in drop]
+    res, i = [], 0
+    while i < len(out):
+        if out[i].startswith("# GORILLA REPAIR"):
+            j = i
+            while j < len(out) and out[j].startswith("#"):
+                j += 1
+            k = j
+            while k < len(out) and not out[k].strip():
+                k += 1
+            if k >= len(out) or out[k].startswith("#"):
+                if k >= len(out):
+                    while res and not res[-1].strip():
+                        res.pop()
+                i = k
+                continue
+        res.append(out[i])
+        i += 1
+    return res, report
 
 
 def _norm(text):

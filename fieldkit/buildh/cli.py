@@ -601,6 +601,46 @@ def run(a, emit):
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
+    if act == "about-pages":
+        # about-pages TASK [--install-dir D] [only=a,b] [walk=1 dwell=S countdown=S] [tree-since=..] [sub=..] [omni=..] [timeout=S]: every about: page of a copy
+        # of the installed build opened, read and judged, kept and compared with the last other build (aboutpages.py)
+        from . import aboutpages as ap, install as _inst
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir")
+        opts, change, notes = _change_args(a.args[1:], tid, inst, "gprobe_tree_", say=lambda m: print(m, flush=True))
+        info = _inst.installed(inst) or {}
+        only = tuple(x.strip().replace("about:", "") for x in opts.get("only", "").split(",") if x.strip())
+        walk = opts.get("walk", "0") not in ("0", "no", "false", "")
+        dwell = int(float(opts["dwell"]) * 1000) if "dwell" in opts else (6000 if walk else None)
+        on_line = None
+        if walk:
+            import time as _t
+            # the window takes the foreground: say so and count down first (announce before foreground tests)
+            print("A Gorilla window will open on this screen and walk every link of about:about, "
+                  f"{dwell / 1000:g} s per page. It is a throwaway copy with its own profile, behind a dead proxy;", flush=True)
+            print("your own browser and profile are not touched. Do not type into it while it runs.", flush=True)
+            for n in range(int(opts.get("countdown", 15)), 0, -1):
+                print(f"  starting in {n} s ...", flush=True)
+                _t.sleep(1)
+            def on_line(l):
+                t = ap.live(l)
+                if t:
+                    print(t, flush=True)
+        r = ap.run(inst, info.get("build_id"), say=lambda m: print(m, flush=True), timeout=float(opts.get("timeout", 900 if not walk else 1800)),
+                   only=only, walk=walk, dwell=dwell, on_line=on_line, omni=change.get("omni"), files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
+        for n in notes:
+            print("  note: " + n)
+        for row in r["rows"]:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        if r["changes"] is None:
+            print("  compared: no earlier run of another build kept")
+        else:
+            print(f"  compared with the run of {r['previous']}: " + (f"{len(r['changes'])} change(s)" if r["changes"] else "no change"))
+            for l in r["changes"]:
+                print("    " + l)
+        print(f"  kept: {r['path']}")
+        return 0 if all(row["ok"] for row in r["rows"]) else 3
     if act == "weigh":
         # weigh TASK [pages=a,b] [reps=N] [clean=0 settle=S] [before=DIR] [tree-since=..] [tree-until=..] [sub=A=>B ...] [omni=...]:
         # RAM and CPU per page, the installed build against the same build with the change (fieldkit/buildh/weigh.py)

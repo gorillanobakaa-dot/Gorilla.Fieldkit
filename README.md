@@ -445,6 +445,8 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | Is the temperature sensor real? Keep a build cool | `fieldkit thermal prove / watch` |
 | Port, build, install and prove Gorilla Firefox | `fieldkit build-harness ...` (part 7 to 10 above) |
 | Release gate for leaks and telemetry | `fieldkit build-harness leakgate TASK --release` |
+| Open every about: page of the installed build and judge it (text, artwork, errors, missing strings, requests); `walk=1` clicks every about:about link in a visible window, live | `fieldkit build-harness about-pages TASK [walk=1]` |
+| What a change costs or saves in RAM and CPU, page by page | `fieldkit build-harness weigh TASK` |
 | Write or check the dual-track documentation | `fieldkit docs plan / prep / render / check` |
 | Learn how to write for a reader who has never opened a terminal | `fieldkit docs guide` |
 | Read why: the Gorilla Open Source Philosophy | `fieldkit docs philosophy` |
