@@ -535,6 +535,8 @@ def run(a, emit):
         from . import probe as pb, buildrun
         kv = [x for x in a.args[1:] if "=" in x]
         opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "file=", "add=", "sub=")))}
+        since = opts.pop("tree-since", None)
+        until = opts.pop("tree-until", "HEAD")
         subs = [tuple(x[4:].split("=>", 1)) for x in kv if x.startswith("sub=") and "=>" in x]
         omni = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("omni="))
         files = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("file="))
@@ -545,6 +547,18 @@ def run(a, emit):
         inst = a.install_dir or _inst.find_install()
         if not inst:
             raise task.Refused("no installed build found: give --install-dir")
+        if since:
+            # the source changes since a commit ("build": the commit the installed build was compiled from)
+            import json as _js
+            import tempfile as _tf
+            from . import compile as _cg
+            if since == "build":
+                since = _js.loads(_cg._record_path(tid).read_text(encoding="utf-8"))["head"]
+            got, skipped = pb.tree_since(task.load(tid)["workdir"], since, inst, _tf.mkdtemp(prefix="gprobe_tree_"), until)
+            omni.update({k: str(v) for k, v in got.items()})
+            print(f"  tree-since {since[:10]}: {len(got)} member(s) replaced; {len(skipped)} change(s) not applied:", flush=True)
+            for path, why in skipped:
+                print(f"    {path}: {why}", flush=True)
         r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)), omni=omni or None,
                    timeout=float(opts.get("timeout", 90)),
                    say=lambda m: print(m, flush=True), files=files or None, added=added or None, subs=subs or None)
@@ -552,6 +566,40 @@ def run(a, emit):
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
+    if act == "weigh":
+        # weigh TASK [pages=a,b] [reps=N] [tree-since=..] [tree-until=..] [sub=A=>B ...] [omni=jar:member=file ...]:
+        # RAM and CPU per page, the installed build against the same build with the change (fieldkit/buildh/weigh.py)
+        from . import probe as pb, weigh as wg, install as _inst
+        import json as _js
+        import tempfile as _tf
+        from . import compile as _cg
+        kv = [x for x in a.args[1:] if "=" in x]
+        opts = {k: v for k, v in (x.split("=", 1) for x in kv if not x.startswith(("omni=", "sub=")))}
+        omni = dict(x[5:].rsplit("=", 1) for x in kv if x.startswith("omni="))
+        subs = [tuple(x[4:].split("=>", 1)) for x in kv if x.startswith("sub=") and "=>" in x]
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir")
+        notes = []
+        since = opts.get("tree-since")
+        if since:
+            if since == "build":
+                since = _js.loads(_cg._record_path(tid).read_text(encoding="utf-8"))["head"]
+            got, skipped = pb.tree_since(task.load(tid)["workdir"], since, inst, _tf.mkdtemp(prefix="gweigh_tree_"),
+                                         opts.get("tree-until", "HEAD"))
+            omni.update({k: str(v) for k, v in got.items()})
+            notes.append(f"tree {since[:10]}..{opts.get('tree-until', 'HEAD')[:10]}: {len(got)} packaged member(s) changed")
+            notes += [f"not applied to the copy: {p} ({why})" for p, why in skipped]
+        if not omni and not subs:
+            raise task.Refused("weigh needs a change: tree-since=, sub= or omni=")
+        pages = tuple(p for p in opts.get("pages", ",".join(wg.DEFAULT_PAGES)).split(",") if p)
+        r = wg.run(inst, pages=pages, reps=int(opts.get("reps", 3)), omni=omni or None, subs=subs or None,
+                   say=lambda m: print(m, flush=True))
+        path = wg.save(r, notes)
+        notes.append(f"kept: {path}")
+        notes.append("CPU while a page opens is noisy: compare the medians and look at the spread of the runs")
+        emit(r["summary"], lambda s: print("\n".join(wg.lines(s, notes))))
+        return 0
     if act == "ui-check":
         # ui-check TASK [--static] [--install-dir D]: the UI rules on the tree, then (unless --static) the readable-
         # and-working probe on a copy of the installed build (fieldkit/buildh/uicheck.py)

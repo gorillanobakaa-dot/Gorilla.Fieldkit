@@ -80,6 +80,7 @@ groups:
       - buildh/creepfix.py
       - buildh/icons.py
       - buildh/images.py
+      - buildh/weigh.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py

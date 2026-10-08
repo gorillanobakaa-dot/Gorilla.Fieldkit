@@ -2,6 +2,8 @@
 
     fieldkit build-harness probe <task> js=<probe.js|name> [url=about:blank] [wait=15] [omni=<jar>:<member>=<file> ...]
                                     [sub=<old text>=><new text> ...]  (every text member of both omni archives)
+                                    [tree-since=<commit|build>] [tree-until=<commit>]  (the tree's changes in that
+                                    range, where packaged as-is; until defaults to HEAD: bisect a change by ranges)
                                     [file=<path in the build>=<file> ...] [add=<new path in the build>=<file> ...] [timeout=S]
                                     [--install-dir <build>]
 
@@ -104,6 +106,40 @@ def replace_files(app_dir, files, added=None):
     return sorted(done)
 
 
+def tree_since(workdir, since, install_dir, out_dir, until="HEAD"):
+    """The source tree's changes since `since`, as omni replacements for a probe COPY: every member of omni.ja and
+    browser/omni.ja that is byte-identical to a changed file's OLD version is replaced by its NEW version. A file that
+    is preprocessed, generated or bundled at build time matches nothing and is reported, not guessed. Born 2026-10-08
+    to measure the one-logo and small-icon changes (D-157-35) without a 40-minute build.
+    -> ({"jar:member": local path}, [(path, why not applied)])"""
+    import hashlib
+    git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(workdir), *a], capture_output=True)
+    index = {}
+    for jar in ("omni.ja", "browser/omni.ja"):
+        with zipfile.ZipFile(Path(install_dir) / jar) as z:
+            for n in z.namelist():
+                if not n.endswith("/"):
+                    index.setdefault(hashlib.sha256(z.read(n)).hexdigest(), []).append(f"{jar}:{n}")
+    out, skipped = {}, []
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    rows = git("diff", "--name-status", "--no-renames", since, until).stdout.decode("utf-8", "replace").splitlines()
+    for row in rows:
+        status, path = row.split("\t", 1)
+        if status != "M":
+            skipped.append((path, "added" if status == "A" else "deleted" if status == "D" else status))
+            continue
+        old, new = git("show", f"{since}:{path}").stdout, git("show", f"{until}:{path}").stdout
+        members = index.get(hashlib.sha256(old).hexdigest(), [])
+        if not members:
+            skipped.append((path, "not packaged as-is (preprocessed, generated or bundled at build time)"))
+            continue
+        local = Path(out_dir) / path.replace("/", "__")
+        local.write_bytes(new)
+        for m in members:
+            out[m] = local
+    return out, skipped
+
+
 TEXT_MEMBER = (".css", ".js", ".mjs", ".html", ".xhtml", ".json", ".svg", ".ftl", ".xml")
 
 
@@ -132,29 +168,39 @@ def substitute(app_dir, pairs):
     return done
 
 
-def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None, subs=None):
-    """-> {"lines": [...], "done": bool, "patched": [...], "seconds": float}"""
+PROFILE_JS = (throwaway.USER_JS + 'user_pref("browser.dom.window.dump.enabled", true);\n'
+              'user_pref("devtools.console.stdout.chrome", true);\n')
+
+
+def prepare_copy(install_dir, js, wait=15, omni=None, files=None, added=None, subs=None, say=print):
+    """One throwaway copy of the install with the change applied and the probe wired in -> (copy dir, app dir,
+    [patched]). Launch it as often as needed with launch(); remove the copy dir afterwards. (Split out of run() on
+    2026-10-08 so build-harness weigh can open every page in a fresh browser without copying the build each time.)"""
     body = resolve_js(js).read_text(encoding="utf-8")
     copy = Path(tempfile.mkdtemp(prefix="gprobe_app_"))
-    prof = throwaway.profile("gprobe_", throwaway.USER_JS + 'user_pref("browser.dom.window.dump.enabled", true);\n'
-                                                           'user_pref("devtools.console.stdout.chrome", true);\n')
+    app = copy / "app"
+    shutil.copytree(install_dir, app)
+    patched = (patch_omni(app, omni) if omni else []) + (replace_files(app, files or {}, added) if (files or added) else [])
+    if subs:
+        rewritten = substitute(app, subs)
+        say(f"  probe: sub= rewrote {len(rewritten)} text member(s)")
+        patched += rewritten
+    (app / "defaults" / "pref").mkdir(parents=True, exist_ok=True)
+    (app / "defaults" / "pref" / "gprobe-autoconfig.js").write_text(
+        'pref("general.config.filename", "gprobe.cfg");\npref("general.config.obscure_value", 0);\n'
+        'pref("general.config.sandbox_enabled", false);\n', encoding="utf-8")
+    indented = "\n".join("    " + l for l in body.splitlines())
+    (app / "gprobe.cfg").write_text(CFG.format(wait=wait, wait_ms=int(wait * 1000), body=indented), encoding="utf-8")
+    return copy, app, patched
+
+
+def launch(app, url="about:blank", timeout=90):
+    """One headless run of a prepared copy on a FRESH throwaway profile -> {"lines", "done", "seconds"}. Only the
+    process this started is stopped (taskkill /PID /T)."""
+    prof = throwaway.profile("gprobe_", PROFILE_JS)
     try:
-        app = copy / "app"
-        shutil.copytree(install_dir, app)
-        patched = (patch_omni(app, omni) if omni else []) + (replace_files(app, files or {}, added) if (files or added) else [])
-        if subs:
-            rewritten = substitute(app, subs)
-            say(f"  probe: sub= rewrote {len(rewritten)} text member(s)")
-            patched += rewritten
-        (app / "defaults" / "pref").mkdir(parents=True, exist_ok=True)
-        (app / "defaults" / "pref" / "gprobe-autoconfig.js").write_text(
-            'pref("general.config.filename", "gprobe.cfg");\npref("general.config.obscure_value", 0);\n'
-            'pref("general.config.sandbox_enabled", false);\n', encoding="utf-8")
-        indented = "\n".join("    " + l for l in body.splitlines())
-        (app / "gprobe.cfg").write_text(CFG.format(wait=wait, wait_ms=int(wait * 1000), body=indented), encoding="utf-8")
-        say(f"  probe: {Path(js).name} in a copy of {install_dir}" + (f", with {len(patched)} replaced member(s)" if patched else ""))
         t0 = time.time()
-        proc = subprocess.Popen([str(app / "firefox.exe"), "-headless", "-no-remote", "-profile", str(prof), url],
+        proc = subprocess.Popen([str(Path(app) / "firefox.exe"), "-headless", "-no-remote", "-profile", str(prof), url],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
         lines, finished = [], False
         import threading
@@ -173,7 +219,19 @@ def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=
         finally:
             killer.cancel()
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
-        return {"lines": lines, "done": finished, "patched": patched, "seconds": round(time.time() - t0, 1)}
+        return {"lines": lines, "done": finished, "seconds": round(time.time() - t0, 1)}
+    finally:
+        throwaway.discard(prof)
+
+
+def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None, subs=None):
+    """-> {"lines": [...], "done": bool, "patched": [...], "seconds": float}"""
+    copy, app, patched = prepare_copy(install_dir, js, wait=wait, omni=omni, files=files, added=added, subs=subs, say=say)
+    try:
+        say(f"  probe: {Path(js).name} in a copy of {install_dir}" + (f", with {len(patched)} replaced member(s)" if patched else ""))
+        r = launch(app, url=url, timeout=timeout)
+        return {**r, "patched": patched}
     finally:
         shutil.rmtree(copy, ignore_errors=True)
-        throwaway.discard(prof)
+
+

@@ -8,6 +8,10 @@
 //   IMG|<page>|<process>|<url>|<WxH>|<bytes>
 //   IMG-PAGE|<page>|<images>|<total bytes>
 //   IMG-PICTURE|<page>|<png path>
+//   IMG-CPU|<page>|<rep>|<cpu ms, every process, from opening the page until it settled>
+//   IMG-CPU-MEDIAN|<page>|<median cpu ms over REPS>
+// CPU added 2026-10-08 (owner: "what are the RAM and CPU cycles we are saving"); REPS repetitions, the memory lines
+// and pictures are from the last one.
 //   IMG-ERROR|<what>|<message>
 const win = Services.wm.getMostRecentWindow("navigator:browser");
 if (!win) { say("IMG-ERROR|window|no browser window"); return; }
@@ -63,16 +67,47 @@ async function picture(page, tab) {
   } catch (e) { say(`IMG-ERROR|picture ${page}|${e}`); }
 }
 
-const pages = ["about:blank", "about:newtab", "about:home", "about:preferences", "about:addons", "about:privatebrowsing"];
-for (const url of pages) {
-  try {
-    // a fresh window state per page: close every other tab, minimise memory, then open the page
-    for (const t of [...win.gBrowser.tabs].slice(1)) { win.gBrowser.removeTab(t); }
-    await new Promise(r => mgr.minimizeMemoryUsage(r));
-    const tab = win.gBrowser.addTab(url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
-    win.gBrowser.selectedTab = tab;
-    await sleep(6000);
-    summarise(url, await report());
-    if (url != "about:blank") { await picture(url, tab); }
-  } catch (e) { say(`IMG-ERROR|${url}|${e}`); }
+async function cpuMs() {
+  const info = await ChromeUtils.requestProcInfo();
+  return (info.cpuTime + info.children.reduce((s, c) => s + c.cpuTime, 0)) / 1e6;
+}
+let REPS = 3;
+let pages = ["about:blank", "about:newtab", "about:home", "about:preferences", "about:addons", "about:privatebrowsing"];
+// build-harness weigh opens every page in a FRESH browser: it writes {"pages": [...], "reps": n} beside firefox.exe
+// (2026-10-08: six pages in one browser put the logo's full-size decode on whichever page came after a cached one)
+try {
+  const f = Services.dirsvc.get("GreD", Ci.nsIFile);
+  f.append("gprobe-image-memory.json");
+  if (f.exists()) {
+    const cfg = JSON.parse(await win.IOUtils.readUTF8(f.path));
+    pages = cfg.pages || pages;
+    REPS = cfg.reps || REPS;
+    say(`IMG-CONFIG|${pages.join(",")}|${REPS}`);
+  }
+} catch (e) { say(`IMG-ERROR|config|${e}`); }
+const cpu = {};
+for (let rep = 1; rep <= REPS; rep++) {
+  for (const url of pages) {
+    try {
+      // a fresh window state per page: close every other tab, minimise memory, then open the page
+      for (const t of [...win.gBrowser.tabs].slice(1)) { win.gBrowser.removeTab(t); }
+      await new Promise(r => mgr.minimizeMemoryUsage(r));
+      await sleep(500);
+      const c0 = await cpuMs();
+      const tab = win.gBrowser.addTab(url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
+      win.gBrowser.selectedTab = tab;
+      await sleep(6000);
+      const used = (await cpuMs()) - c0;
+      (cpu[url] = cpu[url] || []).push(used);
+      say(`IMG-CPU|${url}|${rep}|${used.toFixed(0)}`);
+      if (rep == REPS) {
+        summarise(url, await report());
+        if (url != "about:blank") { await picture(url, tab); }
+      }
+    } catch (e) { say(`IMG-ERROR|${url}|${e}`); }
+  }
+}
+for (const [url, xs] of Object.entries(cpu)) {
+  const s = [...xs].sort((a, b) => a - b);
+  say(`IMG-CPU-MEDIAN|${url}|${s[Math.floor(s.length / 2)].toFixed(0)}`);
 }
