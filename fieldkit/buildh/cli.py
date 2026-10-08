@@ -655,7 +655,8 @@ def run(a, emit):
                 if t:
                     print(t, flush=True)
         r = ap.run(inst, info.get("build_id"), say=lambda m: print(m, flush=True), timeout=float(opts.get("timeout", 900 if not walk else 1800)),
-                   only=only, walk=walk, visible=visible, dwell=dwell, on_line=on_line, omni=change.get("omni"), files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
+                   only=only, walk=walk, visible=visible, dwell=dwell, on_line=on_line, shots=opts.get("shots"),
+                   omni=change.get("omni"), files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
         for n in notes:
             print("  note: " + n)
         for row in r["rows"]:

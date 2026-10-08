@@ -106,3 +106,17 @@ def test_image_sharp_reads_an_owner_master(tmp_path):
     soft.save(tree / "branding" / "logo.png")
     ok, _ = decisions._image_sharp(tree, {"path": "branding/logo.png", "master": "owner:masters/canonical.png"}, owner)
     assert not ok
+
+
+def test_an_early_return_named_by_the_technique_guards_the_dead_waiters_below_it(tmp_path):
+    """2026-10-08: about:support's Normandy section answers at once (GORILLA TECHNIQUE T-157-31-A, if (true) return);
+    the store waiters 40+ lines below it are dead code and count as guarded."""
+    from fieldkit.buildh import techniques
+    body = ["var dataProviders = {", "  async normandy(done) {", "    if (!AppConstants.MOZ_NORMANDY) {", "      done();",
+            "      return;", "    }", "    // GORILLA TECHNIQUE T-157-31-A: answer at once", "    if (true) {", "      done({", "        a: [],", "      });",
+            "      return;", "    }"] + ["    const x = 1;"] * 45 + ["    ExperimentAPI.manager.store", "      .ready()", "  },", "};"]
+    f = tmp_path / "T.sys.mjs"
+    f.write_text("\n".join(body), encoding="utf-8")
+    n = body.index("    ExperimentAPI.manager.store") + 1
+    assert techniques._guarded(tmp_path, "T.sys.mjs", n, "T-157-31-A", 40)
+    assert not techniques._guarded(tmp_path, "T.sys.mjs", n, "T-157-99-Z", 40)

@@ -11,9 +11,10 @@
 //            link, DWELL ms per page (owner 2026-10-08: "click on each of those links and analyze ... in real time").
 // Errors, requests and missing strings are printed the moment they happen, so a visible run can be followed live.
 // Output lines:
+//   ABOUT-REGISTERED|<name>|hidden or listed              (every page the build registers, crash pages included)
 //   ABOUT-NOW|<name>                                      (the page about to be opened)
 //   ABOUT|<name>|<process: parent or content>|<landed on>|<title>|<text length>|<pictures>|<controls>|<hidden in about:about>
-//   ABOUT-TEXT|<name>|<first 400 characters of the text>
+//   ABOUT-TEXT|<name>|<first 6000 characters of the text>
 //   ABOUT-PIC|<name>|<picture url>|<w>x<h>
 //   ABOUT-ERR|<name>|<script error>|<source>
 //   ABOUT-REJ|<name>|<reason>|<where the promise was rejected, or made>   (a rejection nobody handled; the console
@@ -21,6 +22,7 @@
 //   ABOUT-LIT|<name>|<element>|<why its update failed>   (web components whose update never completes)
 //   ABOUT-L10N|<name>|<id>|<element>   (an element names a Fluent message no loaded file defines: it shows nothing;
 //                                         Fluent rejects the page's translate promise with no reason)
+//   ABOUT-SHOT|<name>|<png path or why not>|<w>x<h>
 //   ABOUT-NET|<name>|<request url>|<who opened it: a page, an extension (extension <id>) or the browser>
 //   GLEAN-MENU|<entry>|<section shown>|<text length>|<first 160 characters>
 //   GLEAN-SUBMIT|<what the page said afterwards>|<requests opened>
@@ -36,6 +38,9 @@ const ONLY = [];
 // walk=1: the command rewrites these two lines
 const WALK = false;
 const DWELL = 3500;
+// shots=<folder>: the command rewrites this line; each page is then drawn by Firefox itself into <folder>/about-<name>.png
+// (the whole window: address bar and page, as a person sees it; no desktop screenshot)
+const SHOTS = "";
 
 // nothing may leave the machine: a dead proxy for every protocol, set before the first page opens
 for (const [k, v] of [["network.proxy.type", 1], ["network.proxy.http_port", 9], ["network.proxy.ssl_port", 9],
@@ -159,6 +164,21 @@ function hiddenOf(name) {
 }
 
 let blocked = 0, blank = 0, withErr = 0;
+async function shot(name, tab) {
+  if (!SHOTS) { return; }
+  try {
+    win.gBrowser.selectedTab = tab;
+    await sleep(400);
+    const d = win.document.documentElement, w = d.clientWidth, h = d.clientHeight;
+    const bmp = await win.browsingContext.currentWindowGlobal.drawSnapshot(new win.DOMRect(0, 0, w, h), 1, "black");
+    const cv = win.document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
+    cv.width = bmp.width; cv.height = bmp.height; cv.getContext("2d").drawImage(bmp, 0, 0);
+    const blob = await new Promise(r => cv.toBlob(r, "image/png"));
+    const out = win.PathUtils.join(SHOTS, `about-${name}.png`);   // the sandbox has no PathUtils/IOUtils; the window has
+    await win.IOUtils.write(out, new Uint8Array(await blob.arrayBuffer()));
+    say(`ABOUT-SHOT|${name}|${out}|${bmp.width}x${bmp.height}`);
+  } catch (e) { say(`ABOUT-SHOT|${name}|(no picture: ${clip(String(e), 140)})|`); }
+}
 // everything learnt about the page showing in `tab` (`name` without "about:")
 async function report(name, tab, hidden) {
   let r = await read(tab);
@@ -175,7 +195,7 @@ async function report(name, tab, hidden) {
   const text = clip(r.text, 100000);
   if (text.length < 20) { blank++; }
   say(`ABOUT|${name}|${proc}|${landed}|${clip(r.title, 60)}|${text.length}|${r.pics.length}|${r.controls}|${hidden}`);
-  say(`ABOUT-TEXT|${name}|${text.slice(0, 400)}`);
+  say(`ABOUT-TEXT|${name}|${text.slice(0, 6000)}`);   // enough for the content rules (about:support's version row)
   for (const p of r.pics) { say(`ABOUT-PIC|${name}|${p}`); }
   const doc = !tab.linkedBrowser.isRemoteBrowser ? tab.linkedBrowser.contentDocument : null;
   if (!doc) { return; }
@@ -232,6 +252,10 @@ async function report(name, tab, hidden) {
 }
 
 const SYS = { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() };
+// every page this build registers, opened or not (the crash pages are never opened), with its about:about flag
+for (const n of Object.keys(Cc).filter(c => c.startsWith(PFX)).map(c => c.slice(PFX.length)).sort()) {
+  say(`ABOUT-REGISTERED|${n || "(empty)"}|${hiddenOf(n)}`);
+}
 let count = 0;
 if (!WALK) {
   const names = Object.keys(Cc).filter(c => c.startsWith(PFX)).map(c => c.slice(PFX.length))
@@ -247,6 +271,7 @@ if (!WALK) {
       win.gBrowser.selectedTab = tab;
       await sleep(DWELL);
       await report(name, tab, hiddenOf(name));
+      await shot(name, tab);
     } catch (e) {
       say(`ABOUT|${name}|?|(error ${clip(String(e), 120)})|||||${hiddenOf(name)}`);
     } finally {
@@ -319,6 +344,7 @@ if (!WALK) {
         if (opened != tab) { win.gBrowser.selectedTab = opened; }
         await sleep(DWELL);
         await report(name, opened, hiddenOf(name));
+        await shot(name, opened);
       }
     } catch (e) {
       say(`ABOUT|${name}|?|(error ${clip(String(e), 120)})|||||listed`);

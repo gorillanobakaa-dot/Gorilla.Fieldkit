@@ -55,6 +55,14 @@ EXPECTED_EMPTY = {
     "framecrashed": "drawn inside a frame that crashed",
     "messagepreview": "previews a message given in its URL",
 }
+# pages that must show their DATA, not only their headings (2026-10-08: about:support drew every heading and table
+# label while its values stayed empty - its snapshot waited on Nimbus - and a text-length check passed it)
+CONTENT_RULES = {
+    "support": (re.compile(r"Version\s+\d+\.\d+"), "the Application Basics table shows the version"),
+    "buildconfig": (re.compile(r"x86_64|aarch64|i686"), "the build target is shown"),
+    "processes": (re.compile(r"\d+(\.\d+)?\s?[KMG]B"), "memory figures are shown"),
+}
+
 # script errors that come from opening a page by its address rather than the way the browser opens it
 KNOWN_ARTEFACTS = [
     (re.compile(r"RPMGet\w+ is not defined"), "an error page opened by URL, not by a failed load, has no page-manager functions"),
@@ -84,11 +92,14 @@ def teardown(e):
 def parse(lines):
     """Probe lines -> {"pages": {name: {...}}, "net": [...], "glean": {...}, "summary": {...}}."""
     pages, net, glean = {}, [], {"menu": [], "submit": None}
-    summary, probe_errors = {}, []
+    summary, probe_errors, registered = {}, [], {}
     for raw in lines:
         l = raw.strip()
         f = l.split("|")
         kind = f[0]
+        if kind == "ABOUT-REGISTERED" and len(f) >= 3:
+            registered[f[1]] = f[2]
+            continue
         if kind == "ABOUT-ERROR" or l.startswith("error "):          # the probe itself failed (fail closed)
             probe_errors.append(l[:200])
             continue
@@ -122,7 +133,7 @@ def parse(lines):
         elif kind == "ABOUT-SUMMARY" and len(f) >= 6:
             summary = dict(zip(("pages", "blocked", "blank", "with_errors", "requests"), map(_int, f[1:6])))
     return {"pages": {k: v for k, v in pages.items() if "landed" in v}, "orphan_errors": {k: v["errors"] for k, v in pages.items() if "landed" not in v},
-            "net": net, "glean": glean, "summary": summary, "probe_errors": probe_errors}
+            "net": net, "glean": glean, "summary": summary, "probe_errors": probe_errors, "registered": registered}
 
 
 def _int(s):
@@ -153,6 +164,12 @@ def verdict(p):
                                  + ("; ".join(p.get("probe_errors", [])[:3]) or "no probe error line")})
     blank = [n for n, v in sorted(pages.items()) if v.get("listed") and not v["landed"].startswith("BLOCKED")
              and v["text_len"] < 20 and n not in EXPECTED_EMPTY]
+    empty = [f"about:{n} ({why})" for n, (rx, why) in sorted(CONTENT_RULES.items())
+             if n in pages and not pages[n].get("landed", "").startswith("BLOCKED") and pages[n].get("text_len", 0)
+             and not rx.search(pages[n].get("text", ""))]
+    rows.append({"check": "about-pages: pages show their data, not only headings", "ok": not empty,
+                 "evidence": ("missing: " + "; ".join(empty)) if empty else
+                             f"{sum(1 for n in CONTENT_RULES if n in pages)} page(s) with a content rule show their data"})
     rows.append({"check": "about-pages: every listed page shows its text", "ok": not blank,
                  "evidence": (f"blank: {', '.join('about:' + n for n in blank)}" if blank else
                               f"{sum(1 for v in pages.values() if v.get('listed'))} listed pages read")})
@@ -269,20 +286,23 @@ def previous(build_id, before=None):
     return None
 
 
-def probe_file(only=(), walk=False, dwell=None):
+def probe_file(only=(), walk=False, dwell=None, shots=None):
     """The probe, limited to `only` (page names without about:), walking about:about's links, `dwell` ms per page
     -> path of the probe to run."""
     src = Path(__file__).parent / "probes" / "about-pages.js"
-    if not only and not walk and dwell is None:
+    if not only and not walk and dwell is None and not shots:
         return src
     import tempfile
     body = src.read_text(encoding="utf-8")
-    for line in ("const ONLY = [];", "const WALK = false;", "const DWELL = 3500;"):
+    for line in ("const ONLY = [];", "const WALK = false;", "const DWELL = 3500;", 'const SHOTS = "";'):
         assert body.count(line) == 1, line
     body = body.replace("const ONLY = [];", "const ONLY = " + json.dumps(sorted(only)) + ";")
     body = body.replace("const WALK = false;", f"const WALK = {'true' if walk else 'false'};")
     if dwell is not None:
         body = body.replace("const DWELL = 3500;", f"const DWELL = {int(dwell)};")
+    if shots:
+        Path(shots).mkdir(parents=True, exist_ok=True)
+        body = body.replace('const SHOTS = "";', "const SHOTS = " + json.dumps(str(Path(shots).resolve())) + ";")
     out = Path(tempfile.mkdtemp(prefix="gprobe_about_")) / "about-pages.js"
     out.write_text(body, encoding="utf-8")
     return out
@@ -323,12 +343,12 @@ def live(line):
 
 
 def run(install_dir, build_id, say=print, timeout=900, only=(), walk=False, dwell=None, on_line=None, visible=None,
-        partial=False, **change):
+        partial=False, shots=None, **change):
     """Probe, parse, judge, keep, compare -> {"rows", "changes", "path", "parsed", "done"}. `only`: just those pages
     (a partial run is kept but never used as the comparison base). walk=True: a visible window walking about:about's
     links (also kept apart from the comparison base: it reads only the listed pages)."""
     from . import probe as pb
-    r = pb.run(install_dir, str(probe_file(only, walk, dwell)), wait=12, timeout=timeout, say=say,
+    r = pb.run(install_dir, str(probe_file(only, walk, dwell, shots)), wait=12, timeout=timeout, say=say,
                headless=not (walk if visible is None else visible), on_line=on_line, **change)
     parsed = parse(r["lines"])
     rows = verdict(parsed)

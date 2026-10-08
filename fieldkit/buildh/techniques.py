@@ -62,7 +62,10 @@ TECHNIQUES = [
              "text": "GORILLA TECHNIQUE T-157-31-A"},
             {"name": "nimbus-waiters", "kind": "watch",
              "pathspec": ["browser", "toolkit", "services", ":!toolkit/components/nimbus", ":!**/test/**", ":!**/tests/**"],
-             "regex": r"NimbusFeatures(\.[A-Za-z_]+|\[[^]]+\])\.ready\(\)|ExperimentAPI\.ready\(\)",
+             # 2026-10-08: two more forms that hung pages - the store's own ready() (about:support's Normandy
+             # section, written over two lines) and Normandy's RecipeRunner.initializedPromise (about:studies)
+             "regex": r"NimbusFeatures(\.[A-Za-z_]+|\[[^]]+\])\.ready\(\)|ExperimentAPI\.ready\(\)"
+                      r"|ExperimentAPI\.manager\.store(\s*$|\.ready\(\))|RecipeRunner\.initializedPromise",
              "guard_lines": 40,
              # known waiters that do not gate a page in Gorilla, each with the reason
              "allow": {}},
@@ -449,7 +452,8 @@ HEADER = re.compile(r"^(\s*)(?:export\s+)?(?:async\s+|static\s+|get\s+|set\s+)*(
 
 def _guarded(workdir, path, n, tid, span):
     """A hit is guarded when the technique (or a Gorilla PHYSICAL LOCK) is named within `span` lines above it, or
-    when it sits inside a function whose first lines are a PHYSICAL LOCK early return (the body below is dead)."""
+    when it sits inside a function whose first lines are an early return (`if (true)`) named PHYSICAL LOCK or by the
+    technique (the body below is dead)."""
     try:
         lines = (Path(workdir) / path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -462,7 +466,13 @@ def _guarded(workdir, path, n, tid, span):
         m = HEADER.match(lines[i])
         if m and m.group(2) not in KEYWORDS and len(lines[i]) - len(lines[i].lstrip()) < ind:
             head = lines[i + 1:i + 20]                    # room for a multi-line signature
-            return any("PHYSICAL LOCK" in l for l in head) and any(l.strip().startswith("if (true)") for l in head)
+            # the early return is named either as a PHYSICAL LOCK or as this technique (2026-10-08: about:support's
+            # Normandy section returns at once "GORILLA TECHNIQUE T-157-31-A", its old waiters dead below it)
+            if any("PHYSICAL LOCK" in l or tid in l for l in head) and any(l.strip().startswith("if (true)") for l in head):
+                return True
+            # not locked here: an enclosing function may be (a nested function, or a call such as `done({` that only
+            # looks like a header, inside a locked function is dead too)
+            ind = len(lines[i]) - len(lines[i].lstrip())
     return False
 
 
