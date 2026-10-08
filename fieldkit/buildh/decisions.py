@@ -43,7 +43,7 @@ import yaml
 REGISTER = Path("decisions") / "PRODUCT-DECISIONS.yaml"
 STATUSES = ("enforced", "pending", "trade-off", "retired")
 KINDS = ("mozconfig_has", "tree_contains", "tree_lacks", "pref", "installed_absent", "omni_absent", "fieldkit_test",
-         "image_sharp", "tree_absent", "tree_present", "installed_present")
+         "image_sharp", "tree_absent", "tree_present", "installed_present", "about_register")
 FIELDKIT = Path(__file__).resolve().parents[2]
 
 
@@ -165,6 +165,12 @@ def _check(kind, arg, ctx):
         if not workdir:
             raise Unreadable("no ported tree")
         return _image_sharp(Path(workdir), arg, owner)
+    if kind == "about_register":
+        # every about: page the tree can register is in the owner's reviewed register, and none it marks "remove" is
+        # still registered (2026-10-08: about:about hides 30 pages; a new upstream page must be reviewed first)
+        if not workdir:
+            raise Unreadable("no ported tree")
+        return about_register(Path(owner) / arg["file"], workdir)
     if kind == "fieldkit_test":
         # its own temporary folder: pytest's shared pytest-current link, once made by an ELEVATED run (the owner's
         # leakgate-baseline window, 2026-10-06), cannot be replaced by a normal account, and every later run then exits
@@ -176,6 +182,29 @@ def _check(kind, arg, ctx):
         tail = (r.stdout.strip().splitlines() or ["no output"])[-1]
         return r.returncode == 0, f"{arg}: {tail}"
     raise Unreadable(f"unknown check {kind}")
+
+
+def about_register(path, workdir):
+    """-> (ok, evidence): the tree's about: pages (aboutregistry.scan) against the reviewed register at `path`
+    ({pages: [{name, verdict: keep|remove, ...}]})."""
+    from . import aboutregistry
+    if not Path(path).is_file():
+        raise Unreadable(f"{path} not found")
+    pages = {e["name"]: e for e in (yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}).get("pages") or []}
+    registered = set(aboutregistry.scan(workdir))
+    unreviewed = sorted(registered - set(pages))
+    back = sorted(n for n in registered if pages.get(n, {}).get("verdict") == "remove")
+    bad_verdict = sorted(n for n, e in pages.items() if e.get("verdict") not in ("keep", "remove"))
+    ok = not unreviewed and not back and not bad_verdict
+    parts = []
+    if unreviewed:
+        parts.append(f"not reviewed: {', '.join('about:' + n for n in unreviewed[:8])}")
+    if back:
+        parts.append(f"marked remove but registered: {', '.join('about:' + n for n in back[:8])}")
+    if bad_verdict:
+        parts.append(f"verdict must be keep or remove: {', '.join(bad_verdict[:5])}")
+    kept = sum(1 for n in registered if pages.get(n, {}).get("verdict") == "keep")
+    return ok, "; ".join(parts) or f"{len(registered)} registered page(s), all reviewed ({kept} kept); "         f"{sum(1 for e in pages.values() if e.get('verdict') == 'remove')} removed page(s) stay removed"
 
 
 def _energy(im):
