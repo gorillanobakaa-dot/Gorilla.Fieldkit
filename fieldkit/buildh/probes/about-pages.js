@@ -156,7 +156,13 @@ function hiddenOf(name) {
 let blocked = 0, blank = 0, withErr = 0;
 // everything learnt about the page showing in `tab` (`name` without "about:")
 async function report(name, tab, hidden) {
-  const r = await read(tab);
+  let r = await read(tab);
+  // a slow page is not a blank page: one with no text yet is read again, every 2 s, for up to 10 s more
+  // (2026-10-08: about:debugging and about:about in a fresh unpacked build needed ~6 s; at 3.5 s they read as blank)
+  for (let i = 0; i < 5 && r && clip(r.text, 100).length < 20; i++) {
+    await sleep(2000);
+    r = await read(tab);
+  }
   const proc = tab.linkedBrowser.isRemoteBrowser ? "content" : "parent";
   if (!r) { say(`ABOUT|${name}|${proc}|(unreadable)|||||${hidden}`); return; }
   const landed = r.uri && r.uri.startsWith("about:neterror") ? "BLOCKED " + clip(r.uri, 60) : clip(r.uri, 60);
