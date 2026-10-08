@@ -805,6 +805,11 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
     task.journal(t, "build-verified", ok=all(r["ok"] for r in rows))
     ok = all(r["ok"] for r in rows)
     res = {"ok": ok, "stops": stops, "log": str(log_path), "rows": rows}
+    if not ok:
+        # name what failed: the stops list holds stops a retry already got past (2026-10-08: "BUILD NOT OK: ['thermal']"
+        # after a cooled-down second attempt had built, while the real failures were three check rows)
+        bad = [r["check"] for r in rows if not r["ok"]]
+        res["why"] = f"build-verify: {len(bad)} check(s) failed: " + "; ".join(bad[:4])
     if ok:
         res.update(capture_patches(t, task_id, say))
     return res

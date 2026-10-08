@@ -51,6 +51,13 @@ function race(p, ms) {{
 }}
 __gT(async () => {{
   try {{
+    // the browser fully started first (up to 60 s): a probe whose first page opens during start-up, on a cold copy of a
+    // hot machine, read a half-ready page (2026-10-08: about:about blank, a first visit with no scripts)
+    for (let i = 0; i < 240; i++) {{
+      const w = Services.wm.getMostRecentWindow("navigator:browser");
+      if (w && w.delayedStartupFinished) {{ break; }}
+      await new Promise(r => __gT(r, 250));
+    }}
 {body}
   }} catch (e) {{ say("error", String(e), e && e.stack ? e.stack.split("\\n")[0] : ""); }}
   // finally: a probe that stops early with `return` (no window, nothing found) still reports DONE, instead of the

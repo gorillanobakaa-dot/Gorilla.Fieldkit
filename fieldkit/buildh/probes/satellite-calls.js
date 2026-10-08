@@ -24,7 +24,7 @@ async function visit(tag, { temporary = null, menu = false } = {}) {
     SP.setForPrincipal(site, temporary, SP.ALLOW, SP.SCOPE_TEMPORARY, tab.linkedBrowser);
   }
   tab.linkedBrowser.fixupAndLoadURIString(`http://127.0.0.1:8765/${tag}`, { triggeringPrincipal: sys });
-  for (let i = 0; i < 20 && !(tab.linkedBrowser.contentTitle || "").startsWith("NAV:"); i++) { await sleep(250); }
+  for (let i = 0; i < 40 && !(tab.linkedBrowser.contentTitle || "").startsWith("NAV:"); i++) { await sleep(250); }
   const title = tab.linkedBrowser.contentTitle || "";
   say(`CALLS|${tag}|${title.startsWith("NAV:") ? "JS ran, navigator: " + title.slice(4) : title == "x" ? "JS OFF (page loaded, script did not run)" : "(page did not load)"}`);
   if (menu) {        // what the toolbar menu tells the user about this site

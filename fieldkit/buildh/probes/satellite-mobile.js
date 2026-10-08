@@ -13,7 +13,8 @@ async function visit(tag) {
   const tab = win.gBrowser.addTab(`http://127.0.0.1:8765/${tag}`, { triggeringPrincipal: sys });
   win.gBrowser.selectedTab = tab;
   // the page's script writes navigator.userAgent into the title; title "x" = loaded, but JavaScript did not run
-  for (let i = 0; i < 20 && !(tab.linkedBrowser.contentTitle || "").startsWith("NAV:"); i++) { await sleep(250); }
+  // up to 10 s for the page's script (5 s missed a first visit on a hot machine, 2026-10-08)
+  for (let i = 0; i < 40 && !(tab.linkedBrowser.contentTitle || "").startsWith("NAV:"); i++) { await sleep(250); }
   const title = tab.linkedBrowser.contentTitle || "";
   say(tag, "|", title.startsWith("NAV:") ? "JS ran, navigator: " + title.slice(4) : title == "x" ? "JS OFF (page loaded, script did not run)" : "(page did not load)");
   win.gBrowser.removeTab(tab);

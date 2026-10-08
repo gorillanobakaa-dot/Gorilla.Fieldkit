@@ -61,6 +61,9 @@ KNOWN_ARTEFACTS = [
     (re.compile(r"logins is undefined"), "the import report with no import to report"),
     (re.compile(r"MPToggleLights is not defined"), "message preview without a message"),
     (re.compile(r"requestedBrowser\.currentURI is null"), "about:opentabs redirects while the tab switcher reads it"),
+    (re.compile(r"WebRTC: ICE failed, add a STUN server"),
+     "about:fingerprintingprotection (hidden) gathers WebRTC candidates for Mozilla's user-characteristics measurement;"
+     " no STUN server is configured, so ICE fails and nothing is sent"),
     (re.compile(r'property "getFullYear", date is undefined'),
      "about:asrouter (hidden developer page of the messaging system) reads telemetry session dates Gorilla never makes"),
 ]
