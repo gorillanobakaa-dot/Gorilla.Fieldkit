@@ -14,8 +14,15 @@ B5  keepalive: MOZ_LOG=nsHttp:5,nsSocketTransport:5 while one HTTP/1.1 connectio
 
 All times are taken by the harness clock when the page's message reaches the unshaped report host, so they do not
 depend on the browser's timer precision (resistFingerprinting coarsens it).
+
+Evidence kept for a person to read (--moz-log, --keep-profile; 2026-10-04 the Satellite cache question needed both,
+from two throwaway scripts that patched this class): with `moz_log` every visit writes its own MOZ_LOG file
+(visitNNN-<run>-<first step>.log, child processes add .child-N) into `keep_dir`; B3 and B5 keep the log their own
+measurement needs, inside the profile. With `keep_profile` every profile is copied into `keep_dir` before it is
+deleted (the disk cache a warm or restart visit used is in cache2/ of it).
 """
 import re
+import shutil
 import statistics
 import time
 from pathlib import Path
@@ -63,12 +70,32 @@ def collect(rows, keys, reps):
 class Bench:
     """Runs the benches on one lab + one install copy. `lab` is a started servers.Lab."""
 
-    def __init__(self, lab, exe, mode_prefs, say=print):
+    def __init__(self, lab, exe, mode_prefs, say=print, moz_log=None, keep_dir=None, keep_profile=False):
+        if (moz_log or keep_profile) and not keep_dir:
+            raise ValueError("moz_log / keep_profile need keep_dir: the evidence has to go somewhere that is kept")
         self.lab = lab
         self.exe = exe
         self.mode_prefs = mode_prefs
         self.say = say
         self.n = 0
+        self.moz_log = moz_log if not moz_log or moz_log.startswith("timestamp") else "timestamp," + moz_log
+        self.keep_dir = Path(keep_dir) if keep_dir else None
+        self.keep_profile = keep_profile
+        self.visits = 0
+        self.profiles = 0
+        self.kept = []                    # every log and profile copy kept, in order
+
+    def discard(self, prof, tag):
+        """Delete a throwaway profile; with keep_profile, copy it into keep_dir first (lock files left out)."""
+        if self.keep_profile:
+            self.profiles += 1
+            dest = self.keep_dir / f"profile-{self.profiles:03d}-{tag}"
+            try:
+                shutil.copytree(prof, dest, ignore=shutil.ignore_patterns("parent.lock", "lock", ".parentlock"))
+                self.kept.append(str(dest))
+            except (OSError, shutil.Error) as e:
+                self.say(f"    note: the profile {prof} could not be kept: {e}")
+        browser.discard(prof)
 
     # --- plumbing ------------------------------------------------------------------------------------------------
     def prefs(self, extra=None):
@@ -85,6 +112,11 @@ class Bench:
 
     def visit(self, rid, steps, profile, timeout, env=None, grace=1.0, sample=False):
         """Launch the browser on the first step and wait until the last step asks for `next`. -> (run, browser, ok)."""
+        self.visits += 1
+        if self.moz_log and not (env or {}).get("MOZ_LOG"):   # B3/B5 set their own log: their measurement reads it
+            log = self.keep_dir / f"visit{self.visits:03d}-{rid}-{steps[0][0]}.log"
+            env = dict(env or {}, MOZ_LOG=self.moz_log, MOZ_LOG_FILE=str(log))
+            self.kept.append(str(log))
         st = self.lab.origin.new_run(rid, steps)
         b = browser.Browser(self.exe, profile, f"{REPORT}/go?run={rid}&step={steps[0][0]}&wait={SETTLE}", env_extra=env)
         if sample:
@@ -175,7 +207,7 @@ class Bench:
             except Unmeasured as e:
                 out["restart"] = {"error": why or str(e)}
         finally:
-            browser.discard(prof)
+            self.discard(prof, f"B1-{link.name if link else 'local'}")
         return out
 
     # --- B2 ------------------------------------------------------------------------------------------------------
@@ -212,7 +244,7 @@ class Bench:
                 r["protocols_seen"] = sorted(protos)
                 out[step] = r
         finally:
-            browser.discard(prof)
+            self.discard(prof, f"B2-{link.name if link else 'local'}")
         return out
 
     # --- B4 ------------------------------------------------------------------------------------------------------
@@ -230,7 +262,7 @@ class Bench:
                 return {"error": why or "marks missing (article load / workload begin / workload end)"}
             return memory_metrics(b.samples, la["t"], wb["t"], we["t"], (we["data"] or {}).get("bytes"))
         finally:
-            browser.discard(prof)
+            self.discard(prof, f"B4-{link.name if link else 'local'}")
 
     # --- B5 ------------------------------------------------------------------------------------------------------
     def b5(self, link):
@@ -258,7 +290,7 @@ class Bench:
                 r["error"] = why or "no MOZ_LOG file was written"
             return r
         finally:
-            browser.discard(prof)
+            self.discard(prof, f"B5-{link.name if link else 'local'}")
 
     # --- B3 ------------------------------------------------------------------------------------------------------
     def b3(self):
@@ -283,7 +315,7 @@ class Bench:
                 r["error"] = why
             return r
         finally:
-            browser.discard(prof)
+            self.discard(prof, "B3-local")
 
 
 def settle_for(link):

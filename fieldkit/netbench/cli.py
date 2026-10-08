@@ -2,7 +2,10 @@
 
     netbench [TASK] [--bench B1,B2,B3,B4,B5] [--profile normal|satellite|slow] [--install-dir D] [--label NAME]
                     [--links broadband,starlink,geo,austere] [--repeat N] [--out DIR]
-    netbench compare A B          A and B: result files, or labels (the newest file with that label in --out)
+                    [--moz-log cache2:5,nsHttp:5] [--keep-profile] [--no-images]
+                    (a MOZ_LOG file per visit and/or every profile, kept beside the result; images off on top of the
+                    profile: benches.Bench, report.run_all)
+    netbench compare A B         A and B: result files, or labels (the newest file with that label in --out)
 
 Exit codes: 0 every metric measured, 3 something is UNMEASURED (the result says why), 1 the run could not start.
 """
@@ -34,11 +37,15 @@ def run(a, emit, current_id):
     reps = int(getattr(a, "repeat", None) or 3)
     result, jp, yp = report.run_all(install_dir, names, mode=getattr(a, "profile", None) or "normal", link_list=link_list,
                                     reps=reps, label=getattr(a, "label", None), out_dir=out_dir,
-                                    say=lambda s: print(s, flush=True))
+                                    say=lambda s: print(s, flush=True), moz_log=getattr(a, "moz_log", None),
+                                    keep_profile=bool(getattr(a, "keep_profile", False)),
+                                    images=not getattr(a, "no_images", False))
     unmeasured = [f"{b}/{ln}/{g}/{k}" for b, x in result["benches"].items() for ln, gs in x["results"].items()
                   for g, ms in gs.items() for k, m in ms.items() if m["status"] != "MEASURED"]
     emit({k: v for k, v in result.items() if k != "raw"} | {"json": str(jp), "yaml": str(yp)},
          lambda r: print("\n".join(report.lines(result)) + f"\n\nsaved: {jp}\n       {yp}"
+                         + (f"\nkept:  {result['evidence']['kept_dir']} ({len(result['evidence']['kept'])} log(s) and "
+                            "profile(s))" if result["evidence"]["kept_dir"] else "")
                          + (f"\nUNMEASURED: {len(unmeasured)} metric(s), each with its reason in the result" if unmeasured else "")))
     if tid:
         try:

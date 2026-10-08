@@ -711,6 +711,12 @@ def build_parser():
     bh.add_argument("--profile", choices=["normal", "satellite", "slow", "satellite-emulated", "slow-emulated", "upstream-buffers", "upstream-memcache", "upstream-both"], help="netbench: browser mode level or RAM variant (default normal)")
     bh.add_argument("--links", help="netbench: comma list of broadband,starlink,geo,austere (default all)")
     bh.add_argument("--label", help="netbench: the name of this result (e.g. before-build16)")
+    bh.add_argument("--moz-log", dest="moz_log", help="netbench: MOZ_LOG modules written per visit into a kept folder "
+                                                       "beside the result (e.g. cache2:5,nsHttp:5)")
+    bh.add_argument("--keep-profile", dest="keep_profile", action="store_true",
+                    help="netbench: keep a copy of every profile (its cache) beside the result")
+    bh.add_argument("--no-images", dest="no_images", action="store_true",
+                    help="netbench: the profiles load no images (permissions.default.image 2) on top of --profile")
     bh.add_argument("--soak", type=int, help="leakgate: startup-idle duration in seconds (spec: 1800 or 3600)")
     bh.add_argument("--firewall", action="store_true", help="leakgate (elevated): outbound block rule for the direct build copy, removed at the end")
     bh.add_argument("--packets-only", action="store_true", dest="packets_only", help="capture: only the frame-level pktmon pass (needs an admin shell)")

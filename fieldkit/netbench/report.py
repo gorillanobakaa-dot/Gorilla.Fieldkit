@@ -72,17 +72,28 @@ def pick_benches(spec):
 
 
 def run_all(install_dir, bench_names, mode="normal", link_list=None, reps=3, label=None, out_dir=None,
-            say=print, max_wait=3600):
-    """The whole run. -> (result dict, json path, yaml path)."""
+            say=print, max_wait=3600, moz_log=None, keep_profile=False, images=True):
+    """The whole run. -> (result dict, json path, yaml path).
+    moz_log ("cache2:5,nsHttp:5"): one MOZ_LOG file per visit; keep_profile: every profile copied before it is deleted;
+    both kept in netbench-<label>-<stamp>-kept/ beside the result (benches.Bench). images=False: the run's profiles
+    load no images (permissions.default.image 2) on top of the mode, recorded in mode_prefs (2026-10-04: what the
+    Satellite cache did with and without pictures needed a throwaway variant script)."""
     install_dir = Path(install_dir)
     info = browser.build_info(install_dir)
     mode_p = links.mode_prefs(mode)
+    if not images:
+        mode_p["permissions.default.image"] = 2
     link_list = link_list or links.pick_links(None)
     label = label or f"build{info['build_id']}"
     out_dir = Path(out_dir or default_out())
     stamp = time.strftime("%Y%m%d-%H%M%S")
+    kept_dir = out_dir / f"netbench-{label}-{stamp}-kept" if (moz_log or keep_profile) else None
+    if kept_dir:
+        kept_dir.mkdir(parents=True, exist_ok=True)
     say(f"netbench {label}: {info['codename']} {info['version']} BuildID {info['build_id']}, profile {mode}, "
-        f"benches {','.join(bench_names)}, links {','.join(l.name for l in link_list)}, {reps} repetition(s)")
+        f"benches {','.join(bench_names)}, links {','.join(l.name for l in link_list)}, {reps} repetition(s)"
+        + ("" if images else ", images OFF") + (f"; MOZ_LOG {moz_log} per visit" if moz_log else "")
+        + ("; profiles kept" if keep_profile else "") + (f" -> {kept_dir}" if kept_dir else ""))
     if not browser.wait_not_running(install_dir, max_wait=max_wait, say=say):
         raise RuntimeError(f"the browser is still running from {install_dir}; nothing was copied or measured")
     files = fixtures.build()
@@ -98,7 +109,8 @@ def run_all(install_dir, bench_names, mode="normal", link_list=None, reps=3, lab
         copy_root, copy = browser.copy_install(install_dir, cert["ca"], say=say)
         rel = relay.Relay()
         lab = servers.Lab(files, cert, rel, want_h3="B3" in bench_names).start()
-        bench = benches.Bench(lab, copy / "firefox.exe", mode_p, say=say)
+        bench = benches.Bench(lab, copy / "firefox.exe", mode_p, say=say, moz_log=moz_log, keep_dir=kept_dir,
+                              keep_profile=keep_profile)
         article = man["article_set_bytes_compressed"]
         for link in link_list:
             if not any(b in bench_names for b in ("B1", "B2", "B4", "B5")):
@@ -156,6 +168,8 @@ def run_all(install_dir, bench_names, mode="normal", link_list=None, reps=3, lab
         "benches": assemble(raw, reps),
         "browser_requests_refused_by_relay": refused,
         "limitations": LIMITATIONS,
+        "evidence": {"moz_log": bench.moz_log, "keep_profile": keep_profile, "images": "on" if images else "off",
+                     "kept_dir": str(kept_dir) if kept_dir else None, "kept": bench.kept},
         "raw": raw,
     }
     out_dir.mkdir(parents=True, exist_ok=True)
