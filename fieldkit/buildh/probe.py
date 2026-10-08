@@ -21,7 +21,8 @@ in minutes instead of builds):
 Nothing is sent anywhere by the harness; the probe is whatever JavaScript you give it, so read it first.
 
 Ready-made probes live in fieldkit/buildh/probes/*.js (pass the name without .js): newtab-gates, search-icon,
-remote-settings-dumps.
+remote-settings-dumps, tab-borders (active/inactive tab outline and its tokens; compare two builds), about-pages
+(run it through `build-harness about-pages`).
 
 A probe that visits a local page declares it (`// gprobe-server: echo-ua 8765`); the run starts that page on
 127.0.0.1 and stops it afterwards, and every request the page received is printed among the probe's lines, in time
