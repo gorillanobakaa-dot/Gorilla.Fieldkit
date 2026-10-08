@@ -186,7 +186,7 @@ def test_regressions_are_what_got_worse_not_what_was_already_wrong():
     assert "about:preferences lost its text: 900 -> 300 characters" in worse
     assert "about:preferences missing text: new-missing" in worse
     assert any("new error: TypeError" in l for l in worse) and not any("RPMGet" in l for l in worse)
-    assert "new request: https://example.org/" in worse
+    assert "new request: https://example.org/ by browser" in worse
     assert not any("studies" in l or "old-missing" in l for l in worse)
 
 
@@ -202,3 +202,11 @@ def test_head_of_finds_the_source_of_a_build_id_in_the_journal(tmp_path, monkeyp
     assert buildstamp.head_of("t", "20261008120000") is None                    # nothing in the 15 minutes before
     buildstamp.remember("t", "20261008120000", "ddd", "tree")
     assert buildstamp.head_of("t", "20261008120000") == "ddd"                   # builds.jsonl first
+
+
+def test_an_allowed_extensions_varying_fetches_are_no_regression():
+    base = ap.parse(["ABOUT|about|parent|about:about|A|800|0|40|listed", "ABOUT-SUMMARY|1|0|0|0|1",
+                     "ABOUT-NET|about|https://ublockorigin.pages.dev/filters/filters.min.txt|extension " + ap.UBLOCK_ID])
+    new = ap.parse(["ABOUT|about|parent|about:about|A|800|0|40|listed", "ABOUT-SUMMARY|1|0|0|0|1",
+                    "ABOUT-NET|about|https://cdn.jsdelivr.net/gh/uBlockOrigin/uAssetsCDN@main/filters/unbreak.min.txt|extension " + ap.UBLOCK_ID])
+    assert ap.regressions(base, new) == []

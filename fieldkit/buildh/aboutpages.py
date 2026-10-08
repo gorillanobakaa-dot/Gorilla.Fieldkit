@@ -346,9 +346,16 @@ def regressions(base, new):
     """What a change made worse, from compare(base, new): pages that lost their text or now land elsewhere, new script
     errors (not the known artefacts or tab-closing teardown), new missing strings, any new request."""
     out = []
+    # requests: only those a page or the browser opened; the allowed extensions' own fetches vary run to run
+    # (2026-10-08: uBlock Origin fetched a different filter list and stopped a build)
+    seen = {r["url"] for r in base.get("net", []) if not _allowed(r["who"])}
+    for r in new.get("net", []):
+        if not _allowed(r["who"]) and r["url"] not in seen:
+            seen.add(r["url"])
+            out.append(f"new request: {r['url'][:100]} by {r['who'][:40]}")
     for l in compare(base, new):
         if l.startswith("new request: "):
-            out.append(l)
+            continue
         elif any(k in l for k in REGRESSION):
             if " new error: " in l:
                 msg = l.split(" new error: ", 1)[1]
