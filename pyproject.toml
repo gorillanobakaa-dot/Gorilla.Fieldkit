@@ -20,6 +20,11 @@ dependencies = [
   # netbench (already imported by it; undeclared, so CI could not even collect its tests since 2026-10-04):
   "psutil>=5.9",           # per-process CPU and memory of the browser under test (netbench/browser.py)
   "h2>=4.1",               # the local HTTP/2 test server netbench measures against (netbench/servers.py)
+  "aioquic>=1.0",          # the local HTTP/3 test server (netbench/servers.py)
+  "cryptography>=42",      # local test certificates (netbench, leakgate/extras.py)
+  "dpkt>=1.9",             # reading packet captures (buildh/capture.py, leakgate)
+  "pefile>=2023.2",        # reading Windows executables (leakgate/audit.py)
+  "Pillow>=10",            # image checks (buildh/decisions.py image_sharp, icons)
 ]
 
 [project.optional-dependencies]
