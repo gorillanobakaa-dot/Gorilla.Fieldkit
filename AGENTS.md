@@ -36,6 +36,7 @@ fieldkit release check|prove SPEC                published == tested; every clai
 fieldkit docs plan|prep|fill|render|check        dual-track documentation: a layman track and a developer track
 fieldkit docs guide                              how to write for a reader who has never opened a terminal
 fieldkit docs philosophy                         why: the Gorilla Open Source Philosophy. Read it before writing for a reader
+fieldkit docs release --manifest release-docs.yaml   a release's documents: every number and web address in its sources
 fieldkit release-page compose|check              build or check a release page: both tracks in full ON the page, plain language first
 fieldkit lifecycle SPEC --approve                install, verify, uninstall; list what was left behind
 ```

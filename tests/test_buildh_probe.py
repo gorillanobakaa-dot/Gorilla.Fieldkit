@@ -38,7 +38,7 @@ def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     outs = {"techniques": (0, "OK   T-1"), "decisions": (0, "DECISIONS OK (strict)"), "replay": (3, "REPLAY FAILED: 1"),
             "claims": (0, '{"totals": {"claims": 1, "CONTRADICTED": 0, "STALE": 0, "UNPROVEN": 1, "patches": 1, "patches_failing": 0}}')}
     monkeypatch.setattr(rc, "_run", lambda args, timeout=0: outs[args[0]])
-    monkeypatch.setattr(task, "load", lambda tid: {"id": tid})
+    monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {"upstream": {"version": "157.0"}}})
     (tmp_path / "state").mkdir()
     (tmp_path / "state" / "leakgate_result.json").write_text('{"release_run": true, "FINAL_RESULT": "PASS", "BUILD": "1"}', encoding="utf-8")
     (tmp_path / "app").mkdir()
@@ -46,7 +46,20 @@ def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
     monkeypatch.setattr(install, "find_install", lambda: str(tmp_path / "app"))
     rows = rc.run("t", say=lambda m: None, skip_post_install=True)
+    # no release-docs.yaml yet: the release's documents were never held against their sources
+    assert [r["check"] for r in rows if not r["ok"]] == ["replay", "release documents"]
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "patch_policy.json").write_text('{"patchset_root": "gorilla-patchset/patches"}', encoding="utf-8")
+    rel = tmp_path / "gorilla-patchset" / "release" / "157.0"
+    rel.mkdir(parents=True)
+    (rel / "PLAN.md").write_text("44 build runs\n", encoding="utf-8")
+    (rel / "NOTES.md").write_text("It took 44 build runs.\n", encoding="utf-8")
+    (rel / "release-docs.yaml").write_text("sources: [PLAN.md]\nplain: [NOTES.md]\n", encoding="utf-8")
+    rows = rc.run("t", say=lambda m: None, skip_post_install=True)
     assert [r["check"] for r in rows if not r["ok"]] == ["replay"]
+    (rel / "NOTES.md").write_text("It took 45 build runs.\n", encoding="utf-8")
+    bad = [r for r in rc.run("t", say=lambda m: None, skip_post_install=True) if r["check"] == "release documents"][0]
+    assert not bad["ok"] and "NOTES.md: 1" in bad["evidence"] and "docs release --manifest" in bad["fix"]
 
 
 def test_files_of_an_unpacked_build_are_replaced_in_the_copy(tmp_path):

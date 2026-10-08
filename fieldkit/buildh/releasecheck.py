@@ -14,6 +14,8 @@ that remain, with their exact commands):
   4. claims         0 contradicted claims, 0 failing patches          (build-harness claims)
   5. post-install   the proof rows of the installed build             (build-harness post-install)
   6. leak gate      the latest release run is of THIS build and PASS  (state/leakgate_result.json)
+  7. release docs   every number and web address of the release's documents is in their sources, privacy, both
+                    tracks complete (docs release --manifest <owner>/<patch set>/../release/<version>/release-docs.yaml)
 """
 import json
 import subprocess
@@ -31,6 +33,18 @@ def _run(args, timeout=7200):
 
 def _tail(out, n=3):
     return " | ".join(l.strip() for l in out.strip().splitlines()[-n:])[:300]
+
+
+def release_docs_manifest(t):
+    """<owner>/<patch set root>/../release/<version>/release-docs.yaml (gorilla-patchset/release/157.0/...), or None."""
+    from . import buildrun
+    try:
+        owner = Path(buildrun._owner_root(t))
+        pol = json.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        version = t["meta"]["upstream"]["version"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return owner / Path(pol["patchset_root"]).parent / "release" / version / "release-docs.yaml"
 
 
 def run(task_id, say=print, skip_post_install=False):
@@ -78,6 +92,20 @@ def run(task_id, say=print, skip_post_install=False):
     row("leak gate (release)", bool(ok), ev,
         "administrator, unattended: powershell -ExecutionPolicy Bypass -File <Fieldkit>\\toolbox\\leak-gate-launcher\\run-leakgate.ps1; "
         "then the maintainer, at a real terminal: build-harness leakgate-propose / leakgate-approve / leakgate-baseline")
+    manifest = release_docs_manifest(t)
+    if manifest and manifest.is_file():
+        from ..gdocs import releasedocs as RD
+        try:
+            r = RD.check(**RD.load_manifest(manifest))
+            bad = [f"{Path(p).name}: {len(d['findings'])}" for p, d in r["documents"].items() if d["findings"]]
+            ok, ev = r["ok"], (f"{len(r['documents'])} document(s) against {r['sources']} source(s); "
+                               + ("all sourced" if r["ok"] else "; ".join(r["problems"][:2] + bad)[:200]))
+        except (OSError, ValueError) as e:
+            ok, ev = False, f"{manifest}: {e}"
+    else:
+        ok, ev = False, f"no {manifest or 'release folder (the task has no owner root or version)'}: the documents are not held against their sources"
+    row("release documents", ok, ev, f"fieldkit docs release --manifest {manifest}  (release-docs.yaml: sources, layman, "
+                                     "developer, plain; see fieldkit/gdocs/releasedocs.py)")
     say("")
     left = [r for r in rows if not r["ok"]]
     say(f"RELEASE CHECK {'PASS' if not left else 'NOT READY'}: {len(rows) - len(left)} of {len(rows)} checks pass")

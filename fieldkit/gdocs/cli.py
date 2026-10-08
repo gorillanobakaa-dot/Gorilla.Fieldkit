@@ -8,6 +8,8 @@
     fieldkit docs index                        write docs/dual-track/README.md
     fieldkit docs guide                        print the guide to writing for a reader who has never opened a terminal
     fieldkit docs philosophy                   print the Gorilla Open Source Philosophy: why any of this is done
+    fieldkit docs release --manifest F | [PLAIN.md...] --source F... [--source-head F...] [--layman-doc F]
+                          [--developer-doc F]  a release's documents against their own sources (exit 3; releasedocs.py)
     fieldkit release-page compose --opening F --layman F --developer F [--extra F] --out F
     fieldkit release-page check PAGE [--layman F] [--developer F]   (exit 3 with every reason)
 
@@ -26,10 +28,20 @@ GUIDE = Path(__file__).resolve().parent / "LAYMAN_GUIDE.md"
 def register(sub, common):
     d = sub.add_parser("docs", parents=[common],
                        help="dual-track documentation (Gorilla.Documentation.IBM.Style): plan, prep, render, check, guide")
-    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index", "guide", "philosophy"])
-    d.add_argument("groups", nargs="*", help="group names from docs/groups.yaml (default: see each action)")
+    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index", "guide", "philosophy", "release"])
+    d.add_argument("groups", nargs="*", help="group names from docs/groups.yaml (default: see each action); "
+                                             "release: plain documents (numbers, web addresses, privacy)")
     d.add_argument("--force", action="store_true", help="prep: re-prep even when the prep files are current")
     d.add_argument("--strict", action="store_true", help="check: a stale group is a failure (release gate)")
+    # `docs release`: a release's documents against the material they were written from (releasedocs.py)
+    d.add_argument("--manifest", help="release: a release-docs.yaml naming sources and documents")
+    d.add_argument("--source", action="append", default=[], help="release: a source file (repeat)")
+    d.add_argument("--source-head", dest="source_head", action="append", default=[],
+                   help="release: a source of which only the first --head-lines lines count (repeat)")
+    d.add_argument("--head-lines", dest="head_lines", type=int, default=60, help="release: see --source-head (default 60)")
+    d.add_argument("--layman-doc", dest="layman_doc", action="append", default=[], help="release: a layman-track document (repeat)")
+    d.add_argument("--developer-doc", dest="developer_doc", action="append", default=[],
+                   help="release: a developer-track document (repeat)")
     d.set_defaults(fn=cmd_docs)
 
     # The release page is built and checked by code, because a page written by
@@ -114,9 +126,29 @@ def cmd_release_page(a):
         return 1
 
 
+def _release(a):
+    """`docs release`: the release's documents against its own source material (releasedocs.py). Exit 3 on findings."""
+    from . import releasedocs as RD
+    try:
+        spec = RD.load_manifest(a.manifest) if a.manifest else {k: [] for k in RD.KEYS} | {"head_lines": a.head_lines}
+    except (OSError, ValueError) as e:
+        print(f"fieldkit docs release: {e}")
+        return 2
+    spec["sources"] += [Path(p) for p in a.source]
+    spec["source_heads"] += [Path(p) for p in a.source_head]
+    spec["layman"] += [Path(p) for p in a.layman_doc]
+    spec["developer"] += [Path(p) for p in a.developer_doc]
+    spec["plain"] += [Path(p) for p in a.groups]
+    r = RD.check(**spec)
+    _emit(r, a.json, lambda r: print("\n".join(RD.lines(r))))
+    return 0 if r["ok"] else 3
+
+
 def cmd_docs(a):
     if a.action == "guide":
         return _guide(a.json)
+    if a.action == "release":
+        return _release(a)
     if a.action == "philosophy":
         from . import releasepage as RP
         text = RP.philosophy_text()
