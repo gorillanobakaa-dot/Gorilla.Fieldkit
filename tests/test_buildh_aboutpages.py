@@ -210,3 +210,79 @@ def test_an_allowed_extensions_varying_fetches_are_no_regression():
     new = ap.parse(["ABOUT|about|parent|about:about|A|800|0|40|listed", "ABOUT-SUMMARY|1|0|0|0|1",
                     "ABOUT-NET|about|https://cdn.jsdelivr.net/gh/uBlockOrigin/uAssetsCDN@main/filters/unbreak.min.txt|extension " + ap.UBLOCK_ID])
     assert ap.regressions(base, new) == []
+
+
+# --- the reviewed register (D-157-40): what a build registers is held against the owner's register -----------------
+REG = """pages:
+  - {name: about, verdict: keep, shown: listed}
+  - {name: neterror, verdict: keep, shown: hidden}
+  - {name: third-party, verdict: keep, shown: listed, only: windows}
+  - {name: webauthn, verdict: keep, shown: listed, only: linux}
+  - {name: crashes, verdict: keep, shown: not built}
+  - {name: fingerprintingprotection, verdict: remove, shown: gone}
+"""
+
+
+def _reg(tmp_path):
+    f = tmp_path / "ABOUT-PAGES.yaml"
+    f.write_text(REG, encoding="utf-8")
+    return f
+
+
+def test_register_matches_the_build(tmp_path):
+    got = {"about": "listed", "neterror": "hidden", "third-party": "listed"}
+    (r,) = ap.register_rows(got, _reg(tmp_path), platform="windows")
+    assert r["ok"], r
+    assert "3 registered (2 listed, 1 hidden)" in r["evidence"] and "1 removed" in r["evidence"]
+    # on Linux the Windows-only page is not expected and the Linux-only one is
+    (r,) = ap.register_rows({"about": "listed", "neterror": "hidden", "webauthn": "listed"}, _reg(tmp_path), platform="linux")
+    assert r["ok"], r
+
+
+def test_a_removed_page_registered_again_fails(tmp_path):
+    got = {"about": "listed", "neterror": "hidden", "third-party": "listed", "fingerprintingprotection": "hidden"}
+    (r,) = ap.register_rows(got, _reg(tmp_path), platform="windows")
+    assert not r["ok"] and "marked remove but registered: about:fingerprintingprotection" in r["evidence"]
+
+
+def test_an_unreviewed_page_fails(tmp_path):
+    got = {"about": "listed", "neterror": "hidden", "third-party": "listed", "newthing": "hidden"}
+    (r,) = ap.register_rows(got, _reg(tmp_path), platform="windows")
+    assert not r["ok"] and "not in the register: about:newthing" in r["evidence"]
+
+
+def test_a_page_that_moved_or_vanished_fails(tmp_path):
+    (r,) = ap.register_rows({"about": "listed", "neterror": "listed", "third-party": "listed"}, _reg(tmp_path), platform="windows")
+    assert not r["ok"] and "about:neterror is listed, the register says hidden" in r["evidence"]
+    (r,) = ap.register_rows({"about": "listed", "third-party": "listed"}, _reg(tmp_path), platform="windows")
+    assert not r["ok"] and "kept but not registered: about:neterror" in r["evidence"]
+
+
+def test_register_fails_closed(tmp_path):
+    (r,) = ap.register_rows({"about": "listed"}, tmp_path / "missing.yaml")
+    assert not r["ok"] and "no register" in r["evidence"]
+    (r,) = ap.register_rows({}, _reg(tmp_path))
+    assert not r["ok"] and "no registered pages" in r["evidence"]
+
+
+def test_register_for_needs_an_owner_repo():
+    assert ap.register_for(None) is None
+    assert ap.register_for({"meta": {}}) is None
+
+
+def test_the_owner_register_is_well_formed():
+    """The real register, where this machine has it: no page twice, verdicts and states from the fixed sets, and every
+    removal names the decision that made it."""
+    import pytest
+    import yaml
+    from pathlib import Path
+    reg = Path.home() / "Documents" / "Gorilla.firefox" / "decisions" / "ABOUT-PAGES.yaml"
+    if not reg.is_file():
+        pytest.skip("no owner repo on this machine")
+    pages = (yaml.safe_load(reg.read_text(encoding="utf-8")) or {}).get("pages") or []
+    names = [e["name"] for e in pages]
+    assert len(names) == len(set(names)), "a page is listed twice"
+    assert all(e.get("verdict") in ("keep", "remove") for e in pages)
+    assert all(e.get("shown") in ("listed", "hidden", "not built", "gone") for e in pages)
+    assert all(e.get("only") in (None, "windows", "linux") for e in pages)
+    assert all(e.get("decision") for e in pages if e["verdict"] == "remove"), "every removal names its decision"

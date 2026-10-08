@@ -200,7 +200,7 @@ def verify(task_id, run_binary=True):
         from . import aboutpages, buildstamp
         srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None)
         rows.extend(srows)
-        rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None)["rows"])
+        rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None, register=aboutpages.register_for(t))["rows"])
         # Satellite mode, every level and every kind of site (satellite.py: probes satellite-mobile, satellite-calls)
         from . import satellite
         rows.extend(satellite.rows(dist / "bin", say=lambda m: None))

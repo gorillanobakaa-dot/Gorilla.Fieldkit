@@ -554,10 +554,11 @@ def _satellite_rows(target, say=print):
     return satellite.rows(target, say=say)
 
 
-def _about_rows(target, say=print):
-    """Every about: page read and judged on a copy of the install (fieldkit buildh/aboutpages.py; born 2026-10-08)."""
+def _about_rows(t, target, say=print):
+    """Every about: page read and judged on a copy of the install (fieldkit buildh/aboutpages.py; born 2026-10-08),
+    and held against the owner's reviewed register of pages (D-157-40)."""
     from . import aboutpages
-    return aboutpages.rows(target, (installed(target) or {}).get("build_id"), say=say)
+    return aboutpages.rows(target, (installed(target) or {}).get("build_id"), say=say, register=aboutpages.register_for(t))
 
 
 def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, drive=False, sleep=time.sleep):
@@ -585,7 +586,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         from . import verify as vf
         truth = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]) if t.get("meta", {}).get("harness_root") else None
         from . import leaks
-        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []) + (_ui_rows(t, target, say) if "ui" in want else []) + (_about_rows(target, say) if "about" in want else []) + (_stamp_rows(task_id, target, say) if "stamp" in want else []) + (_satellite_rows(target, say) if "satellite" in want else []):
+        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []) + (_ui_rows(t, target, say) if "ui" in want else []) + (_about_rows(t, target, say) if "about" in want else []) + (_stamp_rows(task_id, target, say) if "stamp" in want else []) + (_satellite_rows(target, say) if "satellite" in want else []):
             say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
             results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "status": "ok" if row["ok"] else "FAIL",
                             "log": row.get("log"), "lines": row.get("bad", [])[:10]})

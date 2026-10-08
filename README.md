@@ -446,6 +446,7 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | Port, build, install and prove Gorilla Firefox | `fieldkit build-harness ...` (part 7 to 10 above) |
 | Release gate for leaks and telemetry | `fieldkit build-harness leakgate TASK --release` |
 | Open every about: page of the installed build and judge it (text, artwork, errors, missing strings, requests); `walk=1` clicks every about:about link in a visible window, live | `fieldkit build-harness about-pages TASK [walk=1]` |
+| Every about: page the source can register (tree and upstream), what the last build registered, and the owner's verdict from decisions/ABOUT-PAGES.yaml; the register is enforced before the build (D-157-40) and after it (about-pages) | `fieldkit build-harness about-registry TASK` |
 | What a change costs or saves in RAM and CPU, page by page | `fieldkit build-harness weigh TASK` |
 | Run a long build-harness command like `screen`: its own visible window, started by Windows, survives the session, logged | `fieldkit build-harness window build-run TASK` |
 | Satellite mode judged: identity and scripts per level and per kind of site, call sites included (also after every build and install) | `fieldkit build-harness satellite TASK` |

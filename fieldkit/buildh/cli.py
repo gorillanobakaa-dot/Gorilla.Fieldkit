@@ -607,6 +607,26 @@ def run(a, emit):
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
+    if act == "about-registry":
+        # about-registry TASK [--json]: every about: page the source can register (tree and pristine upstream), what
+        # the newest full reading of a build registered, and the owner's verdict (aboutregistry.py, D-157-40)
+        from . import aboutpages as ap, aboutregistry as ar
+        t = task.load(tid)
+        w = t["workdir"]
+        entries = ar.merged(w, ar.pristine_of(w))
+        newest = None
+        for f in sorted(ap.STATE.glob("about-pages-*.json"), reverse=True) if ap.STATE.is_dir() else []:
+            import json as _json
+            d = _json.loads(f.read_text(encoding="utf-8"))
+            if d.get("registered"):         # every run lists every registered page, a partial one too
+                newest = d
+                break
+        if newest:
+            ar.with_runtime(entries, newest["registered"])
+        ar.with_register(entries, ap.register_for(t))
+        emit({"entries": entries, "build": (newest or {}).get("build_id", "").replace("-partial", "") or None},
+             lambda r: print("\n".join(ar.table(r["entries"]) + [f"build read: {r['build'] or 'none kept'}"])))
+        return 0
     if act == "satellite":
         # satellite TASK [--install-dir D] [omni=..] [sub=..] [tree-since=..]: Satellite mode judged on a copy - identity
         # and scripts per level and per kind of site, call sites included (satellite.py)
@@ -656,6 +676,7 @@ def run(a, emit):
                     print(t, flush=True)
         r = ap.run(inst, info.get("build_id"), say=lambda m: print(m, flush=True), timeout=float(opts.get("timeout", 900 if not walk else 1800)),
                    only=only, walk=walk, visible=visible, dwell=dwell, on_line=on_line, shots=opts.get("shots"),
+                   register=None if only or walk else ap.register_for(task.load(tid)),
                    omni=change.get("omni"), files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
         for n in notes:
             print("  note: " + n)

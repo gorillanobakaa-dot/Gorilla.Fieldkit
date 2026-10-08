@@ -48,3 +48,25 @@ def test_runtime_adds_what_the_build_registers_and_flags_the_unexplained():
     out = {e["name"]: e for e in ar.with_runtime(es, {"about": "listed", "mystery": "hidden"})}
     assert out["about"]["in_build"] and not out["about"]["hidden_at_runtime"]
     assert out["mystery"]["unexplained"] and out["mystery"]["hidden"]
+
+
+
+def test_table_shows_source_build_and_verdict(tmp_path):
+    """about-registry (D-157-40): one line per page with where it comes from, what the build registered and the
+    owner's verdict; a page the register does not know says so."""
+    from fieldkit.buildh import aboutregistry as ar
+    reg = tmp_path / "ABOUT-PAGES.yaml"
+    reg.write_text("pages:\n  - {name: neterror, verdict: keep, shown: hidden, why: error page}\n"
+                   "  - {name: glean, verdict: remove, shown: gone, decision: D-157-36, why: telemetry bench}\n",
+                   encoding="utf-8")
+    entries = [{"name": "neterror", "in_tree": True, "in_pristine": True},
+               {"name": "glean", "in_tree": False, "in_pristine": True},
+               {"name": "newthing", "in_tree": True, "in_pristine": False}]
+    ar.with_runtime(entries, {"neterror": "hidden", "newthing": "listed"})
+    ar.with_register(entries, reg)
+    lines = ar.table(entries)
+    row = {l.split()[0]: l for l in lines[1:-1]}
+    assert row["about:neterror"].split()[1:4] == ["tree", "hidden", "keep"]
+    assert row["about:glean"].split()[1:4] == ["removed", "-", "remove"] and "[D-157-36]" in row["about:glean"]
+    assert "GORILLA" in row["about:newthing"] and "NOT IN THE REGISTER" in row["about:newthing"]
+    assert lines[-1].startswith("3 names in the source") and "2 registered by the build read (1 listed, 1 hidden)" in lines[-1]

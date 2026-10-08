@@ -1,6 +1,8 @@
 """Every about: page Firefox can register, read from the source: where, under which build condition, with which flags.
 
-    fieldkit build-harness about-registry <task> [--json]      the map: tree (HEAD) against pristine upstream
+    fieldkit build-harness about-registry <task> [--json]      the map: tree (HEAD) against pristine upstream, what the
+                                                               newest full reading of a build registered, and the
+                                                               owner's register verdict (decisions/ABOUT-PAGES.yaml)
 
 Born 2026-10-08. The owner found about:fingerprintingprotection, a page about:about does not list ("even recognized
 developers would not be aware of this one as it does not appear in about:about"), and asked to map every hidden page,
@@ -165,6 +167,47 @@ def merged(workdir, pristine):
                     "target": table[0]["target"] if table else None,
                     "flags": table[0]["flags"] if table else [],
                     "condition": "; ".join(conds) or None, "sources": src})
+    return out
+
+
+def pristine_of(workdir):
+    """The tree's root commit: pristine upstream (the harness imports it as the first commit)."""
+    r = _git(workdir, "rev-list", "--max-parents=0", "HEAD")
+    return r.stdout.split()[0] if r.returncode == 0 and r.stdout.split() else None
+
+
+def with_register(entries, register):
+    """Add the owner's verdict, shown state and reason (decisions/ABOUT-PAGES.yaml) to each entry; names the register
+    does not know get verdict None (the about_register decision check fails them before a build)."""
+    import yaml
+    from pathlib import Path
+    pages = {}
+    if register and Path(register).is_file():
+        pages = {e["name"]: e for e in (yaml.safe_load(Path(register).read_text(encoding="utf-8")) or {}).get("pages") or []}
+    for e in entries:
+        r = pages.get(e["name"], {})
+        e["verdict"], e["shown"], e["why"], e["decision"] = r.get("verdict"), r.get("shown"), r.get("why"), r.get("decision")
+    return entries
+
+
+def table(entries):
+    """-> lines: one per page, grouped as the register groups them."""
+    def state(e):
+        if e.get("in_build"):
+            return "hidden" if e.get("hidden_at_runtime") else "listed"
+        return "-" if e.get("in_build") is False else "?"
+    out = [f"{'page':32} {'source':8} {'build':7} {'verdict':8} why"]
+    order = {"keep": 0, "remove": 1, None: 2}
+    for e in sorted(entries, key=lambda e: (order.get(e.get("verdict"), 2), e.get("shown") or "", e["name"])):
+        src = ("tree" if e["in_tree"] else "removed") if e["in_pristine"] else ("GORILLA" if e["in_tree"] else "?")
+        why = (e.get("why") or "NOT IN THE REGISTER")[:90]
+        out.append(f"{'about:' + e['name']:32} {src:8} {state(e):7} {(e.get('verdict') or '-'):8} "
+                   f"{('[' + e['decision'] + '] ') if e.get('decision') else ''}{why}")
+    n_tree = sum(1 for e in entries if e["in_tree"])
+    n_build = sum(1 for e in entries if e.get("in_build"))
+    hidden = sum(1 for e in entries if e.get("in_build") and e.get("hidden_at_runtime"))
+    out.append(f"{len(entries)} names in the source (tree or upstream); {n_tree} in the tree; "
+               f"{n_build} registered by the build read ({n_build - hidden} listed, {hidden} hidden)")
     return out
 
 

@@ -31,6 +31,8 @@ Mozilla artwork still drawn (MOZILLA_ART) is listed as OPEN for the artwork swee
 "We will get to those icons and bitmaps and pngs later on").
 Each run is kept in state/about-pages/ (raw lines + parsed JSON) and compared with the newest run of another build:
 pages added or gone, pages that lost their text, new errors, new pictures, new requests.
+The owner's reviewed register (decisions/ABOUT-PAGES.yaml, D-157-40) is held against the pages the build actually
+registers: none unreviewed, none marked remove, each kept page present and listed or hidden as the register says.
 """
 import json
 import re
@@ -53,7 +55,6 @@ EXPECTED_EMPTY = {
     "devtools-toolbox": "the toolbox of a target named in its URL",
     "reader": "Reader View of the page named in its URL",
     "framecrashed": "drawn inside a frame that crashed",
-    "messagepreview": "previews a message given in its URL",
 }
 # pages that must show their DATA, not only their headings (2026-10-08: about:support drew every heading and table
 # label while its values stayed empty - its snapshot waited on Nimbus - and a text-length check passed it)
@@ -67,14 +68,10 @@ CONTENT_RULES = {
 KNOWN_ARTEFACTS = [
     (re.compile(r"RPMGet\w+ is not defined"), "an error page opened by URL, not by a failed load, has no page-manager functions"),
     (re.compile(r"logins is undefined"), "the import report with no import to report"),
-    (re.compile(r"MPToggleLights is not defined"), "message preview without a message"),
     (re.compile(r"requestedBrowser\.currentURI is null"), "about:opentabs redirects while the tab switcher reads it"),
-    (re.compile(r"WebRTC: ICE failed, add a STUN server"),
-     "about:fingerprintingprotection (hidden) gathers WebRTC candidates for Mozilla's user-characteristics measurement;"
-     " no STUN server is configured, so ICE fails and nothing is sent"),
-    (re.compile(r'property "getFullYear", date is undefined'),
-     "about:asrouter (hidden developer page of the messaging system) reads telemetry session dates Gorilla never makes"),
 ]
+# (2026-10-08, D-157-40: the artefacts of about:messagepreview, about:fingerprintingprotection's ICE failure and
+# about:asrouter's missing telemetry dates went with those pages; if one comes back, the register row fails first)
 # Mozilla's artwork (kitties, foxes, logos, illustrations); not "fox" alone: about:firefoxview's own icons live under
 # content/firefoxview/
 MOZILLA_ART = re.compile(r"/illustrations/|/logos/|kit-|fox-illustration|-fox\.|firefox-logo|limelight|tab-crashed\.svg"
@@ -212,6 +209,58 @@ def verdict(p):
     return rows
 
 
+REGISTER = Path("decisions") / "ABOUT-PAGES.yaml"
+
+
+def register_for(t):
+    """The owner's register for task `t` -> path, or None when the task has no owner repo (unit tests)."""
+    from .ownercheck import _owner_root
+    root = _owner_root(t) if t else None
+    return Path(root) / REGISTER if root else None
+
+
+def this_platform():
+    import sys
+    return "windows" if sys.platform.startswith("win") else "linux"
+
+
+def register_rows(registered, register, platform=None):
+    """The pages a build registers (probe ABOUT-REGISTERED: {name: "hidden"|"listed"}) against the owner's reviewed
+    register ({pages: [{name, verdict keep|remove, shown listed|hidden|not built|gone, only windows|linux}]}) -> rows.
+    Fails closed: no register file, or no registered pages read, fails."""
+    import yaml
+    platform = platform or this_platform()
+    check = "about-pages: the pages this build registers match the reviewed register (D-157-40)"
+    if not Path(register).is_file():
+        return [{"check": check, "ok": False, "evidence": f"no register at {register}"}]
+    if not registered:
+        return [{"check": check, "ok": False, "evidence": "the probe reported no registered pages (ABOUT-REGISTERED)"}]
+    pages = {e["name"]: e for e in (yaml.safe_load(Path(register).read_text(encoding="utf-8")) or {}).get("pages") or []}
+    unreviewed = sorted(set(registered) - set(pages))
+    back = sorted(n for n in registered if pages.get(n, {}).get("verdict") == "remove")
+    moved = sorted(f"about:{n} is {registered[n]}, the register says {pages[n]['shown']}" for n in registered
+                   if n in pages and pages[n].get("verdict") == "keep" and pages[n].get("shown") in ("listed", "hidden")
+                   and pages[n]["shown"] != registered[n])
+    expected = [n for n, e in pages.items() if e.get("verdict") == "keep" and e.get("shown") in ("listed", "hidden")
+                and e.get("only", platform) == platform]
+    missing = sorted(n for n in expected if n not in registered)
+    parts = []
+    if unreviewed:
+        parts.append("not in the register: " + ", ".join("about:" + n for n in unreviewed))
+    if back:
+        parts.append("marked remove but registered: " + ", ".join("about:" + n for n in back))
+    if moved:
+        parts.append("; ".join(moved))
+    if missing:
+        parts.append("kept but not registered: " + ", ".join("about:" + n for n in missing))
+    hidden = sum(1 for v in registered.values() if v == "hidden")
+    return [{"check": check, "ok": not parts,
+             "evidence": "; ".join(parts) if parts else
+                         f"{len(registered)} registered ({len(registered) - hidden} listed, {hidden} hidden), every one "
+                         f"reviewed and kept; {sum(1 for e in pages.values() if e.get('verdict') == 'remove')} removed "
+                         f"page(s) absent ({platform})"}]
+
+
 def mozilla_art(p):
     return [f"about:{n} {x['url'].rsplit('/', 1)[-1]} {x['w']}x{x['h']}" for n, v in sorted(p["pages"].items())
             for x in v.get("pics", []) if MOZILLA_ART.search(x["url"])]
@@ -343,15 +392,18 @@ def live(line):
 
 
 def run(install_dir, build_id, say=print, timeout=900, only=(), walk=False, dwell=None, on_line=None, visible=None,
-        partial=False, shots=None, **change):
+        partial=False, shots=None, register=None, **change):
     """Probe, parse, judge, keep, compare -> {"rows", "changes", "path", "parsed", "done"}. `only`: just those pages
     (a partial run is kept but never used as the comparison base). walk=True: a visible window walking about:about's
-    links (also kept apart from the comparison base: it reads only the listed pages)."""
+    links (also kept apart from the comparison base: it reads only the listed pages). `register`: the owner's reviewed
+    register (register_for(task)), held against the pages the build registers."""
     from . import probe as pb
     r = pb.run(install_dir, str(probe_file(only, walk, dwell, shots)), wait=12, timeout=timeout, say=say,
                headless=not (walk if visible is None else visible), on_line=on_line, **change)
     parsed = parse(r["lines"])
     rows = verdict(parsed)
+    if register is not None:
+        rows += register_rows(parsed["registered"], register)
     if not r["done"]:
         rows.insert(0, {"check": "about-pages: the probe finished", "ok": False,
                         "evidence": f"timed out after {r['seconds']} s with {len(parsed['pages'])} page(s) read"})
@@ -438,6 +490,6 @@ def prebuild(t, task_id, say=print):
     return {"ok": not worse, "rows": rows, "notes": notes}
 
 
-def rows(install_dir, build_id, say=print):
+def rows(install_dir, build_id, say=print, register=None):
     """Post-install rows (the about: pages of the installed build)."""
-    return run(install_dir, build_id, say=say)["rows"]
+    return run(install_dir, build_id, say=say, register=register)["rows"]
