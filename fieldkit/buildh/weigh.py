@@ -1,6 +1,6 @@
 """What a change costs or saves in memory and CPU, measured: the installed build against the same build with the change.
 
-    fieldkit build-harness weigh <task> [pages=about:newtab,about:home,...] [reps=3]
+    fieldkit build-harness weigh <task> [pages=about:newtab,about:home,...] [reps=3] [clean=0 settle=75] [before=<install dir>]
                                         [tree-since=<commit|build>] [tree-until=<commit>]
                                         [sub=<old text>=><new text> ...] [omni=<jar>:<member>=<file> ...] [--json]
 
@@ -18,6 +18,12 @@ How:
 Why one page per browser: measured in one browser one page after another, the 1400 px logo's full-size decode landed
 on whichever page asked for a second size while an earlier page's copy was still cached (Settings in one run, Add-ons
 in the next): the order was measured, not the change.
+
+Modes: by default memory is cleaned before each page (minimizeMemoryUsage) and measured 6 s after opening it; with
+clean=0 and settle=N nothing is cleaned and the page is measured after N seconds, as a browser left running holds it.
+The clean hides copies Firefox keeps until memory pressure: on 2026-10-08 the logo's full-size decode (7.8 MB per
+process) was invisible cleaned and present left running. Publish numbers measured left running.
+before=<install dir> compares two installed builds (e.g. the previous release kept by install) instead of a copy.
 
 Limits, said in the report: CPU while a page opens is noisy (start-up work, the machine's own load); a headless
 browser paints in software. Files built at build time (SCSS, bundles, preprocessed files, C++) cannot be applied to a
@@ -97,11 +103,13 @@ def lines(summary, notes=()):
     return out
 
 
-def run(install_dir, pages=DEFAULT_PAGES, reps=3, omni=None, subs=None, say=print, timeout=120):
-    """-> {"summary", "runs", "patched"}; runs are interleaved before/after, page by page."""
+def run(install_dir, pages=DEFAULT_PAGES, reps=3, omni=None, subs=None, say=print, timeout=120, clean=True, settle=6,
+        before_install=None):
+    """-> {"summary", "runs", "patched", "mode"}; runs are interleaved before/after, page by page."""
     copies, runs, patched = {}, {"before": {}, "after": {}}, []
+    timeout = max(timeout, settle + WAIT + 60)
     try:
-        copies["before"] = probe.prepare_copy(install_dir, "image-memory", wait=WAIT, say=say)
+        copies["before"] = probe.prepare_copy(before_install or install_dir, "image-memory", wait=WAIT, say=say)
         copies["after"] = probe.prepare_copy(install_dir, "image-memory", wait=WAIT, omni=omni, subs=subs, say=say)
         patched = copies["after"][2]
         say(f"  weigh: {len(pages)} page(s) x {reps} run(s) x 2 builds, each in a fresh browser; after = {len(patched)} change(s)")
@@ -109,14 +117,16 @@ def run(install_dir, pages=DEFAULT_PAGES, reps=3, omni=None, subs=None, say=prin
             for rep in range(1, reps + 1):
                 for variant in ("before", "after") if rep % 2 else ("after", "before"):
                     app = copies[variant][1]
-                    (Path(app) / "gprobe-image-memory.json").write_text(json.dumps({"pages": [page], "reps": 1}), encoding="utf-8")
+                    (Path(app) / "gprobe-image-memory.json").write_text(
+                        json.dumps({"pages": [page], "reps": 1, "clean": clean, "settle": settle}), encoding="utf-8")
                     r = probe.launch(app, timeout=timeout)
                     got = parse(r["lines"])
                     runs[variant].setdefault(page, []).append(got)
                     say(f"  weigh: {page} {variant} run {rep}: "
                         + (f"{got['total'] / 1048576:.1f} MB, {got['cpu']:.0f} ms" if got["total"] is not None and got["cpu"] is not None
                            else "no measurement" + ("" if r["done"] else " (timed out)")))
-        return {"summary": summarise(runs), "runs": runs, "patched": patched}
+        return {"summary": summarise(runs), "runs": runs, "patched": patched,
+                "mode": {"clean": clean, "settle": settle, "before": str(before_install or install_dir), "after": str(install_dir)}}
     finally:
         for copy, _app, _p in copies.values():
             shutil.rmtree(copy, ignore_errors=True)

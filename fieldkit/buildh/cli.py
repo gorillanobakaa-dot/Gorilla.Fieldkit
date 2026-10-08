@@ -602,7 +602,7 @@ def run(a, emit):
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
     if act == "weigh":
-        # weigh TASK [pages=a,b] [reps=N] [tree-since=..] [tree-until=..] [sub=A=>B ...] [omni=jar:member=file ...]:
+        # weigh TASK [pages=a,b] [reps=N] [clean=0 settle=S] [before=DIR] [tree-since=..] [tree-until=..] [sub=A=>B ...] [omni=...]:
         # RAM and CPU per page, the installed build against the same build with the change (fieldkit/buildh/weigh.py)
         from . import probe as pb, weigh as wg, install as _inst
         import json as _js
@@ -625,11 +625,18 @@ def run(a, emit):
             omni.update({k: str(v) for k, v in got.items()})
             notes.append(f"tree {since[:10]}..{opts.get('tree-until', 'HEAD')[:10]}: {len(got)} packaged member(s) changed")
             notes += [f"not applied to the copy: {p} ({why})" for p, why in skipped]
-        if not omni and not subs:
-            raise task.Refused("weigh needs a change: tree-since=, sub= or omni=")
+        if not omni and not subs and not opts.get("before"):
+            raise task.Refused("weigh needs a change: tree-since=, sub=, omni= or before=<another installed build>")
         pages = tuple(p for p in opts.get("pages", ",".join(wg.DEFAULT_PAGES)).split(",") if p)
+        clean = opts.get("clean", "1") not in ("0", "no", "false")
+        settle = int(opts.get("settle", 6 if clean else 75))
+        if not clean:
+            notes.append(f"left running: nothing cleaned before a page, measured {settle} s after opening it")
+        before = opts.get("before")
+        if before:
+            notes.append(f"before = {before} (another installed build), after = {inst}")
         r = wg.run(inst, pages=pages, reps=int(opts.get("reps", 3)), omni=omni or None, subs=subs or None,
-                   say=lambda m: print(m, flush=True))
+                   say=lambda m: print(m, flush=True), clean=clean, settle=settle, before_install=before)
         path = wg.save(r, notes)
         notes.append(f"kept: {path}")
         notes.append("CPU while a page opens is noisy: compare the medians and look at the spread of the runs")

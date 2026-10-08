@@ -72,6 +72,10 @@ async function cpuMs() {
   return (info.cpuTime + info.children.reduce((s, c) => s + c.cpuTime, 0)) / 1e6;
 }
 let REPS = 3;
+// clean: minimise memory before each page (true, the default) or leave the browser as a person would (false: copies
+// Firefox keeps until memory pressure are counted - 2026-10-08, the logo's full-size decode hid behind the clean);
+// settle: seconds between opening the page and measuring
+let CLEAN = true, SETTLE = 6;
 let pages = ["about:blank", "about:newtab", "about:home", "about:preferences", "about:addons", "about:privatebrowsing"];
 // build-harness weigh opens every page in a FRESH browser: it writes {"pages": [...], "reps": n} beside firefox.exe
 // (2026-10-08: six pages in one browser put the logo's full-size decode on whichever page came after a cached one)
@@ -82,6 +86,8 @@ try {
     const cfg = JSON.parse(await win.IOUtils.readUTF8(f.path));
     pages = cfg.pages || pages;
     REPS = cfg.reps || REPS;
+    if (cfg.clean === false) { CLEAN = false; }
+    if (cfg.settle) { SETTLE = cfg.settle; }
     say(`IMG-CONFIG|${pages.join(",")}|${REPS}`);
   }
 } catch (e) { say(`IMG-ERROR|config|${e}`); }
@@ -91,12 +97,12 @@ for (let rep = 1; rep <= REPS; rep++) {
     try {
       // a fresh window state per page: close every other tab, minimise memory, then open the page
       for (const t of [...win.gBrowser.tabs].slice(1)) { win.gBrowser.removeTab(t); }
-      await new Promise(r => mgr.minimizeMemoryUsage(r));
+      if (CLEAN) { await new Promise(r => mgr.minimizeMemoryUsage(r)); }
       await sleep(500);
       const c0 = await cpuMs();
       const tab = win.gBrowser.addTab(url, { triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal() });
       win.gBrowser.selectedTab = tab;
-      await sleep(6000);
+      await sleep(SETTLE * 1000);
       const used = (await cpuMs()) - c0;
       (cpu[url] = cpu[url] || []).push(used);
       say(`IMG-CPU|${url}|${rep}|${used.toFixed(0)}`);

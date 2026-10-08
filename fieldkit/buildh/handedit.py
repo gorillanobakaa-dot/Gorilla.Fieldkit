@@ -206,6 +206,12 @@ def record(task_id, files, why, group="hand", kind=None):
     if not added:
         raise task.Refused("nothing to record")
     task.checkpoint(t, f"hand edit ({group}): {', '.join(Path(f).name for f in files)}")
+    # the commit each step was recorded in: the verifier judges a hand step against the file just before it
+    # (2026-10-08), and finding it by time for older steps is a fallback, not a record
+    head = (t.get("checkpoints") or [{}])[-1].get("commit")
+    for s in t["steps"]:
+        if s["id"] in added and head:
+            s["commit"] = head
     task.save(t)
     task.journal(t, "hand-edit", steps=added, files=list(files), why=[why], kind=kind)
     return added

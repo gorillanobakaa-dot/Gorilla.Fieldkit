@@ -27,27 +27,83 @@ SPECIFIC = 25       # a removed line this long, still present, proves the hunk i
 
 
 def superseded_by_hand(steps, step, now):
-    """A port step whose added lines are missing from the tree only because a LATER hand step removed exactly those
-    lines (2026-10-04: patch 08.Look browser-shared.css h17 added a nova CSS block that could never match; the one-pass
-    fix removed it). -> the later step's id, or None. Every missing added line must be one the later step removes;
-    anything else missing is still a false completion."""
+    """A step whose result is not in the tree only because LATER hand steps on the same file changed it on purpose
+    (2026-10-04: patch 08.Look browser-shared.css h17 added a nova CSS block that could never match; the one-pass fix
+    removed it). Every added line that is missing must be one the later hand steps remove, and every removed line that
+    is back must be one they add; the later steps are taken together (2026-10-08: the design-token files went back to
+    pristine 157 in one hand edit recorded as 30-odd hunks, none of which alone covered a 155-era snapshot hunk).
+    -> the last such later step's id, or None; anything else missing is still a false completion."""
     a = step.get("args") or {}
     h, f = a.get("hunk"), a.get("file")
     if not isinstance(h, dict) or not f or now is None:
         return None
     have = {l.strip() for l in now}
     missing = {l[1:].strip() for l in h.get("lines", []) if l.startswith("+") and l[1:].strip() and l[1:].strip() not in have}
-    if not missing:
+    back = {l[1:].strip() for l in h.get("lines", []) if l.startswith("-") and l[1:].strip() and l[1:].strip() in have}
+    if not missing and not back:
         return None
     ids = [s["id"] for s in steps]
     after = ids.index(step["id"]) + 1 if step["id"] in ids else len(ids)
+    removed_later, added_later, last = set(), set(), None
     for later in steps[after:]:
         la = later.get("args") or {}
         if later.get("status") != "done" or la.get("file") != f or not (later.get("done_by") == "hand" or later.get("hand_port")):
             continue
-        removed = {l[1:].strip() for l in (la.get("hunk") or {}).get("lines", []) if l.startswith("-")}
-        if missing <= removed:
-            return later["id"]
+        lines = (la.get("hunk") or {}).get("lines", [])
+        removed_later |= {l[1:].strip() for l in lines if l.startswith("-")}
+        added_later |= {l[1:].strip() for l in lines if l.startswith("+")}
+        last = later["id"]
+    if last and missing <= removed_later and back <= added_later:
+        return last
+    return None
+
+
+def held_until_later_hand_edit(w, steps, step, pristine_commit):
+    """A step that held on the file just before the FIRST later hand edit of that file was replaced on purpose by that
+    recorded edit (2026-10-08: a 155-era snapshot hunk of tokens-shared.css held, by its own check, until the files
+    went back to pristine 157). -> the later step's id, or None."""
+    a = step.get("args") or {}
+    f, h = a.get("file"), a.get("hunk")
+    if not f or not isinstance(h, dict) or h.get("binary"):
+        return None
+    ids = [s["id"] for s in steps]
+    after = ids.index(step["id"]) + 1 if step["id"] in ids else len(ids)
+    first = next((x for x in steps[after:] if x.get("status") == "done" and (x.get("args") or {}).get("file") == f
+                  and (x.get("done_by") == "hand" or x.get("hand_port"))), None)
+    hc = hand_step_commit(w, first) if first else None
+    if not hc:
+        return None
+    prev = _git(w, "show", f"{hc}^:{f}").splitlines()
+    if not prev:
+        return None
+    if step.get("done_by") == "hand" or step.get("hand_port"):
+        pristine = _git(w, "show", f"{pristine_commit}:{f}").splitlines() if pristine_commit else None
+        ok = not firefox.hand_port_holds(prev, h, pristine or None, firefox.hand_keeps(step.get("hand_note")))
+    else:
+        ok = score_hunk(prev, h, f)[0] == "APPLIED"
+    return first["id"] if ok else None
+
+
+def hand_step_commit(w, step, _log={}):
+    """The checkpoint commit a hand step was recorded in: `commit` on the step (record stores it since 2026-10-08), or,
+    for older steps, the first "checkpoint: hand edit" commit touching the step's file at or after the time in the
+    step id (hand-<group>-<name>-YYYYMMDD-HHMMSS-...). -> commit or None."""
+    if step.get("commit"):
+        return step["commit"]
+    import datetime
+    import re as _re
+    m = _re.search(r"-(\d{8}-\d{6})-", step.get("id", ""))
+    f = (step.get("args") or {}).get("file")
+    if not m or not f:
+        return None
+    t0 = datetime.datetime.strptime(m.group(1), "%Y%m%d-%H%M%S").timestamp()
+    key = (str(w), f)
+    if key not in _log:
+        out = _git(w, "log", "--reverse", "--format=%H %ct", "--grep=^checkpoint: hand edit", "--", f)
+        _log[key] = [(c, int(ts)) for c, ts in (l.split() for l in out.splitlines() if l.strip())]
+    for c, ts in _log[key]:
+        if ts >= t0 - 2:
+            return c
     return None
 
 def _judgeable(lines, floor):
@@ -395,17 +451,36 @@ def verify(task_id):
                 v, d = ("APPLIED", "binary hand edit holds") if ok else ("NOT-APPLIED", "binary hand edit: the file is not the recorded bytes")
             b = body(a["file"]) if a.get("file") and not (isinstance(a.get("hunk"), dict) and a["hunk"].get("binary")) else None
             pristine = _git(w, "show", f"{root[0]}:{a['file']}").splitlines() if root and a.get("file") else None
+            # removals are counted against the file just before this hand edit when git has it: pristine is the
+            # wrong reference for an edit made on top of earlier changes (2026-10-08: restoring 155-era token files
+            # to pristine 157 removed second copies of lines pristine has once, and every one read as "should be gone")
+            hc = hand_step_commit(w, s) if a.get("file") else None
+            before_edit = _git(w, "show", f"{hc}^:{a['file']}").splitlines() if hc else None
             if not (isinstance(a.get("hunk"), dict) and a["hunk"].get("binary")):
-                why = firefox.hand_port_holds(b, a["hunk"], pristine or None, firefox.hand_keeps(s.get("hand_note")))                 if b is not None else ["the file does not exist"]
+                keeps = firefox.hand_keeps(s.get("hand_note"))
+                if hc:
+                    # a line this edit removed in one hunk and added in another was moved, not removed (2026-10-08:
+                    # restoring tokens-shared.css removed two copies of --panel-background-color and kept one elsewhere)
+                    keeps = tuple(keeps) + tuple(l[1:].strip() for l in _git(w, "diff", f"{hc}^", hc, "--", a["file"]).splitlines()
+                                                 if l.startswith("+") and not l.startswith("+++") and l[1:].strip())
+                why = firefox.hand_port_holds(b, a["hunk"], pristine or None, keeps) if b is not None else ["the file does not exist"]
+                # each reference misjudges one kind of edit: pristine one made on top of earlier changes, the file
+                # before the edit a line a later step legitimately put back (2026-10-08); both must say "not there"
+                if why and b is not None and before_edit and not firefox.hand_port_holds(b, a["hunk"], before_edit, keeps):
+                    why = []
                 v, d = ("APPLIED", "hand port holds") if not why else ("NOT-APPLIED", "hand port: " + "; ".join(why)[:160])
         if v is None:                                   # a relocated step: its file is not the patch's (relocate.py)
             v, d = score_hunk(body(a["file"]), a["hunk"], a["file"]) if (a := s.get("args") or {}).get("hunk") else (None, None)
         # an OBSOLETE step whose lines the tree still holds (renamed or not) was closed wrongly: reopened like a
         # false completion (live run 16: Tabbrowser.sys.mjs h4, closed as obsolete with the code still there)
-        if v in ("NOT-APPLIED", "PARTIAL") and not (s.get("done_by") == "hand" or s.get("hand_port")):
+        if v in ("NOT-APPLIED", "PARTIAL"):
             later = superseded_by_hand(t["steps"], s, body(s["args"]["file"]) if (s.get("args") or {}).get("file") else None)
             if later:
                 v, d = "SUPERSEDED", f"a later hand step removed these lines on purpose: {later}"
+            else:
+                held = held_until_later_hand_edit(w, t["steps"], s, root[0] if root else None)
+                if held:
+                    v, d = "SUPERSEDED", f"held until the later hand edit {held} changed the file on purpose"
         if v in ("NOT-APPLIED", "PARTIAL"):
             rep["false_completions"].append({"step": s["id"], "verdict": v, "detail": d, "done_by": s.get("done_by", "model")})
     # 3. files that are byte-identical to the owner's OLD tree. Harmless when upstream did not touch the file
