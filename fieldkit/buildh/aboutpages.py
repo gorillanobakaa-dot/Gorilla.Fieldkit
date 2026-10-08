@@ -309,13 +309,14 @@ def live(line):
     return None
 
 
-def run(install_dir, build_id, say=print, timeout=900, only=(), walk=False, dwell=None, on_line=None, **change):
+def run(install_dir, build_id, say=print, timeout=900, only=(), walk=False, dwell=None, on_line=None, visible=None,
+        **change):
     """Probe, parse, judge, keep, compare -> {"rows", "changes", "path", "parsed", "done"}. `only`: just those pages
     (a partial run is kept but never used as the comparison base). walk=True: a visible window walking about:about's
     links (also kept apart from the comparison base: it reads only the listed pages)."""
     from . import probe as pb
     r = pb.run(install_dir, str(probe_file(only, walk, dwell)), wait=12, timeout=timeout, say=say,
-               headless=not walk, on_line=on_line, **change)
+               headless=not (walk if visible is None else visible), on_line=on_line, **change)
     parsed = parse(r["lines"])
     rows = verdict(parsed)
     if not r["done"]:

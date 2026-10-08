@@ -253,14 +253,20 @@ if (!WALK) {
     if (errs.length > e0) { withErr++; }
   }
 } else {
-  // the way a person does it: one tab, about:about, click the link, read, back
-  const tab = win.gBrowser.selectedTab;
+  // the way a person does it: one tab of its own, about:about, click the link, read, back
+  const tab = win.gBrowser.addTab("about:about", SYS);
+  win.gBrowser.selectedTab = tab;
+  const ready = (d, not) => d && d !== not && d.documentURI == "about:about" && d.readyState == "complete"
+                            && d.querySelector("a[href^='about:']");
+  // about:about, loaded and complete. Already there: that page as it is (2026-10-08: reloading it and clicking at once
+  // hit the OLD document while it unloaded, and no click opened anything); otherwise load it and wait for the NEW one
   const home = async () => {
     current = "about";
-    tab.linkedBrowser.fixupAndLoadURIString("about:about", SYS);
-    for (let i = 0; i < 40 && !(tab.linkedBrowser.contentDocument && tab.linkedBrowser.contentDocument.documentURI == "about:about"
-                                 && tab.linkedBrowser.contentDocument.querySelector("a[href^='about:']")); i++) { await sleep(250); }
-    return tab.linkedBrowser.contentDocument;
+    const lb = tab.linkedBrowser, was = lb.contentDocument;
+    if (ready(was)) { return was; }
+    lb.fixupAndLoadURIString("about:about", SYS);
+    for (let i = 0; i < 80 && !ready(lb.contentDocument, was); i++) { await sleep(250); }
+    return ready(lb.contentDocument) ? lb.contentDocument : null;
   };
   let doc = await home();
   const links = doc ? [...doc.querySelectorAll("a[href^='about:']")].map(a => a.getAttribute("href")) : [];
@@ -275,16 +281,38 @@ if (!WALK) {
     current = name;
     const e0 = errs.length;
     say(`ABOUT-NOW|${name}`);
+    let opened = null;
     try {
       a.scrollIntoView({ block: "center" });
       await sleep(400);
-      a.click();
-      await sleep(DWELL);
-      await report(name, tab, hiddenOf(name));
+      // a person's click: mouse down and up at the middle of the link, through the window's own input path
+      // (element.click() from the probe navigated nothing: 2026-10-08, the first walk read about:about 40 times)
+      const b = a.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
+      const tabsBefore = win.gBrowser.tabs.length;
+      // Firefox 157: Window.synthesizeMouseEvent (chrome only; windowUtils.sendMouseEvent is gone)
+      const w = doc.defaultView;
+      w.synthesizeMouseEvent("mousedown", x, y, { button: 0, clickCount: 1 });
+      w.synthesizeMouseEvent("mouseup", x, y, { button: 0, clickCount: 1 });
+      // the page it opened: this tab navigating away from about:about, or a new tab
+      for (let i = 0; i < 40; i++) {
+        await sleep(150);
+        if (win.gBrowser.tabs.length > tabsBefore) { opened = win.gBrowser.tabs[win.gBrowser.tabs.length - 1]; break; }
+        const u = tab.linkedBrowser.currentURI && tab.linkedBrowser.currentURI.spec;
+        if (u && u != "about:about") { opened = tab; break; }
+      }
+      if (!opened) {
+        say(`ABOUT|${name}|?|(clicking the link opened nothing)|||||listed`);
+        say(`ABOUT-ERR|${name}|clicking its link on about:about opened nothing|about:about`);
+      } else {
+        if (opened != tab) { win.gBrowser.selectedTab = opened; }
+        await sleep(DWELL);
+        await report(name, opened, hiddenOf(name));
+      }
     } catch (e) {
       say(`ABOUT|${name}|?|(error ${clip(String(e), 120)})|||||listed`);
     }
     current = name + " (closing)";
+    if (opened && opened != tab) { try { win.gBrowser.removeTab(opened); } catch (e) {} }
     if (errs.length > e0) { withErr++; }
   }
 }

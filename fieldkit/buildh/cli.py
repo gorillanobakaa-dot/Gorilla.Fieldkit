@@ -614,7 +614,13 @@ def run(a, emit):
         walk = opts.get("walk", "0") not in ("0", "no", "false", "")
         dwell = int(float(opts["dwell"]) * 1000) if "dwell" in opts else (6000 if walk else None)
         on_line = None
-        if walk:
+        visible = walk and opts.get("visible", "1") not in ("0", "no", "false")
+        if walk and not visible:              # visible=0: the same walk headless (to test it without a window)
+            def on_line(l):
+                t = ap.live(l)
+                if t:
+                    print(t, flush=True)
+        if visible:
             import time as _t
             # the window takes the foreground: say so and count down first (announce before foreground tests)
             print("A Gorilla window will open on this screen and walk every link of about:about, "
@@ -628,7 +634,7 @@ def run(a, emit):
                 if t:
                     print(t, flush=True)
         r = ap.run(inst, info.get("build_id"), say=lambda m: print(m, flush=True), timeout=float(opts.get("timeout", 900 if not walk else 1800)),
-                   only=only, walk=walk, dwell=dwell, on_line=on_line, omni=change.get("omni"), files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
+                   only=only, walk=walk, visible=visible, dwell=dwell, on_line=on_line, omni=change.get("omni"), files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
         for n in notes:
             print("  note: " + n)
         for row in r["rows"]:
