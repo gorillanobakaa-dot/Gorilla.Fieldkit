@@ -4,8 +4,12 @@
 //   neterror        a connection refused by 127.0.0.1:49151 (nothing listens there), and port 9 (a port Firefox
 //                   refuses outright)
 //   certerror       the bad-cert page: HTTPS on 127.0.0.1 with a self-signed certificate made for the run
-//   httpsonlyerror  HTTPS-Only Mode on (and on for local addresses), the plain-http echo page
-//   malformed       an address the browser cannot parse (the "doesn't look right" page)
+//   httpsonlyerror  HTTPS-Only Mode on, a plain-http address whose upgraded https load is refused. Not 127.0.0.1:
+//                   HTTPS-Only never upgrades a loopback address whatever its prefs (nsHTTPSOnlyUtils::
+//                   LoopbackOrLocalException; 2026-10-09: the first picture showed the plain site), so a made-up public
+//                   name is resolved to 127.0.0.1 by network.dns.localDomains: no DNS query leaves the machine
+//   unknown-about   an about: address nothing registers (the "address isn't valid" page): what a removed page shows
+//   removed-page    about:fingerprintingprotection, removed by D-157-40: on a build without it, the same page
 // Pictures go to <temp>/gprobe-shots/error-pages/<name>.png; the run prints where.
 // Output lines:
 //   ERRSHOT|<name>|<landed on (documentURI)>|<png path or why not>|<first 200 characters of the text>
@@ -65,10 +69,12 @@ async function shoot(name, url) {
 await shoot("neterror-connection-refused", "http://127.0.0.1:49151/");   // nothing listens there
 await shoot("neterror-restricted-port", "http://127.0.0.1:9/");          // a port Firefox refuses outright
 await shoot("certerror-self-signed", "https://127.0.0.1:8766/");
+const PROBE_HOST = "gorilla-probe.example.com";               // resolved locally, see the header
+Services.prefs.setStringPref("network.dns.localDomains", PROBE_HOST);
 Services.prefs.setBoolPref("dom.security.https_only_mode", true);
-Services.prefs.setBoolPref("dom.security.https_only_mode.upgrade_local", true);
-await shoot("httpsonlyerror-plain-http-site", "http://127.0.0.1:8765/plain");
+await shoot("httpsonlyerror-plain-http-site", `http://${PROBE_HOST}:49151/`);   // https on 49151: refused
 Services.prefs.clearUserPref("dom.security.https_only_mode");
-Services.prefs.clearUserPref("dom.security.https_only_mode.upgrade_local");
-await shoot("neterror-malformed-address", "http://exa mple..com:99999/");
+Services.prefs.clearUserPref("network.dns.localDomains");
+await shoot("neterror-unknown-about-address", "about:gorilla-no-such-page");
+await shoot("removed-page-fingerprintingprotection", "about:fingerprintingprotection");
 say(`ERRSHOT|folder|${SHOTS}||`);
