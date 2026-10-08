@@ -36,7 +36,8 @@ def test_the_autoconfig_wrapper_reports_and_always_ends():
 def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     from fieldkit.buildh import releasecheck as rc, task, buildrun, install
     outs = {"techniques": (0, "OK   T-1"), "decisions": (0, "DECISIONS OK (strict)"), "replay": (3, "REPLAY FAILED: 1"),
-            "claims": (0, '{"totals": {"claims": 1, "CONTRADICTED": 0, "STALE": 0, "UNPROVEN": 1, "patches": 1, "patches_failing": 0}}')}
+            "claims": (0, '{"totals": {"claims": 1, "CONTRADICTED": 0, "STALE": 0, "UNPROVEN": 1, "patches": 1, "patches_failing": 0}}'),
+            "hidden-pages-doc": (0, "HIDDEN-PAGES DOC OK")}
     monkeypatch.setattr(rc, "_run", lambda args, timeout=0: outs[args[0]])
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {"upstream": {"version": "157.0"}}})
     (tmp_path / "state").mkdir()
@@ -48,6 +49,10 @@ def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     rows = rc.run("t", say=lambda m: None, skip_post_install=True)
     # no release-docs.yaml yet: the release's documents were never held against their sources
     assert [r["check"] for r in rows if not r["ok"]] == ["replay", "release documents"]
+    assert "hidden-pages doc" in [r["check"] for r in rows]          # D-157-40: the hidden pages explained
+    outs["hidden-pages-doc"] = (3, "HIDDEN-PAGES DOC NOT OK")
+    assert [r["check"] for r in rc.run("t", say=lambda m: None, skip_post_install=True) if not r["ok"]] ==         ["replay", "hidden-pages doc", "release documents"]
+    outs["hidden-pages-doc"] = (0, "HIDDEN-PAGES DOC OK")
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "patch_policy.json").write_text('{"patchset_root": "gorilla-patchset/patches"}', encoding="utf-8")
     rel = tmp_path / "gorilla-patchset" / "release" / "157.0"

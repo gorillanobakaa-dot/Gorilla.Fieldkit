@@ -75,6 +75,10 @@ def run(task_id, say=print, skip_post_install=False):
     except (ValueError, KeyError):
         ok, ev = False, _tail(out)
     row("claims", ok, ev, "claims/AUDIT-<version>.md lists each one with its evidence")
+    # every hidden about: page explained, in English (published) and Romanian, as the source renders it (D-157-40)
+    rc, out = _run(["hidden-pages-doc", task_id])
+    row("hidden-pages doc", rc == 0 and "HIDDEN-PAGES DOC OK" in out, _tail(out, 3),
+        f"fieldkit build-harness hidden-pages-doc {task_id} write=1  (after explaining any new hidden page)")
     if not skip_post_install:
         rc, out = _run(["post-install", task_id])
         bad = [l.strip() for l in out.splitlines() if l.strip().startswith("[FAIL]")]

@@ -85,6 +85,7 @@ groups:
       - buildh/weigh.py
       - buildh/aboutpages.py
       - buildh/aboutregistry.py
+      - buildh/hiddendocs.py
       - buildh/buildstamp.py
       - buildh/satellite.py
       - buildh/window.py

@@ -607,6 +607,28 @@ def run(a, emit):
             print("  " + l)
         print(f"PROBE {'DONE' if r['done'] else 'TIMED OUT'} in {r['seconds']} s" + (f"; replaced {r['patched']}" if r["patched"] else ""))
         return 0 if r["done"] else 3
+    if act == "hidden-pages-doc":
+        # hidden-pages-doc TASK [write=1]: the hidden about: pages explained page by page, English (public, both
+        # tracks) and Romanian (private, plain words), rendered from the owner's source and checked (hiddendocs.py)
+        from . import hiddendocs as hd, ownercheck, changecheck
+        owner = ownercheck._owner_root(task.load(tid))
+        if not owner:
+            raise task.Refused("this task has no owner repo")
+        _root, repo = changecheck.patchset_repo(owner)
+        if not repo:
+            raise task.Refused("the patch-set repo is not a git checkout")
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        if opts.get("write", "0") not in ("0", "no", "false", ""):
+            r = hd.write(owner, repo, say=lambda m: print(m, flush=True))
+            for f in r["written"]:
+                print("  " + f)
+            rows = r["rows"]
+        else:
+            rows = hd.check(owner, repo)
+        for row in rows:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        print("HIDDEN-PAGES DOC " + ("OK" if all(r["ok"] for r in rows) else "NOT OK"))
+        return 0 if all(r["ok"] for r in rows) else 3
     if act == "about-registry":
         # about-registry TASK [--json]: every about: page the source can register (tree and pristine upstream), what
         # the newest full reading of a build registered, and the owner's verdict (aboutregistry.py, D-157-40)
