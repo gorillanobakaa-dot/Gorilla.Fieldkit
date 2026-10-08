@@ -132,7 +132,8 @@ def run(a, emit, current_id):
         return 0 if not open_ else 3
     if sub == "consistency":
         from . import consistency
-        rec = m.cache("consistency")
+        from .measure import fresh_consistency
+        rec = fresh_consistency(m, say=lambda s: print(s, flush=True))
         if not rec:
             raise task.Refused(f"consistency not measured: {plan.FH} migrate check {tid} --only S8")
         emit(rec["data"], lambda r: print("\n".join(consistency.lines(r))))

@@ -267,3 +267,19 @@ def _briefs(m, claims_res=None):
     m.put("briefs", {"by_kind": by, "problems": got["problems"], "kinds": sorted(kinds),
                      "claims_counted": claims_res is not None or bool(prev.get("claims_counted"))})
     return ", ".join(f"{k} {v}" for k, v in sorted(by.items())) or "none"
+
+
+def fresh_consistency(m, say=print):
+    """The consistency measurement for the installed build and the tree as they are NOW: the cached one when it was
+    made on both, else measured again and cached (2026-10-08: a 3 October cache kept reporting distribution/policies.json
+    missing from the install - LOST-LAYER CONS-002 - for builds that carried it). -> cache record or None."""
+    from . import consistency
+    from .plan import _fresh
+    rec = m.cache("consistency")
+    if rec and _fresh(m, rec, "build")[0] and _fresh(m, rec, "tree")[0]:
+        return rec
+    if not m.install:
+        return rec
+    say("  consistency: the cached measurement is for another build or tree; measuring again ...")
+    k = consistency.evaluate(m.owner, m.t["workdir"], m.install, task_id=m.tid, journal=task.STATE / m.tid / "journal.jsonl")
+    return m.put("consistency", k)

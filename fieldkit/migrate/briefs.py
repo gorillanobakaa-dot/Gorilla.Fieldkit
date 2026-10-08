@@ -186,15 +186,25 @@ def _consistency_brief(ctx, x):
             "target": {"consistency": x["id"], "_sort": (not lost, x["id"])}}
 
 
+def _fresh_consistency(ctx):
+    """The consistency cache, measured again first when it is for another build or tree (never a stale brief)."""
+    try:
+        from .measure import fresh_consistency
+        from .plan import Migration
+        return fresh_consistency(Migration(ctx.task_id, install=ctx.install, find_install=False), say=lambda s: None)
+    except Exception:                                    # no task or owner here: fall back to what is cached
+        return _cache(ctx, "consistency")
+
+
 def from_consistency(ctx):
-    c = _cache(ctx, "consistency")
+    c = _fresh_consistency(ctx)
     if not c:
         return []
     return [_consistency_brief(ctx, x) for x in c["data"]["items"] if not x["closed"] and x["kind"] != "lost-layer"]
 
 
 def from_lost_layer(ctx):
-    c = _cache(ctx, "consistency")
+    c = _fresh_consistency(ctx)
     if not c:
         return []
     return [_consistency_brief(ctx, x) for x in c["data"]["items"] if not x["closed"] and x["kind"] == "lost-layer"]
