@@ -34,7 +34,9 @@ def _ps_quote(s):
 
 
 def script(args, log, python=None):
-    """The PowerShell the window runs (UTF-8 throughout; every line to the log too; the exit code at the end)."""
+    """The PowerShell the window runs (UTF-8 throughout; every line to the log too, as it comes; the exit code at the
+    end). Not Tee-Object: in Windows PowerShell 5.1 it writes UTF-16 and has no -Encoding (2026-10-08: a build log
+    nothing could grep, with the UTF-8 "exit" line appended to UTF-16 text)."""
     python = python or sys.executable
     argv = " ".join(_ps_quote(a) for a in args)
     title = "Gorilla build-harness: " + " ".join(args)[:80]
@@ -44,12 +46,25 @@ def script(args, log, python=None):
         "$env:PYTHONUNBUFFERED = '1'",
         "$env:PYTHONUTF8 = '1'",
         f"Set-Location {_ps_quote(FK)}",
-        f"& {_ps_quote(python)} -m fieldkit build-harness {argv} 2>&1 | Tee-Object -FilePath {_ps_quote(log)}",
+        f"$log = New-Object System.IO.StreamWriter({_ps_quote(log)}, $true, (New-Object System.Text.UTF8Encoding($false)))",
+        "$log.AutoFlush = $true",
+        f"& {_ps_quote(python)} -m fieldkit build-harness {argv} 2>&1 | ForEach-Object {{ $s = \"$_\"; $log.WriteLine($s); $s }}",
         "$code = $LASTEXITCODE",
-        f"Add-Content -Path {_ps_quote(log)} -Value ('exit ' + $code) -Encoding UTF8",
+        "$log.WriteLine('exit ' + $code)",
+        "$log.Close()",
         "Write-Host ''",
         f"Write-Host ('Finished with exit ' + $code + '. Log: ' + {_ps_quote(log)})",
     ])
+
+
+def read_log(path):
+    """A window's log as text: UTF-8, or UTF-16 for logs written before 2026-10-08 (Tee-Object)."""
+    b = Path(path).read_bytes()
+    if b[:2] != b"\xff\xfe":
+        return b.decode("utf-8", "replace")
+    i = b.rfind(b"exit ")            # the UTF-8 "exit <code>" line Add-Content appended to Tee-Object's UTF-16
+    body, tail = (b[:i], b[i:]) if i > 0 and b"\x00" not in b[i:] else (b, b"")
+    return body.decode("utf-16-le", "replace").lstrip("﻿") + tail.decode("utf-8", "replace")
 
 
 def command_line(args, log, python=None):

@@ -8,8 +8,11 @@ from fieldkit.buildh import window, task
 def test_the_window_script_runs_the_command_logs_it_and_records_the_exit_code(tmp_path):
     log = tmp_path / "x.log"
     s = window.script(["build-run", "firefox-157.0-truth"], log, python="C:/py/python.exe")
-    assert "& 'C:/py/python.exe' -m fieldkit build-harness 'build-run' 'firefox-157.0-truth' 2>&1 | Tee-Object" in s
+    assert "& 'C:/py/python.exe' -m fieldkit build-harness 'build-run' 'firefox-157.0-truth' 2>&1 | ForEach-Object" in s
     assert "('exit ' + $code)" in s and "PYTHONUTF8" in s
+    # the log is UTF-8 without a byte-order mark, written line by line; never Tee-Object (UTF-16 in PowerShell 5.1)
+    assert "Tee-Object" not in s and "System.IO.StreamWriter(" in s and "UTF8Encoding($false)" in s
+    assert "$log.AutoFlush = $true" in s and s.index("$log.WriteLine('exit '") < s.index("$log.Close()")
     cl = window.command_line(["build-run", "o'brien"], log, python="p")
     assert cl.startswith("powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -EncodedCommand ")
     decoded = base64.b64decode(cl.rsplit(" ", 1)[1]).decode("utf-16-le")
@@ -31,3 +34,13 @@ def test_launch_goes_through_wmi_and_refuses_when_windows_did_not_start_it(monke
         assert False, "should refuse"
     except task.Refused as e:
         assert "did not start" in str(e)
+
+
+
+def test_read_log_reads_utf8_and_the_old_utf16_logs(tmp_path):
+    new = tmp_path / "new.log"
+    new.write_bytes("build gate passed\nexit 0\n".encode("utf-8"))
+    assert window.read_log(new) == "build gate passed\nexit 0\n"
+    old = tmp_path / "old.log"      # Tee-Object's UTF-16 with Add-Content's UTF-8 exit line after it (before 2026-10-08)
+    old.write_bytes("build gate passed\r\n".encode("utf-16") + b"exit 3\r\n")
+    assert window.read_log(old) == "build gate passed\r\nexit 3\r\n"
