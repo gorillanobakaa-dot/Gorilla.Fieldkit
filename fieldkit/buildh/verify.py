@@ -418,6 +418,15 @@ def verify(task_id):
             cache[file] = p.read_text(encoding="utf-8", errors="replace").splitlines() if p.is_file() else None
         return cache[file]
 
+    # git's answers per file and commit, asked once (2026-10-09: refreshing the HSTS list made 2,441 hand steps in one
+    # 170,000-line file, and the gate asked git for the same three texts 2,441 times each, for over an hour)
+    gitcache = {}
+
+    def shown(*args):
+        if args not in gitcache:
+            gitcache[args] = _git(w, *args).splitlines()
+        return gitcache[args]
+
     # 1. every hunk, scored from the tree
     scores = {}
     for g, rel, file, n, h in hunks_in_scope(hr):
@@ -450,18 +459,18 @@ def verify(task_id):
                 ok = f.is_file() and hashlib.sha256(f.read_bytes()).hexdigest() == a["hunk"].get("sha256")
                 v, d = ("APPLIED", "binary hand edit holds") if ok else ("NOT-APPLIED", "binary hand edit: the file is not the recorded bytes")
             b = body(a["file"]) if a.get("file") and not (isinstance(a.get("hunk"), dict) and a["hunk"].get("binary")) else None
-            pristine = _git(w, "show", f"{root[0]}:{a['file']}").splitlines() if root and a.get("file") else None
+            pristine = shown("show", f"{root[0]}:{a['file']}") if root and a.get("file") else None
             # removals are counted against the file just before this hand edit when git has it: pristine is the
             # wrong reference for an edit made on top of earlier changes (2026-10-08: restoring 155-era token files
             # to pristine 157 removed second copies of lines pristine has once, and every one read as "should be gone")
             hc = hand_step_commit(w, s) if a.get("file") else None
-            before_edit = _git(w, "show", f"{hc}^:{a['file']}").splitlines() if hc else None
+            before_edit = shown("show", f"{hc}^:{a['file']}") if hc else None
             if not (isinstance(a.get("hunk"), dict) and a["hunk"].get("binary")):
                 keeps = firefox.hand_keeps(s.get("hand_note"))
                 if hc:
                     # a line this edit removed in one hunk and added in another was moved, not removed (2026-10-08:
                     # restoring tokens-shared.css removed two copies of --panel-background-color and kept one elsewhere)
-                    keeps = tuple(keeps) + tuple(l[1:].strip() for l in _git(w, "diff", f"{hc}^", hc, "--", a["file"]).splitlines()
+                    keeps = tuple(keeps) + tuple(l[1:].strip() for l in shown("diff", f"{hc}^", hc, "--", a["file"])
                                                  if l.startswith("+") and not l.startswith("+++") and l[1:].strip())
                 why = firefox.hand_port_holds(b, a["hunk"], pristine or None, keeps) if b is not None else ["the file does not exist"]
                 # each reference misjudges one kind of edit: pristine one made on top of earlier changes, the file

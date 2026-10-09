@@ -18,6 +18,7 @@ Settings (fieldkit.local.json): firefox.root = the Gorilla.firefox folder (patch
 and the patch set live there). The working copy is <vault root>/../work/firefox/<version>
 unless the task names another.
 """
+import functools
 import json
 import re
 import shutil
@@ -645,13 +646,10 @@ def _anchor(lines, context_and_removed, min_run=3):
     want = [l.strip() for l in context_and_removed if l.strip() and not TRIVIAL.match(l)]
     if not want:
         return None
-    stripped = [l.strip() for l in lines]
+    facts = _facts(lines)                    # once per file, not once per hunk (2026-10-09)
+    stripped = facts["stripped"]
     window = len(want) + 5
-    where = {}
-    for k in set(want):
-        for i, l in enumerate(stripped):
-            if l == k:
-                where.setdefault(k, []).append(i)
+    where = {k: facts["spos"][k] for k in set(want) if k in facts["spos"]}
     starts = sorted({i for hits in where.values() for i in hits})
     best, best_i = 0, None
     for s in starts:                                    # the place where most of the hunk's lines sit together
@@ -736,10 +734,7 @@ def _bounds(lines, hunk, anchor):
 
     Why in order: a long but common line (`/* stylelint-disable-next-line ... */`, `color: inherit;`) occurs
     all over a CSS file; taken out of order it pulled the span onto the wrong block (live run 12, h7/h11)."""
-    counts = {}
-    for l in lines:
-        k = _key(l)
-        counts[k] = counts.get(k, 0) + 1
+    counts = _facts(lines)["kcount"]              # once per file, not once per hunk (2026-10-09)
     # a line that occurs a few times may anchor (navigator-toolbox.js holds the same `case` block in two handlers,
     # live run 16); one that occurs all over the file never does. A non-unique line may not EXTEND the span
     # across lines the hunk knows nothing about (`color: inherit;` two rules further down, h7).
@@ -919,8 +914,10 @@ def _code(line):
 _PREF = re.compile(r'\s*(pref|sticky_pref|lockPref|user_pref|defaultPref)\s*\(\s*"([^"]+)"')
 
 
+@functools.lru_cache(maxsize=1 << 19)
 def _key(line):
-    """What makes two lines 'the same line': for a Firefox setting its function and name (upstream
+    """What makes two lines 'the same line' (a pure function of the text, so remembered: 2026-10-09, one hand step in
+    the 170,000-line HSTS list computed it 188,000 times, four seconds a step): for a Firefox setting its function and name (upstream
     may change the VALUE; live run 5 hunk #4: customIcon.enabled went false -> true in 155.0.1),
     otherwise the code without a trailing // comment."""
     m = _PREF.match(line)
@@ -1817,7 +1814,33 @@ def hand_keeps(note):
     return out
 
 
-def hand_port_check(before, after, hunk, pristine=None, keeps=()):
+_FACTS = {}
+
+
+def _facts(lines):
+    """Per-file facts the hand-port check needs, computed once per list object (2026-10-09: refreshing the HSTS list
+    made 2,441 hand steps in one 170,000-line file; rebuilding these for every step kept the build gate busy for over
+    an hour). -> {"pos": {key: [indices]}, "count": Counter of stripped lines, "set": stripped lines, "text"}."""
+    import collections
+    hit = _FACTS.get(id(lines))
+    if hit and hit[0] is lines:
+        return hit[1]
+    pos = {}
+    for j, x in enumerate(lines):
+        pos.setdefault(_key(x), []).append(j)
+    stripped = [l.strip() for l in lines]
+    spos = {}
+    for j, x in enumerate(stripped):
+        spos.setdefault(x, []).append(j)
+    f = {"pos": pos, "kcount": {k: len(v) for k, v in pos.items()}, "count": collections.Counter(stripped),
+         "set": set(stripped), "text": "\n".join(lines), "stripped": stripped, "spos": spos}
+    if len(_FACTS) > 32:
+        _FACTS.clear()
+    _FACTS[id(lines)] = (lines, f)
+    return f
+
+
+def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_check=True):
     """A PERSON ported this hunk by hand (not a model): the shape may differ from the patch, the meaning may not.
     Required: every specific removed line is gone (from the frame when it can be pinned, else the file); every
     distinctive token of the added lines (identifiers of 6+ chars, quoted strings) is present near the change;
@@ -1828,7 +1851,8 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     why = []
     # the whole file: a person may legitimately port the change into another function (the real case did)
     scope_after = after
-    have = {l.strip() for l in scope_after}
+    fa = _facts(after)
+    have = fa["set"]
     # a removed line is looked for file-wide only when it has identity of its own (a distinctive identifier, not a
     # comment): `color: inherit;` and a stylelint comment live in many rules, and a hand port of browser-shared.css
     # h7 was refused for copies in other rules (live run 16). Generic lines are judged inside the hunk's window.
@@ -1836,16 +1860,18 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     # the file has six times anchor nothing: browser-shared.css h7 was refused for copies 300 lines away)
     reach = len(hunk["lines"]) + GAP
     pins = [i for l in hunk["lines"] if l.startswith(" ") and _specific(_key(l[1:]))
-            for i in [[j for j, x in enumerate(after) if _key(x) == _key(l[1:])]] if len(i) == 1]
+            for i in [fa["pos"].get(_key(l[1:]), [])] if len(i) == 1]
     if pins:
         lo, hi = max(0, min(p[0] for p in pins) - reach), min(len(after), max(p[0] for p in pins) + reach)
     else:
         lo, hi = 0, len(after)
-    near = {l.strip() for l in after[lo:hi]}
+    whole = (lo, hi) == (0, len(after))
+    near = fa["set"] if whole else {l.strip() for l in after[lo:hi]}
     import collections
-    cb = collections.Counter(l.strip() for l in (pristine if pristine is not None else before))
-    ca = collections.Counter(l.strip() for l in after)
-    cn = collections.Counter(l.strip() for l in after[lo:hi])
+    fb = _facts(pristine if pristine is not None else before)
+    cb = fb["count"]
+    ca = fa["count"]
+    cn = ca if whole else collections.Counter(l.strip() for l in after[lo:hi])
     want_gone = collections.Counter(l.strip() for l in removed)
     kept = {x.strip() for x in keeps}
     moved = {_key(l) for l in added}                       # removed AND added back (a block moved): not a removal
@@ -1869,7 +1895,7 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     # a line that already existed before the edit cannot be the renamed form of a removed line (02 Oct: the
     # Remote Settings lock removed `: AppConstants.REMOTE_SETTINGS_SERVER_URLS[0];` and the check pointed at the
     # pre-existing `AppConstants.REMOTE_SETTINGS_SERVER_URLS.includes(...)` as its new name)
-    pre = {l.strip() for l in (pristine if pristine is not None else before)}
+    pre = fb["set"]
     # ... nor one the submit note declares (`keeps: <removed line>`): 2026-10-04, a removed `s == ...::Private;` was
     # matched to Gorilla's own earlier declaration of another variable a few lines above (not in pristine)
     # a run of lines that all existed before the edit is no rename either - judged only against a real earlier text
@@ -1878,13 +1904,15 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     for a, b in [(a, b) for a, b in renamed_near(after, hunk, removed, added, existing=old_lines)
                  if b.strip() not in pre and a.strip().rstrip(";") not in {k.rstrip(";") for k in kept}][:3]:   # hand_keeps splits on `;`
         why.append(f"line still there under new names: `{a[:60]}` is now `{b[:60]}`")
-    text_after = "\n".join(scope_after)
+    text_after = fa["text"]
     norm = lambda tok: tok.strip("\"'`").lstrip("_#$")       # `this._x`, `this.#x` and `lazy.x` are one name (live run 16)
     for l in added:
         for tok in _TOKEN.findall(l):
             if tok not in text_after and norm(tok) not in text_after:
                 why.append(f"the added text's {tok[:40]!r} is nowhere near the change")
                 break
+    if not collateral_check:            # hand_port_holds drops these findings: no whole-file diff for them
+        return why
     # removals outside the hunk are collateral whatever the shape of the port: every new line is 'allowed', and
     # a removed line is allowed when it shares a distinctive token with the hunk (`message.targeting =` next to
     # the hunk's `targeting:`); a removed line with no such token (`other() {`) is damage
@@ -1911,7 +1939,8 @@ def hand_port_holds(now, hunk, pristine=None, keeps=()):
     the final re-check for steps done by hand (live run 16: the literal verifier reopened four hand ports, the tiers
     re-ran on them and one Fluent port removed the owner's moved message a second time). With `pristine` (the
     upstream file) removals are judged by count, pristine -> now."""
-    return [w for w in hand_port_check(pristine if pristine is not None else now, now, hunk, pristine, keeps)
+    return [w for w in hand_port_check(pristine if pristine is not None else now, now, hunk, pristine, keeps,
+                                       collateral_check=False)
             if not w.startswith("you removed")]
 
 
