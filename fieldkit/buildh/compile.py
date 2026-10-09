@@ -204,6 +204,9 @@ def verify(task_id, run_binary=True):
                                                 pinned=buildstamp.pinned_build_date(_root) if _root else None)
         rows.extend(srows)
         rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None, register=aboutpages.register_for(t))["rows"])
+        # the removed pages are gone from the browser itself (removedpages.py, D-157-40)
+        from . import removedpages
+        rows.extend(removedpages.rows(dist / "bin", aboutpages.register_for(t), say=lambda m: None))
         # Satellite mode, every level and every kind of site (satellite.py: probes satellite-mobile, satellite-calls)
         from . import satellite
         rows.extend(satellite.rows(dist / "bin", say=lambda m: None))

@@ -377,6 +377,54 @@ def sweep_excised_dist(dist_bin, say):
     return removed
 
 
+def decided_absent(owner_root):
+    """Every omni_absent prefix of the owner's enforced decisions -> sorted list (the package must hold none)."""
+    try:
+        from . import decisions
+        reg = decisions.load(owner_root)
+    except Exception:
+        return []
+    entries = reg.get("entries") or []
+    out = set()
+    for e in entries or []:
+        if not isinstance(e, dict) or e.get("status") != "enforced":
+            continue
+        for c in e.get("verify") or []:
+            if isinstance(c, dict) and isinstance(c.get("omni_absent"), list):
+                out.update(str(x) for x in c["omni_absent"] if x)
+    return sorted(out)
+
+
+def sweep_decided_absent(dist_bin, prefixes, say):
+    """Delete, under dist/bin and dist/bin/browser, every file or folder a decided-absent prefix names (a prefix may
+    end inside a name: `chrome/browser/content/browser/blockedSite` covers blockedSite.js and blockedSite.xhtml).
+    2026-10-09: the D-157-40 pages' files, dropped from their jar.mn, were still in dist/bin from earlier builds and
+    were packaged; the decision failed after install. -> [removed]."""
+    import shutil
+    removed = []
+    for pre in prefixes:
+        rel = pre.rstrip("/")
+        head, _, stem = rel.rpartition("/")
+        for base in (Path(dist_bin), Path(dist_bin) / "browser"):
+            parent = base / head if head else base
+            if not parent.is_dir():
+                continue
+            for p in parent.iterdir():
+                if not p.name.startswith(stem):
+                    continue
+                if pre.endswith("/") and not p.is_dir():
+                    continue
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                    removed.append(str(p.relative_to(dist_bin)).replace("\\", "/") + "/")
+                else:
+                    p.unlink()
+                    removed.append(str(p.relative_to(dist_bin)).replace("\\", "/"))
+    if removed:
+        say(f"  dist/bin sweep: {len(removed)} path(s) a decision declares absent removed before packaging: {removed[:3]}")
+    return removed
+
+
 def deleted_sources(workdir):
     """Every file the tree has deleted since its pristine root, by history (a file Gorilla added and later removed is
     in no pristine..HEAD diff), and that does not exist again. -> {basename: [paths]}"""
@@ -745,6 +793,9 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
             od = _objdir(mozconfig_path(root))
             if od:
                 swept = sweep_excised_dist(Path(od) / "dist" / "bin", say) + sweep_deleted_dist(od, t["workdir"], say)
+                owner = _owner_root(t)
+                if owner:
+                    swept += sweep_decided_absent(Path(od) / "dist" / "bin", decided_absent(owner), say)
                 if swept:
                     task.journal(t, "dist-sweep", removed=swept[:20])
             # the installer's outer icon lives in a vendored 7-Zip stub consumed at package time: brand it first

@@ -87,6 +87,7 @@ groups:
       - buildh/aboutregistry.py
       - buildh/hiddendocs.py
       - buildh/releasecover.py
+      - buildh/removedpages.py
       - buildh/buildstamp.py
       - buildh/satellite.py
       - buildh/window.py

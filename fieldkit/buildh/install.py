@@ -558,7 +558,10 @@ def _about_rows(t, target, say=print):
     """Every about: page read and judged on a copy of the install (fieldkit buildh/aboutpages.py; born 2026-10-08),
     and held against the owner's reviewed register of pages (D-157-40)."""
     from . import aboutpages
-    return aboutpages.rows(target, (installed(target) or {}).get("build_id"), say=say, register=aboutpages.register_for(t))
+    from . import removedpages
+    reg = aboutpages.register_for(t)
+    return aboutpages.rows(target, (installed(target) or {}).get("build_id"), say=say, register=reg) + \
+        removedpages.rows(target, reg, say=say)
 
 
 def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, drive=False, sleep=time.sleep):
