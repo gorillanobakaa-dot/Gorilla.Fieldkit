@@ -192,6 +192,10 @@ def verify(task_id, run_binary=True):
                 if s.get("post_build") and s["status"] not in ("done", "obsolete"):
                     s["status"], s["done_by"] = "done", "build-verify"
             task.save(t)
+    # time bombs (timebombs.py, D-157-42): a build whose built-in security lists switch off within six weeks of the
+    # day it is made is not worth installing; refresh them first (build-harness lists-refresh)
+    from . import timebombs
+    rows.extend(timebombs.rows(wd))
     # after the build, before any install: the browser that came out, read the way post-install reads the installed
     # one (owner 2026-10-08: checks "to be run before or after the build ... preferably both so we can catch the
     # mistakes"): its build stamp, and every about: page (blank pages, missing strings, script errors, requests)

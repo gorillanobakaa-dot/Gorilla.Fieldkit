@@ -655,6 +655,30 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "timebombs":
+        # timebombs TASK [margin=42] [at=YYYY-MM-DD]: every date compiled into the tree that switches a protection off,
+        # judged against `at` plus `margin` days (timebombs.py, D-157-42)
+        import datetime as _dt
+        from . import timebombs as tb
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        at = _dt.date.fromisoformat(opts["at"]) if opts.get("at") else None
+        rows = tb.rows(task.load(tid)["workdir"], at=at, margin=int(opts.get("margin", tb.MARGIN_DAYS)))
+        for row in rows:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        print("TIME BOMBS " + ("OK" if all(r["ok"] for r in rows) else "NOT OK"))
+        return 0 if all(r["ok"] for r in rows) else 3
+    if act == "lists-refresh":
+        # lists-refresh TASK [ref=main] [write=1]: the HSTS preload, key-pin and CT log lists from the upstream
+        # repository, taken only when pure data and fresher; record them afterwards (timebombs.py, D-157-42)
+        from . import timebombs as tb
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        res = tb.refresh(task.load(tid)["workdir"], ref=opts.get("ref", "main"), write=opts.get("write") == "1")
+        for row in res["rows"]:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        if res["written"]:
+            print(f"  written: {', '.join(res['written'])} (from {res['source']}); now: fieldkit build-harness record {tid}")
+        print("LISTS " + ("FRESH" if all(r["ok"] for r in res["rows"]) else "NOT TAKEN"))
+        return 0 if all(r["ok"] for r in res["rows"]) else 3
     if act == "about-registry":
         # about-registry TASK [--json]: every about: page the source can register (tree and pristine upstream), what
         # the newest full reading of a build registered, and the owner's verdict (aboutregistry.py, D-157-40)

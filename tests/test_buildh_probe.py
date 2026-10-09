@@ -37,7 +37,8 @@ def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     from fieldkit.buildh import releasecheck as rc, task, buildrun, install
     outs = {"techniques": (0, "OK   T-1"), "decisions": (0, "DECISIONS OK (strict)"), "replay": (3, "REPLAY FAILED: 1"),
             "claims": (0, '{"totals": {"claims": 1, "CONTRADICTED": 0, "STALE": 0, "UNPROVEN": 1, "patches": 1, "patches_failing": 0}}'),
-            "hidden-pages-doc": (0, "HIDDEN-PAGES DOC OK"), "release-cover": (0, "RELEASE PAGE COVERS EVERYTHING")}
+            "hidden-pages-doc": (0, "HIDDEN-PAGES DOC OK"), "release-cover": (0, "RELEASE PAGE COVERS EVERYTHING"),
+            "timebombs": (0, "TIME BOMBS OK")}
     monkeypatch.setattr(rc, "_run", lambda args, timeout=0: outs[args[0]])
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {"upstream": {"version": "157.0"}}})
     (tmp_path / "state").mkdir()

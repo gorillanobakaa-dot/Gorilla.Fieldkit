@@ -63,6 +63,9 @@ def run(task_id, say=print, skip_post_install=False):
     row("techniques", rc == 0, _tail(out, 4), f"fieldkit build-harness techniques {task_id}  (apply each UNGUARDED place)")
     rc, out = _run(["decisions", task_id, "--strict"])
     row("decisions (strict)", rc == 0 and "DECISIONS OK" in out, _tail(out, 2), "the maintainer decides; a pending entry needs its check")
+    rc, out = _run(["timebombs", task_id])
+    row("time bombs", rc == 0 and "TIME BOMBS OK" in out, _tail(out, 4),
+        f"fieldkit build-harness lists-refresh {task_id} write=1, record, rebuild (D-157-42)")
     rc, out = _run(["replay", task_id])
     row("replay", rc == 0 and "REPLAY OK" in out, _tail(out, 3), f"fieldkit build-harness export-hand {task_id}, then replay again")
     rc, out = _run(["claims", task_id, "--json"])
