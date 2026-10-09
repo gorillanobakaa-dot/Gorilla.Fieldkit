@@ -668,6 +668,17 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "calibrate":
+        # calibrate TASK [only=<fault id>,...]: every check passes the known-good package and fails a copy broken in
+        # the way it guards against (calibrate.py)
+        from . import calibrate as cal
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        only = set(opts["only"].split(",")) if opts.get("only") else None
+        res = cal.run(tid, only=only, say=lambda m: print(m, flush=True))
+        for row in res["rows"][:1]:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        print("CALIBRATION " + ("OK" if all(r["ok"] for r in res["rows"]) else "NOT OK"))
+        return 0 if all(r["ok"] for r in res["rows"]) else 3
     if act == "timebombs":
         # timebombs TASK [margin=42] [at=YYYY-MM-DD]: every date compiled into the tree that switches a protection off,
         # judged against `at` plus `margin` days (timebombs.py, D-157-42)

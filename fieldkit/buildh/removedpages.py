@@ -82,13 +82,15 @@ def judge(names, files, got, done):
     return rows
 
 
-def rows(install_dir, register, say=print, timeout=300, **change):
-    """Probe a copy of `install_dir` -> rows; fails closed without a register."""
+def rows(install_dir, register, say=print, timeout=300, files=None, **change):
+    """Probe a copy of `install_dir` -> rows; fails closed without a register. `files`: the chrome:// addresses that
+    must not open (default CHROME_FILES; calibration adds one that exists, calibrate.py)."""
     if not register or not Path(register).is_file():
         return [{"check": "removed pages: the register is there", "ok": False, "evidence": f"no register at {register}"}]
     from . import probe as pb
     names = removed(register)
-    addresses = ["about:" + n for n in names] + CHROME_FILES
+    files = CHROME_FILES if files is None else list(files)
+    addresses = ["about:" + n for n in names] + files
     r = pb.run(install_dir, str(probe_file(addresses)), wait=10, timeout=timeout, say=say, **change)
     got, done = parse(r["lines"])
-    return judge(names, CHROME_FILES, got, done)
+    return judge(names, files, got, done)

@@ -91,6 +91,7 @@ groups:
       - buildh/tabborders.py
       - buildh/pkgproof.py
       - buildh/timebombs.py
+      - buildh/calibrate.py
       - buildh/buildstamp.py
       - buildh/satellite.py
       - buildh/window.py
