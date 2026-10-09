@@ -44,3 +44,30 @@ def test_read_log_reads_utf8_and_the_old_utf16_logs(tmp_path):
     old = tmp_path / "old.log"      # Tee-Object's UTF-16 with Add-Content's UTF-8 exit line after it (before 2026-10-08)
     old.write_bytes("build gate passed\r\n".encode("utf-16") + b"exit 3\r\n")
     assert window.read_log(old) == "build gate passed\r\nexit 3\r\n"
+
+
+
+def test_the_window_keeps_the_machine_awake_only_while_the_command_runs(tmp_path):
+    """2026-10-09: a build sat in its gate all night while the laptop slept. The window asks Windows not to idle-sleep
+    (ES_CONTINUOUS|ES_SYSTEM_REQUIRED) before the command and releases it (ES_CONTINUOUS alone) after it."""
+    s = window.script(["build-run", "t"], tmp_path / "x.log", python="p")
+    on, run, off = s.index("'0x80000001'"), s.index("-m fieldkit build-harness"), s.index("'0x80000000'")
+    assert s.index("SetThreadExecutionState(uint esFlags)") < on < run < off < s.index("$log.Close()")
+
+
+def test_awake_holds_until_the_process_exits_and_refuses_one_not_running(monkeypatch):
+    class R:
+        def __init__(self, out): self.stdout = out
+    seen = []
+    def run(cmd, **kw):
+        seen.append(cmd[-1])
+        return R("yes") if "Get-Process" in cmd[-1] else R("0 777")
+    assert window.hold_awake(4242, run=run) == {"pid": 777}
+    assert "Win32_Process -MethodName Create" in seen[1] and "-WindowStyle Hidden" in seen[1]
+    s = window.awake_script(4242)
+    assert s.index("'0x80000001'") < s.index("Wait-Process -Id 4242") < s.index("'0x80000000'")
+    try:
+        window.hold_awake(4242, run=lambda cmd, **kw: R(""))
+        assert False, "should refuse"
+    except task.Refused as e:
+        assert "not running" in str(e)

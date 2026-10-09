@@ -9,6 +9,13 @@ created by Windows itself (WMI Win32_Process.Create), so the owner can watch it 
 happens to the session, the way `screen` keeps a job on Linux. Everything it prints also goes to a log file
 (state/windows/<stamp>-<command>.log) that ends with "exit <code>"; the window stays open afterwards (-NoExit).
 -> {"pid", "log"}. Windows only.
+
+The machine is kept awake while the command runs (2026-10-09: a build started at 00:13 sat in its gate all night while
+the laptop went to standby and sleep - 570 CPU-seconds in seven and a half hours). The window asks Windows not to
+idle-sleep (SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED, the request a video player makes; no setting
+is changed) and clears the request when the command ends. A closed lid or a chosen Sleep still sleeps.
+
+    fieldkit build-harness awake <pid>     the same request for a run already going, until that process exits
 """
 import base64
 import re
@@ -33,6 +40,12 @@ def _ps_quote(s):
     return "'" + str(s).replace("'", "''") + "'"
 
 
+AWAKE_TYPE = ("Add-Type -Namespace GorillaHarness -Name Power -MemberDefinition "
+              "'[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint esFlags);'")
+AWAKE_ON = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000001')"     # ES_CONTINUOUS|SYSTEM_REQUIRED
+AWAKE_OFF = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000000')"    # ES_CONTINUOUS: release
+
+
 def script(args, log, python=None):
     """The PowerShell the window runs (UTF-8 throughout; every line to the log too, as it comes; the exit code at the
     end). Not Tee-Object: in Windows PowerShell 5.1 it writes UTF-16 and has no -Encoding (2026-10-08: a build log
@@ -48,13 +61,38 @@ def script(args, log, python=None):
         f"Set-Location {_ps_quote(FK)}",
         f"$log = New-Object System.IO.StreamWriter({_ps_quote(log)}, $true, (New-Object System.Text.UTF8Encoding($false)))",
         "$log.AutoFlush = $true",
+        AWAKE_TYPE,
+        AWAKE_ON,
         f"& {_ps_quote(python)} -m fieldkit build-harness {argv} 2>&1 | ForEach-Object {{ $s = \"$_\"; $log.WriteLine($s); $s }}",
         "$code = $LASTEXITCODE",
+        AWAKE_OFF,
         "$log.WriteLine('exit ' + $code)",
         "$log.Close()",
         "Write-Host ''",
         f"Write-Host ('Finished with exit ' + $code + '. Log: ' + {_ps_quote(log)})",
     ])
+
+
+def awake_script(pid):
+    """PowerShell that keeps the machine from idle-sleeping until process `pid` exits, then releases the request."""
+    return "\n".join([AWAKE_TYPE, AWAKE_ON, f"Wait-Process -Id {int(pid)} -ErrorAction SilentlyContinue", AWAKE_OFF])
+
+
+def hold_awake(pid, run=subprocess.run):
+    """Start (through WMI, so it outlives the session) a hidden PowerShell holding the stay-awake request until `pid`
+    exits -> {"pid": the holder's pid}; refuses a pid that is not running."""
+    chk = run(["powershell", "-NoProfile", "-Command", f"if (Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue) {{ 'yes' }}"],
+              capture_output=True, text=True, timeout=60).stdout.strip()
+    if chk != "yes":
+        raise task.Refused(f"process {pid} is not running")
+    enc = base64.b64encode(awake_script(pid).encode("utf-16-le")).decode("ascii")
+    cl = f"powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand {enc}"
+    ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=" + _ps_quote(cl)
+          + "}; Write-Output ($r.ReturnValue.ToString() + ' ' + $r.ProcessId)")
+    parts = run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
+    if len(parts) != 2 or parts[0] != "0":
+        raise task.Refused(f"Windows did not start the stay-awake holder ({' '.join(parts) or 'nothing'})")
+    return {"pid": int(parts[1])}
 
 
 def read_log(path):

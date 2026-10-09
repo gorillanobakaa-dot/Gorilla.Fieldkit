@@ -444,6 +444,14 @@ def run(a, emit):
         r = window.launch(list(a.args))
         print(f"started in its own window (PID {r['pid']}); everything it prints is also in {r['log']}")
         return 0
+    if act == "awake":
+        # awake PID: keep the machine from idle-sleeping until that process exits (a run started without the window)
+        from . import window
+        if not a.args or not a.args[0].isdigit():
+            raise task.Refused("awake PID: the process to stay awake for")
+        r = window.hold_awake(int(a.args[0]))
+        print(f"staying awake until process {a.args[0]} exits (holder PID {r['pid']}); a closed lid or Sleep still sleeps")
+        return 0
     if act == "latest":
         return emit(upstream.latest(a.args[0]), None) or 0
     if act == "probe-compare":

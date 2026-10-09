@@ -449,7 +449,8 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | Every about: page the source can register (tree and upstream), what the last build registered, and the owner's verdict from decisions/ABOUT-PAGES.yaml; the register is enforced before the build (D-157-40) and after it (about-pages) | `fieldkit build-harness about-registry TASK` |
 | Every hidden about: page explained, with its picture: English (both tracks, published) and Romanian, rendered from one source and checked against the research (also in release-check) | `fieldkit build-harness hidden-pages-doc TASK [write=1]` |
 | What a change costs or saves in RAM and CPU, page by page | `fieldkit build-harness weigh TASK` |
-| Run a long build-harness command like `screen`: its own visible window, started by Windows, survives the session, logged | `fieldkit build-harness window build-run TASK` |
+| Run a long build-harness command like `screen`: its own visible window, started by Windows, survives the session, logged, and the machine kept from idle-sleeping until it ends | `fieldkit build-harness window build-run TASK` |
+| Keep the machine from idle-sleeping until a run already going ends | `fieldkit build-harness awake PID` |
 | Satellite mode judged: identity and scripts per level and per kind of site, call sites included (also after every build and install) | `fieldkit build-harness satellite TASK` |
 | Help > About carries the build stamp; build-verify and post-install hold it to the build that was made | `buildstamp.py` (rows in build-verify and post-install `stamp`) |
 | Write or check the dual-track documentation | `fieldkit docs plan / prep / render / check` |
