@@ -31,15 +31,27 @@ function dump(state, tab) {
 }
 dump("active", first);
 dump("inactive", second);
-// under the mouse: the :hover rules apply only to a real pointer, so the hover state is read from the rule text
-for (const sheet of win.document.styleSheets) {
-  let rules;
-  try { rules = sheet.cssRules; } catch (e) { continue; }
+// under the mouse: the :hover rules apply only to a real pointer, so the hover state is read from the rule text.
+// The walk follows @import and grouping rules (@media, @layer, @supports): master-redirect.css arrives by @import,
+// and a flat walk saw none of its rules (2026-10-09).
+const seen = new Set();
+function walk(rules, href) {
   for (const rule of rules) {
+    if (rule.styleSheet) { visit(rule.styleSheet); continue; }
+    if (rule.cssRules && !rule.selectorText) { walk(rule.cssRules, href); continue; }
     const t = rule.cssText || "";
     if (/tabbrowser-tab:not\(\[selected\]\)(:hover)?[^{]*\.tab-background/.test(t) && /outline|border|box-shadow/.test(t)) {
-      say(`TAB|rule|${(sheet.href || "inline").split("/").pop()}|${t.replace(/\s+/g, " ").slice(0, 300)}`);
+      say(`TAB|rule|${(href || "inline").split("/").pop()}|${t.replace(/\s+/g, " ").slice(0, 300)}`);
     }
   }
 }
+function visit(sheet) {
+  if (!sheet || seen.has(sheet)) { return; }
+  seen.add(sheet);
+  let rules;
+  try { rules = sheet.cssRules; } catch (e) { return; }
+  walk(rules, sheet.href);
+}
+for (const sheet of win.document.styleSheets) { visit(sheet); }
+say(`TAB|sheets|walked|${seen.size}`);
 win.gBrowser.removeTab(second);

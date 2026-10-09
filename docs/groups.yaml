@@ -88,6 +88,7 @@ groups:
       - buildh/hiddendocs.py
       - buildh/releasecover.py
       - buildh/removedpages.py
+      - buildh/tabborders.py
       - buildh/buildstamp.py
       - buildh/satellite.py
       - buildh/window.py

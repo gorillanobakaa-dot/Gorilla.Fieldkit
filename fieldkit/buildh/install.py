@@ -533,8 +533,8 @@ def _visual_row(t, target, say=print):
 
 def _ui_rows(t, target, say=print):
     """Readable, working menus and Gorilla Settings controls (fieldkit buildh/uicheck.py; born 2026-10-04)."""
-    from . import uicheck
-    return uicheck.rows(t["workdir"], target, say=say)
+    from . import uicheck, tabborders
+    return uicheck.rows(t["workdir"], target, say=say) + tabborders.rows(target, say=say)
 
 
 def _stamp_rows(task_id, target, say=print):
