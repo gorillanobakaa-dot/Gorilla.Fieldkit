@@ -1488,9 +1488,12 @@ def renamed_form(lines, removed, lo=0, hi=None, exclude=()):
     return c[0][0] if c else None
 
 
-def renamed_pairs(lines, removed, lo=0, hi=None, exclude=()):
+def renamed_pairs(lines, removed, lo=0, hi=None, exclude=(), existing=None):
     """-> [(removed line, file text)] for the removed lines present only in renamed form; `exclude` is the hunk's
-    added lines (a changed value is the hunk's result, not a rename)."""
+    added lines (a changed value is the hunk's result, not a rename). `existing`: lines that were there before the
+    edit; a run made only of them is no rename (2026-10-09, D-157-40: a removed about: table entry's flag line
+    `nsIAboutModule::HIDE_FROM_ABOUTABOUT | nsIAboutModule::ALLOW_SCRIPT |` was matched to two flag lines of another
+    entry joined together - each line old, the joined text new - and the gate called three removals undone)."""
     have = {l.strip() for l in lines[lo:hi]}
     out = []
     for r in removed:
@@ -1498,6 +1501,8 @@ def renamed_pairs(lines, removed, lo=0, hi=None, exclude=()):
         if not k or TRIVIAL.match(k) or k in have:
             continue
         c = renamed_candidates(lines, r, lo, hi, exclude)
+        if existing is not None:
+            c = [(i, n) for i, n in c if not all(lines[j].strip() in existing for j in range(i, i + n))]
         if c:
             i, n = c[0]
             out.append((k, " ".join(l.strip() for l in lines[i:i + n])))
@@ -1512,11 +1517,11 @@ def rename_window(lines, hunk):
     return (max(0, frame[0] - reach), min(len(lines), frame[1] + reach)) if frame else None
 
 
-def renamed_near(lines, hunk, removed, added=()):
+def renamed_near(lines, hunk, removed, added=(), existing=None):
     """renamed_pairs inside the hunk's window; [] when the hunk cannot be pinned (a file-wide search called other
     rules' declarations 'renamed', live run 16)."""
     win = rename_window(lines, hunk)
-    return renamed_pairs(lines, removed, *win, exclude=added) if win else []
+    return renamed_pairs(lines, removed, *win, exclude=added, existing=existing) if win else []
 
 
 def renamed_removal(body, hunk, notes=None):
@@ -1867,7 +1872,10 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=()):
     pre = {l.strip() for l in (pristine if pristine is not None else before)}
     # ... nor one the submit note declares (`keeps: <removed line>`): 2026-10-04, a removed `s == ...::Private;` was
     # matched to Gorilla's own earlier declaration of another variable a few lines above (not in pristine)
-    for a, b in [(a, b) for a, b in renamed_near(after, hunk, removed, added)
+    # a run of lines that all existed before the edit is no rename either - judged only against a real earlier text
+    # (with neither pristine nor a separate `before`, `pre` is the file itself and would hide every rename)
+    old_lines = pre if (pristine is not None or before is not after) else None
+    for a, b in [(a, b) for a, b in renamed_near(after, hunk, removed, added, existing=old_lines)
                  if b.strip() not in pre and a.strip().rstrip(";") not in {k.rstrip(";") for k in kept}][:3]:   # hand_keeps splits on `;`
         why.append(f"line still there under new names: `{a[:60]}` is now `{b[:60]}`")
     text_after = "\n".join(scope_after)
