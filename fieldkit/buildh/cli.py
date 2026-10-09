@@ -668,6 +668,20 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "stops":
+        # stops TASK [since=YYYY-MM-DD]: every window run that did not pass, classified - the browser, the check or the
+        # machine - and each check's false alarms (stops.py)
+        import datetime as _dt
+        from . import stops as st
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        since = _dt.datetime.fromisoformat(opts["since"]) if opts.get("since") else _dt.datetime.now() - _dt.timedelta(days=7)
+        r = st.run(tid, since=since)
+        for s in r["stops"]:
+            print(f"  {s['at']}  {s['cmd']:13} {s['check']:16} {s['verdict']:12} {s['evidence']}")
+        print("  per check: " + "; ".join(f"{k} {v['stops']} stop(s), {v['false alarms']} false alarm(s)"
+                                          for k, v in sorted(r["by_check"].items())))
+        print(f"STOPS: {len(r['stops'])} of {r['runs']} run(s) since {since:%Y-%m-%d}")
+        return 0
     if act == "calibrate":
         # calibrate TASK [only=<fault id>,...]: every check passes the known-good package and fails a copy broken in
         # the way it guards against (calibrate.py)

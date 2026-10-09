@@ -92,6 +92,7 @@ groups:
       - buildh/pkgproof.py
       - buildh/timebombs.py
       - buildh/calibrate.py
+      - buildh/stops.py
       - buildh/buildstamp.py
       - buildh/satellite.py
       - buildh/window.py
