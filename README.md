@@ -195,6 +195,9 @@ it, install it, and prove it does not talk to anyone it should not. They were bu
 browser, but the lesson applies to any big build: **a build that finished is not a browser that
 works, and a browser that works is not a browser that keeps your secrets.** Each step must be proven.
 
+What this whole machine is, why it exists, who else does similar work and how much it does, with the
+numbers: **[The build harness, explained](docs/THE-BUILD-HARNESS-EXPLAINED.md)**.
+
 ### 7. Porting a new Firefox release
 
 1. Fieldkit fetches the untouched source of the latest stable Firefox from Mozilla's own release
