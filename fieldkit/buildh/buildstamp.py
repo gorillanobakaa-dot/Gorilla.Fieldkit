@@ -47,14 +47,15 @@ def when(bid):
 
 def parse(lines):
     """Probe build-stamp lines -> {"buildid", "expected", "shown", "ok", "why"}."""
-    out = {"buildid": None, "expected": None, "shown": None, "ok": False, "why": "the probe reported nothing"}
+    out = {"buildid": None, "expected": None, "shown": None, "number": None, "idline": None, "ok": False,
+           "why": "the probe reported nothing"}
     for l in lines:
         f = l.strip().split("|")
         if len(f) < 3 or f[0] != "STAMP":
             continue
         if f[1] == "verdict":
             out["ok"], out["why"] = f[2] == "ok", (f[3] if len(f) > 3 else "")
-        elif f[1] in ("buildid", "expected", "shown"):
+        elif f[1] in ("buildid", "expected", "shown", "number", "idline"):
             out[f[1]] = f[2]
     return out
 
@@ -73,6 +74,12 @@ def about_rows(app_dir, recorded=None, say=print, timeout=120):
     ok = got["ok"] and got["buildid"] == bid and got["shown"] is not None and got["shown"].endswith(stamp(bid) or "\0")
     rows.append({"check": "stamp: Help > About shows when this build was made (D-157-38)", "ok": ok,
                  "evidence": f"shown '{got['shown']}', BuildID {bid}" + ("" if ok else f"; {got['why']}")})
+    # 2026-10-09: the build number, and the BuildID itself under the line, so the owner can match an install to a report
+    number = int(got["number"]) if (got["number"] or "").isdigit() else 0
+    ok2 = ok and number > 0 and got["idline"] == f"Build ID {bid}"
+    rows.append({"check": "stamp: Help > About shows the build number and the Build ID (D-157-38)", "ok": ok2,
+                 "evidence": f"build {number or '(none)'}; line under it '{got['idline']}'"
+                             + ("" if ok2 else f"; want 'Build ID {bid}' and a build number")})
     return rows
 
 

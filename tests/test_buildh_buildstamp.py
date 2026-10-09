@@ -19,17 +19,18 @@ def test_stamp_reads_the_build_id_as_year_to_second():
 
 def test_the_about_line_must_end_with_this_folders_stamp(monkeypatch, tmp_path):
     app = _app(tmp_path, "20261008103725")
-    lines = ["STAMP|buildid|20261008103725", "STAMP|expected|built 26:10:08:10:37:25",
-             "STAMP|shown|157.0 (64-bit) built 26:10:08:10:37:25", "STAMP|verdict|ok|the version line carries this build's stamp"]
+    lines = ["STAMP|buildid|20261008103725", "STAMP|expected|built 26:10:08:10:37:25", "STAMP|number|28",
+             "STAMP|shown|157.0 (64-bit) build 28, built 26:10:08:10:37:25", "STAMP|idline|Build ID 20261008103725",
+             "STAMP|verdict|ok|the version line carries this build's stamp"]
     monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": lines})
     rows = bs.about_rows(app, recorded="20261008103725")
-    assert [r["ok"] for r in rows] == [True, True]
+    assert [r["ok"] for r in rows] == [True, True, True]
     rows = bs.about_rows(app, recorded="20261007110752")              # the install is not the build that was checked
     assert rows[0]["check"].startswith("stamp: this is the build") and not rows[0]["ok"]
     old = ["STAMP|buildid|20261008103725", "STAMP|shown|157.0 (64-bit)", "STAMP|verdict|FAIL|expected the line to end with 'built 26:10:08:10:37:25'"]
     monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": old})
     r = bs.about_rows(app)
-    assert len(r) == 1 and not r[0]["ok"] and "157.0 (64-bit)" in r[0]["evidence"]
+    assert len(r) == 2 and not r[0]["ok"] and not r[1]["ok"] and "157.0 (64-bit)" in r[0]["evidence"]
 
 
 def test_built_rows_need_a_build_id_newer_than_the_gate(monkeypatch, tmp_path):
@@ -72,3 +73,28 @@ def test_a_reproducible_pin_is_this_build_when_the_package_is_newer_than_the_gat
 def test_the_probe_reads_the_about_window_the_menu_opens():
     js = (bs.Path(bs.__file__).parent / "probes" / "build-stamp.js").read_text(encoding="utf-8")
     assert "openAboutDialog" in js and 'getMostRecentWindow("Browser:About")' in js and "about.close()" in js
+
+
+def test_about_rows_need_the_build_number_and_the_build_id_line(monkeypatch, tmp_path):
+    """2026-10-09: the owner could not match the About window to a reported BuildID; the window now says
+    'build 29, built ...' and 'Build ID <14 digits>' under it, and both are checked."""
+    app = _app(tmp_path, "20261009125107")
+    good = ["STAMP|buildid|20261009125107", "STAMP|number|29",
+            "STAMP|shown|157.0 (64-bit) build 29, built 26:10:09:12:51:07", "STAMP|idline|Build ID 20261009125107",
+            "STAMP|verdict|ok|fine"]
+    monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": good})
+    rows = bs.about_rows(app)
+    assert [r["ok"] for r in rows] == [True, True] and "build 29" in rows[1]["evidence"]
+    bad = [l if not l.startswith("STAMP|idline") else "STAMP|idline|(nothing)" for l in good]
+    monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": bad})
+    rows = bs.about_rows(app)
+    assert rows[0]["ok"] and not rows[1]["ok"] and "want 'Build ID 20261009125107'" in rows[1]["evidence"]
+    none = [l if not l.startswith("STAMP|number") else "STAMP|number|0" for l in good]
+    monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": none})
+    assert not bs.about_rows(app)[1]["ok"]
+
+
+def test_the_probe_reads_the_build_number_and_the_build_id_line():
+    js = (bs.Path(bs.__file__).parent / "probes" / "build-stamp.js").read_text(encoding="utf-8")
+    assert 'getIntPref("gorilla.build.number", 0)' in js and 'getElementById("gorilla-buildid")' in js
+    assert "Build ID ${id}" in js
