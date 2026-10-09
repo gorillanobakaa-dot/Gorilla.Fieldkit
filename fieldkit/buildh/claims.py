@@ -102,6 +102,10 @@ TELEMETRY_CLAIM = re.compile(
 DECISION_REF = re.compile(r"\bD-\d{3}-\d{2}\b")
 BUILD_FLAG = re.compile(r"(?<![\w-])--(disable|enable)-[a-z0-9][a-z0-9-]*[a-z0-9]")
 NEGATED_FLAG = re.compile(r"\b(no|not|never|without|isn't|doesn't|there is no|might expect|would expect|instead of)\b[^.;:]*$", re.I)
+# "unless `x` is true the page renders only...", "registered only when `x` is true", "tells you to set `x` to true":
+# a condition or an instruction names a value the code tests or a person would set, not the value Gorilla ships
+# (2026-10-09: four true sentences about upstream's switches, locked off in Gorilla, were CONTRADICTED)
+CONDITIONAL_PREF = re.compile(r"\b(unless|only (?:when|if)|if|when|whenever|whether|until|(?:you|to) set)\b[^.;:()]*$", re.I)
 PATHLIKE = re.compile(r"(?<![\w/.-])((?:[\w.-]+/)+[\w.@-]+\.(?:cpp|h|mjs|js|jsm|rs|py|ftl|css|ipdl|build|mn|json|yaml|toml|"
                       r"webidl|idl|xhtml|html|in|ini|c|cc|mm))\b")
 BACKTICK = re.compile(r"`([^`\s]{3,120})`")
@@ -877,6 +881,8 @@ def seed_evidence(claim, sc, prefs):
     for b in sorted(set(BACKTICK.findall(text))):
         if PREFNAME.match(b) and b in prefs:
             m = re.search(re.escape(b) + r"`?\s*(?:=|:|is|to)?\s*`?(true|false|-?\d+)\b", text)
+            if m and CONDITIONAL_PREF.search(text[max(0, m.start() - 80):m.start()]):
+                continue
             val = m.group(1) if m else None
             if val is None and prefs[b] in ("true", "false") and re.search(r"\b(off|disabled|false)\b", plain, re.I) \
                     and not re.search(r"\b(on|enabled|true)\b", plain, re.I):

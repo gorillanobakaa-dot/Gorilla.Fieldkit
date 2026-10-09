@@ -485,3 +485,17 @@ def test_a_sentence_that_says_a_flag_is_not_used_does_not_link_to_it():
     assert not any("mozconfig_has" in e for e in ev)
     ev = C.seed_evidence({"text": "The build uses --disable-default-browser-agent.", "source": "x.md", "line": 1}, sc, {})
     assert any("mozconfig_has" in e for e in ev)
+
+
+def test_a_condition_or_an_instruction_is_not_the_shipped_value():
+    # 2026-10-09: four true sentences about upstream's switches (locked false in Gorilla) were CONTRADICTED
+    sc = {"patches": [], "texts": {}, "groups": [], "targets": {}}
+    prefs = {"browser.referrals.enabled": "false", "browser.newtabpage.activity-stream.asrouter.devtoolsEnabled": "false"}
+    for text in ("- Unless `browser.newtabpage.activity-stream.asrouter.devtoolsEnabled` is true the page renders only a line.",
+                 "The actor is registered only when `browser.newtabpage.activity-stream.asrouter.devtoolsEnabled` is true.",
+                 "The page tells you to set the preference `browser.newtabpage.activity-stream.asrouter.devtoolsEnabled` to true.",
+                 "- Only `Referrals.openReferralsTab` (`a/b.sys.mjs:77-88`), which does nothing unless `browser.referrals.enabled` is true."):
+        ev = C.seed_evidence({"text": text, "source": "x.md", "line": 1}, sc, prefs)
+        assert not any("pref" in e for e in ev), text
+    ev = C.seed_evidence({"text": "Gorilla ships `browser.referrals.enabled` false, locked.", "source": "x.md", "line": 1}, sc, prefs)
+    assert {"pref": {"name": "browser.referrals.enabled", "value": "false", "locked": True}, "seeded": "auto"} in ev

@@ -60,6 +60,13 @@ def parse(lines):
     return out
 
 
+def identity_row(app_dir, recorded):
+    """The folder is the build build-verify recorded (application.ini; no browser started)."""
+    bid = build_id(app_dir)
+    return {"check": "stamp: this is the build the harness made and checked", "ok": bool(bid) and bid == recorded,
+            "evidence": f"BuildID {bid or '(none)'}; build-verify recorded {recorded or '(nothing)'}"}
+
+
 def about_rows(app_dir, recorded=None, say=print, timeout=120):
     """Rows for a built or installed browser folder: Help > About shows the stamp of THIS folder's BuildID; with
     `recorded` (the BuildID build-verify recorded), the folder is that build."""
@@ -67,8 +74,7 @@ def about_rows(app_dir, recorded=None, say=print, timeout=120):
     bid = build_id(app_dir)
     rows = []
     if recorded is not None:
-        rows.append({"check": "stamp: this is the build the harness made and checked", "ok": bool(bid) and bid == recorded,
-                     "evidence": f"BuildID {bid or '(none)'}; build-verify recorded {recorded or '(nothing)'}"})
+        rows.append(identity_row(app_dir, recorded))
     r = probe.run(app_dir, "build-stamp", wait=10, timeout=timeout, say=say)
     got = parse(r["lines"])
     ok = got["ok"] and got["buildid"] == bid and got["shown"] is not None and got["shown"].endswith(stamp(bid) or "\0")
@@ -142,7 +148,7 @@ def pinned_build_date(owner_root):
         return None
 
 
-def built_rows(objdir, gate_at, say=print, pinned=None):
+def built_rows(objdir, gate_at, say=print, pinned=None, about=True):
     """build-verify rows for dist/bin: a BuildID from THIS build, and the About line showing it -> (rows, BuildID).
     From this build = newer than the gate, or (2026-10-09) the reproducible pin the owner's build reused for an
     unchanged source (`pinned`, see pinned_build_date) with the package made after the gate: a build attempt stopped
@@ -164,5 +170,6 @@ def built_rows(objdir, gate_at, say=print, pinned=None):
         else:
             why += "; it is the pin, but no package newer than the gate: stale"
     rows = [{"check": "stamp: the built BuildID is from THIS build", "ok": fresh, "evidence": why}]
-    rows += about_rows(app, say=say)
+    if about:                 # build-verify reads the About window on the package instead (pkgproof.py, 2026-10-09)
+        rows += about_rows(app, say=say)
     return rows, bid

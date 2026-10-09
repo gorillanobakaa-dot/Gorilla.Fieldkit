@@ -89,7 +89,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
         (sd / f"{name}.py").write_text("import sys; print('args', sys.argv[1:]); sys.exit(0 if 'verify_no' not in sys.argv[0] else 2)\n", encoding="utf-8")
     monkeypatch.setattr(inst, "scripts_dir", lambda: sd)
     from fieldkit.buildh import proof
-    monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None: [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}])
+    monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None: [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}] if "startup" in which else [])
     monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
     from fieldkit.buildh import leaks
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
@@ -98,7 +98,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     monkeypatch.setattr(inst, "_visual_row", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "_ui_rows", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "_about_rows", lambda t, target, say=print: [])      # its own tests: test_buildh_aboutpages.py
-    monkeypatch.setattr(inst, "_stamp_rows", lambda task_id, target, say=print: [])  # its own tests: test_buildh_buildstamp.py
+    monkeypatch.setattr(inst, "_stamp_rows", lambda task_id, target, say=print, carried=None: [])  # its own tests: test_buildh_buildstamp.py
     monkeypatch.setattr(inst, "_satellite_rows", lambda target, say=print: [])     # its own tests: test_buildh_satellite.py
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
@@ -227,7 +227,7 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
             (sd / f"{name}.py").write_text("import sys; sys.exit(0)\n", encoding="utf-8")
     monkeypatch.setattr(inst, "scripts_dir", lambda: sd)
     from fieldkit.buildh import proof, leaks
-    monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None: [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}])
+    monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None: [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}] if "startup" in which else [])
     monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
@@ -235,7 +235,7 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
     monkeypatch.setattr(inst, "_visual_row", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "_ui_rows", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "_about_rows", lambda t, target, say=print: [])      # its own tests: test_buildh_aboutpages.py
-    monkeypatch.setattr(inst, "_stamp_rows", lambda task_id, target, say=print: [])  # its own tests: test_buildh_buildstamp.py
+    monkeypatch.setattr(inst, "_stamp_rows", lambda task_id, target, say=print, carried=None: [])  # its own tests: test_buildh_buildstamp.py
     monkeypatch.setattr(inst, "_satellite_rows", lambda target, say=print: [])     # its own tests: test_buildh_satellite.py
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")

@@ -537,14 +537,17 @@ def _ui_rows(t, target, say=print):
     return uicheck.rows(t["workdir"], target, say=say) + tabborders.rows(target, say=say)
 
 
-def _stamp_rows(task_id, target, say=print):
-    """The installed browser is the build build-verify recorded, and Help > About shows its stamp (D-157-38)."""
+def _stamp_rows(task_id, target, say=print, carried=None):
+    """The installed browser is the build build-verify recorded, and Help > About shows its stamp (D-157-38). With
+    `carried` (the About rows build-verify proved on the same files, pkgproof.py) only the BuildID is read here."""
     import json as _json
     from . import buildstamp
     res = task.STATE / task_id / "build-result.json"
     recorded = None
     if res.is_file():
         recorded = _json.loads(res.read_text(encoding="utf-8")).get("build_id") or ""
+    if carried is not None:
+        return [buildstamp.identity_row(target, recorded or "")] + carried
     return buildstamp.about_rows(target, recorded=recorded, say=say)
 
 
@@ -588,11 +591,39 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         deleted = firefox.manifest_deletions(t["meta"]["harness_root"]) if t.get("meta", {}).get("harness_root") else []
         from . import verify as vf
         truth = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]) if t.get("meta", {}).get("harness_root") else None
-        from . import leaks
-        for row in ([caches_row()] if "startup" in want else []) + proof.rows(t["workdir"], target, deleted, which=want, truth_root=truth) + (leaks.rows(target) if "leaks" in want else []) + (_decisions_row(t, target) if "decisions" in want else []) + (_visual_row(t, target, say) if "visual" in want else []) + (_claims_row(t, target) if "claims" in want else []) + (_ui_rows(t, target, say) if "ui" in want else []) + (_about_rows(t, target, say) if "about" in want else []) + (_stamp_rows(task_id, target, say) if "stamp" in want else []) + (_satellite_rows(target, say) if "satellite" in want else []):
-            say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
-            results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "status": "ok" if row["ok"] else "FAIL",
-                            "log": row.get("log"), "lines": row.get("bad", [])[:10]})
+        from . import leaks, pkgproof
+        # 2026-10-09: the checks that read only the browser's own files were proven by build-verify on the zip that
+        # ships; when the installed files are that zip byte for byte they are carried, not run again (pkgproof.py).
+        # Each group prints as it finishes and is timed (until then nothing printed before the last check ended).
+        carry_row, carry = pkgproof.carried(task.STATE / task_id, target, want=tuple(g for g in pkgproof.PACKAGE_GROUPS if g in want))
+        plan = [("carried", lambda: [carry_row])] if carry_row else []
+        if "startup" in want:
+            plan.append(("profiles", lambda: [caches_row()]))
+        for n in ("prefs", "excised", "startup", "egress", "adblock"):
+            if n in want:
+                plan.append((n, lambda n=n: proof.rows(t["workdir"], target, deleted, which=(n,), truth_root=truth)))
+        if "leaks" in want:
+            plan.append(("leaks", lambda: leaks.rows(target)))
+        if "decisions" in want:
+            plan.append(("decisions", lambda: _decisions_row(t, target)))
+        if "claims" in want:
+            plan.append(("claims", lambda: _claims_row(t, target)))
+        runs = {"visual": lambda: _visual_row(t, target, say), "ui": lambda: _ui_rows(t, target, say),
+                "about": lambda: _about_rows(t, target, say), "satellite": lambda: _satellite_rows(target, say),
+                "stamp": lambda: _stamp_rows(task_id, target, say, carried=carry.get("stamp"))}
+        for g in pkgproof.PACKAGE_GROUPS:
+            if g in want:
+                plan.append((g, (lambda g=g: carry[g]) if g in carry and g != "stamp" else runs[g]))
+        seconds = {}
+        for name, fn in plan:
+            t0 = time.time()
+            got = fn()
+            seconds[name] = round(time.time() - t0)
+            for row in got:
+                say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence'][:200]}")
+                results.append({"name": row["check"].split(":")[0], "rc": 0 if row["ok"] else 1, "status": "ok" if row["ok"] else "FAIL",
+                                "log": row.get("log"), "lines": row.get("bad", [])[:10], "seconds": seconds[name]})
+        say("  timings (seconds): " + ", ".join(f"{k} {v}" for k, v in seconds.items()) + f"; total {sum(seconds.values())}")
     for name, argv in POST_INSTALL:
         if only and name not in only:
             continue

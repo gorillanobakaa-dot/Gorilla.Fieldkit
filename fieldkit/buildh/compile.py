@@ -195,24 +195,24 @@ def verify(task_id, run_binary=True):
     # after the build, before any install: the browser that came out, read the way post-install reads the installed
     # one (owner 2026-10-08: checks "to be run before or after the build ... preferably both so we can catch the
     # mistakes"): its build stamp, and every about: page (blank pages, missing strings, script errors, requests)
-    built_id = None
+    built_id, package = None, None
     if run_binary and exe.is_file():
         from . import aboutpages, buildstamp
         from . import ownercheck as _oc
         _root = _oc._owner_root(t)
         srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None,
-                                                pinned=buildstamp.pinned_build_date(_root) if _root else None)
+                                                pinned=buildstamp.pinned_build_date(_root) if _root else None, about=False)
         rows.extend(srows)
-        rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None, register=aboutpages.register_for(t))["rows"])
-        # the removed pages are gone from the browser itself (removedpages.py, D-157-40)
-        from . import removedpages
-        rows.extend(removedpages.rows(dist / "bin", aboutpages.register_for(t), say=lambda m: None))
-        # Satellite mode, every level and every kind of site (satellite.py: probes satellite-mobile, satellite-calls)
-        from . import satellite
-        rows.extend(satellite.rows(dist / "bin", say=lambda m: None))
-        # every inactive tab outlined in cyan, nothing under the mouse (tabborders.py, D-157-37)
-        from . import tabborders
-        rows.extend(tabborders.rows(dist / "bin", say=lambda m: None))
+        # 2026-10-09: the checks that read only the browser's own files run ONCE, here, on the zip that ships (not on
+        # dist/bin, which held stale files the packager shipped); post-install carries them when the installed files
+        # are that zip byte for byte (pkgproof.py): the About stamp, every about: page and the removed ones, the
+        # menus and the tab outline, the visual check, Satellite mode
+        if found.get("zip"):
+            from . import pkgproof
+            package = pkgproof.prove(t, found["zip"][0], say=lambda m: None)
+            rows.extend(package["rows"])
+            row("check timings (seconds, package checks)", True,
+                ", ".join(f"{g} {s}" for g, s in package["seconds"].items()) + f"; total {sum(package['seconds'].values())}")
     if all(r["ok"] for r in rows):
         if built_id:
             from . import buildstamp
@@ -220,6 +220,8 @@ def verify(task_id, run_binary=True):
         res = {"task": task_id, "verified_at": time.strftime("%Y-%m-%d %H:%M:%S"), "tree": rec["tree"],
                "build_id": built_id,
                "artifacts": {k: {"file": str(v[0]), "sha256": _sha(v[0])} for k, v in found.items() if v}}
+        if package:
+            res["package"] = {"files": package["files"], "proven": package["proven"], "seconds": package["seconds"]}
         (task.STATE / task_id / "build-result.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     return rows
 
