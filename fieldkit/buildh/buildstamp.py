@@ -123,16 +123,39 @@ def head_of(task_id, bid, journal=None):
     return best
 
 
-def built_rows(objdir, gate_at, say=print):
-    """build-verify rows for dist/bin: a BuildID newer than the gate, and the About line showing it -> (rows, BuildID)."""
+def pinned_build_date(owner_root):
+    """The owner's reproducible-build pin (config/versions.lock.json build.moz_build_date) -> str or None. The owner's
+    build reuses it while the source fingerprint is unchanged, so an unchanged source keeps its BuildID."""
+    import json
+    try:
+        d = json.loads((Path(owner_root) / "config" / "versions.lock.json").read_text(encoding="utf-8"))
+        v = (d.get("build") or {}).get("moz_build_date")
+        return str(v) if v else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def built_rows(objdir, gate_at, say=print, pinned=None):
+    """build-verify rows for dist/bin: a BuildID from THIS build, and the About line showing it -> (rows, BuildID).
+    From this build = newer than the gate, or (2026-10-09) the reproducible pin the owner's build reused for an
+    unchanged source (`pinned`, see pinned_build_date) with the package made after the gate: a build attempt stopped
+    before compiling had pinned 10:34, the compile of the same source ran at 12:51, and the row called it stale."""
     app = Path(objdir) / "dist" / "bin"
     bid = build_id(app)
     t = when(bid)
     gate = datetime.datetime.fromtimestamp(gate_at) if gate_at else None
     # BuildID is set when the build starts its configure step, after the gate: allow two minutes of clock slack
     fresh = bool(t and gate and t >= gate - datetime.timedelta(minutes=2))
-    rows = [{"check": "stamp: the built BuildID is from THIS build", "ok": fresh,
-             "evidence": f"BuildID {bid or '(none)'} ({t or 'unreadable'}); gate at {gate:%Y-%m-%d %H:%M:%S}" if gate else
-                         f"BuildID {bid or '(none)'}; no gate time"}]
+    why = f"BuildID {bid or '(none)'} ({t or 'unreadable'}); gate at {gate:%Y-%m-%d %H:%M:%S}" if gate else \
+        f"BuildID {bid or '(none)'}; no gate time"
+    if not fresh and gate and bid and pinned and bid == str(pinned):
+        made = max((f.stat().st_mtime for f in (Path(objdir) / "dist").glob("*.zip")), default=0)
+        if made >= gate_at:
+            fresh = True
+            why += (f"; the reproducible pin for this unchanged source (config/versions.lock.json), packaged "
+                    f"{datetime.datetime.fromtimestamp(made):%H:%M:%S}, after the gate")
+        else:
+            why += "; it is the pin, but no package newer than the gate: stale"
+    rows = [{"check": "stamp: the built BuildID is from THIS build", "ok": fresh, "evidence": why}]
     rows += about_rows(app, say=say)
     return rows, bid

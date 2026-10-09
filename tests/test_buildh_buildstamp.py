@@ -43,6 +43,32 @@ def test_built_rows_need_a_build_id_newer_than_the_gate(monkeypatch, tmp_path):
     assert not rows[0]["ok"]
 
 
+
+def test_a_reproducible_pin_is_this_build_when_the_package_is_newer_than_the_gate(monkeypatch, tmp_path):
+    """2026-10-09: the owner's build reuses the BuildID pinned for an unchanged source; an attempt stopped before
+    compiling pinned 10:34, the compile ran after a 12:40 gate. The pin plus a package made after the gate is this
+    build; the pin with only an old package is stale; a BuildID that is not the pin stays stale."""
+    import json
+    import os
+    monkeypatch.setattr(bs, "about_rows", lambda app, recorded=None, say=print: [{"check": "stamp: about", "ok": True, "evidence": ""}])
+    _app(tmp_path / "dist", "20261009103433")
+    gate = time.mktime(time.strptime("20261009124058", "%Y%m%d%H%M%S"))
+    z = tmp_path / "dist" / "firefox-157.0.en-US.win64.zip"
+    z.write_bytes(b"zip")
+    os.utime(z, (gate + 1300, gate + 1300))
+    rows, _ = bs.built_rows(tmp_path, gate, pinned="20261009103433")
+    assert rows[0]["ok"] and "reproducible pin" in rows[0]["evidence"]
+    assert not bs.built_rows(tmp_path, gate, pinned="20261009090000")[0][0]["ok"]       # not the pin
+    assert not bs.built_rows(tmp_path, gate)[0][0]["ok"]                                  # no pin known
+    os.utime(z, (gate - 600, gate - 600))
+    rows, _ = bs.built_rows(tmp_path, gate, pinned="20261009103433")
+    assert not rows[0]["ok"] and "stale" in rows[0]["evidence"]
+    owner = tmp_path / "owner" / "config"
+    owner.mkdir(parents=True)
+    (owner / "versions.lock.json").write_text(json.dumps({"build": {"moz_build_date": "20261009103433"}}), encoding="utf-8")
+    assert bs.pinned_build_date(tmp_path / "owner") == "20261009103433"
+    assert bs.pinned_build_date(tmp_path / "nowhere") is None
+
 def test_the_probe_reads_the_about_window_the_menu_opens():
     js = (bs.Path(bs.__file__).parent / "probes" / "build-stamp.js").read_text(encoding="utf-8")
     assert "openAboutDialog" in js and 'getMostRecentWindow("Browser:About")' in js and "about.close()" in js

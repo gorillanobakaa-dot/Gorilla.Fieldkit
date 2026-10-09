@@ -198,7 +198,10 @@ def verify(task_id, run_binary=True):
     built_id = None
     if run_binary and exe.is_file():
         from . import aboutpages, buildstamp
-        srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None)
+        from . import ownercheck as _oc
+        _root = _oc._owner_root(t)
+        srows, built_id = buildstamp.built_rows(rec["objdir"], rec.get("at"), say=lambda m: None,
+                                                pinned=buildstamp.pinned_build_date(_root) if _root else None)
         rows.extend(srows)
         rows.extend(aboutpages.run(dist / "bin", built_id, say=lambda m: None, register=aboutpages.register_for(t))["rows"])
         # Satellite mode, every level and every kind of site (satellite.py: probes satellite-mobile, satellite-calls)
