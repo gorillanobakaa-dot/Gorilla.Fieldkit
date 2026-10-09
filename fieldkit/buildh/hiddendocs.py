@@ -3,6 +3,8 @@ rendered from one source and checked.
 
     fieldkit build-harness hidden-pages-doc <task>            check the source and the published copies
     fieldkit build-harness hidden-pages-doc <task> write=1    render them, then check
+    fieldkit build-harness hidden-pages-doc <task> release=<file.md>
+                                                             the release edition, for the release page itself
 
 Born 2026-10-08 (D-157-40). The maintainer found about:fingerprintingprotection, a page about:about does not list,
 and asked for every hidden page to be mapped, pictured and explained "in layman terms ... both in romanian and in
@@ -20,6 +22,11 @@ Source, in the owner repo (private):
 Out:
   public   <patch-set repo>/docs/HIDDEN-PAGES.md, <patch-set repo>/docs/screenshots/hidden-pages/*.png
   private  docs/hidden-pages/HIDDEN-PAGES.ro.md
+Release edition (2026-10-09, the maintainer: laymen read the release page, never "obscure paths" in the repo; and
+GitHub refuses a release page over 125,000 characters, while the plain-words track alone is about 108,000): the
+intro's `release_intro`, the at-a-glance table, and for every page its first picture (an address that opens from a
+release page) and four plain-words sections word for word - What it is, Does it talk to anyone?, What we did and
+why, What it costs you - with a link to the page's full text (the other three sections and the developer track).
 Checks (fail closed):
   - every page the register says is or was hidden is explained, nothing else is, and `order` names each once;
   - every entry has all its texts; every picture it names exists; a page without a picture says why;
@@ -132,6 +139,52 @@ def render(intro, entries, reg, lang):
         out += [f"## {group}", ""]
         for n in names:
             out += _section(n, entries[n], reg.get(n, {}), words, lang, shots_rel)
+    return "\n".join(out).rstrip() + "\n"
+
+
+REPO_URL = "https://github.com/gorillanobakaa-dot/gorilla-firefox"
+RAW_URL = "https://raw.githubusercontent.com/gorillanobakaa-dot/gorilla-firefox/master"
+RELEASE_SECTIONS = ("What it is", "Does it talk to anyone?", "What we did, and why", "What it costs you")
+LEAD_IN = re.compile(r"(?m)^\*\*(What it is|When you would meet it|What you see|Does it talk to anyone\?|"
+                     r"What we did, and why|What it costs you|The lesson)\.?\*\*")
+
+
+def sections(layman):
+    """The plain-words text by its bold lead-ins -> {lead-in: text including the lead-in}."""
+    marks = list(LEAD_IN.finditer(layman))
+    return {m.group(1): layman[m.start():marks[i + 1].start() if i + 1 < len(marks) else len(layman)].strip()
+            for i, m in enumerate(marks)}
+
+
+def render_release(intro, entries, reg):
+    """-> markdown of the release edition (see the module docstring); raises Refused when a page lacks a section."""
+    head = intro.get("en") or {}
+    order = intro.get("order") or sorted(entries)
+    doc = f"{REPO_URL}/blob/master/{PUBLIC_DOC.as_posix()}"
+    out = ["## What's new: the hidden pages", "", (head.get("release_intro") or head.get("intro", "")).strip(), "",
+           "| Page | What it is | Talks to | What we did |", "|---|---|---|---|"]
+    for n in order:
+        r = reg.get(n, {})
+        out.append(f"| `about:{n}` | {_one_line(entries[n]['en']['title'])} | {_one_line(r.get('network'))} | {status(r, EN)} |")
+    out.append("")
+    for group, want in (("Removed", "remove"), ("Kept", "keep")):
+        names = [n for n in order if reg.get(n, {}).get("verdict") == want]
+        if names:
+            out += [f"### {group}", ""]
+        for n in names:
+            e, r = entries[n], reg.get(n, {})
+            secs = sections(e["en"]["layman"])
+            gone = [s for s in RELEASE_SECTIONS if s not in secs]
+            if gone:
+                raise Refused(f"about:{n} has no {', '.join(gone)} section")
+            out += [f"#### `about:{n}`: {e['en']['title']}", ""]
+            if e.get("shots"):
+                out += [f"![about:{n}]({RAW_URL}/{PUBLIC_SHOTS.as_posix()}/{e['shots'][0]})", ""]
+            out += [f"**{status(r, EN)}.**", ""]
+            for s in RELEASE_SECTIONS:
+                out += [secs[s], ""]
+            out += [f"*The full text, with what the picture shows, the lesson and the developer track: "
+                    f"[about:{n}]({doc}#about-{n})*", ""]
     return "\n".join(out).rstrip() + "\n"
 
 

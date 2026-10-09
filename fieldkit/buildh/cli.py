@@ -626,6 +626,13 @@ def run(a, emit):
         if not repo:
             raise task.Refused("the patch-set repo is not a git checkout")
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        if opts.get("release"):
+            intro, entries = hd.load(owner)
+            text = hd.render_release(intro, entries, hd.register(owner))
+            from pathlib import Path as _P
+            _P(opts["release"]).write_bytes(text.encode("utf-8"))
+            print(f"release edition: {opts['release']} ({len(text)} characters of the release page's 125000)")
+            return 0
         if opts.get("write", "0") not in ("0", "no", "false", ""):
             r = hd.write(owner, repo, say=lambda m: print(m, flush=True))
             for f in r["written"]:
@@ -636,6 +643,17 @@ def run(a, emit):
         for row in rows:
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("HIDDEN-PAGES DOC " + ("OK" if all(r["ok"] for r in rows) else "NOT OK"))
+        return 0 if all(r["ok"] for r in rows) else 3
+    if act == "release-cover":
+        # release-cover TASK page=<release page .md> [previous=<tag or file>]: the release page names every decision
+        # made since the last release and fits GitHub's limit (releasecover.py)
+        from . import releasecover, ownercheck
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        owner = ownercheck._owner_root(task.load(tid))
+        rows = releasecover.run(owner, opts.get("page"), opts.get("previous"))
+        for row in rows:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
         return 0 if all(r["ok"] for r in rows) else 3
     if act == "about-registry":
         # about-registry TASK [--json]: every about: page the source can register (tree and pristine upstream), what

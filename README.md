@@ -448,6 +448,7 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | Open every about: page of the installed build and judge it (text, artwork, errors, missing strings, requests); `walk=1` clicks every about:about link in a visible window, live | `fieldkit build-harness about-pages TASK [walk=1]` |
 | Every about: page the source can register (tree and upstream), what the last build registered, and the owner's verdict from decisions/ABOUT-PAGES.yaml; the register is enforced before the build (D-157-40) and after it (about-pages) | `fieldkit build-harness about-registry TASK` |
 | Every hidden about: page explained, with its picture: English (both tracks, published) and Romanian, rendered from one source and checked against the research (also in release-check) | `fieldkit build-harness hidden-pages-doc TASK [write=1]` |
+| The release page tells everything since the last release: every decision named, under GitHub's 125,000-character limit, the hidden pages on the page itself | `fieldkit build-harness release-cover TASK page=FILE` (and `hidden-pages-doc TASK release=FILE` for the hidden pages' release edition) |
 | What a change costs or saves in RAM and CPU, page by page | `fieldkit build-harness weigh TASK` |
 | Run a long build-harness command like `screen`: its own visible window, started by Windows, survives the session, logged, and the machine kept from idle-sleeping until it ends | `fieldkit build-harness window build-run TASK` |
 | Keep the machine from idle-sleeping until a run already going ends | `fieldkit build-harness awake PID` |

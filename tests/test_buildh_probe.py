@@ -37,7 +37,7 @@ def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     from fieldkit.buildh import releasecheck as rc, task, buildrun, install
     outs = {"techniques": (0, "OK   T-1"), "decisions": (0, "DECISIONS OK (strict)"), "replay": (3, "REPLAY FAILED: 1"),
             "claims": (0, '{"totals": {"claims": 1, "CONTRADICTED": 0, "STALE": 0, "UNPROVEN": 1, "patches": 1, "patches_failing": 0}}'),
-            "hidden-pages-doc": (0, "HIDDEN-PAGES DOC OK")}
+            "hidden-pages-doc": (0, "HIDDEN-PAGES DOC OK"), "release-cover": (0, "RELEASE PAGE COVERS EVERYTHING")}
     monkeypatch.setattr(rc, "_run", lambda args, timeout=0: outs[args[0]])
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {"upstream": {"version": "157.0"}}})
     (tmp_path / "state").mkdir()
@@ -48,10 +48,11 @@ def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     monkeypatch.setattr(install, "find_install", lambda: str(tmp_path / "app"))
     rows = rc.run("t", say=lambda m: None, skip_post_install=True)
     # no release-docs.yaml yet: the release's documents were never held against their sources
-    assert [r["check"] for r in rows if not r["ok"]] == ["replay", "release documents"]
+    # nor a release page draft: the release page must tell everything since the last release (2026-10-09)
+    assert [r["check"] for r in rows if not r["ok"]] == ["replay", "release page", "release documents"]
     assert "hidden-pages doc" in [r["check"] for r in rows]          # D-157-40: the hidden pages explained
     outs["hidden-pages-doc"] = (3, "HIDDEN-PAGES DOC NOT OK")
-    assert [r["check"] for r in rc.run("t", say=lambda m: None, skip_post_install=True) if not r["ok"]] ==         ["replay", "hidden-pages doc", "release documents"]
+    assert [r["check"] for r in rc.run("t", say=lambda m: None, skip_post_install=True) if not r["ok"]] ==         ["replay", "hidden-pages doc", "release page", "release documents"]
     outs["hidden-pages-doc"] = (0, "HIDDEN-PAGES DOC OK")
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "patch_policy.json").write_text('{"patchset_root": "gorilla-patchset/patches"}', encoding="utf-8")
@@ -61,7 +62,16 @@ def test_release_check_lists_every_failure_with_its_fix(monkeypatch, tmp_path):
     (rel / "NOTES.md").write_text("It took 44 build runs.\n", encoding="utf-8")
     (rel / "release-docs.yaml").write_text("sources: [PLAN.md]\nplain: [NOTES.md]\n", encoding="utf-8")
     rows = rc.run("t", say=lambda m: None, skip_post_install=True)
+    assert [r["check"] for r in rows if not r["ok"]] == ["replay", "release page"]
+    draft = tmp_path / "releases-draft" / "157.0-build28"
+    draft.mkdir(parents=True)
+    (draft / "RELEASE-BODY.md").write_text("the page\n", encoding="utf-8")
+    rows = rc.run("t", say=lambda m: None, skip_post_install=True)
     assert [r["check"] for r in rows if not r["ok"]] == ["replay"]
+    outs["release-cover"] = (3, "missing: D-157-41\nRELEASE PAGE INCOMPLETE")
+    page = [r for r in rc.run("t", say=lambda m: None, skip_post_install=True) if r["check"] == "release page"][0]
+    assert not page["ok"] and "release-cover" in page["fix"] and "RELEASE-BODY.md" in page["fix"]
+    outs["release-cover"] = (0, "RELEASE PAGE COVERS EVERYTHING")
     (rel / "NOTES.md").write_text("It took 45 build runs.\n", encoding="utf-8")
     bad = [r for r in rc.run("t", say=lambda m: None, skip_post_install=True) if r["check"] == "release documents"][0]
     assert not bad["ok"] and "NOTES.md: 1" in bad["evidence"] and "docs release --manifest" in bad["fix"]

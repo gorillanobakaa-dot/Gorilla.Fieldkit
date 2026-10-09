@@ -79,6 +79,18 @@ def run(task_id, say=print, skip_post_install=False):
     rc, out = _run(["hidden-pages-doc", task_id])
     row("hidden-pages doc", rc == 0 and "HIDDEN-PAGES DOC OK" in out, _tail(out, 3),
         f"fieldkit build-harness hidden-pages-doc {task_id} write=1  (after explaining any new hidden page)")
+    # the release page tells everything since the last release (maintainer 2026-10-09: "all the work you and I done
+    # needs to go on the release page"): releases-draft/<release>/RELEASE-BODY.md, the newest one
+    from . import buildrun as _br
+    drafts = sorted((Path(_br._owner_root(task.load(task_id))) / "releases-draft").glob("*/RELEASE-BODY.md"),
+                    key=lambda f: f.stat().st_mtime)
+    if not drafts:
+        row("release page", False, "no releases-draft/<release>/RELEASE-BODY.md",
+            "write the release page there (the hidden pages: hidden-pages-doc release=), then release-cover")
+    else:
+        rc, out = _run(["release-cover", task_id, f"page={drafts[-1]}"])
+        row("release page", rc == 0 and "RELEASE PAGE COVERS EVERYTHING" in out, _tail(out, 3),
+            f"fieldkit build-harness release-cover {task_id} page={drafts[-1]}")
     if not skip_post_install:
         rc, out = _run(["post-install", task_id])
         bad = [l.strip() for l in out.splitlines() if l.strip().startswith("[FAIL]")]
