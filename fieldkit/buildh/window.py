@@ -12,8 +12,9 @@ happens to the session, the way `screen` keeps a job on Linux. Everything it pri
 
 The machine is kept awake while the command runs (2026-10-09: a build started at 00:13 sat in its gate all night while
 the laptop went to standby and sleep - 570 CPU-seconds in seven and a half hours). The window asks Windows not to
-idle-sleep (SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED, the request a video player makes; no setting
-is changed) and clears the request when the command ends. A closed lid or a chosen Sleep still sleeps.
+idle-sleep and not to turn the screen off (SetThreadExecutionState ES_CONTINUOUS|ES_SYSTEM_REQUIRED|
+ES_DISPLAY_REQUIRED, the request a video player makes; no setting is changed): on a Modern Standby laptop the screen
+going off is standby itself. The request is cleared when the command ends. A closed lid or a chosen Sleep still sleeps.
 
     fieldkit build-harness awake <pid>     the same request for a run already going, until that process exits
 """
@@ -42,7 +43,10 @@ def _ps_quote(s):
 
 AWAKE_TYPE = ("Add-Type -Namespace GorillaHarness -Name Power -MemberDefinition "
               "'[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint esFlags);'")
-AWAKE_ON = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000001')"     # ES_CONTINUOUS|SYSTEM_REQUIRED
+# ES_CONTINUOUS|SYSTEM_REQUIRED|DISPLAY_REQUIRED: on this Modern Standby laptop the screen turning off IS standby
+# (2026-10-09: with SYSTEM_REQUIRED alone it entered Modern Standby eleven times during one build, and desktop programs
+# are held there), so the screen stays on while a command runs
+AWAKE_ON = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000003')"
 AWAKE_OFF = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000000')"    # ES_CONTINUOUS: release
 
 

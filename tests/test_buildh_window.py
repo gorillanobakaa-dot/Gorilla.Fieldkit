@@ -51,7 +51,7 @@ def test_the_window_keeps_the_machine_awake_only_while_the_command_runs(tmp_path
     """2026-10-09: a build sat in its gate all night while the laptop slept. The window asks Windows not to idle-sleep
     (ES_CONTINUOUS|ES_SYSTEM_REQUIRED) before the command and releases it (ES_CONTINUOUS alone) after it."""
     s = window.script(["build-run", "t"], tmp_path / "x.log", python="p")
-    on, run, off = s.index("'0x80000001'"), s.index("-m fieldkit build-harness"), s.index("'0x80000000'")
+    on, run, off = s.index("'0x80000003'"), s.index("-m fieldkit build-harness"), s.index("'0x80000000'")
     assert s.index("SetThreadExecutionState(uint esFlags)") < on < run < off < s.index("$log.Close()")
 
 
@@ -65,7 +65,7 @@ def test_awake_holds_until_the_process_exits_and_refuses_one_not_running(monkeyp
     assert window.hold_awake(4242, run=run) == {"pid": 777}
     assert "Win32_Process -MethodName Create" in seen[1] and "-WindowStyle Hidden" in seen[1]
     s = window.awake_script(4242)
-    assert s.index("'0x80000001'") < s.index("Wait-Process -Id 4242") < s.index("'0x80000000'")
+    assert s.index("'0x80000003'") < s.index("Wait-Process -Id 4242") < s.index("'0x80000000'")
     try:
         window.hold_awake(4242, run=lambda cmd, **kw: R(""))
         assert False, "should refuse"
