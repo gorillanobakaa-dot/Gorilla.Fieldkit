@@ -286,3 +286,21 @@ def test_the_owner_register_is_well_formed():
     assert all(e.get("shown") in ("listed", "hidden", "not built", "gone") for e in pages)
     assert all(e.get("only") in (None, "windows", "linux") for e in pages)
     assert all(e.get("decision") for e in pages if e["verdict"] == "remove"), "every removal names its decision"
+
+
+
+def test_prebuild_leaves_pages_the_register_removes_to_after_the_build(tmp_path):
+    """2026-10-09: before the compile the copy of the installed build still registers about:asrouter while the new
+    scripts refuse its console commands; that 'new error' belongs to a page the build removes."""
+    reg = tmp_path / "ABOUT-PAGES.yaml"
+    reg.write_text("pages:\n  - {name: asrouter, verdict: remove, shown: gone}\n  - {name: neterror, verdict: keep, shown: hidden}\n",
+                   encoding="utf-8")
+    assert ap.removed_by_register(reg) == {"asrouter"}
+    assert ap.removed_by_register(None) == set() and ap.removed_by_register(tmp_path / "none.yaml") == set()
+    worse = ["about:asrouter new error: Error: Gorilla: ADMIN_CONNECT_STATE is a messaging-console command",
+             "about:asrouterx lost its text: 40 -> 0 characters",
+             "about:neterror new error: TypeError: x is undefined",
+             "new request: https://example.org/ by browser"]
+    kept, later = ap.drop_removed(worse, {"asrouter"})
+    assert later == worse[:1]
+    assert kept == worse[1:]                     # a page that merely starts with the same letters, and every request, stay

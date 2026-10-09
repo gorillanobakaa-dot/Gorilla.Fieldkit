@@ -440,6 +440,24 @@ def regressions(base, new):
     return out
 
 
+def removed_by_register(register):
+    """Pages the owner's register marks remove -> set of names (empty without a register)."""
+    import yaml
+    if not register or not Path(register).is_file():
+        return set()
+    return {e["name"] for e in (yaml.safe_load(Path(register).read_text(encoding="utf-8")) or {}).get("pages") or []
+            if e.get("verdict") == "remove"}
+
+
+def drop_removed(lines, removed):
+    """-> (kept lines, dropped lines): what concerns a page the register removes is judged after the build. Before
+    the compile the copy of the installed build still registers it (C++ cannot be applied to a copy) while the
+    packaged scripts are already the new ones (2026-10-09: the old about:asrouter page sent its console commands to the
+    new handler, which refuses them, and the pre-build check stopped the build for a page the build removes)."""
+    hit = lambda l: any(l.startswith(f"about:{n} ") for n in removed)
+    return [l for l in lines if not hit(l)], [l for l in lines if hit(l)]
+
+
 def latest(build_id):
     """The newest full (not partial) saved run of `build_id` made by THIS version of the probe -> parsed run or None."""
     if not STATE.is_dir():
@@ -480,6 +498,8 @@ def prebuild(t, task_id, say=print):
         notes.append(f"read the installed build {bid} first (no earlier reading kept)")
     r = run(target, bid, say=say, partial=True, omni={k: str(v) for k, v in got.items()} or None)
     worse = regressions(base, r["parsed"]) if base else []
+    worse, later = drop_removed(worse, removed_by_register(register_for(t)))
+    notes += [f"judged after the build only (the register removes this page): {l[:140]}" for l in later[:6]]
     better = [l for l in (compare(base, r["parsed"]) if base else [])
               if l.endswith("characters") and "shows text again" in l or "error gone" in l or "text restored" in l]
     still = [f"{x['check']}: {x['evidence'][:120]}" for x in r["rows"] if not x["ok"]]
