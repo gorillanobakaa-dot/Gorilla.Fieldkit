@@ -17,6 +17,8 @@ ES_DISPLAY_REQUIRED, the request a video player makes; no setting is changed): o
 going off is standby itself. The request is cleared when the command ends. A closed lid or a chosen Sleep still sleeps.
 
     fieldkit build-harness awake <pid>     the same request for a run already going, until that process exits
+    fieldkit build-harness follow [<log>|latest] [cmd=build-run] [every=1] [timeout=S]
+                                           the log's milestones as they are written; exits with the run's exit code
 """
 import base64
 import re
@@ -128,3 +130,43 @@ def launch(args, run=subprocess.run):
     if len(parts) != 2 or parts[0] != "0":
         raise task.Refused(f"Windows did not start the window (Win32_Process.Create returned: {out or 'nothing'})")
     return {"pid": int(parts[1]), "log": str(log)}
+
+
+# -- follow: the window's log as milestones, for a person or a watcher ------------------------------------------------
+# Born 2026-10-09: the assistant's ad-hoc watchers (tail | grep | cut) went silent for 30 minutes because `cut` buffers
+# when it writes to a pipe; a watcher that only matched success lines would also have stayed silent through a crash.
+# This prints each milestone line as soon as it is written (flushed) and ends with the run's own exit code.
+MILESTONE = re.compile(r"gate passed|GATE FAILED|pre-build \[|NOT OK|NOT PASSED|STOPPED|HALT|build attempt|build OK|"
+                       r"package attempt|package OK|dist/bin sweep|BUILD-VERIFY|BUILD OK|INSTALL OK|POST-INSTALL|"
+                       r"REPLAY|timings|CHECK-CHANGE|\bFAIL\b|\[FAIL\]|SKIPPED|Traceback|Error:|^exit -?\d+$", re.I)
+EXIT = re.compile(r"^exit (-?\d+)$")
+
+
+def latest_log(cmd=None, folder=None):
+    """The newest window log, or the newest of one command (build-run, post-install, ...)."""
+    d = Path(folder) if folder else task.STATE.parent / "windows"
+    logs = sorted(p for p in d.glob("*.log") if not cmd or f"-{cmd}-" in p.name or p.stem.endswith(f"-{cmd}"))
+    return logs[-1] if logs else None
+
+
+def follow(path, say=print, poll=2.0, sleep=time.sleep, timeout=None, every=False, clock=time.time):
+    """Print each milestone line (every line with every=True) of a window log as it is written. -> the run's exit code
+    once its "exit N" line arrives, or None at `timeout` seconds."""
+    seen, start = 0, clock()
+    while True:
+        p = Path(path)
+        text = read_log(p) if p.is_file() else ""
+        lines = text.splitlines()
+        if text and not text.endswith(("\n", "\r")):
+            lines = lines[:-1]                       # a line still being written waits for its end
+        for l in lines[seen:]:
+            s = l.strip().lstrip("\ufeff")
+            if every or MILESTONE.search(s):
+                say(s)
+            m = EXIT.match(s)
+            if m:
+                return int(m.group(1))
+        seen = len(lines)
+        if timeout is not None and clock() - start >= timeout:
+            return None
+        sleep(poll)

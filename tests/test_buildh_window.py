@@ -71,3 +71,33 @@ def test_awake_holds_until_the_process_exits_and_refuses_one_not_running(monkeyp
         assert False, "should refuse"
     except task.Refused as e:
         assert "not running" in str(e)
+
+
+def test_follow_prints_milestones_as_written_and_returns_the_exit_code(tmp_path):
+    from fieldkit.buildh import window as w
+    log = tmp_path / "20261009-221917-build-run-x.log"
+    chunks = ["build gate passed\nsome compiler noise\n", "18:46:08  build attempt 1: x\n18:48:56  build OK (161 lines)\n",
+              "  [ok] stamp: fine\n  PASS  removed pages: ok\nBUILD-VERIFY: PASS", "ED\nexit 0\n"]
+    log.write_text("", encoding="utf-8")
+    said = []
+
+    def sleep(s):                                   # each poll, the run writes a little more
+        if chunks:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(chunks.pop(0))
+    assert w.follow(log, say=said.append, sleep=sleep) == 0
+    assert said == ["build gate passed", "18:46:08  build attempt 1: x", "18:48:56  build OK (161 lines)",
+                    "BUILD-VERIFY: PASSED", "exit 0"]          # noise skipped; a half-written line waits for its end
+
+
+def test_follow_reports_a_failure_and_times_out_without_an_exit(tmp_path):
+    from fieldkit.buildh import window as w
+    log = tmp_path / "a-post-install-x.log"
+    log.write_text("  [FAIL] claims: 4 contradicted\nTraceback (most recent call last):\nexit 3\n", encoding="utf-8")
+    said = []
+    assert w.follow(log, say=said.append, sleep=lambda s: None) == 3 and len(said) == 3
+    log2 = tmp_path / "b-build-run-x.log"
+    log2.write_text("build gate passed\n", encoding="utf-8")
+    t = iter(range(0, 1000, 10))
+    assert w.follow(log2, say=lambda m: None, sleep=lambda s: None, timeout=30, clock=lambda: next(t)) is None
+    assert w.latest_log("build-run", folder=tmp_path) == log2 and w.latest_log(folder=tmp_path) == log2

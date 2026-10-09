@@ -444,6 +444,19 @@ def run(a, emit):
         r = window.launch(list(a.args))
         print(f"started in its own window (PID {r['pid']}); everything it prints is also in {r['log']}")
         return 0
+    if act == "follow":
+        # follow [<log>|latest] [cmd=build-run] [every=1] [timeout=S]: a window log's milestones as they are written,
+        # flushed; exits with the run's own exit code (124 at the timeout) (window.py)
+        from . import window
+        pos = [x for x in a.args if "=" not in x]
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        log = window.latest_log(opts.get("cmd")) if not pos or pos[0] == "latest" else Path(pos[0])
+        if not log:
+            raise task.Refused("follow: no window log found")
+        print(f"following {log}", flush=True)
+        code = window.follow(log, say=lambda m: print(m, flush=True), every=opts.get("every") == "1",
+                             timeout=float(opts["timeout"]) if opts.get("timeout") else None)
+        return 124 if code is None else code
     if act == "awake":
         # awake PID: keep the machine from idle-sleeping until that process exits (a run started without the window)
         from . import window
