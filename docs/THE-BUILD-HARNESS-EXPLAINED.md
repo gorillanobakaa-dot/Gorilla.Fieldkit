@@ -23,8 +23,9 @@ Think of an aircraft factory, not a garage. The harness is three things bolted t
    Help > About say which build it is? A four-hour leak test watches every connection, name lookup, file and process
    with several independent witnesses at once.
 3. **The auditor.** Every product decision is written down with its reason, its cost and a check; a build that
-   breaks a decision fails. Every sentence in the public documents (7,513 of them) is checked against the real
-   build, and a false sentence blocks the release. The release page must explain every change since the last
+   breaks a decision fails. Every sentence in the public documents (7,513 of them) is held against the real build:
+   1,239 are proven by a check, a false one blocks the release, and the 6,274 with no check yet are listed as
+   unproven, never counted as proven. The release page must explain every change since the last
    release, in plain words and in technical words.
 
 ## Why this browser needs it
@@ -108,8 +109,8 @@ any reputable organisation. Mozilla's AI material for building Firefox is Markdo
 3. **in-toto / SLSA**: standard records saying "this build came from this source by these steps", which outsiders
    can verify with standard tools. The harness's record is its own format.
 
-The wheel exists, but in pieces, owned by organisations with budgets and server farms. This is a laptop-sized
-version of what Tor, Debian and Mozilla do together.
+The wheel exists, but in pieces, owned by organisations with budgets and server farms. Each of them does far more
+in its own field than this harness does; it covers, at laptop scale, parts of what they do.
 
 ---
 
@@ -127,13 +128,13 @@ Counted from the harness's own records and logs; nothing below is estimated.
 | Ready-made browser probes (scripts run inside a throwaway copy of the browser) | **22** |
 | Tests of the harness itself | **1,364** |
 
-### One build-and-install cycle: about 9,600 individual checks
+### One build-and-install cycle: about 3,400 individual checks
 
-Each with a yes/no verdict.
+Each with a yes/no verdict backed by evidence.
 
 | Step | Checks |
 |---|---|
-| Claims: every sentence in the public documents, against the build | 7,513 |
+| Claims: sentences in the public documents proven by a check against the build | 1,239 |
 | Visual: icons and page layouts (529 static + 112 in the running browser) | 641 |
 | Replay: published patches re-applied to Mozilla's untouched source | 479 |
 | Settings: every setting the port makes, in the shipped browser | 366 |
@@ -143,6 +144,10 @@ Each with a yes/no verdict.
 | Satellite mode cases (9 ordinary + 8 call sites) | 17 |
 | Menu and Settings items checked for readability | 11 |
 | Plus about 80 summary rows | ≈80 |
+
+Not counted above: the other 6,274 public sentences, which have no check yet. The audit lists each one as
+unproven, and the strict release check stays FAIL until every sentence is proven. Writing those checks is open
+work.
 
 The four-hour leak gate is separate: about **16,000 observations** per run (every connection, name lookup, file and
 process, judged against 19 rules), run once per release.

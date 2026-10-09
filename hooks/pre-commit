@@ -5,8 +5,22 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 # own temporary folder: a pytest-current link once made by an elevated run cannot be replaced by a normal account,
 # and pytest then exits non-zero with every test passed (2026-10-07: every commit refused for that alone)
 BT="$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-hook-$$")"
-if ! python -m pytest -q -p no:cacheprovider --basetemp "$BT" >/dev/null 2>&1; then
-  echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"; exit 1
+OUT="$BT.out"
+if ! python -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
+  # A failure must reproduce before it refuses the commit (2026-10-09: a timing test failed once under load, then
+  # passed 3 of 3 on its own). Only the failed tests run again, once, in a fresh folder. A failure that does not
+  # reproduce is written to state/flaky-tests.log (time and test) so it gets fixed, never silently forgotten.
+  # Anything else (a collection error, no FAILED line, a second failure) refuses the commit.
+  FAILED="$(sed -n 's/^FAILED \([^ ]*\).*/\1/p' "$OUT")"
+  BT2="$(mktemp -d 2>/dev/null || echo "$BT-again")"
+  if [ -z "$FAILED" ] || ! python -m pytest -q -p no:cacheprovider --basetemp "$BT2" $FAILED >/dev/null 2>&1; then
+    echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"
+    [ -n "$FAILED" ] && echo "$FAILED"
+    exit 1
+  fi
+  mkdir -p state
+  for t in $FAILED; do echo "$(date '+%Y-%m-%d %H:%M:%S') failed once, passed when run again: $t" >> state/flaky-tests.log; done
+  echo "pre-commit: WARNING - failed once and passed when run again (logged in state/flaky-tests.log): $FAILED"
 fi
 if ! python -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
