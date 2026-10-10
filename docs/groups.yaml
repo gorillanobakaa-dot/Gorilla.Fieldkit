@@ -124,6 +124,10 @@ groups:
     title: Academic work for students in seven countries (the dates asked, references, style, language, words, plagiarism pre-check, the next step)
     sources: ["academic/*.py"]
 
+  - name: methods
+    title: "How the work gets done, as tools (wait, mutate, regress, drift, mcp-probe, survey, i18n, ship, handover)"
+    sources: ["method/*.py"]
+
   - name: icons
     title: "Sharp desktop icons on any computer (IconKit: the icon cache, .ico frames and checks, crisp recoloured icons)"
     sources: ["icons/*.py"]
