@@ -188,14 +188,14 @@ def _mirror(tmp_path, version="7.9.9"):
 
 
 def test_fetch_refuses_without_kernel_org_and_names_the_way_out(tmp_path):
-    r = kernel.stage_fetch(_fetch_ctx(tmp_path), opener=_unreachable)
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path), vault_base=tmp_path / "no-vault", opener=_unreachable)
     assert not r["ok"] and "kernel.org unreachable" in r["detail"] and "--var mirror=" in r["detail"]
     assert not kernel.verify_fetch(_fetch_ctx(tmp_path))["ok"]
 
 
 def test_fetch_from_a_mirror_says_unverified_and_records_the_commit(tmp_path):
     ctx = _fetch_ctx(tmp_path)
-    r = kernel.stage_fetch(ctx, mirror=_mirror(tmp_path), opener=_unreachable)
+    r = kernel.stage_fetch(ctx, mirror=_mirror(tmp_path), vault_base=tmp_path / "no-vault", opener=_unreachable)
     assert r["ok"] and r["unverified"] and r["detail"].startswith("UNVERIFIED")
     pv = kernel.provenance(tmp_path / "work", "7.9.9")
     assert pv["source"] == "git mirror" and pv["sha256"] == "not verified" and len(pv["commit"]) == 40
@@ -206,7 +206,7 @@ def test_fetch_from_a_mirror_says_unverified_and_records_the_commit(tmp_path):
 
 
 def test_a_mirror_without_the_tag_fails(tmp_path):
-    r = kernel.stage_fetch(_fetch_ctx(tmp_path, "7.9.8"), mirror=_mirror(tmp_path), opener=_unreachable)
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path, "7.9.8"), mirror=_mirror(tmp_path), vault_base=tmp_path / "no-vault", opener=_unreachable)
     assert not r["ok"] and "no tag v7.9.8" in r["detail"]
 
 
@@ -223,10 +223,10 @@ def test_fetch_from_kernel_org_checks_the_tarball_and_records_it(tmp_path):
     def opener(sums):
         return lambda url: R(sums.encode() if url.endswith(".asc") else data)
     ctx = _fetch_ctx(tmp_path)
-    r = kernel.stage_fetch(ctx, opener=opener(f"{good}  linux-7.9.9.tar.xz\n"))
+    r = kernel.stage_fetch(ctx, vault_base=tmp_path / "no-vault", opener=opener(f"{good}  linux-7.9.9.tar.xz\n"))
     assert r["ok"] and kernel.provenance(tmp_path / "work", "7.9.9")["sha256"] == good
     assert kernel.verify_fetch(ctx)["ok"]
-    bad = kernel.stage_fetch(_fetch_ctx(tmp_path / "b"), opener=opener(f"{'0' * 64}  linux-7.9.9.tar.xz\n"))
+    bad = kernel.stage_fetch(_fetch_ctx(tmp_path / "b"), vault_base=tmp_path / "no-vault", opener=opener(f"{'0' * 64}  linux-7.9.9.tar.xz\n"))
     assert not bad["ok"] and "sha256 mismatch" in bad["detail"]
 
 
@@ -243,3 +243,44 @@ def test_verify_patched_needs_every_registry_file_to_be_the_shipped_copy(tmp_pat
     assert not r["ok"] and "0/1" in r["detail"] and "reg.c" in r["detail"]
     (src / "net/wireless/reg.c").write_bytes(b"patched\n")
     assert kernel.verify_patched(ctx)["ok"]
+
+
+def _vault_with(tmp_path, version="7.9.9", data=b"pristine tarball"):
+    import hashlib
+    import io
+    from fieldkit.buildh import vault
+    name = f"linux-{version}.tar.xz"
+    sums = f"{hashlib.sha256(data).hexdigest()}  {name}\n".encode()
+
+    class R(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    info = {"version": version, "tarball": f"https://cdn.kernel.org/pub/linux/kernel/v7.x/{name}",
+            "sums": "https://cdn.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc"}
+    vault.fetch_kernel(info, base=tmp_path / "vault", opener=lambda u, timeout=None: R(sums if u.endswith(".asc") else data))
+    return tmp_path / "vault"
+
+
+def test_fetch_takes_the_vault_copy_first_and_downloads_nothing(tmp_path):
+    vb = _vault_with(tmp_path)
+    def no_network(url):
+        raise AssertionError("the vault had it: nothing may be downloaded")
+    ctx = _fetch_ctx(tmp_path)
+    r = kernel.stage_fetch(ctx, vault_base=vb, opener=no_network)
+    assert r["ok"] and "from the vault" in r["detail"]
+    assert (tmp_path / "work" / "linux-7.9.9.tar.xz").read_bytes() == b"pristine tarball"
+    assert kernel.provenance(tmp_path / "work", "7.9.9")["source"] == "vault" and kernel.verify_fetch(ctx)["ok"]
+
+
+def test_a_damaged_vault_is_refused_never_a_fallback(tmp_path):
+    import os
+    import stat
+    vb = _vault_with(tmp_path)
+    f = vb / "kernel" / "7.9.9" / "linux-7.9.9.tar.xz"
+    os.chmod(f, stat.S_IREAD | stat.S_IWRITE)
+    f.write_bytes(b"a model was here")
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path), vault_base=vb, opener=_unreachable)
+    assert not r["ok"] and "damaged, refusing it" in r["detail"] and "vault fetch kernel" in r["detail"]

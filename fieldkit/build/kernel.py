@@ -24,6 +24,7 @@ import ast
 import datetime
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -206,8 +207,36 @@ def provenance(work, version):
     return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
 
 
-def stage_fetch(ctx, mirror="", opener=None):
-    """The pristine source: kernel.org's tarball checked against kernel.org's sha256sums.asc, or, ONLY when asked with
+def _from_vault(version, work, vault_base=None):
+    """The tarball from the Fieldkit vault (a pristine copy, read-only, its sha256 checked against kernel.org's when it
+    was stored) -> a stage result, or None when the vault has no copy of this version. A copy that no longer matches
+    its record is a refusal, never a fallback: someone changed the pristine (2026-10-10, the maintainer's rule: the
+    vault "never gets touched")."""
+    from ..buildh import vault
+    try:
+        check = vault.verify("kernel", version, vault_base)
+    except (FileNotFoundError, ValueError, KeyError, OSError):
+        return None
+    if not check["intact"]:
+        return {"ok": False, "detail": f"the vault copy of linux-{version} is damaged, refusing it: "
+                                       f"{'; '.join(check['problems'])[:200]}. Restore it from kernel.org: "
+                                       f"fieldkit build-harness vault fetch kernel"}
+    meta = json.loads((Path(check["vault"]) / "vault.json").read_text(encoding="utf-8"))
+    src = Path(check["vault"]) / meta["file"]
+    dest = Path(work) / f"linux-{version}.tar.xz"
+    if not dest.is_file() or sha256_file(dest) != meta["sha256"]:
+        shutil.copyfile(src, dest)
+        os.chmod(dest, 0o644)                    # the vault's copy is read-only; the working copy need not be
+    _provenance(work, version, {"source": "vault", "vault": str(check["vault"]), "sha256": meta["sha256"],
+                                "url": meta.get("tarball")})
+    return {"ok": True, "detail": f"linux-{version}.tar.xz from the vault, sha256 {meta['sha256'][:16]}... "
+                                  f"(checked against kernel.org's when it was stored, and again now)",
+            "sha256": meta["sha256"]}
+
+
+def stage_fetch(ctx, mirror="", opener=None, vault_base=None):
+    """The pristine source: the vault's copy when it has one (see _from_vault); else kernel.org's tarball checked
+    against kernel.org's sha256sums.asc, or, ONLY when asked with
     --var mirror=<git URL> because kernel.org cannot be reached, the release tag from a git mirror.
 
     2026-10-10: the cloud machine that migrated 7.2.9 could not reach kernel.org; the source came from the git mirror
@@ -217,6 +246,9 @@ def stage_fetch(ctx, mirror="", opener=None):
     checked (no keyring is assumed); the checksum list is fetched over HTTPS from kernel.org."""
     version, work = _v(ctx, "version"), Path(_v(ctx, "workdir"))
     work.mkdir(parents=True, exist_ok=True)
+    from_vault = _from_vault(version, work, vault_base)          # the vault first: pristine, nothing downloaded
+    if from_vault is not None:
+        return from_vault
     name = f"linux-{version}.tar.xz"
     dest = work / name
     url = tarball_url(version)
@@ -278,9 +310,9 @@ def verify_fetch(ctx):
     pv = provenance(work, version)
     if not pv:
         return {"ok": False, "detail": "no provenance record: run the fetch stage"}
-    if pv["source"] == "kernel.org":
+    if pv["source"] in ("kernel.org", "vault"):
         ok = (work / f"linux-{version}.tar.xz").is_file()
-        return {"ok": ok, "detail": f"kernel.org tarball, sha256 {pv['sha256'][:16]}..."}
+        return {"ok": ok, "detail": f"{pv['source']} tarball, sha256 {pv['sha256'][:16]}..."}
     ok = (work / f"linux-{version}" / "Makefile").is_file()
     return {"ok": ok, "detail": f"git mirror {pv['tag']} ({pv['commit'][:12]}), sha256 NOT verified"}
 
