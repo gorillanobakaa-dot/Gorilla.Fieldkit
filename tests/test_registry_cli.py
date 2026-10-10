@@ -64,7 +64,7 @@ def test_cli_pipeline_list_and_plan():
     rc, out, err = _cli("pipeline", "plan", "debian-kernel", "--json", "--var", "workdir=/tmp/kb", "project=/tmp/proj")
     assert rc == 0, err
     plan = json.loads(out)
-    assert plan["vars"]["src"] == "/tmp/kb/linux-7.1.2"
+    assert plan["vars"]["src"] == "/tmp/kb/linux-7.2.9"
 
 
 def test_cli_triage_exit_codes(tmp_path):

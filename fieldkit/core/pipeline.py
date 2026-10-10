@@ -95,6 +95,7 @@ class Pipeline:
         self.source = source
         vars_ = dict(spec.get("vars") or {})
         vars_.update(overrides or {})
+        self.overrides = dict(overrides or {})          # what the caller set: `next` repeats them in every command
         self.vars = {k: _fill(v, vars_) for k, v in vars_.items()}
         ids = [s.get("id") for s in spec["stages"]]
         if None in ids or len(set(ids)) != len(ids):

@@ -5,7 +5,7 @@ description: >-
   local stages that can be resumed. Needs Debian/Ubuntu to run; can be planned
   and dry-run anywhere.
 vars:
-  version: "7.1.2"
+  version: "7.2.9"                             # the version the debian-kernel project is on
   workdir: "${LOCAL:kernel.workdir}"            # e.g. ~/kernel-build
   project: "${LOCAL:kernel.project}"            # checkout of the debian-kernel repo
   src: "{workdir}/linux-{version}"
