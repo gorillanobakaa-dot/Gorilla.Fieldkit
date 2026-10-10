@@ -67,3 +67,16 @@ def test_the_real_requirements_file_is_complete():
     req = json.loads(doctor.REQUIREMENTS.read_text(encoding="utf-8"))
     for name, t in req["tools"].items():
         assert t.get("why") and t.get("for") and t.get("install", {}).get("debian"), name
+
+
+def test_a_tool_of_the_other_system_is_not_asked_for(tmp_path, monkeypatch):
+    pp, req = _files(tmp_path)
+    data = json.loads(req.read_text())
+    data["tools"]["nft"] = {"why": "w", "for": ["leakgate"], "only": "linux", "install": {"debian": "apt nftables"}}
+    req.write_text(json.dumps(data))
+    monkeypatch.setattr(doctor, "is_debian_family", lambda: False)
+    win = doctor.check("leakgate", pp, req, have_dist=lambda n: "1", which=lambda n: None, h=WIN)
+    assert "nft" not in [r["name"] for r in win["rows"]]
+    monkeypatch.setattr(doctor, "is_debian_family", lambda: True)
+    deb = doctor.check("leakgate", pp, req, have_dist=lambda n: "1", which=lambda n: None, h=DEB)
+    assert "nft" in [r["name"] for r in deb["rows"]] and "apt nftables" in deb["install"]

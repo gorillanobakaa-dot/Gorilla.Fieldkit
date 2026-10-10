@@ -10,8 +10,8 @@ the same thing twice: a known failure is named with cause and fix; an
 unknown one is reported as UNRECOGNISED with the error lines and a signature
 stub ready to paste into the YAML.
 
-    fieldkit build triage LOG --set firefox-windows [--json]
-    fieldkit build triage LOG --set auto
+    fieldkit triage LOG --set firefox-windows [--json]
+    fieldkit triage LOG --set auto
 """
 import re
 from pathlib import Path

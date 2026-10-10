@@ -9,7 +9,8 @@
   "tools: name -> {why, for: [what needs it], install: {debian, fedora, windows}}",
   "  for: \"core\" is needed by everything; a pipeline name is needed only by that pipeline.",
   "  A pipeline's own deps stage (e.g. debian-kernel's) checks its full package list; this is the short list that",
-  "  lets the harness start at all."
+  "  lets the harness start at all.",
+  "only: \"linux\" or \"windows\" - asked for only on that system (the leak gate uses other tools on Windows)."
  ],
  "tools": {
   "git": {
@@ -42,7 +43,8 @@
    "install": {
     "debian": "sudo apt-get install -y build-essential",
     "fedora": "sudo dnf install -y make gcc"
-   }
+   },
+   "only": "linux"
   },
   "rpmbuild": {
    "why": "the RPM packages of the kernel (stage rpm)",
@@ -52,7 +54,8 @@
    "install": {
     "debian": "sudo apt-get install -y rpm",
     "fedora": "sudo dnf install -y rpm-build"
-   }
+   },
+   "only": "linux"
   },
   "dpkg-query": {
    "why": "the kernel pipeline's deps stage reads the installed Debian packages with it",
@@ -62,6 +65,84 @@
    "install": {
     "debian": "(part of every Debian/Ubuntu system)",
     "fedora": "not available: the deps stage is Debian-only"
+   },
+   "only": "linux"
+  },
+  "ip": {
+   "why": "the leak gate's network namespace (Linux)",
+   "for": [
+    "leakgate"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y iproute2",
+    "fedora": "sudo dnf install -y iproute2"
+   },
+   "only": "linux"
+  },
+  "nft": {
+   "why": "the leak gate's firewall rules (Linux)",
+   "for": [
+    "leakgate"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y nftables",
+    "fedora": "sudo dnf install -y nftables"
+   },
+   "only": "linux"
+  },
+  "dnsmasq": {
+   "why": "the leak gate's DNS witness (Linux)",
+   "for": [
+    "leakgate"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y dnsmasq",
+    "fedora": "sudo dnf install -y dnsmasq"
+   },
+   "only": "linux"
+  },
+  "tcpdump": {
+   "why": "the leak gate's packet capture (Linux)",
+   "for": [
+    "leakgate"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y tcpdump",
+    "fedora": "sudo dnf install -y tcpdump"
+   },
+   "only": "linux"
+  },
+  "strace": {
+   "why": "the leak gate's system-call witness (Linux)",
+   "for": [
+    "leakgate"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y strace",
+    "fedora": "sudo dnf install -y strace"
+   },
+   "only": "linux"
+  },
+  "ss": {
+   "why": "the leak gate's socket listing (Linux)",
+   "for": [
+    "leakgate"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y iproute2",
+    "fedora": "sudo dnf install -y iproute2"
+   },
+   "only": "linux"
+  },
+  "mitmdump": {
+   "why": "the leak gate's TLS witness",
+   "for": [
+    "leakgate"
+   ],
+   "install": {
+    "debian": "python3 -m pip install mitmproxy",
+    "fedora": "python3 -m pip install mitmproxy",
+    "windows": "python -m pip install mitmproxy"
    }
   }
  }

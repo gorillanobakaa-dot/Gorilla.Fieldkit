@@ -87,6 +87,8 @@ def check(pipeline=None, pyproject=None, requirements=None, have_dist=None, whic
         users = t.get("for") or []
         if "core" not in users and pipeline not in users:
             continue
+        if t.get("only") and t["only"] != ("windows" if h["is_windows"] else "linux"):
+            continue                                       # a tool of the other system: not asked for here
         path = which(name)
         rows.append({"kind": "tool", "name": name, "ok": bool(path),
                      "detail": path or f"not found ({t.get('why', '')})",

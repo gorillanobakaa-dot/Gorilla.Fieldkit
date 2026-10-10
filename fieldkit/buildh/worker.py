@@ -12,7 +12,7 @@ settings are never touched. It has only the edit and view tools plus Fieldkit's 
 no shell (so no git and no installs are even possible), no web, no sub-agents. The driver
 also sets local-model time limits for the run.
 
-    fieldkit build-harness worker-profile      (re)write the profile and show where it is
+    (no command of its own: fieldkit build-harness drive rewrites the profile before every run)
 """
 import json
 import os
