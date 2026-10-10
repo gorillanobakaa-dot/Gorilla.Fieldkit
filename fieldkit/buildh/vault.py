@@ -105,7 +105,10 @@ def fetch_firefox(info=None, base=None):
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    _git("clone", "--quiet", "--depth", "1", "--branch", info["tag"], info["source"], str(tmp))
+    # core.autocrlf off, in the clone's own config: the vault holds upstream's bytes exactly, whatever this machine's
+    # git says (GitHub's Windows runners default it on and check every file out with CRLF)
+    _git("clone", "--quiet", "--config", "core.autocrlf=false", "--depth", "1", "--branch", info["tag"], info["source"],
+         str(tmp))
     head = _git("rev-parse", "HEAD", cwd=tmp).strip()
     if info.get("commit") and head != info["commit"]:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -213,7 +216,7 @@ def restore(product, workdir, version=None, base=None):
         raise RuntimeError(f"the vault itself is damaged, refusing to copy it: {check['problems']}")
     workdir.parent.mkdir(parents=True, exist_ok=True)
     if m["kind"] == "git":
-        _git("clone", "--quiet", "--no-hardlinks", str(d), str(workdir))
+        _git("clone", "--quiet", "--config", "core.autocrlf=false", "--no-hardlinks", str(d), str(workdir))
         for f in workdir.rglob("*"):
             if f.is_file() and not os.access(f, os.W_OK):
                 os.chmod(f, stat.S_IREAD | stat.S_IWRITE)

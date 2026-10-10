@@ -77,7 +77,7 @@ def test_vault_fetch_verify_and_it_is_read_only(mozilla, tmp_path):
     out = vault.fetch_firefox(_info(mozilla), base=base)
     d = base / "firefox" / "157.0"
     assert out["status"] == "fetched" and (d / "browser" / "version.txt").read_text() == "157.0\n"
-    assert not os.access(d / "dom.cpp", os.W_OK)
+    assert not os.stat(d / "dom.cpp").st_mode & 0o222          # no write bit (os.access says writable to root)
     assert vault.verify("firefox", base=base)["intact"]
     assert vault.fetch_firefox(_info(mozilla), base=base)["status"] == "already in the vault"
 
@@ -106,6 +106,20 @@ def test_restore_makes_a_fresh_writable_copy_and_leaves_the_vault_alone(mozilla,
         vault.restore("firefox", w, base=base)
     with pytest.raises(ValueError, match="never be inside the vault"):
         vault.restore("firefox", base / "firefox" / "scratch", base=base)
+
+
+def test_vault_and_working_copy_hold_upstreams_bytes_whatever_this_machines_git_says(mozilla, tmp_path, monkeypatch):
+    """2026-10-09, GitHub's Windows runners: core.autocrlf=true checked every file out with CRLF, so the vault and
+    the working copies no longer matched upstream and the snapshot proof failed. The clones pin it off."""
+    cfg = tmp_path / "gitconfig"
+    cfg.write_text("[core]\n\tautocrlf = true\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    base = tmp_path / "vault"
+    vault.fetch_firefox(_info(mozilla), base=base)
+    assert (base / "firefox" / "157.0" / "dom.cpp").read_bytes() == b"int x;\n"
+    vault.restore("firefox", tmp_path / "work", base=base)
+    assert (tmp_path / "work" / "dom.cpp").read_bytes() == b"int x;\n"
 
 
 def _kernel_server(tmp_path, tamper=False):
