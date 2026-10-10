@@ -86,13 +86,28 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_deliver.py"]
 
 - id: pipeline
-  title: Staged, resumable pipelines (Firefox on Windows, Debian kernel)
+  title: Staged, resumable pipelines (Firefox on Windows, Debian kernel, Gorilla OpenCode and any Go app)
   harness: build
   entry: [python, -m, fieldkit, pipeline]
   path: ${FIELDKIT}/fieldkit/core/pipeline.py
+  inputs: []                        # running one is the owner's: agents read the plan, and `next` says the step
   platforms: [windows, linux]
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pipeline.py", "${FIELDKIT}/tests/test_kernel.py"]
+
+- id: pipeline-plan
+  title: "What a pipeline would do, fully resolved, and what changed since its last run (read-only)"
+  harness: build
+  entry: [python, -m, fieldkit, pipeline, plan]
+  path: ${FIELDKIT}/fieldkit/core/pipeline.py
+  inputs:
+    - {name: name, flag: null, type: str, required: true, help: "the pipeline: debian-kernel, gorilla-opencode, go-app ..."}
+    - {name: var, flag: --var, type: list, required: false, help: "k=v settings, e.g. src=PATH version=v1.2"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pipeline.py"]
 
 - id: triage
   title: Name a build failure from its log (Firefox, kernel, Debian packaging)
@@ -199,12 +214,17 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_harvest.py"]
 
 - id: inventory
-  title: Count code, tests, config and skills per project folder or GitHub repo
+  title: Count code, tests, config and skills per project folder
   harness: core
-  entry: [python, "${FIELDKIT}/inventory.py"]
+  entry: [python, "${FIELDKIT}/inventory.py", local]
   path: ${FIELDKIT}/inventory.py
+  inputs:
+    - {name: dirs, flag: null, type: list, required: true, help: "the folders to count"}
+    - {name: skip_src, flag: --skip-src, type: flag, required: false, help: "skip a top-level src/ (vendored code)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
   platforms: [windows, linux]
-  changes: false
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core.py"]
 
 # --- Gathered from GitHub into toolbox/ (fieldkit gather; see imports.yaml) ------
@@ -304,7 +324,7 @@ tools:
   platforms: [linux]
   changes: false
   inputs: []
-  effects: [reads-files, processes]
+  effects: [reads-files]           # it runs pactl/wpctl/aplay to READ the sound chain; nothing is changed
   output: own
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_audio.py"]
 
@@ -340,8 +360,23 @@ tools:
   harness: fieldkit
   entry: [python, -m, fieldkit, icons]
   path: ${FIELDKIT}/fieldkit/icons/iconkit.py
+  inputs: []                        # many subcommands: the agent reaches them through the cards below
   platforms: [windows, linux]
   changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
+
+- id: fieldkit-icons-cache
+  title: Why the desktop icons are soft - the icon caches, their age and size (read-only; the fix is a person's --apply)
+  harness: fieldkit
+  entry: [python, -m, fieldkit, icons, cache]
+  path: ${FIELDKIT}/fieldkit/icons/iconkit.py
+  inputs:
+    - {name: thumbs, flag: --thumbs, type: flag, required: false, help: "also the picture thumbnail caches (Windows)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
 
 # --- academic work (fieldkit academic): one card per command, so an agent can reach each one ----

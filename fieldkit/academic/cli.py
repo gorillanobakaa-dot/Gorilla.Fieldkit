@@ -297,7 +297,7 @@ COMMANDS = ["init", "setup", "next", "accessed", "extract", "search", "refs", "s
 
 
 def parser(prog="fieldkit academic"):
-    ap = argparse.ArgumentParser(prog=prog, usage=USAGE, add_help=True)
+    ap = argparse.ArgumentParser(prog=prog, usage=USAGE.replace("%", "%%"), add_help=True)  # "+/-10%" broke --help
     ap.add_argument("command", choices=COMMANDS, metavar="COMMAND")
     ap.add_argument("target", nargs="?", help="a FOLDER or a FILE")
     ap.add_argument("extra", nargs="?", help="a URL (accessed) or a QUERY (search)")

@@ -342,6 +342,22 @@ def cmd_tools(a):
 
 def cmd_office(a):
     from .office import check, create, read, scrub
+    if a.action == "render":
+        from .office import render
+        try:
+            rep = render.render(a.files[0], a.out, a.scale, a.pages, a.sheet)
+        except LookupError as e:
+            sysname = "windows" if sys.platform == "win32" else "linux"
+            _emit({"ok": False, "error": str(e), "install": render.INSTALL[sysname]}, a.json,
+                  lambda d: print(f"NEEDS: {d['error']}\nINSTALL: {d['install']}"))
+            return 4
+        except (FileNotFoundError, RuntimeError) as e:
+            _emit({"ok": False, "error": str(e)}, a.json, lambda d: print(f"REFUSED: {d['error']}"))
+            return 2
+        _emit(rep, a.json, lambda d: print(f"{d['pages']} page(s); drawn: {len(d['rendered'])}\n"
+                                           + "\n".join(d['rendered']) + (f"\nsheet: {d['sheet']}" if d.get('sheet') else "")
+                                           + f"\nNEXT: {d['next']}"))
+        return 0
     if a.action == "read":
         text = read.read(a.files[0], engine=a.engine)
         if a.out:
@@ -592,6 +608,23 @@ def cmd_mcp(a):
 
 def cmd_cards(a):
     from .desk import cards
+    if a.action in ("check", "draft"):
+        from .desk import cardcheck
+        try:
+            if a.action == "draft":
+                if not a.id:
+                    raise FileNotFoundError("fieldkit cards draft FILE.py")
+                print(cardcheck.draft(a.id), end="")
+                return 0
+            r = cardcheck.check(a.id)
+        except (KeyError, FileNotFoundError) as e:
+            print(f"REFUSED: {str(e).strip(chr(39))}")
+            return 2
+        _emit(r, a.json, lambda d: [print(f"FAIL {c['id']}\n" + "\n".join(f"     - {p}" for p in c["problems"]))
+                                    for c in d["cards"]] and None or
+              [print(f"note {n}") for n in d["not_here"]] and None or
+              print(f"{d['checked']} card(s) checked, {d['failing']} failing"))
+        return 0 if r["ok"] else 3
     all_c = cards.all_cards()
     results = cards.test_results()
     if a.action == "show":
@@ -749,6 +782,20 @@ def cmd_kernel(a):
 
 
 # -- parser ---------------------------------------------------------------------
+# docs/METHODS.md: how the work gets done, as tools. name -> (module in fieldkit/method, one line)
+METHODS = {
+    "wait": ("wait", "wait on a condition, never on a clock (--until CMD --matches RE --timeout S)"),
+    "mutate": ("mutate", "prove a test can fail: break a rule, run the test, restore the file (FILE --swap A B -- TEST)"),
+    "regress": ("regress", "test failures by name before and after a change (record LABEL -- CMD; compare A B)"),
+    "drift": ("drift", "does a committed generated file still match its generator? reports, never rewrites"),
+    "mcp-probe": ("mcp_probe", "speak MCP to a server as a client does: handshake, tools and their size, one call"),
+    "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
+    "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push; never forces"),
+    "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
+    "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
+}
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="fieldkit", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version=f"fieldkit {__version__}")
@@ -812,6 +859,10 @@ def build_parser():
     ic.add_argument("args", nargs=argparse.REMAINDER)
     ic.set_defaults(fn=cmd_icons)
 
+    for name, (_, text) in METHODS.items():
+        mp = sub.add_parser(name, add_help=False, help=text)
+        mp.add_argument("args", nargs=argparse.REMAINDER)
+
     ac = sub.add_parser("academic", add_help=False,
                         help="academic work in 7 countries: the deadline asked, references, style, language, words, "
                              "plagiarism pre-check, the next step (fieldkit academic)")
@@ -831,7 +882,7 @@ def build_parser():
     t.set_defaults(fn=cmd_tools)
 
     o = sub.add_parser("office", parents=[common])
-    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver"])
+    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver", "render"])
     o.add_argument("files", nargs="+")
     o.add_argument("--engine", default="builtin", choices=["builtin", "markitdown", "docling"])
     o.add_argument("--out")
@@ -841,6 +892,9 @@ def build_parser():
     o.add_argument("--no-backup", action="store_true",
                    help="scrub/deliver: keep no backup (backups go to state/office-backups, never beside the file)")
     o.add_argument("--force", action="store_true", help="create: replace an existing output file")
+    o.add_argument("--scale", type=float, default=0.6, help="render: pixels per point")
+    o.add_argument("--pages", type=int, default=6, help="render: how many pages to draw")
+    o.add_argument("--sheet", action="store_true", help="render: also one contact sheet of the pages side by side")
     o.set_defaults(fn=cmd_office)
 
     p = sub.add_parser("pipeline", parents=[common])
@@ -900,7 +954,8 @@ def build_parser():
     sub.add_parser("mcp", help="serve the agent interface over MCP (stdio)").set_defaults(fn=cmd_mcp, json=False)
 
     cd = sub.add_parser("cards", parents=[common])
-    cd.add_argument("action", choices=["list", "show"])
+    cd.add_argument("action", choices=["list", "show", "check", "draft"],
+                    help="check: every reviewed card against its command; draft FILE.py: a card to review")
     cd.add_argument("id", nargs="?")
     cd.add_argument("--level", choices=["gathered", "carded", "tested", "verified"])
     cd.set_defaults(fn=cmd_cards)
@@ -1095,6 +1150,10 @@ def main(argv=None):
     if args[:1] == ["academic"]:                      # so is the academic module
         from .academic import cli as academic_cli
         return academic_cli.main(args[1:])
+    if args[:1] and args[0] in METHODS:              # methods as tools (docs/METHODS.md): each has its own parser
+        import importlib
+        mod = importlib.import_module(f".method.{METHODS[args[0]][0]}", __package__)
+        return mod.main(args[1:], prog=f"fieldkit {args[0]}")
     a = build_parser().parse_args(argv)
     if a.cmd == "pipeline" and a.action != "list" and not a.name:
         raise SystemExit("pipeline: name required")

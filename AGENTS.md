@@ -28,6 +28,9 @@ fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...
 fieldkit pipeline list|plan|run|status|reset NAME
 fieldkit pipeline run gorilla-opencode --var src=PATH [--var version=vX]   build Gorilla OpenCode (any Go app: go-app)
+fieldkit wait|mutate|regress|drift|mcp-probe|survey|i18n|ship|handover ...   methods as tools (docs/METHODS.md)
+fieldkit cards check | draft FILE.py             every card against its command; a card started from argparse code
+fieldkit office render FILE --sheet              look at the rendered pages, not the code that wrote them
 fieldkit mcp                                     the agent door; with Gorilla OpenCode "trust": "local", answers are labelled
 fieldkit triage LOG --set auto
 fieldkit privacy scan PATH --git
