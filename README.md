@@ -411,9 +411,14 @@ small job at a time, and the harness checks the result; approving and skipping a
 
 ```json
 "mcpServers": {
-  "fieldkit": { "type": "stdio", "command": "fieldkit", "args": ["mcp"] }
+  "fieldkit": { "type": "stdio", "command": "fieldkit", "args": ["mcp"], "trust": "local" }
 }
 ```
+
+`"trust": "local"` (Gorilla OpenCode with local-server trust) lets Fieldkit say, per answer, whether it
+carries text someone else wrote and whether it went online. Your own checks then run without the "untrusted
+content" question after every step; reading a downloaded document still asks. Tools that go online run only
+when the call says `network=true`. Leave `trust` out to have every call treated as a stranger's.
 
 **Claude Code:**
 

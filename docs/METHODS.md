@@ -1,0 +1,32 @@
+# Methods: how the work actually got done, turned into tools
+
+The harness is the visible result. The **method** is what makes the next result possible: how a problem was cut
+up, checked, proven and shipped. A method that lives only in one session's reasoning is lost when the session
+ends, and the next session pays for it again. This file catalogues every method used to build Fieldkit. For each
+one it says what it is for, where it was used, and the deterministic tool that replaces it (with its test), or
+`todo` until that tool exists.
+
+Rules for this file:
+
+- A method moves to `tool` only when the tool exists, has a card (`fieldkit tools list`) and has a test.
+- A rule an agent must remember and cannot run (for example "never moralise about a user's own tooling") is not
+  a method. It belongs in `AGENTS.md`.
+- Every entry names a real incident, so a reader can judge whether it still applies.
+
+| # | Method | What it prevents | Used for | Becomes | Status |
+|---|---|---|---|---|---|
+| 1 | **Baseline before a change.** Run the target's own test suite before and after the change, and compare which tests fail, not the totals. | Calling something a regression that was already broken, or missing a real one hidden in an unchanged total. | 3 fixes to a student's harness: 665 passed / 11 failed before and after, the same 11 (Windows-only paths). | `fieldkit regress -- CMD` (run, record, compare failure sets by name) | todo |
+| 2 | **Prove a test can fail.** Break the rule on purpose, check that a test turns red, then restore the file. | Tests that pass whatever the code does. | OpenCode local-trust policy: two mutations, both caught (2026-10-10). | `fieldkit mutate FILE --swap OLD NEW -- TEST` (restores even on Ctrl+C) | todo |
+| 3 | **Look at the rendered file, not the code that wrote it.** Office → PDF (LibreOffice) → PNG (pdfium) → one contact sheet. | Layouts that pass every check and still look wrong. | Word, PowerPoint and poster builders: empty table slides and unsorted poster references found this way. | `fieldkit office render FILE [--sheet]` | todo |
+| 4 | **Card every command an agent should reach.** Typed inputs, safety class, effects, what the answer carries (`output`), and exit codes that are answers rather than failures (`exits`). | An MCP door that cannot open the new module. | 18 academic cards; exits 2 = question, 3 = findings. | `fieldkit card new MODULE` (draft cards from the argparse CLI) + `fieldkit card check` | todo |
+| 5 | **Label every answer with what it carries.** `_meta.untrusted` / `_meta.egress`, fail closed, and network only on an explicit `network=true`. | A local, trusted tool server forcing a click on every step, or being trusted blindly. | Fieldkit MCP + Gorilla OpenCode `"trust": "local"`. | `fieldkit/mcp.py` labels + `tests/test_mcp_trust.py`; OpenCode `mcp_local_trust_test.go` | **tool** |
+| 6 | **Speak the protocol the client speaks.** Test a server with the exact messages the real client sends, then once with the real client against the real server. | "Works with my test client". | Fieldkit MCP against mcp-go v0.17 (protocol 2024-11-05); live Go test. | `fieldkit mcp probe -- CMD` (handshake, tool list size in bytes, one call, labels) | todo |
+| 7 | **Build any Go program the same way every time.** Toolchain checked against go.mod; modules verified against go.sum; vet; tests with only the failures reported; stamped `-trimpath` builds per target; SHA256SUMS; stages skipped only while a source fingerprint still matches. | Rebuilding by hand and from memory every release. | Gorilla OpenCode. | `fieldkit pipeline run gorilla-opencode` / `go-app` (`fieldkit/build/goapp.py`, `signatures/go.yaml`) | **tool** |
+| 8 | **Survey a repository with facts first.** Language, size, tests, licence, hard-coded paths, secrets; then read the code. Verify a helper's claims with grep before repeating them. | Plans built on a guess (an assumed TypeScript fork that was really Go). | 12 repositories, 2026-10-10. | `fieldkit survey PATH...` (facts as JSON; uses the privacy scan) | todo |
+| 9 | **Translation tables are data, checked three ways.** Every source string present, no two entries the same in one language, and the reverse lookup round-trips. | A heading shared by two sections ("Cuprins" was both Contents and Main Body). | 98 headings × 5 languages; the distinctive-words lists (12 overlaps removed). | `fieldkit i18n check FILE` | todo |
+| 10 | **Wait on a condition, never on a clock.** Poll the thing itself until it is true, with a deadline. | Sleeps that are too short (flaky) or too long (wasted). | Waiting for a commit hook, CI, a clone. | `fieldkit wait --until CMD --timeout S` | todo |
+| 11 | **Ship a change the same way every time.** Branch, commit through the hook (tests + privacy scan), push, PR, wait for CI, merge only when green. After a squash-merge the old branch head is recorded with `merge -s ours`, never force-pushed. | A rejected push turning into a history rewrite. | Fieldkit PRs 1–5. | `fieldkit ship` (git side) + the `fieldkit-ship` skill (the PR side needs the host's GitHub tools) | todo |
+| 12 | **Do not regenerate a drifted generated file.** When a committed artefact no longer matches its generator, edit only your entry and report the drift. | One-line changes arriving as a 2000-line diff. | `opencode-schema.json` (the model list order drifted). | `fieldkit drift --gen CMD FILE` (reports the drift; never rewrites) | todo |
+| 13 | **Report a bug in someone else's tool as a handover.** Reproduce it on their untouched copy, apply the fix to a scratch copy, run their own suite before and after, and give file, function, before/after and a regression test. | "I think there is a bug somewhere". | 5 fixes handed to another student's Claude. | `fieldkit handover` (from #1 + #2 results) | todo |
+| 14 | **Keep personal data out of what is published.** Real names, numbers and paths only in `local/`. Test data builds home paths and key-like strings at run time. The pre-commit privacy scan blocks the rest. | A name or a key in a public repository. | Every commit. | `fieldkit privacy scan` + pre-commit hook | **tool** |
+| 15 | **Data over code for anything a country, language or style decides.** Locales, styles, languages and headings as YAML; code only reads them. | Hard-wiring one country's rules (British templates for everyone). | `fieldkit academic`. | the pattern itself; `fieldkit i18n check` (#9) guards it | partial |

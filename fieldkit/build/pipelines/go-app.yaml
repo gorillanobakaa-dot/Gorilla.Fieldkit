@@ -1,0 +1,57 @@
+name: go-app
+description: >-
+  Build any Go program the same way every time: the toolchain go.mod asks for, every dependency verified
+  against go.sum, vet, tests (only the failures reported), stamped builds for each target with CGO off and
+  -trimpath (the same commit gives the same bytes on any machine), and SHA256SUMS. Resumable: only what
+  the changed source affects runs again. Windows and Linux.
+vars:
+  src: ""                  # the module folder (holds go.mod); or goapps.<name> in fieldkit.local.json
+  name: app                # the program's name: <name>-<version>-<os>-<arch>[.exe]
+  version: ""              # empty: git describe --tags --always --dirty
+  version_var: ""          # the -X target that --version prints, e.g. example.com/app/internal/version.Version
+  version_flag: ""         # e.g. --version: the build on this machine is run to check its stamp
+  targets: "linux/amd64,windows/amd64"
+  main: "."                # the package to build
+  cgo: "0"
+  tests: all               # all | short
+  out: ""                  # empty: <src>/dist
+  windows_name: ""         # a fixed file name for the Windows build (e.g. the name the releases use)
+stages:
+  - id: toolchain
+    run: {python: "fieldkit.build.goapp:stage_toolchain"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_toolchain"}}
+    triage: go
+
+  - id: modules
+    timeout: 3600
+    run: {python: "fieldkit.build.goapp:stage_modules"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_modules"}}
+    triage: go
+
+  - id: vet
+    timeout: 3600
+    run: {python: "fieldkit.build.goapp:stage_vet"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_vet"}}
+    triage: go
+
+  - id: test
+    timeout: 10800
+    run: {python: "fieldkit.build.goapp:stage_test", args: {mode: "{tests}"}}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_test"}}
+    triage: go
+
+  - id: build
+    timeout: 7200
+    run: {python: "fieldkit.build.goapp:stage_build"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_build"}}
+    triage: go
+
+  - id: checksums
+    run: {python: "fieldkit.build.goapp:stage_checksums"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_checksums"}}

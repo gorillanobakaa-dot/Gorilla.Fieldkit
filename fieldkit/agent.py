@@ -396,6 +396,13 @@ def run(tool_id, inputs=None, mode="apply", approve=False, cards=None, timeout=6
         rec["backup"] = saved
         r = runner.run(build_argv(card, ins), name=f"apply-{tool_id}", timeout=timeout)
         out = r.stdout + r.stderr
+        meaning = (card.get("exits") or {}).get(r.returncode)
+        if meaning:                                     # the tool answered (asked, or found things) and changed nothing
+            for s in saved:
+                s["after"] = _state_hash(s["path"])
+            rec.update(ok=True, output=out[-4000:], verify=[], verified=None, exit_meaning=meaning,
+                       changed=[s["path"] for s in saved if s["after"] != s["before"]])
+            return _journal(rec, EXIT_STATUS[meaning], [EXIT_NEXT[meaning]], card)
         vok, vmsgs = verify(card, ins, out, runner, timeout=timeout)
         if not modes.get("verify"):
             vok, vmsgs = None, ["no verify checks on this card: result NOT proven"]
@@ -415,20 +422,33 @@ def run(tool_id, inputs=None, mode="apply", approve=False, cards=None, timeout=6
 
     r = runner.run(build_argv(card, ins), name=f"run-{tool_id}", timeout=timeout)
     out = r.stdout + r.stderr
+    meaning = (card.get("exits") or {}).get(r.returncode)
+    if meaning:                                         # an answer the tool gives by exit code, not a failure
+        rec.update(ok=True, output=out[-4000:], verify=[], verified=None, exit_meaning=meaning)
+        return _journal(rec, EXIT_STATUS[meaning], [EXIT_NEXT[meaning]], card)
     vok, vmsgs = verify(card, ins, out, runner, timeout=timeout)
     rec.update(ok=r.ok, output=out[-4000:], verify=vmsgs, verified=vok if modes.get("verify") else None)
     good = r.ok and rec["verified"] is not False
     return _journal(rec, "DONE" if good else f"FAILED (exit {r.returncode})" if not r.ok else "FAILED VERIFY",
                     ["NEXT: use the output above to answer."] if good else
-                    ["NEXT: read the output; if the error is unclear, try triage on the log."])
+                    ["NEXT: read the output; if the error is unclear, try triage on the log."], card)
 
 
-def _journal(rec, status, next_lines):
+EXIT_STATUS = {"question": "QUESTIONS for the person (nothing was changed)",
+               "findings": "DONE - the check found things to fix"}
+EXIT_NEXT = {"question": "NEXT: ask the person the QUESTION lines above, one at a time, then run again with the "
+                         "answers.",
+             "findings": "NEXT: tell the person the FIX lines above, one at a time. The tool worked; the work needs "
+                         "these changes."}
+
+
+def _journal(rec, status, next_lines, card=None):
     rec["status"] = status
     rec["when"] = time.strftime("%Y-%m-%d %H:%M:%S")
     RUNS.mkdir(parents=True, exist_ok=True)
     (RUNS / f"{rec['run_id']}.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
-    tail = (rec.get("output") or "").strip().splitlines()[-15:]
+    keep = (card or {}).get("answer_lines") or 15
+    tail = (rec.get("output") or "").strip().splitlines()[-keep:]
     rec["answer"] = [f"{status}: {rec['tool']} (run {rec['run_id']})"] + [f"  {l[:200]}" for l in tail] + \
         [f"  {v}" for v in rec.get("verify", [])] + next_lines
     return rec

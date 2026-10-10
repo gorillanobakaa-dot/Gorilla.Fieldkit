@@ -27,6 +27,8 @@ fieldkit jobs run|ingest-advert|pack|check-letter|apply|status ...   the job hun
 fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...
 fieldkit pipeline list|plan|run|status|reset NAME
+fieldkit pipeline run gorilla-opencode --var src=PATH [--var version=vX]   build Gorilla OpenCode (any Go app: go-app)
+fieldkit mcp                                     the agent door; with Gorilla OpenCode "trust": "local", answers are labelled
 fieldkit triage LOG --set auto
 fieldkit privacy scan PATH --git
 fieldkit kernel localversion|fragment ...
@@ -128,3 +130,8 @@ local/            your own cards, sources and tests (git-ignored, merged at load
   proves it can fail.
 - Pipelines, signatures and the registry are data (YAML). Change the data before
   changing the code.
+
+## Methods
+
+How the work gets done, and the tool each method becomes: [docs/METHODS.md](docs/METHODS.md). Before inventing a
+procedure, look there; when you invent one, add it there, and turn it into a tool with a test.
