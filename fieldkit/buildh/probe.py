@@ -208,13 +208,50 @@ COPY_PREFIX = "gprobe_app_"
 COPY_MARK = ".fieldkit-probe-copy"
 
 
-def processes_in(folder):
+def stop_tree(pid, platform=None, run=subprocess.run):
+    """Stop process `pid` and its children, by PID only (taskkill /T on Windows; psutil, or the process group this
+    module started it in, elsewhere). A process that is already gone is not an error."""
+    import os as _os
+    import signal as _signal
+    import sys as _sys
+    if (platform or _sys.platform) == "win32":
+        run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        return
+    try:
+        import psutil
+        try:
+            parent = psutil.Process(pid)
+            for c in parent.children(recursive=True) + [parent]:
+                try:
+                    c.kill()
+                except psutil.NoSuchProcess:
+                    pass
+        except psutil.NoSuchProcess:
+            pass
+    except ImportError:
+        try:
+            _os.killpg(pid, _signal.SIGKILL)       # launch() starts the browser as its own process group
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def processes_in(folder, platform=None):
     """-> [pid] of every process whose program lives inside `folder` (a probe copy: the path is unique to this run,
-    so these are ours and nothing of the owner's). Windows only; [] elsewhere or when the query fails."""
+    so these are ours and nothing of the owner's). [] when the query fails."""
     import json as _json
     import sys as _sys
-    if _sys.platform != "win32":
-        return []
+    if (platform or _sys.platform) != "win32":
+        root = Path(folder).resolve()
+        try:
+            import psutil
+        except ImportError:
+            return []
+        out = []
+        for pr in psutil.process_iter(["pid", "exe"]):
+            exe = pr.info.get("exe")
+            if exe and root in Path(exe).parents:
+                out.append(pr.info["pid"])
+        return out
     root = str(Path(folder).resolve()).lower()
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command",
@@ -232,7 +269,7 @@ def stop_in(folder):
     """Stop every process running from `folder`, by PID (tree) -> [pid]."""
     pids = processes_in(folder)
     for pid in pids:
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        stop_tree(pid)
     return pids
 
 
@@ -294,7 +331,7 @@ def prepare_copy(install_dir, js, wait=15, omni=None, files=None, added=None, su
 
 def launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
     """One headless run of a prepared copy on a FRESH throwaway profile -> {"lines", "times" (the clock time each
-    line arrived), "done", "seconds"}. Only the process this started is stopped (taskkill /PID /T).
+    line arrived), "done", "seconds"}. Only the process this started is stopped (stop_tree: by PID, with its children).
     headless=False opens a normal window (the owner watches it: about-pages walk=1); on_line(line) is called with
     each probe line as it arrives, for a live view."""
     prof = throwaway.profile("gprobe_", PROFILE_JS)
@@ -303,14 +340,15 @@ def launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
         # -wait-for-browser: on Windows firefox.exe is a launcher that starts the real browser and exits; with it the
         # launcher stays until the browser ends, so the PID this run stops is the browser's parent (2026-10-08: two
         # visible walk browsers outlived their runs)
-        proc = subprocess.Popen([str(Path(app) / "firefox.exe")] + (["-headless"] if headless else [])
+        import sys as _sys
+        exe = Path(app) / ("firefox.exe" if _sys.platform == "win32" else "firefox")
+        proc = subprocess.Popen([str(exe)] + (["-headless"] if headless else [])
                                 + ["-wait-for-browser", "-no-remote", "-profile", str(prof), url],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                                errors="replace")
+                                errors="replace", **({} if _sys.platform == "win32" else {"start_new_session": True}))
         lines, times, finished = [], [], False
         import threading
-        killer = threading.Timer(timeout, lambda: subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                                                                 capture_output=True))
+        killer = threading.Timer(timeout, lambda: stop_tree(proc.pid))
         killer.start()                                     # a silent browser cannot hang the probe
         try:
             for line in proc.stdout:
@@ -326,7 +364,7 @@ def launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
                     break
         finally:
             killer.cancel()
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+            stop_tree(proc.pid)
             stop_in(Path(app))                     # and anything else still running from this copy, by PID
         return {"lines": lines, "times": times, "done": finished, "seconds": round(time.time() - t0, 1)}
     finally:

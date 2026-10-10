@@ -97,6 +97,7 @@ groups:
       - buildh/buildstamp.py
       - buildh/satellite.py
       - buildh/window.py
+      - buildh/herald.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py
