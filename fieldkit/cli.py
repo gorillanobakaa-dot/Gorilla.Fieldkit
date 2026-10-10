@@ -104,6 +104,13 @@ def cmd_host(a):
     return 0
 
 
+def cmd_doctor(a):
+    from .core import doctor
+    r = doctor.check(a.pipeline)
+    _emit(r, a.json, lambda d: print("\n".join(doctor.lines(d))))
+    return 0 if r["ok"] else 3
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -541,6 +548,10 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("host", parents=[common]).set_defaults(fn=cmd_host)
+
+    dr = sub.add_parser("doctor", parents=[common], help="what this machine still needs, and the line that installs it")
+    dr.add_argument("--for", dest="pipeline", help="also the programs this pipeline needs (e.g. debian-kernel)")
+    dr.set_defaults(fn=cmd_doctor)
 
     t = sub.add_parser("tools", parents=[common])
     t.add_argument("action", choices=["list", "check"])
