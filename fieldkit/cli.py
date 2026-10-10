@@ -528,6 +528,16 @@ def cmd_exam(a):
 
 def cmd_kernel(a):
     from .build import kernel
+    if a.action in ("migrate-check", "migrate-verify"):
+        from .build import kmigrate
+        if a.action == "migrate-check":
+            r, human = kmigrate.check(a.project, a.old, a.new), kmigrate.check_lines
+        else:
+            r, human = kmigrate.verify(a.project, a.new, a.old_patches), kmigrate.verify_lines
+        if a.out:
+            Path(a.out).write_text("\n".join(human(r)) + "\n", encoding="utf-8")
+        _emit(r, a.json, lambda d: print("\n".join(human(d))))
+        return 0 if r["ok"] else 3
     if a.action == "localversion":
         _emit(kernel.localversion(a.base, a.tags, year_digits=a.year), a.json)
         return 0
@@ -686,6 +696,16 @@ def build_parser():
     fr = ks.add_parser("fragment", parents=[common])
     fr.add_argument("injector")
     fr.add_argument("--out")
+    mc = ks.add_parser("migrate-check", parents=[common], help="before porting: what carries over to the new kernel")
+    mc.add_argument("--project", required=True, help="the kernel project (patches/, registry, shipped files)")
+    mc.add_argument("--old", required=True, help="pristine tree of the version the patches were made for")
+    mc.add_argument("--new", required=True, help="pristine tree of the new version")
+    mc.add_argument("--out", help="also write the report here (evidence for the release notes)")
+    mv = ks.add_parser("migrate-verify", parents=[common], help="after porting: same lines, byte-for-byte rebuild")
+    mv.add_argument("--project", required=True)
+    mv.add_argument("--new", required=True, help="pristine tree of the new version")
+    mv.add_argument("--old-patches", required=True, help="a copy of the patches/ folder before the migration")
+    mv.add_argument("--out", help="also write the report here")
     k.set_defaults(fn=cmd_kernel)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
