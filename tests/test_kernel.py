@@ -1,5 +1,6 @@
 """Kernel pieces that are pure logic run everywhere; the build itself is Debian-only."""
 import datetime
+from pathlib import Path
 
 import pytest
 
@@ -104,3 +105,58 @@ def test_deps_stage_says_why_it_cannot_run_off_debian():
         pytest.skip("dpkg-query present: this is a Debian-family machine")
     r = kernel.stage_deps(None)
     assert r["ok"] is False and "Debian" in r["detail"]
+
+
+# -- RPM packages of the same build (2026-10-10) ----------------------------------------------------------------------
+
+def _rpm_ctx(tmp_path, release="7.2.9-unleashed.gorilla-x", make_rpm=True, ok=True):
+    from types import SimpleNamespace
+    src = tmp_path / "linux-7.2.9"
+    (src / "include" / "config").mkdir(parents=True)
+    (src / "include" / "config" / "kernel.release").write_text(release + "\n", encoding="utf-8")
+    calls = []
+
+    def run(cmd, env=None, name=None, **kw):
+        calls.append(cmd)
+        if make_rpm:
+            d = src / "rpmbuild" / "RPMS" / "x86_64"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"kernel-{release.replace('-', '_')}-1.x86_64.rpm").write_bytes(b"rpm")
+        return SimpleNamespace(ok=ok, log="log")
+    ctx = SimpleNamespace(vars={"src": str(src), "version": "7.2.9", "workdir": str(tmp_path),
+                                "output": str(tmp_path / "out")},
+                          runner=SimpleNamespace(run=run), host={"cpus": 4})
+    return ctx, calls
+
+
+def test_rpm_reuses_the_built_release_and_needs_its_kernel_rpm(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, calls = _rpm_ctx(tmp_path)
+    r = kernel.stage_rpm(ctx)
+    assert r["ok"] and r["release"] == "7.2.9-unleashed.gorilla-x", r
+    assert "LOCALVERSION=-unleashed.gorilla-x" in calls[0] and "binrpm-pkg" in calls[0]
+
+
+def test_rpm_fails_without_rpmbuild_without_a_build_and_without_a_kernel_rpm(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: None)
+    ctx, _ = _rpm_ctx(tmp_path / "a")
+    assert not kernel.stage_rpm(ctx)["ok"] and "rpmbuild not found" in kernel.stage_rpm(ctx)["detail"]
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, _ = _rpm_ctx(tmp_path / "b")
+    (Path(ctx.vars["src"]) / "include" / "config" / "kernel.release").unlink()
+    assert "run the build stage first" in kernel.stage_rpm(ctx)["detail"]
+    ctx, _ = _rpm_ctx(tmp_path / "c", make_rpm=False)
+    r = kernel.stage_rpm(ctx)
+    assert not r["ok"] and "made no kernel RPM" in r["detail"]
+    ctx, _ = _rpm_ctx(tmp_path / "d", release="7.1.2-old")
+    assert "not 7.2.9" in kernel.stage_rpm(ctx)["detail"]
+
+
+def test_collect_gathers_debs_and_rpms_and_passes_on_a_second_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, _ = _rpm_ctx(tmp_path)
+    kernel.stage_rpm(ctx)
+    (tmp_path / "linux-image-7.2.9-x_7.2.9_amd64.deb").write_bytes(b"deb")
+    r = kernel.stage_collect(ctx)
+    assert r["ok"] and len(r["moved"]) == 2 and r["rpms"]
+    assert kernel.stage_collect(ctx)["ok"]                    # already collected: still there, still fine

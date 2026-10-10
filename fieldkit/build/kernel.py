@@ -38,7 +38,8 @@ DEFAULT_PREFIX = ("unleashed", "gorilla")
 # CI needed in practice (libdw-dev was missing and failed every run).
 BUILD_DEPS = ["build-essential", "bc", "bison", "flex", "libssl-dev", "libelf-dev", "libdw-dev",
               "libncurses-dev", "dwarves", "cpio", "rsync", "kmod", "dpkg-dev", "debhelper",
-              "python3", "zstd", "libzstd-dev", "xz-utils", "curl"]
+              "python3", "zstd", "libzstd-dev", "xz-utils", "curl",
+              "rpm"]          # rpmbuild, for the RPM packages made from the same build (stage_rpm, 2026-10-10)
 
 
 # -- naming ------------------------------------------------------------------
@@ -260,6 +261,34 @@ def stage_build(ctx, tags=("gorilla",), jobs=None, kcflags="-O3 -pipe"):
     return {"ok": r.ok, "uname": name["uname"], "log": r.log, "detail": f"uname {name['uname']} ({name['length']}/64)"}
 
 
+def stage_rpm(ctx, jobs=None, kcflags="-O3 -pipe"):
+    """RPM packages of the kernel the build stage just compiled (2026-10-10: "a final binary nicely packaged for
+    debian, rpm and all that"). The release string is read from the built tree, never made again: a second
+    localversion() call carries a new timestamp, and make would rebuild everything under another name. The stage
+    passes only when the RPMs carry exactly the release of the .deb packages."""
+    src, version = Path(_v(ctx, "src")), _v(ctx, "version")
+    if not shutil.which("rpmbuild"):
+        return {"ok": False, "detail": "rpmbuild not found: sudo apt-get install -y rpm (Debian/Ubuntu), "
+                                       "or dnf install rpm-build (Fedora)"}
+    rel_file = src / "include" / "config" / "kernel.release"
+    if not rel_file.is_file():
+        return {"ok": False, "detail": f"no {rel_file}: run the build stage first"}
+    release = rel_file.read_text(encoding="utf-8").strip()
+    if not release.startswith(version):
+        return {"ok": False, "detail": f"the built tree is {release}, not {version}"}
+    cmd = ["make", "-C", str(src), f"LOCALVERSION={release[len(version):]}", f"-j{jobs or ctx.host['cpus']}",
+           "binrpm-pkg"]
+    r = ctx.runner.run(cmd, env={"KCFLAGS": kcflags}, name="binrpm-pkg")
+    after = rel_file.read_text(encoding="utf-8").strip()
+    rpms = sorted(p.name for p in (src / "rpmbuild" / "RPMS").rglob("*.rpm"))
+    kernel_rpms = [n for n in rpms if n.startswith("kernel-") and release.replace("-", "_") in n]
+    ok = r.ok and after == release and bool(kernel_rpms)
+    return {"ok": ok, "rpms": rpms, "log": r.log, "release": after,
+            "detail": (f"{len(rpms)} RPM(s) for {release}" if ok else
+                       f"binrpm-pkg {'failed' if not r.ok else 'made no kernel RPM for ' + release}"
+                       + (f"; the release changed to {after}" if after != release else ""))}
+
+
 def stage_collect(ctx):
     work, out = Path(_v(ctx, "workdir")), Path(_v(ctx, "output"))
     out.mkdir(parents=True, exist_ok=True)
@@ -267,6 +296,9 @@ def stage_collect(ctx):
     for p in work.glob("*.deb"):
         shutil.move(str(p), out / p.name)
         moved.append(p.name)
-    images = [m for m in moved if m.startswith("linux-image")]
-    return {"ok": bool(images), "moved": moved,
+    for p in (Path(_v(ctx, "src")) / "rpmbuild" / "RPMS").rglob("*.rpm"):
+        shutil.move(str(p), out / p.name)
+        moved.append(p.name)
+    images = [p.name for p in out.glob("linux-image*.deb")]           # what is in the output, not only this run's move
+    return {"ok": bool(images), "moved": moved, "rpms": sorted(p.name for p in out.glob("*.rpm")),
             "detail": f"{len(moved)} package(s); install only linux-image and linux-headers, never linux-libc-dev"}
