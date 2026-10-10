@@ -23,6 +23,7 @@ The change-set itself (which options) is the project's data, not Fieldkit's.
 import ast
 import datetime
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -190,16 +191,48 @@ def stage_deps(ctx, packages=None):
             "detail": ("all present" if not missing else "sudo apt-get install -y " + " ".join(missing))}
 
 
-def stage_fetch(ctx):
+PROVENANCE = "linux-{version}.provenance.json"
+
+
+def _provenance(work, version, data):
+    p = Path(work) / PROVENANCE.format(version=version)
+    p.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    return p
+
+
+def provenance(work, version):
+    """Where the source of `version` came from, as fetch recorded it, or None."""
+    p = Path(work) / PROVENANCE.format(version=version)
+    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
+
+
+def stage_fetch(ctx, mirror="", opener=None):
+    """The pristine source: kernel.org's tarball checked against kernel.org's sha256sums.asc, or, ONLY when asked with
+    --var mirror=<git URL> because kernel.org cannot be reached, the release tag from a git mirror.
+
+    2026-10-10: the cloud machine that migrated 7.2.9 could not reach kernel.org; the source came from the git mirror
+    github.com/gregkh/linux by hand. This makes that path a step: the mirror is never used silently, the tag's commit
+    is recorded in linux-<version>.provenance.json with "sha256": "not verified", and the stage says so. A later run
+    that can reach kernel.org verifies the tarball and overwrites the record. The signature on sha256sums.asc is not
+    checked (no keyring is assumed); the checksum list is fetched over HTTPS from kernel.org."""
     version, work = _v(ctx, "version"), Path(_v(ctx, "workdir"))
     work.mkdir(parents=True, exist_ok=True)
     name = f"linux-{version}.tar.xz"
     dest = work / name
     url = tarball_url(version)
     sums_url = url.rsplit("/", 1)[0] + "/sha256sums.asc"
-    if not dest.is_file():
-        urllib.request.urlretrieve(url, dest)
-    sums = urllib.request.urlopen(sums_url, timeout=60).read().decode("utf-8", "replace")
+    opener = opener or (lambda u: urllib.request.urlopen(u, timeout=60))
+    try:
+        sums = opener(sums_url).read().decode("utf-8", "replace")
+        if not dest.is_file():
+            with opener(url) as r, open(dest, "wb") as f:
+                shutil.copyfileobj(r, f)
+    except OSError as e:                                   # URLError, HTTPError, a proxy's 403: kernel.org unreachable
+        if not mirror:
+            return {"ok": False, "detail": f"kernel.org unreachable ({str(e)[:120]}). Allow cdn.kernel.org, or take the "
+                                           f"release tag from a git mirror: --var mirror=https://github.com/gregkh/linux "
+                                           f"(the sha256 then stays unverified until kernel.org is reachable)"}
+        return _fetch_mirror(ctx, mirror, version, work, f"kernel.org unreachable: {str(e)[:120]}")
     want = expected_sha256(sums, name)
     got = sha256_file(dest)
     if want is None:
@@ -207,14 +240,58 @@ def stage_fetch(ctx):
     if want != got:
         dest.rename(dest.with_suffix(".xz.bad"))
         return {"ok": False, "detail": f"sha256 mismatch: expected {want}, got {got}; file moved aside"}
+    _provenance(work, version, {"source": "kernel.org", "url": url, "sha256": got, "sums": sums_url})
     return {"ok": True, "detail": f"{name} sha256 verified", "sha256": got}
+
+
+def _fetch_mirror(ctx, mirror, version, work, why):
+    """git fetch --depth 1 <mirror> tag v<version>; git archive into <workdir>/linux-<version>."""
+    repo, tag, src = work / "mirror.git", f"v{version}", work / f"linux-{version}"
+    git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", *a], capture_output=True, text=True)
+    if not (repo / "HEAD").is_file():
+        r = git("init", "-q", "--bare", str(repo))
+        if r.returncode:
+            return {"ok": False, "detail": f"git init failed: {r.stderr.strip()[:200]}"}
+    r = git("-C", str(repo), "fetch", "-q", "--depth", "1", mirror, f"refs/tags/{tag}:refs/tags/{tag}")
+    if r.returncode:
+        return {"ok": False, "detail": f"{why}; the mirror has no tag {tag} or cannot be reached: {r.stderr.strip()[:200]}"}
+    commit = git("-C", str(repo), "rev-parse", f"{tag}^{{commit}}").stdout.strip()
+    if not (src / "Makefile").is_file():
+        src.mkdir(parents=True, exist_ok=True)
+        arc = subprocess.run(["git", "-C", str(repo), "archive", tag], capture_output=True)
+        if arc.returncode:
+            return {"ok": False, "detail": f"git archive {tag} failed: {arc.stderr.decode('utf-8', 'replace')[:200]}"}
+        import io
+        with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as t:
+            t.extractall(src, filter="data")
+    _provenance(work, version, {"source": "git mirror", "mirror": mirror, "tag": tag, "commit": commit,
+                                "sha256": "not verified", "why": why})
+    return {"ok": (src / "Makefile").is_file(), "unverified": True, "commit": commit,
+            "detail": f"UNVERIFIED: {tag} ({commit[:12]}) from {mirror}; {why}. The kernel.org sha256 is not checked "
+                      f"until a run can reach kernel.org"}
+
+
+def verify_fetch(ctx):
+    """fetch is done when the source is there AND its provenance is recorded (a kernel.org tarball, or a mirror tag
+    that says it is unverified)."""
+    version, work = _v(ctx, "version"), Path(_v(ctx, "workdir"))
+    pv = provenance(work, version)
+    if not pv:
+        return {"ok": False, "detail": "no provenance record: run the fetch stage"}
+    if pv["source"] == "kernel.org":
+        ok = (work / f"linux-{version}.tar.xz").is_file()
+        return {"ok": ok, "detail": f"kernel.org tarball, sha256 {pv['sha256'][:16]}..."}
+    ok = (work / f"linux-{version}" / "Makefile").is_file()
+    return {"ok": ok, "detail": f"git mirror {pv['tag']} ({pv['commit'][:12]}), sha256 NOT verified"}
 
 
 def stage_extract(ctx):
     version, work = _v(ctx, "version"), Path(_v(ctx, "workdir"))
     src = work / f"linux-{version}"
     if (src / "Makefile").is_file():
-        return {"ok": True, "detail": "already extracted"}
+        pv = provenance(work, version) or {}
+        return {"ok": True, "detail": "already extracted" + (" (from the git mirror, sha256 not verified)"
+                                                             if pv.get("source") == "git mirror" else "")}
     with tarfile.open(work / f"linux-{version}.tar.xz") as t:
         t.extractall(work, filter="data")
     return {"ok": (src / "Makefile").is_file(), "detail": str(src)}

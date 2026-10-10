@@ -10,6 +10,7 @@ vars:
   project: "${LOCAL:kernel.project}"            # checkout of the debian-kernel repo
   src: "{workdir}/linux-{version}"
   output: "{workdir}/debs-{version}"
+  mirror: ""                                    # e.g. https://github.com/gregkh/linux, only if kernel.org is unreachable
 stages:
   - id: deps
     platforms: [debian]
@@ -20,9 +21,10 @@ stages:
 
   - id: fetch
     platforms: [linux]
-    run: {python: "fieldkit.build.kernel:stage_fetch"}
+    # kernel.org first; --var mirror=<git URL> only when kernel.org cannot be reached (recorded as unverified)
+    run: {python: "fieldkit.build.kernel:stage_fetch", args: {mirror: "{mirror}"}}
     verify:
-      - {files_exist: ["{workdir}/linux-{version}.tar.xz"]}
+      - {python: {target: "fieldkit.build.kernel:verify_fetch"}}
 
   - id: extract
     platforms: [linux]

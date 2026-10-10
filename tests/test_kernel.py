@@ -160,3 +160,71 @@ def test_collect_gathers_debs_and_rpms_and_passes_on_a_second_run(tmp_path, monk
     r = kernel.stage_collect(ctx)
     assert r["ok"] and len(r["moved"]) == 2 and r["rpms"]
     assert kernel.stage_collect(ctx)["ok"]                    # already collected: still there, still fine
+
+
+# -- fetch: kernel.org, or a git mirror only when asked, and the provenance says which (2026-10-10) -----------------
+
+def _fetch_ctx(tmp_path, version="7.9.9"):
+    from types import SimpleNamespace
+    return SimpleNamespace(vars={"version": version, "workdir": str(tmp_path / "work")})
+
+
+def _unreachable(url):
+    raise OSError("Tunnel connection failed: 403 Forbidden")
+
+
+def _mirror(tmp_path, version="7.9.9"):
+    import subprocess
+    m = tmp_path / "mirror"
+    m.mkdir()
+    g = lambda *a: subprocess.run(["git", "-C", str(m), "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+                                  check=True, capture_output=True)
+    g("init", "-q")
+    (m / "Makefile").write_text("VERSION = 7\n", encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-qm", "linux")
+    g("tag", f"v{version}")
+    return m.as_uri()
+
+
+def test_fetch_refuses_without_kernel_org_and_names_the_way_out(tmp_path):
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path), opener=_unreachable)
+    assert not r["ok"] and "kernel.org unreachable" in r["detail"] and "--var mirror=" in r["detail"]
+    assert not kernel.verify_fetch(_fetch_ctx(tmp_path))["ok"]
+
+
+def test_fetch_from_a_mirror_says_unverified_and_records_the_commit(tmp_path):
+    ctx = _fetch_ctx(tmp_path)
+    r = kernel.stage_fetch(ctx, mirror=_mirror(tmp_path), opener=_unreachable)
+    assert r["ok"] and r["unverified"] and r["detail"].startswith("UNVERIFIED")
+    pv = kernel.provenance(tmp_path / "work", "7.9.9")
+    assert pv["source"] == "git mirror" and pv["sha256"] == "not verified" and len(pv["commit"]) == 40
+    assert (tmp_path / "work" / "linux-7.9.9" / "Makefile").read_text() == "VERSION = 7\n"
+    v = kernel.verify_fetch(ctx)
+    assert v["ok"] and "NOT verified" in v["detail"]
+    assert "sha256 not verified" in kernel.stage_extract(ctx)["detail"]
+
+
+def test_a_mirror_without_the_tag_fails(tmp_path):
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path, "7.9.8"), mirror=_mirror(tmp_path), opener=_unreachable)
+    assert not r["ok"] and "no tag v7.9.8" in r["detail"]
+
+
+def test_fetch_from_kernel_org_checks_the_tarball_and_records_it(tmp_path):
+    import hashlib
+    import io
+    data = b"tarball bytes"
+    good = hashlib.sha256(data).hexdigest()
+    class R(io.BytesIO):
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+    def opener(sums):
+        return lambda url: R(sums.encode() if url.endswith(".asc") else data)
+    ctx = _fetch_ctx(tmp_path)
+    r = kernel.stage_fetch(ctx, opener=opener(f"{good}  linux-7.9.9.tar.xz\n"))
+    assert r["ok"] and kernel.provenance(tmp_path / "work", "7.9.9")["sha256"] == good
+    assert kernel.verify_fetch(ctx)["ok"]
+    bad = kernel.stage_fetch(_fetch_ctx(tmp_path / "b"), opener=opener(f"{'0' * 64}  linux-7.9.9.tar.xz\n"))
+    assert not bad["ok"] and "sha256 mismatch" in bad["detail"]
