@@ -11,8 +11,8 @@ from fieldkit.buildh import handedit, task
 def _repo(tmp_path):
     w = tmp_path / "w"
     (w / "dom").mkdir(parents=True)
-    (w / "dom/P.ipdl").write_text("include protocol PA;\ninclude protocol PSpeech;\nasync protocol P {};\n", encoding="utf-8")
-    (w / "dom/other.cpp").write_text("int x;\n", encoding="utf-8")
+    (w / "dom/P.ipdl").write_text("include protocol PA;\ninclude protocol PSpeech;\nasync protocol P {};\n", encoding="utf-8", newline="\n")
+    (w / "dom/other.cpp").write_text("int x;\n", encoding="utf-8", newline="\n")
     subprocess.run(["git", "init", "-q", str(w)], check=True)
     subprocess.run(["git", "-C", str(w), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pristine"], check=True)
@@ -26,7 +26,7 @@ def test_an_edit_becomes_done_hand_steps_and_a_checkpoint(tmp_path, monkeypatch)
     monkeypatch.setattr(task, "load", lambda tid: t)
     monkeypatch.setattr(task, "save", lambda t_: None)
     monkeypatch.setattr(task, "journal", lambda t_, ev, **kw: t_.setdefault("_j", []).append((ev, kw)))
-    (w / "dom/P.ipdl").write_text("include protocol PA;\n#ifdef MOZ_WEBSPEECH\ninclude protocol PSpeech;\n#endif\nasync protocol P {};\n", encoding="utf-8")
+    (w / "dom/P.ipdl").write_text("include protocol PA;\n#ifdef MOZ_WEBSPEECH\ninclude protocol PSpeech;\n#endif\nasync protocol P {};\n", encoding="utf-8", newline="\n")
     ids = handedit.record("he", ["dom/P.ipdl"], "gate on MOZ_WEBSPEECH")
     assert ids == [s["id"] for s in t["steps"] if s["id"].startswith("hand-")] and len(ids) == 1
     s = t["steps"][0]
@@ -47,8 +47,8 @@ def test_record_refuses_blind_and_partial_records(tmp_path, monkeypatch):
     monkeypatch.setattr(task, "load", lambda tid: t)
     with pytest.raises(task.Refused, match="no diff"):
         handedit.record("he", ["dom/P.ipdl"], "nothing changed")
-    (w / "dom/P.ipdl").write_text("changed\n", encoding="utf-8")
-    (w / "dom/other.cpp").write_text("int y;\n", encoding="utf-8")
+    (w / "dom/P.ipdl").write_text("changed\n", encoding="utf-8", newline="\n")
+    (w / "dom/other.cpp").write_text("int y;\n", encoding="utf-8", newline="\n")
     with pytest.raises(task.Refused, match="other files changed too"):
         handedit.record("he", ["dom/P.ipdl"], "only one named")
 
@@ -86,7 +86,7 @@ def test_a_new_file_gets_its_step_instead_of_being_skipped(tmp_path, monkeypatch
     monkeypatch.setattr(task, "load", lambda tid: t)
     monkeypatch.setattr(task, "save", lambda t_: None)
     monkeypatch.setattr(task, "journal", lambda t_, ev, **kw: None)
-    (w / "dom/new.svg").write_text("<svg/>\n", encoding="utf-8")
+    (w / "dom/new.svg").write_text("<svg/>\n", encoding="utf-8", newline="\n")
     ids = handedit.record("he", ["dom/new.svg"], "a new file")
     assert len(ids) == 1
     assert any(l == "+<svg/>" for l in t["steps"][0]["args"]["hunk"]["lines"])
