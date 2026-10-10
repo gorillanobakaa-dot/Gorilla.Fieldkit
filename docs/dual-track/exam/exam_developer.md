@@ -6,7 +6,7 @@
 
 ## Purpose
 
-`fieldkit.exam` measures whether a small local model completes five fixed tasks with a basic agent toolset (`raw`: `list_dir`, `read_file`, `search_text`) and with Fieldkit's toolset (`kit`: `raw` plus `find`, `triage`, `refcheck`). `fixture.py` writes a deterministic 29-file project (seeded `random.Random(20260929)`), `tasks.py` defines the five tasks and their regex graders, `tools.py` implements both toolsets behind a path-confined `Toolbox`, and `runner.py` drives an OpenAI-compatible chat-completions loop and aggregates records. Grading is mechanical: "no model judges another". The group is 578 lines of Python. Trust level: it trusts the model server's JSON and the local `pfind` script; it does not trust model-supplied paths, which `Toolbox._path` confines to the fixture root. The verified result is Gemma at 1 of 5 with `raw` and 5 of 5 with `kit`; no other run figure is verified, so treat timing and token numbers as not measured.
+`fieldkit.exam` measures whether a small local model completes six fixed tasks (the sixth, `kernel-port`, added 2026-10-10 with the kit tool `kernel_migrate_check`, has not been run with a model yet) with a basic agent toolset (`raw`: `list_dir`, `read_file`, `search_text`) and with Fieldkit's toolset (`kit`: `raw` plus `find`, `triage`, `refcheck`). `fixture.py` writes a deterministic 29-file project (seeded `random.Random(20260929)`), `tasks.py` defines the five tasks and their regex graders, `tools.py` implements both toolsets behind a path-confined `Toolbox`, and `runner.py` drives an OpenAI-compatible chat-completions loop and aggregates records. Grading is mechanical: "no model judges another". The group is 578 lines of Python. Trust level: it trusts the model server's JSON and the local `pfind` script; it does not trust model-supplied paths, which `Toolbox._path` confines to the fixture root. The verified result is Gemma at 1 of 5 with `raw` and 5 of 5 with `kit`; no other run figure is verified, so treat timing and token numbers as not measured.
 
 ## Known Alternatives Considered
 
@@ -38,7 +38,7 @@ The source names one rejected approach: model-as-judge grading. The package docs
 |--------|-------------|--------------|
 | `fixture.build()` | Writes the deterministic exam tree under `root` (must be empty or absent). | Creates directories and 29 files; `src/win/profile_loader.py` is written with CRLF line endings. |
 | `fixture.definition_line()` | 1-based line of `def apply_fragment` in the generated `kernel_tools.py` (40). | none |
-| `tasks.TASKS / tasks.BY_ID` | The five tasks; `Task(id, prompt, grade)` where `grade(answer) -> (bool, str)`. | none |
+| `tasks.TASKS / tasks.BY_ID` | The six tasks; `Task(id, prompt, grade)` where `grade(answer) -> (bool, str)`. | none |
 | `tasks.final_answer()` | Text after the last `ANSWER:` and whether the marker was present; falls back to the whole stripped reply. | none |
 | `tools.Toolbox` | Path-confined toolset; records each call as `{name, args, chars, seconds}`. | Reads files under `root`; `find` spawns `pfind` subprocesses (timeout 120 s each). |
 | `runner.chat()` | One chat-completions call at `temperature: 0`, `tool_choice: auto`; returns content, parsed tool calls, malformed count and token usage. | HTTP POST to `{base}/chat/completions`. |

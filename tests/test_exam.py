@@ -46,6 +46,10 @@ LINE = fixture.definition_line()
     ("manifest", "assets/icons/gorilla-256.png, docs/INSTALL.md, src/net/hotspot.py", True),
     ("manifest", "docs/INSTALL.md and src/net/hotspot.py", False),
     ("manifest", "assets/icons/gorilla-256.png, docs/INSTALL.md, src/net/hotspot.py, README.md", False),
+    ("kernel-port", str(fixture.kport_answer()), True),
+    ("kernel-port", f"Before line {fixture.kport_answer()}.", True),
+    ("kernel-port", str(fixture.kport_answer() - 2), False),                 # after FIX_HP_ENVY: the old place
+    ("kernel-port", f"line 16 or {fixture.kport_answer()}", False),
 ])
 def test_graders(task, answer, ok):
     assert tasks.BY_ID[task].grade(answer)[0] is ok
@@ -169,3 +173,14 @@ def test_kit_find_without_pfind_says_what_to_run(box, monkeypatch, tmp_path):
     from fieldkit.exam import tools
     monkeypatch.setattr(tools, "PFIND", tmp_path / "missing" / "pfind.py")
     assert "fieldkit gather --only pfind" in box.find("apply_fragment")
+
+
+def test_kernel_port_kit_tool_names_the_line_and_raw_does_not_have_it(tmp_path):
+    """2026-10-10: the one judgement step of a kernel migration, measured: raw tools leave the model to reason which
+    line the added enum entry goes before; the kit's kernel_migrate_check states it."""
+    root = fixture.build(tmp_path / "p")
+    kit = Toolbox(root, kit=True).dispatch("kernel_migrate_check", {})
+    assert f"insert right before line {fixture.kport_answer()}" in kit and str(tmp_path) not in kit
+    assert "ERROR: no tool named" in Toolbox(root, kit=False).dispatch("kernel_migrate_check", {})
+    new = (root / "kernel-port/new/drv/codec.c").read_text().splitlines()
+    assert new[fixture.kport_answer() - 1] == "};"                     # the answer is the enum's closing line
