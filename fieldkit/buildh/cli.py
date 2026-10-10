@@ -672,6 +672,22 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "leakgate-scope":
+        # leakgate-scope TASK [from=<tree>]: what changed since the last passed gate, and whether any of it can reach
+        # the network (leakgate/scope.py); reports only, the gate is unchanged
+        from ..leakgate import scope as lsc
+        from ..core import settings as _st
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        r = lsc.run(task.load(tid)["workdir"], _st.ROOT / "state" / "leakgate-launcher", tid,
+                    task.STATE / tid / "builds.jsonl", from_tree=opts.get("from"))
+        lp = r.get("last_pass") or {}
+        print(f"  last passed gate: {lp.get('run', '(none)')} on build {lp.get('build_id')} (tree {str(r['from'])[:12]})")
+        print(f"  changed since: {len(r['cannot']) + len(r['can'])} file(s): {len(r['cannot'])} cannot reach the network, "
+              f"{len(r['can'])} can")
+        for n, why in r["can"][:25]:
+            print(f"    can: {n} ({why})")
+        print("LEAK-GATE SCOPE: " + r["verdict"])
+        return 0
     if act == "leakgate-summary":
         # leakgate-summary TASK [log=<launcher log>] [out=<file.md>]: the gate's run scene by scene, in plain words,
         # for the release page (leakgate/summary.py); default: the newest launcher run of this task
