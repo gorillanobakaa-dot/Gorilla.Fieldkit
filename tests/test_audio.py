@@ -5,6 +5,7 @@ real sound hardware is needed. collect() is tested against a fake /proc and fake
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -60,7 +61,7 @@ def test_loudness_sink_with_gorilla_firefox_is_double_dynamics():
     # the fix removes the compressor, puts the speakers back as default, and leaves no blank to fill in
     assert f"pactl set-default-sink {HW}" in d["fix"]
     assert any("disable --now" in l and "loudness-sink.service" in l for l in d["fix"])
-    assert not any("{" in l or "<" in l for l in d["fix"])
+    assert not any(re.search(r"<[A-Za-z _-]+>|\{hw_sink\}", l) for l in d["fix"])
     # the loudness filter-chain file is the compressor's, not a second, generic filter-chain stage
     assert "stage-filter-chain" not in ids(r)
     # its volume mirror is a second volume control
@@ -200,3 +201,36 @@ def test_without_gorilla_firefox_the_first_stage_is_kept():
     d = next(x for x in r["findings"] if x["id"] == "double-dynamics")
     assert "first one found" in d["detail"] and "SC4" in d["detail"]
     assert any("easyeffects" in l for l in d["fix"]) and not any("loudness" in l for l in d["fix"])
+
+
+def test_no_sound_card_is_never_clean():
+    """2026-10-10, first run on a real PipeWire 1.0.5 with no card: it said CLEAN."""
+    f = facts()
+    f["cards"] = []
+    r = chain.analyse(f)
+    assert "no-card" in ids(r, "unknown") and not r["ok"]
+
+
+def test_without_an_alsa_sink_the_default_sink_line_is_kept():
+    """2026-10-10, same run: the only sink was the compressor, and the set-default-sink line was dropped."""
+    r = chain.analyse(facts(sink="loudness_sink", sinks=("loudness_sink",)))
+    d = next(x for x in r["findings"] if x["id"] == "double-dynamics")
+    line = next(l for l in d["fix"] if l.startswith("pactl set-default-sink"))
+    assert line == "pactl set-default-sink " + chain.ANY_HW_SINK
+
+
+def test_pipewire_pulse_format_key_and_config_rate():
+    """2026-10-10, a real PipeWire 1.0.5: pulse.default.format = S24LE and default.clock.rate = 44100 in conf.d
+    files were seen only live, with no file named and no fix."""
+    fmt = f"{H}/.config/pipewire/pipewire-pulse.conf.d/10-format.conf"
+    rate = f"{H}/.config/pipewire/pipewire.conf.d/10-rate.conf"
+    r = chain.analyse(facts(spec="s24le 2ch 44100Hz",
+                            configs=[(fmt, "pulse.properties = {\n    pulse.default.format = S24LE\n}\n"),
+                                     (rate, "context.properties = {\n    default.clock.rate = 44100\n}\n")]))
+    by = {f["id"]: f for f in r["findings"]}
+    assert by["s24le"]["title"].startswith(f"{fmt}:2") and by["rate-config"]["title"].startswith(f"{rate}:2")
+    assert any("'2s/44100/48000/'" in l for l in by["rate-config"]["fix"])
+    # the live findings point at the file lines instead of writing a second file that might lose to them
+    assert by["s24le-live"]["fix"] == [] and by["rate"]["fix"] == []
+    ok = chain.analyse(facts(configs=[(rate, "default.clock.rate = 48000\n")]))
+    assert "rate-config" not in ids(ok)

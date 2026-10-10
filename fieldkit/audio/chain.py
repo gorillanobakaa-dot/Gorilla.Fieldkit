@@ -34,8 +34,12 @@ HOME_CONFIGS = [".config/pipewire/**/*.conf", ".config/wireplumber/**/*.conf", "
                 ".config/pulse/default.pa", ".config/pulse/daemon.conf", ".asoundrc"]
 ROOT_CONFIGS = ["etc/pipewire/**/*.conf", "etc/wireplumber/**/*.conf", "etc/wireplumber/**/*.lua",
                 "etc/pulse/default.pa", "etc/pulse/default.pa.d/*.pa", "etc/pulse/daemon.conf", "etc/asound.conf"]
-S24_RX = re.compile(r"(audio\.format\s*=\s*\"?s24|default-sample-format\s*=\s*s24)", re.I)
-RATE_RX = re.compile(r"default\.clock\.rate\s*=\s*(\d+)")
+# the keys that set a sample format: WirePlumber/PipeWire node, pipewire-pulse (found on a real PipeWire 1.0.5,
+# 2026-10-10), PulseAudio's daemon.conf
+S24_RX = re.compile(r"(audio\.format|pulse\.default\.format|default-sample-format)\s*=\s*\"?s24", re.I)
+RESTART = "systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service"
+# 99-: PipeWire reads a conf.d folder in name order and the last value wins, so this file must sort last
+RATE_RX = re.compile(r"default\.clock\.rate\s*=\s*\"?(\d+)")
 
 
 # -- collect: everything read from the machine, as plain data (tests pass their own) ---------------------------------
@@ -189,6 +193,11 @@ def stages(facts, sigs):
     return list(found.values())
 
 
+# no ALSA sink seen (2026-10-10, a machine with no sound card): the line finds the first sink that is not the
+# compressor when it runs, so it is never dropped and never has a blank in it
+ANY_HW_SINK = "\"$(pactl list short sinks | awk '$2 !~ /loudness/ {print $2; exit}')\""
+
+
 def _hw_sink(facts):
     """The default sink if it is a real device, else the first ALSA sink: the speakers."""
     sinks = [r[1] for r in _rows(facts.get("pactl", {}).get("sinks")) if len(r) > 1]
@@ -196,7 +205,7 @@ def _hw_sink(facts):
     for s in [default] + sinks:
         if s.startswith("alsa_output."):
             return s
-    return ""
+    return ANY_HW_SINK
 
 
 def analyse(facts, sigs=None):
@@ -208,7 +217,7 @@ def analyse(facts, sigs=None):
     found = stages(facts, sigs)
     hw = _hw_sink(facts)
     for s in found:
-        s["undo"] = [u.replace("{hw_sink}", hw) for u in s["undo"] if "{hw_sink}" not in u or hw]
+        s["undo"] = [u.replace("{hw_sink}", hw) for u in s["undo"]]
     comms = {p["comm"] for p in facts.get("processes", [])}
     pactl = facts.get("pactl", {})
     info = _info(pactl.get("info"))
@@ -262,33 +271,46 @@ def analyse(facts, sigs=None):
                 [f"amixer -c {c['index']} sset Master 100% unmute", "sudo alsactl store"],
                 [f"amixer -c {c['index']} sget Master"])
 
-    # A5 S24LE anywhere
+    # A5 S24LE anywhere; A6a a clock rate other than 48 kHz written in a config file
+    def sed(path, n, expr):
+        return (("" if path.startswith(str(Path.home())) else "sudo ") +
+                f"sed -i.fieldkit-bak '{n}{expr}' {shlex.quote(path)}")
+    s24_files, rate_files = False, False
     for c in facts.get("configs", []):
         for n, line in enumerate(c["text"].splitlines(), 1):
             s = _strip(line)
             if s and S24_RX.search(s):
+                s24_files = True
                 add("s24le", "problem", f"{c['path']}:{n} sets a 24-bit sample format",
                     "S24LE silences all sound on the ALC269 in this chain; S32LE is the format that works.",
-                    [("" if c["path"].startswith(str(Path.home())) else "sudo ") +
-                     f"sed -i.fieldkit-bak '{n}s/[Ss]24[Ll][Ee]/S32LE/' {shlex.quote(c['path'])}",
-                     "systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service"],
-                    [f"{c['path']}:{n}: {s}"])
+                    [sed(c["path"], n, "s/[Ss]24[Ll][Ee]/S32LE/"), RESTART], [f"{c['path']}:{n}: {s}"])
+            m = RATE_RX.search(s) if s else None
+            if m and int(m.group(1)) != WANT_RATE:
+                rate_files = True
+                add("rate-config", "problem", f"{c['path']}:{n} sets the clock to {m.group(1)} Hz",
+                    f"Gorilla Firefox pins {WANT_RATE} Hz; this line makes the server resample every stream.",
+                    [sed(c["path"], n, f"s/{m.group(1)}/{WANT_RATE}/"), RESTART], [f"{c['path']}:{n}: {s}"])
     spec = info.get("Default Sample Specification", "")
     if spec.lower().startswith("s24"):
+        conf = "~/.config/pipewire/pipewire-pulse.conf.d/99-fieldkit-s32le.conf"
         add("s24le-live", "problem", f"The running server's default format is {spec.split()[0]}",
-            "S24LE silences all sound on the ALC269 in this chain; S32LE is the format that works.",
-            evidence=[f"pactl info: Default Sample Specification: {spec}"])
+            "S24LE silences all sound on the ALC269 in this chain; S32LE is the format that works." +
+            (" The file lines above set it: fix those." if s24_files else ""),
+            [] if s24_files else
+            ["mkdir -p ~/.config/pipewire/pipewire-pulse.conf.d",
+             f"printf 'pulse.properties = {{ pulse.default.format = S32LE }}\\n' > {conf}", RESTART],
+            [f"pactl info: Default Sample Specification: {spec}"])
 
     # A6 the server clock is not 48 kHz
     rate = re.search(r"(\d+)Hz", spec)
     if rate and int(rate.group(1)) != WANT_RATE:
-        conf = "~/.config/pipewire/pipewire.conf.d/60-fieldkit-48k.conf"
+        conf = "~/.config/pipewire/pipewire.conf.d/99-fieldkit-48k.conf"
         add("rate", "problem", f"The sound server runs at {rate.group(1)} Hz, not {WANT_RATE}",
             f"Gorilla Firefox pins {WANT_RATE} Hz so nothing is resampled; a server at {rate.group(1)} Hz resamples "
-            "every stream once more.",
+            "every stream once more." + (" The file lines above set it: fix those." if rate_files else ""),
+            [] if rate_files else
             ["mkdir -p ~/.config/pipewire/pipewire.conf.d",
-             f"printf 'context.properties = {{ default.clock.rate = {WANT_RATE} }}\\n' > {conf}",
-             "systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service"]
+             f"printf 'context.properties = {{ default.clock.rate = {WANT_RATE} }}\\n' > {conf}", RESTART]
             if "PipeWire" in server or "pipewire" in comms else
             ["mkdir -p ~/.config/pulse", "touch ~/.config/pulse/daemon.conf",
              "sed -i '/^ *default-sample-rate *=/d' ~/.config/pulse/daemon.conf",
@@ -303,6 +325,11 @@ def analyse(facts, sigs=None):
                 "It sits in the sound path beside the browser's own processing.", s["undo"], s["evidence"])
 
     # what could not be seen is said, never guessed
+    if not facts.get("cards"):
+        add("no-card", "unknown", "No ALSA sound card was found (/proc/asound/cards is missing or empty)",
+            "Without a card, ALSA Master and the codec were not checked, and nothing here reaches a speaker. "
+            "On a laptop this means the sound driver did not load.",
+            ["cat /proc/asound/cards", "sudo dmesg | grep -i -E 'snd|hda|audio' | tail -n 20"])
     if not pactl.get("found"):
         add("no-pactl", "unknown", "pactl is not installed: the sound server could not be asked",
             "Sinks, modules, the format and the rate were not checked.",

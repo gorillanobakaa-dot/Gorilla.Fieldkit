@@ -34,6 +34,9 @@ signatures:
     undo:
       - "systemctl --user disable --now loudness-volume-mirror.service loudness-sink.service"
       - "rm -f ~/.config/pipewire/filter-chain.conf.d/60-loudness.conf"
+      # its PulseAudio route (module-ladspa-sink, and the lines it marks in default.pa); found 2026-10-10
+      - "pactl list short modules | awk '/sink_name=loudness_sink/ {print $1}' | xargs -r -n1 pactl unload-module"
+      - "test -f ~/.config/pulse/default.pa && sed -i.fieldkit-bak '/added by speaker_loudness_setup/d' ~/.config/pulse/default.pa ; true"
       - "pactl set-default-sink {hw_sink}"
 
   - id: loudness-volume-mirror
