@@ -93,7 +93,7 @@ def test_post_install_carries_package_groups_and_runs_the_rest(tmp_path, monkeyp
     monkeypatch.setattr(buildstamp, "about_rows", never)
     monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None:
                         [{"check": f"{which[0]}: ran", "ok": True, "evidence": ""}])
-    monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: ran", "ok": True, "evidence": ""})
+    monkeypatch.setattr(inst, "caches_row", lambda build_id=None: {"check": "profiles: ran", "ok": True, "evidence": ""})
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [{"check": "leaks: ran", "ok": True, "evidence": ""}])
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [{"check": "decisions: ran", "ok": True, "evidence": ""}])
     monkeypatch.setattr(inst, "_claims_row", lambda t, target: [{"check": "claims: ran", "ok": True, "evidence": ""}])

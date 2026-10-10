@@ -441,7 +441,11 @@ def run(a, emit):
     if act == "window":
         # window COMMAND [ARGS ...]: that build-harness command in its own visible window that outlives this session
         from . import window
-        r = window.launch(list(a.args))
+        import sys as _sys
+        # everything after "window", exactly as typed: options such as --only and --drive belong to the command in the
+        # window, not to this launcher (2026-10-10: they were swallowed and the keyboard check was skipped twice)
+        raw = _sys.argv[_sys.argv.index("window") + 1:] if "window" in _sys.argv else list(a.args)
+        r = window.launch(raw)
         print(f"started in its own window (PID {r['pid']}); everything it prints is also in {r['log']}")
         return 0
     if act == "follow":

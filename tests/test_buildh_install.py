@@ -90,7 +90,7 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     monkeypatch.setattr(inst, "scripts_dir", lambda: sd)
     from fieldkit.buildh import proof
     monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None: [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}] if "startup" in which else [])
-    monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
+    monkeypatch.setattr(inst, "caches_row", lambda build_id=None: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
     from fieldkit.buildh import leaks
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
@@ -228,7 +228,7 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
     monkeypatch.setattr(inst, "scripts_dir", lambda: sd)
     from fieldkit.buildh import proof, leaks
     monkeypatch.setattr(proof, "rows", lambda w, d, deleted=(), which=(), truth_root=None: [{"check": "startup: headless", "ok": True, "evidence": "", "bad": []}] if "startup" in which else [])
-    monkeypatch.setattr(inst, "caches_row", lambda: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
+    monkeypatch.setattr(inst, "caches_row", lambda build_id=None: {"check": "profiles: no stale startup cache", "ok": True, "evidence": ""})
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_claims_row", lambda t, target: [])
@@ -338,3 +338,31 @@ def test_desktop_icons_row_fails_without_iconkit_and_reads_its_verdict(tmp_path,
     monkeypatch.setattr(ins, "ICONKIT", kit)
     row = ins.desktop_icons_row(apply=False)
     assert not row["ok"] and "B.lnk" in row["evidence"]
+
+
+def test_a_startup_cache_is_stale_only_when_another_build_wrote_it(tmp_path, monkeypatch):
+    # 2026-10-10: the owner opened build 30 after its install and the row failed on build 30's own cache
+    local = tmp_path / "Local" / "Profiles" / "abc.default"
+    (local / "startupCache").mkdir(parents=True)
+    (local / "startupCache" / "scriptCache-child.bin").write_bytes(b"x")
+    roaming = tmp_path / "Roaming"
+    (roaming / "Profiles" / "abc.default").mkdir(parents=True)
+    (roaming / "Profiles" / "abc.default" / "compatibility.ini").write_text(
+        "[Compatibility]\nLastVersion=157.0_20261010064555/20261010064555\n", encoding="utf-8")
+    monkeypatch.setattr(inst, "local_profiles", lambda: [local])
+    monkeypatch.setattr(inst, "profiles_dir", lambda: roaming)
+    assert inst.caches_row("20261010064555")["ok"]
+    assert not inst.caches_row("20261009184728")["ok"] and not inst.caches_row()["ok"]
+
+
+def test_the_window_gets_every_option_as_typed(monkeypatch):
+    # 2026-10-10: --only and --drive were swallowed by the launcher; the keyboard check was skipped twice
+    import sys
+    from fieldkit.buildh import window, cli as bcli
+    got = {}
+    monkeypatch.setattr(window, "launch", lambda args: got.setdefault("args", args) and {"pid": 1, "log": "x"})
+    monkeypatch.setattr(sys, "argv", ["fieldkit", "build-harness", "window", "post-install", "t", "--only",
+                                      "verify_address_bar", "--drive"])
+    from fieldkit import cli
+    cli.main(sys.argv[1:])
+    assert got["args"] == ["post-install", "t", "--only", "verify_address_bar", "--drive"]

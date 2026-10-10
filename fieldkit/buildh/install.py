@@ -271,10 +271,25 @@ def desktop_icons_row(say=print, apply=True):
             (f"; not sharp: {bad[:3]}" if bad else "") + (f"; {verdict[9:90]}" if verdict and bad else "")}
 
 
-def caches_row():
-    left = [str(p / "startupCache") for p in local_profiles() if (p / "startupCache").is_dir() and any((p / "startupCache").iterdir())]
+def last_build(local_profile):
+    """The BuildID a profile last ran, from compatibility.ini in its roaming folder (LastVersion=157.0_<id>/<id>)."""
+    for d in (profiles_dir() / "Profiles" / Path(local_profile).name, profiles_dir() / Path(local_profile).name):
+        ini = d / "compatibility.ini"
+        if ini.is_file():
+            m = re.search(r"^LastVersion=[^_\n]*_(\d{14})", ini.read_text(encoding="utf-8", errors="replace"), re.M)
+            return m.group(1) if m else None
+    return None
+
+
+def caches_row(build_id=None):
+    """A startupCache is stale only when it was written by another build: with `build_id` (the installed build), a
+    cache from a profile that last ran THIS build is the browser's own (2026-10-10: the owner opened build 30 after the
+    install, and the row failed on build 30's own cache)."""
+    left = [str(p / "startupCache") for p in local_profiles() if (p / "startupCache").is_dir() and any((p / "startupCache").iterdir())
+            and not (build_id and last_build(p) == build_id)]
     return {"check": "profiles: no stale startup cache from an earlier build", "ok": not left,
-            "evidence": "every profile's startupCache is empty" if not left else f"{len(left)} profile(s) still cached: {left[:2]}"}
+            "evidence": ("every profile's startupCache is empty or this build's own" if not left else
+                         f"{len(left)} profile(s) still cached from an earlier build: {left[:2]}")}
 
 
 def install_from_zip(zip_path, install_dir, say=print, marker=None):
@@ -598,7 +613,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         carry_row, carry = pkgproof.carried(task.STATE / task_id, target, want=tuple(g for g in pkgproof.PACKAGE_GROUPS if g in want))
         plan = [("carried", lambda: [carry_row])] if carry_row else []
         if "startup" in want:
-            plan.append(("profiles", lambda: [caches_row()]))
+            plan.append(("profiles", lambda: [caches_row((installed(target) or {}).get("build_id"))]))
         for n in ("prefs", "excised", "startup", "egress", "adblock"):
             if n in want:
                 plan.append((n, lambda n=n: proof.rows(t["workdir"], target, deleted, which=(n,), truth_root=truth)))
