@@ -172,6 +172,132 @@ def release_notes(repo, tag):
         return None
 
 
+def privacy_gate(tree, spec):
+    """-> (ok, detail) for the tree that is (or will be) published."""
+    found = privacy.scan_path(tree)
+    # privacy_upstream: files copied from an upstream project, named one by one (2026-10-10: the kernel sources
+    # a patch set ships carry their authors' public copyright addresses). Only e-mail findings in exactly
+    # those files are set aside, and the gate says how many; anything else in them still blocks.
+    upstream = {str(x).replace("\\", "/") for x in spec.get("privacy_upstream") or []}
+    set_aside = 0
+    for f in list(found):
+        rel = Path(f).resolve().relative_to(tree.resolve()).as_posix() if Path(f).is_absolute() else f
+        if rel in upstream:
+            keep = [x for x in found[f] if x.get("kind") != "email"]
+            set_aside += len(found[f]) - len(keep)
+            if keep:
+                found[f] = keep
+            else:
+                del found[f]
+    note = f"; {set_aside} upstream author address(es) set aside in {len(upstream)} named file(s)" if set_aside else ""
+    where = [Path(f).resolve().relative_to(tree.resolve()).as_posix() + ": " + ", ".join(sorted({x["kind"] for x in v}))
+             for f, v in sorted(found.items())][:12]
+    return not found, ("clean" if not found else
+                       f"{sum(len(v) for v in found.values())} finding(s) in {len(found)} file(s): "
+                       + "; ".join(where)) + note
+
+
+def before_publish(spec_path, ref="HEAD"):
+    """The gates that need nothing published yet: privacy of the tree and its tests. Run it BEFORE publishing
+    (2026-10-10: the kernel's run published build 27, then the release check found the privacy failure)."""
+    spec = settings.load(spec_path, strict=False)
+    gates, local = [], spec["local"]
+    work = Path(tempfile.mkdtemp(prefix="fieldkit-prepublish-"))
+    try:
+        try:
+            tree = export_tag(local, ref, work)
+        except ValueError as e:
+            return _result(dict(spec, tag=ref), [{"gate": "tree exported", "ok": False, "detail": str(e)}])
+        gates.append({"gate": "tree exported", "ok": True, "detail": f"{ref} extracted clean from {local}"})
+        if spec.get("privacy", True):
+            ok, detail = privacy_gate(tree, spec)
+            gates.append({"gate": "privacy", "ok": ok, "detail": detail})
+        for cmd in spec.get("tests") or []:
+            rc, out = _sh(cmd, cwd=tree)
+            gates.append({"gate": f"tests: {' '.join(map(str, cmd))[:60]}", "ok": rc == 0,
+                          "detail": (out.strip().splitlines() or [""])[-1][:160]})
+        return _result(dict(spec, tag=ref), gates)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def check(spec_path):
+    spec = settings.load(spec_path)
+    gates, local, tag, repo = [], spec["local"], spec["tag"], spec.get("repo")
+
+    def gate(name, ok, detail):
+        gates.append({"gate": name, "ok": ok, "detail": detail})
+
+    work = Path(tempfile.mkdtemp(prefix="fieldkit-release-"))
+    try:
+        try:
+            tree = export_tag(local, tag, work)
+            gate("tag exported", True, f"{tag} extracted clean from {local}")
+        except ValueError as e:
+            gate("tag exported", False, str(e))
+            return _result(spec, gates)
+
+        # Scan BEFORE the tests run: tests write logs and state into the tree, and the
+        # question is what gets published, not what a test run left behind (2026-09-30).
+        if spec.get("privacy", True):
+            gate("privacy", *privacy_gate(tree, spec))
+
+        for cmd in spec.get("tests") or []:
+            rc, out = _sh(cmd, cwd=tree)
+            runs.append({"command": [str(c) for c in cmd], "exit": rc, "tail": out.strip().splitlines()[-15:]})
+        ev = {"name": spec["name"], "tag": spec["tag"], "tree": tree_id(spec["local"], spec["tag"]),
+              "platform": platform, "host": host(), "python": sys.version.split()[0],
+              "when": __import__("time").strftime("%Y-%m-%d %H:%M:%S"), "runs": runs,
+              "passed": bool(runs) and all(r["exit"] == 0 for r in runs)}
+        out = evidence_path(spec_path, spec, platform)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(ev, indent=1), encoding="utf-8")
+        return ev, out
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def evidence_gate(spec_path, spec, platforms):
+    """(ok, detail) for a claim proven by recorded runs on each named platform."""
+    want = tree_id(spec["local"], spec["tag"])
+    missing, bad = [], []
+    for plat in platforms:
+        f = evidence_path(spec_path, spec, plat)
+        if not f.is_file():
+            missing.append(plat)
+            continue
+        ev = json.loads(f.read_text(encoding="utf-8"))
+        if ev.get("platform") != plat:
+            bad.append(f"{plat}: file says {ev.get('platform')}")
+        elif ev.get("tree") != want:
+            bad.append(f"{plat}: tested tree {str(ev.get('tree'))[:12]} is not {spec['tag']} ({want[:12]})")
+        elif not ev.get("passed"):
+            bad.append(f"{plat}: tests failed there ({ev.get('when')})")
+    if missing or bad:
+        return False, "; ".join(bad + [f"no evidence from {m} - run `fieldkit release prove` there" for m in missing])
+    return True, "passing runs recorded on " + ", ".join(platforms) + f" for tree {want[:12]}"
+
+
+def gh_json(args):
+    rc, out = _sh(["gh", *args], timeout=120)
+    if rc != 0:
+        raise ValueError(f"gh {' '.join(args)}: {out.strip()[:200]}")
+    return json.loads(out)
+
+
+def published_file_sha(repo, tag, path):
+    import base64
+    data = gh_json(["api", f"repos/{repo}/contents/{path}?ref={tag}"])
+    return _sha_bytes(base64.b64decode(data["content"]))
+
+
+def release_notes(repo, tag):
+    try:
+        return gh_json(["release", "view", tag, "-R", repo, "--json", "body"])["body"]
+    except ValueError:
+        return None
+
+
 def check(spec_path):
     spec = settings.load(spec_path)
     gates, local, tag, repo = [], spec["local"], spec["tag"], spec.get("repo")

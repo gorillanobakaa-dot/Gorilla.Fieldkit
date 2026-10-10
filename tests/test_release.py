@@ -237,3 +237,16 @@ def test_upstream_author_addresses_are_set_aside_only_in_named_files(tmp_path, r
     assert gates["privacy"]["ok"] and "set aside" in gates["privacy"]["detail"]
     gates = {g["gate"]: g for g in release.check(_spec(tmp_path, repo, tag="v3"))["gates"]}
     assert not gates["privacy"]["ok"]                                    # not named: still blocks
+
+
+def test_before_publish_needs_nothing_published_and_blocks_on_privacy(tmp_path, repo):
+    """2026-10-10: the kernel's CI published build 27, and only then did the release check find a privacy failure.
+    before_publish runs privacy and tests on HEAD with no tag and no release, so it can stop the publish step."""
+    r = release.before_publish(_spec(tmp_path, repo, tag="${ENV:NO_SUCH_TAG_YET}"))
+    assert r["clear"] and [g["gate"] for g in r["gates"]][:2] == ["tree exported", "privacy"]
+    (repo / "notes.txt").write_text("built in " + "/home/" + "alexsmith/kernel\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "oops")
+    r = release.before_publish(_spec(tmp_path, repo))
+    priv = next(g for g in r["gates"] if g["gate"] == "privacy")
+    assert not r["clear"] and "notes.txt: linux-home-path" in priv["detail"]   # it names the file and the kind

@@ -92,12 +92,32 @@ def test_unrelated_neighbours_are_not_stale_backups(tmp_path):
 # -- 2 fail closed -----------------------------------------------------------------------------
 def test_privacy_reports_a_file_too_large_to_scan(tmp_path, monkeypatch):
     monkeypatch.setattr(privacy, "TEXT_LIMIT", 100)
-    (tmp_path / "big.txt").write_text("x" * 101)
+    monkeypatch.setattr(privacy, "LARGE_LIMIT", 1000)
+    (tmp_path / "big.txt").write_text("x" * 1001)
     (tmp_path / "small.txt").write_text("fine")
     rep = privacy.scan_path(tmp_path, terms=[])
     assert list(rep) == [str(tmp_path / "big.txt")]
     assert rep[str(tmp_path / "big.txt")][0]["kind"] == "not-scanned"
     assert "too large" in rep[str(tmp_path / "big.txt")][0]["excerpt"]
+
+
+def test_privacy_scans_a_large_file_in_pieces(tmp_path, monkeypatch):
+    """2026-10-10: an 11 MB System.map was 'not scanned' and blocked a release; above TEXT_LIMIT a text file is read
+    in pieces, with the same rules and the true line numbers."""
+    monkeypatch.setattr(privacy, "TEXT_LIMIT", 100)
+    monkeypatch.setattr(privacy, "CHUNK_LINES", 7)
+    lines = ["ffffffff81000000 T _stext"] * 30 + ["path " + "/home/" + "alexsmith/kernel"] + ["clean"] * 10
+    (tmp_path / "big.txt").write_text("\n".join(lines) + "\n")
+    (tmp_path / "clean.txt").write_text("clean line\n" * 40)
+    rep = privacy.scan_path(tmp_path, terms=[])
+    assert list(rep) == [str(tmp_path / "big.txt")]
+    assert [(h["kind"], h["line"]) for h in rep[str(tmp_path / "big.txt")]] == [("linux-home-path", 31)]
+
+
+def test_a_file_name_is_not_an_api_key():
+    """2026-10-10: 'imx53-sk-imx53-atm0700d4-lvds.dts' in a kernel tree listing was reported as an OpenAI key."""
+    assert privacy.scan_text("├── imx53-sk-imx53-atm0700d4-lvds.dts") == []
+    assert privacy.scan_text('OPENAI_API_KEY="' + 'sk-' + 'proj-AbCdEfGhIjKlMnOpQrStUvWx12345"')[0]["kind"] == "openai-key"
 
 
 def test_privacy_reports_an_archive_member_too_large_to_scan(tmp_path, monkeypatch):
@@ -149,6 +169,7 @@ def test_privacy_looks_inside_an_office_file_inside_a_zip(tmp_path):
 def test_cli_privacy_scan_exits_3_when_something_was_not_scanned(tmp_path, monkeypatch, capsys):
     from fieldkit import cli
     monkeypatch.setattr(privacy, "TEXT_LIMIT", 10)
+    monkeypatch.setattr(privacy, "LARGE_LIMIT", 20)                  # above both limits: still never skipped
     (tmp_path / "big.txt").write_text("nothing private, just long")
     assert cli.main(["privacy", "scan", str(tmp_path)]) == 3
     assert "not-scanned" in capsys.readouterr().out

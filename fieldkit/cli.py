@@ -574,7 +574,7 @@ def cmd_release(a):
             f"(tree {ev['tree'][:12]})" + chr(10) + f"evidence: {path}" + chr(10) +
             "NEXT: bring this file back; `fieldkit release check` accepts it for this platform."))
         return 0 if ev["passed"] else 3
-    r = release.check(a.spec)
+    r = release.before_publish(a.spec) if a.before_publish else release.check(a.spec)
     _emit(r, a.json, lambda r: print(chr(10).join(release.lines(r))))
     return 0 if r["clear"] else 3
 
@@ -876,6 +876,8 @@ def build_parser():
     rl = sub.add_parser("release", parents=[common])
     rl.add_argument("action", choices=["check", "prove"])
     rl.add_argument("spec", help="release spec YAML (see fieldkit/release.py)")
+    rl.add_argument("--before-publish", action="store_true",
+                    help="check: only the gates that need nothing published (privacy, tests) - run it before publishing")
     rl.set_defaults(fn=cmd_release)
 
     sub.add_parser("mcp", help="serve the agent interface over MCP (stdio)").set_defaults(fn=cmd_mcp, json=False)
