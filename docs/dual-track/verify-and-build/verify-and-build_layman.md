@@ -204,7 +204,7 @@ Three actions use the network: the audit's check of GitHub's main branch, the mi
 **Step 2:** Go to the Fieldkit folder. Type the command below, with your own folder in place of the part in angle brackets, and press Enter.
 
 ```powershell
-cd "<your Fieldkit folder>"
+cd (fieldkit where)
 ```
   - You should see: Pass: the line before the cursor now ends with the Fieldkit folder name. Fail: "Cannot find path"; check the folder name and try again.
 **Step 3:** Run the command below.

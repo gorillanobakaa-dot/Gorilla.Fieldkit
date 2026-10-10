@@ -51,7 +51,10 @@ reader should have to trust a summary they cannot check.
    must be word for word. If you paraphrase, drop the quote marks.
 8. **No personal data.** No home folder paths (`C:\Users\<name>`,
    `/home/<name>`), no email addresses, no user names, no location. Write
-   `<your Fieldkit folder>` or "the Fieldkit folder" instead.
+   "the Fieldkit folder" in prose; in a command, let Fieldkit find it:
+   `cd (fieldkit where)`. Never a blank such as `<your Fieldkit folder>` inside a
+   command: a reader pastes it as it is (2026-10-10, in C:\WINDOWS\system32:
+   "Illegal characters in path", and every line after it ran in the wrong place).
 9. **"The maintainer", never "the owner".** The person who runs this project
    is the maintainer. The word "owner" may appear only inside a verbatim quote
    or a `code span` copied from the source.
@@ -106,8 +109,9 @@ never talk down. Translate complexity; do not delete it.
 - **How to use this** (`usage_task`): every step exactly runnable.
   - Step 1 says how to open PowerShell: "press the Windows key, type
     `PowerShell`, and press Enter. A window with a blinking cursor opens."
-  - Say which folder to be in and how to get there (`cd "<your Fieldkit
-    folder>"`).
+  - Say which folder to be in and how to get there, as a command that works from
+    any folder: `cd (fieldkit where)`. The checker refuses a command with a blank
+    to fill in (`<...>`).
   - Every command goes in its own code block, after a lead-in line and a blank
     line, followed by "press Enter".
   - `expected_result` shows what the screen really prints, copied from the

@@ -513,7 +513,9 @@ def run(a, emit):
         words = " ".join(x for x in a.args if "=" not in x)
         if words or "say" in opts:
             how = _h.say(opts.get("say", words) or "test")
-            print(f"herald: {how}" + ("" if how == "spoken" else " (no offline voice on this machine: install espeak-ng)"))
+            print(f"herald: {how}" + (_h.HEARD if how == "spoken" else f" ({_h.LAST_PROBLEM['why']})"))
+            if how != "spoken":
+                print("\n".join(_h.explain(_h.voice_check())))
             return 0
         _h.watch(opts.get("name", "the run"), int(opts.get("pid", 0)), opts.get("log") or None, int(opts.get("every", 60)))
         return 0

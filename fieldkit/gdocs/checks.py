@@ -167,6 +167,11 @@ def usage_section(secs):
     return rest[0] if rest else (None, None)
 
 
+BLANK_RX = re.compile(r"<[A-Za-z][^<>\n]{1,60}>")          # <your folder>, <name>, <path to file>
+COMMAND_RX = re.compile(r"\s*(?:PS [^>]*>\s*)?(?:cd|fieldkit|python3?|py|pip|git|sudo|apt(?:-get)?|dnf|winget|"
+                        r"Set-Location|Push-Location|copy|move|del|ls|dir|cat|type|\.\\|\./)\b", re.I)
+
+
 def code_blocks(text):
     return re.findall(r"^[ \t]*```[^\n]*\n(.*?)^[ \t]*```", text or "", re.M | re.S)
 
@@ -445,6 +450,14 @@ def check_layman(md, allowed_nums, url_corpus, parser=None, terms=None):
     if not m["powershell_how"]:
         f.append("layman: never says how to open PowerShell (e.g. 'press the Windows key, type "
                  "PowerShell, press Enter')")
+    # a command with a blank the reader must fill in is pasted as it is (2026-10-10: `cd "<your Fieldkit folder>"`
+    # from C:\\WINDOWS\\system32); the folder comes from `cd (fieldkit where)`
+    blanks = [l.strip() for b in code_blocks(md) for l in b.splitlines()
+              if BLANK_RX.search(l) and COMMAND_RX.match(l)]               # commands only, not sample output
+    m["command_blanks"] = len(blanks)
+    if blanks:
+        f.append(f"layman: {len(blanks)} command(s) with a blank to fill in, e.g. {blanks[0][:80]!r}: a reader pastes "
+                 f"it as it is. Use a command that finds the value itself, e.g. cd (fieldkit where)")
     f += _common(md, "layman", allowed_nums, url_corpus, parser, terms, m)
     return f, m
 

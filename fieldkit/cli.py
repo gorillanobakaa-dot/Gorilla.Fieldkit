@@ -104,6 +104,15 @@ def cmd_host(a):
     return 0
 
 
+def cmd_where(a):
+    """The Fieldkit folder, so a document can say `cd (fieldkit where)` instead of a blank the reader must fill in
+    (2026-10-10: `cd "<your Fieldkit folder>"`, pasted as given, failed in C:\\WINDOWS\\system32)."""
+    from .core import settings
+    root = str(settings.ROOT)
+    _emit({"fieldkit": root}, a.json, lambda d: print(d["fieldkit"]))
+    return 0
+
+
 def cmd_doctor(a):
     from .core import doctor
     r = doctor.check(a.pipeline)
@@ -565,6 +574,8 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("host", parents=[common]).set_defaults(fn=cmd_host)
+
+    sub.add_parser("where", parents=[common], help="print the Fieldkit folder: cd (fieldkit where)").set_defaults(fn=cmd_where)
 
     dr = sub.add_parser("doctor", parents=[common], help="what this machine still needs, and the line that installs it")
     dr.add_argument("--for", dest="pipeline", help="also the programs this pipeline needs (e.g. debian-kernel)")

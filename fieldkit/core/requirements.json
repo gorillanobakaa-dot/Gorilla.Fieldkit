@@ -144,6 +144,17 @@
     "fedora": "python3 -m pip install mitmproxy",
     "windows": "python -m pip install mitmproxy"
    }
+  },
+  "espeak-ng": {
+   "why": "the herald's offline voice: it says battery warnings and the result of long runs aloud",
+   "for": [
+    "herald"
+   ],
+   "only": "linux",
+   "install": {
+    "debian": "sudo apt-get install -y espeak-ng",
+    "fedora": "sudo dnf install -y espeak-ng"
+   }
   }
  }
 }

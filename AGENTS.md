@@ -17,6 +17,7 @@ Every command accepts `--json`.
 ```
 fieldkit host
 fieldkit doctor [--for PIPELINE]                  what this machine still needs, and the line that installs it
+fieldkit where                                   the Fieldkit folder: in a document, cd (fieldkit where), never a <blank>
 fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...
 fieldkit pipeline list|plan|run|status|reset NAME

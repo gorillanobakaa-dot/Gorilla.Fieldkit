@@ -70,3 +70,39 @@ def test_the_herald_command_works_from_any_folder(tmp_path):
     r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "herald", "a test"], capture_output=True,
                        text=True, timeout=120, cwd=str(tmp_path))
     assert r.returncode == 0 and "herald: " in r.stdout, r.stdout + r.stderr
+
+
+def test_on_windows_the_sentence_travels_in_the_environment_not_the_command_line():
+    """2026-10-10 on the owner's laptop: `powershell -Command <script> test` joins "test" into the script, the voice
+    failed, and the herald blamed a missing espeak-ng (a Linux program)."""
+    seen = {}
+    def run(argv, env=None, **kw):
+        seen.update(argv=argv, env=env)
+        return type("R", (), {"returncode": 0, "stderr": b""})()
+    assert herald.say("Plug your charger in.", platform="win32", run=run) == "spoken"
+    assert "Plug your charger in." not in " ".join(seen["argv"]) and seen["env"]["FIELDKIT_SAY"] == "Plug your charger in."
+    assert "$env:FIELDKIT_SAY" in seen["argv"][-1]
+    fail = lambda argv, **kw: type("R", (), {"returncode": 1, "stderr": b"Add-Type : Cannot add type.\n"})()
+    assert herald.say("x", platform="win32", run=fail, out=lambda *a, **k: None) == "printed"
+    assert herald.LAST_PROBLEM["why"].startswith("Windows speech (System.Speech) failed: Add-Type")
+    assert "espeak" not in herald.LAST_PROBLEM["why"]
+
+
+def test_no_voice_is_checked_and_explained_in_plain_words(monkeypatch):
+    linux = herald.voice_check(platform="linux", which=lambda e: None)
+    assert not linux["ok"] and "espeak-ng" in linux["install"][0] and "battery" in linux["purpose"]
+    text = "\n".join(herald.explain(linux))
+    assert "NO VOICE ON THIS COMPUTER" in text and "Why it matters" in text and 'fieldkit build-harness herald "test"' in text
+    zero = lambda argv, **kw: type("R", (), {"returncode": 0, "stdout": "0\n"})()
+    win = herald.voice_check(platform="win32", run=zero)
+    assert not win["ok"] and "Speech" in win["install"][0] and "espeak" not in " ".join(win["install"])
+    two = lambda argv, **kw: type("R", (), {"returncode": 0, "stdout": "2\n"})()
+    assert herald.voice_check(platform="win32", run=two)["ok"]
+    assert herald.voice_check(platform="linux", which=lambda e: "/usr/bin/espeak-ng" if e == "espeak-ng" else None)["ok"]
+
+
+def test_doctor_knows_the_herald_voice():
+    import json
+    from fieldkit.core import doctor
+    req = json.loads(doctor.REQUIREMENTS.read_text(encoding="utf-8"))["tools"]["espeak-ng"]
+    assert req["for"] == ["herald"] and req["only"] == "linux" and "battery" in req["why"]

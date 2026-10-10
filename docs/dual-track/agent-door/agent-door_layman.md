@@ -34,7 +34,7 @@ This desk lets a program run tools on your computer. Check that the safety rules
   - Look for: Pass: one line per tool, with its trust level, its safety class and its name, and a count of cards at the end. Look for any tool marked `irreversible` and note its name. Fail: an error message instead of the list.
 **Step 4:** Type `fieldkit agent describe office-scrub` and press Enter.
   - Look for: Pass: the card shows `"safety": "reversible"`, a `scope` that lists `file`, and a `verify` section with two checks. Fail: an error saying there is no such tool.
-**Step 5:** Run the project's own tests for this group. Go to the Fieldkit folder with `cd "<your Fieldkit folder>"` and press Enter. Then type `python -m pytest tests/test_agent.py tests/test_mcp.py tests/test_agent_security.py` and press Enter.
+**Step 5:** Run the project's own tests for this group. Go to the Fieldkit folder with `cd (fieldkit where)` and press Enter. Then type `python -m pytest tests/test_agent.py tests/test_mcp.py tests/test_agent_security.py` and press Enter.
   - Look for: Pass: the last line says the tests passed and none failed. The tests check that drafts are refused, that irreversible tools need approval, that a failed check restores the file, that the MCP door has no approve argument, that inputs starting with a dash are refused, that folders are backed up and restored, that a forged run number or journal is refused with nothing changed, that checks and undo commands are stopped when they take too long, and that undo will not overwrite later edits without approval. Fail: any line with `FAILED`.
 **Step 6:** Try the dash rule yourself. Type `fieldkit agent run office-scrub --input file=-x.docx --mode preview` and press Enter.
   - Look for: Pass: a line starting `REFUSED:` that says the input starts with '-', and nothing runs. Fail: the tool runs, or the error is about something else.
@@ -205,10 +205,10 @@ This group opens no network connection itself. Some tools it can start, and some
 - Fieldkit is installed, so that `fieldkit --version` prints `fieldkit 0.1.0`.
 - A copy of a Word file named `report.docx` in a folder you know. Work on a copy, not your only version.
 
-**Step 1:** Open PowerShell: press the Windows key, type `PowerShell`, and press Enter. A window with a blinking cursor opens. Go to the folder that holds `report.docx`. Type this, with your folder in place of the words in angle brackets, and press Enter:
+**Step 1:** Open PowerShell: press the Windows key, type `PowerShell`, and press Enter. A window with a blinking cursor opens. Go to the folder that holds `report.docx`. Type `cd` and one space, but do not press Enter yet. Then drag the folder from File Explorer and drop it on this window: its full location appears after `cd`. Now press Enter.
 
 ```powershell
-cd "<the folder that holds report.docx>"
+cd 
 ```
   - You should see: Pass: the line before the cursor now ends with that folder's name. Fail: a red message that the path cannot be found; check the spelling and the quotation marks.
 **Step 2:** Find a tool for your goal. Type this and press Enter:
