@@ -23,7 +23,7 @@ fieldkit pipeline list|plan|run|status|reset NAME
 fieldkit triage LOG --set auto
 fieldkit privacy scan PATH --git
 fieldkit kernel localversion|fragment ...
-fieldkit kernel migrate-check|migrate-verify ...      carry a kernel patch set to a newer kernel: what fits, what to port, the proof
+fieldkit kernel migrate-check|migrate-apply|migrate-verify ...   carry a kernel patch set to a newer kernel: what fits, the port, the proof
 fieldkit gather [--check|--test] [--only NAME]   GitHub repos and local folders -> toolbox/
 fieldkit tools list --all                        every tool, including every gathered script
 fieldkit harvest [--find WORDS]                  what every script does; search it in plain words

@@ -1,6 +1,7 @@
 """Kernel patch-set migration, as steps: what carries over to a newer kernel, what a model must port, and the proof.
 
     fieldkit kernel migrate-check  --project P --old OLD_TREE --new NEW_TREE [--out REPORT]
+    fieldkit kernel migrate-apply  --project P --new NEW_TREE
     fieldkit kernel migrate-verify --project P --new NEW_TREE --old-patches DIR [--out REPORT]
 
 Born 2026-10-10, from the 7.1.2 -> 7.2.9 migration of the debian-kernel project, done by hand in shell first. The
@@ -15,6 +16,9 @@ migrate-check (before porting) answers, from files only:
   3. what upstream changed in each registry file between OLD_TREE and NEW_TREE (+added / -removed lines);
   4. DO: one line per failed patch. Porting a failed hunk is the one step that needs judgement (the model's step):
      place the SAME added and removed lines at the same logical anchor in the new file. Nothing else is guessed.
+migrate-apply writes the project's shipped files as the NEW tree's files with the changes: patches that fit are
+applied; a failed hunk is placed by its anchors (hunk_aid) only when every change in it has exactly one; otherwise it
+writes nothing and names the changes left to port. It never guesses: migrate-verify still has to pass.
 migrate-verify (after porting and regenerating the patches) proves:
   1. every patch changes exactly the lines it changed before (the sorted multiset of +/- lines, per patch, against
      --old-patches, a copy of the previous patches/ folder);
@@ -26,6 +30,7 @@ project or either tree; work happens in a temporary folder. Exit 3 on any findin
 """
 import difflib
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -110,6 +115,157 @@ def _diffstat(a, b):
     return plus, minus
 
 
+def hunks(patch_text):
+    """-> [{"n", "old_start", "lines": [(" "|"+"|"-", text)]}] for a single-file unified diff."""
+    out, cur = [], None
+    for l in patch_text.splitlines():
+        m = re.match(r"@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@", l)
+        if m:
+            cur = {"n": len(out) + 1, "old_start": int(m.group(1)), "lines": []}
+            out.append(cur)
+        elif cur is not None and l[:1] in (" ", "+", "-") and not l.startswith(("+++", "---")):
+            cur["lines"].append((l[:1], l[1:]))
+    return out
+
+
+def _groups(hunk):
+    """A hunk split into its change groups: each run of +/- lines with the context line just before and after it."""
+    lines, out, i = hunk["lines"], [], 0
+    while i < len(lines):
+        if lines[i][0] == " ":
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and lines[j][0] != " ":
+            j += 1
+        before = next((t for k, t in reversed(lines[:i]) if k == " " and t.strip()), None)
+        after = next((t for k, t in lines[j:] if k == " " and t.strip()), None)
+        out.append({"removed": [t for k, t in lines[i:j] if k == "-"], "added": [t for k, t in lines[i:j] if k == "+"],
+                    "before": before, "after": after})
+        i = j
+    return out
+
+
+def hunk_aid(hunk, new_text, window=3):
+    """Where each change of a failed hunk goes in the NEW file, so the port is copying, not reasoning (2026-10-10: the
+    one step of a migration that needed judgement; a small model is given line numbers instead of a puzzle).
+    Per change group: the removed lines and where they are now; else the context line just before it, found once in
+    the new file (insert after it), and the next line after it that matches the old context after the change (insert
+    before that). The lines to write are given exactly, indentation included.
+    -> {"n", "groups": [{"removed": [(text, [lines])], "added": [text], "after_line", "before_line", "how", "window"}]}"""
+    new = new_text.splitlines()
+    where = {}
+    for i, l in enumerate(new, 1):
+        where.setdefault(l, []).append(i)
+    groups = []
+    for g in _groups(hunk):
+        rem = [(t, where.get(t, [])) for t in g["removed"]]
+        after_line = before_line = None
+        if rem and all(len(ls) == 1 for _, ls in rem):
+            how = f"replace line(s) {[ls[0] for _, ls in rem]} with the added lines"
+            at = rem[0][1][0]
+        else:
+            cand = where.get(g["before"], []) if g["before"] else []
+            if len(cand) == 1:
+                after_line = cand[0]
+            if g["after"] is not None:
+                later = [n for n in where.get(g["after"], []) if after_line is None or n > after_line]
+                before_line = later[0] if later else None
+            if after_line and before_line and before_line == after_line + 1:
+                how = f"insert between line {after_line} and line {before_line}"
+            elif after_line and before_line:
+                # upstream added lines between the two anchors: the change goes right before the closing anchor, so
+                # lines added at the end of a list stay at its end (2026-10-10, alc269.c's enum)
+                how = (f"insert right before line {before_line} (upstream added lines {after_line + 1}-{before_line - 1} "
+                       f"between the old neighbours; keep them)")
+            elif after_line:
+                how = f"insert right after line {after_line}"
+            elif before_line:
+                how = f"insert right before line {before_line}"
+            else:
+                how = "no anchor of this change is in the new file once: read upstream's change to this file"
+            at = after_line or before_line
+        win = ([f"{i:>6}| {new[i - 1]}" for i in range(max(1, at - window), min(len(new), (before_line or at) + window) + 1)]
+               if at else [])
+        groups.append({"removed": rem, "added": g["added"], "after_line": after_line, "before_line": before_line,
+                       "how": how, "window": win})
+    return {"n": hunk["n"], "groups": groups}
+
+
+def _apply_groups(new_text, aid):
+    """The new file with every change group of `aid` placed by its anchor -> (text, [problems]). Groups are applied from
+    the bottom of the file up, so earlier line numbers stay valid."""
+    lines = new_text.split("\n")
+    ops, problems = [], []
+    for a in aid:
+        for k, g in enumerate(a["groups"], 1):
+            rem = g["removed"]
+            if rem and all(len(ls) == 1 for _, ls in rem):
+                ns = sorted(ls[0] for _, ls in rem)
+                if ns != list(range(ns[0], ns[0] + len(ns))):
+                    problems.append(f"hunk {a['n']} change {k}: the removed lines are no longer together")
+                    continue
+                ops.append((ns[0], len(ns), g["added"]))
+            elif rem:
+                problems.append(f"hunk {a['n']} change {k}: a removed line is missing or not unique in the new file")
+            elif g["before_line"]:
+                ops.append((g["before_line"], 0, g["added"]))
+            elif g["after_line"]:
+                ops.append((g["after_line"] + 1, 0, g["added"]))
+            else:
+                problems.append(f"hunk {a['n']} change {k}: no anchor")
+    for at, n, add in sorted(ops, key=lambda o: o[0], reverse=True):
+        lines[at - 1:at - 1 + n] = add
+    return "\n".join(lines), problems
+
+
+def apply(project, new_tree):
+    """Write every registry file of the project as NEW tree's file with the project's changes: patches that fit are
+    applied with patch --fuzz=0; patches that do not are placed by the porting aid, only when every change of every
+    failed hunk has one unambiguous anchor. Refuses (writes nothing) otherwise.
+    -> {"ok", "written": [names], "ported": {patch: [how]}, "problems": [...], "next"}"""
+    project, new_tree = Path(project), Path(new_tree)
+    problems, ported, staged = [], {}, {}
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        for name, dest in registry(project):
+            if not (new_tree / dest).is_file():
+                problems.append(f"{dest} is not in {new_tree}")
+                continue
+            (tmp / dest).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(new_tree / dest, tmp / dest)
+        for p in series(project / "patches"):
+            text = (project / "patches" / p).read_text(encoding="utf-8", errors="replace")
+            code, out = _apply(project / "patches" / p, tmp, dry=True)
+            if code == 0 and "FAILED" not in out:
+                _apply(project / "patches" / p, tmp)
+                continue
+            m = re.search(r"^\+\+\+ b/(\S+)", text, re.M)
+            target = tmp / m.group(1) if m else None
+            if not target or not target.is_file():
+                problems.append(f"{p}: its file is not in the new tree")
+                continue
+            new_text = target.read_text(encoding="utf-8", errors="replace")
+            aid = [hunk_aid(h, new_text) for h in hunks(text)]
+            ported_text, probs = _apply_groups(new_text, aid)
+            if probs:
+                problems += [f"{p}: {x}" for x in probs]
+                continue
+            target.write_text(ported_text, encoding="utf-8", newline="")
+            ported[p] = [g["how"] for a in aid for g in a["groups"]]
+        if not problems:
+            for name, dest in registry(project):
+                staged[name] = (tmp / dest).read_bytes()
+    if problems:
+        return {"ok": False, "written": [], "ported": ported, "problems": problems,
+                "next": "port the listed changes by hand (fieldkit kernel migrate-check shows where), then "
+                        "fieldkit kernel migrate-verify"}
+    for name, data in staged.items():
+        (project / name).write_bytes(data)
+    return {"ok": True, "written": sorted(staged), "ported": ported, "problems": [],
+            "next": "regenerate the project's patches against the new tree, then fieldkit kernel migrate-verify"}
+
+
 def check(project, old_tree, new_tree):
     project, old_tree, new_tree = Path(project), Path(old_tree), Path(new_tree)
     findings, patches = [], []
@@ -131,8 +287,17 @@ def check(project, old_tree, new_tree):
             offsets = re.findall(r"Hunk #(\d+) succeeded at \d+ \(offset (-?\d+) lines?\)", out)
             missing = "can't find file" in out or "No such file" in out
             status = "fails" if (code or failed or missing) else ("offset" if offsets else "applies")
+            aid = []
+            if failed:
+                text = (project / "patches" / p).read_text(encoding="utf-8", errors="replace")
+                m = re.search(r"^\+\+\+ b/(\S+)", text, re.M)
+                target = new_tree / m.group(1) if m else None
+                if target and target.is_file():
+                    new_text = target.read_text(encoding="utf-8", errors="replace")
+                    aid = [hunk_aid(h, new_text) for h in hunks(text) if h["n"] in failed]
             patches.append({"patch": p, "status": status, "failed_hunks": failed,
-                            "offsets": [(int(h), int(o)) for h, o in offsets], "output": out.strip()[-400:]})
+                            "offsets": [(int(h), int(o)) for h, o in offsets], "output": out.strip()[-400:],
+                            "aid": aid})
     upstream = {}
     for name, dest in registry(project):
         st = _diffstat(old_tree / dest, new_tree / dest)
@@ -142,8 +307,9 @@ def check(project, old_tree, new_tree):
     todo = [f"port {p['patch']}: hunks {p['failed_hunks'] or 'all'} do not fit {new_tree.name}. Put the SAME added and "
             f"removed lines at the same logical anchor in the new file, ship the new file at the project root, "
             f"regenerate the patches, then: fieldkit kernel migrate-verify" for p in patches if p["status"] == "fails"]
-    nxt = ("fix the baseline first" if differ or probs else todo[0] if todo else
-           "copy the patched files into the project, regenerate the patches, then fieldkit kernel migrate-verify")
+    apply_cmd = f"fieldkit kernel migrate-apply --project {shlex.quote(str(project))} --new {shlex.quote(str(new_tree))}"
+    # a command, not a sentence: migrate-apply ports what has unambiguous anchors and refuses the rest by name
+    nxt = "fix the baseline first" if differ or probs else apply_cmd
     return {"ok": not findings, "baseline_identical": sum(same.values()), "baseline_files": len(same),
             "patches": patches, "upstream": upstream, "todo": todo, "findings": findings, "next": nxt}
 
@@ -191,6 +357,14 @@ def check_lines(r):
         extra = (f" hunks {p['failed_hunks']} FAILED" if p["failed_hunks"] else "") + \
                 (f" offsets {p['offsets']}" if p["offsets"] else "")
         out.append(f"  {p['status']:<8} {p['patch']}{extra}")
+        for a in p.get("aid") or []:
+            for k, g in enumerate(a["groups"], 1):
+                out.append(f"      hunk {a['n']}, change {k}: {g['how']}")
+                for t, ls in g["removed"]:
+                    out.append(f"        remove (now at line {ls or 'nowhere'}): {t!r}")
+                for t in g["added"]:
+                    out.append(f"        add exactly: {t!r}")
+                out += [f"        {w}" for w in g["window"]]
     out.append("upstream changes in the registry files:")
     for dest, st in r["upstream"].items():
         out.append(f"  {dest}: " + ("missing" if st is None else f"+{st['added']} / -{st['removed']}"))

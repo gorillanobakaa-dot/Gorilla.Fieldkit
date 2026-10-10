@@ -59,7 +59,8 @@ def test_check_proves_the_baseline_and_names_what_fits_and_what_to_port(tmp_path
     st = {p["patch"]: p for p in r["patches"]}
     assert st["a.c.patch"]["status"] == "offset" and st["b.c.patch"]["status"] == "fails"
     assert r["upstream"]["drv/b.c"] == {"added": 1, "removed": 0} and len(r["todo"]) == 1
-    assert "b.c.patch" in r["next"] and any(l.startswith("DO: port b.c.patch") for l in kmigrate.check_lines(r))
+    assert r["next"].startswith("fieldkit kernel migrate-apply --project ") and any(
+        l.startswith("DO: port b.c.patch") for l in kmigrate.check_lines(r))
 
 
 def test_check_stops_when_the_old_tree_is_not_the_pristine(tmp_path, trees):
@@ -95,3 +96,42 @@ def test_verify_catches_a_shipped_file_the_patches_do_not_explain(tmp_path, tree
     (ported / "a.c").write_text(NEW_A.replace("line 10\n", "line 10 GORILLA\n") + "unexplained\n", encoding="utf-8")
     r = kmigrate.verify(ported, new, keep)
     assert not r["ok"] and r["rebuilt_identical"] == 1 and "do not rebuild the shipped ['a.c']" in r["findings"][-1]
+
+
+def test_apply_ports_a_failed_hunk_by_its_anchors_and_verify_proves_it(tmp_path, trees):
+    old, new = trees
+    proj = _project(tmp_path, OLD_A, OLD_B)
+    keep = tmp_path / "old-patches"
+    shutil.copytree(proj / "patches", keep)
+    r = kmigrate.apply(proj, new)
+    assert r["ok"] and r["written"] == ["a.c", "b.c"] and "b.c.patch" in r["ported"]
+    expected = _project(tmp_path / "hand", NEW_A, NEW_B, last="C_NEW")          # what a careful port by hand gives
+    assert (proj / "a.c").read_bytes() == (expected / "a.c").read_bytes()
+    assert (proj / "b.c").read_bytes() == (expected / "b.c").read_bytes()
+    # regenerate the patches as the project's own script would, then the proof
+    (proj / "patches" / "a.c.patch").write_text(_patch("src/a.c", NEW_A, (proj / "a.c").read_text()), encoding="utf-8",
+                                                newline="\n")
+    (proj / "patches" / "b.c.patch").write_text(_patch("drv/b.c", NEW_B, (proj / "b.c").read_text()), encoding="utf-8",
+                                                newline="\n")
+    assert kmigrate.verify(proj, new, keep)["ok"]
+
+
+def test_apply_writes_nothing_when_an_anchor_is_ambiguous(tmp_path, trees):
+    old, new = trees
+    proj = _project(tmp_path, OLD_A, OLD_B)
+    before = {n: (proj / n).read_bytes() for n in ("a.c", "b.c")}
+    _w(new / "drv/b.c", NEW_B + "vendor(0x104d, SONY);\n")                     # the replaced line is there twice now
+    r = kmigrate.apply(proj, new)
+    assert not r["ok"] and r["written"] == [] and "not unique" in r["problems"][0]
+    assert {n: (proj / n).read_bytes() for n in ("a.c", "b.c")} == before
+
+
+def test_the_aid_names_each_change_with_exact_lines(tmp_path, trees):
+    old, new = trees
+    proj = _project(tmp_path, OLD_A, OLD_B)
+    r = kmigrate.check(proj, old, new)
+    aid = next(p for p in r["patches"] if p["patch"] == "b.c.patch")["aid"]
+    gs = [g for a in aid for g in a["groups"]]
+    assert any(g["added"] == ["\tGORILLA,"] and g["before_line"] == 5 for g in gs)          # before "};", after C_NEW
+    assert any(g["removed"] == [("vendor(0x104d, SONY);", [6])] for g in gs)
+    assert any("add exactly: '\\tGORILLA,'" in l for l in kmigrate.check_lines(r))

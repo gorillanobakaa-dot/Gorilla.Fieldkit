@@ -528,6 +528,13 @@ def cmd_exam(a):
 
 def cmd_kernel(a):
     from .build import kernel
+    if a.action == "migrate-apply":
+        from .build import kmigrate
+        r = kmigrate.apply(a.project, a.new)
+        _emit(r, a.json, lambda d: print("\n".join(
+            [f"wrote {n}" for n in d["written"]] + [f"ported {p}: {'; '.join(h)}" for p, h in d["ported"].items()]
+            + [f"PROBLEM: {x}" for x in d["problems"]] + [("APPLIED" if d["ok"] else "NOTHING WRITTEN"), f"NEXT: {d['next']}"])))
+        return 0 if r["ok"] else 3
     if a.action in ("migrate-check", "migrate-verify"):
         from .build import kmigrate
         if a.action == "migrate-check":
@@ -701,6 +708,9 @@ def build_parser():
     mc.add_argument("--old", required=True, help="pristine tree of the version the patches were made for")
     mc.add_argument("--new", required=True, help="pristine tree of the new version")
     mc.add_argument("--out", help="also write the report here (evidence for the release notes)")
+    ma = ks.add_parser("migrate-apply", parents=[common], help="write the ported files when every anchor is unambiguous")
+    ma.add_argument("--project", required=True)
+    ma.add_argument("--new", required=True, help="pristine tree of the new version")
     mv = ks.add_parser("migrate-verify", parents=[common], help="after porting: same lines, byte-for-byte rebuild")
     mv.add_argument("--project", required=True)
     mv.add_argument("--new", required=True, help="pristine tree of the new version")

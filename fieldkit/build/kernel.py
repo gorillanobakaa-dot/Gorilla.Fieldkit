@@ -374,12 +374,32 @@ def verify_config(ctx, fragment=None, injector=None):
     return {"ok": not missing, "detail": f"{len(flags) - len(missing)}/{len(flags)} options as requested"}
 
 
+BUILD_STAMP = ".fieldkit-build.json"
+
+
+def build_env(src, kcflags="-O3 -pipe", now=None):
+    """The environment every packaging of one build uses. The kernel stamps its build number, time, user and host
+    into the image; left to make, the .deb and the .rpm of the same tree differed in 69 bytes (#1 vs #2 and two
+    times, 2026-10-10) and the image carried the build machine's user and host name. Fixed once per build, in
+    <src>/.fieldkit-build.json, and read back by every later stage."""
+    stamp = Path(src) / BUILD_STAMP
+    if stamp.is_file():
+        fixed = json.loads(stamp.read_text(encoding="utf-8"))
+    else:
+        when = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%a %b %d %H:%M:%S UTC %Y")
+        fixed = {"KBUILD_BUILD_TIMESTAMP": when, "KBUILD_BUILD_VERSION": "1",
+                 "KBUILD_BUILD_USER": "gorilla", "KBUILD_BUILD_HOST": "fieldkit"}
+        stamp.write_text(json.dumps(fixed, indent=1), encoding="utf-8")
+    return {**fixed, "KCFLAGS": kcflags}
+
+
 def stage_build(ctx, tags=("gorilla",), jobs=None, kcflags="-O3 -pipe"):
     src, version = Path(_v(ctx, "src")), _v(ctx, "version")
     name = localversion(version, list(tags))
+    (src / BUILD_STAMP).unlink(missing_ok=True)                  # a new build gets a new stamp
     cmd = ["make", "-C", str(src), f"LOCALVERSION={name['localversion']}", f"-j{jobs or ctx.host['cpus']}",
            "bindeb-pkg", f"KDEB_PKGVERSION={version}"]
-    r = ctx.runner.run(cmd, env={"KCFLAGS": kcflags}, name="bindeb-pkg")
+    r = ctx.runner.run(cmd, env=build_env(src, kcflags), name="bindeb-pkg")
     return {"ok": r.ok, "uname": name["uname"], "log": r.log, "detail": f"uname {name['uname']} ({name['length']}/64)"}
 
 
@@ -400,7 +420,7 @@ def stage_rpm(ctx, jobs=None, kcflags="-O3 -pipe"):
         return {"ok": False, "detail": f"the built tree is {release}, not {version}"}
     cmd = ["make", "-C", str(src), f"LOCALVERSION={release[len(version):]}", f"-j{jobs or ctx.host['cpus']}",
            "binrpm-pkg"]
-    r = ctx.runner.run(cmd, env={"KCFLAGS": kcflags}, name="binrpm-pkg")
+    r = ctx.runner.run(cmd, env=build_env(src, kcflags), name="binrpm-pkg")   # the build's own stamp: same image
     after = rel_file.read_text(encoding="utf-8").strip()
     rpms = sorted(p.name for p in (src / "rpmbuild" / "RPMS").rglob("*.rpm"))
     kernel_rpms = [n for n in rpms if n.startswith("kernel-") and release.replace("-", "_") in n]
