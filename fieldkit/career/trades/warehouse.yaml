@@ -1,0 +1,13 @@
+# Trade rules: UK warehouse and retail operations (operative, picker, stock, supervisor). Same format as driver.yaml.
+name: warehouse
+detect: '(warehouse|picker|packer|stock control|replenish|forklift|\bFLT\b|depozit|stivuitor|lucr[aă]tor comercial)'
+checks:
+  - {id: flt, pattern: '(forklift|\bFLT\b|counterbalance|reach truck|\bPPT\b|stivuitor|transpalet)', ask: flt}
+  - {id: rates, pattern: '(pick rate|\d+\s*(units|cases|lines) (an|per) hour|targets?|norm[aă])', ask: null,
+     message: "No pick rate or target met is stated, if there is a true one to give."}
+  - {id: systems, pattern: '(\bWMS\b|scanner|RF gun|\bSAP\b|stock system)', ask: systems}
+  - {id: shifts, pattern: '(night shift|nights|shifts|ture de noapte|schimburi)', ask: null,
+     message: "Shift pattern experience (nights, weekends) is not mentioned: warehouses ask for it."}
+questions:
+  flt:     {en: "Do you hold a forklift licence (counterbalance, reach, PPT)? From which training body?", ro: "Ai carnet de stivuitorist (counterbalance, reach, transpalet electric)? De la ce organism?"}
+  systems: {en: "Which warehouse systems or scanners have you used?", ro: "Ce sisteme de depozit sau scanere ai folosit?"}

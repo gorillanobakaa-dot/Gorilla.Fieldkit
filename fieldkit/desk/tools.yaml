@@ -304,3 +304,30 @@ tools:
   platforms: [linux]
   changes: false
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_audio.py"]
+
+- id: fieldkit-cv
+  title: Check a CV against fixed rules and the questions to ask; write UK CVs in English and Romanian
+  harness: fieldkit
+  entry: [python, -m, fieldkit, cv]
+  path: ${FIELDKIT}/fieldkit/career
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_career.py"]
+
+- id: fieldkit-jobs
+  title: UK job hunt - official APIs, scoring, application packs, tracking (never submits)
+  harness: fieldkit
+  entry: [python, -m, fieldkit, jobs]
+  path: ${FIELDKIT}/fieldkit/career
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_career.py"]
+
+- id: fieldkit-backup
+  title: A complete, dated, verified zip of the Fieldkit folder into the owner's backup folder
+  harness: fieldkit
+  entry: [python, -m, fieldkit, backup]
+  path: ${FIELDKIT}/fieldkit/core/backup.py
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_career.py"]

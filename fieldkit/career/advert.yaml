@@ -1,0 +1,45 @@
+# What `fieldkit jobs ingest-advert` reads from an advert's full text, as data. Every pattern is case-insensitive.
+#
+# Born 2026-10-10 from the owner's job-hunt harness notes: job-board API descriptions are shortened, and Adzuna's
+# salaries are often estimates (on its first check, 8 of 8 shortlisted salaries were estimates; one advertised
+# "45,070" was really 32,137-37,016). So pay is recorded as verified ONLY when the advert's own text states it.
+
+pay:
+  # "£32,137 - £37,016", "£14.50 per hour", "£38k", "up to £40,000"
+  amount: '£\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d{1,2})?)\s*(k\b)?'
+  period:
+    hour: '(per hour|an hour|/ ?h(ou)?r\b|\bph\b|p/h|hourly|pe or[aă])'
+    day: '(per day|a day|/ ?day|daily rate|pe zi)'
+    week: '(per week|a week|/ ?week|weekly|pe s[aă]pt[aă]m[aâ]n[aă])'
+    year: '(per (annum|year)|a year|/ ?year|\bp\.?a\.?\b|annual|salary|pe an)'
+  estimated: '(estimated|\best\.|salary estimate|competitive|negotiable|\bDOE\b|depending on experience)'
+  # a pay line is a line naming pay, so an unrelated "£500 bonus" elsewhere is not taken as the salary
+  line: '(salary|pay|rate|wage|£|compensation|remuneration|salariu)'
+
+closes: '(closing date|closes|apply by|deadline|data limit[aă])\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4})'
+closing_soon_days: 7
+
+contract:
+  permanent: '\bpermanent\b'
+  temporary: '\b(temporary|temp\b|fixed[- ]term|contract role|\bFTC\b|seasonal)'
+  full-time: '\bfull[- ]time\b'
+  part-time: '\bpart[- ]time\b'
+  nights: '\b(night shift|nights)\b'
+
+years_required: '(\d{1,2})\+?\s*(?:years|yrs)(?:[’'']?\s*)(?:of\s+)?(?:relevant\s+|proven\s+|previous\s+)?experience'
+
+clearance:
+  SC: '\b(SC|security check) clearance\b|\bSC cleared\b'
+  DV: '\b(DV|developed vetting)\b'
+  BPSS: '\bBPSS\b'
+  CTC: '\b(CTC|counter[- ]terrorist check)\b'
+  NPPV: '\bNPPV\b'
+  DBS: '\b(enhanced|basic|standard)?\s*DBS\b'
+  BS7858: '\bBS ?7858\b'
+
+languages: [French, German, Spanish, Italian, Portuguese, Polish, Romanian, Arabic, Mandarin, Russian, Dutch, Welsh]
+language_required: '(fluent|fluency|native|proficient|business[- ]level)\s+(in\s+)?({lang})|({lang})\s+(speaker|speaking)\s+(required|essential)'
+
+sector_background: '(?:background|experience)\s+in\s+(?:the\s+)?((?:[A-Za-z&]+\s){0,3}(?:sector|industry|services))'
+
+no_sponsorship: '(no (visa )?sponsorship|unable to sponsor|cannot sponsor|must (already )?have the right to work)'

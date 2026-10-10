@@ -1,0 +1,16 @@
+# UK take-home pay, England, Wales and Northern Ireland (Scotland has its own income tax bands: not covered here).
+# Tax year 2025/26, from GOV.UK (gov.uk/income-tax-rates, gov.uk/national-insurance-rates-letters). Check those pages
+# when a new tax year starts and change the figures here; `fieldkit jobs takehome` prints which year it used.
+year: "2025/26"
+region: "England, Wales and Northern Ireland"
+personal_allowance: 12570
+allowance_taper_from: 100000      # the allowance falls by £1 for every £2 above this
+income_tax:                       # upper bounds of taxable income above the allowance
+  - {upto: 37700, rate: 0.20}
+  - {upto: 125140, rate: 0.40}
+  - {upto: null, rate: 0.45}
+national_insurance:               # employee, Class 1, on annual earnings
+  primary_threshold: 12570
+  upper_earnings_limit: 50270
+  main_rate: 0.08
+  upper_rate: 0.02

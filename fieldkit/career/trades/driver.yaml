@@ -1,0 +1,28 @@
+# Trade rules: a UK professional driver (van, HGV, bus and coach). Used by `fieldkit cv check --trade driver`, or
+# when the profile says trade: driver. Same format for any trade: detect (when the CV looks like this trade),
+# licence_line / licence_category (optional), checks (each with an optional question), questions.
+name: driver
+detect: '(driver|driving|\bHGV\b|\bLGV\b|\bPCV\b|class 1|class 2|c\+e|[sș]ofer|tahograf)'
+# a line that talks about a licence, then the categories named on it
+licence_line: '(categor\w*|\bcat\.?\s|licen[cs]e|permis)'
+licence_category: '(?<![\w+])(C1\+E|C1E|C\+E|CE|C1|D1\+E|D1|D\+E|DE|B\+E|BE|B|C|D)(?![\w+])'
+checks:
+  - {id: cpc, pattern: '(\bCPC\b|driver CQC|\bDQC\b|certificate of professional competence|card de calificare|atestat)', ask: cpc}
+  - {id: tachograph, pattern: '(tachograph|digi(tal)?[- ]?card|driver card|card tahograf|tahograf)', ask: tachograph}
+  - {id: adr, pattern: '\bADR\b', ask: adr}
+  - {id: forklift, pattern: '(forklift|\bFLT\b|counterbalance|reach truck|stivuitor)', ask: forklift}
+  - {id: abroad, pattern: '(international|europe|EU\b|france|germany|belgium|netherlands|spain|italy|poland|romania|ireland|interna[tț]ional|europa|fran[tț]a|germania|belgia|olanda|spania|italia|polonia|rom[aâ]nia|irlanda)', ask: abroad}
+  - {id: safety, pattern: '(accident[- ]free|clean licen[cs]e|no (accidents|points)|f[aă]r[aă] accident|permis curat|zero accidente)', ask: null,
+     message: "No safety record stated (clean licence, accident-free years): the strongest line a driver can have, if true."}
+  - {id: punctual, pattern: '(on[- ]time|punctual|delivery window|la timp|punctual)', ask: null,
+     message: "No on-time record stated (deliveries on time, delivery windows kept), if true."}
+  - {id: compliance, pattern: '(drivers.? hours|working time|WTD|EU rules|tachograph rules|ore de condus|timp de lucru)', ask: null,
+     message: "Drivers' hours and tachograph rules are not mentioned: UK hauliers ask for them."}
+
+questions:
+  licence:    {en: "Which licence categories do you hold (B, C, C+E, D ...)?", ro: "Ce categorii de permis ai (B, C, C+E, D etc.)?"}
+  cpc:        {en: "Do you hold a Driver CPC (DQC card)? Valid until when?", ro: "Ai CPC / Driver CQC (card DQC)? Până când este valabil?"}
+  tachograph: {en: "Do you have a digital tachograph driver card?", ro: "Ai card tahograf (digital)?"}
+  adr:        {en: "Do you hold an ADR certificate (dangerous goods)? Which classes?", ro: "Ai certificat ADR (mărfuri periculoase)? Ce clase?"}
+  forklift:   {en: "Do you hold a forklift (FLT) licence? Which trucks?", ro: "Ai carnet de stivuitorist (FLT)? Pe ce tipuri?"}
+  abroad:     {en: "In which countries outside England have you driven?", ro: "În ce țări ai condus în afara Angliei?"}

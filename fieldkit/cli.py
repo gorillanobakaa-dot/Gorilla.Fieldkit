@@ -127,6 +127,177 @@ def cmd_audio(a):
     return 0 if r["ok"] else 3
 
 
+def cmd_backup(a):
+    from .core import backup
+    r = backup.backup(to=a.to)
+    _emit(r, a.json, lambda d: print("\n".join(backup.lines(d))))
+    return 0 if r["ok"] else (2 if r["status"] in ("ask", "refused") else 1)
+
+
+def _check_lines(d):
+    print(f"cv: {d['file']} - {d['verdict']} ({d['lang']}, {d['words']} words, {d['pages']} page(s) "
+          f"{d['pages_how']}); trades: {', '.join(d['trades']) or 'none'}"
+          + (f"; licences seen: {', '.join(d['licences'])}" if d["licences"] else ""))
+    for i, f in enumerate(d["findings"], 1):
+        print(f"  {i:>2}. {f['severity'].upper():<6} {f['message']}" + (f" (line {f['line']})" if f["line"] else ""))
+        if f["excerpt"]:
+            print(f"        \"{f['excerpt']}\"")
+    print("QUESTIONS (ask every one; wait for the answers):")
+    for q in d["questions"]:
+        print(f"  - {q['text']}" + (f"   [the CV says: {q['cv_says']}]" if q["cv_says"] else ""))
+    print(f"NEXT: {d['next']}")
+
+
+def _kv_lines(d):
+    for k, v in d.items():
+        if k != "next":
+            print(f"{k}: {v}")
+    if d.get("next"):
+        print(f"NEXT: {d['next']}")
+
+
+def cmd_cv(a):
+    from .career import cv, store
+    from .career.profile import BadProfile
+    try:
+        if a.action == "init":
+            r = store.init(name=a.name, lang=a.lang or "ro")
+            if r.get("status") == "ask":
+                _emit(r, a.json, lambda d: print(f"QUESTION: {d['question']}\nNEXT: {d['next']}"))
+                return 2
+        elif a.action == "import":
+            r = store.import_original(a.file)
+        elif a.action == "check":
+            r = cv.check(a.file, lang=a.lang, trades=a.trade)
+            _emit(r, a.json, _check_lines)
+            return 0 if r["ok"] else 3
+        else:
+            r = cv.render(variant=a.variant, lang=a.lang or "en")
+    except (BadProfile, FileNotFoundError, TypeError) as e:
+        msg = "a file is needed: fieldkit cv check FILE" if isinstance(e, TypeError) else str(e)
+        _emit({"ok": False, "error": msg}, a.json, lambda d: print(f"REFUSED: {d['error']}"))
+        return 2
+    _emit(r, a.json, _kv_lines)
+    return 0 if r.get("ok", True) else 3
+
+
+def cmd_jobs(a):
+    import json as _json
+    from .career import pack, pipeline, store, takehome
+    from .career import profile as prof
+    from .career import sources
+    if a.action == "takehome":
+        if a.gross is None:
+            print("fieldkit jobs takehome --gross N (a year, in pounds)", file=sys.stderr)
+            return 2
+        r = takehome.take_home(a.gross, a.pension)
+        _emit(r, a.json, _kv_lines)
+        return 0
+    try:
+        p = prof.load()
+        t = store.Tracker()
+        if a.action == "run":
+            r = pipeline.run(p, t, top=a.top, do_search=not a.no_search, pension=a.pension)
+            def show(d):
+                print(f"searched {d['searched']}, seen {d['results_seen']}, new {d['new_jobs']}, "
+                      f"rescored {d['rescored']}, errors {len(d['errors'])}")
+                for e in d["errors"][:10]:
+                    print(f"  ERROR [{e['source']}] {e['query']}: {e['error']}")
+                for j in d["shortlist"]:
+                    print(f"  {j['score']:>3}  {j['cv']:<12} {j['salary_status']:<9} {j['title'][:44]:<44} "
+                          f"{(j['employer'] or '')[:28]}  {j['key']}")
+                for h in d["human_actions"]:
+                    print(f"  TO DO: {h}")
+                print(f"report: {d['report_md']}")
+            _emit(r, a.json, show)
+            return r["exit_code"]
+        if a.action == "add":
+            data = prof.load_yaml(a.key)
+            r = {"new": pipeline.add_manual(t, data.get("jobs", data) if isinstance(data, dict) else data),
+                 "rescored": pipeline.rescore(p, t), "next": "fieldkit jobs run --no-search"}
+        elif a.action == "rescore":
+            r = {"rescored": pipeline.rescore(p, t), "next": "fieldkit jobs run --no-search"}
+        elif a.action == "list":
+            rows = [j for j in t.all() if (a.all or not j["excluded"]) and (not a.status or j["status"] == a.status)
+                    and (j["score"] or 0) >= a.min_score]
+            rows.sort(key=lambda j: (-(j["score"] or 0), j["key"]))
+            r = {"jobs": [{k: j[k] for k in ("key", "score", "status", "cv", "salary_status", "title", "employer",
+                                             "location", "excluded")} for j in rows], "count": len(rows)}
+            def show(d):
+                for j in d["jobs"]:
+                    print(f"  {j['score'] or 0:>3}  {j['status']:<17} {j['cv'] or '-':<12} {j['salary_status'] or '':<9} "
+                          f"{(j['title'] or '')[:42]:<42} {(j['employer'] or '')[:26]}  {j['key']}"
+                          + (f"  EXCLUDED: {j['excluded']}" if j["excluded"] else ""))
+                print(f"{d['count']} job(s)")
+            _emit(r, a.json, show)
+            return 0
+        elif a.action == "ingest-advert":
+            from pathlib import Path as _P
+            r = pipeline.ingest_advert(p, t, a.key, _P(a.text_file).read_text(encoding="utf-8"), a.apply_url)
+        elif a.action == "verify":
+            r = pipeline.verify(p, t, a.key, a.salary_min, a.salary_max, a.closes, a.apply_url, a.note)
+        elif a.action == "pack":
+            job = t.get(a.key)
+            if not job:
+                raise KeyError(f"no job {a.key!r}")
+            d = pack.build(p, job, pension=a.pension)
+            if job["status"] == "new":
+                t.set_status(a.key, "pack_ready", "pack built")
+            r = {"pack": str(d), "next": f"fieldkit jobs apply {a.key}"}
+        elif a.action == "check-letter":
+            job = t.get(a.key)
+            f = store.base() / "packs" / store.safe_key(a.key) / "cover_letter.md"
+            if not job or not f.is_file():
+                raise KeyError(f"no pack for {a.key!r}: fieldkit jobs pack {a.key}")
+            bad = pack.check_letter(p, job, f.read_text(encoding="utf-8"))
+            r = {"ok": not bad, "not_approved": bad, "letter": str(f),
+                 "next": "done" if not bad else "remove these sentences, or add them to profile.yaml "
+                         "letter.extra_allowed ONLY if the candidate confirms they are true"}
+            _emit(r, a.json, _kv_lines)
+            return 0 if not bad else 6
+        elif a.action == "apply":
+            job = t.get(a.key)
+            if not job:
+                raise KeyError(f"no job {a.key!r}")
+            d = store.base() / "packs" / store.safe_key(a.key)
+            r = {"job": f"{job['title']} - {job['employer']}  [{job['status']}]",
+                 "apply_at": job["apply_url"] or job["url"],
+                 "verified": job["verified_at"] or "NO - check pay, closing date and link first (ingest-advert/verify)",
+                 "cv": pack.latest_cv(job["cv"], pack.lang_of(p)) or
+                 f"none yet: fieldkit cv render --variant {job['cv']} --lang {pack.lang_of(p)}",
+                 "cover_letter": str(d / "cover_letter.md") if d.is_dir() else f"none: fieldkit jobs pack {a.key}",
+                 "check": ", ".join(_json.loads(job["flags"] or "[]")) or "nothing flagged",
+                 "next": f"YOU press Submit; then: fieldkit jobs status {a.key} submitted_by_user"}
+        elif a.action == "status":
+            t.set_status(a.key, a.status, a.note or "")
+            r = {"key": a.key, "status": a.status, "next": "fieldkit jobs list"}
+        elif a.action == "salary":
+            hist = sources.adzuna_histogram(sources.keys(), a.key, a.where)
+            r = {"what": a.key, "where": a.where, "histogram": hist, "next": "-"}
+        elif a.action == "export":
+            import csv as _csv
+            rows = t.all()
+            import datetime as _dt
+            a.key = a.key or str(store.base() / f"jobs_{_dt.date.today().isoformat()}.csv")
+            with open(a.key, "w", newline="", encoding="utf-8") as fh:
+                w = _csv.DictWriter(fh, fieldnames=[c for c in store.COLUMNS if c not in ("advert_text",)],
+                                    extrasaction="ignore")
+                w.writeheader()
+                w.writerows(rows)
+            r = {"rows": len(rows), "file": a.key, "next": "-"}
+    except (prof.BadProfile, ValueError) as e:
+        _emit({"ok": False, "error": str(e)}, a.json, lambda d: print(f"REFUSED: {d['error']}"))
+        return 2
+    except KeyError as e:
+        _emit({"ok": False, "error": str(e).strip("'\"")}, a.json, lambda d: print(f"REFUSED: {d['error']}"))
+        return 2
+    except sources.MissingKey as e:
+        _emit({"ok": False, "error": str(e)}, a.json, lambda d: print(f"NEEDS A KEY: {d['error']}"))
+        return 4
+    _emit(r, a.json, _kv_lines)
+    return 0
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -403,7 +574,7 @@ def cmd_release(a):
             f"(tree {ev['tree'][:12]})" + chr(10) + f"evidence: {path}" + chr(10) +
             "NEXT: bring this file back; `fieldkit release check` accepts it for this platform."))
         return 0 if ev["passed"] else 3
-    r = release.check(a.spec)
+    r = release.before_publish(a.spec) if a.before_publish else release.check(a.spec)
     _emit(r, a.json, lambda r: print(chr(10).join(release.lines(r))))
     return 0 if r["clear"] else 3
 
@@ -588,6 +759,48 @@ def build_parser():
     dr.add_argument("--for", dest="pipeline", help="also the programs this pipeline needs (e.g. debian-kernel)")
     dr.set_defaults(fn=cmd_doctor)
 
+    bk = sub.add_parser("backup", parents=[common],
+                        help="a complete, dated, verified zip of the Fieldkit folder (the folder is never guessed)")
+    bk.add_argument("--to", help="the backup folder (default: backup.dir in fieldkit.local.json)")
+    bk.set_defaults(fn=cmd_backup)
+
+    cvp = sub.add_parser("cv", parents=[common], help="check a CV against fixed rules; write CVs from the profile")
+    cvp.add_argument("action", choices=["init", "import", "check", "render"])
+    cvp.add_argument("file", nargs="?")
+    cvp.add_argument("--trade", action="append", help="check: a trade's rules (driver, security, warehouse ...); "
+                                                      "default: the trades the CV looks like")
+    cvp.add_argument("--variant", help="render: which cv_variants entry of the profile")
+    cvp.add_argument("--name", help="init: the candidate's full name (asked for, never assumed)")
+    cvp.add_argument("--lang", choices=["en", "ro"])
+    cvp.set_defaults(fn=cmd_cv)
+
+    jb = sub.add_parser("jobs", parents=[common], formatter_class=argparse.RawDescriptionHelpFormatter,
+                        help="the UK job hunt: search official APIs, score, packs, tracking (never submits)",
+                        description="run [--top N] [--no-search] | add JOBS.yaml | ingest-advert KEY --text-file F | "
+                                    "verify KEY ... --note SRC | rescore | list | pack KEY | check-letter KEY | "
+                                    "apply KEY | status KEY STATUS | takehome --gross N | salary TITLE | export F.csv\n"
+                                    "exit: 0 ok, 2 bad input, 3 no source could search, 4 no API key, "
+                                    "5 search errors, 6 letter sentence not approved")
+    jb.add_argument("action", choices=["run", "add", "ingest-advert", "verify", "rescore", "list", "pack",
+                                       "check-letter", "apply", "status", "takehome", "salary", "export"])
+    jb.add_argument("key", nargs="?", help="the job key (reed:123, adzuna:456, manual:...), or a file for add/export")
+    jb.add_argument("status", nargs="?", choices=["new", "shortlisted", "pack_ready", "submitted_by_user",
+                                                  "interview", "offer", "rejected", "skipped"])
+    jb.add_argument("--top", type=int, default=8)
+    jb.add_argument("--no-search", action="store_true")
+    jb.add_argument("--pension", type=float, default=0.0, help="employee pension %% (net pay arrangement)")
+    jb.add_argument("--gross", type=float)
+    jb.add_argument("--text-file")
+    jb.add_argument("--apply-url")
+    jb.add_argument("--salary-min", type=float)
+    jb.add_argument("--salary-max", type=float)
+    jb.add_argument("--closes")
+    jb.add_argument("--note")
+    jb.add_argument("--where")
+    jb.add_argument("--all", action="store_true", help="list: also excluded jobs, with the reason")
+    jb.add_argument("--min-score", type=int, default=0)
+    jb.set_defaults(fn=cmd_jobs)
+
     sub.add_parser("audio", parents=[common],
                    help="Linux: every stage the sound passes through, what is done twice, and the fix (changes nothing)"
                    ).set_defaults(fn=cmd_audio)
@@ -663,6 +876,8 @@ def build_parser():
     rl = sub.add_parser("release", parents=[common])
     rl.add_argument("action", choices=["check", "prove"])
     rl.add_argument("spec", help="release spec YAML (see fieldkit/release.py)")
+    rl.add_argument("--before-publish", action="store_true",
+                    help="check: only the gates that need nothing published (privacy, tests) - run it before publishing")
     rl.set_defaults(fn=cmd_release)
 
     sub.add_parser("mcp", help="serve the agent interface over MCP (stdio)").set_defaults(fn=cmd_mcp, json=False)

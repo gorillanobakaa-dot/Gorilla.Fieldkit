@@ -1,0 +1,14 @@
+# Trade rules: UK security (officer, door supervisor, CCTV operator, close protection). Same format as driver.yaml.
+name: security
+detect: '(security officer|door supervisor|\bSIA\b|CCTV|close protection|static guard|patrol officer|paz[aă]|agent de securitate)'
+checks:
+  - {id: sia, pattern: '(\bSIA\b|security industry authority)', ask: sia,
+     message: "No SIA licence stated: UK security employers check it first."}
+  - {id: screening, pattern: '(BS ?7858|vetting|\bDBS\b|\bBPSS\b|\bSC\b clearance|\bCTC\b)', ask: screening}
+  - {id: first-aid, pattern: '(first aid|EFAW|FAW|prim ajutor)', ask: first-aid}
+  - {id: incident, pattern: '(incident report|report writing|incident log|rapoarte)', ask: null,
+     message: "Incident reporting is not mentioned: every security role asks for it."}
+questions:
+  sia:        {en: "Which SIA licence do you hold (security guarding, door supervision, CCTV, close protection)? Expiry date?", ro: "Ce licență SIA ai (security guarding, door supervision, CCTV, close protection)? Când expiră?"}
+  screening:  {en: "Which vetting or screening have you had (BS7858, DBS, BPSS, SC, CTC)?", ro: "Ce verificări de securitate ai avut (BS7858, DBS, BPSS, SC, CTC)?"}
+  first-aid:  {en: "Do you hold a first aid certificate? Which one, until when?", ro: "Ai certificat de prim ajutor? Care, valabil până când?"}

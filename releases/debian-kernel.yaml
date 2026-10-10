@@ -17,7 +17,12 @@ artifacts:
 privacy: true
 # kernel source files shipped as the patched copies: their headers carry the upstream authors' public addresses
 privacy_upstream: [reg.c, regd.c, mlme.c, hw.c, init.c, gpio.c, btcoex.c, tcp.c, tcp.h, sony-laptop.c,
-                   intel_display_params.h, thinkpad_acpi.c, dell-pc.c, alc269.c]
+                   intel_display_params.h, thinkpad_acpi.c, dell-pc.c, alc269.c,
+                   # the same upstream files, kept from earlier kernels (found by build 27's release check)
+                   historical/patched_sources-STALE-DO-NOT-USE/dell-pc.c, historical/patched_sources-STALE-DO-NOT-USE/reg.c,
+                   historical/patched_sources-STALE-DO-NOT-USE/sony-laptop.c, historical/patched_sources-STALE-DO-NOT-USE/tcp.c,
+                   historical/patched_sources-STALE-DO-NOT-USE/tcp.h, historical/patched_sources-STALE-DO-NOT-USE/thinkpad_acpi.c,
+                   versions/7.0.9/reg.c, versions/7.0.9/tcp.c, versions/7.0.9/tcp.h]
 claims:
   - claim: "the patches rebuild the shipped files byte for byte"
     find: "byte for byte"

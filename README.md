@@ -131,6 +131,9 @@ Guides: [plain language](docs/dual-track/tool-collection/tool-collection_layman.
 | Check the file is not broken | `fieldkit office check FILE` |
 | Remove people's names from its hidden properties, comments and tracked changes | `fieldkit office scrub FILE` |
 | All of that, then a privacy search: is it safe to send? | `fieldkit office deliver FILE` |
+| Check a CV, hear what is missing, and get a UK-style CV in English and Romanian | `fieldkit cv check FILE`, `fieldkit cv render` |
+| Find UK jobs on official job sites, score them, and prepare each application (you press Submit) | `fieldkit jobs run` |
+| Back up the whole kit into your backup folder, and prove the copy is good | `fieldkit backup` |
 
 `deliver` answers `SAFE TO SEND` or `NOT SAFE`, with the reason. Nothing is uploaded.
 
@@ -433,6 +436,9 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | Check it is not broken | `fieldkit office check FILE` |
 | Remove people's names from its hidden properties | `fieldkit office scrub FILE` |
 | All of the above, safe to send? | `fieldkit office deliver FILE` |
+| A CV against fixed rules (general + trade), the questions to ask; UK CVs from a profile, EN/RO, .docx + .pdf | `fieldkit cv check FILE` / `fieldkit cv render --variant V --lang ro` |
+| UK job hunt: Reed and Adzuna APIs only, scoring, packs, letters of approved sentences only, tracking; never submits | `fieldkit jobs run --top 8` (skill: `fieldkit-career`) |
+| A dated, verified zip of the harness into the backup folder (never guessed) | `fieldkit backup --to FOLDER` |
 | Find secrets, home paths, emails, your private words | `fieldkit privacy scan PATH [--git]` |
 | Name the cause of a failed build | `fieldkit triage LOG` |
 | Run a staged, resumable build | `fieldkit pipeline run NAME` |

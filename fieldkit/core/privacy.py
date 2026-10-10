@@ -32,7 +32,7 @@ from . import settings
 SECRETS = [
     ("github-token", r"\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}\b"),
     ("github-fine-token", r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
-    ("openai-key", r"\bsk-(proj-)?[A-Za-z0-9_-]{20,}\b"),
+    ("openai-key", r"(?<![\w.-])sk-(proj-)?[A-Za-z0-9_-]{20,}\b"),   # not glued to a word: imx53-sk-imx53-... is a file
     ("anthropic-key", r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
     ("google-api-key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
     ("aws-access-key", r"\bAKIA[0-9A-Z]{16}\b"),
@@ -102,6 +102,36 @@ def _as_text(data):
 def not_scanned(why):
     """A finding for something that could not be looked at. Fail closed: unread is never 'clean'."""
     return {"kind": "not-scanned", "line": 0, "excerpt": f"not scanned: {why}"}
+
+
+LARGE_LIMIT = 1_000_000_000     # a text file up to this size is scanned in pieces; larger is reported, not skipped
+CHUNK_LINES = 50_000
+
+
+def _scan_large(f, size, terms, **kw):
+    """A file over TEXT_LIMIT, line by line in pieces, with the same rules and true line numbers (2026-10-10: an 11 MB
+    System.map and a source tree listing in the kernel repository were reported as not scanned, and blocked)."""
+    if size > LARGE_LIMIT:
+        return [not_scanned(f"too large ({size:,} bytes > {LARGE_LIMIT:,})")]
+    if f.suffix.lower() == ".pdf":
+        return [not_scanned(f"too large for a PDF scan ({size:,} bytes > {TEXT_LIMIT:,})")]
+    hits, buf, start = [], [], 1
+    try:
+        with open(f, "rb") as fh:
+            binary = b"\0" in fh.read(4096)
+            fh.seek(0)
+            for n, raw in enumerate(fh, 1):
+                buf.append(raw.decode("latin-1") if binary else raw.decode("utf-8", "replace"))
+                if len(buf) >= CHUNK_LINES:
+                    for h in scan_text("".join(buf), terms, **kw):
+                        hits.append(dict(h, line=h["line"] + start - 1))
+                    buf, start = [], n + 1
+            if buf:
+                for h in scan_text("".join(buf), terms, **kw):
+                    hits.append(dict(h, line=h["line"] + start - 1))
+    except OSError as e:
+        return [not_scanned(f"unreadable ({e.strerror or type(e).__name__})")]
+    return hits
 
 
 ZIP_DEPTH = 3          # archives inside archives inside archives; deeper is reported, not skipped
@@ -329,7 +359,9 @@ def scan_path(path, terms=None, git_only=False, **kw):
         try:
             size = f.stat().st_size
             if size > TEXT_LIMIT:
-                report[str(f)] = [not_scanned(f"too large ({size:,} bytes > {TEXT_LIMIT:,})")]
+                hits = _scan_large(f, size, terms, **kw)
+                if hits:
+                    report[str(f)] = hits
                 continue
             data = f.read_bytes()
         except OSError as e:
