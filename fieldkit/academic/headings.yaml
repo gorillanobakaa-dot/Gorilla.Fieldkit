@@ -1,0 +1,131 @@
+# Section headings of the 32 document types (document_types.py, written in English) in the other five languages,
+# so a template, a skeleton and the structure check are in the language the work is written in. A leading number
+# ("2. ") is kept as it is. A heading missing here stays in English: add it here, never in the code.
+#
+# order of each row: es, pt, it, de, ro
+headings:
+  "Abstract": ["Resumen", "Resumo", "Abstract", "Zusammenfassung", "Rezumat"]
+  "Acknowledgements": ["Agradecimientos", "Agradecimentos", "Ringraziamenti", "Danksagung", "Mulțumiri"]
+  "Action Plan": ["Plan de acción", "Plano de ação", "Piano d'azione", "Maßnahmenplan", "Plan de acțiune"]
+  "Aim": ["Objetivo", "Objetivo", "Obiettivo", "Ziel", "Scop"]
+  "Aim and Hypothesis": ["Objetivo e hipótesis", "Objetivo e hipótese", "Obiettivo e ipotesi", "Ziel und Hypothese", "Scop și ipoteză"]
+  "Aim and Objectives": ["Objetivo general y objetivos específicos", "Objetivo geral e objetivos específicos", "Obiettivo e obiettivi specifici", "Ziel und Teilziele", "Scop și obiective"]
+  "Aim and SMART Objectives": ["Objetivo y objetivos SMART", "Objetivo e objetivos SMART", "Obiettivo e obiettivi SMART", "Ziel und SMART-Ziele", "Scop și obiective SMART"]
+  "Aims and Objectives": ["Objetivos generales y específicos", "Objetivos gerais e específicos", "Finalità e obiettivi", "Ziele und Teilziele", "Scopuri și obiective"]
+  "Analysis": ["Análisis", "Análise", "Analisi", "Analyse", "Analiză"]
+  "Analysis and Discussion": ["Análisis y discusión", "Análise e discussão", "Analisi e discussione", "Analyse und Diskussion", "Analiză și discuție"]
+  "Analysis of the Policy": ["Análisis de la política", "Análise da política", "Analisi della politica", "Analyse der Politik", "Analiza politicii"]
+  "Analytical Framework": ["Marco analítico", "Quadro analítico", "Quadro analitico", "Analyserahmen", "Cadru analitic"]
+  "Annotated Entries": ["Entradas anotadas", "Entradas anotadas", "Voci annotate", "Kommentierte Einträge", "Intrări adnotate"]
+  "Anticipated Limitations": ["Limitaciones previstas", "Limitações previstas", "Limiti previsti", "Erwartete Einschränkungen", "Limitări anticipate"]
+  "Appendices": ["Anexos", "Anexos", "Appendici", "Anhang", "Anexe"]
+  "Application to Practice": ["Aplicación a la práctica", "Aplicação à prática", "Applicazione alla pratica", "Anwendung in der Praxis", "Aplicare în practică"]
+  "Approach": ["Enfoque", "Abordagem", "Approccio", "Vorgehen", "Abordare"]
+  "Arguments For": ["Argumentos a favor", "Argumentos a favor", "Argomenti a favore", "Argumente dafür", "Argumente pentru"]
+  "Background": ["Antecedentes", "Enquadramento", "Contesto", "Hintergrund", "Context"]
+  "Background and Rationale": ["Antecedentes y justificación", "Enquadramento e justificação", "Contesto e motivazione", "Hintergrund und Begründung", "Context și justificare"]
+  "Background and Rationale for Change": ["Antecedentes y justificación del cambio", "Enquadramento e justificação da mudança", "Contesto e motivazione del cambiamento", "Hintergrund und Begründung der Veränderung", "Context și justificarea schimbării"]
+  "Capacity and Consent": ["Capacidad y consentimiento", "Capacidade e consentimento", "Capacità e consenso", "Einwilligungsfähigkeit und Einwilligung", "Capacitate și consimțământ"]
+  "Case Background": ["Antecedentes del caso", "Enquadramento do caso", "Contesto del caso", "Hintergrund des Falls", "Contextul cazului"]
+  "Change Model": ["Modelo de cambio", "Modelo de mudança", "Modello di cambiamento", "Veränderungsmodell", "Model de schimbare"]
+  "Conclusion": ["Conclusión", "Conclusão", "Conclusione", "Fazit", "Concluzie"]
+  "Conclusion and Recommendations": ["Conclusión y recomendaciones", "Conclusão e recomendações", "Conclusione e raccomandazioni", "Fazit und Empfehlungen", "Concluzie și recomandări"]
+  "Confidentiality Statement": ["Declaración de confidencialidad", "Declaração de confidencialidade", "Dichiarazione di riservatezza", "Vertraulichkeitserklärung", "Declarație de confidențialitate"]
+  "Confidentiality and Safeguarding": ["Confidencialidad y protección", "Confidencialidade e proteção", "Riservatezza e tutela", "Vertraulichkeit und Schutz", "Confidențialitate și protecție"]
+  "Counter-Arguments and Rebuttal": ["Contraargumentos y refutación", "Contra-argumentos e refutação", "Controargomentazioni e confutazione", "Gegenargumente und Widerlegung", "Contraargumente și combatere"]
+  "Critical Analysis of Study Designs": ["Análisis crítico de los diseños de estudio", "Análise crítica dos desenhos de estudo", "Analisi critica dei disegni di studio", "Kritische Analyse der Studiendesigns", "Analiza critică a designului studiilor"]
+  "Critical Appraisal": ["Evaluación crítica", "Avaliação crítica", "Valutazione critica", "Kritische Bewertung", "Evaluare critică"]
+  "Critical Evaluation": ["Valoración crítica", "Apreciação crítica", "Analisi critica", "Kritische Würdigung", "Apreciere critică"]
+  "Description": ["Descripción", "Descrição", "Descrizione", "Beschreibung", "Descriere"]
+  "Development Goals": ["Objetivos de desarrollo", "Objetivos de desenvolvimento", "Obiettivi di sviluppo", "Entwicklungsziele", "Obiective de dezvoltare"]
+  "Discussion": ["Discusión", "Discussão", "Discussione", "Diskussion", "Discuție"]
+  "Eligibility Criteria": ["Criterios de elegibilidad", "Critérios de elegibilidade", "Criteri di eleggibilità", "Auswahlkriterien", "Criterii de eligibilitate"]
+  "Ethical Analysis": ["Análisis ético", "Análise ética", "Analisi etica", "Ethische Analyse", "Analiză etică"]
+  "Ethical Considerations": ["Consideraciones éticas", "Considerações éticas", "Considerazioni etiche", "Ethische Überlegungen", "Considerații etice"]
+  "Ethics and Governance": ["Ética y gobernanza", "Ética e governação", "Etica e governance", "Ethik und Governance", "Etică și guvernanță"]
+  "Evaluation": ["Evaluación", "Avaliação", "Valutazione", "Evaluation", "Evaluare"]
+  "Examples of Needs": ["Ejemplos de necesidades", "Exemplos de necessidades", "Esempi di bisogni", "Beispiele für Bedürfnisse", "Exemple de nevoi"]
+  "Executive Summary": ["Resumen ejecutivo", "Sumário executivo", "Sintesi", "Management Summary", "Rezumat executiv"]
+  "Feelings": ["Sentimientos", "Sentimentos", "Sentimenti", "Gefühle", "Sentimente"]
+  "Findings": ["Hallazgos", "Resultados obtidos", "Risultati emersi", "Ergebnisse der Untersuchung", "Constatări"]
+  "Health Promotion Model": ["Modelo de promoción de la salud", "Modelo de promoção da saúde", "Modello di promozione della salute", "Modell der Gesundheitsförderung", "Model de promovare a sănătății"]
+  "Implementation Plan": ["Plan de implementación", "Plano de implementação", "Piano di attuazione", "Umsetzungsplan", "Plan de implementare"]
+  "Implications for Practice": ["Implicaciones para la práctica", "Implicações para a prática", "Implicazioni per la pratica", "Implikationen für die Praxis", "Implicații pentru practică"]
+  "Inclusion and Exclusion Criteria": ["Criterios de inclusión y exclusión", "Critérios de inclusão e exclusão", "Criteri di inclusione ed esclusione", "Ein- und Ausschlusskriterien", "Criterii de includere și excludere"]
+  "Intervention and Implementation": ["Intervención e implementación", "Intervenção e implementação", "Intervento e attuazione", "Intervention und Umsetzung", "Intervenție și implementare"]
+  "Introduction": ["Introducción", "Introdução", "Introduzione", "Einleitung", "Introducere"]
+  "Introduction and Position": ["Introducción y postura", "Introdução e posição", "Introduzione e posizione", "Einleitung und Standpunkt", "Introducere și poziție"]
+  "Keywords": ["Palabras clave", "Palavras-chave", "Parole chiave", "Schlüsselwörter", "Cuvinte-cheie"]
+  "Legal and Professional Framework": ["Marco legal y profesional", "Enquadramento legal e profissional", "Quadro giuridico e professionale", "Rechtlicher und beruflicher Rahmen", "Cadrul legal și profesional"]
+  "Limitations": ["Limitaciones", "Limitações", "Limiti", "Limitationen", "Limitări"]
+  "Literature Context": ["Contexto bibliográfico", "Contexto da literatura", "Contesto della letteratura", "Literaturkontext", "Contextul literaturii"]
+  "Literature Review": ["Revisión de la literatura", "Revisão da literatura", "Revisione della letteratura", "Literaturüberblick", "Analiza literaturii"]
+  "Main Body": ["Desarrollo", "Desenvolvimento", "Corpo principale", "Hauptteil", "Corpul lucrării"]
+  "Main Section: Analysis": ["Sección principal: análisis", "Secção principal: análise", "Sezione principale: analisi", "Hauptteil: Analyse", "Secțiunea principală: analiză"]
+  "Main Section: Evidence": ["Sección principal: evidencia", "Secção principal: evidência", "Sezione principale: evidenze", "Hauptteil: Evidenz", "Secțiunea principală: dovezi"]
+  "Method": ["Método", "Método", "Metodo", "Methode", "Metodă"]
+  "Method: Search Strategy": ["Método: estrategia de búsqueda", "Método: estratégia de pesquisa", "Metodo: strategia di ricerca", "Methode: Suchstrategie", "Metodă: strategia de căutare"]
+  "Methodology": ["Metodología", "Metodologia", "Metodologia", "Methodik", "Metodologie"]
+  "Needs Assessment": ["Valoración de necesidades", "Avaliação de necessidades", "Valutazione dei bisogni", "Bedarfserhebung", "Evaluarea nevoilor"]
+  "Now what?": ["¿Y ahora qué?", "E agora?", "E ora?", "Was nun?", "Și acum?"]
+  "Personal Development Plan": ["Plan de desarrollo personal", "Plano de desenvolvimento pessoal", "Piano di sviluppo personale", "Persönlicher Entwicklungsplan", "Plan de dezvoltare personală"]
+  "Policy Background and Context": ["Antecedentes y contexto de la política", "Enquadramento e contexto da política", "Contesto della politica", "Hintergrund und Kontext der Politik", "Contextul politicii"]
+  "Policy Options": ["Opciones de política", "Opções de política", "Opzioni di politica", "Handlungsoptionen", "Opțiuni de politică"]
+  "Recommendation or Intervention": ["Recomendación o intervención", "Recomendação ou intervenção", "Raccomandazione o intervento", "Empfehlung oder Intervention", "Recomandare sau intervenție"]
+  "Recommendations": ["Recomendaciones", "Recomendações", "Raccomandazioni", "Empfehlungen", "Recomandări"]
+  "References": ["Referencias", "Referências bibliográficas", "Bibliografia", "Literaturverzeichnis", "Bibliografie"]
+  "Reflective Entry 1": ["Entrada reflexiva 1", "Entrada reflexiva 1", "Riflessione 1", "Reflexionseintrag 1", "Reflecție 1"]
+  "Reflective Entry 2": ["Entrada reflexiva 2", "Entrada reflexiva 2", "Riflessione 2", "Reflexionseintrag 2", "Reflecție 2"]
+  "Reflective Entry 3": ["Entrada reflexiva 3", "Entrada reflexiva 3", "Riflessione 3", "Reflexionseintrag 3", "Reflecție 3"]
+  "Results": ["Resultados", "Resultados", "Risultati", "Ergebnisse", "Rezultate"]
+  "Review and Evaluation": ["Revisión y evaluación", "Revisão e avaliação", "Revisione e valutazione", "Überprüfung und Evaluation", "Revizuire și evaluare"]
+  "SMART Goals and Interventions": ["Objetivos SMART e intervenciones", "Objetivos SMART e intervenções", "Obiettivi SMART e interventi", "SMART-Ziele und Interventionen", "Obiective SMART și intervenții"]
+  "Search Strategy": ["Estrategia de búsqueda", "Estratégia de pesquisa", "Strategia di ricerca", "Suchstrategie", "Strategia de căutare"]
+  "Self-Assessment (SWOT)": ["Autoevaluación (DAFO)", "Autoavaliação (SWOT)", "Autovalutazione (SWOT)", "Selbsteinschätzung (SWOT)", "Autoevaluare (SWOT)"]
+  "Service User Statement": ["Declaración de la persona usuaria", "Declaração do utente", "Dichiarazione dell'utente", "Aussage der betreuten Person", "Declarația beneficiarului"]
+  "Slide 1: Introduction and Aim": ["Diapositiva 1: introducción y objetivo", "Diapositivo 1: introdução e objetivo", "Diapositiva 1: introduzione e obiettivo", "Folie 1: Einleitung und Ziel", "Diapozitivul 1: introducere și scop"]
+  "Slide 2: Context": ["Diapositiva 2: contexto", "Diapositivo 2: contexto", "Diapositiva 2: contesto", "Folie 2: Kontext", "Diapozitivul 2: context"]
+  "So what?": ["¿Y qué significa?", "E então?", "E quindi?", "Was bedeutet das?", "Ce înseamnă asta?"]
+  "Stakeholder Analysis": ["Análisis de las partes interesadas", "Análise das partes interessadas", "Analisi degli stakeholder", "Stakeholder-Analyse", "Analiza părților interesate"]
+  "Summary of the Article": ["Resumen del artículo", "Resumo do artigo", "Sintesi dell'articolo", "Zusammenfassung des Artikels", "Rezumatul articolului"]
+  "Summary of the Book": ["Resumen del libro", "Resumo do livro", "Sintesi del libro", "Zusammenfassung des Buches", "Rezumatul cărții"]
+  "Table of Contents": ["Índice", "Índice", "Indice", "Inhaltsverzeichnis", "Cuprins"]
+  "Terms of Reference": ["Términos de referencia", "Termos de referência", "Termini di riferimento", "Auftrag und Rahmen", "Termeni de referință"]
+  "The Dilemma": ["El dilema", "O dilema", "Il dilemma", "Das Dilemma", "Dilema"]
+  "The Multidisciplinary Team and the Professional's Role": ["El equipo multidisciplinar y el papel profesional", "A equipa multidisciplinar e o papel do profissional", "Il team multidisciplinare e il ruolo del professionista", "Das multiprofessionelle Team und die Rolle der Fachkraft", "Echipa multidisciplinară și rolul profesionistului"]
+  "The Problem and its Context": ["El problema y su contexto", "O problema e o seu contexto", "Il problema e il suo contesto", "Das Problem und sein Kontext", "Problema și contextul ei"]
+  "Thematic Synthesis": ["Síntesis temática", "Síntese temática", "Sintesi tematica", "Thematische Synthese", "Sinteză tematică"]
+  "Timeline": ["Cronograma", "Cronograma", "Cronoprogramma", "Zeitplan", "Calendar"]
+  "Title and who this is for": ["Título y a quién va dirigido", "Título e a quem se destina", "Titolo e a chi è rivolto", "Titel und Zielgruppe", "Titlul și cui se adresează"]
+  "What happened?": ["¿Qué pasó?", "O que aconteceu?", "Cosa è successo?", "Was ist passiert?", "Ce s-a întâmplat?"]
+  "What it is": ["Qué es", "O que é", "Che cos'è", "Was es ist", "Ce este"]
+  "What you can do": ["Qué puedes hacer", "O que pode fazer", "Cosa puoi fare", "Was Sie tun können", "Ce poți face"]
+  "Where to get help": ["Dónde pedir ayuda", "Onde pedir ajuda", "Dove trovare aiuto", "Wo Sie Hilfe bekommen", "Unde găsești ajutor"]
+  "Why it matters to you": ["Por qué te importa", "Porque é importante para si", "Perché ti riguarda", "Warum es Sie betrifft", "De ce contează pentru tine"]
+
+# Words on the page itself (header, cover table, contents, slides), per language.
+labels:
+  en: {student_id: Student ID, module: Module, date: Date of submission, words: Body word count,
+       target: target, contents: Contents, contents_hint: "Right-click here and choose Update Field to build the contents page.",
+       title: "[Your title]", references_placeholder: "[References, in alphabetical order]", key_point: "[Key point]",
+       template_subtitle: "TEMPLATE - replace the guidance on each slide", questions: Questions}
+  es: {student_id: Número de estudiante, module: Asignatura, date: Fecha de entrega, words: Número de palabras,
+       target: objetivo, contents: Índice, contents_hint: "Haz clic derecho aquí y elige Actualizar campo para crear el índice.",
+       title: "[Tu título]", references_placeholder: "[Referencias, en orden alfabético]", key_point: "[Idea clave]",
+       template_subtitle: "PLANTILLA - sustituye las indicaciones de cada diapositiva", questions: Preguntas}
+  pt: {student_id: Número de estudante, module: Unidade curricular, date: Data de entrega, words: Número de palavras,
+       target: objetivo, contents: Índice, contents_hint: "Clique com o botão direito aqui e escolha Atualizar campo para criar o índice.",
+       title: "[O seu título]", references_placeholder: "[Referências, por ordem alfabética]", key_point: "[Ideia-chave]",
+       template_subtitle: "MODELO - substitua as indicações de cada diapositivo", questions: Perguntas}
+  it: {student_id: Matricola, module: Insegnamento, date: Data di consegna, words: Numero di parole,
+       target: obiettivo, contents: Indice, contents_hint: "Fai clic con il tasto destro qui e scegli Aggiorna campo per creare l'indice.",
+       title: "[Il tuo titolo]", references_placeholder: "[Bibliografia, in ordine alfabetico]", key_point: "[Punto chiave]",
+       template_subtitle: "MODELLO - sostituisci le indicazioni di ogni diapositiva", questions: Domande}
+  de: {student_id: Matrikelnummer, module: Modul, date: Abgabedatum, words: Wortanzahl,
+       target: Ziel, contents: Inhaltsverzeichnis, contents_hint: "Hier mit der rechten Maustaste klicken und Feld aktualisieren wählen, um das Inhaltsverzeichnis zu erstellen.",
+       title: "[Ihr Titel]", references_placeholder: "[Literatur, alphabetisch]", key_point: "[Kernaussage]",
+       template_subtitle: "VORLAGE - die Hinweise auf jeder Folie ersetzen", questions: Fragen}
+  ro: {student_id: Număr matricol, module: Disciplina, date: Data predării, words: Număr de cuvinte,
+       target: țintă, contents: Cuprins, contents_hint: "Click dreapta aici și alege Actualizare câmp ca să se creeze cuprinsul.",
+       title: "[Titlul tău]", references_placeholder: "[Bibliografie, în ordine alfabetică]", key_point: "[Idee principală]",
+       template_subtitle: "ȘABLON - înlocuiește indicațiile de pe fiecare diapozitiv", questions: Întrebări}

@@ -15,6 +15,7 @@ styles:
     accessed: "Available at: {url} (Accessed: {date})."
   apa7:
     label: APA 7
+    line_spacing: 2.0                          # APA 7 student papers: double-spaced throughout
     # Smith, J. (2020). Title.  - the date in brackets followed by a full stop; (2020, March 4). allowed
     entry: '^[^()]+\(\s*{YEAR}[^)]*\)\.\s'
     entry_example: "Smith, J. (2020). Title of the book. Publisher."
