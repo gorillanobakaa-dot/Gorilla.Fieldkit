@@ -155,6 +155,28 @@
     "debian": "sudo apt-get install -y espeak-ng",
     "fedora": "sudo dnf install -y espeak-ng"
    }
+  },
+  "pactl": {
+   "why": "fieldkit audio asks the sound server (PipeWire or PulseAudio) for its sinks, modules, format and rate",
+   "for": [
+    "audio"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y pulseaudio-utils",
+    "fedora": "sudo dnf install -y pulseaudio-utils"
+   },
+   "only": "linux"
+  },
+  "amixer": {
+   "why": "fieldkit audio reads the ALSA Master level of each sound card",
+   "for": [
+    "audio"
+   ],
+   "install": {
+    "debian": "sudo apt-get install -y alsa-utils",
+    "fedora": "sudo dnf install -y alsa-utils"
+   },
+   "only": "linux"
   }
  }
 }

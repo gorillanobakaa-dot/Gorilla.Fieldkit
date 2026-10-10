@@ -38,7 +38,7 @@ fieldkit = "fieldkit.cli:main"
 include = ["fieldkit*"]
 
 [tool.setuptools.package-data]
-fieldkit = ["build/signatures/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml"]
+fieldkit = ["build/signatures/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "local/tests"]

@@ -120,6 +120,13 @@ def cmd_doctor(a):
     return 0 if r["ok"] else 3
 
 
+def cmd_audio(a):
+    from .audio import chain
+    r = chain.run()
+    _emit(r, a.json, lambda d: print("\n".join(chain.lines(d))))
+    return 0 if r["ok"] else 3
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -580,6 +587,10 @@ def build_parser():
     dr = sub.add_parser("doctor", parents=[common], help="what this machine still needs, and the line that installs it")
     dr.add_argument("--for", dest="pipeline", help="also the programs this pipeline needs (e.g. debian-kernel)")
     dr.set_defaults(fn=cmd_doctor)
+
+    sub.add_parser("audio", parents=[common],
+                   help="Linux: every stage the sound passes through, what is done twice, and the fix (changes nothing)"
+                   ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
     t.add_argument("action", choices=["list", "check"])

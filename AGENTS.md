@@ -18,6 +18,7 @@ Every command accepts `--json`.
 fieldkit host
 fieldkit doctor [--for PIPELINE]                  what this machine still needs, and the line that installs it
 fieldkit where                                   the Fieldkit folder: in a document, cd (fieldkit where), never a <blank>
+fieldkit audio                                   Linux sound chain: each stage, what is done twice, the fix (read-only)
 fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...
 fieldkit pipeline list|plan|run|status|reset NAME
@@ -96,6 +97,7 @@ fieldkit build-harness decide ID OPTION --words "..."       the maintainer only,
 ## Layout
 
 ```
+fieldkit/audio    the Linux sound chain (read-only) + signatures.yaml
 fieldkit/core     host, settings, proc (runner), privacy, pipeline engine, checks, next, snapshot
 fieldkit/office   read, create, check, scrub, deliver
 fieldkit/build    triage + signatures/*.yaml, kernel, refcheck, pipelines/*.yaml

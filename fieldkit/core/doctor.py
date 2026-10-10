@@ -97,7 +97,8 @@ def check(pipeline=None, pyproject=None, requirements=None, have_dist=None, whic
     missing = [r for r in rows if not r["ok"]]
     lines = list(dict.fromkeys(r["install"] for r in missing if r["install"]))   # one line per command, in order
     nxt = ("run these, then python -m fieldkit doctor again: " + " ; ".join(lines)) if missing else \
-          (f"fieldkit pipeline run {pipeline} --only deps" if pipeline else "fieldkit next PIPELINE")
+          (("fieldkit pipeline run {} --only deps" if (ROOT / "fieldkit/build/pipelines" / f"{pipeline}.yaml").exists()
+            else "fieldkit {}").format(pipeline) if pipeline else "fieldkit next PIPELINE")   # audio is a command
     return {"ok": not missing, "family": fam, "pipeline": pipeline, "rows": rows, "install": lines, "next": nxt}
 
 

@@ -80,3 +80,11 @@ def test_a_tool_of_the_other_system_is_not_asked_for(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor, "is_debian_family", lambda: True)
     deb = doctor.check("leakgate", pp, req, have_dist=lambda n: "1", which=lambda n: None, h=DEB)
     assert "nft" in [r["name"] for r in deb["rows"]] and "apt nftables" in deb["install"]
+
+
+def test_a_ready_machine_for_a_command_points_at_the_command(tmp_path, monkeypatch):
+    """--for audio: audio is a command, not a pipeline; NEXT must be a line that runs."""
+    pp, req = _files(tmp_path)
+    monkeypatch.setattr(doctor, "is_debian_family", lambda: True)
+    r = doctor.check("audio", pp, req, have_dist=lambda n: "1.0", which=lambda n: f"/usr/bin/{n}", h=DEB)
+    assert r["ok"] and r["next"] == "fieldkit audio"
