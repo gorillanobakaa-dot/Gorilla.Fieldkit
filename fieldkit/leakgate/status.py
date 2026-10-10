@@ -19,7 +19,7 @@ time typed in; the next run needed a new script. Everything comes from the run's
 import datetime as dt
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from ..buildh import task
 
@@ -56,7 +56,7 @@ def _launcher_header(d, launcher_dir):
         text = raw.decode("utf-16", "replace") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8", "replace")
         for line in text.splitlines()[:5]:
             m = HEADER.search(line.strip())
-            if m and Path(m.group(3).strip()).name == Path(d).name:
+            if m and PureWindowsPath(m.group(3).strip()).name == Path(d).name:   # a Windows path, read on any platform
                 return int(m.group(1)), m.group(2) == "quick"
     return None
 

@@ -1,6 +1,6 @@
 """The pages the owner's register removes are gone from the browser itself, not only from the source.
 
-    fieldkit build-harness removed-pages <task> [--install-dir D]
+    (no command of its own: its rows run inside fieldkit build-harness build-verify and post-install)
 
 Born 2026-10-09 (D-157-40). The register (decisions/ABOUT-PAGES.yaml) and the about-pages run prove a removed page
 is not REGISTERED; this proves what a person meets when they type its address: every removed about: page lands on

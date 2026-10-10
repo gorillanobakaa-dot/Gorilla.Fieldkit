@@ -1,5 +1,6 @@
 """The Firefox upgrade workflow end to end, on a miniature Firefox and patch set."""
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -75,6 +76,14 @@ def world(tmp_path, monkeypatch):
     task.start("ff", "firefox-upgrade", tmp_path / "work" / "157.0", steps, meta={"pinned": info})
     task.approve("ff", "owner")
     return tmp_path
+
+
+def test_the_patch_used_is_gnu_patch_2_7_or_later():
+    """2026-10-10, GitHub's Windows runner: the first `patch` on PATH was GnuWin32's 2.5.9 (from Strawberry Perl), which
+    aborted on every LF patch with exit 3; the snapshot, replay and workflow tests failed there."""
+    out = subprocess.run([firefox._patch_exe(), "--version"], capture_output=True, text=True).stdout
+    m = re.search(r"GNU patch (\d+)\.(\d+)", out)
+    assert m and (int(m.group(1)), int(m.group(2))) >= (2, 7), out[:200]
 
 
 def test_parse_patch_and_patch_output():

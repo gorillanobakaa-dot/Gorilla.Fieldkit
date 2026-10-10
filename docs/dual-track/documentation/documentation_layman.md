@@ -193,7 +193,7 @@ None from Fieldkit. Not measured for the page generator, whose description says 
 **Step 1:** Open PowerShell: press the Windows key, type `PowerShell`, and press Enter. Then go to the Fieldkit folder. Type this, with your own folder's location between the quotes, and press Enter:
 
 ```powershell
-cd "<your Fieldkit folder>"
+cd (fieldkit where)
 ```
   - You should see: A window with a blinking cursor, and a prompt line that ends with the Fieldkit folder's name and `>`.
 **Step 2:** Ask what to do next. Type this and press Enter:

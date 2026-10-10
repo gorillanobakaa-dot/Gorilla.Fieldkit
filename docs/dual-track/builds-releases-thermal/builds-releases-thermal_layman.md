@@ -187,7 +187,7 @@ Nothing in triage, refcheck or thermal leaves your computer. `fieldkit release c
 **Step 1:** Open PowerShell: press the Windows key, type `PowerShell`, and press Enter. A window with a blinking cursor opens. Go to the Fieldkit folder: type the line below, with the real location of your Fieldkit folder between the quotes, and press Enter.
 
 ```powershell
-cd "<your Fieldkit folder>"
+cd (fieldkit where)
 ```
   - You should see: Pass: the prompt now ends with the Fieldkit folder's name. Fail: `Cannot find path`, which means the location is typed wrong; check it in File Explorer's address bar.
 **Step 2:** To find out why a build failed, type the command below, using the real location of your log file, and press Enter.

@@ -1,7 +1,7 @@
 """The authoritative runner: Debian, root, a network namespace per run (spec: TEST ENVIRONMENT, NETWORK NAMESPACE
 TEST, PACKET CAPTURE, DNS LEAK TEST, NETWORK ENFORCEMENT, SYSCALL TEST).
 
-UNTESTED ON LINUX AS OF 2026-10-02: written on the Windows laptop. `fieldkit leakgate-linux selftest` reports, before
+UNTESTED ON LINUX AS OF 2026-10-02: written on the Windows laptop. `fieldkit build-harness leakgate-selftest` reports, before
 any run, which tools and privileges are missing; nothing is assumed.
 
 Layout per run (namespace `lg`, veth pair lg0 <-> lg1, 10.77.0.1 host side, 10.77.0.2 inside):

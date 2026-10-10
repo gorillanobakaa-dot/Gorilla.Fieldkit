@@ -1,0 +1,106 @@
+# What `fieldkit audio` recognises on a Linux sound chain, as data. Change this file, not the code.
+#
+# Born 2026-10-10 from the Gorilla Firefox audio work (gorilla-firefox, patches/01.MEDIA, master log) and
+# speaker-loudness-fix: the browser shapes the sound itself (bass 1.8, FastTanh soft-clip at 0.9, 48 kHz pin), so
+# every other stage that also shapes it (a compressor sink, EasyEffects, an ALSA plugin) is processing done twice.
+#
+# Each signature:
+#   id      unique name
+#   group   one real stage; several signatures can be evidence of the same stage (a sink, its config, its service)
+#   stage   dynamics (compressor, limiter, loudness, soft-clip) | eq | effects (echo-cancel, noise-suppression)
+#           | volume (an extra volume control) | route (moves sound, does not shape it)
+#   what    one line a person understands
+#   match   any of: sink, module, process, exe, unit, config, path   (regular expressions; config is matched per
+#           line, comments removed; path is a file or folder that exists)
+#   claims  file: a config file this signature matches is all its own (its other lines are no other stage)
+#   Each piece of evidence (one sink, one module, one config line, ...) belongs to the FIRST signature that
+#   matches it, so the specific ones come first: speaker-loudness-fix's own filter-chain file is not counted again as
+#   a generic filter-chain (claims: file), nor its LADSPA module as a generic LADSPA sink.
+#   undo    the exact commands that remove this stage, run as the person (no blanks to fill in); {hw_sink} is
+#           replaced by the real hardware sink found on the machine. Omit when there is no safe generic undo.
+signatures:
+  - id: gorilla-firefox
+    group: gorilla-firefox
+    stage: dynamics
+    what: "Gorilla Firefox shapes every stream itself: bass x1.8, FastTanh soft-clip at 0.9 (compiled in; not behind media.gorilla.hardware_only_mode)"
+    match: {exe: "/gorilla-unleashed/", path: "usr/lib/gorilla-unleashed/firefox"}
+
+  - id: loudness-sink
+    group: speaker-loudness-fix
+    stage: dynamics
+    what: "speaker-loudness-fix's SC4 compressor sink (threshold -20 dB, ratio 4:1, makeup gain)"
+    match: {sink: "^loudness_sink$", module: "sink_name=loudness_sink", unit: "^loudness-sink\\.service$", config: "sc4m"}
+    claims: file
+    undo:
+      - "systemctl --user disable --now loudness-volume-mirror.service loudness-sink.service"
+      - "rm -f ~/.config/pipewire/filter-chain.conf.d/60-loudness.conf"
+      # its PulseAudio route (module-ladspa-sink, and the lines it marks in default.pa); found 2026-10-10
+      - "pactl list short modules | awk '/sink_name=loudness_sink/ {print $1}' | xargs -r -n1 pactl unload-module"
+      - "test -f ~/.config/pulse/default.pa && sed -i.fieldkit-bak '/added by speaker_loudness_setup/d' ~/.config/pulse/default.pa ; true"
+      - "pactl set-default-sink {hw_sink}"
+
+  - id: loudness-volume-mirror
+    group: speaker-loudness-fix-mirror
+    stage: volume
+    what: "speaker-loudness-fix's volume mirror: copies the compressor sink's volume onto the speakers (a second volume control)"
+    match: {unit: "^loudness-volume-mirror\\.service$"}
+    undo:
+      - "systemctl --user disable --now loudness-volume-mirror.service"
+
+  - id: ladspa-sink
+    group: ladspa-sink
+    stage: dynamics
+    what: "a LADSPA filter sink loaded through PulseAudio (module-ladspa-sink): a plugin processes everything sent to it"
+    match: {module: "module-ladspa-sink"}
+
+  - id: easyeffects
+    group: easyeffects
+    stage: dynamics
+    what: "EasyEffects (or PulseEffects): its own compressor, limiter, equaliser and bass enhancer on every app"
+    match: {process: "^(easyeffects|pulseeffects)$"}
+    undo:
+      - "pkill -x easyeffects ; pkill -x pulseeffects ; true"
+
+  - id: jamesdsp
+    group: jamesdsp
+    stage: dynamics
+    what: "JamesDSP: its own limiter, compressor and bass boost on every app"
+    match: {process: "^jamesdsp$"}
+    undo:
+      - "pkill -x jamesdsp ; true"
+
+  - id: pulse-equalizer
+    group: pulse-equalizer
+    stage: eq
+    what: "PulseAudio equaliser sink (module-equalizer-sink)"
+    match: {module: "module-equalizer-sink"}
+
+  - id: echo-cancel
+    group: echo-cancel
+    stage: effects
+    what: "echo cancellation (WebRTC): it also changes what plays, not only the microphone"
+    match: {module: "module-echo-cancel", config: "libpipewire-module-echo-cancel"}
+
+  - id: filter-chain
+    group: filter-chain
+    stage: effects
+    what: "a PipeWire filter-chain (plugins in the sound path, configured by a file)"
+    match: {config: "libpipewire-module-filter-chain"}
+
+  - id: alsa-softvol
+    group: alsa-softvol
+    stage: volume
+    what: "an ALSA software volume plugin (softvol) under the sound server: a second volume control before the codec"
+    match: {config: "type\\s+softvol"}
+
+  - id: alsa-ladspa
+    group: alsa-ladspa
+    stage: dynamics
+    what: "an ALSA LADSPA plugin under the sound server: processing the server cannot see"
+    match: {config: "type\\s+ladspa"}
+
+  - id: alsa-dmix
+    group: alsa-dmix
+    stage: route
+    what: "an ALSA dmix plugin: ALSA mixes and resamples by itself, beside the sound server"
+    match: {config: "type\\s+dmix"}

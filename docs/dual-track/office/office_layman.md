@@ -215,10 +215,10 @@ The built-in readers, writers and checks make no network connections: the source
 
 **Step 1:** Open PowerShell: press the Windows key, type `PowerShell`, and press Enter. A window with a blinking cursor opens.
   - You should see: Pass: a window with a line ending in `>` and a blinking cursor. Fail: nothing opens; try again and make sure you typed `PowerShell` in the Start menu search.
-**Step 2:** Go to the folder that holds your document. Type this, with your own folder between the quotes, and press Enter (in File Explorer you can click the address bar and copy the folder from there):
+**Step 2:** Go to the folder that holds your document. Type `cd` and one space, but do not press Enter yet. Then drag the folder from File Explorer and drop it on this window: its full location appears after `cd`, with quotation marks if it has spaces. Now press Enter.
 
 ```powershell
-cd "<the folder that holds your document>"
+cd 
 ```
 
   - You should see: Pass: the line before the cursor now shows that folder. Fail: "Cannot find path" means the folder name was mistyped; copy it again from File Explorer.

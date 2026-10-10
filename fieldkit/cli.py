@@ -104,6 +104,29 @@ def cmd_host(a):
     return 0
 
 
+def cmd_where(a):
+    """The Fieldkit folder, so a document can say `cd (fieldkit where)` instead of a blank the reader must fill in
+    (2026-10-10: `cd "<your Fieldkit folder>"`, pasted as given, failed in C:\\WINDOWS\\system32)."""
+    from .core import settings
+    root = str(settings.ROOT)
+    _emit({"fieldkit": root}, a.json, lambda d: print(d["fieldkit"]))
+    return 0
+
+
+def cmd_doctor(a):
+    from .core import doctor
+    r = doctor.check(a.pipeline)
+    _emit(r, a.json, lambda d: print("\n".join(doctor.lines(d))))
+    return 0 if r["ok"] else 3
+
+
+def cmd_audio(a):
+    from .audio import chain
+    r = chain.run()
+    _emit(r, a.json, lambda d: print("\n".join(chain.lines(d))))
+    return 0 if r["ok"] else 3
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -521,6 +544,23 @@ def cmd_exam(a):
 
 def cmd_kernel(a):
     from .build import kernel
+    if a.action == "migrate-apply":
+        from .build import kmigrate
+        r = kmigrate.apply(a.project, a.new)
+        _emit(r, a.json, lambda d: print("\n".join(
+            [f"wrote {n}" for n in d["written"]] + [f"ported {p}: {'; '.join(h)}" for p, h in d["ported"].items()]
+            + [f"PROBLEM: {x}" for x in d["problems"]] + [("APPLIED" if d["ok"] else "NOTHING WRITTEN"), f"NEXT: {d['next']}"])))
+        return 0 if r["ok"] else 3
+    if a.action in ("migrate-check", "migrate-verify"):
+        from .build import kmigrate
+        if a.action == "migrate-check":
+            r, human = kmigrate.check(a.project, a.old, a.new), kmigrate.check_lines
+        else:
+            r, human = kmigrate.verify(a.project, a.new, a.old_patches), kmigrate.verify_lines
+        if a.out:
+            Path(a.out).write_text("\n".join(human(r)) + "\n", encoding="utf-8")
+        _emit(r, a.json, lambda d: print("\n".join(human(d))))
+        return 0 if r["ok"] else 3
     if a.action == "localversion":
         _emit(kernel.localversion(a.base, a.tags, year_digits=a.year), a.json)
         return 0
@@ -541,6 +581,16 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("host", parents=[common]).set_defaults(fn=cmd_host)
+
+    sub.add_parser("where", parents=[common], help="print the Fieldkit folder: cd (fieldkit where)").set_defaults(fn=cmd_where)
+
+    dr = sub.add_parser("doctor", parents=[common], help="what this machine still needs, and the line that installs it")
+    dr.add_argument("--for", dest="pipeline", help="also the programs this pipeline needs (e.g. debian-kernel)")
+    dr.set_defaults(fn=cmd_doctor)
+
+    sub.add_parser("audio", parents=[common],
+                   help="Linux: every stage the sound passes through, what is done twice, and the fix (changes nothing)"
+                   ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
     t.add_argument("action", choices=["list", "check"])
@@ -675,6 +725,19 @@ def build_parser():
     fr = ks.add_parser("fragment", parents=[common])
     fr.add_argument("injector")
     fr.add_argument("--out")
+    mc = ks.add_parser("migrate-check", parents=[common], help="before porting: what carries over to the new kernel")
+    mc.add_argument("--project", required=True, help="the kernel project (patches/, registry, shipped files)")
+    mc.add_argument("--old", required=True, help="pristine tree of the version the patches were made for")
+    mc.add_argument("--new", required=True, help="pristine tree of the new version")
+    mc.add_argument("--out", help="also write the report here (evidence for the release notes)")
+    ma = ks.add_parser("migrate-apply", parents=[common], help="write the ported files when every anchor is unambiguous")
+    ma.add_argument("--project", required=True)
+    ma.add_argument("--new", required=True, help="pristine tree of the new version")
+    mv = ks.add_parser("migrate-verify", parents=[common], help="after porting: same lines, byte-for-byte rebuild")
+    mv.add_argument("--project", required=True)
+    mv.add_argument("--new", required=True, help="pristine tree of the new version")
+    mv.add_argument("--old-patches", required=True, help="a copy of the patches/ folder before the migration")
+    mv.add_argument("--out", help="also write the report here")
     k.set_defaults(fn=cmd_kernel)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
@@ -688,7 +751,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context",
-                                       "leakgate-proposal"])
+                                       "leakgate-proposal", "leakgate-selftest", "herald"])
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
     bh.add_argument("--park", help="migration control: do NOT run this record/repair/build-run/decide; park it as a ticket with this reason")

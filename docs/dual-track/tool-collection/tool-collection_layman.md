@@ -180,7 +180,7 @@ Only `fieldkit gather` without `--check` uses the internet, to download or updat
 **Step 2:** Go to the Fieldkit folder. Type this, with your own folder in place of the part in angle brackets, and press Enter:
 
 ```powershell
-cd "<your Fieldkit folder>"
+cd (fieldkit where)
 ```
   - You should see: Pass: the line before the cursor now ends with the Fieldkit folder's name. Fail: `Cannot find path`; check the folder name in File Explorer and try again.
 

@@ -1,5 +1,6 @@
 """Kernel pieces that are pure logic run everywhere; the build itself is Debian-only."""
 import datetime
+from pathlib import Path
 
 import pytest
 
@@ -104,3 +105,208 @@ def test_deps_stage_says_why_it_cannot_run_off_debian():
         pytest.skip("dpkg-query present: this is a Debian-family machine")
     r = kernel.stage_deps(None)
     assert r["ok"] is False and "Debian" in r["detail"]
+
+
+# -- RPM packages of the same build (2026-10-10) ----------------------------------------------------------------------
+
+def _rpm_ctx(tmp_path, release="7.2.9-unleashed.gorilla-x", make_rpm=True, ok=True):
+    from types import SimpleNamespace
+    src = tmp_path / "linux-7.2.9"
+    (src / "include" / "config").mkdir(parents=True)
+    (src / "include" / "config" / "kernel.release").write_text(release + "\n", encoding="utf-8")
+    calls = []
+
+    def run(cmd, env=None, name=None, **kw):
+        calls.append(cmd)
+        if make_rpm:
+            d = src / "rpmbuild" / "RPMS" / "x86_64"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"kernel-{release.replace('-', '_')}-1.x86_64.rpm").write_bytes(b"rpm")
+        return SimpleNamespace(ok=ok, log="log")
+    ctx = SimpleNamespace(vars={"src": str(src), "version": "7.2.9", "workdir": str(tmp_path),
+                                "output": str(tmp_path / "out")},
+                          runner=SimpleNamespace(run=run), host={"cpus": 4})
+    return ctx, calls
+
+
+def test_rpm_reuses_the_built_release_and_needs_its_kernel_rpm(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, calls = _rpm_ctx(tmp_path)
+    r = kernel.stage_rpm(ctx)
+    assert r["ok"] and r["release"] == "7.2.9-unleashed.gorilla-x", r
+    assert "LOCALVERSION=-unleashed.gorilla-x" in calls[0] and "binrpm-pkg" in calls[0]
+
+
+def test_rpm_fails_without_rpmbuild_without_a_build_and_without_a_kernel_rpm(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: None)
+    ctx, _ = _rpm_ctx(tmp_path / "a")
+    assert not kernel.stage_rpm(ctx)["ok"] and "rpmbuild not found" in kernel.stage_rpm(ctx)["detail"]
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, _ = _rpm_ctx(tmp_path / "b")
+    (Path(ctx.vars["src"]) / "include" / "config" / "kernel.release").unlink()
+    assert "run the build stage first" in kernel.stage_rpm(ctx)["detail"]
+    ctx, _ = _rpm_ctx(tmp_path / "c", make_rpm=False)
+    r = kernel.stage_rpm(ctx)
+    assert not r["ok"] and "made no kernel RPM" in r["detail"]
+    ctx, _ = _rpm_ctx(tmp_path / "d", release="7.1.2-old")
+    assert "not 7.2.9" in kernel.stage_rpm(ctx)["detail"]
+
+
+def test_collect_gathers_debs_and_rpms_and_passes_on_a_second_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, _ = _rpm_ctx(tmp_path)
+    kernel.stage_rpm(ctx)
+    (tmp_path / "linux-image-7.2.9-x_7.2.9_amd64.deb").write_bytes(b"deb")
+    r = kernel.stage_collect(ctx)
+    assert r["ok"] and len(r["moved"]) == 2 and r["rpms"]
+    assert kernel.stage_collect(ctx)["ok"]                    # already collected: still there, still fine
+
+
+# -- fetch: kernel.org, or a git mirror only when asked, and the provenance says which (2026-10-10) -----------------
+
+def _fetch_ctx(tmp_path, version="7.9.9"):
+    from types import SimpleNamespace
+    return SimpleNamespace(vars={"version": version, "workdir": str(tmp_path / "work")})
+
+
+def _unreachable(url):
+    raise OSError("Tunnel connection failed: 403 Forbidden")
+
+
+def _mirror(tmp_path, version="7.9.9"):
+    import subprocess
+    m = tmp_path / "mirror"
+    m.mkdir()
+    g = lambda *a: subprocess.run(["git", "-C", str(m), "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+                                  check=True, capture_output=True)
+    g("init", "-q")
+    (m / "Makefile").write_text("VERSION = 7\n", encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-qm", "linux")
+    g("tag", f"v{version}")
+    return m.as_uri()
+
+
+def test_fetch_refuses_without_kernel_org_and_names_the_way_out(tmp_path):
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path), vault_base=tmp_path / "no-vault", opener=_unreachable)
+    assert not r["ok"] and "kernel.org unreachable" in r["detail"] and "--var mirror=" in r["detail"]
+    assert not kernel.verify_fetch(_fetch_ctx(tmp_path))["ok"]
+
+
+def test_fetch_from_a_mirror_says_unverified_and_records_the_commit(tmp_path):
+    ctx = _fetch_ctx(tmp_path)
+    r = kernel.stage_fetch(ctx, mirror=_mirror(tmp_path), vault_base=tmp_path / "no-vault", opener=_unreachable)
+    assert r["ok"] and r["unverified"] and r["detail"].startswith("UNVERIFIED")
+    pv = kernel.provenance(tmp_path / "work", "7.9.9")
+    assert pv["source"] == "git mirror" and pv["sha256"] == "not verified" and len(pv["commit"]) == 40
+    assert (tmp_path / "work" / "linux-7.9.9" / "Makefile").read_text() == "VERSION = 7\n"
+    v = kernel.verify_fetch(ctx)
+    assert v["ok"] and "NOT verified" in v["detail"]
+    assert "sha256 not verified" in kernel.stage_extract(ctx)["detail"]
+
+
+def test_a_mirror_without_the_tag_fails(tmp_path):
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path, "7.9.8"), mirror=_mirror(tmp_path), vault_base=tmp_path / "no-vault", opener=_unreachable)
+    assert not r["ok"] and "no tag v7.9.8" in r["detail"]
+
+
+def test_fetch_from_kernel_org_checks_the_tarball_and_records_it(tmp_path):
+    import hashlib
+    import io
+    data = b"tarball bytes"
+    good = hashlib.sha256(data).hexdigest()
+    class R(io.BytesIO):
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+    def opener(sums):
+        return lambda url: R(sums.encode() if url.endswith(".asc") else data)
+    ctx = _fetch_ctx(tmp_path)
+    r = kernel.stage_fetch(ctx, vault_base=tmp_path / "no-vault", opener=opener(f"{good}  linux-7.9.9.tar.xz\n"))
+    assert r["ok"] and kernel.provenance(tmp_path / "work", "7.9.9")["sha256"] == good
+    assert kernel.verify_fetch(ctx)["ok"]
+    bad = kernel.stage_fetch(_fetch_ctx(tmp_path / "b"), vault_base=tmp_path / "no-vault", opener=opener(f"{'0' * 64}  linux-7.9.9.tar.xz\n"))
+    assert not bad["ok"] and "sha256 mismatch" in bad["detail"]
+
+
+def test_verify_patched_needs_every_registry_file_to_be_the_shipped_copy(tmp_path):
+    from types import SimpleNamespace
+    proj, src = tmp_path / "proj", tmp_path / "linux"
+    (proj).mkdir()
+    (proj / "PATCHED_FILES_PATH_REGISTRY.txt").write_text("# map\nreg.c -> net/wireless/reg.c\n", encoding="utf-8")
+    (proj / "reg.c").write_bytes(b"patched\n")
+    (src / "net/wireless").mkdir(parents=True)
+    (src / "net/wireless/reg.c").write_bytes(b"pristine\n")
+    ctx = SimpleNamespace(vars={"src": str(src), "project": str(proj)})
+    r = kernel.verify_patched(ctx)
+    assert not r["ok"] and "0/1" in r["detail"] and "reg.c" in r["detail"]
+    (src / "net/wireless/reg.c").write_bytes(b"patched\n")
+    assert kernel.verify_patched(ctx)["ok"]
+
+
+def _vault_with(tmp_path, version="7.9.9", data=b"pristine tarball"):
+    import hashlib
+    import io
+    from fieldkit.buildh import vault
+    name = f"linux-{version}.tar.xz"
+    sums = f"{hashlib.sha256(data).hexdigest()}  {name}\n".encode()
+
+    class R(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    info = {"version": version, "tarball": f"https://cdn.kernel.org/pub/linux/kernel/v7.x/{name}",
+            "sums": "https://cdn.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc"}
+    vault.fetch_kernel(info, base=tmp_path / "vault", opener=lambda u, timeout=None: R(sums if u.endswith(".asc") else data))
+    return tmp_path / "vault"
+
+
+def test_fetch_takes_the_vault_copy_first_and_downloads_nothing(tmp_path):
+    vb = _vault_with(tmp_path)
+    def no_network(url):
+        raise AssertionError("the vault had it: nothing may be downloaded")
+    ctx = _fetch_ctx(tmp_path)
+    r = kernel.stage_fetch(ctx, vault_base=vb, opener=no_network)
+    assert r["ok"] and "from the vault" in r["detail"]
+    assert (tmp_path / "work" / "linux-7.9.9.tar.xz").read_bytes() == b"pristine tarball"
+    assert kernel.provenance(tmp_path / "work", "7.9.9")["source"] == "vault" and kernel.verify_fetch(ctx)["ok"]
+
+
+def test_a_damaged_vault_is_refused_never_a_fallback(tmp_path):
+    import os
+    import stat
+    vb = _vault_with(tmp_path)
+    f = vb / "kernel" / "7.9.9" / "linux-7.9.9.tar.xz"
+    os.chmod(f, stat.S_IREAD | stat.S_IWRITE)
+    f.write_bytes(b"a model was here")
+    r = kernel.stage_fetch(_fetch_ctx(tmp_path), vault_base=vb, opener=_unreachable)
+    assert not r["ok"] and "damaged, refusing it" in r["detail"] and "vault fetch kernel" in r["detail"]
+
+
+def test_build_env_is_fixed_per_build_and_carries_nothing_of_the_builder(tmp_path, monkeypatch):
+    import datetime as dt
+    monkeypatch.setenv("DEBEMAIL", "someone@their-own-machine")
+    src = tmp_path / "linux"
+    src.mkdir()
+    first = kernel.build_env(src, now=dt.datetime(2026, 10, 10, 15, 10, 43, tzinfo=dt.timezone.utc))
+    again = kernel.build_env(src)                                  # a later stage of the same build
+    assert first == again and first["KBUILD_BUILD_TIMESTAMP"] == "Sat Oct 10 15:10:43 UTC 2026"
+    assert first["KBUILD_BUILD_USER"] == "gorilla" and first["DEBEMAIL"] == "gorilla@fieldkit"
+    assert first["GIT_CONFIG_NOSYSTEM"] == "1" and "_buildhost fieldkit" in first["RPMOPTS"]
+
+
+def test_the_rpm_stage_gives_the_rpm_kernel_the_debs_build_number(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, calls = _rpm_ctx(tmp_path)
+    src = Path(ctx.vars["src"])
+    kernel.build_env(src)                                          # the build stage's stamp: build number 1
+    (src / ".version").write_text("2\n")                          # what earlier packagings left behind
+    seen = {}
+    run = ctx.runner.run
+    ctx.runner.run = lambda cmd, env=None, name=None, **kw: (seen.update(version=(src / ".version").read_text(),
+                                                                          env=env), run(cmd, env, name))[1]
+    assert kernel.stage_rpm(ctx)["ok"]
+    assert seen["version"] == "0\n" and seen["env"]["KBUILD_BUILD_VERSION"] == "1"   # build-version adds one: #1

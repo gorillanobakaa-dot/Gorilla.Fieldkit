@@ -505,6 +505,37 @@ def run(a, emit):
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
                                     f"NEXT: the owner reads the plan and runs: fieldkit build-harness approve {r['task']}")) or 0
+    if act == "herald":
+        # herald --say "words" | herald [name=..] [pid=..] [log=..] [every=..]: the spoken herald (herald.py), from any
+        # folder (2026-10-10: `python -m fieldkit.buildh.herald` was given to the owner and depends on where it runs)
+        from . import herald as _h
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        words = " ".join(x for x in a.args if "=" not in x)
+        if words or "say" in opts:
+            how = _h.say(opts.get("say", words) or "test")
+            print(f"herald: {how}" + (_h.HEARD if how == "spoken" else f" ({_h.LAST_PROBLEM['why']})"))
+            if how != "spoken":
+                print("\n".join(_h.explain(_h.voice_check())))
+            return 0
+        _h.watch(opts.get("name", "the run"), int(opts.get("pid", 0)), opts.get("log") or None, int(opts.get("every", 60)))
+        return 0
+    if act == "leakgate-selftest":
+        # leakgate-selftest: can the leak gate run on this Linux machine (root, ip, nft, ...)? Changes nothing; needs no build job.
+        # Documented as `fieldkit leakgate-linux selftest` since 2026-10-02 but never connected (found 2026-10-10)
+        from ..leakgate import linux as lx
+        r = lx.selftest()
+        if a.json:
+            print(json.dumps(r, indent=1))
+        else:
+            for t, p in r["tools"].items():
+                print(f"  {'ok  ' if p else 'MISS'} {t:<12} {p or ''}")
+            print(f"  {'ok  ' if r['root'] else 'MISS'} root")
+            print("READY" if r["ok"] else f"NOT READY: missing {r['missing_required'] or []}"
+                  + ("" if r["root"] else "; the leak gate needs root (network namespace, nftables)"))
+            print("NEXT: " + ("fieldkit build-harness leakgate TASK" if r["ok"] else
+                              "fieldkit doctor --for leakgate (it gives the install lines); run as root; then "
+                              "fieldkit build-harness leakgate-selftest"))
+        return 0 if r["ok"] else 3
     if act == "migrate":                                      # migration control: plan, gates, SITREP (fieldkit/migrate)
         from ..migrate import cli as mc
         return mc.run(a, emit, current_id)

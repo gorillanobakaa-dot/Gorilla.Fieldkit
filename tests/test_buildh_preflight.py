@@ -17,6 +17,9 @@ def world(tmp_path, monkeypatch):
     subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "x"], check=True)
     task.start("p1", "demo", w, [], budget_tokens=1000, meta={"upstream": {"version": "0"}})
     monkeypatch.setattr(preflight.vault, "verify", lambda *a, **k: {"intact": True, "problems": []})
+    # a healthy machine, whatever this one is: the runners have less RAM and disk than a build box
+    monkeypatch.setattr(preflight, "_ram_gb", lambda: 32.0)
+    monkeypatch.setattr(preflight.shutil, "disk_usage", lambda p: type("U", (), {"free": 500 * 2 ** 30})())
     return w
 
 
@@ -53,6 +56,16 @@ def test_uncommitted_changes_stop_a_job(world):
 def test_too_little_disk_stops_a_build(world, monkeypatch):
     monkeypatch.setattr(preflight.shutil, "disk_usage", lambda p: type("U", (), {"free": 50 * 2 ** 30})())
     assert rows()["disk space"]["ok"] and not rows(build=True)["disk space"]["ok"]
+
+
+def test_too_little_memory_stops_a_job(world, monkeypatch):
+    monkeypatch.setattr(preflight, "_ram_gb", lambda: 7.8)
+    r = rows()["memory"]
+    assert not r["ok"] and "8 GB installed" in r["evidence"]
+
+
+def test_the_memory_reading_is_real_on_this_machine():
+    assert preflight._ram_gb() > 0
 
 
 def test_an_unreachable_model_server_is_a_failure(world):

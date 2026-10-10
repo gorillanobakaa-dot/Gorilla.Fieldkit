@@ -1,0 +1,24 @@
+# Release gate for the debian-kernel project (gorillanobakaa-dot/debian-kernel), run by its CI right after it
+# publishes (fieldkit/build/ci/debian-kernel.yml). Everything machine-specific comes from the environment:
+#   GITHUB_WORKSPACE  the kernel project checkout     RELEASE_TAG  the tag just published
+#   KOUT              the folder of packages the run built   TARBALL_PATH  kernel.org's tarball, sha256-checked
+name: debian-kernel
+repo: gorillanobakaa-dot/debian-kernel
+local: "${ENV:GITHUB_WORKSPACE}"
+tag: "${ENV:RELEASE_TAG}"
+tests:
+  - [python3, make_patches.py, --check]
+  - [bash, verify_patches.sh]
+artifacts:
+  - {asset: "linux-image-*.deb", local: "${ENV:KOUT}/linux-image-*.deb"}
+  - {asset: "linux-headers-*.deb", local: "${ENV:KOUT}/linux-headers-*.deb"}
+  - {asset: "kernel-[0-9]*.rpm", local: "${ENV:KOUT}/kernel-[0-9]*.rpm"}
+  - {asset: "kernel-devel-*.rpm", local: "${ENV:KOUT}/kernel-devel-*.rpm"}
+privacy: true
+# kernel source files shipped as the patched copies: their headers carry the upstream authors' public addresses
+privacy_upstream: [reg.c, regd.c, mlme.c, hw.c, init.c, gpio.c, btcoex.c, tcp.c, tcp.h, sony-laptop.c,
+                   intel_display_params.h, thinkpad_acpi.c, dell-pc.c, alc269.c]
+claims:
+  - claim: "the patches rebuild the shipped files byte for byte"
+    find: "byte for byte"
+    proof: {command: [bash, verify_patches.sh], output_contains: "The patch set is complete and reproducible"}

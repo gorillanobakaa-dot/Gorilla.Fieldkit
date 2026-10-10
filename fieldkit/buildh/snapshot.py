@@ -22,6 +22,7 @@ live build tree against the vanilla snapshot". Here that is a deterministic tool
 """
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -180,9 +181,17 @@ def capture(harness_root, version, out_root, vault_base=None):
     (h / "config" / "patch_policy.json").write_text(json.dumps(pol, indent=2), encoding="utf-8")
     link = h / "src"
     if not link.exists():
-        r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(src)], capture_output=True)
+        if os.name == "nt":
+            r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(src)], capture_output=True)
+            err = r.stderr.decode("utf-8", "replace")[:120]
+        else:                                     # no junctions off Windows: a directory symlink does the same job
+            try:
+                os.symlink(src, link, target_is_directory=True)
+                err = ""
+            except OSError as e:
+                err = str(e)[:120]
         if not link.is_dir():
-            raise task.Refused(f"could not junction {link} -> {src}: {r.stderr.decode('utf-8', 'replace')[:120]}")
+            raise task.Refused(f"could not junction {link} -> {src}: {err}")
     manifest = {"version": version, "live_tree": str(src), "live_head": _git(src, "rev-parse", "HEAD").strip(),
                 "pristine": str(pristine), "patchset": str(pset_out), "harness_root": str(h), "counts": counts,
                 "groups_used": sorted({k.split("/")[0] for k in emitted}), "files": emitted}

@@ -15,20 +15,31 @@ The model's whole job becomes: run the DO command, or pick a CHOOSE number,
 then ask `next` again.
 """
 import json
+import shlex
 
 from .host import host, platform_ok
 from .pipeline import Pipeline
 
 
 def decide(pipeline):
-    """-> dict {kind: DO|BLOCKED|CANNOT_HERE|DONE, stage, command, why, choices}."""
+    """-> dict {kind: DO|BLOCKED|CANNOT_HERE|DONE, stage, command, why, choices, again}."""
     p = pipeline if isinstance(pipeline, Pipeline) else Pipeline.load(pipeline, strict=False)
+    d = _decide(p)
+    d["again"] = _again(p)
+    return d
+
+
+def _decide(p):
     st = p.state()
     try:
         last = json.loads((p.state_dir / "last-report.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         last = {}
-    run = f"fieldkit pipeline run {p.name}"
+    # the options the caller gave are part of every command: a DO line without them runs the pipeline's defaults
+    # (2026-10-10: asked for version 7.2.9, next said `--only fetch` alone; the default was still 7.1.2)
+    ov = getattr(p, "overrides", {}) or {}
+    run = f"fieldkit pipeline run {p.name}" + (" --var " + " ".join(shlex.quote(f"{k}={v}") for k, v in ov.items())
+                                                if ov else "")
     for s in p.stages:
         sid = s["id"]
         rec = st.get(sid, {})
@@ -67,10 +78,17 @@ def decide(pipeline):
             "why": f"all {len(p.stages)} stages verified.", "choices": []}
 
 
+def _again(p):
+    """The exact `fieldkit next` to ask again, with the same options."""
+    ov = getattr(p, "overrides", {}) or {}
+    return f"fieldkit next {p.name}" + (" --var " + " ".join(shlex.quote(f"{k}={v}") for k, v in ov.items())
+                                        if ov else "")
+
+
 def lines(d):
     if d["kind"] == "DO":
         return [f"DO: {d['command']}", f"   why: stage '{d['stage']}' - {d['why']}",
-                "NEXT: run that command, then ask `fieldkit next` again."]
+                f"NEXT: run that command, then ask again: {d.get('again') or 'fieldkit next'}"]
     if d["kind"] == "DONE":
         return [f"DONE: {d['why']}"]
     head = "BLOCKED" if d["kind"] == "BLOCKED" else "CANNOT HERE"

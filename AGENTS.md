@@ -16,12 +16,16 @@ Every command accepts `--json`.
 
 ```
 fieldkit host
+fieldkit doctor [--for PIPELINE]                  what this machine still needs, and the line that installs it
+fieldkit where                                   the Fieldkit folder: in a document, cd (fieldkit where), never a <blank>
+fieldkit audio                                   Linux sound chain: each stage, what is done twice, the fix (read-only)
 fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...
 fieldkit pipeline list|plan|run|status|reset NAME
 fieldkit triage LOG --set auto
 fieldkit privacy scan PATH --git
 fieldkit kernel localversion|fragment ...
+fieldkit kernel migrate-check|migrate-apply|migrate-verify ...   carry a kernel patch set to a newer kernel: what fits, the port, the proof
 fieldkit gather [--check|--test] [--only NAME]   GitHub repos and local folders -> toolbox/
 fieldkit tools list --all                        every tool, including every gathered script
 fieldkit harvest [--find WORDS]                  what every script does; search it in plain words
@@ -93,6 +97,7 @@ fieldkit build-harness decide ID OPTION --words "..."       the maintainer only,
 ## Layout
 
 ```
+fieldkit/audio    the Linux sound chain (read-only) + signatures.yaml
 fieldkit/core     host, settings, proc (runner), privacy, pipeline engine, checks, next, snapshot
 fieldkit/office   read, create, check, scrub, deliver
 fieldkit/build    triage + signatures/*.yaml, kernel, refcheck, pipelines/*.yaml

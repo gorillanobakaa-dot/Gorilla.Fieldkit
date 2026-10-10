@@ -8,7 +8,11 @@ vanished twice overnight). This starts `python -m fieldkit build-harness <comman
 created by Windows itself (WMI Win32_Process.Create), so the owner can watch it and it keeps running whatever
 happens to the session, the way `screen` keeps a job on Linux. Everything it prints also goes to a log file
 (state/windows/<stamp>-<command>.log) that ends with "exit <code>"; the window stays open afterwards (-NoExit).
--> {"pid", "log"}. Windows only.
+-> {"pid", "log"}.
+
+On Linux (2026-10-10) the same command runs in a detached session of its own (setsid: no terminal, not this session's
+child), with the same log ending in "exit <code>", the herald (herald.py) on that log, and systemd-inhibit holding off
+idle sleep while it runs when the machine has it. Watch it with `follow`.
 
 The machine is kept awake while the command runs (2026-10-09: a build started at 00:13 sat in its gate all night while
 the laptop went to standby and sleep - 570 CPU-seconds in seven and a half hours). The window asks Windows not to
@@ -21,7 +25,10 @@ going off is standby itself. The request is cleared when the command ends. A clo
                                            the log's milestones as they are written; exits with the run's exit code
 """
 import base64
+import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -52,7 +59,7 @@ AWAKE_ON = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x800
 AWAKE_OFF = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000000')"    # ES_CONTINUOUS: release
 
 
-HERALD = Path(__file__).parent / "herald.ps1"
+HERALD = Path(__file__).parent / "herald.py"          # one herald for Windows and Linux (2026-10-10)
 
 
 def spoken(args):
@@ -76,8 +83,8 @@ def script(args, log, python=None):
         f"$log = New-Object System.IO.StreamWriter({_ps_quote(log)}, $true, (New-Object System.Text.UTF8Encoding($false)))",
         "$log.AutoFlush = $true",
         # the herald speaks battery warnings and the result, so nobody has to watch this window (toolbox/herald)
-        "Start-Process -WindowStyle Hidden powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass',"
-        f"'-File',{_ps_quote(HERALD)},'-Name',{_ps_quote(spoken(args))},'-Log',{_ps_quote(log)})",
+        f"Start-Process -WindowStyle Hidden -WorkingDirectory {_ps_quote(FK)} {_ps_quote(python)} -ArgumentList "
+        f"@('-m','fieldkit.buildh.herald','--name',{_ps_quote(spoken(args))},'--log',{_ps_quote(log)})",
         AWAKE_TYPE,
         AWAKE_ON,
         f"& {_ps_quote(python)} -m fieldkit build-harness {argv} 2>&1 | ForEach-Object {{ $s = \"$_\"; $log.WriteLine($s); $s }}",
@@ -95,9 +102,25 @@ def awake_script(pid):
     return "\n".join([AWAKE_TYPE, AWAKE_ON, f"Wait-Process -Id {int(pid)} -ErrorAction SilentlyContinue", AWAKE_OFF])
 
 
-def hold_awake(pid, run=subprocess.run):
+def hold_awake(pid, run=subprocess.run, platform=None, popen=subprocess.Popen, which=shutil.which):
     """Start (through WMI, so it outlives the session) a hidden PowerShell holding the stay-awake request until `pid`
-    exits -> {"pid": the holder's pid}; refuses a pid that is not running."""
+    exits -> {"pid": the holder's pid}; refuses a pid that is not running. On Linux: systemd-inhibit holding off idle
+    sleep in a detached session until `pid` exits; refused where there is no systemd-inhibit (nothing would hold it)."""
+    if (platform or sys.platform) != "win32":
+        from .herald import _pid_alive
+        if not _pid_alive(int(pid)):
+            raise task.Refused(f"process {pid} is not running")
+        inhibit = which("systemd-inhibit")
+        if not inhibit:
+            raise task.Refused("no systemd-inhibit on this machine: nothing can hold idle sleep off")
+        probe = run([inhibit, "--what=idle:sleep", "--who=fieldkit", "--why=probe", "true"], capture_output=True,
+                    text=True, timeout=60)
+        if probe.returncode != 0:
+            raise task.Refused(f"systemd-inhibit cannot hold idle sleep off here: {(probe.stderr or '').strip()[:120]}")
+        p = popen([inhibit, "--what=idle:sleep", "--who=fieldkit", f"--why=build-harness run {int(pid)}", "sh", "-c",
+                   f"while kill -0 {int(pid)} 2>/dev/null; do sleep 30; done"],
+                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        return {"pid": p.pid}
     chk = run(["powershell", "-NoProfile", "-Command", f"if (Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue) {{ 'yes' }}"],
               capture_output=True, text=True, timeout=60).stdout.strip()
     if chk != "yes":
@@ -128,11 +151,49 @@ def command_line(args, log, python=None):
     return f"powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -EncodedCommand {enc}"
 
 
-def launch(args, run=subprocess.run):
-    """Start the window through WMI -> {"pid", "log"}; raises task.Refused when Windows did not start it."""
+def sh_script(args, log, python=None, herald=True, which=shutil.which):
+    """The shell script a Linux run gets: every line to the log as it comes, the exit code at the end, the herald on
+    the log, and idle sleep held off (systemd-inhibit) while the command runs, when the machine has it."""
+    python = shlex.quote(python or sys.executable)
+    q = shlex.quote
+    cmd = f"{python} -m fieldkit build-harness {' '.join(q(a) for a in args)}"
+    inhibit = which("systemd-inhibit")
+    lines = ["export PYTHONUNBUFFERED=1 PYTHONUTF8=1", f"cd {q(str(FK))} || exit 1", f"log={q(str(log))}", "wrap=()"]
+    if inhibit:
+        # only when it really works: without a logind to ask (a container, no system bus) the run goes on, and the log
+        # says sleep is not held off (2026-10-10: a bare systemd-inhibit failed there and the command never ran)
+        why = q("build-harness " + " ".join(args)[:80])
+        lines.append(f"if {q(inhibit)} --what=idle:sleep --who=fieldkit --why=probe true >/dev/null 2>&1; then "
+                     f"wrap=({q(inhibit)} --what=idle:sleep --who=fieldkit --why={why}); else "
+                     "echo 'window: idle sleep is NOT held off (systemd-inhibit could not reach logind)' >> \"$log\"; fi")
+    else:
+        lines.append("echo 'window: idle sleep is NOT held off (no systemd-inhibit on this machine)' >> \"$log\"")
+    cmd = '"${wrap[@]}" ' + cmd
+    if herald:
+        lines.append(f"{python} -m fieldkit.buildh.herald --name {q(spoken(args))} --log \"$log\" "
+                     ">/dev/null 2>&1 </dev/null &")
+    lines += [f"{cmd} 2>&1 | tee -a \"$log\"", "code=${PIPESTATUS[0]}", "echo \"exit $code\" >> \"$log\"",
+              "exit $code"]
+    return "\n".join(lines)
+
+
+def _launch_posix(args, log, popen=subprocess.Popen, herald=True):
+    bash = shutil.which("bash")
+    if not bash:
+        raise task.Refused("window: bash is not on this machine")
+    p = popen([bash, "-c", sh_script(args, log, herald=herald)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL, start_new_session=True, cwd=str(FK))
+    return {"pid": p.pid, "log": str(log)}
+
+
+def launch(args, run=subprocess.run, platform=None, popen=subprocess.Popen, herald=True):
+    """Start the window through WMI (Windows) or a detached session (Linux) -> {"pid", "log"}; raises task.Refused when
+    it was not started."""
     if not args:
         raise task.Refused("window <command> [args ...]: which build-harness command?")
     log = log_path(args)
+    if (platform or sys.platform) != "win32":
+        return _launch_posix(args, log, popen, herald)
     cl = command_line(args, log)
     ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=" + _ps_quote(cl)
           + "; CurrentDirectory=" + _ps_quote(FK) + "}; Write-Output ($r.ReturnValue.ToString() + ' ' + $r.ProcessId)")

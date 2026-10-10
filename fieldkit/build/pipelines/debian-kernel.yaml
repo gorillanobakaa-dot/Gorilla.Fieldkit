@@ -1,15 +1,16 @@
 name: debian-kernel
 description: >-
-  Build a custom Linux kernel as Debian packages (linux-image, linux-headers)
+  Build a custom Linux kernel as Debian packages (linux-image, linux-headers) and RPMs
   with a verified config change-set. Mirrors the owner's debian-kernel CI, as
   local stages that can be resumed. Needs Debian/Ubuntu to run; can be planned
   and dry-run anywhere.
 vars:
-  version: "7.1.2"
+  version: "7.2.9"                             # the version the debian-kernel project is on
   workdir: "${LOCAL:kernel.workdir}"            # e.g. ~/kernel-build
   project: "${LOCAL:kernel.project}"            # checkout of the debian-kernel repo
   src: "{workdir}/linux-{version}"
   output: "{workdir}/debs-{version}"
+  mirror: ""                                    # e.g. https://github.com/gregkh/linux, only if kernel.org is unreachable
 stages:
   - id: deps
     platforms: [debian]
@@ -20,9 +21,10 @@ stages:
 
   - id: fetch
     platforms: [linux]
-    run: {python: "fieldkit.build.kernel:stage_fetch"}
+    # kernel.org first; --var mirror=<git URL> only when kernel.org cannot be reached (recorded as unverified)
+    run: {python: "fieldkit.build.kernel:stage_fetch", args: {mirror: "{mirror}"}}
     verify:
-      - {files_exist: ["{workdir}/linux-{version}.tar.xz"]}
+      - {python: {target: "fieldkit.build.kernel:verify_fetch"}}
 
   - id: extract
     platforms: [linux]
@@ -33,11 +35,15 @@ stages:
   - id: patches-check
     platforms: [linux]
     run: {cmd: [python3, "{project}/make_patches.py", "--check"], cwd: "{project}"}
+    verify:
+      - {output_contains: "no drift"}
     triage: debian-kernel
 
   - id: patches
     platforms: [linux]
     run: {cmd: [python3, "{project}/universal_freedom_installer.py", "{src}"], cwd: "{project}"}
+    verify:
+      - {python: {target: "fieldkit.build.kernel:verify_patched"}}
     triage: debian-kernel
 
   - id: config
@@ -62,8 +68,18 @@ stages:
       - {files_exist: ["{workdir}/linux-image-*.deb"]}
     triage: debian-kernel
 
+  - id: rpm
+    platforms: [linux]
+    timeout: 36000
+    run: {python: "fieldkit.build.kernel:stage_rpm"}
+    verify:
+      - {files_exist: ["{src}/rpmbuild/RPMS/*/kernel-*.rpm"]}
+    triage: debian-kernel
+
   - id: collect
     platforms: [linux]
     run: {python: "fieldkit.build.kernel:stage_collect"}
     verify:
-      - {files_exist: ["{output}/linux-image-*.deb"]}
+      # both package kinds: with the .deb alone, a collect that ran before the rpm stage stayed "up-to-date" and the
+      # RPMs never reached the output (2026-10-10)
+      - {files_exist: ["{output}/linux-image-*.deb", "{output}/kernel-*.rpm"]}

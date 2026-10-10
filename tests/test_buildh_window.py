@@ -1,6 +1,10 @@
 """build-harness window (2026-10-08, owner: "make sure is running in screen"): a command in its own visible window,
 started by Windows (WMI), not as a child of the session, logged, ending with its exit code."""
 import base64
+import sys
+from pathlib import Path
+
+import pytest
 
 from fieldkit.buildh import window, task
 
@@ -27,10 +31,10 @@ def test_launch_goes_through_wmi_and_refuses_when_windows_did_not_start_it(monke
     def run(cmd, **kw):
         seen["cmd"] = cmd
         return R("0 4242\n")
-    r = window.launch(["build-run", "t"], run=run)
+    r = window.launch(["build-run", "t"], run=run, platform="win32")
     assert r["pid"] == 4242 and r["log"].endswith(".log") and "Win32_Process -MethodName Create" in seen["cmd"][-1]
     try:
-        window.launch(["build-run", "t"], run=lambda cmd, **kw: R("9 0"))
+        window.launch(["build-run", "t"], run=lambda cmd, **kw: R("9 0"), platform="win32")
         assert False, "should refuse"
     except task.Refused as e:
         assert "did not start" in str(e)
@@ -62,12 +66,12 @@ def test_awake_holds_until_the_process_exits_and_refuses_one_not_running(monkeyp
     def run(cmd, **kw):
         seen.append(cmd[-1])
         return R("yes") if "Get-Process" in cmd[-1] else R("0 777")
-    assert window.hold_awake(4242, run=run) == {"pid": 777}
+    assert window.hold_awake(4242, run=run, platform="win32") == {"pid": 777}
     assert "Win32_Process -MethodName Create" in seen[1] and "-WindowStyle Hidden" in seen[1]
     s = window.awake_script(4242)
     assert s.index("'0x80000003'") < s.index("Wait-Process -Id 4242") < s.index("'0x80000000'")
     try:
-        window.hold_awake(4242, run=lambda cmd, **kw: R(""))
+        window.hold_awake(4242, run=lambda cmd, **kw: R(""), platform="win32")
         assert False, "should refuse"
     except task.Refused as e:
         assert "not running" in str(e)
@@ -107,5 +111,50 @@ def test_the_window_starts_the_herald_on_its_log(tmp_path):
     from fieldkit.buildh import window as w
     log = tmp_path / "x.log"
     s = w.script(["build-run", "firefox-157.0-truth"], log, python="C:/py/python.exe")
-    assert "herald.ps1" in s and "'the build run'" in s and str(log) in s
+    assert "'fieldkit.buildh.herald'" in s and "'the build run'" in s and str(log) in s and "herald.ps1" not in s
     assert w.HERALD.is_file()
+
+
+# -- Linux (2026-10-10): a detached session, the same log and exit line, the herald, idle sleep held off ------------
+
+def test_the_linux_script_logs_every_line_ends_with_exit_and_starts_the_herald(tmp_path):
+    from fieldkit.buildh import window as w
+    log = tmp_path / "x.log"
+    s = w.sh_script(["build-run", "t"], log, python="/usr/bin/python3",
+                    which=lambda e: "/usr/bin/systemd-inhibit" if e == "systemd-inhibit" else None)
+    assert "fieldkit.buildh.herald --name 'the build run'" in s and str(log) in s
+    assert "wrap=(/usr/bin/systemd-inhibit --what=idle:sleep" in s and "-m fieldkit build-harness build-run t" in s
+    assert "NOT held off (systemd-inhibit could not reach logind)" in s
+    assert "${PIPESTATUS[0]}" in s and 'echo "exit $code"' in s
+    assert "NOT held off (no systemd-inhibit on this machine)" in w.sh_script(["build-run"], log, which=lambda e: None)
+    assert "herald" not in w.sh_script(["build-run"], log, herald=False, which=lambda e: None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the detached POSIX session; Windows has its WMI window (tested above)")
+def test_a_linux_window_really_runs_detached_and_its_log_ends_with_the_exit_code(tmp_path, monkeypatch):
+    from fieldkit.buildh import task, window as w
+    monkeypatch.setattr(task, "STATE", tmp_path / "state")
+    r = w.launch(["no-such-command"], herald=False)
+    assert r["pid"] > 0 and r["log"].startswith(str(tmp_path))
+    code = w.follow(r["log"], say=lambda m: None, poll=0.2, timeout=120)
+    text = w.read_log(r["log"])
+    assert code == 2 and "invalid choice" in text, text[-500:]          # argparse's own refusal, and its code
+    assert w.latest_log(folder=tmp_path / "windows") == Path(r["log"])
+
+
+def test_linux_awake_needs_a_live_process_and_systemd_inhibit(monkeypatch):
+    import os
+    from fieldkit.buildh import task, window as w
+    started = []
+    popen = lambda cmd, **kw: started.append(cmd) or type("P", (), {"pid": 31337})()
+    me = os.getpid()
+    ok = lambda cmd, **kw: type("R", (), {"returncode": 0, "stderr": ""})()
+    assert w.hold_awake(me, run=ok, platform="linux", popen=popen, which=lambda e: "/usr/bin/systemd-inhibit") == {"pid": 31337}
+    assert started[0][:2] == ["/usr/bin/systemd-inhibit", "--what=idle:sleep"] and f"kill -0 {me}" in started[0][-1]
+    no_bus = lambda cmd, **kw: type("R", (), {"returncode": 1, "stderr": "Failed to connect to bus"})()
+    with pytest.raises(task.Refused, match="cannot hold idle sleep off here: Failed to connect"):
+        w.hold_awake(me, run=no_bus, platform="linux", popen=popen, which=lambda e: "/usr/bin/systemd-inhibit")
+    with pytest.raises(task.Refused, match="no systemd-inhibit"):
+        w.hold_awake(me, platform="linux", popen=popen, which=lambda e: None)
+    with pytest.raises(task.Refused, match="not running"):
+        w.hold_awake(2 ** 22 + 12345, platform="linux", popen=popen, which=lambda e: "/x")

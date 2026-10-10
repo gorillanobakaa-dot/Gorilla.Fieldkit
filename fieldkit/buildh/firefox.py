@@ -20,6 +20,7 @@ unless the task names another.
 """
 import functools
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -90,8 +91,18 @@ def failures_from_output(out):
     return {"failed": failed, "missing": bool(_MISSING.search(out))}
 
 
+GIT_PATCH = r"C:\Program Files\Git\usr\bin\patch.exe"
+
+
 def _patch_exe():
-    return shutil.which("patch") or r"C:\Program Files\Git\usr\bin\patch.exe"
+    """GNU patch. On Windows, Git for Windows' own first: the first `patch` on PATH can be GnuWin32's 2.5.9 (Strawberry
+    Perl puts it there on GitHub's runners), which aborts on LF patches with exit 3 after "patching file"."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        for p in ([Path(git).resolve().parent.parent / "usr" / "bin" / "patch.exe"] if git else []) + [Path(GIT_PATCH)]:
+            if p.is_file():
+                return str(p)
+    return shutil.which("patch") or GIT_PATCH
 
 
 # -- the steps -------------------------------------------------------------------------------

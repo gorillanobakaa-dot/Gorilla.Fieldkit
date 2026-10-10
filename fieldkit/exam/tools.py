@@ -50,6 +50,11 @@ KIT_SCHEMA = RAW_SCHEMA + [
         "name": "refcheck", "description": "Check a file that LISTS other files (a manifest, a list of paths): "
                                            "returns exactly which listed files do not exist.",
         "parameters": {"type": "object", "properties": {"list_path": {"type": "string"}}, "required": ["list_path"]}}},
+    {"type": "function", "function": {
+        "name": "kernel_migrate_check", "description": "For a kernel patch set being moved to a newer kernel: which "
+                                                       "patches fit, and for each part that does not, the exact line "
+                                                       "numbers in the new file where it goes. Uses kernel-port/.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
 ]
 
 
@@ -76,8 +81,9 @@ class Toolbox:
         t0 = time.monotonic()
         try:
             fn = {"list_dir": self.list_dir, "read_file": self.read_file, "search_text": self.search_text,
-                  "find": self.find, "triage": self.triage, "refcheck": self.refcheck}.get(name)
-            if fn is None or (name in ("find", "triage", "refcheck") and not self.kit):
+                  "find": self.find, "triage": self.triage, "refcheck": self.refcheck,
+                  "kernel_migrate_check": self.kernel_migrate_check}.get(name)
+            if fn is None or (name in ("find", "triage", "refcheck", "kernel_migrate_check") and not self.kit):
                 out = f"ERROR: no tool named {name!r}. Tools: {', '.join(t['function']['name'] for t in self.schema)}"
             else:
                 out = fn(**(args or {}))
@@ -87,6 +93,13 @@ class Toolbox:
             out = f"ERROR: {e}"
         self.calls.append({"name": name, "args": args, "chars": len(out), "seconds": round(time.monotonic() - t0, 2)})
         return out
+
+    def kernel_migrate_check(self):
+        """fieldkit kernel migrate-check on the exam's kernel-port/ project (paths shown relative)."""
+        from ..build import kmigrate
+        k = self.root / "kernel-port"
+        r = kmigrate.check(k / "project", k / "old", k / "new")
+        return "\n".join(kmigrate.check_lines(r)).replace(str(self.root) + os.sep, "").replace(str(self.root), ".")
 
     # -- raw ---------------------------------------------------------------
     def list_dir(self, path="."):

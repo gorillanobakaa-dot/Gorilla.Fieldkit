@@ -22,6 +22,7 @@ A spec (YAML):
       - {path: pfind.py}             # source file at the tag on GitHub vs the tag locally
       - {asset: "*.exe", local: dist/setup.exe}   # a release asset vs the tested file
     privacy: true                    # fieldkit privacy scan of the exported tag
+    privacy_upstream: [tcp.c]        # files copied from upstream: only their e-mail findings are set aside
     claims:                          # every claim found in the notes needs a passing proof
       - claim: "27 tests"
         find: "\\b27 tests\\b"       # regex searched in the release notes
@@ -42,6 +43,7 @@ identical everywhere, unlike file bytes after line-ending conversion):
 Bring that file back; `check` accepts it only if its platform, tree id and result hold.
 """
 import fnmatch
+import glob
 import hashlib
 import json
 import re
@@ -63,6 +65,12 @@ def _sh(cmd, cwd=None, timeout=900, input=None):
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as e:
         return 99, f"could not run: {e}"
+
+
+def download_asset(repo, tag, pattern, dest):
+    """The release's assets matching `pattern` into `dest` (gh CLI) -> return code."""
+    rc, _ = _sh(["gh", "release", "download", tag, "-R", repo, "-p", pattern, "-D", str(dest)], timeout=900)
+    return rc
 
 
 def _sha_bytes(b):
@@ -184,8 +192,23 @@ def check(spec_path):
         # question is what gets published, not what a test run left behind (2026-09-30).
         if spec.get("privacy", True):
             found = privacy.scan_path(tree)
-            gate("privacy", not found, "clean" if not found else
-                 f"{sum(len(v) for v in found.values())} finding(s) in {len(found)} file(s)")
+            # privacy_upstream: files copied from an upstream project, named one by one (2026-10-10: the kernel sources
+            # a patch set ships carry their authors' public copyright addresses). Only e-mail findings in exactly
+            # those files are set aside, and the gate says how many; anything else in them still blocks.
+            upstream = {str(x).replace("\\", "/") for x in spec.get("privacy_upstream") or []}
+            set_aside = 0
+            for f in list(found):
+                rel = Path(f).resolve().relative_to(tree.resolve()).as_posix() if Path(f).is_absolute() else f
+                if rel in upstream:
+                    keep = [x for x in found[f] if x.get("kind") != "email"]
+                    set_aside += len(found[f]) - len(keep)
+                    if keep:
+                        found[f] = keep
+                    else:
+                        del found[f]
+            note = f"; {set_aside} upstream author address(es) set aside in {len(upstream)} named file(s)" if set_aside else ""
+            gate("privacy", not found, ("clean" if not found else
+                 f"{sum(len(v) for v in found.values())} finding(s) in {len(found)} file(s)") + note)
 
         for cmd in spec.get("tests") or []:
             rc, out = _sh(cmd, cwd=tree)
@@ -207,12 +230,16 @@ def check(spec_path):
             elif "asset" in a:
                 d = work / "assets"
                 d.mkdir(exist_ok=True)
-                rc, out = _sh(["gh", "release", "download", tag, "-R", repo, "-p", a["asset"], "-D", str(d)], timeout=900)
+                rc = download_asset(repo, tag, a["asset"], d)
                 got = [p for p in d.iterdir() if fnmatch.fnmatch(p.name, a["asset"])]
-                tested = Path(a["local"])
-                if rc != 0 or len(got) != 1 or not tested.is_file():
+                # the tested file may be a pattern: a CI build's file name carries its build time (2026-10-10); it must
+                # match exactly one file, or the gate cannot say which one was tested
+                pat = str(a["local"])
+                found = sorted(glob.glob(pat)) if any(c in pat for c in "*?[") else ([pat] if Path(pat).is_file() else [])
+                tested = Path(found[0]) if len(found) == 1 else None
+                if rc != 0 or len(got) != 1 or tested is None:
                     gate(f"asset {a['asset']} == tested", False,
-                         f"downloaded {len(got)} match(es); tested file {'found' if tested.is_file() else 'missing'}")
+                         f"downloaded {len(got)} match(es); tested file: {len(found)} match(es) for {pat}")
                 else:
                     same = _sha_bytes(got[0].read_bytes()) == _sha_bytes(tested.read_bytes())
                     gate(f"asset {got[0].name} == tested", same, "same sha256" if same else "DIFFERENT bytes")

@@ -1,4 +1,4 @@
-"""The five exam tasks and their mechanical graders.
+"""The six exam tasks and their mechanical graders.
 
 The model must end its answer with a line starting `ANSWER:`. Graders read the
 text after the last `ANSWER:` (or the whole reply if there is none, which is
@@ -73,6 +73,14 @@ def _grade_manifest(ans):
     return False, f"found {len(got)}/3 missing" + (f", wrongly listed {len(wrong)} existing" if wrong else "")
 
 
+def _grade_kport(ans):
+    nums = [int(x) for x in re.findall(r"(?<!\d)\d+(?!\d)", ans)]
+    want = fixture.kport_answer()
+    if nums == [want]:
+        return True, "right line"
+    return False, (f"several numbers, one of them right" if want in nums else "wrong or missing line")
+
+
 TASKS = [
     Task("locate", "In this project, where is the function `apply_fragment` DEFINED? "
                    "Give the file path and the line number of its `def` line.", _grade_locate),
@@ -83,6 +91,10 @@ TASKS = [
     Task("snippet", "Which file contains exactly this code?\n\n" + fixture.SNIPPET, _grade_snippet),
     Task("manifest", "`MANIFEST.txt` lists files that should exist in this project. Which listed files are "
                      "MISSING? List only the missing ones.", _grade_manifest),
+    Task("kernel-port", "The patch `kernel-port/project/patches/codec.c.patch` was made against `kernel-port/old/`. "
+                        "It no longer applies to the newer `kernel-port/new/drv/codec.c`. The line it adds to the "
+                        "enum must go directly BEFORE which line number of `kernel-port/new/drv/codec.c`? "
+                        "Answer with that one number.", _grade_kport),
 ]
 BY_ID = {t.id: t for t in TASKS}
 

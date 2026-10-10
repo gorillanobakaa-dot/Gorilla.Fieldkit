@@ -122,6 +122,9 @@ def test_ensure_ca_stops_only_the_mitmdump_it_started_on_every_platform(tmp_path
     monkeypatch.setattr(gate.subprocess, "Popen", P)
     monkeypatch.setattr(gate.subprocess, "run", lambda cmd, *a, **k: calls.append(cmd))
     monkeypatch.setattr(gate.se, "free_port", lambda: 1)
+    # shutil.which itself reads sys.platform, and on Linux "win32" sends it to a Windows-only call; the lookup is
+    # not what this test is about, so it finds nothing and the gate falls back to its own path
+    monkeypatch.setattr(gate.shutil, "which", lambda *a, **k: None)
     monkeypatch.setattr(gate.sys, "platform", "linux")
     ca = gate.ensure_ca(tmp_path / "w")
     assert ca.read_text() == "CA" and started[0].terminated and calls == []          # no taskkill on Linux

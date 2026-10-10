@@ -53,6 +53,36 @@ def _build_log(rng):
     return "\n".join(out) + "\n"
 
 
+# -- kernel-port (2026-10-10): the one judgement step of a kernel migration, on a miniature driver ------------------
+# The 7.2.9 migration's alc269.c failure, in small: upstream added enum entries after the last one the patch's
+# context names, so the patch no longer applies; the added entry belongs at the END of the enum.
+_LICENCE = "".join(f"/* line {i} of the licence header */\n" for i in range(1, 13))
+KPORT_OLD = (_LICENCE + "enum {\n\tFIX_A,\n\tFIX_B,\n\tFIX_HP_ENVY,\n};\n\n"
+             "static const struct quirk vendor_tbl[] = {\n\tQUIRK_VENDOR(0x1025, \"Acer\", FIX_A),\n"
+             "\tQUIRK_VENDOR(0x104d, \"Sony VAIO\", FIX_B),\n\t{}\n};\n")
+KPORT_NEW = KPORT_OLD.replace("\tFIX_HP_ENVY,\n};", "\tFIX_HP_ENVY,\n\tFIX_ACER_MIC,\n\tFIX_DELL_POP,\n};") \
+                     .replace("\tQUIRK_VENDOR(0x1025", "\tQUIRK_VENDOR(0x1019, \"Elite\", FIX_A),\n\tQUIRK_VENDOR(0x1025")
+KPORT_PATCHED = KPORT_OLD.replace("\tFIX_HP_ENVY,\n};", "\tFIX_HP_ENVY,\n\tFIX_VAIO_EAPD,\n};") \
+                         .replace("\"Sony VAIO\", FIX_B)", "\"Sony VAIO\", FIX_VAIO_EAPD)")
+
+
+def kport_answer():
+    """The line of the new file the added enum entry must go directly before: the enum's closing `};`."""
+    lines = KPORT_NEW.splitlines()
+    return lines.index("\tFIX_DELL_POP,") + 2
+
+
+def _kport_files():
+    import difflib
+    d = "".join(difflib.unified_diff(KPORT_OLD.splitlines(True), KPORT_PATCHED.splitlines(True),
+                                     "a/drv/codec.c", "b/drv/codec.c"))
+    return {"kernel-port/old/drv/codec.c": KPORT_OLD, "kernel-port/new/drv/codec.c": KPORT_NEW,
+            "kernel-port/project/codec.c": KPORT_PATCHED,
+            "kernel-port/project/PATCHED_FILES_PATH_REGISTRY.txt": "# shipped file -> path in the tree\ncodec.c -> drv/codec.c\n",
+            "kernel-port/project/patches/series": "codec.c.patch\n",
+            "kernel-port/project/patches/codec.c.patch": d}
+
+
 def build(root):
     """Write the exam tree under root (which must be empty or absent)."""
     rng = random.Random(20260929)
@@ -80,6 +110,7 @@ def build(root):
                                           + MISSING_FROM_MANIFEST)) + "\n",
         "README.md": "# gorilla-app\n\nA small app used by fieldkit exam.\n",
     }
+    files.update(_kport_files())
     for i in range(1, 16):
         files[f"src/plugins/plugin_{i:02d}.py"] = (f'"""Plugin {i}."""\n\n\ndef run_{i}(ctx):\n'
                                                    f"    return ctx.get('value_{i}', {i})\n")

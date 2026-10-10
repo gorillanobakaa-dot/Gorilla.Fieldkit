@@ -65,3 +65,19 @@ def test_unverified_stage_is_not_done(tmp_path):
     _pl(tmp_path, stages).run()
     d = nxt.decide(_pl(tmp_path, stages))
     assert d["kind"] == "DO" and "nothing proved" in d["why"]
+
+
+def test_the_options_given_are_in_every_command(tmp_path):
+    """2026-10-10: asked with --var version=7.2.9, next said `--only fetch` alone; a model copying it would have run
+    the pipeline's default version. The options go into DO and into every choice."""
+    stages = [{"id": "fetch", "run": {"cmd": _write(tmp_path / "f")}, "verify": [{"files_exist": ["{out}/f"]}]}]
+    p = Pipeline({"name": "k", "vars": {"out": str(tmp_path), "version": "7.1.2"}, "stages": stages},
+                 state_dir=tmp_path / "st", overrides={"version": "7.2.9", "mirror": "https://example.org/x y"})
+    d = nxt.decide(p)
+    assert d["command"] == "fieldkit pipeline run k --var version=7.2.9 'mirror=https://example.org/x y' --only fetch"
+    from fieldkit.cli import build_parser
+    import shlex
+    a = build_parser().parse_args(shlex.split(d["command"])[1:])
+    assert a.var == ["version=7.2.9", "mirror=https://example.org/x y"] and a.only == ["fetch"]
+    assert nxt.lines(d)[-1] == ("NEXT: run that command, then ask again: "
+                                "fieldkit next k --var version=7.2.9 'mirror=https://example.org/x y'")

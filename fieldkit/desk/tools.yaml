@@ -295,3 +295,12 @@ tools:
   platforms: [linux]
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_speaker_loudness.py"]
+
+- id: fieldkit-audio
+  title: Linux sound chain - every stage the sound passes through, what is done twice, and the fix (read-only)
+  harness: fieldkit
+  entry: [python, -m, fieldkit, audio]
+  path: ${FIELDKIT}/fieldkit/audio
+  platforms: [linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_audio.py"]
