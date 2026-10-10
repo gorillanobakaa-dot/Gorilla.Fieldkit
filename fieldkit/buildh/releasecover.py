@@ -56,6 +56,11 @@ def check(page_text, register, previous_body, since):
                              f"{len(want)} decision(s) since {since}, all named: {', '.join(i for i, _ in want) or 'none'}"})
     rows.append({"check": "release page: fits GitHub's limit", "ok": len(page_text) <= LIMIT,
                  "evidence": f"{len(page_text)} of {LIMIT} characters"})
+    # every release page tells how long and how hard the leak test was, scene by scene (owner 2026-10-10)
+    from ..leakgate import summary as lsum
+    ok = lsum.HEADING in page_text
+    rows.append({"check": "release page: carries the leak test scene by scene", "ok": ok,
+                 "evidence": "present" if ok else f"no '{lsum.HEADING}' section: build-harness leakgate-summary <task> out=<file>"})
     if any(i == "D-157-40" for i, _ in want):
         ok = HIDDEN_HEADING in page_text
         rows.append({"check": "release page: carries the hidden pages, on the page (D-157-40)", "ok": ok,

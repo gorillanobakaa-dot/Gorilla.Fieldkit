@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from fieldkit.buildh import releasecover as rc, hiddendocs as hd
+from fieldkit.leakgate.summary import HEADING as LG
 
 
 def _register(tmp_path):
@@ -35,7 +36,7 @@ def test_a_page_that_misses_a_decision_or_the_hidden_pages_fails(tmp_path):
     assert not rows["release page: every decision since the last release is on it"]["ok"]
     assert "D-157-40" in rows["release page: every decision since the last release is on it"]["evidence"]
     assert not rows["release page: carries the hidden pages, on the page (D-157-40)"]["ok"]
-    good = "D-157-34 D-157-40\n" + rc.HIDDEN_HEADING + "\n"
+    good = "D-157-34 D-157-40\n" + rc.HIDDEN_HEADING + "\n" + LG + "\n"
     assert all(r["ok"] for r in rc.check(good, reg, "D-157-33", "2026-10-04"))
     big = good + "x" * rc.LIMIT
     assert not {r["check"]: r for r in rc.check(big, reg, "D-157-33", "2026-10-04")}["release page: fits GitHub's limit"]["ok"]
@@ -44,7 +45,7 @@ def test_a_page_that_misses_a_decision_or_the_hidden_pages_fails(tmp_path):
 def test_run_reads_the_previous_release_with_gh_and_fails_closed(tmp_path):
     owner = _register(tmp_path)
     page = tmp_path / "PAGE.md"
-    page.write_text("D-157-34 D-157-40\n" + rc.HIDDEN_HEADING, encoding="utf-8")
+    page.write_text("D-157-34 D-157-40\n" + rc.HIDDEN_HEADING + "\n" + LG, encoding="utf-8")
 
     class R:
         returncode, stderr = 0, ""

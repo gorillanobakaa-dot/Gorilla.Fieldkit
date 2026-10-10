@@ -672,6 +672,28 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "leakgate-summary":
+        # leakgate-summary TASK [log=<launcher log>] [out=<file.md>]: the gate's run scene by scene, in plain words,
+        # for the release page (leakgate/summary.py); default: the newest launcher run of this task
+        from ..leakgate import summary as lsum
+        from ..core import settings as _st
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        logs = sorted((_st.ROOT / "state" / "leakgate-launcher").glob(f"{tid}-*.log"))
+        log = Path(opts["log"]) if opts.get("log") else (logs[-1] if logs else None)
+        if not log or not log.is_file():
+            raise task.Refused("leakgate-summary: no leak-gate launcher log for this task")
+        res = log.with_suffix(".result.json")
+        r = lsum.run(log, res if res.is_file() else None, opts.get("build"))
+        if opts.get("out"):
+            Path(opts["out"]).write_text(r["markdown"], encoding="utf-8", newline="\n")
+            print(f"  written: {opts['out']}")
+        else:
+            print(r["markdown"])
+        if r["missing"]:
+            print(f"LEAK-GATE SUMMARY NOT OK: scene(s) without a plain-words line: {r['missing']} (leakgate/summary.py PLAIN)")
+            return 3
+        print(f"LEAK-GATE SUMMARY OK: {len(r['scenes'])} scenes from {log.name}")
+        return 0
     if act == "stops":
         # stops TASK [since=YYYY-MM-DD]: every window run that did not pass, classified - the browser, the check or the
         # machine - and each check's false alarms (stops.py)
