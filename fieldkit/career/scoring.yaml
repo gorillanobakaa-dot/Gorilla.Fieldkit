@@ -1,0 +1,10 @@
+# How `fieldkit jobs` scores a vacancy against the candidate (0-100), as data. The candidate's own rules are in
+# profile.yaml (salary_floor, locations, exclude_title_patterns, cv_variants.*.keywords, shortlist_min_score).
+#
+# For every wrong ranking: add the real title and pay as a test in tests/test_career.py first, then change a rule
+# here or in scoring.py, then fieldkit jobs rescore.
+relevance: {title_hit: 8, title_max: 32, text_hit: 2, text_max: 13, pattern_bonus: 10, max: 45}
+location: {match: 20, remote: 20}                                                         # up to 20
+pay: {verified: 25, stated: 18, estimate: 10, unknown: 8, below: 0}                       # up to 25
+fit: {base: 10, years_short: -5, clearance_missing: -3, background: -2}                   # up to 10
+shortlist_min_score: 50

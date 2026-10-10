@@ -1,0 +1,64 @@
+# What `fieldkit cv check` looks for, as data. Change this file, not the code.
+#
+# Born 2026-10-10 from the owner's "CV si cautare joburi" brief, then made general the same day: these rules hold
+# for any UK CV; what one trade looks for (a driver's licence categories, a security officer's SIA badge ...) is a
+# file in trades/. Two runs on the same file give the same findings. The AI still judges the wording; these rules
+# are what it must not miss. Every pattern is a regular expression, case-insensitive.
+#
+# severity: high (a UK employer may stop reading) | medium (weakens the CV) | low (polish)
+
+# sections: name -> every heading that counts as it (English and Romanian)
+sections:
+  contact:    {required: true,  headings: ["contact", "contact details", "date de contact", "personal details", "date personale"]}
+  profile:    {required: true,  headings: ["profile", "personal profile", "professional profile", "summary", "professional summary", "about me", "profil", "profil profesional", "despre mine", "rezumat"]}
+  experience: {required: true,  headings: ["experience", "work experience", "employment history", "employment", "career history", "experiență", "experienta", "experiență profesională", "experienta profesionala"]}
+  licences:   {required: false, headings: ["licences", "licenses", "licences and certificates", "licences & certifications", "driving licence", "qualifications", "certifications", "certificates", "permise", "permis", "permise și certificări", "permise si certificari", "certificări", "certificari", "calificări", "calificari"]}
+  skills:     {required: true,  headings: ["skills", "key skills", "core skills", "competences", "competențe", "competente", "abilități", "abilitati", "aptitudini"]}
+  languages:  {required: true,  headings: ["languages", "language skills", "limbi străine", "limbi straine", "limbi"]}
+  education:  {required: false, headings: ["education", "education and training", "educație", "educatie", "studii", "formare"]}
+
+contact:
+  email: '[\w.+-]+@[\w-]+\.[\w.-]+'
+  phone: '(\+44\s?7\d{3}|\b07\d{3}|\+40\s?7\d{2}|\b07\d{2})[\s-]?\d{3}[\s-]?\d{3,4}'
+
+# a UK CV carries neither (Equality Act 2010: age and looks are not grounds for hiring)
+uk_forbidden:
+  - {id: date-of-birth, severity: high, pattern: '(date of birth|\bD\.?O\.?B\b|born on|data na[sș]terii|n[aă]scut(a)? (la|în|in)\b)',
+     message: "Date of birth: a UK CV leaves it out (age discrimination law); remove it."}
+  - {id: marital-status, severity: medium, pattern: '(marital status|stare civil[aă]|c[aă]s[aă]torit|necăsătorit|single\b|married\b)',
+     message: "Marital status: a UK CV leaves it out."}
+  - {id: nationality-id, severity: low, pattern: '(\bCNP\b|national insurance number|\bNI number\b|passport no)',
+     message: "ID numbers (CNP, NI number, passport): never on a CV; give them only after an offer."}
+
+max_pages: 2
+
+# phrases that say nothing a recruiter can check; replace each with a fact
+vague:
+  - "hard[- ]?working"
+  - "team player"
+  - "good communication skills"
+  - "responsible for"
+  - "various tasks"
+  - "etc\\.?"
+  - "and so on"
+  - "harnic"
+  - "muncitor"
+  - "comunicativ"
+  - "responsabil cu"
+  - "diverse sarcini"
+  - "și altele"
+  - "si altele"
+
+
+# facts any CV is stronger with; each missing one is a finding, never invented
+checks:
+  - {id: years, pattern: '(\b\d{1,2}\+?\s*(years|yrs|ani)\b)', message: "The years of experience are not stated in figures (e.g. '7 years').", severity: medium}
+  - {id: results, pattern: '(\d+\s*%|£\s?\d|\b\d{2,}\s*(deliveries|customers|cases|clients|staff|people|orders|livr[aă]ri|clien[tț]i))', message: "No result in figures (how many, how much, how often), if there are true ones to give.", severity: low}
+
+# the questions to ask when the CV does not answer them (owner's brief, ETAPA 1.4); a trade adds its own
+questions:
+  roles:   {en: "Which jobs do you want (titles, or the kind of work)?", ro: "Ce joburi vrei (titluri sau tipul de muncă)?"}
+  other:   {en: "What else can you do besides your main job?", ro: "Ce alte lucruri știi să faci în afară de meseria de bază?"}
+  where:   {en: "Where do you want to work (town or area, UK or abroad) and which hours do you prefer?", ro: "Unde vrei să lucrezi (oraș / zonă, Anglia sau alte țări) și ce program preferi?"}
+  pay:     {en: "What is the lowest pay you would accept (per year or per hour)?", ro: "Care este salariul minim pe care l-ai accepta (pe an sau pe oră)?"}
+  right:   {en: "Do you have the right to work in the UK (settled or pre-settled status, visa)?", ro: "Ai drept de muncă în Marea Britanie (settled / pre-settled status, viză)?"}

@@ -116,6 +116,10 @@ groups:
     title: The Linux sound chain, read-only (each stage, what is done twice, the exact fix)
     sources: ["audio/*.py"]
 
+  - name: career
+    title: A CV and a UK job hunt for one candidate (fixed rules, verified facts only, never submits)
+    sources: ["career/*.py"]
+
   - name: netbench
     title: Network benches B1-B5 (bytes, load time, throughput, HTTP/3 buffers, RAM, keepalive) through an emulated link, local servers only
     sources: ["netbench/*.py"]

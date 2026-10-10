@@ -1,0 +1,72 @@
+# Fixed wording for `fieldkit cv render` and `fieldkit cv letter`, English and Romanian. Data, not code.
+#
+# The CV layout is UK style: no photo, no date of birth, newest job first, at most two pages.
+# A letter template slot in {braces} must be filled; `letter` refuses to write a letter with a slot left over.
+
+labels:
+  en:
+    profile: Profile
+    experience: Experience
+    licences: Licences and certificates
+    skills: Skills
+    languages: Languages
+    education: Education and training
+    other: Other
+    present: Present
+    category: Licence category
+    months: [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec]
+  ro:
+    profile: Profil
+    experience: Experiență profesională
+    licences: Permise și certificări
+    skills: Competențe
+    languages: Limbi străine
+    education: Educație și formare
+    other: Altele
+    present: prezent
+    category: Permis categoria
+    months: [ian., feb., mar., apr., mai, iun., iul., aug., sept., oct., nov., dec.]
+
+# the only sentences of a cover letter that do not come from the profile; {title} and {employer} are filled in
+letter:
+  en:
+    greeting: "Dear Hiring Manager,"
+    opening: "I am applying for the {title} role at {employer}."
+    closing: "I would welcome the chance to discuss the role, and I can attend an interview at your convenience."
+    signoff: "Yours sincerely,"
+  ro:
+    greeting: "Stimată doamnă / Stimate domn,"
+    opening: "Vă scriu pentru postul de {title} la {employer}."
+    closing: "Mi-ar face plăcere să discutăm despre acest post și pot veni la un interviu oricând vă este convenabil."
+    signoff: "Cu stimă,"
+
+# UK job titles name classes, not categories
+licence_words:
+  "class 1": C+E
+  "class 2": C
+  "cat c\\+e": C+E
+  "cat ce": C+E
+  "cat c\\b": C
+  "c\\+e": C+E
+  "7\\.5 ?t": C1
+  "c1\\b": C1
+  "\\bhgv\\b": C
+  "\\blgv\\b": C
+  "\\bpcv\\b": D
+  "bus driver": D
+  "coach driver": D
+  "van driver": B
+  "multi[- ]drop": B
+# holding the key also covers the values (UK and EU rules: C+E needs C, C needs B, ...)
+covers:
+  C+E: [C+E, C, C1, B]
+  C: [C, C1, B]
+  C1+E: [C1+E, C1, B]
+  C1: [C1, B]
+  D+E: [D+E, D, D1, B]
+  D: [D, D1, B]
+  D1: [D1, B]
+  B+E: [B+E, B]
+  B: [B]
+# hours a year, to compare an hourly rate with an annual salary
+hours_year: 2080
