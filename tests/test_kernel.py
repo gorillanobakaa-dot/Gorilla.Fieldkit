@@ -228,3 +228,18 @@ def test_fetch_from_kernel_org_checks_the_tarball_and_records_it(tmp_path):
     assert kernel.verify_fetch(ctx)["ok"]
     bad = kernel.stage_fetch(_fetch_ctx(tmp_path / "b"), opener=opener(f"{'0' * 64}  linux-7.9.9.tar.xz\n"))
     assert not bad["ok"] and "sha256 mismatch" in bad["detail"]
+
+
+def test_verify_patched_needs_every_registry_file_to_be_the_shipped_copy(tmp_path):
+    from types import SimpleNamespace
+    proj, src = tmp_path / "proj", tmp_path / "linux"
+    (proj).mkdir()
+    (proj / "PATCHED_FILES_PATH_REGISTRY.txt").write_text("# map\nreg.c -> net/wireless/reg.c\n", encoding="utf-8")
+    (proj / "reg.c").write_bytes(b"patched\n")
+    (src / "net/wireless").mkdir(parents=True)
+    (src / "net/wireless/reg.c").write_bytes(b"pristine\n")
+    ctx = SimpleNamespace(vars={"src": str(src), "project": str(proj)})
+    r = kernel.verify_patched(ctx)
+    assert not r["ok"] and "0/1" in r["detail"] and "reg.c" in r["detail"]
+    (src / "net/wireless/reg.c").write_bytes(b"patched\n")
+    assert kernel.verify_patched(ctx)["ok"]

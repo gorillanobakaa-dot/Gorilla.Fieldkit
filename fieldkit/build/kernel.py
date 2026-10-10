@@ -319,6 +319,19 @@ def stage_config(ctx, base_config=None, fragment=None, injector=None):
                        f"{len(missing)} option(s) missing after olddefconfig: config change-set not present")}
 
 
+def verify_patched(ctx):
+    """After the patches stage: every file the project's registry names is, in the tree, byte for byte the project's
+    shipped copy (2026-10-10: the stage had no check and ran "unverified")."""
+    from . import kmigrate
+    src, project = Path(_v(ctx, "src")), Path(_v(ctx, "project"))
+    regs = kmigrate.registry(project)
+    differ = [name for name, dest in regs
+              if not (src / dest).is_file() or (src / dest).read_bytes() != (project / name).read_bytes()]
+    return {"ok": bool(regs) and not differ,
+            "detail": f"{len(regs) - len(differ)}/{len(regs)} registry files in the tree are the shipped copies"
+                      + (f"; differ: {differ[:5]}" if differ else "")}
+
+
 def verify_config(ctx, fragment=None, injector=None):
     flags = {}
     if fragment:

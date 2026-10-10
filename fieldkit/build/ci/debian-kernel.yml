@@ -1,0 +1,106 @@
+# The debian-kernel project's build, release and release check, run BY Gorilla Fieldkit on a GitHub runner.
+#
+# This file is the master copy. The kernel project's .github/workflows/build-kernel.yml is a copy of it: change it
+# here, test it here (tests/test_ci_templates.py), then copy it. Born 2026-10-10, replacing two one-off workflows
+# written during the 7.2.9 migration: every step below is a Fieldkit command or the project's own script, so the
+# runner does exactly what the pipeline does on the maintainer's machine.
+#
+# pull_request: build and check only. push to main / Run workflow: also publish a pre-release and prove it.
+name: Gorilla Unleashed kernel (built and checked by Gorilla Fieldkit)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: "Kernel version to build"
+        required: false
+        default: "7.2.9"
+
+permissions:
+  contents: write
+
+env:
+  KVER: ${{ github.event.inputs.kernel_version || '7.2.9' }}
+  # the Fieldkit branch or tag to run; main once the Linux-side work is merged there
+  FIELDKIT_REF: g/admiring-heisenberg-s3fczd
+  KWORK: ${{ github.workspace }}/../kernel-work
+
+jobs:
+  kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: The kernel project
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gorilla Fieldkit
+        uses: actions/checkout@v4
+        with:
+          repository: gorillanobakaa-dot/Gorilla.Fieldkit
+          ref: ${{ env.FIELDKIT_REF }}
+          path: .fieldkit
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: What this machine needs (fieldkit doctor), then install it
+        run: |
+          (cd .fieldkit && python -m fieldkit.core.doctor --for debian-kernel) || true   # before install: stdlib only
+          python -m pip install -e ".fieldkit[test]"
+          sudo apt-get update
+          sudo apt-get install -y $(python -c "from fieldkit.build import kernel; print(' '.join(kernel.BUILD_DEPS))")
+          printf '{"kernel": {"workdir": "%s", "project": "%s"}}\n' "$KWORK" "$GITHUB_WORKSPACE" > .fieldkit/fieldkit.local.json
+          fieldkit doctor --for debian-kernel
+
+      - name: The pipeline (kernel.org source checked against its sha256, patches, config, build, .deb and .rpm)
+        run: |
+          export TARBALL_PATH="$KWORK/linux-$KVER.tar.xz"
+          fieldkit pipeline run debian-kernel --var version="$KVER"
+
+      - name: The project's own proof against the official tarball
+        run: TARBALL_PATH="$KWORK/linux-$KVER.tar.xz" ./verify_patches.sh
+
+      - name: The release page, with the checksums of the packages this run built
+        run: |
+          OUT="$KWORK/debs-$KVER"
+          cd "$OUT"
+          rm -f linux-libc-dev_*.deb kernel-headers-*.rpm      # system headers: never to be installed from here
+          sha256sum *.deb *.rpm > SHA256SUMS
+          cd "$GITHUB_WORKSPACE"
+          { echo "## Package checksums"; echo; echo "Built by this run from kernel.org's linux-$KVER.tar.xz."; echo;
+            echo '```'; cat "$OUT/SHA256SUMS"; echo '```'; } > "$RUNNER_TEMP/checksums.md"
+          D="docs/release-$KVER"
+          fieldkit release-page compose --opening "$D/opening.md" --layman "$D/layman.md" \
+            --developer "$D/developer.md" --extra "$RUNNER_TEMP/checksums.md" --out "$RUNNER_TEMP/release-page.md"
+          fieldkit release-page check "$RUNNER_TEMP/release-page.md" --layman "$D/layman.md" --developer "$D/developer.md"
+          fieldkit docs release --manifest "$D/release-docs.yaml"
+
+      - name: Publish a pre-release (not boot-tested)
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ env.KVER }}-unleashed-${{ github.run_number }}"
+          target_commitish: ${{ github.sha }}
+          name: "Linux ${{ env.KVER }} Unleashed, build ${{ github.run_number }} (pre-release: not yet boot-tested)"
+          body_path: ${{ runner.temp }}/release-page.md
+          prerelease: true
+          files: |
+            ${{ env.KWORK }}/debs-${{ env.KVER }}/*.deb
+            ${{ env.KWORK }}/debs-${{ env.KVER }}/*.rpm
+            ${{ env.KWORK }}/debs-${{ env.KVER }}/SHA256SUMS
+
+      - name: The release gate (published == tested, privacy, the project's tests on the tag)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: "v${{ env.KVER }}-unleashed-${{ github.run_number }}"
+        run: |
+          git fetch --tags --force
+          export KOUT="$KWORK/debs-$KVER" TARBALL_PATH="$KWORK/linux-$KVER.tar.xz"
+          fieldkit release check .fieldkit/releases/debian-kernel.yaml

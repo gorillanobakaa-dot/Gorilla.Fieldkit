@@ -194,3 +194,46 @@ def test_privacy_scans_what_is_published_not_what_the_tests_wrote(tmp_path, repo
               "pathlib.Path('state/run.log').write_text('/home/' + 'somebody/' + 'x')"]
     r = release.check(_spec(tmp_path, repo, tests=[writer]))
     assert next(g for g in r["gates"] if g["gate"] == "privacy")["ok"], release.lines(r)
+
+
+def test_a_release_asset_is_compared_with_the_tested_file_found_by_pattern(tmp_path, repo, github, monkeypatch):
+    """2026-10-10: a CI kernel build's file name carries its build time, so the spec names the tested file by pattern;
+    it must match exactly one file, and the published asset must have the same bytes."""
+    out = tmp_path / "debs"
+    out.mkdir()
+    (out / "linux-image-7.2.9-x-26.10.10--14.40_amd64.deb").write_bytes(b"kernel")
+    published = {"bytes": b"kernel"}
+
+    def download(repo_, tag, pattern, dest):
+        (dest / "linux-image-7.2.9-x-26.10.10--14.40_amd64.deb").write_bytes(published["bytes"])
+        return 0
+    monkeypatch.setattr(release, "download_asset", download)
+    spec = _spec(tmp_path, repo, artifacts=[{"asset": "linux-image-*.deb", "local": str(out / "linux-image-*.deb")}])
+    gates = {g["gate"]: g for g in release.check(spec)["gates"]}
+    assert gates["asset linux-image-7.2.9-x-26.10.10--14.40_amd64.deb == tested"]["ok"]
+    published["bytes"] = b"another kernel"
+    gates = {g["gate"]: g for g in release.check(spec)["gates"]}
+    assert not gates["asset linux-image-7.2.9-x-26.10.10--14.40_amd64.deb == tested"]["ok"]
+    (out / "linux-image-second_amd64.deb").write_bytes(b"x")                    # two matches: which was tested?
+    gates = {g["gate"]: g for g in release.check(spec)["gates"]}
+    assert not gates["asset linux-image-*.deb == tested"]["ok"] and "2 match(es)" in gates["asset linux-image-*.deb == tested"]["detail"]
+
+
+def test_upstream_author_addresses_are_set_aside_only_in_named_files(tmp_path, repo, github):
+    """2026-10-10: kernel sources a patch set ships carry their authors' public addresses. Only e-mail findings in the
+    files the spec names are set aside; the same address anywhere else still blocks, and so does a token."""
+    addr = "jdoe@uni-somewhere" + ".net"          # assembled, so this test file itself carries no address
+    (repo / "tcp.c").write_text(f"/* Authors: J. Doe <{addr}> */\n")
+    (repo / "notes.md").write_text(f"ask me at {addr}\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "v2")
+    _git(repo, "tag", "v2")
+    gates = {g["gate"]: g for g in release.check(_spec(tmp_path, repo, tag="v2", privacy_upstream=["tcp.c"]))["gates"]}
+    assert not gates["privacy"]["ok"] and "1 finding(s) in 1 file(s)" in gates["privacy"]["detail"]
+    _git(repo, "rm", "-q", "notes.md")
+    _git(repo, "commit", "-q", "-m", "v3")
+    _git(repo, "tag", "v3")
+    gates = {g["gate"]: g for g in release.check(_spec(tmp_path, repo, tag="v3", privacy_upstream=["tcp.c"]))["gates"]}
+    assert gates["privacy"]["ok"] and "set aside" in gates["privacy"]["detail"]
+    gates = {g["gate"]: g for g in release.check(_spec(tmp_path, repo, tag="v3"))["gates"]}
+    assert not gates["privacy"]["ok"]                                    # not named: still blocks

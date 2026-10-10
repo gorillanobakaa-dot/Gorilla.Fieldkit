@@ -35,11 +35,15 @@ stages:
   - id: patches-check
     platforms: [linux]
     run: {cmd: [python3, "{project}/make_patches.py", "--check"], cwd: "{project}"}
+    verify:
+      - {output_contains: "no drift"}
     triage: debian-kernel
 
   - id: patches
     platforms: [linux]
     run: {cmd: [python3, "{project}/universal_freedom_installer.py", "{src}"], cwd: "{project}"}
+    verify:
+      - {python: {target: "fieldkit.build.kernel:verify_patched"}}
     triage: debian-kernel
 
   - id: config
