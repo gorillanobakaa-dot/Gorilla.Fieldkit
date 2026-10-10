@@ -74,4 +74,6 @@ stages:
     platforms: [linux]
     run: {python: "fieldkit.build.kernel:stage_collect"}
     verify:
-      - {files_exist: ["{output}/linux-image-*.deb"]}
+      # both package kinds: with the .deb alone, a collect that ran before the rpm stage stayed "up-to-date" and the
+      # RPMs never reached the output (2026-10-10)
+      - {files_exist: ["{output}/linux-image-*.deb", "{output}/kernel-*.rpm"]}
