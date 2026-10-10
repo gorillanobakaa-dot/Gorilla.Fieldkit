@@ -18,6 +18,7 @@ Every command accepts `--json`.
 fieldkit host
 fieldkit doctor [--for PIPELINE]                  what this machine still needs, and the line that installs it
 fieldkit where                                   the Fieldkit folder: in a document, cd (fieldkit where), never a <blank>
+fieldkit icons cache [--apply] | frames | check-ico | build | install-fix-button   sharp desktop icons (any computer)
 fieldkit audio                                   Linux sound chain: each stage, what is done twice, the fix (read-only)
 fieldkit backup [--to FOLDER]                    a dated, verified zip of the harness (the folder is never guessed)
 fieldkit cv init|import|check|render             a candidate's CV: fixed rules, the questions to ask, UK CVs in EN/RO
@@ -101,6 +102,7 @@ fieldkit build-harness decide ID OPTION --words "..."       the maintainer only,
 
 ```
 fieldkit/audio    the Linux sound chain (read-only) + signatures.yaml
+fieldkit/icons    IconKit: icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons
 fieldkit/career   CV and job hunt: rules/trades/scoring/advert as YAML; personal data only in local/career
 fieldkit/core     host, settings, proc (runner), privacy, pipeline engine, checks, next, snapshot
 fieldkit/office   read, create, check, scrub, deliver

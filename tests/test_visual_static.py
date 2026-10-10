@@ -110,11 +110,8 @@ def test_an_ico_without_the_windows_ladder_fails_and_the_full_ladder_passes(tmp_
 
 
 def test_iconkit_and_this_module_agree_on_the_dense_ladder():
-    p = Path.home() / "Documents" / "Scripts" / "IconKit" / "iconkit.py"
-    if not p.is_file():
-        pytest.skip("IconKit is not on this machine")
-    m = re.search(r"DEFAULT_SIZES = \(([^)]*)\)", p.read_text(encoding="utf-8"))
-    assert tuple(int(x) for x in m.group(1).split(",") if x.strip()) == rasters.ICO_RECOMMENDED
+    from fieldkit.icons import iconkit                     # in Fieldkit since 2026-10-10: always checked
+    assert iconkit.DEFAULT_SIZES == rasters.ICO_RECOMMENDED
 
 
 def test_a_size_slot_must_hold_its_size_and_one_picture_must_not_fill_several_sizes(master):

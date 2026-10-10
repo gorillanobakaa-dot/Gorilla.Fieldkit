@@ -244,7 +244,7 @@ def clear_startup_caches(say=print):
     return cleared
 
 
-ICONKIT = Path.home() / "Documents" / "Scripts" / "IconKit" / "iconkit.py"
+ICONKIT = Path(__file__).resolve().parents[1] / "icons" / "iconkit.py"     # in Fieldkit since 2026-10-10 (fieldkit icons)
 
 
 def desktop_icons_row(say=print, apply=True):

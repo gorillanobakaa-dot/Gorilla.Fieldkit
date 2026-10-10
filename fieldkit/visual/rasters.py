@@ -17,9 +17,8 @@ between TINTED and FOREIGN, like pbmode.ico) are compared on histogram-equalised
 tint's contrast change, and on the outline (alpha); artwork further away needs its own master (allowlist file,
 `masters:`), else UNVERIFIABLE.
 
-The .ico frame reader mirrors IconKit (Documents/Scripts/IconKit/iconkit.py, `_frames_from_ico`, `check_ico`):
-mirrored, not imported, because IconKit is a loose script outside any package. ICO_RECOMMENDED is iconkit's
-DEFAULT_SIZES; a test checks the two agree whenever iconkit.py is on this machine.
+The .ico frame reader mirrors IconKit (fieldkit/icons/iconkit.py, `_frames_from_ico`, `check_ico`; a loose script
+until 2026-10-10, now `fieldkit icons`). ICO_RECOMMENDED is iconkit's DEFAULT_SIZES; a test checks the two agree.
 """
 import base64
 import hashlib

@@ -1,0 +1,8 @@
+{
+ "name": "myicon",
+ "about": "Example profile for fieldkit icons build. Put a square picture (1024 px or larger) beside this file as my-picture.png, or give its full path. crop is [left, top, right, bottom] in that picture. cap_polygon (the part to recolour) and subject_polygon (kept in front of a dark background with --dark) are optional outlines, in picture pixels. One icon is made per colour.",
+ "source": "my-picture.png",
+ "crop": [0, 0, 1024, 1024],
+ "text_lum": 0.55,
+ "colours": {"blue": "#2D6CDF", "green": "#12B35A"}
+}
