@@ -1,0 +1,14 @@
+# Portugal.
+id: pt
+country: Portugal
+work_language: pt
+spelling: pt
+page: A4
+margins_cm: 2.5
+date_format: "{day} de {month} de {year}"    # 28 de setembro de 2026
+quotes: ["«", "»"]
+decimal: ","
+styles: [apa7, iso690]                        # ISO 690 is NP 405 in Portugal
+default_style: apa7
+plagiarism_tool: Turnitin / Ouriginal
+avoid_long_dashes: false

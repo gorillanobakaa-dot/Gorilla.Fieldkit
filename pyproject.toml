@@ -16,6 +16,7 @@ dependencies = [
   "python-pptx>=1.0",
   "reportlab>=4",
   "pypdfium2>=4",
+  "pdfplumber>=0.10",      # study materials, page by page (academic/read_sources.py)
   "fluent.syntax>=0.19",   # Mozilla's Fluent parser: .ftl files of a port must parse (buildh/fluent.py)
   # netbench (already imported by it; undeclared, so CI could not even collect its tests since 2026-10-04):
   "psutil>=5.9",           # per-process CPU and memory of the browser under test (netbench/browser.py)
@@ -31,6 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8"]
 readers = ["markitdown", "docling"]
+ocr = ["pytesseract", "pdf2image"]   # scanned study materials (academic/read_sources.py; needs Tesseract)
 
 [project.scripts]
 fieldkit = "fieldkit.cli:main"
@@ -39,7 +41,7 @@ fieldkit = "fieldkit.cli:main"
 include = ["fieldkit*"]
 
 [tool.setuptools.package-data]
-fieldkit = ["build/signatures/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json"]
+fieldkit = ["build/signatures/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "local/tests"]

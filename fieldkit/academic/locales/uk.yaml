@@ -1,0 +1,15 @@
+# United Kingdom. Modelled on the academic harness built for one UK student (Harvard Cite Them
+# Right, British English, A4): the original stays his and unchanged; this profile is what other UK students start from.
+id: uk
+country: United Kingdom
+work_language: en
+spelling: en-GB              # British spelling expected; American forms are flagged with the British form beside them
+page: A4
+margins_cm: 2.54
+date_format: "{day} {month} {year}"          # 28 September 2026
+quotes: ["‘", "’"]                  # Cite Them Right uses single quotation marks
+decimal: "."
+styles: [harvard-ctr, apa7]       # Vancouver (numeric) comes in phase 2
+default_style: harvard-ctr
+plagiarism_tool: Turnitin
+avoid_long_dashes: true      # many UK markers penalise em/en dashes in academic prose

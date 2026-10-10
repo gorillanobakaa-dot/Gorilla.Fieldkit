@@ -1,0 +1,14 @@
+# United States.
+id: us
+country: United States
+work_language: en
+spelling: en-US              # American spelling expected; British forms are flagged
+page: Letter
+margins_cm: 2.54             # 1 inch
+date_format: "{month} {day}, {year}"         # September 28, 2026
+quotes: ["“", "”"]
+decimal: "."
+styles: [apa7, harvard-ctr, iso690]
+default_style: apa7
+plagiarism_tool: Turnitin
+avoid_long_dashes: false     # the em dash is normal in American academic prose

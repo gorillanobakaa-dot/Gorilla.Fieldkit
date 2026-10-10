@@ -1,0 +1,69 @@
+# What each language looks like to the harness, as data. Used by the language check (is a sentence in the language
+# the work must be written in?), the reference check (the words for "and", "no date", "page", the heading of the
+# reference list) and dates (month names). Add a language by adding a block.
+#
+# distinctive: common words of that language that are NOT also common words of the others; a sentence with two or
+# more of one language's distinctive words (and more than any other language's) is that language. The Romanian list
+# is the one built and tested for a Romanian-speaking student writing in English.
+en:
+  name: English
+  months: [January, February, March, April, May, June, July, August, September, October, November, December]
+  and: ["and", "&"]
+  no_date: ["n.d.", "no date"]
+  page: ["p.", "pp."]
+  headings: [References, Reference list, Bibliography, Works cited]
+  articles: [the, a, an]
+  distinctive: [the, and, which, that, with, from, this, these, those, have, has, been, were, would, should, could,
+                their, there, about, between, through, because, however, therefore, although, while, into, also]
+es:
+  name: Español
+  months: [enero, febrero, marzo, abril, mayo, junio, julio, agosto, septiembre, octubre, noviembre, diciembre]
+  and: ["y", "&"]
+  no_date: ["s.f.", "sin fecha"]
+  page: ["p.", "pp.", "pág.", "págs."]
+  headings: [Referencias, Referencias bibliográficas, Bibliografía]
+  articles: [el, la, los, las, un, una]
+  distinctive: [el, los, las, del, por, que, pero, también, desde, según, estos, estas, sus, muy, más, sin, ser,
+                están, hay, cuando, aunque]
+pt:
+  name: Português
+  months: [janeiro, fevereiro, março, abril, maio, junho, julho, agosto, setembro, outubro, novembro, dezembro]
+  and: ["e", "&"]
+  no_date: ["s.d.", "sem data"]
+  page: ["p.", "pp.", "pág."]
+  headings: [Referências, Referências bibliográficas, Bibliografia]
+  articles: [o, a, os, as, um, uma]
+  distinctive: [os, dos, não, uma, com, pelo, pela, também, segundo, isso, são, então, ao, aos, nas, nos, mais, muito,
+                foi, seus, pelos, mas]
+it:
+  name: Italiano
+  months: [gennaio, febbraio, marzo, aprile, maggio, giugno, luglio, agosto, settembre, ottobre, novembre, dicembre]
+  and: ["e", "&"]
+  no_date: ["s.d.", "senza data"]
+  page: ["p.", "pp.", "pag.", "pagg."]
+  headings: [Bibliografia, Riferimenti bibliografici, Riferimenti]
+  articles: [il, lo, la, i, gli, le, un, uno, una]
+  distinctive: [il, gli, della, delle, degli, nel, nella, che, non, per, sono, anche, perché, secondo, tra, questo,
+                questa, questi, essere, più, molto, come, dalla, alla, sulla, però, quindi]
+de:
+  name: Deutsch
+  months: [Januar, Februar, März, April, Mai, Juni, Juli, August, September, Oktober, November, Dezember]
+  and: ["und", "u.", "&"]
+  no_date: ["o.J.", "ohne Jahr"]
+  page: ["S.", "p.", "pp."]
+  headings: [Literaturverzeichnis, Literatur, Quellenverzeichnis, Bibliographie, Literaturangaben]
+  articles: [der, die, das, ein, eine]
+  distinctive: [der, die, und, ist, nicht, mit, von, für, auf, sich, auch, eine, einer, werden, wird, sind, dass,
+                nach, durch, bei, über, zwischen, aber, oder, wenn, wie, noch, kann, diese]
+ro:
+  name: Română
+  months: [ianuarie, februarie, martie, aprilie, mai, iunie, iulie, august, septembrie, octombrie, noiembrie, decembrie]
+  and: ["și", "si", "&"]
+  no_date: ["f.a.", "fără an"]
+  page: ["p.", "pp.", "pag."]
+  headings: [Bibliografie, Referințe, Referințe bibliografice, Referinte]
+  articles: []
+  distinctive: [sunt, pentru, acest, aceasta, aceste, acesta, acestea, intr, într, intre, între, despre, foarte,
+                trebuie, poate, fiind, cand, când, deoarece, astfel, dupa, după, fost, doar, daca, dacă, fara, fără,
+                catre, către, asupra, privind, precum, insa, însă, totusi, totuși, fiecare, că, și, decât, unei, unui,
+                lor, sau, pe]

@@ -133,6 +133,7 @@ Guides: [plain language](docs/dual-track/tool-collection/tool-collection_layman.
 | All of that, then a privacy search: is it safe to send? | `fieldkit office deliver FILE` |
 | Check a CV, hear what is missing, and get a UK-style CV in English and Romanian | `fieldkit cv check FILE`, `fieldkit cv render` |
 | Find UK jobs on official job sites, score them, and prepare each application (you press Submit) | `fieldkit jobs run` |
+| A student: when is it due, is every source cited and listed, is it all in the right language, what do I do next | `fieldkit academic next FOLDER` |
 | Back up the whole kit into your backup folder, and prove the copy is good | `fieldkit backup` |
 | Blurry desktop icons: find out why and fix them with one click (Windows, and GTK/KDE on Linux) | `fieldkit icons cache --apply`, `fieldkit icons install-fix-button` |
 
@@ -439,6 +440,7 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | All of the above, safe to send? | `fieldkit office deliver FILE` |
 | A CV against fixed rules (general + trade), the questions to ask; UK CVs from a profile, EN/RO, .docx + .pdf | `fieldkit cv check FILE` / `fieldkit cv render --variant V --lang ro` |
 | UK job hunt: Reed and Adzuna APIs only, scoring, packs, letters of approved sentences only, tracking; never submits | `fieldkit jobs run --top 8` (skill: `fieldkit-career`) |
+| Academic work in 7 countries (uk, us, es, pt, it, de, ro): the deadline and upload date asked, citations <-> references, APA 7 / Harvard / ISO 690 shape, work-language and spelling check, words, plagiarism pre-check, the one next step | `fieldkit academic` (skill: `fieldkit-academic`) |
 | A dated, verified zip of the harness into the backup folder (never guessed) | `fieldkit backup --to FOLDER` |
 | IconKit: why icons are soft (icon cache vs. the file), cache rebuild with backup, .ico frame reader and crisp gates, recoloured icons from one master | `fieldkit icons --help` (skill: `fieldkit-icons`) |
 | Find secrets, home paths, emails, your private words | `fieldkit privacy scan PATH [--git]` |
