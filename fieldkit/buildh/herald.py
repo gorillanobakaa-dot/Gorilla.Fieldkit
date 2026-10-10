@@ -1,7 +1,8 @@
 """The herald, on any platform: speaks up while a long run goes on, so nobody has to watch a window.
 
-    python -m fieldkit.buildh.herald --name "the build run" [--pid PID] [--log FILE] [--every 60]
-    python -m fieldkit.buildh.herald --say "a test"          one sentence, said the way the herald says it
+    fieldkit build-harness herald "a test"                   one sentence, said the way the herald says it
+    fieldkit build-harness herald name="the build run" [pid=PID] [log=FILE] [every=60]
+    python -m fieldkit.buildh.herald ...                     the same, as the run window starts it
 
 The same job as herald.ps1 (2026-10-10), in Python so Linux has it too (2026-10-10, the cloud session brief):
   - on battery, it says so once at 20, 10 and 5 per cent (again after the charger was plugged in and pulled out);

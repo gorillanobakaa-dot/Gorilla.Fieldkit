@@ -62,3 +62,11 @@ def test_the_command_line_says_something_on_this_machine():
     r = subprocess.run([sys.executable, "-m", "fieldkit.buildh.herald", "--say", "test"], capture_output=True, text=True,
                        timeout=120)
     assert r.returncode == 0 and "herald: " in r.stdout
+
+
+def test_the_herald_command_works_from_any_folder(tmp_path):
+    """2026-10-10: the owner was given `python -m fieldkit.buildh.herald` and ran it from C:\\WINDOWS\\system32; a
+    command the harness gives must work from anywhere: `fieldkit build-harness herald "words"`."""
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "herald", "a test"], capture_output=True,
+                       text=True, timeout=120, cwd=str(tmp_path))
+    assert r.returncode == 0 and "herald: " in r.stdout, r.stdout + r.stderr

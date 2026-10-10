@@ -505,6 +505,18 @@ def run(a, emit):
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
                                     f"NEXT: the owner reads the plan and runs: fieldkit build-harness approve {r['task']}")) or 0
+    if act == "herald":
+        # herald --say "words" | herald [name=..] [pid=..] [log=..] [every=..]: the spoken herald (herald.py), from any
+        # folder (2026-10-10: `python -m fieldkit.buildh.herald` was given to the owner and depends on where it runs)
+        from . import herald as _h
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        words = " ".join(x for x in a.args if "=" not in x)
+        if words or "say" in opts:
+            how = _h.say(opts.get("say", words) or "test")
+            print(f"herald: {how}" + ("" if how == "spoken" else " (no offline voice on this machine: install espeak-ng)"))
+            return 0
+        _h.watch(opts.get("name", "the run"), int(opts.get("pid", 0)), opts.get("log") or None, int(opts.get("every", 60)))
+        return 0
     if act == "leakgate-selftest":
         # leakgate-selftest: can the leak gate run on this Linux machine (root, ip, nft, ...)? Changes nothing; needs no build job.
         # Documented as `fieldkit leakgate-linux selftest` since 2026-10-02 but never connected (found 2026-10-10)
