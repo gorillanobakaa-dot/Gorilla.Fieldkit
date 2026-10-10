@@ -284,3 +284,29 @@ def test_a_damaged_vault_is_refused_never_a_fallback(tmp_path):
     f.write_bytes(b"a model was here")
     r = kernel.stage_fetch(_fetch_ctx(tmp_path), vault_base=vb, opener=_unreachable)
     assert not r["ok"] and "damaged, refusing it" in r["detail"] and "vault fetch kernel" in r["detail"]
+
+
+def test_build_env_is_fixed_per_build_and_carries_nothing_of_the_builder(tmp_path, monkeypatch):
+    import datetime as dt
+    monkeypatch.setenv("DEBEMAIL", "someone@their-own-machine")
+    src = tmp_path / "linux"
+    src.mkdir()
+    first = kernel.build_env(src, now=dt.datetime(2026, 10, 10, 15, 10, 43, tzinfo=dt.timezone.utc))
+    again = kernel.build_env(src)                                  # a later stage of the same build
+    assert first == again and first["KBUILD_BUILD_TIMESTAMP"] == "Sat Oct 10 15:10:43 UTC 2026"
+    assert first["KBUILD_BUILD_USER"] == "gorilla" and first["DEBEMAIL"] == "gorilla@fieldkit"
+    assert first["GIT_CONFIG_NOSYSTEM"] == "1" and "_buildhost fieldkit" in first["RPMOPTS"]
+
+
+def test_the_rpm_stage_gives_the_rpm_kernel_the_debs_build_number(tmp_path, monkeypatch):
+    monkeypatch.setattr(kernel.shutil, "which", lambda e: "/usr/bin/rpmbuild")
+    ctx, calls = _rpm_ctx(tmp_path)
+    src = Path(ctx.vars["src"])
+    kernel.build_env(src)                                          # the build stage's stamp: build number 1
+    (src / ".version").write_text("2\n")                          # what earlier packagings left behind
+    seen = {}
+    run = ctx.runner.run
+    ctx.runner.run = lambda cmd, env=None, name=None, **kw: (seen.update(version=(src / ".version").read_text(),
+                                                                          env=env), run(cmd, env, name))[1]
+    assert kernel.stage_rpm(ctx)["ok"]
+    assert seen["version"] == "0\n" and seen["env"]["KBUILD_BUILD_VERSION"] == "1"   # build-version adds one: #1

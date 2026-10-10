@@ -390,7 +390,14 @@ def build_env(src, kcflags="-O3 -pipe", now=None):
         fixed = {"KBUILD_BUILD_TIMESTAMP": when, "KBUILD_BUILD_VERSION": "1",
                  "KBUILD_BUILD_USER": "gorilla", "KBUILD_BUILD_HOST": "fieldkit"}
         stamp.write_text(json.dumps(fixed, indent=1), encoding="utf-8")
-    return {**fixed, "KCFLAGS": kcflags}
+    # Nothing of the person or machine that builds goes into the packages (2026-10-10: the RPM's changelog carried the
+    # builder's git user.name and e-mail, and its build host the machine's hostname; the .deb's maintainer comes from
+    # DEBEMAIL when the person has it set). The packagers read these; each is pinned to the build's stamp.
+    ident = f"{fixed['KBUILD_BUILD_USER']}@{fixed['KBUILD_BUILD_HOST']}"
+    return {**fixed, "KCFLAGS": kcflags,
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",          # mkspec asks git for user.name/email
+            "DEBEMAIL": ident, "DEBFULLNAME": fixed["KBUILD_BUILD_USER"], "EMAIL": ident, "NAME": fixed["KBUILD_BUILD_USER"],
+            "RPMOPTS": f"--define '_buildhost {fixed['KBUILD_BUILD_HOST']}'"}
 
 
 def stage_build(ctx, tags=("gorilla",), jobs=None, kcflags="-O3 -pipe"):
@@ -420,7 +427,11 @@ def stage_rpm(ctx, jobs=None, kcflags="-O3 -pipe"):
         return {"ok": False, "detail": f"the built tree is {release}, not {version}"}
     cmd = ["make", "-C", str(src), f"LOCALVERSION={release[len(version):]}", f"-j{jobs or ctx.host['cpus']}",
            "binrpm-pkg"]
-    r = ctx.runner.run(cmd, env=build_env(src, kcflags), name="binrpm-pkg")   # the build's own stamp: same image
+    env = build_env(src, kcflags)
+    # binrpm-pkg re-links with KBUILD_BUILD_VERSION = .version + 1 (scripts/build-version), overriding the build's
+    # own number: set the counter so the RPM's kernel carries the .deb's number (2026-10-10: #1 vs #3)
+    (src / ".version").write_text(f"{int(env['KBUILD_BUILD_VERSION']) - 1}\n", encoding="ascii")
+    r = ctx.runner.run(cmd, env=env, name="binrpm-pkg")   # the build's own stamp: the same image as the .deb
     after = rel_file.read_text(encoding="utf-8").strip()
     rpms = sorted(p.name for p in (src / "rpmbuild" / "RPMS").rglob("*.rpm"))
     kernel_rpms = [n for n in rpms if n.startswith("kernel-") and release.replace("-", "_") in n]
