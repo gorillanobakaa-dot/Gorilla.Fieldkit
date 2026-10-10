@@ -8,7 +8,7 @@ package step came four minutes after Windows logged the battery at 18 %: very li
 [System.Windows.Forms.SystemInformation]::PowerStatus, and build-run refuses to start a compile on battery.
 Changed the same day by the owner: "Screw the battery warnings ... the gate must work even when the laptop is on
 battery but let the user know": nothing refuses on battery any more; the row says so, and the herald
-(toolbox/herald/herald.ps1, started by every window) speaks at 20, 10 and 5 per cent.
+(fieldkit/buildh/herald.py, started by every window) speaks at 20, 10 and 5 per cent.
 On Linux (2026-10-10) the same answer comes from the kernel's /sys/class/power_supply, read only; herald.py speaks.
 """
 import json

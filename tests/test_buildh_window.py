@@ -111,7 +111,7 @@ def test_the_window_starts_the_herald_on_its_log(tmp_path):
     from fieldkit.buildh import window as w
     log = tmp_path / "x.log"
     s = w.script(["build-run", "firefox-157.0-truth"], log, python="C:/py/python.exe")
-    assert "herald.ps1" in s and "'the build run'" in s and str(log) in s
+    assert "'fieldkit.buildh.herald'" in s and "'the build run'" in s and str(log) in s and "herald.ps1" not in s
     assert w.HERALD.is_file()
 
 

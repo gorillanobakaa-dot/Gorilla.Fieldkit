@@ -4,7 +4,8 @@
     fieldkit build-harness herald name="the build run" [pid=PID] [log=FILE] [every=60]
     python -m fieldkit.buildh.herald ...                     the same, as the run window starts it
 
-The same job as herald.ps1 (2026-10-10), in Python so Linux has it too (2026-10-10, the cloud session brief):
+Born as herald.ps1 (Windows only); since 2026-10-10 this Python herald does the job on both systems (heard on the
+owner's laptop the same day; herald.ps1 removed):
   - on battery, it says so once at 20, 10 and 5 per cent (again after the charger was plugged in and pulled out);
   - when the watched process ends (or, with --log and no --pid, when the log gets its "exit N" line), it says the run
     finished, and with --log whether it passed.

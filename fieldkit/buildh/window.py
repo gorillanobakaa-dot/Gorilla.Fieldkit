@@ -59,7 +59,7 @@ AWAKE_ON = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x800
 AWAKE_OFF = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000000')"    # ES_CONTINUOUS: release
 
 
-HERALD = Path(__file__).parent / "herald.ps1"
+HERALD = Path(__file__).parent / "herald.py"          # one herald for Windows and Linux (2026-10-10)
 
 
 def spoken(args):
@@ -83,8 +83,8 @@ def script(args, log, python=None):
         f"$log = New-Object System.IO.StreamWriter({_ps_quote(log)}, $true, (New-Object System.Text.UTF8Encoding($false)))",
         "$log.AutoFlush = $true",
         # the herald speaks battery warnings and the result, so nobody has to watch this window (toolbox/herald)
-        "Start-Process -WindowStyle Hidden powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass',"
-        f"'-File',{_ps_quote(HERALD)},'-Name',{_ps_quote(spoken(args))},'-Log',{_ps_quote(log)})",
+        f"Start-Process -WindowStyle Hidden -WorkingDirectory {_ps_quote(FK)} {_ps_quote(python)} -ArgumentList "
+        f"@('-m','fieldkit.buildh.herald','--name',{_ps_quote(spoken(args))},'--log',{_ps_quote(log)})",
         AWAKE_TYPE,
         AWAKE_ON,
         f"& {_ps_quote(python)} -m fieldkit build-harness {argv} 2>&1 | ForEach-Object {{ $s = \"$_\"; $log.WriteLine($s); $s }}",
