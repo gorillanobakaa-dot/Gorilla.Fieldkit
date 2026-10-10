@@ -52,7 +52,7 @@ AWAKE_ON = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x800
 AWAKE_OFF = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000000')"    # ES_CONTINUOUS: release
 
 
-HERALD = FK / "toolbox" / "herald" / "herald.ps1"
+HERALD = Path(__file__).parent / "herald.ps1"
 
 
 def spoken(args):
