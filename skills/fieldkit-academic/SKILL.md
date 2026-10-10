@@ -39,6 +39,21 @@ fieldkit academic plagiarism FILE --sources "FOLDER/1 - DROP YOUR STUDY MATERIAL
 fieldkit academic structure FILE --type report
 ```
 
+## Finished files (in the student's layout)
+
+```
+fieldkit academic build DRAFT.md                 Word: the country's page and margins, the style's spacing (APA: double),
+                                                 Student ID + module header, page numbers, references sorted on their page
+fieldkit academic build DRAFT.md --as pptx       slides (key points on the slide, the full text in the speaker notes)
+fieldkit academic build DRAFT.md --as poster     a one-page A1 poster
+fieldkit academic template TYPE [FOLDER]         a Word/PowerPoint template with the type's headings in the work language
+fieldkit academic finish FILE.docx               a file written by hand: header, page numbers, page size, language,
+                                                 author emptied; reports comments and tracked changes (exit 3)
+```
+
+Nothing is overwritten: a second build is "NAME (2).docx". A draft in an assignment folder lands in its
+"4 - HERE IS YOUR WORK" folder. No file carries the student's name.
+
 ## Sources
 
 ```

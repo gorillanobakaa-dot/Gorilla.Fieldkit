@@ -315,3 +315,152 @@ def test_no_personal_or_institution_traces_in_the_module():
             if name.endswith((".py", ".yaml")):
                 text = open(os.path.join(dirpath, name), encoding="utf-8").read().lower()
                 assert not [b for b in banned if b in text], name
+
+
+# -- finished files: Word, PowerPoint, poster, templates ------------------------------
+
+DRAFT = """# Care in change
+
+## 1. Introduction
+
+Care matters (Smith, 2020). Ábalos and Weber (2019) agree.
+
+- first point
+- second point
+
+## 2. Discussion
+
+| Group | Value |
+|---|---|
+| A | 1 |
+
+## References
+
+Smith, J. (2020) Care. London: Publisher.
+Ábalos, M. and Weber, B. (2019) *Nursing today*. Madrid: Editorial.
+"""
+
+
+def _docx_facts(path):
+    import re
+    import zipfile
+    from docx import Document
+    doc = Document(path)
+    s = doc.sections[0]
+    xml = "".join(zipfile.ZipFile(path).read(n).decode("utf-8") for n in ("word/document.xml", "word/styles.xml"))
+    core = zipfile.ZipFile(path).read("docProps/core.xml").decode("utf-8")
+    return {"page": (round(s.page_width.cm, 1), round(s.page_height.cm, 1)), "margin": round(s.left_margin.cm, 2),
+            "header": s.header.paragraphs[0].text, "spacing": str(doc.styles["Normal"].paragraph_format.line_spacing_rule),
+            "langs": set(re.findall(r'w:lang w:val="([^"]+)"', xml)), "core": core,
+            "paras": [p.text for p in doc.paragraphs if p.text.strip()]}
+
+
+@pytest.mark.parametrize("country,page,spacing,lang,label", [
+    ("uk", (21.0, 29.7), "ONE_POINT_FIVE", "en-GB", "Student ID"),
+    ("us", (21.6, 27.9), "DOUBLE", "en-US", "Student ID"),
+    ("de", (21.0, 29.7), "DOUBLE", "de-DE", "Matrikelnummer"),
+    ("ro", (21.0, 29.7), "DOUBLE", "ro-RO", "Număr matricol"),
+])
+def test_word_document_in_the_country_layout(home, tmp_path, country, page, spacing, lang, label):
+    pytest.importorskip("docx")
+    from fieldkit.academic import build
+    student(country)
+    d = tmp_path / "draft.md"
+    d.write_text(DRAFT, encoding="utf-8")
+    r = build.build(str(d), module="CARE101")
+    f = _docx_facts(r["file"])
+    assert f["page"] == page and spacing in f["spacing"] and f["langs"] == {lang}
+    assert f["header"].startswith(label + ": 99990000") and "CARE101" in f["header"]
+    assert "Sam" not in f["core"] and "Example" not in f["core"] and "python-docx" not in f["core"]
+    assert "Sam Example" not in " ".join(f["paras"])
+    # one entry per line, sorted (accent ignored), on the reference page
+    assert f["paras"][-2:] == ["Ábalos, M. and Weber, B. (2019) Nursing today. Madrid: Editorial.",
+                               "Smith, J. (2020) Care. London: Publisher."]
+    assert ra.audit_text(DRAFT)["out_of_order"]                   # the draft is out of order ...
+    from fieldkit.academic.reference_auditor import audit_references
+    assert audit_references(r["file"])["issues"] == 0            # ... the Word file is not, read back the same way
+
+
+def test_build_never_overwrites_and_lands_in_the_work_folder(home):
+    pytest.importorskip("docx")
+    from fieldkit.academic import build
+    student("uk")
+    folder = home / "w"
+    assignment.setup(str(folder), deadline="2026-11-02", upload="2026-11-02", doc_type="essay")
+    drafts = next(folder.glob("3 - *"))
+    d = drafts / "essay.md"
+    d.write_text(DRAFT, encoding="utf-8")
+    a, b = build.build(str(d))["file"], build.build(str(d))["file"]
+    assert a != b and b.endswith("essay (2).docx") and "4 - HERE IS YOUR WORK" in a
+
+
+def test_slides_and_poster(home, tmp_path):
+    pptx = pytest.importorskip("pptx")
+    from fieldkit.academic import build
+    student("es")
+    d = tmp_path / "talk.md"
+    d.write_text(DRAFT, encoding="utf-8")
+    deck = pptx.Presentation(build.build(str(d), kind="pptx")["file"])
+    texts = [sh.text_frame.text for s in deck.slides for sh in s.shapes if sh.has_text_frame]
+    assert len(deck.slides) >= 3 and any("Número de estudiante: 99990000" in t for t in texts)
+    assert any(t.startswith("Referencias") for t in texts)
+    poster = pptx.Presentation(build.build(str(d), kind="poster")["file"])
+    assert len(poster.slides) == 1
+
+
+def test_templates_in_the_work_language_and_checked_back(home, tmp_path):
+    pytest.importorskip("docx")
+    from fieldkit.academic import build, document_types
+    from fieldkit.academic.build_templates import docx_to_markdown
+    student("it")
+    r = build.template("report", str(tmp_path))
+    md, _ = docx_to_markdown(r["file"])
+    assert "Introduzione" in md and "Bibliografia" in md and "Matricola" in md
+    assert "References" not in md and "Introduction" not in md
+    # the structure check reads Italian headings as the sections they are
+    present, _ = document_types.find_sections(md)
+    assert {"introduction", "references", "conclusion"} <= set(present)
+    assert build.template("report", str(tmp_path))["status"] == "exists"
+    assert build.template("all", str(tmp_path / "all"))["templates"] == 32
+
+
+def test_every_heading_of_every_type_is_translated():
+    import re
+    from fieldkit.academic import layout
+    from fieldkit.academic.document_types import DOCUMENT_TYPES
+    for spec in DOCUMENT_TYPES.values():
+        for h in spec["skeleton"]:
+            for lang in layout.ORDER:
+                t = layout.heading(h, lang)
+                assert t != h or re.sub(r"^\d+(?:\.\d+)*[.)]\s*", "", h) in ("Abstract", "Evaluation"), (h, lang)
+                assert layout.to_english(t) == h, (h, lang, t)
+
+
+def test_terms_of_reference_is_not_the_reference_list():
+    from fieldkit.academic.document_types import _section_key_for
+    assert _section_key_for("2. Terms of Reference") != "references"
+    assert _section_key_for("References") == "references"
+
+
+def test_finish_a_hand_written_file(home, tmp_path):
+    docx = pytest.importorskip("docx")
+    from fieldkit.academic import build
+    student("uk")
+    f = tmp_path / "mine.docx"
+    d = docx.Document()
+    d.add_paragraph("My own work.")
+    d.core_properties.author = "Sam Example"
+    d.save(f)
+    r = build.finish(str(f))
+    facts = _docx_facts(str(f))
+    assert r["ok"] and "header" in r["added"] and "page numbers" in r["added"]
+    assert facts["page"] == (21.0, 29.7) and "Sam" not in facts["core"] and facts["langs"] <= {"en-GB"}
+    assert facts["paras"] == ["My own work."]
+    assert acli.main(["finish", str(tmp_path / "x.txt")]) == 2
+
+
+def test_slides_and_poster_sort_the_references():
+    pytest.importorskip("pptx")
+    from fieldkit.academic.build_pptx import parse_markdown_sections
+    _, _, refs = parse_markdown_sections(DRAFT)
+    assert [r[:6] for r in refs] == ["Ábalos", "Smith,"]

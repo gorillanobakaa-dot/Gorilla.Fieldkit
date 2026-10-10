@@ -25,6 +25,9 @@ USAGE = """fieldkit academic COMMAND ...
   dashes      FILE                       long dashes (— –), where the country's rules count them against you
   plagiarism  FILE --sources FOLDER      runs of words copied from the sources, quoted or not
   structure   FILE --type T              the sections the document type asks for
+  build       DRAFT.md [--as docx|pptx|poster] [--to FOLDER] [--contents]   the finished file, in your layout
+  template    TYPE|all [FOLDER] [--guidance]   a Word/PowerPoint template to write straight into
+  finish      FILE.docx|.pptx            a file written by hand: header, page numbers, page size, language, no name
   types       [TYPE]                     the document types
   countries                              the countries and what each one sets
 
@@ -201,6 +204,18 @@ def run(a):
         r = assignment.accessed(a.target, a.extra)
         _emit(r, a.json, lambda r: [r["line"]])
         return 0
+    if c in ("build", "template", "finish"):
+        from . import build as b
+        if not a.target:
+            raise ValueError(f"fieldkit academic {c} {'TYPE' if c == 'template' else 'FILE'}")
+        if c == "build":
+            r = b.build(a.target, getattr(a, "as_"), a.to, a.contents)
+        elif c == "template":
+            r = b.template(a.target, a.extra, a.guidance, a.title, a.target_words)
+        else:
+            r = b.finish(a.target)
+        _emit(r, a.json, _kv)
+        return 0 if r["ok"] else 3
     if c == "extract":
         from .extract_library import build_library
         s = build_library(a.target, verbose=False)
@@ -278,7 +293,7 @@ def run(a):
 
 
 COMMANDS = ["init", "setup", "next", "accessed", "extract", "search", "refs", "style", "language", "words", "dashes",
-            "plagiarism", "structure", "types", "countries"]
+            "plagiarism", "structure", "build", "template", "finish", "types", "countries"]
 
 
 def parser(prog="fieldkit academic"):
@@ -292,6 +307,10 @@ def parser(prog="fieldkit academic"):
         ap.add_argument("--" + opt)
     ap.add_argument("--words", "--target", dest="target_words", type=int)
     ap.add_argument("--any", action="store_true", help="search: any of the words, not all")
+    ap.add_argument("--as", dest="as_", choices=["docx", "pptx", "poster"])
+    ap.add_argument("--to")
+    ap.add_argument("--contents", action="store_true", help="build: a contents page after the title")
+    ap.add_argument("--guidance", action="store_true", help="template: notes under each heading")
     return ap
 
 

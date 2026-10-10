@@ -669,8 +669,8 @@ def load_document(path):
     """
     low = path.lower()
     if low.endswith(".docx"):
-        from ..office.read import _docx
-        return _docx(path), ""
+        from .build_templates import docx_to_markdown
+        return docx_to_markdown(path)[0], ""
     if low.endswith(".pptx"):
         return pptx_to_markdown(path)
     with open(path, "r", encoding="utf-8", errors="replace") as f:

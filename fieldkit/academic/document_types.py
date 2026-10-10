@@ -101,7 +101,7 @@ SECTION_SYNONYMS = {
                         r"recommendations?\s+and\s+implications?"],
     # In an annotated bibliography the reference list IS the "annotated
     # entries" section, so that heading satisfies the requirement.
-    "references": [r"references?", r"bibliography", r"reference\s+list",
+    "references": [r"(?<!of )references?", r"bibliography", r"reference\s+list",
                    r"works\s+cited", r"annotated\s+entries", r"entries",
                    r"annotated\s+bibliography"],
     "timeline": [r"timeline", r"timetable", r"schedule", r"work\s+plan",
@@ -1758,6 +1758,8 @@ def extract_headings(text):
         # Drop a leading number, letter or roman numeral label.
         clean = re.sub(r"^(?:\d+(?:\.\d+)*|[A-Z]|[ivxlc]+)[.)]\s*", "",
                        clean, flags=re.IGNORECASE).strip()
+        from .layout import to_english
+        clean = to_english(clean)        # a heading in any of the languages
         headings.append((len(m.group(1)), clean, raw))
     return headings
 
@@ -2017,7 +2019,7 @@ def check_structure(text, type_key):
 
 
 def build_skeleton(type_key, title="[Title]", student_id="[Student ID]",
-                   target_words=None):
+                   target_words=None, language=None):
     """The markdown skeleton written into the drafts folder by setup_exam.py.
 
     Each section carries its guidance and a suggested length as an HTML
@@ -2028,11 +2030,13 @@ def build_skeleton(type_key, title="[Title]", student_id="[Student ID]",
         return None
     spec = DOCUMENT_TYPES[canonical]
     target = target_words or spec["typical_words"]
+    from .layout import current, heading as _h, labels
+    language = language or current()["language"]
 
     lines = [
         "# %s" % title,
         "",
-        "Student ID: %s" % student_id,
+        "%s: %s" % (labels(language)["student_id"], student_id),
         "",
         "<!-- %s: %s -->" % (spec["label"], spec["purpose"]),
         "<!-- Target length: %s words. The assignment brief overrides this. -->"
@@ -2040,7 +2044,7 @@ def build_skeleton(type_key, title="[Title]", student_id="[Student ID]",
         "",
     ]
     for heading, words, share, guidance in section_guide(canonical, target):
-        lines.append("## %s" % heading)
+        lines.append("## %s" % _h(heading, language))
         lines.append("")
         if words:
             lines.append("<!-- About %s words (%d%%). %s -->"

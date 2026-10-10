@@ -111,9 +111,15 @@ def setup(folder, deadline=None, upload=None, doc_type=None, words=None, module=
                 "next": f'fieldkit academic setup "{folder}" --deadline DATE --upload DATE'}
 
     from .setup_exam import setup_exam
+    from . import layout
+    try:
+        layout.apply()                 # the template comes out in the student's layout
+        templates = True
+    except ImportError:                # python-docx missing: the folder and skeleton still work
+        templates = False
     label = styles.get(p["style"])["label"] if p.get("style") in styles.names() else p.get("style")
     ok = setup_exam(folder, module_name=module, deadline=_fmt(parsed["deadline"], p), doc_type=doc_type,
-                    title=title, student_id=p.get("student_id"), target_words=words, templates=False,
+                    title=title, student_id=p.get("student_id"), target_words=words, templates=templates,
                     verbose=False, upload=_fmt(parsed["upload"], p), style_label=label, plagiarism_tool=tool)
     if not ok:
         return {"ok": False, "status": "refused", "error": f"unknown document type {doc_type!r}",
