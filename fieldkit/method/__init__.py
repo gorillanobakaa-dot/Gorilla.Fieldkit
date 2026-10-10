@@ -14,9 +14,21 @@ import shlex
 import sys
 
 
-def split_command(text):
-    """A command line given as one string -> argv (POSIX quoting; Windows paths keep their backslashes)."""
-    return shlex.split(text, posix=sys.platform != "win32")
+def split_command(text, platform=None):
+    """A command line given as one string -> argv.
+
+    POSIX quoting on Linux. On Windows, backslashes in paths must survive, so the non-POSIX split is
+    used - and it keeps the quotes ON the words ('"raise SystemExit(4)"'), which a program then receives literally:
+    the surrounding pair of quotes is taken off each word (found in CI: python -c "..." ran a string, not the code).
+    """
+    if (platform or sys.platform) != "win32":
+        return shlex.split(text)
+    out = []
+    for w in shlex.split(text, posix=False):
+        if len(w) >= 2 and w[0] == w[-1] and w[0] in "\"'":
+            w = w[1:-1]
+        out.append(w)
+    return out
 
 
 def emit(data, as_json, lines):

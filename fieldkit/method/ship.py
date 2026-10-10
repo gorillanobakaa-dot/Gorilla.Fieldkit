@@ -12,6 +12,7 @@ recorded with `git merge -s ours`: history is kept, the local tree is unchanged,
 Anything else that is not a fast-forward (someone else pushed, real divergence) is refused with what to do.
 
 Never: force-push, rebase a published branch, push to the base, or skip the pre-commit hook.
+The merge commit carries the lines in `git config --get-all fieldkit.trailer` (co-author or session lines).
 The pull request itself (open, watch CI, merge) is the host's job; the fieldkit-ship skill says how.
 Exit 0 done or nothing to do, 3 refused (with the reason and the next step), 2 bad input.
 """
@@ -76,8 +77,11 @@ def sync(repo=".", base="main"):
     st = status(repo, base)
     if st.get("state") != "squash-merged":
         return dict(st, synced=False)
-    git(repo, "merge", "-s", "ours", "--no-edit", f"origin/{st['branch']}", "-m",
-        f"Record the squash-merged head of {st['branch']} (tree unchanged)", check=True)
+    msg = f"Record the squash-merged head of {st['branch']} (tree unchanged)"
+    trailers = git(repo, "config", "--get-all", "fieldkit.trailer").stdout.strip()   # e.g. Co-Authored-By lines
+    if trailers:
+        msg += "\n\n" + trailers
+    git(repo, "merge", "-s", "ours", "--no-edit", f"origin/{st['branch']}", "-m", msg, check=True)
     if _tree(repo, "HEAD") != _tree(repo, "HEAD~1"):
         raise RuntimeError("the merge changed the tree: stop and look (git show HEAD)")
     return dict(status(repo, base, fetch=False), synced=True)

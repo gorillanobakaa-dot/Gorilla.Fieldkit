@@ -319,9 +319,11 @@ def test_ship_records_a_squash_merged_branch_instead_of_forcing(tmp_path):
     _git(work, "add", "c.txt")
     _git(work, "commit", "-q", "-m", "follow-up")
     assert ship.status(work)["state"] == "squash-merged"
+    _git(work, "config", "fieldkit.trailer", "Co-Authored-By: Someone <someone@example.com>")
     tree = _git(work, "rev-parse", "HEAD^{tree}")
     r = ship.push(work)
     assert r["ok"] and r["pushed"] and _git(work, "rev-parse", "HEAD^{tree}") == tree
+    assert "Co-Authored-By: Someone" in _git(work, "log", "-1", "--format=%B")    # the configured trailer
     # nothing was rewritten: the old remote head is still in the history
     old = _git(remote, "rev-parse", "feature^2")                           # the merge is the tip
     assert _git(remote, "cat-file", "-t", old) == "commit"
@@ -364,3 +366,28 @@ def test_handover_is_refused_when_the_text_is_not_there_once(tmp_path):
     spec["fixes"][0]["before"] = "not in the file"
     f.write_text(yaml.safe_dump(spec), encoding="utf-8")
     assert handover.main([str(f), "--target", str(target)]) == 3
+
+
+def test_split_command_on_windows_keeps_backslashes_and_drops_quotes():
+    from fieldkit.method import split_command
+    home = "C:" + "\\" + "Users" + "\\x"                                 # built at run time (privacy scan)
+    win = split_command(home + '\\python.exe -c "raise SystemExit(4)" ' + home + "\\a.json", platform="win32")
+    assert win == [home + "\\python.exe", "-c", "raise SystemExit(4)", home + "\\a.json"]
+    assert split_command('python -c "raise SystemExit(4)"', platform="linux") == ["python", "-c", "raise SystemExit(4)"]
+
+
+WINPATH = "C:" + "\\" + "Users" + "\\runner\\tool.py"                    # built at run time (privacy scan)
+
+
+def test_card_draft_survives_a_windows_path(tmp_path, monkeypatch):
+    import yaml
+    from fieldkit.desk import cardcheck
+    f = tmp_path / "tool.py"
+    f.write_text("import argparse\nargparse.ArgumentParser().parse_args()\n", encoding="utf-8")
+    monkeypatch.setattr(cardcheck, "Path", lambda x: type("P", (), {
+        "is_file": lambda s: True, "suffix": ".py", "stem": "tool", "__str__": lambda s: WINPATH,
+        "__fspath__": lambda s: str(f)})())
+    monkeypatch.setattr(cardcheck.cardmod, "argparse_inputs", lambda p: [])
+    monkeypatch.setattr(cardcheck.cardmod, "code_effects", lambda p: set())
+    card = yaml.safe_load(cardcheck.draft("x"))[0]
+    assert card["path"] == WINPATH and card["entry"][1] == WINPATH

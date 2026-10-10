@@ -13,6 +13,7 @@ draft: inputs from add_argument calls, effects from what the code touches, a saf
 the agent door refuses it until a person reviews it and removes that line.
 Exit 0 when every card holds, 3 when one does not, 2 for bad input.
 """
+import json
 import re
 import subprocess
 import sys
@@ -93,8 +94,9 @@ def draft(path):
     inputs = cardmod.argparse_inputs(p)
     effects = sorted(cardmod.code_effects(p))
     safety = cardmod.guess_safety(effects, None)
+    q = json.dumps(str(p))                      # a Windows path's backslashes, escaped for YAML (CI, 2026-10-10)
     lines = [f"- id: {p.stem.replace('_', '-')}", "  title: \"REVIEW: what it does, in plain words\"",
-             f"  entry: [python, \"{p}\"]", f"  path: {p}", "  draft: true          # remove after review",
+             f"  entry: [python, {q}]", f"  path: {q}", "  draft: true          # remove after review",
              "  inputs:" if inputs else "  inputs: []"]
     for i in inputs:
         lines.append("    - {" + ", ".join(f"{k}: {('null' if v is None else repr(v) if isinstance(v, str) else v)}"
