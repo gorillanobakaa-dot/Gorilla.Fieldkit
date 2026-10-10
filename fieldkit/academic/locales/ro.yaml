@@ -1,0 +1,14 @@
+# Romania.
+id: ro
+country: România
+work_language: ro
+spelling: ro
+page: A4
+margins_cm: 2.5
+date_format: "{day} {month} {year}"          # 28 septembrie 2026
+quotes: ["„", "”"]                  # „ ”
+decimal: ","
+styles: [apa7, iso690]                        # ISO 690 is SR ISO 690 in Romania
+default_style: apa7
+plagiarism_tool: Turnitin / sistemantiplagiat.ro
+avoid_long_dashes: false

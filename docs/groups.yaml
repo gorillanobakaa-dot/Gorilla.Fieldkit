@@ -120,6 +120,10 @@ groups:
     title: A CV and a UK job hunt for one candidate (fixed rules, verified facts only, never submits)
     sources: ["career/*.py"]
 
+  - name: academic
+    title: Academic work for students in seven countries (the dates asked, references, style, language, words, plagiarism pre-check, the next step)
+    sources: ["academic/*.py"]
+
   - name: icons
     title: "Sharp desktop icons on any computer (IconKit: the icon cache, .ico frames and checks, crisp recoloured icons)"
     sources: ["icons/*.py"]

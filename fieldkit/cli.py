@@ -812,6 +812,12 @@ def build_parser():
     ic.add_argument("args", nargs=argparse.REMAINDER)
     ic.set_defaults(fn=cmd_icons)
 
+    ac = sub.add_parser("academic", add_help=False,
+                        help="academic work in 7 countries: the deadline asked, references, style, language, words, "
+                             "plagiarism pre-check, the next step (fieldkit academic)")
+    ac.add_argument("args", nargs=argparse.REMAINDER)
+    ac.set_defaults(fn=lambda a: __import__("fieldkit.academic.cli", fromlist=["main"]).main(a.args))
+
     sub.add_parser("audio", parents=[common],
                    help="Linux: every stage the sound passes through, what is done twice, and the fix (changes nothing)"
                    ).set_defaults(fn=cmd_audio)
@@ -1086,6 +1092,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["academic"]:                      # so is the academic module
+        from .academic import cli as academic_cli
+        return academic_cli.main(args[1:])
     a = build_parser().parse_args(argv)
     if a.cmd == "pipeline" and a.action != "list" and not a.name:
         raise SystemExit("pipeline: name required")

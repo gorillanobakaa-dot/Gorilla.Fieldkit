@@ -22,6 +22,7 @@ fieldkit icons cache [--apply] | frames | check-ico | build | install-fix-button
 fieldkit audio                                   Linux sound chain: each stage, what is done twice, the fix (read-only)
 fieldkit backup [--to FOLDER]                    a dated, verified zip of the harness (the folder is never guessed)
 fieldkit cv init|import|check|render             a candidate's CV: fixed rules, the questions to ask, UK CVs in EN/RO
+fieldkit academic init|setup|next|accessed|refs|style|language|words|dashes|plagiarism|search ...   students, 7 countries
 fieldkit jobs run|ingest-advert|pack|check-letter|apply|status ...   the job hunt: official APIs only, never submits
 fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...
@@ -103,6 +104,7 @@ fieldkit build-harness decide ID OPTION --words "..."       the maintainer only,
 ```
 fieldkit/audio    the Linux sound chain (read-only) + signatures.yaml
 fieldkit/icons    IconKit: icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons
+fieldkit/academic  students in uk/us/es/pt/it/de/ro: locales/*.yaml, styles.yaml, languages.yaml; data in local/academic
 fieldkit/career   CV and job hunt: rules/trades/scoring/advert as YAML; personal data only in local/career
 fieldkit/core     host, settings, proc (runner), privacy, pipeline engine, checks, next, snapshot
 fieldkit/office   read, create, check, scrub, deliver

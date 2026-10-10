@@ -1,0 +1,14 @@
+# Italy.
+id: it
+country: Italia
+work_language: it
+spelling: it
+page: A4
+margins_cm: 2.5
+date_format: "{day} {month} {year}"          # 28 settembre 2026
+quotes: ["«", "»"]                  # virgolette basse
+decimal: ","
+styles: [apa7, iso690, harvard-ctr]           # footnote style (humanities) comes later
+default_style: apa7
+plagiarism_tool: Turnitin / Compilatio
+avoid_long_dashes: false

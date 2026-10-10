@@ -1,0 +1,36 @@
+# Referencing styles, as data. styles.py checks the SHAPE of each reference-list entry against `entry` ({YEAR} is any
+# year or "no date" form of the seven languages) and flags parenthetical citations matching `parenthetical_join_not`.
+# Everything shared (cited <-> listed, order, duplicates, quotations need a page) is reference_auditor.py.
+#
+# Phase 1 (2026-10-10): three author-date styles cover the seven countries. MLA, Chicago author-date, Vancouver and
+# IEEE come next; footnote styles (German and Italian humanities, Chicago notes) after that.
+styles:
+  harvard-ctr:
+    label: Harvard (Cite Them Right)
+    # Smith, J. (2020) Title.   - the year in brackets, NOT followed by a full stop
+    entry: '^[^()]+\(\s*{YEAR}\s*\)\s+[^.\s]'
+    entry_example: "Smith, J. (2020) Title of the book. London: Publisher."
+    parenthetical_join_not: '\s&\s'
+    citation_example: "(Smith and Jones, 2020)"
+    accessed: "Available at: {url} (Accessed: {date})."
+  apa7:
+    label: APA 7
+    # Smith, J. (2020). Title.  - the date in brackets followed by a full stop; (2020, March 4). allowed
+    entry: '^[^()]+\(\s*{YEAR}[^)]*\)\.\s'
+    entry_example: "Smith, J. (2020). Title of the book. Publisher."
+    parenthetical_join_not: '\sand\s'         # English APA joins two authors with & inside brackets
+    citation_example: "(Smith & Jones, 2020)"
+    accessed: "Retrieved {date}, from {url}"       # APA 7: only for pages that change; otherwise just the URL
+    accessed_lang: {es: "Recuperado el {date}, de {url}", pt: "Recuperado em {date}, de {url}",
+                    it: "Recuperato il {date}, da {url}", de: "Abgerufen am {date}, von {url}",
+                    ro: "Preluat la {date}, de la {url}"}
+  iso690:
+    label: ISO 690 author-date (UNE-ISO 690, NP 405, DIN ISO 690, SR ISO 690)
+    # SMITH, John, 2020. Title.  - the surname (or organisation) in capitals, then the year
+    entry: '^[A-ZÀ-ÖØ-ÞĂĄĆČĎĐĘĚĹĽŁŃŇŐŔŘŚŞŠŢŤŮŰŹŻŽȘȚ][A-ZÀ-ÖØ-ÞĂĄĆČĎĐĘĚĹĽŁŃŇŐŔŘŚŞŠŢŤŮŰŹŻŽȘȚ\-'' ]+,.*?\b{YEAR}'
+    entry_example: "SMITH, John, 2020. Title of the book. Place: Publisher."
+    citation_example: "(Smith 2020) or (Smith, 2020)"
+    accessed: "Available from: {url} [viewed {date}]."
+    accessed_lang: {es: "Disponible en: {url} [consulta: {date}].", pt: "Disponível em: {url} [consult. {date}].",
+                    it: "Disponibile su: {url} [consultato il {date}].", de: "Verfügbar unter: {url} [Zugriff am: {date}].",
+                    ro: "Disponibil la: {url} [accesat {date}]."}
