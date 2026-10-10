@@ -717,6 +717,13 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         return {"ok": False, "why": "no owner harness beside this task"}
     log_path = task.STATE / task_id / f"build-{time.strftime('%Y%m%d-%H%M%S')}.log"
     stops = []
+    # on mains, or no compile (power.py, 2026-10-10: a night on battery with the lid closed; a shutdown at 18 %)
+    from . import power
+    pw = power.row()
+    say(f"  [{'ok' if pw['ok'] else 'FAIL'}] {pw['check']}: {pw['evidence']}")
+    if not pw["ok"]:
+        say("BUILD NOT STARTED: on battery")
+        return {"ok": False, "why": "power", "rows": [pw]}
     rows = cg.gate(task_id, harness_root=None, write=True)
     bad = [r for r in rows if not r["ok"]]
     stale = lambda r: r["check"].startswith("final checks passed") or (r["check"] == "every step is done" and "final-checks" in r["evidence"])

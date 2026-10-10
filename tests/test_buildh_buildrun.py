@@ -1,6 +1,14 @@
 """The build loop (buildrun): what may start, what counts as a stop, which stops have a fix."""
 
 from fieldkit.buildh import buildrun, ownercheck
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _on_mains(monkeypatch):
+    """The machine running the tests may be on battery; the power check has its own tests (test_buildh_power.py)."""
+    from fieldkit.buildh import power
+    monkeypatch.setattr(power, "row", lambda st=None: {"check": "power: the laptop is on mains", "ok": True, "evidence": "test"})
 
 
 

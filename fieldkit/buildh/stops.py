@@ -99,7 +99,9 @@ def power_events(since, run=subprocess.run):
     ps = ("Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date '" + f"{since:%Y-%m-%d %H:%M:%S}" + "'); "
           "ProviderName='Microsoft-Windows-Kernel-Power','Microsoft-Windows-Kernel-General','EventLog'} "
           "-ErrorAction SilentlyContinue | Where-Object { $_.Id -in 41,506,507,6008,12 } | "
-          "ForEach-Object { $_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss') + '|' + $_.Id }")
+          "ForEach-Object { $x = [xml]$_.ToXml(); $d = @{}; foreach ($e in $x.Event.EventData.Data) { $d[$e.Name] = $e.'#text' }; "
+          "$_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss') + '|' + $_.Id + '|' + $d['LidOpenState'] + '|' + "
+          "$d['BatteryRemainingCapacityOnEnter'] + '|' + $d['BatteryFullChargeCapacityOnEnter'] }")
     try:
         out = run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=120).stdout
     except (OSError, subprocess.SubprocessError):
@@ -107,9 +109,16 @@ def power_events(since, run=subprocess.run):
     kinds = {"506": "standby", "507": "wake", "41": "unexpected shutdown", "6008": "unexpected shutdown", "12": "start"}
     ev = []
     for l in (out or "").splitlines():
-        t, _, i = l.strip().partition("|")
-        if i in kinds:
-            ev.append((datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S"), kinds[i]))
+        f = l.strip().split("|") + ["", "", "", ""]
+        if f[1] in kinds:
+            kind = kinds[f[1]]
+            # a standby says why (2026-10-10: the lid closed at 00:02 and the build froze until 06:20) and on what
+            # charge (2026-10-09: 18 % four minutes before an unexpected shutdown: the battery ran out)
+            if kind == "standby" and f[2] == "false":
+                kind = "standby (lid closed)"
+            if f[3].isdigit() and f[4].isdigit() and int(f[4]):
+                kind += f", battery {round(100 * int(f[3]) / int(f[4]))} %"
+            ev.append((datetime.datetime.strptime(f[0], "%Y-%m-%d %H:%M:%S"), kind))
     return sorted(ev)
 
 
@@ -132,7 +141,7 @@ def classify(rs, journal, events, changed, now=None):
             continue                                     # still running
         v, ev = None, r["why"] or "no reason printed"
         inside = [(t, k) for t, k in events if r["start"] <= t <= r["end"] + datetime.timedelta(minutes=15)
-                  and k in ("standby", "unexpected shutdown", "start")]
+                  and k.split(" (")[0].split(",")[0] in ("standby", "unexpected shutdown", "start")]
         if (r["exit"] in (None, -1)) and inside:
             v, ev = "machine", f"{inside[0][1]} at {inside[0][0]:%m-%d %H:%M} during the run"
         elif check_of(r["why"]) == "thermal":

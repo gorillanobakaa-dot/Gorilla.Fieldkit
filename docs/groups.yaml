@@ -93,6 +93,7 @@ groups:
       - buildh/timebombs.py
       - buildh/calibrate.py
       - buildh/stops.py
+      - buildh/power.py
       - buildh/buildstamp.py
       - buildh/satellite.py
       - buildh/window.py
