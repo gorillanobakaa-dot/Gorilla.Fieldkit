@@ -524,7 +524,8 @@ def linux_caches(home=None, data_dirs=None) -> dict:
                 if t.is_dir() and ((t / "index.theme").is_file() or (t / "icon-theme.cache").is_file()):
                     gtk.append(t)
     system = []
-    for d in (data_dirs or os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")).split(":"):
+    dirs = data_dirs or os.environ.get("XDG_DATA_DIRS") or os.pathsep.join(("/usr/local/share", "/usr/share"))
+    for d in dirs.split(os.pathsep):                     # ':' on Linux; a Windows path's own colon is not a separator
         base = Path(d) / "icons"
         if base.is_dir():
             system += [t for t in sorted(base.iterdir()) if (t / "icon-theme.cache").is_file()]
