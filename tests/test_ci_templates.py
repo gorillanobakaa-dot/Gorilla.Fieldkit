@@ -47,6 +47,8 @@ def test_every_fieldkit_command_in_the_workflow_parses(path):
 def test_every_fieldkit_file_the_workflow_names_exists(path):
     text = path.read_text(encoding="utf-8")
     named = set(re.findall(r"\.fieldkit/([\w./-]+\.(?:ya?ml|py|json))", text))
+    written = set(re.findall(r">\s*\.fieldkit/([\w./-]+)", text))      # files the workflow writes itself
+    named -= written
     assert named
     for rel in named:
         assert (ROOT / rel).is_file(), f"{path.name} names .fieldkit/{rel}, which does not exist"
