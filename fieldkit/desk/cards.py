@@ -217,7 +217,13 @@ def curated_card(tool):
             "inputs": tool.get("inputs"), "effects": tool.get("effects"), "safety": tool.get("safety"),
             "modes": tool.get("modes") or {}, "tests": [tool["test"]] if tool.get("test") else (tool.get("tests") or []),
             "platforms": tool.get("platforms") or [], "repo": tool.get("repo"), "retired": tool.get("retired", False),
-            "scope": tool.get("scope") or [], "draft": False, "reviewed": True}
+            "scope": tool.get("scope") or [], "draft": False, "reviewed": True,
+            # what the answer carries: "own" (the owner's own files and Fieldkit's verdicts) or "third-party"
+            # (text someone else wrote: a downloaded document, study materials, a web page). Unset = third-party.
+            "output": tool.get("output") or "third-party",
+            # exit codes that are answers, not failures: {2: question, 3: findings}
+            "exits": {int(k): v for k, v in (tool.get("exits") or {}).items()},
+            "answer_lines": int(tool.get("answer_lines") or 15)}
     if card["safety"] is None:                        # tools.yaml "changes" is the reviewed judgement
         card["safety"] = "read-only" if tool.get("changes") is False else "unknown"
     p = card["path"]

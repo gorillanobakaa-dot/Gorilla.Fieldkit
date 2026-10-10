@@ -1,0 +1,75 @@
+# Go build failures (go mod / vet / test / build). Each pattern is matched against the log of the failed
+# stage; `source` says where the entry comes from (common = seen widely, not one incident).
+success:
+- '^ok\s+\S+'
+
+signatures:
+- id: go-too-old
+  pattern: 'go\.mod requires go >= ([\d.]+)|requires go >= ([\d.]+) \(running go ([\d.]+)'
+  check: null
+  source: common
+  cause: The installed Go is older than the version go.mod asks for, and GOTOOLCHAIN=local forbids downloading a newer one.
+  fix: Install the Go version go.mod names (fieldkit pipeline run NAME --only toolchain prints the exact line for this system).
+
+- id: go-sum-mismatch
+  pattern: 'SECURITY ERROR|verifying .*: checksum mismatch|go: verifying module: checksum mismatch'
+  check: null
+  source: common
+  cause: A downloaded module does not match the checksum recorded in go.sum - a changed or tampered dependency, or a corrupted module cache.
+  fix: Do not edit go.sum to make it pass. Run go clean -modcache and rebuild; if it persists, the upstream module changed under the same version - tell the owner.
+
+- id: go-missing-sum
+  pattern: 'missing go\.sum entry for module|updates to go\.(mod|sum) needed'
+  check: null
+  source: common
+  cause: go.mod and go.sum are out of step (a dependency was added or changed without updating go.sum); -mod=readonly refuses to fix it silently.
+  fix: In the source, run go mod tidy, review the go.mod/go.sum diff, commit it, then build again.
+
+- id: go-proxy-unreachable
+  pattern: 'proxy\.golang\.org.*(dial tcp|i/o timeout|403|connection refused)|dial tcp .*: lookup .* no such host|Forbidden'
+  check: null
+  source: common
+  cause: The module proxy (or the module's own host) cannot be reached from this network.
+  fix: Allow proxy.golang.org and sum.golang.org, or set GOPROXY to a reachable mirror; once the modules are in the cache the build no longer needs the network.
+
+- id: go-cgo-no-compiler
+  pattern: 'cgo: C compiler "?\S+"? not found|exec: "gcc": executable file not found'
+  check: null
+  source: common
+  cause: The build wants cgo but no C compiler is installed.
+  fix: Build with cgo off (--var cgo=0, the default) unless the program needs C; otherwise install gcc (Linux) or MinGW-w64 (Windows).
+
+- id: go-test-timeout
+  pattern: 'panic: test timed out after'
+  check: null
+  source: common
+  cause: A test hung (often waiting on the network, a terminal or a model endpoint) until go test's timeout.
+  fix: Read the goroutine dump in the log for the test named first; make the test bounded, or run with --var tests=short.
+
+- id: go-compile-error
+  pattern: '^\S+\.go:\d+:\d+: '
+  check: null
+  source: common
+  cause: The Go code does not compile (file:line:column in the log).
+  fix: Fix the first error listed; later ones are often caused by it.
+
+- id: go-windows-file-locked
+  pattern: 'The process cannot access the file because it is being used by another process|Access is denied\.'
+  check: null
+  source: common
+  cause: On Windows the output .exe is still running (or held by antivirus), so it cannot be replaced.
+  fix: Close the running program; if antivirus holds it, wait a moment and run the build stage again. The pipeline never overwrites in place silently.
+
+- id: go-disk-full
+  pattern: 'no space left on device|There is not enough space on the disk'
+  check: null
+  source: common
+  cause: The disk (often the build cache or the module cache) is full.
+  fix: go clean -cache frees the build cache; check the free space before building again.
+
+- id: go-build-constraints
+  pattern: 'build constraints exclude all Go files'
+  check: null
+  source: common
+  cause: For this GOOS/GOARCH (or with cgo off) no file of a package is compiled.
+  fix: Check the target list (--var targets=os/arch,...) and whether that package really supports the target.

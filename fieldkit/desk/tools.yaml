@@ -303,6 +303,9 @@ tools:
   path: ${FIELDKIT}/fieldkit/audio
   platforms: [linux]
   changes: false
+  inputs: []
+  effects: [reads-files, processes]
+  output: own
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_audio.py"]
 
 - id: fieldkit-cv
@@ -340,3 +343,301 @@ tools:
   platforms: [windows, linux]
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
+
+# --- academic work (fieldkit academic): one card per command, so an agent can reach each one ----
+
+- id: academic-countries
+  title: "The seven countries a student can study in, and what each sets (style, page, plagiarism tool)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, countries]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-types
+  title: "The 32 academic document types, or one type's sections and word shares"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, types]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: type, flag: null, type: str, required: false, help: "a type, e.g. report, essay, care-plan"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-init
+  title: "Start a student's profile (asks the name and country when they are missing)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, init]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: name, flag: --name, type: str, required: false, help: "full name, exactly as the university has it"}
+    - {name: country, flag: --country, type: str, required: false, help: "where the university is", choices: [uk, us, es, pt, it, de, ro]}
+    - {name: university, flag: --university, type: str, required: false, help: "the university"}
+    - {name: programme, flag: --programme, type: str, required: false, help: "the course"}
+    - {name: style, flag: --style, type: str, required: false, help: "referencing style", choices: [apa7, harvard-ctr, iso690]}
+    - {name: language, flag: --language, type: str, required: false, help: "the language the work is written in", choices: [en, es, pt, it, de, ro]}
+    - {name: ui, flag: --ui, type: str, required: false, help: "the language of the questions", choices: [en, ro]}
+    - {name: student_id, flag: --student-id, type: str, required: false, help: "student number"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {2: question}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-setup
+  title: "Set up an assignment folder: asks the deadline and the upload date, then writes the checklist, skeleton and template"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, setup]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+    - {name: deadline, flag: --deadline, type: str, required: false, help: "the deadline, as the student said it"}
+    - {name: upload, flag: --upload, type: str, required: false, help: "the plagiarism-checker upload date"}
+    - {name: type, flag: --type, type: str, required: false, help: "document type (academic-types)"}
+    - {name: words, flag: --words, type: int, required: false, help: "word-count target"}
+    - {name: module, flag: --module, type: str, required: false, help: "module code"}
+    - {name: title, flag: --title, type: str, required: false, help: "title of the work"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {2: question}
+  modes:
+    verify:
+      - {output_contains: '^status: ready'}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-next
+  title: "Days left to the deadline or upload, and the student's one next step"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, next]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: question}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-refs
+  title: "Citations against the reference list: missing, unused, duplicates, order, quotations without a page"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, refs]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-style
+  title: "Reference entries and citations in the shape the referencing style asks for"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, style]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+    - {name: style, flag: --style, type: str, required: false, help: "default: the profile's style", choices: [apa7, harvard-ctr, iso690]}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-language
+  title: "Sentences in the wrong language, and British/American spelling"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, language]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+    - {name: language, flag: --language, type: str, required: false, help: "default: the profile's work language", choices: [en, es, pt, it, de, ro]}
+    - {name: spelling, flag: --spelling, type: str, required: false, help: "English variant", choices: [en-GB, en-US]}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  answer_lines: 30
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-words
+  title: "Assessed word count (no title, references or appendices) against a target +/-10%"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, words]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+    - {name: target, flag: --target, type: int, required: false, help: "the target word count"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-dashes
+  title: "Long dashes in the work, where the country counts them against the student"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, dashes]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  answer_lines: 30
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-structure
+  title: "The sections a document type asks for, present or missing (headings in any of six languages)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, structure]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+    - {name: type, flag: --type, type: str, required: true, help: "document type (academic-types)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  answer_lines: 30
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-plagiarism
+  title: "Runs of words copied from the study sources, quoted or not, before the upload"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, plagiarism]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+    - {name: sources, flag: --sources, type: str, required: true, help: "the folder of study sources"}
+  effects: [reads-files]
+  safety: read-only
+  output: third-party
+  exits: {3: findings}
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-extract
+  title: "Read every study file in the assignment folder into the searchable library"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, extract]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {3: findings}
+  modes:
+    verify:
+      - {output_contains: '^index: '}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-search
+  title: "Find words or a quoted phrase in the study materials, with the page or slide to cite"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, search]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+    - {name: query, flag: null, type: str, required: true, help: "words, or \"a phrase\" in quotes"}
+    - {name: any, flag: --any, type: flag, required: false, help: "any of the words, not all"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: third-party
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-accessed
+  title: "Stamp a web source with today's date (once), in the profile's style and language"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, accessed]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+    - {name: url, flag: null, type: str, required: true, help: "the web address"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-build
+  title: "A finished Word document, slide deck or poster from the draft, in the country's layout"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, build]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: draft, flag: null, type: str, required: true, help: "the markdown draft (.md)"}
+    - {name: as, flag: --as, type: str, required: false, help: "what to make (default docx)", choices: [docx, pptx, poster]}
+    - {name: to, flag: --to, type: str, required: false, help: "folder for the file (default: the work folder)"}
+    - {name: contents, flag: --contents, type: flag, required: false, help: "a contents page after the title"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  modes:
+    verify:
+      - {output_contains: '^file: '}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-template
+  title: "A Word/PowerPoint template of a document type, headings in the work language"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, template]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: type, flag: null, type: str, required: true, help: "document type, or all"}
+    - {name: folder, flag: null, type: str, required: false, help: "where (an assignment folder puts it in its drafts)"}
+    - {name: guidance, flag: --guidance, type: flag, required: false, help: "notes under each heading"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  modes:
+    verify:
+      - {output_contains: '^(file|templates): '}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-finish
+  title: "A Word file written by hand: Student ID header, page numbers, page size, language, no author name"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, finish]
+  path: ${FIELDKIT}/fieldkit/academic/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the draft: .md, .txt, .docx or .pptx"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {3: findings}
+  scope: [file]
+  modes:
+    verify:
+      - {output_contains: '^language: '}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]

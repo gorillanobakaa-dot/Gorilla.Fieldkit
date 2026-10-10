@@ -16,7 +16,7 @@
     fieldkit pipeline status NAME
     fieldkit pipeline reset NAME [--stage S]
 
-    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging]
+    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails]
     fieldkit gather [--only NAME...] [--check|--test] [--offline]   bring tools in per imports.yaml
     fieldkit harvest [--root DIR] | --find WORDS...   index every script; search it
@@ -846,7 +846,7 @@ def build_parser():
     p = sub.add_parser("pipeline", parents=[common])
     p.add_argument("action", choices=["list", "plan", "run", "status", "reset"])
     p.add_argument("name", nargs="?")
-    p.add_argument("--var", nargs="*")
+    p.add_argument("--var", nargs="+", action="extend", help="k=v; repeat --var or list several after one")
     p.add_argument("--only", nargs="*")
     p.add_argument("--from", dest="start")
     p.add_argument("--stage")
@@ -911,7 +911,7 @@ def build_parser():
 
     nx = sub.add_parser("next", parents=[common])
     nx.add_argument("name", help="pipeline name or file")
-    nx.add_argument("--var", nargs="*")
+    nx.add_argument("--var", nargs="+", action="extend", help="k=v; repeat --var or list several after one")
     nx.set_defaults(fn=cmd_next)
 
     rc = sub.add_parser("refcheck", parents=[common])

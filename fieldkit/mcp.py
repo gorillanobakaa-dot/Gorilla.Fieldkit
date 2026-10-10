@@ -11,6 +11,15 @@ the command line: `fieldkit agent run TOOL --input k=v --approve`.
 Approval must come from a person, not from text a model produced.
 The same holds for decisions: build_harness_briefs lists the open decision briefs read-only;
 there is no tool that records an answer (`fieldkit build-harness decide`, real terminal only).
+
+Every answer is labelled, so a client that trusts this server as local (Gorilla OpenCode:
+"trust": "local") asks and taints only when it has to:
+    _meta.untrusted   true when the answer carries text someone else wrote (a downloaded document,
+                      study materials, Firefox source, a web page): the card's `output` field, and
+                      true for any card that does not say "own". Missing = untrusted.
+    _meta.egress      true when the call went off the machine.
+A tool whose card has the `network` effect runs only when the call says network=true, so a client
+knows before the call whether it leaves the machine (and can ask the person first).
 """
 import json
 import os
@@ -32,10 +41,12 @@ TOOLS = [
     {"name": "describe", "description": "Show a tool's card: inputs with types, safety, how it is verified.",
      "inputSchema": {"type": "object", "properties": {"tool": {"type": "string"}}, "required": ["tool"]}},
     {"name": "run", "description": "Run a tool with named inputs. Tools that change things: use mode=preview "
-                                   "first (nothing changes), then mode=apply. Irreversible tools need the owner.",
+                                   "first (nothing changes), then mode=apply. Irreversible tools need the owner. "
+                                   "Tools that go online need network=true.",
      "inputSchema": {"type": "object", "properties": {
          "tool": {"type": "string"}, "inputs": {"type": "object"},
-         "mode": {"type": "string", "enum": ["preview", "apply"]}}, "required": ["tool"]}},
+         "mode": {"type": "string", "enum": ["preview", "apply"]},
+         "network": {"type": "boolean"}}, "required": ["tool"]}},
     {"name": "undo", "description": "Put back the files a previous run changed (by run_id).",
      "inputSchema": {"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]}},
     {"name": "next", "description": "For a pipeline (e.g. debian-kernel): the one next thing to do.",
@@ -87,10 +98,29 @@ def offered():
     return [t for t in TOOLS if not allow or t["name"] in allow]
 
 
+# Answers made only of Fieldkit's own registry, pipelines and verdicts. Everything else is untrusted.
+OWN_ANSWERS = {"discover", "describe", "undo", "next", "readiness", "build_harness_status", "build_harness_submit"}
+
+
+def labels(name, args, cards=None):
+    """-> {"untrusted": bool, "egress": bool} for this call, decided before it runs (fails closed)."""
+    if name == "run":
+        try:
+            card = agent._find_card(args.get("tool", ""), cards)
+        except agent.Refused:
+            return {"untrusted": False, "egress": False}          # the refusal is Fieldkit's own text
+        return {"untrusted": card.get("output", "third-party") != "own",
+                "egress": "network" in (card.get("effects") or [])}
+    return {"untrusted": name not in OWN_ANSWERS, "egress": False}
+
+
 def call_tool(name, args):
     """-> (text, is_error). Every refusal is a normal answer with a NEXT line, not a crash."""
     if name not in {t["name"] for t in offered()}:
         return f"no tool {name!r} on this server", True
+    if name == "run" and labels(name, args)["egress"] and args.get("network") is not True:
+        return (f"REFUSED: '{args.get('tool')}' goes online. NEXT: call run again with network=true, so the "
+                "person can be asked first."), False
     try:
         if name == "discover":
             hits = agent.discover(args.get("goal", ""))
@@ -144,9 +174,13 @@ def handle(msg):
         result = {"tools": offered()}
     elif method == "tools/call":
         t0 = time.time()
-        text, err = call_tool(params.get("name"), params.get("arguments") or {})
-        record(params.get("name"), params.get("arguments") or {}, text, err, time.time() - t0)
-        result = {"content": [{"type": "text", "text": text}], "isError": err}
+        name, args = params.get("name"), params.get("arguments") or {}
+        text, err = call_tool(name, args)
+        record(name, args, text, err, time.time() - t0)
+        meta = labels(name, args)
+        if text.startswith("REFUSED:") and name == "run":
+            meta = {"untrusted": False, "egress": False}        # refused before anything ran: Fieldkit's own words
+        result = {"content": [{"type": "text", "text": text}], "isError": err, "_meta": meta}
     elif method == "ping":
         result = {}
     elif mid is None:
