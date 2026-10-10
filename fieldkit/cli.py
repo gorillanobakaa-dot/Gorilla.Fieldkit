@@ -298,6 +298,11 @@ def cmd_jobs(a):
     return 0
 
 
+def cmd_icons(a):
+    from .icons import iconkit
+    return iconkit.main(a.args, prog="fieldkit icons")
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -801,6 +806,12 @@ def build_parser():
     jb.add_argument("--min-score", type=int, default=0)
     jb.set_defaults(fn=cmd_jobs)
 
+    ic = sub.add_parser("icons", add_help=False,
+                        help="crisp desktop icons: why they are soft, rebuild the icon cache, make and check .ico "
+                             "(fieldkit icons --help)")
+    ic.add_argument("args", nargs=argparse.REMAINDER)
+    ic.set_defaults(fn=cmd_icons)
+
     sub.add_parser("audio", parents=[common],
                    help="Linux: every stage the sound passes through, what is done twice, and the fix (changes nothing)"
                    ).set_defaults(fn=cmd_audio)
@@ -1071,6 +1082,10 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
+        from .icons import iconkit
+        return iconkit.main(args[1:], prog="fieldkit icons")
     a = build_parser().parse_args(argv)
     if a.cmd == "pipeline" and a.action != "list" and not a.name:
         raise SystemExit("pipeline: name required")

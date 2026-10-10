@@ -25,6 +25,7 @@ dependencies = [
   "dpkt>=1.9",             # reading packet captures (buildh/capture.py, leakgate)
   "pefile>=2023.2",        # reading Windows executables (leakgate/audit.py)
   "Pillow>=10",            # image checks (buildh/decisions.py image_sharp, icons)
+  "numpy>=1.26",           # fieldkit icons build: recolouring the master picture (icons/iconkit.py)
 ]
 
 [project.optional-dependencies]
@@ -38,7 +39,7 @@ fieldkit = "fieldkit.cli:main"
 include = ["fieldkit*"]
 
 [tool.setuptools.package-data]
-fieldkit = ["build/signatures/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml"]
+fieldkit = ["build/signatures/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "local/tests"]

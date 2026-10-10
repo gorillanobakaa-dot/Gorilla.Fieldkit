@@ -331,3 +331,12 @@ tools:
   platforms: [windows, linux]
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_career.py"]
+
+- id: fieldkit-icons
+  title: Sharp desktop icons - the icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons
+  harness: fieldkit
+  entry: [python, -m, fieldkit, icons]
+  path: ${FIELDKIT}/fieldkit/icons/iconkit.py
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]

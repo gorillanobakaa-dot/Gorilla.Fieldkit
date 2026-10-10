@@ -134,6 +134,7 @@ Guides: [plain language](docs/dual-track/tool-collection/tool-collection_layman.
 | Check a CV, hear what is missing, and get a UK-style CV in English and Romanian | `fieldkit cv check FILE`, `fieldkit cv render` |
 | Find UK jobs on official job sites, score them, and prepare each application (you press Submit) | `fieldkit jobs run` |
 | Back up the whole kit into your backup folder, and prove the copy is good | `fieldkit backup` |
+| Blurry desktop icons: find out why and fix them with one click (Windows, and GTK/KDE on Linux) | `fieldkit icons cache --apply`, `fieldkit icons install-fix-button` |
 
 `deliver` answers `SAFE TO SEND` or `NOT SAFE`, with the reason. Nothing is uploaded.
 
@@ -439,6 +440,7 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | A CV against fixed rules (general + trade), the questions to ask; UK CVs from a profile, EN/RO, .docx + .pdf | `fieldkit cv check FILE` / `fieldkit cv render --variant V --lang ro` |
 | UK job hunt: Reed and Adzuna APIs only, scoring, packs, letters of approved sentences only, tracking; never submits | `fieldkit jobs run --top 8` (skill: `fieldkit-career`) |
 | A dated, verified zip of the harness into the backup folder (never guessed) | `fieldkit backup --to FOLDER` |
+| IconKit: why icons are soft (icon cache vs. the file), cache rebuild with backup, .ico frame reader and crisp gates, recoloured icons from one master | `fieldkit icons --help` (skill: `fieldkit-icons`) |
 | Find secrets, home paths, emails, your private words | `fieldkit privacy scan PATH [--git]` |
 | Name the cause of a failed build | `fieldkit triage LOG` |
 | Run a staged, resumable build | `fieldkit pipeline run NAME` |
