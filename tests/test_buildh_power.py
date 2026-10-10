@@ -8,12 +8,15 @@ def _ps(out):
     return lambda args, **k: type("R", (), {"stdout": out, "returncode": 0})()
 
 
-def test_battery_refuses_mains_and_desktops_pass_and_silence_fails_closed():
+def test_battery_is_said_never_refused():
+    # the owner, 2026-10-10: "the gate must work even when the laptop is on battery but let the user know"
     st = power.status(run=_ps('{"line":0,"percent":0.19,"flag":0}'))
-    assert st == {"mains": False, "percent": 19, "battery": True} and not power.row(st)["ok"]
-    assert power.row(power.status(run=_ps('{"line":1,"percent":0.8,"flag":8}')))["ok"]
-    assert power.row(power.status(run=_ps('{"line":255,"percent":2.55,"flag":128}')))["ok"]       # no battery
-    assert not power.row(power.status(run=_ps("not json")))["ok"]
+    assert st == {"mains": False, "percent": 19, "battery": True}
+    r = power.row(st)
+    assert r["ok"] and r["on_battery"] and "ON BATTERY" in r["evidence"] and "herald" in r["evidence"]
+    assert not power.row(power.status(run=_ps('{"line":1,"percent":0.8,"flag":8}')))["on_battery"]
+    assert "no battery" in power.row(power.status(run=_ps('{"line":255,"percent":2.55,"flag":128}')))["evidence"]
+    assert power.row(power.status(run=_ps("not json")))["ok"]
 
 
 def test_a_standby_says_lid_and_charge_and_still_counts_as_the_machine():

@@ -101,3 +101,11 @@ def test_follow_reports_a_failure_and_times_out_without_an_exit(tmp_path):
     t = iter(range(0, 1000, 10))
     assert w.follow(log2, say=lambda m: None, sleep=lambda s: None, timeout=30, clock=lambda: next(t)) is None
     assert w.latest_log("build-run", folder=tmp_path) == log2 and w.latest_log(folder=tmp_path) == log2
+
+
+def test_the_window_starts_the_herald_on_its_log(tmp_path):
+    from fieldkit.buildh import window as w
+    log = tmp_path / "x.log"
+    s = w.script(["build-run", "firefox-157.0-truth"], log, python="C:/py/python.exe")
+    assert "herald.ps1" in s and "'the build run'" in s and str(log) in s
+    assert w.HERALD.is_file()

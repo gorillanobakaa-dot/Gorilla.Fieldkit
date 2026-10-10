@@ -52,6 +52,14 @@ AWAKE_ON = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x800
 AWAKE_OFF = "[void][GorillaHarness.Power]::SetThreadExecutionState([uint32]'0x80000000')"    # ES_CONTINUOUS: release
 
 
+HERALD = FK / "toolbox" / "herald" / "herald.ps1"
+
+
+def spoken(args):
+    """What the herald calls the run: 'the build run', 'the post install'."""
+    return "the " + (args[0] if args else "run").replace("-", " ")
+
+
 def script(args, log, python=None):
     """The PowerShell the window runs (UTF-8 throughout; every line to the log too, as it comes; the exit code at the
     end). Not Tee-Object: in Windows PowerShell 5.1 it writes UTF-16 and has no -Encoding (2026-10-08: a build log
@@ -67,6 +75,9 @@ def script(args, log, python=None):
         f"Set-Location {_ps_quote(FK)}",
         f"$log = New-Object System.IO.StreamWriter({_ps_quote(log)}, $true, (New-Object System.Text.UTF8Encoding($false)))",
         "$log.AutoFlush = $true",
+        # the herald speaks battery warnings and the result, so nobody has to watch this window (toolbox/herald)
+        "Start-Process -WindowStyle Hidden powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass',"
+        f"'-File',{_ps_quote(HERALD)},'-Name',{_ps_quote(spoken(args))},'-Log',{_ps_quote(log)})",
         AWAKE_TYPE,
         AWAKE_ON,
         f"& {_ps_quote(python)} -m fieldkit build-harness {argv} 2>&1 | ForEach-Object {{ $s = \"$_\"; $log.WriteLine($s); $s }}",

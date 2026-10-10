@@ -6,6 +6,9 @@ and the build froze until 06:20 with the battery at 19 %. The day before, an "un
 package step came four minutes after Windows logged the battery at 18 %: very likely the battery running out
 (Kernel-Power 506 records the charge on every standby). Nothing is changed on the machine: this only reads
 [System.Windows.Forms.SystemInformation]::PowerStatus, and build-run refuses to start a compile on battery.
+Changed the same day by the owner: "Screw the battery warnings ... the gate must work even when the laptop is on
+battery but let the user know": nothing refuses on battery any more; the row says so, and the herald
+(toolbox/herald/herald.ps1, started by every window) speaks at 20, 10 and 5 per cent.
 """
 import json
 import subprocess
@@ -29,14 +32,14 @@ def status(run=subprocess.run):
 
 
 def row(st=None):
-    """The run may start only on mains (a desktop without a battery always may)."""
+    """What the power is, said before a long run; never a refusal (the owner, 2026-10-10)."""
     st = st or status()
-    if st["mains"] is None:
-        return {"check": "power: the laptop is on mains", "ok": False,
-                "evidence": "Windows did not say whether it is on mains: plug it in and try again"}
-    ok = bool(st["mains"])
     charge = f"battery {st['percent']} %" if st.get("percent") is not None else "no battery"
-    return {"check": "power: the laptop is on mains", "ok": ok,
-            "evidence": (f"on mains, {charge}; {LID}" if ok else
-                         f"ON BATTERY, {charge}: a compile drains it (2026-10-09 13:19: shut down mid-package at 18 %); "
-                         "plug the charger in, then start again")}
+    if st["mains"] is None:
+        ev = f"Windows did not say whether it is on mains; {LID}"
+    elif st["mains"]:
+        ev = f"on mains, {charge}; {LID}"
+    else:
+        ev = (f"ON BATTERY, {charge}: the run goes on; the herald says so aloud at 20, 10 and 5 per cent "
+              f"(2026-10-09 13:19: a package step died at 18 %); {LID}")
+    return {"check": "power", "ok": True, "evidence": ev, "on_battery": st["mains"] is False}
