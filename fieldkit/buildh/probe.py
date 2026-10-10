@@ -208,14 +208,14 @@ COPY_PREFIX = "gprobe_app_"
 COPY_MARK = ".fieldkit-probe-copy"
 
 
-def stop_tree(pid, platform=None, run=subprocess.run):
+def stop_tree(pid, platform=None, run=None):
     """Stop process `pid` and its children, by PID only (taskkill /T on Windows; psutil, or the process group this
     module started it in, elsewhere). A process that is already gone is not an error."""
     import os as _os
     import signal as _signal
     import sys as _sys
     if (platform or _sys.platform) == "win32":
-        run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        (run or subprocess.run)(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
         return
     try:
         import psutil
