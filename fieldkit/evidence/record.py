@@ -6,6 +6,7 @@ A record file is JSON lines, one object per line:
                       "sources_tried": [...], "audit": "..."|null, "uncovered": false}
     {"type": "claim", "lane": "LOCAL", "n": 1, "claim": ..., "evidence": ..., "urls": [...],
                       "tier": "primary_source" | "grade": "B2", "origin": ..., "quote": ..., "line": 12}
+    {"type": "fetched", "lane": "LOCAL", "url": ...}      what the lane's helper opened (Gorilla OpenCode writes these)
 
 import reads the files Gorilla OpenCode writes (findings-*.md: every lane's report under its own heading, in the
 output contract of internal/llm/agent/research-tool.go) and single lane replies.
@@ -191,6 +192,12 @@ def check(records, store=None, fetched=None, run=None):
     lanes = [r for r in records if r.get("type") == "lane"]
     snaps = store.snapshots() if store else None
     opened = _fetched_set(fetched) if fetched else None
+    # Gorilla OpenCode writes what each lane fetched into the record itself ({"type": "fetched", "lane", "url"}):
+    # then each claim is held to what ITS lane opened, not what any lane did.
+    by_lane = {}
+    for r in records:
+        if r.get("type") == "fetched":
+            by_lane.setdefault(r.get("lane"), set()).add(urls.normalize(r.get("url", "")))
 
     def where(r):
         lane = _v(r.get("lane", "?"), 30)[1:-1]
@@ -253,8 +260,12 @@ def check(records, store=None, fetched=None, run=None):
                                             "or version")
         for u in c.get("urls") or []:
             by_url.setdefault(u, set()).add(c.get("lane"))
-            if opened is not None and u not in opened and urls.fetchable(u) not in opened:
-                add("finding", "cited-not-opened", c, f"{_u(u)} is cited, and this run never fetched it")
+            lane_opened = by_lane.get(c.get("lane"), set()) if by_lane and opened is None else None
+            seen = opened if opened is not None else lane_opened
+            if seen is not None and u not in seen and urls.fetchable(u) not in seen and not (
+                    u.startswith("doi:") and any(u[4:] in x.lower() for x in seen)):
+                add("finding", "cited-not-opened", c, f"{_u(u)} is cited, and "
+                    + ("this run never fetched it" if opened is not None else "its lane never fetched it"))
             if store is not None:
                 snap = store.latest(u, run, snaps)
                 if snap is None:

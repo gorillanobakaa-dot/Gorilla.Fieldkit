@@ -342,3 +342,21 @@ def test_the_check_does_not_repeat_a_paragraph_from_the_record():
     msg = " ".join(f["message"] for f in r["findings"])
     assert "claim-tier" in {f["rule"] for f in r["findings"]}
     assert len(msg) < 200 and msg.count("IGNORE") <= 1
+
+
+def test_each_claim_is_held_to_what_its_own_lane_fetched():
+    recs = [{"type": "run", "doctrine": "standard"},
+            {"type": "lane", "lane": "A", "headings_missing": [], "basis": {}, "confidence": {"word": "strong",
+             "alone": True}, "sources_tried": ["x"], "audit": None, "uncovered": False},
+            {"type": "lane", "lane": "B", "headings_missing": [], "basis": {}, "confidence": {"word": "strong",
+             "alone": True}, "sources_tried": ["x"], "audit": None, "uncovered": False},
+            {"type": "claim", "lane": "A", "n": 1, "claim": "a", "evidence": "e", "urls": ["https://x.org/p"],
+             "tier": "config"},
+            {"type": "claim", "lane": "B", "n": 1, "claim": "b", "evidence": "e", "urls": ["https://x.org/p"],
+             "tier": "config"},
+            {"type": "claim", "lane": "B", "n": 2, "claim": "c", "evidence": "e", "urls": ["doi:10.1/z"],
+             "tier": "config"},
+            {"type": "fetched", "lane": "A", "url": "https://x.org/p/"},
+            {"type": "fetched", "lane": "B", "url": "https://publisher.org/doi/10.1/Z"}]
+    got = rules(record.check(recs))
+    assert got == [("B claim 1", "cited-not-opened")], got        # A opened it; B only cited it
