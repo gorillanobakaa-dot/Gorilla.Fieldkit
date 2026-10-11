@@ -868,6 +868,11 @@ def build_parser():
                              "plagiarism pre-check, the next step (fieldkit academic)")
     ac.add_argument("args", nargs=argparse.REMAINDER)
     ac.set_defaults(fn=lambda a: __import__("fieldkit.academic.cli", fromlist=["main"]).main(a.args))
+    hd = sub.add_parser("hdmi", add_help=False,
+                        help="the HDMI Harness: status, diagnostics, connect the TV (with the GPU-driver repair, "
+                             "elevated) (fieldkit hdmi)")
+    hd.add_argument("args", nargs=argparse.REMAINDER)
+    hd.set_defaults(fn=lambda a: __import__("fieldkit.hdmi.cli", fromlist=["main"]).main(a.args))
     w11 = sub.add_parser("win11", add_help=False,
                          help="the Windows 11 tweaks framework: modules, fit to this PC, OEM check, run a module "
                               "safely (fieldkit win11)")
@@ -1160,6 +1165,9 @@ def main(argv=None):
     if args[:1] == ["academic"]:                      # so is the academic module
         from .academic import cli as academic_cli
         return academic_cli.main(args[1:])
+    if args[:1] == ["hdmi"]:                          # the HDMI Harness, elevated and waited for (fieldkit/hdmi)
+        from .hdmi import cli as hdmi_cli
+        return hdmi_cli.main(args[1:])
     if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
         from .win11 import cli as win11_cli
         return win11_cli.main(args[1:])
