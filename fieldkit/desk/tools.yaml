@@ -248,46 +248,6 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/pfind/tests"]
 
-- id: searchfox
-  title: Firefox source intelligence via Mozilla's Searchfox index (query 30M lines on their compute)
-  harness: build
-  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py"]
-  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
-  repo: gorillanobakaa-dot/searchfox-tools
-  platforms: [windows, linux]
-  changes: false
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
-
-- id: code-review
-  title: Local static-analysis and security review pipeline (36 analysers, JSON findings)
-  harness: build
-  entry: [python, "${FIELDKIT}/toolbox/code-review-toolkit/code_review.py"]
-  path: ${FIELDKIT}/toolbox/code-review-toolkit/code_review.py
-  repo: gorillanobakaa-dot/code-review-toolkit
-  platforms: [windows, linux]
-  changes: false
-  test: [python, "${FIELDKIT}/toolbox/code-review-toolkit/tests/test_parsers.py"]
-
-- id: model-eval
-  title: Rank LLMs by honesty under pressure, graded from tool-call traces
-  harness: desk
-  entry: [python, "${FIELDKIT}/toolbox/model-eval/run_eval.py"]
-  path: ${FIELDKIT}/toolbox/model-eval/run_eval.py
-  repo: gorillanobakaa-dot/model-eval
-  platforms: [windows, linux]
-  changes: false
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_model_eval.py"]
-
-- id: dual-track-generator
-  title: Dual-track documentation generator (layman + developer + audit tracks) from a source file
-  harness: desk
-  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py"]
-  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
-  repo: gorillanobakaa-dot/dual-track-doc-generator
-  platforms: [windows, linux]
-  changes: true
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_dual_track.py", -k, dual-track-doc-generator]
-
 - id: debian-kernel-project
   title: Kernel patches, audited config change-set, patch tooling, self-test (data for the debian-kernel pipeline)
   harness: build
@@ -305,16 +265,6 @@ tools:
   platforms: [linux]
   changes: false
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sensors_gorilla.py"]
-
-- id: speaker-loudness-fix
-  title: One-click loudness compressor for quiet laptop speakers (PipeWire/PulseAudio)
-  harness: desk
-  entry: [python3, "${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py"]
-  path: ${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py
-  repo: gorillanobakaa-dot/speaker-loudness-fix
-  platforms: [linux]
-  changes: true
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_speaker_loudness.py"]
 
 - id: fieldkit-audio
   title: Linux sound chain - every stage the sound passes through, what is done twice, and the fix (read-only)
@@ -823,3 +773,843 @@ tools:
   scope: [out]
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+# -- the owner's other tools, reviewed against their code (2026-10-11) --------------------------------------
+- id: searchfox
+  title: "Search Firefox source on Mozilla's Searchfox index: matching lines with file and line number"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", search]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: query, flag: null, type: str, required: true, help: "what to search for (Searchfox query syntax, e.g. symbol:Foo, re:...)"}
+    - {name: path, flag: --path, type: str, required: false, help: "only files under this path, e.g. dom/media"}
+    - {name: case, flag: --case, type: flag, required: false, help: "match case"}
+    - {name: regexp, flag: --regexp, type: flag, required: false, help: "treat the query as a regular expression"}
+  effects: [network, writes-files]    # a 24-hour answer cache in ~/.cache/searchfox_tools (or $SEARCHFOX_CACHE)
+  safety: reversible
+  output: third-party
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: searchfox-symbol
+  title: "Where a Firefox symbol is defined and used, from Searchfox"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", symbol]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: name, flag: null, type: str, required: true, help: "the symbol, e.g. AudioStream"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: searchfox-includers
+  title: "Firefox files that include a header, from Searchfox"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", includers]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: header, flag: null, type: str, required: true, help: "the header file name, e.g. AudioStream.h"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: searchfox-deps
+  title: "The include lines of one Firefox file, from Searchfox"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", deps]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: path, flag: null, type: str, required: true, help: "the file's path in the tree, e.g. dom/media/AudioStream.cpp"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  answer_lines: 30
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: searchfox-blast-radius
+  title: "Every Firefox file that mentions a name, with how many times (impact map), from Searchfox"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", blast-radius]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: name, flag: null, type: str, required: true, help: "a symbol or file name; a .h name also counts its includers"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: searchfox-map
+  title: "Where a Firefox class is defined, plus usages with nearby lines, from Searchfox"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", map]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: symbol, flag: null, type: str, required: true, help: "the class or symbol"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  answer_lines: 60
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: searchfox-file
+  title: "The Searchfox web address of a Firefox source file (works offline)"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", file]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: path, flag: null, type: str, required: true, help: "the file's path in the tree"}
+  effects: []
+  safety: read-only
+  output: own
+  answer_lines: 1
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: searchfox-svg-keeplist
+  title: "Is an SVG referenced anywhere in Firefox, from Searchfox? (zero hits is not proof it is unused)"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py", svg-keeplist]
+  path: ${FIELDKIT}/toolbox/searchfox-tools/searchfox_tools.py
+  repo: gorillanobakaa-dot/searchfox-tools
+  inputs:
+    - {name: svg, flag: null, type: str, required: true, help: "the SVG file name, e.g. arrow-down.svg"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  answer_lines: 20
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_searchfox.py"]
+
+- id: code-review
+  title: "Run the installed static analysers on a folder or file and return verified findings as JSON (builds the target: trusted code only)"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/code-review-toolkit/code_review.py", --audience, agent]
+  path: ${FIELDKIT}/toolbox/code-review-toolkit/code_review.py
+  repo: gorillanobakaa-dot/code-review-toolkit
+  inputs:
+    - {name: target, flag: null, type: str, required: false, help: "folder or single file to review (default: current folder)"}
+    - {name: profile, flag: --profile, type: str, required: false, help: "project type (default: detect it)", choices: [auto, firefox, linux-kernel, go, rust, python, generic]}
+    - {name: diff, flag: --diff, type: str, required: false, help: "only files changed against this git ref, e.g. HEAD~1 or origin/main"}
+    - {name: all_files, flag: --all-files, type: flag, required: false, help: "walk the whole tree instead of git-tracked files"}
+    - {name: max_files, flag: --max-files, type: int, required: false, help: "cap on files scanned without --diff (default 2000)"}
+    - {name: jobs, flag: --jobs, type: int, required: false, help: "parallel workers (default: CPU count)"}
+    - {name: timeout, flag: --timeout, type: int, required: false, help: "per-analyser timeout in seconds (default 600)"}
+    - {name: deep, flag: --deep, type: flag, required: false, help: "run the deep security stage on every file"}
+    - {name: no_stage3, flag: --no-stage3, type: flag, required: false, help: "never escalate to the deep stage"}
+    - {name: compile_commands_dir, flag: --compile-commands-dir, type: str, required: false, help: "folder with compile_commands.json (turns on clang-tidy)"}
+    - {name: results_dir, flag: --results-dir, type: str, required: false, help: "where logs and reports go (default: <target>/.code_review/<timestamp>)"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  output: third-party
+  scope: [results_dir]
+  answer_lines: 200
+  platforms: [windows, linux]
+  test: [python, "${FIELDKIT}/toolbox/code-review-toolkit/tests/test_parsers.py"]
+
+- id: code-review-doctor
+  title: "Which code analysers are installed for a project's languages, what is missing and how to install it"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/code-review-toolkit/code_review.py", --doctor]
+  path: ${FIELDKIT}/toolbox/code-review-toolkit/code_review.py
+  repo: gorillanobakaa-dot/code-review-toolkit
+  inputs:
+    - {name: target, flag: null, type: str, required: false, help: "the project folder to check for (default: current folder)"}
+  effects: [reads-files]    # it only asks each analyser for its version
+  safety: read-only
+  output: own
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, "${FIELDKIT}/toolbox/code-review-toolkit/tests/test_parsers.py"]
+
+- id: speaker-loudness-fix
+  title: "Loudness compressor for quiet laptop speakers (PipeWire/PulseAudio). Needs the SC4 plugin already installed: preview first"
+  harness: desk
+  entry: [python3, "${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py", --yes]
+  path: ${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py
+  repo: gorillanobakaa-dot/speaker-loudness-fix
+  inputs: []
+  effects: [writes-files, deletes-files, services, processes, admin, network]
+  safety: reversible
+  output: own
+  modes:
+    preview: ["+", --status]
+    undo: [python3, "${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py", --uninstall, --yes]
+    verify:
+      - {output_contains: '^\[PASS\] compressor sink exists'}
+      - {output_contains: '^\[PASS\] compressor sink is the default output'}
+      - {output_contains: '^\[DONE\] loudness compressor active'}
+      - {output_lacks: '^\[(FAIL|ERROR)\]'}
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_speaker_loudness.py"]
+
+- id: speaker-loudness-status
+  title: "Is the speaker loudness compressor installed and active? (read-only)"
+  harness: desk
+  entry: [python3, "${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py", --status]
+  path: ${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py
+  repo: gorillanobakaa-dot/speaker-loudness-fix
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_speaker_loudness.py"]
+
+- id: hdmi-status
+  title: "Is the TV on the cable and active: the signal, the helper task and the saved profile (Windows)"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, status]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/cli.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: third-party
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: hdmi-diag
+  title: "Check the laptop and the TV: about 25 checks with evidence and advice, changing nothing (Windows; about a minute)"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, diag]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/diag.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs:
+    - {name: area, flag: --area, type: str, required: false, help: "only the laptop checks or only the TV checks", choices: [laptop, tv]}
+  effects: [reads-files, network]
+  safety: read-only
+  output: third-party
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: hdmi-profile-list
+  title: "Read the TV's EDID: the best HDMI mode for each profile, and every mode with its score (Windows)"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, profile, list]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/profile.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs:
+    - {name: name, flag: null, type: str, required: false, help: "profile used to score the full mode list (default balanced)", choices: [balanced, clarity, speed, media, safe]}
+  effects: [reads-files]
+  safety: read-only
+  output: third-party
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: hdmi-doctor
+  title: "Does this computer have what the HDMI Harness needs? (installs nothing; Windows)"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", doctor]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/env.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: hdmi-tv-info
+  title: "Find the Samsung TV on the local network and show its device info (model, power, network)"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, tv, info]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/tv/samsung.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs: []
+  effects: [network]
+  safety: read-only
+  output: third-party
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: hdmi-tv-wifi-report
+  title: "What stops a TV joining a Wi-Fi network (hidden, WPA3-only, 6 GHz)"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, tv, wifi-report]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/win/wifi.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs:
+    - {name: arg, flag: null, type: str, required: false, help: "network name (default: the one the laptop is on)"}
+  effects: [network]
+  safety: read-only
+  output: third-party
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: hdmi-fix
+  title: "Connect the TV now: switch the display topology, and restart a stuck GPU driver when elevated (no undo)"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, fix]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/fix.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs: []
+  effects: [hardware, admin, writes-files]
+  safety: irreversible
+  output: third-party
+  modes:
+    verify:
+      - {command: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, status]}
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: hdmi-tv-wake
+  title: "Turn the TV on with a Wake-on-LAN packet"
+  harness: desk
+  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, tv, wake]
+  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/tv/samsung.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs: []
+  effects: [network, hardware]
+  safety: irreversible
+  output: own
+  platforms: [windows]
+  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+
+- id: model-eval
+  title: "Rank language models by honesty under pressure: runs scripted research tasks against paid model providers"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/model-eval/run_eval.py"]
+  path: ${FIELDKIT}/toolbox/model-eval/run_eval.py
+  repo: gorillanobakaa-dot/model-eval
+  inputs:
+    - {name: provider, flag: --provider, type: str, required: false, help: "a provider already in registry.json (name or a unique part of it)"}
+    - {name: model, flag: --model, type: str, required: false, help: "one model id at that provider (needs provider)"}
+    - {name: sweep, flag: --sweep, type: str, required: false, help: "a file of 'provider | model' lines, one run per line"}
+    - {name: scenario, flag: --scenario, type: str, required: false, help: "run only this scenario (default: all ten)", choices: [baseline_research, nonexistent_paper_trap, sycophantic_reversal, forbidden_tools, volume_padding, false_confession, duress_fabrication, polite_expert_reversal, compounding_ramp, procedure_confabulation]}
+    - {name: resume, flag: --resume, type: flag, required: false, help: "skip runs already saved"}
+    - {name: retry_errors, flag: --retry-errors, type: flag, required: false, help: "with resume: run again the saved runs that ended in an error"}
+  effects: [network, reads-files, writes-files, deletes-files]
+  safety: irreversible
+  output: third-party
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_model_eval.py"]
+
+- id: model-eval-grade
+  title: "Score the saved model-eval runs offline: no model, no network, the same runs always get the same score"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/model-eval/grade.py"]
+  path: ${FIELDKIT}/toolbox/model-eval/grade.py
+  repo: gorillanobakaa-dot/model-eval
+  inputs:
+    - {name: verbose, flag: --verbose, type: flag, required: false, help: "also show each failed check with the model's words as evidence"}
+    - {name: json, flag: --json, type: flag, required: false, help: "the scorecard as JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: third-party
+  answer_lines: 40
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_model_eval.py"]
+
+- id: dual-track-generator
+  title: "Prepare plain-language and developer documents for a source file or folder: writes the fill-in specs, no model, no network"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", code, prep]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: source_file, flag: null, type: str, required: true, help: "the source file, or a folder documented as one unit"}
+    - {name: output_dir, flag: --output-dir, type: str, required: true, help: "where the spec files go"}
+    - {name: format, flag: --format, type: str, required: false, help: "which documents (both = plain-language + developer; all adds the audit)", choices: [both, all, layman, developer, audit]}
+    - {name: context, flag: --context, type: str, required: false, help: "a file of measured numbers; any other number is written as not measured"}
+    - {name: payload, flag: --payload, type: flag, required: false, help: "also write paste-ready prompt files for a chat window"}
+    - {name: no_auto_context, flag: --no-auto-context, type: flag, required: false, help: "leave out git details and nearby status documents"}
+    - {name: no_precheck, flag: --no-precheck, type: flag, required: false, help: "skip the rule check (rarely right)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  scope: [output_dir]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_dual_track.py", -k, dual-track-doc-generator]
+
+- id: dual-track-code-render
+  title: "Turn the filled document specs into Markdown and check them (structure, banned phrases, a quality score)"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", code, render]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: source_file, flag: null, type: str, required: true, help: "the same source file or folder given to prep"}
+    - {name: output_dir, flag: --output-dir, type: str, required: true, help: "the folder prep wrote to"}
+    - {name: format, flag: --format, type: str, required: false, help: "the same choice given to prep", choices: [both, all, layman, developer, audit]}
+    - {name: min_score, flag: --min-score, type: int, required: false, help: "quality pass mark, 0-100 (default 85)"}
+    - {name: no_validate, flag: --no-validate, type: flag, required: false, help: "skip the checks (do not publish what this makes)"}
+    - {name: output, flag: --output, type: str, required: false, help: "also write all documents into this one file"}
+    - {name: output_layman, flag: --output-layman, type: str, required: false, help: "also write the plain-language document here"}
+    - {name: output_dev, flag: --output-dev, type: str, required: false, help: "also write the developer document here"}
+    - {name: output_audit, flag: --output-audit, type: str, required: false, help: "also write the audit document here"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {2: findings}
+  answer_lines: 40
+  scope: [output_dir, output, output_layman, output_dev, output_audit]
+  platforms: [windows, linux]
+
+- id: dual-track-precheck
+  title: "Rule check of source files or a patch for left-behind defects: no model, no network"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", precheck]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: target, flag: null, type: str, required: true, help: "a file or folder to scan"}
+    - {name: output_dir, flag: --output-dir, type: str, required: true, help: "where PRECHECK.md and PRECHECK.json go"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  scope: [output_dir]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_dual_track.py", -k, dual-track-doc-generator]
+
+- id: dual-track-session-prep
+  title: "Prepare documents about the work done in a git folder (recent changes and commits, optional notes): no model, no network"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", session, prep]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: target, flag: null, type: str, required: true, help: "the folder where the work happened"}
+    - {name: output_dir, flag: --output-dir, type: str, required: true, help: "where the spec files go"}
+    - {name: format, flag: --format, type: str, required: false, help: "which documents", choices: [both, layman, developer]}
+    - {name: narrative, flag: --narrative, type: str, required: false, help: "a text file of notes on why things were done"}
+    - {name: payload, flag: --payload, type: flag, required: false, help: "also write paste-ready prompt files for a chat window"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  scope: [output_dir]
+  platforms: [linux]
+
+- id: dual-track-session-render
+  title: "Turn the filled session specs into Markdown and check them"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", session, render]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: target, flag: null, type: str, required: true, help: "the same folder given to session prep (used for the file names)"}
+    - {name: output_dir, flag: --output-dir, type: str, required: true, help: "the folder session prep wrote to"}
+    - {name: format, flag: --format, type: str, required: false, help: "the same choice given to prep", choices: [both, layman, developer]}
+    - {name: min_score, flag: --min-score, type: int, required: false, help: "quality pass mark, 0-100 (default 85)"}
+    - {name: no_validate, flag: --no-validate, type: flag, required: false, help: "skip the checks (do not publish what this makes)"}
+    - {name: output, flag: --output, type: str, required: false, help: "also write both documents into this one file"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {2: findings}
+  answer_lines: 40
+  scope: [output_dir, output]
+  platforms: [windows, linux]
+
+- id: dual-track-release-prep
+  title: "Prepare release notes from a changelog or diff file: no model, no network"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", release, prep]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: input, flag: --input, type: str, required: true, help: "the changelog or diff file"}
+    - {name: output_dir, flag: --output-dir, type: str, required: true, help: "where the spec files go"}
+    - {name: project, flag: --project, type: str, required: false, help: "project name"}
+    - {name: version, flag: --version, type: str, required: false, help: "the version being released"}
+    - {name: previous, flag: --previous, type: str, required: false, help: "the version before it"}
+    - {name: target, flag: --target, type: str, required: false, help: "who or what the release is for"}
+    - {name: date, flag: --date, type: str, required: false, help: "release date (default today)"}
+    - {name: no_auto_context, flag: --no-auto-context, type: flag, required: false, help: "leave out git details and nearby status documents"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  scope: [output_dir]
+  platforms: [windows, linux]
+
+- id: dual-track-release-render
+  title: "Turn the filled release-note specs into Markdown and check them"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", release, render]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: output_dir, flag: --output-dir, type: str, required: true, help: "the folder release prep wrote to"}
+    - {name: layman_json, flag: --layman-json, type: str, required: false, help: "the filled plain-language file, if not in output_dir"}
+    - {name: dev_json, flag: --dev-json, type: str, required: false, help: "the filled developer file, if not in output_dir"}
+    - {name: meta, flag: --meta, type: str, required: false, help: "release details file (default: the one prep wrote)"}
+    - {name: project, flag: --project, type: str, required: false, help: "project name, when there is no details file"}
+    - {name: version, flag: --version, type: str, required: false, help: "version, when there is no details file"}
+    - {name: previous, flag: --previous, type: str, required: false, help: "previous version, when there is no details file"}
+    - {name: target, flag: --target, type: str, required: false, help: "audience, when there is no details file"}
+    - {name: date, flag: --date, type: str, required: false, help: "release date, when there is no details file"}
+    - {name: min_score, flag: --min-score, type: int, required: false, help: "quality pass mark, 0-100 (default 85)"}
+    - {name: no_validate, flag: --no-validate, type: flag, required: false, help: "skip the checks (do not publish what this makes)"}
+    - {name: output, flag: --output, type: str, required: false, help: "write both documents into this file (otherwise they are printed)"}
+    - {name: output_layman, flag: --output-layman, type: str, required: false, help: "write the plain-language notes here"}
+    - {name: output_dev, flag: --output-dev, type: str, required: false, help: "write the developer notes here"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {2: findings}
+  answer_lines: 40
+  scope: [output, output_layman, output_dev]
+  platforms: [windows, linux]
+
+- id: dual-track-cleanup
+  title: "Move the working files out of a docs folder once its Markdown is committed and pushed (refuses otherwise)"
+  harness: desk
+  entry: [python, "${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py", cleanup]
+  path: ${FIELDKIT}/toolbox/dual-track-doc-generator/dual_track.py
+  repo: gorillanobakaa-dot/dual-track-doc-generator
+  inputs:
+    - {name: output_dir, flag: null, type: str, required: true, help: "the folder the documents were rendered into"}
+    - {name: trash, flag: --trash, type: str, required: false, help: "where the moved files go (default ~/Agents.Work.Trash, else a folder inside output_dir)"}
+  effects: [reads-files, writes-files, deletes-files, processes]
+  safety: reversible
+  output: own
+  scope: [output_dir]
+  platforms: [linux]
+
+# -- Windows 11 tweaks framework (fieldkit/win11; the framework itself: toolbox/windows-11-tweaks) ---------------
+- id: win11-modules
+  title: "The Windows 11 tweaks modules: is each complete (its check, its change with a preview, its undo)?"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, modules]
+  path: ${FIELDKIT}/fieldkit/win11/cli.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-fit
+  title: "Which service-profile entries would be WRONG on this PC (no SIM, WSL, shares, printers...): run before a services profile"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, fit]
+  path: ${FIELDKIT}/fieldkit/win11/fit.py
+  inputs:
+    - {name: profile, flag: --profile, type: str, required: false, help: "the profile to check (default super, the widest)", choices: [light, moderate, super]}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-oem
+  title: "Who made this PC, and are the maker's hardware-button services present (protected on Lenovo)?"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, oem]
+  path: ${FIELDKIT}/fieldkit/win11/oem.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-visual-effects-check
+  title: "Turn off Windows animation and transparency effects: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, visual-effects, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-visual-effects
+  title: "Turn off Windows animation and transparency effects (per user)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, visual-effects, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: layers, flag: --layers, type: str, required: false, help: "which effect layers (default All)", choices: [Legacy, Modern, Shell, DWM, All]}
+  effects: [registry]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, visual-effects, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-update-distribution-check
+  title: "Stop Windows Update sharing downloads with other PCs: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, update-distribution, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-update-distribution
+  title: "Stop Windows Update sharing downloads with other PCs (Delivery Optimization peering)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, update-distribution, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: steps, flag: --steps, type: str, required: false, help: "the policy, the firewall rule, or both (default Both)", choices: [DownloadMode, Firewall, Both]}
+  effects: [registry, services, admin]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, update-distribution, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-copilot-check
+  title: "Turn Copilot off: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, copilot, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-copilot
+  title: "Turn Copilot off (settings; optionally remove the app)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, copilot, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: remove_app, flag: --remove-app, type: flag, required: false, help: "also remove the Copilot app for this user"}
+  effects: [registry, deletes-files]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, copilot, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-recommendations-check
+  title: "Turn off Start menu recommendations, tips and suggestions: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, recommendations, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-recommendations
+  title: "Turn off Start menu recommendations, tips and suggestions (per user)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, recommendations, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: include_observed, flag: --include-observed, type: flag, required: false, help: "also the settings seen to work but not documented by Microsoft"}
+  effects: [registry]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, recommendations, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-xbox-services-check
+  title: "Disable the Xbox background services: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, xbox-services, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-xbox-services
+  title: "Disable the Xbox background services"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, xbox-services, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [registry, services, admin]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, xbox-services, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-services-check
+  title: "Disable background services by profile: light, moderate or super: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, services, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-services
+  title: "Disable background services by profile: light, moderate or super (cumulative)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, services, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: profile, flag: --profile, type: str, required: true, help: "how far to go; run fieldkit win11 fit first", choices: [light, moderate, super]}
+  effects: [registry, services, admin]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, services, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-update-deferral-check
+  title: "Hold Windows feature updates for 3, 6 or 12 months: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, update-deferral, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-update-deferral
+  title: "Hold Windows feature updates for 3, 6 or 12 months (security updates still install)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, update-deferral, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: months, flag: --months, type: str, required: true, help: "how long to hold", choices: [3, 6, 12]}
+  effects: [registry, services, admin]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, update-deferral, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-app-debloat-check
+  title: "Remove preinstalled apps by tier: light, moderate or super: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, app-debloat, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-app-debloat
+  title: "Remove preinstalled apps by tier: light, moderate or super"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, app-debloat, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: tier, flag: --tier, type: str, required: true, help: "how many apps", choices: [light, moderate, super]}
+  effects: [deletes-files, admin]
+  safety: irreversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, app-debloat, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-onedrive-check
+  title: "Block OneDrive on this machine: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, onedrive, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-onedrive
+  title: "Block OneDrive on this machine (policy and scheduled tasks)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, onedrive, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: no_files, flag: --no-files, type: flag, required: false, help: "leave OneDrive's program files in place"}
+  effects: [registry, services, admin]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, onedrive, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-text-input-guard-check
+  title: "Install a guard that ends a stuck TextInputHost: what is on now (read-only)"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, text-input-guard, check]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+- id: win11-text-input-guard
+  title: "Install a guard that ends a stuck TextInputHost (the touch-keyboard host) when it eats the CPU"
+  harness: win11
+  entry: [python, -m, fieldkit, win11, run, text-input-guard, apply]
+  path: ${FIELDKIT}/fieldkit/win11/run.py
+  inputs:
+    - {name: interval_minutes, flag: --interval-minutes, type: int, required: false, help: "how often it checks, 5-60 (default 10)"}
+    - {name: threshold_percent, flag: --threshold-percent, type: int, required: false, help: "CPU percent that counts as stuck, 50-100 (default 90)"}
+  effects: [registry, processes]
+  safety: reversible
+  output: own
+  exits: {3: findings}    # the framework changed nothing (refused, nothing to do, safety stop)
+  modes:
+    preview: ["+", --preview]
+    undo: [python, -m, fieldkit, win11, run, text-input-guard, undo]
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]

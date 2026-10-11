@@ -868,6 +868,11 @@ def build_parser():
                              "plagiarism pre-check, the next step (fieldkit academic)")
     ac.add_argument("args", nargs=argparse.REMAINDER)
     ac.set_defaults(fn=lambda a: __import__("fieldkit.academic.cli", fromlist=["main"]).main(a.args))
+    w11 = sub.add_parser("win11", add_help=False,
+                         help="the Windows 11 tweaks framework: modules, fit to this PC, OEM check, run a module "
+                              "safely (fieldkit win11)")
+    w11.add_argument("args", nargs=argparse.REMAINDER)
+    w11.set_defaults(fn=lambda a: __import__("fieldkit.win11.cli", fromlist=["main"]).main(a.args))
     ev = sub.add_parser("evidence", add_help=False,
                         help="research evidence that can be checked later: fetch pages into a store, import a run's "
                              "findings, check every claim (fieldkit evidence)")
@@ -1155,6 +1160,9 @@ def main(argv=None):
     if args[:1] == ["academic"]:                      # so is the academic module
         from .academic import cli as academic_cli
         return academic_cli.main(args[1:])
+    if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
+        from .win11 import cli as win11_cli
+        return win11_cli.main(args[1:])
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])

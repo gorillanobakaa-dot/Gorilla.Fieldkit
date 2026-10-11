@@ -1,0 +1,27 @@
+# The service profiles (06-services/profiles.json) were written on one ThinkPad, and some entries are there BECAUSE
+# of facts about that machine: "No SIM in use on this machine", "WSL is not installed here". On another computer the
+# same entry can be wrong. Each entry below names the fact it rests on; `fieldkit win11 fit` checks the fact on the
+# machine it runs on and reports every entry whose fact does not hold there. Probes are read-only (fit.py).
+#   service: [probe, what the profile assumes]
+services:
+  QServiceEM05G:        [wwan_unused, "the Quectel cellular modem is not in use"]
+  QUECTELDPRSVC:        [wwan_unused, "the Quectel cellular modem is not in use"]
+  QuectelModemAuthSVC:  [wwan_unused, "the Quectel cellular modem is not in use"]
+  WwanSvc:              [wwan_unused, "no mobile broadband (SIM) connection is used"]
+  autotimesvc:          [wwan_unused, "no mobile broadband (SIM) connection is used"]
+  SmsRouter:            [wwan_unused, "no mobile broadband (SIM) connection is used"]
+  fhsvc:                [file_history_off, "File History is not set up"]
+  TermService:          [rdp_disabled, "Remote Desktop is turned off"]
+  NcaSvc:               [not_domain_joined, "the machine is not in a company domain (DirectAccess)"]
+  Netlogon:             [not_domain_joined, "the machine is not in a company domain"]
+  LanmanServer:         [no_file_shares, "no folders or printers are shared from this machine"]
+  refsdedupsvc:         [no_refs, "there is no ReFS volume"]
+  Spooler:              [only_virtual_printers, "the only printers are virtual ones (Print to PDF, XPS)"]
+  HvHost:               [hyperv_absent, "Hyper-V is not installed"]
+  P9RdrService:         [wsl_absent, "WSL is not installed"]
+  LxssManager:          [wsl_absent, "WSL is not installed"]
+  workfolderssvc:       [work_folders_off, "Work Folders is not set up"]
+  tzautoupdate:         [tz_auto_off, "automatic time-zone update is already off (so disabling it changes nothing)"]
+  WpcMonSvc:            [ask_parental_controls, "Microsoft Family parental controls are not used on this machine"]
+# Entries whose reason mentions "this machine" in general terms, not as a fact about it (reviewed 2026-10-11).
+general: [upnphost, FDResPub, WdiSystemHost]

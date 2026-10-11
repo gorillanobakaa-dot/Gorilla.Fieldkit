@@ -1,0 +1,97 @@
+# The Windows 11 tweaks framework (gorillanobakaa-dot/windows.11.tweaks.optimisation), module by module, as Fieldkit
+# runs it: the read-only check, the change (previewed with -WhatIf first), and the undo - the trio every module ships
+# under its MODULE-STANDARD.md. `admin` is whether the change and its undo need administrator rights (the module's
+# own .cmd launchers say so: they test elevation with fltmc). params are the change script's parameters an agent may
+# set; anything else (-Force, -Tag, -Backup) is left out on purpose.
+modules:
+  - id: visual-effects
+    folder: 01-visual-effects
+    title: "Turn off Windows animation and transparency effects (per user)"
+    check: [Test-VisualEffects.ps1]
+    apply: Disable-VisualEffects.ps1
+    params:
+      - {name: layers, ps: Layers, choices: [Legacy, Modern, Shell, DWM, All], help: "which effect layers (default All)"}
+    undo: [Restore-VisualEffects.ps1]
+    admin: false
+  - id: update-distribution
+    folder: 02-update-distribution
+    title: "Stop Windows Update sharing downloads with other PCs (Delivery Optimization peering)"
+    check: [Test-UpdateDistribution.ps1]
+    apply: Disable-PeerDistribution.ps1
+    params:
+      - {name: steps, ps: Steps, choices: [DownloadMode, Firewall, Both], help: "the policy, the firewall rule, or both (default Both)"}
+    undo: [Restore-UpdateDistribution.ps1]
+    admin: true
+  - id: copilot
+    folder: 03-copilot
+    title: "Turn Copilot off (settings; optionally remove the app)"
+    check: [Test-Copilot.ps1]
+    apply: Remove-Copilot.ps1
+    params:
+      - {name: remove_app, ps: RemoveApp, switch: true, help: "also remove the Copilot app for this user"}
+    undo: [Restore-Copilot.ps1]
+    admin: false
+  - id: recommendations
+    folder: 04-recommendations
+    title: "Turn off Start menu recommendations, tips and suggestions (per user)"
+    check: [Test-Recommendations.ps1]
+    apply: Disable-Recommendations.ps1
+    params:
+      - {name: include_observed, ps: IncludeObserved, switch: true, help: "also the settings seen to work but not documented by Microsoft"}
+    undo: [Restore-Recommendations.ps1]
+    admin: false
+  - id: xbox-services
+    folder: 05-xbox-services
+    title: "Disable the Xbox background services"
+    check: [Test-XboxServices.ps1]
+    apply: Disable-XboxServices.ps1
+    params: []
+    undo: [Restore-XboxServices.ps1]
+    admin: true
+  - id: services
+    folder: 06-services
+    title: "Disable background services by profile: light, moderate or super (cumulative)"
+    check: [Test-Services.ps1]
+    apply: Apply-ServiceProfile.ps1
+    params:
+      - {name: profile, ps: Profile, choices: [light, moderate, super], required: true, help: "how far to go; run fieldkit win11 fit first"}
+    undo: [Restore-Services.ps1]
+    admin: true
+  - id: update-deferral
+    folder: 07-update-deferral
+    title: "Hold Windows feature updates for 3, 6 or 12 months (security updates still install)"
+    check: [Test-UpdateDeferral.ps1]
+    apply: Set-UpdateDeferral.ps1
+    params:
+      - {name: months, ps: Months, choices: ["3", "6", "12"], required: true, help: "how long to hold"}
+    undo: [Restore-UpdateDeferral.ps1]
+    admin: true
+  - id: app-debloat
+    folder: 08-app-debloat
+    title: "Remove preinstalled apps by tier: light, moderate or super"
+    check: [Test-Apps.ps1]
+    apply: Remove-Apps.ps1
+    params:
+      - {name: tier, ps: Tier, choices: [light, moderate, super], required: true, help: "how many apps"}
+    undo: [Restore-Apps.ps1]
+    undo_partial: "apps are reinstalled from the Store where possible; not every removed app can come back"
+    admin: true
+  - id: onedrive
+    folder: 09-onedrive
+    title: "Block OneDrive on this machine (policy and scheduled tasks)"
+    check: [Test-OneDrive.ps1]
+    apply: Block-OneDrive.ps1
+    params:
+      - {name: no_files, ps: NoFiles, switch: true, help: "leave OneDrive's program files in place"}
+    undo: [Restore-OneDrive.ps1, -Part, Machine]
+    admin: true
+  - id: text-input-guard
+    folder: 10-text-input-guard
+    title: "Install a guard that ends a stuck TextInputHost (the touch-keyboard host) when it eats the CPU"
+    check: [Test-TextInputGuard.ps1]
+    apply: Install-TextInputGuard.ps1
+    params:
+      - {name: interval_minutes, ps: IntervalMinutes, type: int, help: "how often it checks, 5-60 (default 10)"}
+      - {name: threshold_percent, ps: ThresholdPercent, type: int, help: "CPU percent that counts as stuck, 50-100 (default 90)"}
+    undo: [Restore-TextInputGuard.ps1]
+    admin: false
