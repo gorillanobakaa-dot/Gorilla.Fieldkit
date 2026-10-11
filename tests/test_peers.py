@@ -101,7 +101,9 @@ def test_the_listener_refuses_what_opencode_refuses(reg):
     me = {"name": "x", "pid": os.getpid(), "folder": "/f"}
     assert "valid JSON" in peers.call(ep, {"type": "message", "from": me, "text": "a", "extra": 1})["error"]
     assert "empty" in peers.call(ep, {"type": "message", "from": me, "text": " "})["error"]
-    assert "which session" in peers.call(ep, {"type": "message", "from": {"name": "", "pid": 0}, "text": "a"})["error"]
+    # the real pid: on Windows a wrong one is refused first, for not being the pipe's client (OpenCode's order)
+    assert "which session" in peers.call(ep, {"type": "message", "from": {"name": "", "pid": os.getpid()},
+                                              "text": "a"})["error"]
     assert "did not ask" in peers.call(ep, {"type": "idle_notice", "from": me})["error"]
     assert "never busy" in peers.call(ep, {"type": "notify_when_idle", "from": me})["error"]
     for i in range(peers.MAX_PER_MINUTE):
