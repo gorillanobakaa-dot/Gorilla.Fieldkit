@@ -1,0 +1,47 @@
+# A tag v* publishes a GitHub release, and only after the whole suite has passed for that exact commit on Windows
+# and on Linux. The page is releases/notes/<tag>/page.md, built by `fieldkit release-page compose` and checked here
+# again by `fieldkit release-page check`: both tracks in full, plain language first. The tag must name the version
+# the package carries, or nothing is published.
+name: release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  test:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q -rs
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: the tag names the package's version
+        run: |
+          v=$(python -c "import fieldkit; print(fieldkit.__version__)")
+          test "v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, package $v: not published"; exit 1; }
+      - name: the release page carries both tracks in full
+        run: |
+          d="releases/notes/$GITHUB_REF_NAME"
+          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "Fieldkit $GITHUB_REF_NAME" \
+            --notes-file "releases/notes/$GITHUB_REF_NAME/page.md" --verify-tag
