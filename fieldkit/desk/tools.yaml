@@ -151,6 +151,19 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_refcheck.py"]
 
+- id: repro-compare
+  title: Two builds of the same source compared byte for byte, and what differs named (inside archives) with its cause
+  harness: build
+  entry: [python, -m, fieldkit, repro, compare]
+  path: ${FIELDKIT}/fieldkit/build/repro.py
+  inputs:
+    - {name: a, flag: null, type: str, required: true, help: "the first build: a file or a folder"}
+    - {name: b, flag: null, type: str, required: true, help: "the second build, made elsewhere"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repro.py"]
+
 - id: snapshot-diff
   title: Show exactly what changed between two recorded snapshots
   harness: core
@@ -301,9 +314,122 @@ tools:
   harness: fieldkit
   entry: [python, -m, fieldkit, backup]
   path: ${FIELDKIT}/fieldkit/core/backup.py
+  inputs:
+    - {name: to, flag: --to, type: str, required: false, help: "the backup folder (default: backup.dir in fieldkit.local.json)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
   platforms: [windows, linux]
-  changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_career.py"]
+
+- id: fieldkit-backup-usb
+  title: Copy the newest backup to a USB stick and prove it there (never deletes, moves or overwrites anything on the stick)
+  harness: fieldkit
+  entry: [python, -m, fieldkit, backup, usb]
+  path: ${FIELDKIT}/fieldkit/core/usbcopy.py
+  inputs:
+    - {name: drive, flag: --drive, type: str, required: false, help: "the stick's drive letter (Windows) or mount folder"}
+    - {name: check, flag: --check, type: flag, required: false, help: "only list the copies on the stick"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_backup_usb.py"]
+
+- id: fieldkit-backup-remind
+  title: How old the last backup copy on a USB stick is, and a reminder (aloud at most once a day) when it is due
+  harness: fieldkit
+  entry: [python, -m, fieldkit, backup, remind]
+  path: ${FIELDKIT}/fieldkit/core/usbcopy.py
+  inputs:
+    - {name: quiet, flag: --quiet, type: flag, required: false, help: "do not say it aloud"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_backup_usb.py", -k, reminder]
+
+- id: laptop-cpu
+  title: "Is the processor locked slow by the firmware (BD PROCHOT)? Measured under load; guard unlocks and proves it"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, cpu]
+  path: ${FIELDKIT}/fieldkit/laptop/cpu.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, help: "check (default), guard, status", choices: [check, guard, status]}
+  effects: [reads-files, writes-files, processes, system]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, speed or guard or linux or logon]
+
+- id: laptop-alerts-say
+  title: "Hear the three alert sentences an AI assistant's state is spoken with (done, focus, look)"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, alerts, say]
+  path: ${FIELDKIT}/fieldkit/laptop/alerts.py
+  inputs:
+    - {name: kind, flag: null, type: str, required: false, help: "done, focus or look", choices: [done, focus, look]}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, hook or watcher or hooks]
+
+- id: laptop-sound
+  title: "Low sound on Windows: diagnose (read-only), the safe fix with its undo, the driver listed for the exact chip"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, sound]
+  path: ${FIELDKIT}/fieldkit/laptop/sound.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, help: "diagnose (default), fix, undo, drivers", choices: [diagnose, fix, undo, drivers]}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "fix: do it (without: the plan)"}
+  effects: [reads-files, writes-files, system, network]
+  safety: reversible
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, sound or fix or catalog or diagnosis]
+
+- id: laptop-volume
+  title: "The master volume: read it, or set it (and unmute) on Windows and Linux"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, volume]
+  path: ${FIELDKIT}/fieldkit/laptop/sound.py
+  inputs:
+    - {name: set, flag: --set, type: int, required: false, help: "the volume to set, in percent"}
+  effects: [system]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, volume]
+
+- id: laptop-video
+  title: "An NVIDIA card without its Control Panel app (DCH drivers): found; --apply installs it from the Store"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, video]
+  path: ${FIELDKIT}/fieldkit/laptop/desktop.py
+  inputs:
+    - {name: apply, flag: --apply, type: flag, required: false, help: "install it (without: only look)"}
+  effects: [processes, network, system]
+  safety: reversible
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, nvidia]
+
+- id: laptop-rules
+  title: "The rule files AI tools read (CLAUDE.md, GEMINI.md, AGENTS.md ...): one source, every copy identical"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, rules]
+  path: ${FIELDKIT}/fieldkit/laptop/rules.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check, or sync (the source over each copy, a .bak first)", choices: [check, sync]}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, rule]
+
+- id: thermal-profile
+  title: "Everyday cooling on Windows: show or choose quiet, balanced, performance or off (the monitor follows it)"
+  harness: thermal
+  entry: [python, -m, fieldkit, thermal, profile]
+  path: ${FIELDKIT}/fieldkit/thermal/profiles.py
+  inputs:
+    - {name: value, flag: null, type: str, required: false, help: "the profile", choices: [quiet, balanced, performance, "off"]}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, profile or danger or hwinfo]
 
 - id: fieldkit-icons
   title: Sharp desktop icons - the icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons
@@ -626,6 +752,126 @@ tools:
       - {output_contains: '^language: '}
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-check
+  title: "Every pre-submission check in order, one verdict and the first fix; the work delivered only when it passes"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, check]
+  path: ${FIELDKIT}/fieldkit/academic/check.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+    - {name: draft, flag: null, type: str, required: true, help: "the draft: .md, .docx or .pptx"}
+    - {name: offline, flag: --offline, type: flag, required: false, help: "skip the online identifier check"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {3: findings}
+  scope: [folder]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, check or draft or word_file or cloud]
+
+- id: academic-brief
+  title: "Read the assignment brief: type, word count, module, learning outcomes, AI rules and hidden AI instructions"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, brief]
+  path: ${FIELDKIT}/fieldkit/academic/read_brief.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "write the proposal (type, words, module, template)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  scope: [folder]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, command_line]
+
+- id: academic-record
+  title: "The student's marks and what markers keep saying (each fault with the marker's own sentence)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, record]
+  path: ${FIELDKIT}/fieldkit/academic/record.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "add, set, link, show or brief", choices: [add, set, link, show, brief]}
+    - {name: what, flag: null, type: str, required: false, help: "add: a feedback file or folder; set: the module; link: a folder of work"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "add/link: write (without it: a proposal)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, feedback or grade or linked]
+
+- id: academic-date
+  title: "The submission date the brief or a deadline note states (a suggestion: setup still asks the dates)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, date]
+  path: ${FIELDKIT}/fieldkit/academic/extract_submission_date.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-portfolio
+  title: "A portfolio draft (.md) as a finished Word document in the student's layout"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, portfolio]
+  path: ${FIELDKIT}/fieldkit/academic/build.py
+  inputs:
+    - {name: draft, flag: null, type: str, required: true, help: "the portfolio draft (.md)"}
+    - {name: to, flag: --to, type: str, required: false, help: "the folder for the Word file"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  scope: [to]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-menu
+  title: "The numbered menu for a person at the keyboard (English or Romanian); an agent runs the commands instead"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, menu]
+  path: ${FIELDKIT}/fieldkit/academic/menu.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, menu]
+
+- id: academic-shortcut
+  title: "A Fieldkit Academic shortcut on the desktop and in the Start menu that opens the menu (only its own removed)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, shortcut]
+  path: ${FIELDKIT}/fieldkit/academic/shortcut.py
+  inputs:
+    - {name: check, flag: --check, type: flag, required: false, help: "only look"}
+    - {name: remove, flag: --remove, type: flag, required: false, help: "remove the shortcuts this tool made"}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, shortcut]
+
+- id: academic-local
+  title: "Assignments in OneDrive/Dropbox/Google Drive copied onto this computer, proven, the cloud copy renamed (never deleted)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, local]
+  path: ${FIELDKIT}/fieldkit/academic/local.py
+  inputs:
+    - {name: apply, flag: --apply, type: flag, required: false, help: "copy (without it: only look)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, onedrive]
+
+- id: academic-preflight
+  title: "The academic tools proven by building real files and measuring them: PREFLIGHT OK or which rule broke"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, preflight]
+  path: ${FIELDKIT}/fieldkit/academic/preflight.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, preflight]
 
 # -- research evidence (fieldkit/evidence, docs/METHODS.md #16) ------------------------------------------------
 - id: evidence-fetch

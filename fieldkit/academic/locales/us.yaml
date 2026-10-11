@@ -12,3 +12,8 @@ styles: [apa7, harvard-ctr, iso690]
 default_style: apa7
 plagiarism_tool: Turnitin
 avoid_long_dashes: false     # the em dash is normal in American academic prose
+grades:                      # a common US letter scale; the institution's own scale wins
+  scale: "0-100"
+  pass: 60
+  higher_is_better: true
+  bands: [[93, "A"], [90, "A-"], [87, "B+"], [83, "B"], [80, "B-"], [77, "C+"], [73, "C"], [70, "C-"], [67, "D+"], [60, "D"], [0, "F"]]

@@ -12,3 +12,8 @@ styles: [apa7, iso690]                        # ISO 690 is NP 405 in Portugal
 default_style: apa7
 plagiarism_tool: Turnitin / Ouriginal
 avoid_long_dashes: false
+grades:                      # escala 0-20
+  scale: "0-20"
+  pass: 10
+  higher_is_better: true
+  bands: [[18, "Excelente"], [16, "Muito bom"], [14, "Bom"], [10, "Suficiente"], [0, "Insuficiente"]]

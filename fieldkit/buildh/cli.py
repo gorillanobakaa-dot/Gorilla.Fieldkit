@@ -25,6 +25,9 @@
     fieldkit build-harness probe-compare A B [prefix=TOK] [keys=2] [value=last|all] [limit=N]
                                                                 two saved probe outputs: LOST / changed / now-set
                                                                 (fieldkit/buildh/probe_compare.py)
+    fieldkit build-harness repro [TASK] [--run|--compare]       the binary reproduced: the compiled tree built again in
+                                                                another folder and objdir, packages compared byte for
+                                                                byte, every difference named (buildh/reprobuild.py)
     fieldkit build-harness stats [TASK] [--since D] [--until D] the journal counted: builds, attempts, stops, hand
                                                                 edits, automation, installs, heat (buildh/stats.py)
     fieldkit build-harness leakgate-status [TASK] [run=STAMP] [thermal=LOG] [hot=70]
@@ -941,6 +944,31 @@ def run(a, emit):
     if act == "replay":
         from . import replay as rp
         r = rp.run(tid, say=lambda m: print(m, flush=True))
+        return 0 if r["ok"] else 3
+    if act == "repro":
+        # the binary reproduced (2026-10-11): plan (reads only), --run (the second build, then the comparison) or
+        # --compare (only the comparison) - fieldkit/buildh/reprobuild.py
+        from . import reprobuild as rb
+        say = lambda m: print(m, flush=True)
+        if getattr(a, "run", False):
+            r = rb.run(tid, say=say)
+        elif getattr(a, "compare", False):
+            r = rb.compare_only(tid, say=say)
+        else:
+            r = rb.plan(tid)
+            if a.json:
+                print(json.dumps(r, indent=1, default=str))
+            else:
+                for row in r["rows"]:
+                    say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+                if r["ok"]:
+                    say(f"second source folder: {r['work2']}\nsecond objdir:        {r['obj2']}")
+                    say(f"NEXT: fieldkit build-harness window repro {tid} --run   (a full build, like the first)")
+                else:
+                    say("REPRO CANNOT RUN YET: fix the FAIL rows above")
+            return 0 if r["ok"] else 3
+        if not r.get("ok") and r.get("why"):
+            say("NOT REPRODUCED: " + r["why"])
         return 0 if r["ok"] else 3
     if act == "leakgate-status":
         # leakgate-status TASK [run=STAMP] [thermal=LOG] [hot=70]: progress of a (running) gate and the CPU since it

@@ -11,6 +11,9 @@ Stages (pipelines/go-app.yaml, gorilla-opencode.yaml):
     test        go test ./... -count=1 [-short]   the failing packages and tests, each with its first lines
     build       each target (GOOS/GOARCH), CGO off, -trimpath, stamped with the version (-ldflags -X), so the same
                 commit gives the same bytes on any machine; Windows gets .exe and its committed resources (.syso)
+    repro       each target built AGAIN from a copy of the source in another folder (own build cache and temp folder,
+                another time zone and locale) and compared byte for byte: the binary is proven, not only the source;
+                a difference is named, inside archives too (fieldkit/build/repro.py)
     checksums   SHA256SUMS-<version>.txt for what was built
 
 A stage is up to date when its report matches the CURRENT source (a fingerprint of every Go file, go.mod and go.sum)
@@ -370,6 +373,75 @@ def verify_build(ctx):
             return {"ok": False, "detail": f"{Path(runs).name} {ctx.vars['version_flag']} says "
                                            f"{r.stdout.strip()[:60]!r}, not {rec['version']}"}
     return {"ok": True, "detail": rec["detail"] + (" (ran here, reports its version)" if runs else "")}
+
+
+def stage_repro(ctx):
+    """The binary proven, not only the source: build every target a second time from a copy of the source in another
+    folder, with its own build cache and temp folder, another time zone and locale, and compare the bytes with the
+    build stage's. Identical, or the report says which bytes differ and why (fieldkit/build/repro.py)."""
+    import tempfile
+    from . import repro
+    src = _src(ctx)
+    rec = _load(ctx, src, "build")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "run the build stage first"}
+    go = _go(ctx, src)
+    out = _out(ctx, src).resolve()
+    base = Path(tempfile.mkdtemp(prefix="fieldkit-repro-"))
+    other = base / ("elsewhere-" + src.name)
+
+    def ignore(d, names):
+        return [n for n in names if (Path(d) / n).resolve() == out]
+    shutil.copytree(src, other, symlinks=True, ignore=ignore)
+    for d in ("gocache", "tmp", "out"):
+        (base / d).mkdir()
+    modcache = subprocess.run([go, "env", "GOMODCACHE"], capture_output=True, text=True, timeout=60).stdout.strip()
+    env = {"GOCACHE": str(base / "gocache"), "TMPDIR": str(base / "tmp"), "TEMP": str(base / "tmp"),
+           "TMP": str(base / "tmp"), "TZ": "Pacific/Kiritimati", "LC_ALL": "C", "LANG": "C"}
+    if modcache:
+        env["GOMODCACHE"] = modcache          # the modules go.sum verified; the second build fetches nothing
+    v = ctx.vars
+    results, findings = [], []
+    for b in rec["built"]:
+        goos, _, goarch = b["target"].partition("/")
+        f = base / "out" / Path(b["file"]).name
+        cmd = [go, "build", "-trimpath", "-ldflags", rec["ldflags"], "-o", str(f), v.get("main") or "."]
+        r = ctx.runner.run(cmd, cwd=str(other), env=_env({**env, "GOOS": goos, "GOARCH": goarch,
+                                                         "CGO_ENABLED": str(v.get("cgo") or "0")}),
+                           timeout=3600, name=f"go-repro-{goos}-{goarch}")
+        if not r.ok or not f.is_file():
+            first = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][:6]
+            return {"ok": False, "detail": f"second build of {b['target']} failed: " + " | ".join(first)[:400],
+                    "log": r.log, "kept": str(base)}
+        same = repro.sha256(f) == b["sha256"]
+        results.append({"target": b["target"], "file": Path(b["file"]).name, "sha256": b["sha256"],
+                        "second_sha256": repro.sha256(f), "identical": same})
+        if not same:
+            c = repro.compare(b["file"], f, roots=[src, other])
+            findings += [x for d in c["differ"] for x in d["findings"]]
+    ok = all(x["identical"] for x in results)
+    if ok:
+        shutil.rmtree(base, ignore_errors=True)
+    data = {"ok": ok, "fingerprint": rec["fingerprint"], "version": rec["version"], "results": results,
+            "second_build": {"folder": str(other), "env": {k: env[k] for k in ("TZ", "LC_ALL")},
+                             "own_cache": True},
+            "findings": findings[:20], "kept": None if ok else str(base),
+            "detail": (f"reproduced: {len(results)} binary(ies) byte for byte identical when built again elsewhere"
+                       if ok else f"NOT reproduced: {sum(not x['identical'] for x in results)} of {len(results)} differ; "
+                       + "; ".join(f"{x['where']}: {x['what']}" for x in findings[:3])
+                       + f" (second build kept in {base})")}
+    return _save(ctx, src, "repro", data)
+
+
+def verify_repro(ctx):
+    src = _src(ctx)
+    rec, rp = _load(ctx, src, "build"), _load(ctx, src, "repro")
+    if not rp:
+        return {"ok": False, "detail": "not checked yet"}
+    if not rec or rp.get("fingerprint") != rec.get("fingerprint") or \
+            {x["sha256"] for x in rp["results"]} != {b["sha256"] for b in rec["built"]}:
+        return {"ok": False, "detail": "the build changed since it was reproduced"}
+    return {"ok": bool(rp.get("ok")), "detail": rp["detail"]}
 
 
 def _runs_here(rec):

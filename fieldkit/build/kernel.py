@@ -377,11 +377,53 @@ def verify_config(ctx, fragment=None, injector=None):
 BUILD_STAMP = ".fieldkit-build.json"
 
 
+DATE_SHIM = """#!/bin/sh
+# fieldkit (kernel.build_env): `date` at the build's SOURCE_DATE_EPOCH, in UTC and the C locale, so the packagers'
+# changelog dates (mkdebian's `date -R`, mkspec's `date +...`) are the same in every build of one tree. A date the
+# caller names itself (-d, -r, -s) is left alone.
+case " $* " in *" -d"*|*" --date"*|*" -r"*|*" --reference"*|*" -s"*|*" --set"*) exec {real} "$@";; esac
+if [ -n "$SOURCE_DATE_EPOCH" ]; then TZ=UTC LC_ALL=C exec {real} -d "@$SOURCE_DATE_EPOCH" "$@"; fi
+exec {real} "$@"
+"""
+
+
+def _date_shim():
+    """A folder holding the `date` shim, for the front of PATH; None where there is no POSIX `date`."""
+    import tempfile
+    real = shutil.which("date")
+    if os.name == "nt" or not real or Path(real).name != "date":
+        return None
+    if Path(real).parent.name.startswith("fieldkit-date-shim"):
+        return Path(real).parent
+    d = Path(tempfile.gettempdir()) / f"fieldkit-date-shim-{hashlib.sha256(real.encode()).hexdigest()[:8]}"
+    d.mkdir(exist_ok=True)
+    f = d / "date"
+    body = DATE_SHIM.replace("{real}", real)
+    if not f.is_file() or f.read_text(encoding="utf-8") != body:
+        f.write_text(body, encoding="utf-8")
+        f.chmod(0o755)
+    return d
+
+
+def source_date(src):
+    """The source's own date: the top Makefile's time, kept from the kernel.org tarball. Everything the build makes,
+    and every file a patch changed, is newer; dpkg-deb clamps those to this, so both builds pack the same times."""
+    mk = Path(src, "Makefile")
+    return int(mk.stat().st_mtime) if mk.is_file() else None
+
+
 def build_env(src, kcflags="-O3 -pipe", now=None):
     """The environment every packaging of one build uses. The kernel stamps its build number, time, user and host
     into the image; left to make, the .deb and the .rpm of the same tree differed in 69 bytes (#1 vs #2 and two
     times, 2026-10-10) and the image carried the build machine's user and host name. Fixed once per build, in
-    <src>/.fieldkit-build.json, and read back by every later stage."""
+    <src>/.fieldkit-build.json, and read back by every later stage.
+
+    2026-10-11, the reproduction proof (stage_repro): a second build from a clean copy elsewhere gave the same kernel
+    and modules but packages that differed in three places, each fixed here. The changelog date (`date -R`): `date`
+    answers SOURCE_DATE_EPOCH. Host tools made before the build (fixdep, by the config stage) kept their own file
+    times: SOURCE_DATE_EPOCH is the source's date, older than anything built, so dpkg-deb clamps every built file to
+    it. objtool, shipped in linux-headers, carried the build folder in its debug information: host tools are built
+    with -ffile-prefix-map=<tree>=. (GCC leaves that option out of what it records)."""
     stamp = Path(src) / BUILD_STAMP
     if stamp.is_file():
         fixed = json.loads(stamp.read_text(encoding="utf-8"))
@@ -389,15 +431,25 @@ def build_env(src, kcflags="-O3 -pipe", now=None):
         when = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%a %b %d %H:%M:%S UTC %Y")
         fixed = {"KBUILD_BUILD_TIMESTAMP": when, "KBUILD_BUILD_VERSION": "1",
                  "KBUILD_BUILD_USER": "gorilla", "KBUILD_BUILD_HOST": "fieldkit"}
+        if source_date(src):
+            fixed["SOURCE_DATE_EPOCH"] = str(source_date(src))
         stamp.write_text(json.dumps(fixed, indent=1), encoding="utf-8")
+    if "SOURCE_DATE_EPOCH" not in fixed:            # a stamp from before 2026-10-11, or no Makefile: the stamp's time
+        fixed["SOURCE_DATE_EPOCH"] = str(source_date(src) or int(datetime.datetime.strptime(
+            fixed["KBUILD_BUILD_TIMESTAMP"], "%a %b %d %H:%M:%S UTC %Y").replace(tzinfo=datetime.timezone.utc).timestamp()))
     # Nothing of the person or machine that builds goes into the packages (2026-10-10: the RPM's changelog carried the
     # builder's git user.name and e-mail, and its build host the machine's hostname; the .deb's maintainer comes from
     # DEBEMAIL when the person has it set). The packagers read these; each is pinned to the build's stamp.
     ident = f"{fixed['KBUILD_BUILD_USER']}@{fixed['KBUILD_BUILD_HOST']}"
-    return {**fixed, "KCFLAGS": kcflags,
-            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",          # mkspec asks git for user.name/email
-            "DEBEMAIL": ident, "DEBFULLNAME": fixed["KBUILD_BUILD_USER"], "EMAIL": ident, "NAME": fixed["KBUILD_BUILD_USER"],
-            "RPMOPTS": f"--define '_buildhost {fixed['KBUILD_BUILD_HOST']}'"}
+    env = {**fixed, "KCFLAGS": kcflags,
+           "HOSTCFLAGS": (os.environ.get("HOSTCFLAGS", "") + f" -ffile-prefix-map={Path(src).resolve()}=.").strip(),
+           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",          # mkspec asks git for user.name/email
+           "DEBEMAIL": ident, "DEBFULLNAME": fixed["KBUILD_BUILD_USER"], "EMAIL": ident, "NAME": fixed["KBUILD_BUILD_USER"],
+           "RPMOPTS": f"--define '_buildhost {fixed['KBUILD_BUILD_HOST']}'"}
+    shim = _date_shim()
+    if shim:
+        env["PATH"] = str(shim) + os.pathsep + os.environ.get("PATH", "")
+    return env
 
 
 def stage_build(ctx, tags=("gorilla",), jobs=None, kcflags="-O3 -pipe"):
@@ -440,6 +492,104 @@ def stage_rpm(ctx, jobs=None, kcflags="-O3 -pipe"):
             "detail": (f"{len(rpms)} RPM(s) for {release}" if ok else
                        f"binrpm-pkg {'failed' if not r.ok else 'made no kernel RPM for ' + release}"
                        + (f"; the release changed to {after}" if after != release else ""))}
+
+
+# Left out of the copy to save the disk: what the build made (mrproper removes the rest). None of these patterns
+# matches a file of the kernel source; a name like 'debian' or 'vmlinux' does, below the top (scripts/package/debian,
+# arch/x86/kernel/vmlinux.lds.S), so those are skipped at the top of the tree only.
+REPRO_SKIP = ("*.o", "*.ko", "*.a", ".*.cmd", ".tmp_*", "*.mod.c", "*.order", "*.symvers")
+REPRO_SKIP_TOP = {"debian", "rpmbuild", ".git", "vmlinux", "vmlinux.a", "vmlinux.o", "System.map"}
+
+
+def _repro_ignore(top):
+    pat = shutil.ignore_patterns(*REPRO_SKIP)
+
+    def ignore(d, names):
+        out = set(pat(d, names))
+        if Path(d) == Path(top):
+            out |= {n for n in names if n in REPRO_SKIP_TOP}
+        return out
+    return ignore
+
+
+def _debs(folder, release):
+    return {p.name: p for p in Path(folder).glob("*.deb") if release in p.name}
+
+
+def stage_repro(ctx, jobs=None, kcflags="-O3 -pipe"):
+    """The binary proven, not only the source (2026-10-11): the packages built AGAIN from a clean copy of the same
+    patched, configured tree, in another folder, another time zone and locale, and compared byte for byte with the
+    build's. The copy gets the first build's .config, its stamp (time, user, host, number) and its release name, and
+    nothing else: `make mrproper` removes every file the first build made. Identical, or the report names the
+    package, the file inside it and the cause (fieldkit/build/repro.py). The RPMs are not built again: the rpm stage
+    already holds them to the .deb's kernel."""
+    from . import repro
+    src, version, work = Path(_v(ctx, "src")), _v(ctx, "version"), Path(_v(ctx, "workdir"))
+    rel_file, stamp, config = src / "include" / "config" / "kernel.release", src / BUILD_STAMP, src / ".config"
+    if not (rel_file.is_file() and stamp.is_file() and config.is_file()):
+        return {"ok": False, "detail": f"no finished build in {src}: run the build stage first"}
+    release = rel_file.read_text(encoding="utf-8").strip()
+    first = {**_debs(work, release), **_debs(_v(ctx, "output"), release)} if ctx.vars.get("output") else \
+        _debs(work, release)
+    if not first:
+        return {"ok": False, "detail": f"no .deb packages of {release} in {work} or the output folder"}
+    base = work / "repro"
+    if base.exists():
+        shutil.rmtree(base)                    # only ever this stage's own earlier copy
+    other = base / f"again-linux-{version}"
+    base.mkdir(parents=True)
+    shutil.copytree(src, other, symlinks=True, ignore=_repro_ignore(src))
+    r = ctx.runner.run(["make", "-C", str(other), "mrproper"], name="repro-mrproper")
+    if not r.ok:
+        return {"ok": False, "detail": "make mrproper failed in the copy", "log": r.log}
+    shutil.copy2(config, other / ".config")
+    shutil.copy2(stamp, other / BUILD_STAMP)
+    env = {**build_env(other, kcflags), "TZ": "Pacific/Kiritimati", "LC_ALL": "C", "LANG": "C"}
+    cmd = ["make", "-C", str(other), f"LOCALVERSION={release[len(version):]}", f"-j{jobs or ctx.host['cpus']}",
+           "bindeb-pkg", f"KDEB_PKGVERSION={version}"]
+    r = ctx.runner.run(cmd, env=env, name="repro-bindeb-pkg")
+    again = (other / "include" / "config" / "kernel.release")
+    if not r.ok or not again.is_file() or again.read_text(encoding="utf-8").strip() != release:
+        return {"ok": False, "log": r.log, "kept": str(base),
+                "detail": "the second build failed" if not r.ok else "the second build made another release name"}
+    second = _debs(base, release)
+    results, findings = [], []
+    for name in sorted(set(first) | set(second)):
+        a, b = first.get(name), second.get(name)
+        if not a or not b:
+            results.append({"package": name, "identical": False, "why": "made by only one of the two builds"})
+            continue
+        sa, sb = repro.sha256(a), repro.sha256(b)
+        results.append({"package": name, "sha256": sa, "second_sha256": sb, "identical": sa == sb})
+        if sa != sb:
+            findings += [f for d in repro.compare(a, b, roots=[src, other])["differ"] for f in d["findings"]]
+    ok = bool(results) and all(x["identical"] for x in results)
+    if ok:
+        shutil.rmtree(base, ignore_errors=True)
+    data = {"ok": ok, "release": release, "results": results, "findings": findings[:30],
+            "kept": None if ok else str(base), "second_build": str(other),
+            "detail": (f"reproduced: {len(results)} package(s) of {release}, byte for byte identical when built again "
+                       "from a clean copy elsewhere" if ok else
+                       f"NOT reproduced: {sum(not x['identical'] for x in results)} of {len(results)} package(s) "
+                       "differ; " + "; ".join(f"{f['where']}: {f['what']}" for f in findings[:3])
+                       + f" (second build kept in {base})")}
+    (work / "repro.json").write_text(json.dumps(data, indent=1), encoding="utf-8")
+    return data
+
+
+def verify_repro(ctx):
+    from . import repro
+    work = Path(_v(ctx, "workdir"))
+    try:
+        data = json.loads((work / "repro.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"ok": False, "detail": "not reproduced yet"}
+    for x in data.get("results", []):
+        for folder in (work, Path(ctx.vars.get("output") or work)):
+            p = folder / x["package"]
+            if p.is_file() and x.get("sha256") and repro.sha256(p) != x["sha256"]:
+                return {"ok": False, "detail": f"{x['package']} changed since it was reproduced"}
+    return {"ok": bool(data.get("ok")), "detail": data.get("detail", "")}
 
 
 def stage_collect(ctx):

@@ -137,6 +137,9 @@ Guides: [plain language](docs/dual-track/tool-collection/tool-collection_layman.
 | A research run: did it open what it cites, and does each page say what the claim says? | `fieldkit evidence check FINDINGS.md --store` |
 | Which free sources cover sanctions, migration, genomics...? Search scholarly and data APIs without a key | `fieldkit evidence sources find WORDS`, `fieldkit evidence search SOURCE QUERY` |
 | Back up the whole kit into your backup folder, and prove the copy is good | `fieldkit backup` |
+| Copy that backup to a USB stick and prove it there; nothing on the stick is ever deleted or overwritten | `fieldkit backup usb` |
+| A student before submitting: every check in order, one verdict, the first thing to fix | `fieldkit academic check FOLDER DRAFT` |
+| A student with no AI to hand: a numbered menu, in English or Romanian, from a desktop shortcut | `fieldkit academic menu` |
 | Blurry desktop icons: find out why and fix them with one click (Windows, and GTK/KDE on Linux) | `fieldkit icons cache --apply`, `fieldkit icons install-fix-button` |
 
 `deliver` answers `SAFE TO SEND` or `NOT SAFE`, with the reason. Nothing is uploaded.
@@ -164,8 +167,15 @@ Guides: [plain language](docs/dual-track/office/office_layman.md) ·
   passing proof. There is no way to force it.
 - **Install, test, remove.** `fieldkit lifecycle SPEC --approve` installs a program, checks it,
   uninstalls it, and lists anything left behind.
-- **Debian kernels.** `fieldkit kernel` helps build a custom Debian kernel step by step. Its full
-  build has not run yet; only a dry run has.
+- **Debian kernels.** `fieldkit kernel` helps build a custom Debian kernel step by step. On
+  2026-10-11 its build, RPM and reproduction stages ran for real on Linux 7.2.9 with a small
+  configuration; a build with the full kernel.config has not run in this setup.
+- **Is the binary the same when someone else builds it?** `fieldkit repro compare A B` checks
+  two builds byte for byte. When they differ, it names the file (inside .deb, tar and zip
+  archives too) and the cause: a build folder, a date, a file order, a Windows link time. The
+  Go pipelines build every binary a second time in another folder and stop if the bytes
+  differ (Gorilla OpenCode: both binaries identical). The kernel pipeline does the same for
+  its packages, and `fieldkit build-harness repro TASK --run` does it for the Firefox build.
 - **Temperature.** On 2026-10-02 the build laptop switched itself off in the middle of a compile.
   The build had been trusting a temperature sensor that was stuck at 41.85 C for 386 readings
   while the processor heated up. Now Fieldkit trusts a sensor only after watching it rise under
@@ -452,6 +462,10 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | A laptop on a TV by HDMI: is it connected, what is wrong, and connect it now - restarting a stuck GPU driver (TV seen, 0 modes) when that is what it needs, with Windows' own consent prompt | `fieldkit hdmi status`, `fieldkit hdmi fix` |
 | Windows 11, made lighter on any PC: the tweaks framework's ten modules with a preview and an undo each, elevated runs waited for, and `fit` - which service-profile entries (measured on a ThinkPad) would be wrong on this PC | `fieldkit win11` (skill: `fieldkit-win11`) |
 | A dated, verified zip of the harness into the backup folder (never guessed) | `fieldkit backup --to FOLDER` |
+| A laptop's everyday repairs, from the academic harness, for any laptop: the processor locked slow by the firmware (measured, unlocked, proven; a logon guard on Windows), a voice when an AI assistant finished or waits for an approval (Claude Code hooks, Antigravity's transcripts), low sound on Windows (diagnose, the safe fix and its undo, the driver listed for the exact chip), the master volume, the NVIDIA Control Panel app, the wallpaper, identical AI rule files | `fieldkit laptop cpu / alerts / sound / volume / video / wallpaper / rules` |
+| Everyday cooling on Windows: a profile (quiet, balanced, performance, off), a monitor that lowers the processor cap when hot and says so, started at login; HWiNFO's readings as a proven sensor | `fieldkit thermal profile / monitor / autostart` |
+| The newest backup copied to a USB stick and read back (SHA-256, every CRC); a reminder when the last copy is old. Nothing already on the stick is deleted, moved or overwritten; a full stick stops the copy | `fieldkit backup usb`, `fieldkit backup remind` |
+| The academic harness's remaining parts, for any student: the whole pre-submission check with one verdict (`check`), reading the brief (`brief`, `date`), the marks and what markers say (`record`), assignments copied out of OneDrive (`local`), a self-test that builds real files (`preflight`), the numbered menu and its desktop shortcut (`menu`, `shortcut`); guides in [English](docs/academic/GUIDE.md) and [Romanian](docs/academic/GHID.md) | `fieldkit academic check / brief / record / local / preflight / menu` |
 | IconKit: why icons are soft (icon cache vs. the file), cache rebuild with backup, .ico frame reader and crisp gates, recoloured icons from one master | `fieldkit icons --help` (skill: `fieldkit-icons`) |
 | Find secrets, home paths, emails, your private words | `fieldkit privacy scan PATH [--git]` |
 | Name the cause of a failed build | `fieldkit triage LOG` |
@@ -559,7 +573,10 @@ release or fix the check.
 
 ## 8. Honest limits
 
-- The Debian kernel pipeline has run as a dry run only; its full build has not run yet.
+- The Debian kernel pipeline has run for real only with a small configuration (2026-10-11),
+  not yet with the full kernel.config.
+- The Firefox package has not been reproduced yet: `build-harness repro` needs a second full
+  build on the build machine.
 - The `firefox-windows` pipeline needs the Gorilla Firefox build harness.
 - The privacy scan finds patterns and the words you list. It cannot know a secret it has
   no pattern for.

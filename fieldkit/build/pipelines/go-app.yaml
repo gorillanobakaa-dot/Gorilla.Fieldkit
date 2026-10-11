@@ -51,6 +51,15 @@ stages:
       - {python: {target: "fieldkit.build.goapp:verify_build"}}
     triage: go
 
+  - id: repro
+    # the binary proven, not only the source: built again from a copy in another folder, own cache and temp folder,
+    # another time zone and locale; the bytes must be the build stage's (2026-10-11)
+    timeout: 7200
+    run: {python: "fieldkit.build.goapp:stage_repro"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_repro"}}
+    triage: go
+
   - id: checksums
     run: {python: "fieldkit.build.goapp:stage_checksums"}
     verify:

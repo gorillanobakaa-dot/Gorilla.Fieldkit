@@ -28,6 +28,8 @@
     fieldkit cards list [--level L] | show ID    the contract of every tool, with its trust level
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
+    fieldkit repro compare A B [--root RA RB]     two builds byte for byte: REPRODUCED, or what differs and why (exit 3)
+    fieldkit laptop cpu|alerts|sound|volume|video|wallpaper|rules ...   a laptop's everyday repairs (fieldkit/laptop)
     fieldkit snapshot take NAME [--path DIR...] [--services --tasks --programs --processes]
     fieldkit snapshot diff BEFORE AFTER          exit 3 when something changed
     fieldkit lifecycle SPEC.yaml --approve       install, verify, uninstall; report leftovers (exit 3)
@@ -44,6 +46,7 @@
     fieldkit build-harness migrate plan|sitrep|check|advance|work ... TASK
     fieldkit build-harness netbench [TASK] [--bench B1,...] / compare A B   network benches, local servers only
     fieldkit build-harness replay TASK              the public patch set on pristine upstream = the compiled tree (S9)
+    fieldkit build-harness repro TASK [--run]       the binary reproduced: built again elsewhere, packages byte for byte
     fieldkit build-harness techniques TASK          the ideas behind Gorilla's fixes: do they still hold in this tree?
     fieldkit build-harness probe TASK js=NAME       ask a copy of the build a question / try a JS fix without a build
     fieldkit build-harness probe-compare A B        two saved probe outputs (TOK|...): LOST / changed / now-set
@@ -129,6 +132,16 @@ def cmd_audio(a):
 
 def cmd_backup(a):
     from .core import backup
+    if a.action:
+        from .core import usbcopy
+        if a.action == "remind":
+            r = usbcopy.remind(speak=not a.quiet)
+        elif a.check:
+            r = usbcopy.check(a.drive, a.stick)
+        else:
+            r = usbcopy.copy(a.drive, a.stick, a.source)
+        _emit(r, a.json, lambda d: print("\n".join(usbcopy.lines(d))))
+        return 0 if r["ok"] else (2 if r["status"] in ("ask", "no-backup") else 3)
     r = backup.backup(to=a.to)
     _emit(r, a.json, lambda d: print("\n".join(backup.lines(d))))
     return 0 if r["ok"] else (2 if r["status"] in ("ask", "refused") else 1)
@@ -813,7 +826,15 @@ def build_parser():
 
     bk = sub.add_parser("backup", parents=[common],
                         help="a complete, dated, verified zip of the Fieldkit folder (the folder is never guessed)")
+    bk.add_argument("action", nargs="?", choices=["usb", "remind"],
+                    help="usb: copy the newest backup to a USB stick and verify it there (never deletes anything on "
+                         "the stick); remind: how old the last copy on a stick is")
     bk.add_argument("--to", help="the backup folder (default: backup.dir in fieldkit.local.json)")
+    bk.add_argument("--from", dest="source", help="usb: the folder holding the backups (default: backup.dir)")
+    bk.add_argument("--drive", help="usb: the stick's drive letter (Windows) or mount folder")
+    bk.add_argument("--stick", help="usb: the folder of the stick, named directly")
+    bk.add_argument("--check", action="store_true", help="usb: list the copies on the stick; change nothing")
+    bk.add_argument("--quiet", action="store_true", help="remind: do not say it aloud")
     bk.set_defaults(fn=cmd_backup)
 
     cvp = sub.add_parser("cv", parents=[common], help="check a CV against fixed rules; write CVs from the profile")
@@ -1042,8 +1063,32 @@ def build_parser():
     mv.add_argument("--out", help="also write the report here")
     k.set_defaults(fn=cmd_kernel)
 
+    lp = sub.add_parser("laptop", parents=[common], help="a laptop's everyday repairs: cpu, alerts, sound, volume, "
+                                                         "video, wallpaper, rules (fieldkit/laptop)")
+    lp.add_argument("area", choices=["cpu", "alerts", "sound", "volume", "video", "wallpaper", "rules"])
+    lp.add_argument("action", nargs="?", help="cpu: check|guard|install|uninstall|status; alerts: say|hook|watch|"
+                                              "install; sound: diagnose|fix|undo|open|drivers; rules: check|sync")
+    lp.add_argument("args", nargs="*", help="alerts say: done|focus|look; sound open: sound|devices|settings|maker; "
+                                            "rules: SOURCE COPY...")
+    lp.add_argument("--apply", action="store_true", help="sound fix, video, alerts install: do it (without: the plan)")
+    lp.add_argument("--set", type=int, help="volume: set the master volume to this percent")
+    lp.add_argument("--claude-code", dest="claude_code", action="store_true", help="alerts install: Claude Code's hooks")
+    lp.add_argument("--antigravity", action="store_true", help="alerts install: the watcher, started at login")
+    lp.set_defaults(fn=cmd_laptop)
+
+    rp = sub.add_parser("repro", parents=[common],
+                        help="two builds compared byte for byte: REPRODUCED, or which bytes differ (inside archives) and why")
+    rp.add_argument("action", choices=["compare"])
+    rp.add_argument("a", help="the first build: a file or a folder")
+    rp.add_argument("b", help="the second build, made elsewhere")
+    rp.add_argument("--root", nargs=2, metavar=("ROOT_A", "ROOT_B"),
+                    help="the two build folders, so a folder baked into a binary is named as the cause")
+    rp.set_defaults(fn=cmd_repro)
+
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart"])
+    th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
+    th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
     th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
     th.set_defaults(fn=cmd_thermal)
@@ -1053,7 +1098,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context",
-                                       "leakgate-proposal", "leakgate-selftest", "herald"])
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro"])
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
     bh.add_argument("--park", help="migration control: do NOT run this record/repair/build-run/decide; park it as a ticket with this reason")
@@ -1062,6 +1107,8 @@ def build_parser():
                                   "netbench: the results folder (default <firefox.root>/bench)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
     bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")
+    bh.add_argument("--run", action="store_true", help="repro: make the second build, then compare (hours)")
+    bh.add_argument("--compare", action="store_true", help="repro: only compare a second build already made")
     bh.add_argument("args", nargs="*")
     bh.add_argument("--fix-locks", action="store_true", help="preflight: remove stale git locks (only when no git process runs)")
     bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
@@ -1122,8 +1169,115 @@ def cmd_build_harness(a):
         return 2
 
 
+def cmd_laptop(a):
+    from .laptop import alerts, cpu, desktop, rules, sound
+    act = a.action
+    if a.area == "cpu":
+        act = act or "check"
+        if act in ("check", "guard"):
+            st = cpu.check(fix=act == "guard")
+            if act == "guard":
+                from .core import usbcopy                     # the stick reminder rides along, as it did
+                try:
+                    usbcopy.remind(speak=True)
+                except Exception:
+                    pass
+            _emit(st, a.json, lambda d: print("\n".join(cpu.lines(d))))
+            return cpu.exit_code(st)
+        if act in ("install", "uninstall"):
+            r = cpu.install(remove=act == "uninstall")
+            _emit(r, a.json, _kv_lines)
+            return 0 if r["ok"] else 3
+        _emit(cpu.status(), a.json)
+        return 0
+    if a.area == "alerts":
+        if act == "say":
+            kind = (a.args or ["look"])[0]
+            if kind not in alerts.PHRASES:
+                raise SystemExit("fieldkit laptop alerts say done|focus|look")
+            from .buildh import herald
+            print(herald.say(alerts.sentence(kind)))
+            return 0
+        if act == "hook":
+            raw = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace")
+            try:
+                payload = json.loads(raw) if raw.strip() else {}
+            except ValueError:
+                payload = {}
+            alerts.hook(payload)
+            return 0                                       # a hook never blocks the assistant
+        if act == "watch":
+            alerts.watch()
+            return 0
+        if act == "install":
+            r = {}
+            if a.claude_code or not a.antigravity:
+                r["claude_code"] = alerts.install_claude(apply=a.apply)
+            if a.antigravity or not a.claude_code:
+                r["antigravity"] = alerts.install_antigravity(apply=a.apply)
+            r["next"] = "done" if a.apply else "the same with --apply writes it"
+            _emit(r, a.json)
+            return 0
+        raise SystemExit("fieldkit laptop alerts say|hook|watch|install")
+    if a.area == "sound":
+        act = act or "diagnose"
+        fn = {"diagnose": lambda: sound.diagnose(), "fix": lambda: sound.fix(a.apply), "undo": lambda: sound.undo(),
+              "drivers": lambda: sound.drivers(),
+              "open": lambda: sound.open_window((a.args or ["sound"])[0])}.get(act)
+        if not fn:
+            raise SystemExit("fieldkit laptop sound diagnose|fix|undo|open|drivers")
+        try:
+            r = fn()
+        except RuntimeError as e:
+            print(f"REFUSED: {e}")
+            return 2
+        _emit(r, a.json, lambda d: print("\n".join(sound.lines(d))))
+        return 0 if r["ok"] else 3
+    if a.area == "volume":
+        r = sound.volume(a.set)
+        _emit(r, a.json, lambda d: print("\n".join(sound.lines(d))))
+        return 0 if r["ok"] else 3
+    if a.area == "video":
+        r = desktop.video(a.apply)
+        _emit(r, a.json, _kv_lines)
+        return 0 if r["ok"] else 3
+    if a.area == "wallpaper":
+        r = desktop.wallpaper()
+        _emit(r, a.json, _kv_lines)
+        return 0 if r["ok"] else 3
+    rows = a.args or []
+    r = (rules.sync if act == "sync" else rules.check)(rows[0] if rows else None, rows[1:])
+    _emit(r, a.json, lambda d: print("\n".join(rules.lines(d))))
+    return 0 if r["ok"] else 3
+
+
+def cmd_repro(a):
+    from .build import repro
+    r = repro.compare(a.a, a.b, roots=a.root or [])
+    _emit(r, a.json, lambda d: print("\n".join(repro.lines(d))))
+    return 0 if r["identical"] else 3
+
+
 def cmd_thermal(a):
     from .thermal import governor, sensors
+    if a.action in ("profile", "monitor", "autostart"):
+        from .thermal import profiles
+        if a.action == "profile":
+            r = profiles.choose(a.value) if a.value else {"ok": True, "profile": profiles.chosen(),
+                                                           "profiles": {k: v["about"] for k, v in profiles.PROFILES.items()}}
+            _emit(r, a.json, _kv_lines)
+            return 0
+        if a.action == "autostart":
+            if a.value not in ("on", "off"):
+                raise SystemExit("fieldkit thermal autostart on|off")
+            r = profiles.autostart(a.value == "on")
+            _emit(r, a.json, _kv_lines)
+            return 0 if r["ok"] else 3
+        if a.stop:
+            _emit(profiles.stop_monitor(), a.json, _kv_lines)
+            return 0
+        profiles.monitor()
+        return 0
     if a.action == "status":
         for name, fn in sensors.PROVIDERS:
             print(f"  {name:14} {fn()}")

@@ -1,5 +1,7 @@
 """Kernel pieces that are pure logic run everywhere; the build itself is Debian-only."""
 import datetime
+import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -310,3 +312,109 @@ def test_the_rpm_stage_gives_the_rpm_kernel_the_debs_build_number(tmp_path, monk
                                                                           env=env), run(cmd, env, name))[1]
     assert kernel.stage_rpm(ctx)["ok"]
     assert seen["version"] == "0\n" and seen["env"]["KBUILD_BUILD_VERSION"] == "1"   # build-version adds one: #1
+
+
+# -- the binary reproduced: a second build from a clean copy elsewhere (2026-10-11) -----------------------------------
+
+def test_build_env_dates_the_packages_by_the_source_and_maps_the_build_folder_out(tmp_path):
+    import os
+    src = tmp_path / "linux-7.2.9"
+    src.mkdir()
+    (src / "Makefile").write_text("VERSION = 7\n")
+    os.utime(src / "Makefile", (1789000000, 1789000000))
+    env = kernel.build_env(src)
+    assert env["SOURCE_DATE_EPOCH"] == "1789000000"                 # the source's date, older than anything built
+    assert json.loads((src / kernel.BUILD_STAMP).read_text())["SOURCE_DATE_EPOCH"] == "1789000000"
+    assert f"-ffile-prefix-map={src.resolve()}=." in env["HOSTCFLAGS"]   # objtool kept the folder in its debug info
+    # a stamp written before the epoch was kept: the Makefile's date, never the moment of this stage
+    (src / kernel.BUILD_STAMP).write_text(json.dumps({"KBUILD_BUILD_TIMESTAMP": "Sat Oct 10 15:10:43 UTC 2026",
+                                                     "KBUILD_BUILD_VERSION": "1", "KBUILD_BUILD_USER": "gorilla",
+                                                     "KBUILD_BUILD_HOST": "fieldkit"}))
+    assert kernel.build_env(src)["SOURCE_DATE_EPOCH"] == "1789000000"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the shim is for POSIX date")
+def test_date_answers_the_builds_epoch_in_utc_whatever_the_time_zone(tmp_path):
+    import os
+    import subprocess
+    src = tmp_path / "linux"
+    src.mkdir()
+    (src / "Makefile").write_text("x")
+    os.utime(src / "Makefile", (1789000000, 1789000000))
+    env = {**os.environ, **kernel.build_env(src), "TZ": "Pacific/Kiritimati", "LC_ALL": "ro_RO.UTF-8"}
+    out = subprocess.run(["date", "-R"], env=env, capture_output=True, text=True).stdout.strip()
+    assert out == "Thu, 10 Sep 2026 00:26:40 +0000"                  # mkdebian's changelog line
+    # a date the caller names is left alone
+    assert subprocess.run(["date", "-u", "-d", "@0", "+%Y"], env=env, capture_output=True, text=True).stdout.strip() == "1970"
+
+
+def _repro_tree(tmp_path, release="7.2.9-unleashed.gorilla-x"):
+    src = tmp_path / "linux-7.2.9"
+    for rel, body in {"Makefile": "VERSION = 7\n", ".config": "CONFIG_X=y\n",
+                      "include/config/kernel.release": release + "\n",
+                      "scripts/package/debian/copyright": "source, under a name the top skips\n",
+                      "arch/x86/kernel/vmlinux.lds.S": "source named like a build product\n",
+                      "kernel/fork.o": "built", "vmlinux": "built", "debian/changelog": "made by the build"}.items():
+        (src / rel).parent.mkdir(parents=True, exist_ok=True)
+        (src / rel).write_text(body)
+    kernel.build_env(src)                                                # the build stage's stamp
+    for n in ("linux-image", "linux-headers"):
+        (tmp_path / f"{n}-{release}_7.2.9_amd64.deb").write_bytes(f"{n} bytes".encode())
+    return src
+
+
+def _repro_ctx(tmp_path, second=None, release="7.2.9-unleashed.gorilla-x"):
+    from types import SimpleNamespace
+    src = _repro_tree(tmp_path, release)
+    seen = {}
+
+    def run(cmd, env=None, name=None, **kw):
+        other = Path(cmd[2])
+        if "mrproper" in cmd:
+            seen["copied"] = sorted(p.relative_to(other).as_posix() for p in other.rglob("*") if p.is_file())
+            (other / ".config").unlink(missing_ok=True)
+            return SimpleNamespace(ok=True, log="log")
+        seen["env"], seen["cmd"] = env, cmd
+        (other / "include" / "config").mkdir(parents=True, exist_ok=True)
+        (other / "include" / "config" / "kernel.release").write_text(release + "\n")
+        for n in ("linux-image", "linux-headers"):
+            body = (second or {}).get(n, f"{n} bytes".encode())
+            (other.parent / f"{n}-{release}_7.2.9_amd64.deb").write_bytes(body)
+        return SimpleNamespace(ok=True, log="log")
+    ctx = SimpleNamespace(vars={"src": str(src), "version": "7.2.9", "workdir": str(tmp_path),
+                                "output": str(tmp_path / "out")},
+                          runner=SimpleNamespace(run=run), host={"cpus": 4})
+    return ctx, seen
+
+
+def test_repro_builds_again_from_a_clean_copy_with_the_first_builds_stamp_and_release(tmp_path):
+    ctx, seen = _repro_ctx(tmp_path)
+    r = kernel.stage_repro(ctx)
+    assert r["ok"] and len(r["results"]) == 2 and "reproduced: 2 package(s)" in r["detail"], r
+    copied = seen["copied"]
+    assert "scripts/package/debian/copyright" in copied and "arch/x86/kernel/vmlinux.lds.S" in copied
+    assert not {"kernel/fork.o", "vmlinux", "debian/changelog"} & set(copied)    # what the build made stays behind
+    assert "LOCALVERSION=-unleashed.gorilla-x" in seen["cmd"] and "bindeb-pkg" in seen["cmd"]
+    first = json.loads((Path(ctx.vars["src"]) / kernel.BUILD_STAMP).read_text())
+    assert seen["env"]["KBUILD_BUILD_TIMESTAMP"] == first["KBUILD_BUILD_TIMESTAMP"]
+    assert seen["env"]["TZ"] != "UTC" and "again-linux-7.2.9" in seen["cmd"][2]  # another place, another clock
+    assert not (tmp_path / "repro").exists()                                       # proven: the copy is gone
+    assert kernel.verify_repro(ctx)["ok"]
+    (tmp_path / "linux-image-7.2.9-unleashed.gorilla-x_7.2.9_amd64.deb").write_bytes(b"changed afterwards")
+    assert not kernel.verify_repro(ctx)["ok"]
+
+
+def test_repro_names_the_package_that_differs_and_keeps_the_second_build(tmp_path):
+    ctx, _ = _repro_ctx(tmp_path, second={"linux-image": b"linux-image bytes, built Sun Oct 11 12:31:41 UTC 2026"})
+    r = kernel.stage_repro(ctx)
+    assert not r["ok"] and "NOT reproduced: 1 of 2" in r["detail"]
+    assert r["kept"] and (tmp_path / "repro").is_dir()
+    assert any("date or time" in c for f in r["findings"] for c in f.get("causes", []))
+    assert not kernel.verify_repro(ctx)["ok"]
+
+
+def test_repro_refuses_without_a_finished_build(tmp_path):
+    from types import SimpleNamespace
+    ctx = SimpleNamespace(vars={"src": str(tmp_path / "linux-7.2.9"), "version": "7.2.9", "workdir": str(tmp_path)},
+                          host={"cpus": 1}, runner=None)
+    assert "run the build stage first" in kernel.stage_repro(ctx)["detail"]

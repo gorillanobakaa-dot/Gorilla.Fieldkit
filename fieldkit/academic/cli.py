@@ -31,6 +31,16 @@ USAGE = """fieldkit academic COMMAND ...
   types       [TYPE]                     the document types
   countries                              the countries and what each one sets
 
+  brief       FOLDER [--apply]           read the brief: type, words, module, outcomes, its dates as suggestions
+  date        FOLDER                     the submission date the brief or a deadline note states (a suggestion)
+  check       FOLDER DRAFT [--offline]   EVERY check in order, one verdict, the first fix; delivered only when it passes
+  record      add|set|link|show|brief ... marks and what markers keep saying (local, never committed)
+  portfolio   DRAFT.md [--to FOLDER]     a portfolio draft as a finished Word document (build --as docx)
+  local       [--apply] [--from DIR]     assignments in OneDrive/Dropbox/Google Drive, copied here and proven
+  preflight                              the tools proven by building real files and measuring them
+  menu                                   the numbered menu (English, or Romanian with ui ro)
+  shortcut    [--check|--remove]         a "Fieldkit Academic" shortcut that opens the menu
+
   --json on any command: the result as JSON.
 """
 
@@ -187,6 +197,8 @@ def run(a):
             r = {"types": dt.type_names()}
             _emit(r, a.json, lambda r: r["types"] + [f"{len(r['types'])} types"])
         return 0
+    if c in ("brief", "date", "check", "record", "portfolio", "local", "preflight", "menu", "shortcut"):
+        return _more(a, c)
     if c in ("setup", "next", "accessed"):
         from . import assignment
         if not a.target:
@@ -292,8 +304,107 @@ def run(a):
     raise ValueError(f"unknown command {c!r}")
 
 
+def _brief_lines(r):
+    out = [f"read: {', '.join(os.path.basename(f) for f in r['files'])}" if r["files"] else
+           "no brief found: put it in '1 - DROP YOUR STUDY MATERIALS HERE/Assignment brief/'"]
+    out += [f"  could not read {f}: {why}" for f, why in r["problems"]]
+    if r["files"]:
+        out.append(f"type: {r['type'] or '?'} (confidence {r['confidence'] or '-'})"
+                   + (f"; also: {', '.join(c[1] for c in r['type_candidates'][1:])}" if r["type_candidates"][1:] else ""))
+        out.append(f"words: {r['target_words'] or '?'}" + (f"  ({r['words_evidence']})" if r.get("words_evidence") else ""))
+        out.append(f"module: {r['module'] or '?'}; date in the brief: {r['deadline'] or '-'} (a suggestion: the dates are "
+                   "asked in setup)")
+        out += [f"  learning outcome: {lo[:120]}" for lo in r["learning_outcomes"][:8]]
+        out += [f"  {WARN} AI rule in the brief: {s[:140]}" for s in r["ai_policy"][:4]]
+        out += [f"  {WARN} hidden instruction for AI tools: {s[:140]}" for s in r["ai_trap"][:4]]
+    out.append("applied" if r.get("applied") else "nothing written yet")
+    return out
+
+
+def _more(a, c):
+    if c == "menu":
+        from . import menu
+        return menu.run()
+    if c == "shortcut":
+        from . import shortcut as sc
+        r = sc.remove() if a.remove else sc.check() if a.check else sc.make()
+        _emit(r, a.json, _kv)
+        return 0 if r["ok"] else 3
+    if c == "preflight":
+        from . import preflight
+        r = preflight.run()
+        _emit(r, a.json, preflight.lines)
+        return 0 if r["ok"] else 3
+    if c == "local":
+        from . import local
+        r = local.run(a.source, a.apply)
+        _emit(r, a.json, local.lines)
+        return 0 if r["ok"] else 3
+    if c == "record":
+        from . import record as rec
+        sub = a.target or "show"
+        if sub == "add":
+            r = rec.add(_need(a.extra, "fieldkit academic record add FILE|FOLDER [--apply]"), a.apply)
+        elif sub == "set":
+            r = rec.set_mark(_need(a.extra, "fieldkit academic record set MODULE --mark N [--title T]"), a.mark, a.title)
+        elif sub == "link":
+            r = rec.link([_need(a.extra, "fieldkit academic record link FOLDER [--feedback FOLDER] [--apply]")],
+                         a.apply, feedback=a.feedback)
+        elif sub == "brief":
+            r = rec.brief(a.extra or "")
+        elif sub == "show":
+            r = rec.show()
+        else:
+            raise ValueError(f"record {sub!r}: add, set, link, show or brief")
+        _emit(r, a.json, rec.lines)
+        return 0 if r["ok"] else 3
+    folder = _need(a.target, f"fieldkit academic {c} {'DRAFT.md' if c == 'portfolio' else 'FOLDER'}")
+    if c == "portfolio":
+        from . import build as b
+        r = b.build(folder, "docx", a.to)
+        _emit(r, a.json, _kv)
+        return 0
+    if c == "brief":
+        from .read_brief import analyse_brief, apply_proposal
+        r = analyse_brief(folder)
+        r["files"] = [str(f) for f in r["files"]]
+        if a.apply:
+            if not (a.type or r["type"]):
+                raise ValueError("no document type found in the brief: --apply --type T (fieldkit academic types)")
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):
+                r["applied"] = bool(apply_proposal(folder, {**r, "deadline": None}, a.type, a.target_words,
+                                                   verbose=False))
+        r["next"] = (f'fieldkit academic setup "{folder}" --deadline DATE --upload DATE' if r.get("applied") else
+                     f'fieldkit academic brief "{folder}" --apply' if r["files"] else "put the brief in the folder")
+        _emit(r, a.json, _brief_lines)
+        return 0 if r["files"] else 2
+    if c == "date":
+        from .extract_submission_date import find_submission_date_in_exam
+        d, evidence, source = find_submission_date_in_exam(folder)
+        r = {"ok": bool(d), "date": d, "evidence": evidence, "source": source,
+             "next": (f'a suggestion only: fieldkit academic setup "{folder}" --deadline "{d}" --upload DATE'
+                      if d else "no date found: read it in the brief and give it to setup")}
+        _emit(r, a.json, _kv)
+        return 0 if d else 2
+    # check
+    from . import check as ck
+    draft = _need(a.extra, "fieldkit academic check FOLDER DRAFT")
+    r = ck.run(folder, draft, offline=a.offline)
+    _emit(r, a.json, ck.lines)
+    return 0 if r["ok"] else 3
+
+
+def _need(v, usage):
+    if not v:
+        raise ValueError(usage)
+    return v
+
+
 COMMANDS = ["init", "setup", "next", "accessed", "extract", "search", "refs", "style", "language", "words", "dashes",
-            "plagiarism", "structure", "build", "template", "finish", "types", "countries"]
+            "plagiarism", "structure", "build", "template", "finish", "types", "countries", "brief", "date", "check",
+            "record", "portfolio", "local", "preflight", "menu", "shortcut"]
 
 
 def parser(prog="fieldkit academic"):
@@ -311,6 +422,13 @@ def parser(prog="fieldkit academic"):
     ap.add_argument("--to")
     ap.add_argument("--contents", action="store_true", help="build: a contents page after the title")
     ap.add_argument("--guidance", action="store_true", help="template: notes under each heading")
+    ap.add_argument("--apply", action="store_true", help="brief, record add/link, local: write (without it: propose)")
+    ap.add_argument("--offline", action="store_true", help="check: skip the online identifier check")
+    ap.add_argument("--from", dest="source", help="local: look only in this folder")
+    ap.add_argument("--mark", type=float, help="record set: the mark")
+    ap.add_argument("--feedback", help="record link: a folder of feedback sheets, to learn what each module is about")
+    ap.add_argument("--check", action="store_true", help="shortcut: only look")
+    ap.add_argument("--remove", action="store_true", help="shortcut: remove the shortcuts this tool made")
     return ap
 
 
