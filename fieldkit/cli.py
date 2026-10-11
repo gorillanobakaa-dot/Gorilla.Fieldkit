@@ -868,6 +868,11 @@ def build_parser():
                              "plagiarism pre-check, the next step (fieldkit academic)")
     ac.add_argument("args", nargs=argparse.REMAINDER)
     ac.set_defaults(fn=lambda a: __import__("fieldkit.academic.cli", fromlist=["main"]).main(a.args))
+    ev = sub.add_parser("evidence", add_help=False,
+                        help="research evidence that can be checked later: fetch pages into a store, import a run's "
+                             "findings, check every claim (fieldkit evidence)")
+    ev.add_argument("args", nargs=argparse.REMAINDER)
+    ev.set_defaults(fn=lambda a: __import__("fieldkit.evidence.cli", fromlist=["main"]).main(a.args))
 
     sub.add_parser("audio", parents=[common],
                    help="Linux: every stage the sound passes through, what is done twice, and the fix (changes nothing)"
@@ -1150,6 +1155,9 @@ def main(argv=None):
     if args[:1] == ["academic"]:                      # so is the academic module
         from .academic import cli as academic_cli
         return academic_cli.main(args[1:])
+    if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
+        from .evidence import cli as evidence_cli
+        return evidence_cli.main(args[1:])
     if args[:1] and args[0] in METHODS:              # methods as tools (docs/METHODS.md): each has its own parser
         import importlib
         mod = importlib.import_module(f".method.{METHODS[args[0]][0]}", __package__)

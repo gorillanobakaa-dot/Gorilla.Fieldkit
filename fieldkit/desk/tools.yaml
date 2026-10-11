@@ -676,3 +676,69 @@ tools:
       - {output_contains: '^language: '}
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+# -- research evidence (fieldkit/evidence, docs/METHODS.md #16) ------------------------------------------------
+- id: evidence-fetch
+  title: "Fetch pages as evidence: kept by hash with their words, robots.txt obeyed, private addresses refused"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, fetch]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: urls, flag: null, type: str, required: true, help: "one or more URLs or doi:10.x/y"}
+    - {name: run, flag: --run, type: str, required: false, help: "the research run these fetches belong to"}
+    - {name: quote, flag: --quote, type: str, required: false, help: "also check the page contains this passage"}
+    - {name: store, flag: --store, type: str, required: false, help: "the evidence store (default: the user's data folder)"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {3: findings}
+  answer_lines: 30
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-import
+  title: "A research run's findings file as records: one per lane, one per claim (tier or grade, URLs, quote)"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, import]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "findings-*.md or one lane's reply"}
+    - {name: out, flag: --out, type: str, required: false, help: "write the records here (JSON lines)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: third-party
+  scope: [out]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-check
+  title: "Check every claim of a research run: the output contract, cited-but-never-opened, snapshots, quotes"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, check]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "a record file (.jsonl) or a findings file (.md)"}
+    - {name: store, flag: --store, type: str, required: false, help: "check snapshots and quotes in this store"}
+    - {name: run, flag: --run, type: str, required: false, help: "only snapshots fetched for this run"}
+    - {name: fetched, flag: --fetched, type: str, required: false, help: "the URLs the run opened, one per line"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  answer_lines: 60
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-show
+  title: "The latest snapshot of a URL: when, status, hash, and where its bytes and words are"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, show]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: url, flag: null, type: str, required: true, help: "the URL or doi:10.x/y"}
+    - {name: store, flag: --store, type: str, required: false, help: "the evidence store"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
