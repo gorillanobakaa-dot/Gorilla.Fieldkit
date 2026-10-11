@@ -9,6 +9,7 @@ Sources, best first:
   tpfan_window  - TPFanControl (the owner's fork) reads the EC `cpu` sensor through PawnIO and shows it in its window;
                   the Status edit control is read with WM_GETTEXT, no elevation, live every call.
   tpfan_csv     - TPFanControl_csv.txt when Log2csv=1 in its ini (admin to enable).
+  hwinfo        - HWiNFO's "reporting to Gadget" values in the registry (CPU Package), on any laptop running it.
   thermalzone   - the 'Thermal Zone Information' performance counter (chassis zones).
   msacpi        - MSAcpi_ThermalZoneTemperature (static on this ThinkPad).
 """
@@ -142,8 +143,52 @@ def msacpi():
         return None
 
 
+def _num(text):
+    try:
+        return float(str(text).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_vsb(values):
+    """HWiNFO's "reporting to Gadget" registry values (Sensor0, Label0, ValueRaw0 ...) -> the CPU Package
+    temperature, the DTS reading when both are there; None without one."""
+    cpu, dts, i = None, False, 0
+    while f"Label{i}" in values:
+        raw = _num(values.get(f"ValueRaw{i}"))
+        if raw is not None and str(values.get(f"Label{i}", "")).strip() == "CPU Package":
+            is_dts = str(values.get(f"Sensor{i}", "")).endswith(": DTS")
+            if cpu is None or (is_dts and not dts):
+                cpu, dts = raw, is_dts
+        i += 1
+    return cpu
+
+
+def hwinfo():
+    """HKCU\\Software\\HWiNFO64\\VSB, written by HWiNFO with "reporting to Gadget" on (no 12-hour limit, unlike its
+    shared memory). From the academic harness's laptop (a Dell whose fans Windows cannot read, 2026-10-05). A process
+    started by Task Scheduler does not see these values (2026-10-09): start the reader from the desktop session."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+        values = {}
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\HWiNFO64\VSB") as key:
+            i = 0
+            while True:
+                try:
+                    name, data, _ = winreg.EnumValue(key, i)
+                except OSError:
+                    break
+                values[name] = data
+                i += 1
+        return parse_vsb(values)
+    except OSError:
+        return None
+
+
 PROVIDERS = (("tpfan_status", tpfan_status), ("tpfan_window", tpfan_window), ("tpfan_csv", tpfan_csv),
-             ("thermalzone", thermalzone), ("msacpi", msacpi))
+             ("hwinfo", hwinfo), ("thermalzone", thermalzone), ("msacpi", msacpi))
 
 
 def perf_percent():

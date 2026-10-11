@@ -346,6 +346,91 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_backup_usb.py", -k, reminder]
 
+- id: laptop-cpu
+  title: "Is the processor locked slow by the firmware (BD PROCHOT)? Measured under load; guard unlocks and proves it"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, cpu]
+  path: ${FIELDKIT}/fieldkit/laptop/cpu.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, help: "check (default), guard, status", choices: [check, guard, status]}
+  effects: [reads-files, writes-files, processes, system]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, speed or guard or linux or logon]
+
+- id: laptop-alerts-say
+  title: "Hear the three alert sentences an AI assistant's state is spoken with (done, focus, look)"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, alerts, say]
+  path: ${FIELDKIT}/fieldkit/laptop/alerts.py
+  inputs:
+    - {name: kind, flag: null, type: str, required: false, help: "done, focus or look", choices: [done, focus, look]}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, hook or watcher or hooks]
+
+- id: laptop-sound
+  title: "Low sound on Windows: diagnose (read-only), the safe fix with its undo, the driver listed for the exact chip"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, sound]
+  path: ${FIELDKIT}/fieldkit/laptop/sound.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, help: "diagnose (default), fix, undo, drivers", choices: [diagnose, fix, undo, drivers]}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "fix: do it (without: the plan)"}
+  effects: [reads-files, writes-files, system, network]
+  safety: reversible
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, sound or fix or catalog or diagnosis]
+
+- id: laptop-volume
+  title: "The master volume: read it, or set it (and unmute) on Windows and Linux"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, volume]
+  path: ${FIELDKIT}/fieldkit/laptop/sound.py
+  inputs:
+    - {name: set, flag: --set, type: int, required: false, help: "the volume to set, in percent"}
+  effects: [system]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, volume]
+
+- id: laptop-video
+  title: "An NVIDIA card without its Control Panel app (DCH drivers): found; --apply installs it from the Store"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, video]
+  path: ${FIELDKIT}/fieldkit/laptop/desktop.py
+  inputs:
+    - {name: apply, flag: --apply, type: flag, required: false, help: "install it (without: only look)"}
+  effects: [processes, network, system]
+  safety: reversible
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, nvidia]
+
+- id: laptop-rules
+  title: "The rule files AI tools read (CLAUDE.md, GEMINI.md, AGENTS.md ...): one source, every copy identical"
+  harness: laptop
+  entry: [python, -m, fieldkit, laptop, rules]
+  path: ${FIELDKIT}/fieldkit/laptop/rules.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check, or sync (the source over each copy, a .bak first)", choices: [check, sync]}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, rule]
+
+- id: thermal-profile
+  title: "Everyday cooling on Windows: show or choose quiet, balanced, performance or off (the monitor follows it)"
+  harness: thermal
+  entry: [python, -m, fieldkit, thermal, profile]
+  path: ${FIELDKIT}/fieldkit/thermal/profiles.py
+  inputs:
+    - {name: value, flag: null, type: str, required: false, help: "the profile", choices: [quiet, balanced, performance, "off"]}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, profile or danger or hwinfo]
+
 - id: fieldkit-icons
   title: Sharp desktop icons - the icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons
   harness: fieldkit

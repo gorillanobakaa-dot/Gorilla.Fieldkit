@@ -29,6 +29,7 @@
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
     fieldkit repro compare A B [--root RA RB]     two builds byte for byte: REPRODUCED, or what differs and why (exit 3)
+    fieldkit laptop cpu|alerts|sound|volume|video|wallpaper|rules ...   a laptop's everyday repairs (fieldkit/laptop)
     fieldkit snapshot take NAME [--path DIR...] [--services --tasks --programs --processes]
     fieldkit snapshot diff BEFORE AFTER          exit 3 when something changed
     fieldkit lifecycle SPEC.yaml --approve       install, verify, uninstall; report leftovers (exit 3)
@@ -1062,6 +1063,19 @@ def build_parser():
     mv.add_argument("--out", help="also write the report here")
     k.set_defaults(fn=cmd_kernel)
 
+    lp = sub.add_parser("laptop", parents=[common], help="a laptop's everyday repairs: cpu, alerts, sound, volume, "
+                                                         "video, wallpaper, rules (fieldkit/laptop)")
+    lp.add_argument("area", choices=["cpu", "alerts", "sound", "volume", "video", "wallpaper", "rules"])
+    lp.add_argument("action", nargs="?", help="cpu: check|guard|install|uninstall|status; alerts: say|hook|watch|"
+                                              "install; sound: diagnose|fix|undo|open|drivers; rules: check|sync")
+    lp.add_argument("args", nargs="*", help="alerts say: done|focus|look; sound open: sound|devices|settings|maker; "
+                                            "rules: SOURCE COPY...")
+    lp.add_argument("--apply", action="store_true", help="sound fix, video, alerts install: do it (without: the plan)")
+    lp.add_argument("--set", type=int, help="volume: set the master volume to this percent")
+    lp.add_argument("--claude-code", dest="claude_code", action="store_true", help="alerts install: Claude Code's hooks")
+    lp.add_argument("--antigravity", action="store_true", help="alerts install: the watcher, started at login")
+    lp.set_defaults(fn=cmd_laptop)
+
     rp = sub.add_parser("repro", parents=[common],
                         help="two builds compared byte for byte: REPRODUCED, or which bytes differ (inside archives) and why")
     rp.add_argument("action", choices=["compare"])
@@ -1072,7 +1086,9 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart"])
+    th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
+    th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
     th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
     th.set_defaults(fn=cmd_thermal)
@@ -1153,6 +1169,88 @@ def cmd_build_harness(a):
         return 2
 
 
+def cmd_laptop(a):
+    from .laptop import alerts, cpu, desktop, rules, sound
+    act = a.action
+    if a.area == "cpu":
+        act = act or "check"
+        if act in ("check", "guard"):
+            st = cpu.check(fix=act == "guard")
+            if act == "guard":
+                from .core import usbcopy                     # the stick reminder rides along, as it did
+                try:
+                    usbcopy.remind(speak=True)
+                except Exception:
+                    pass
+            _emit(st, a.json, lambda d: print("\n".join(cpu.lines(d))))
+            return cpu.exit_code(st)
+        if act in ("install", "uninstall"):
+            r = cpu.install(remove=act == "uninstall")
+            _emit(r, a.json, _kv_lines)
+            return 0 if r["ok"] else 3
+        _emit(cpu.status(), a.json)
+        return 0
+    if a.area == "alerts":
+        if act == "say":
+            kind = (a.args or ["look"])[0]
+            if kind not in alerts.PHRASES:
+                raise SystemExit("fieldkit laptop alerts say done|focus|look")
+            from .buildh import herald
+            print(herald.say(alerts.sentence(kind)))
+            return 0
+        if act == "hook":
+            raw = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace")
+            try:
+                payload = json.loads(raw) if raw.strip() else {}
+            except ValueError:
+                payload = {}
+            alerts.hook(payload)
+            return 0                                       # a hook never blocks the assistant
+        if act == "watch":
+            alerts.watch()
+            return 0
+        if act == "install":
+            r = {}
+            if a.claude_code or not a.antigravity:
+                r["claude_code"] = alerts.install_claude(apply=a.apply)
+            if a.antigravity or not a.claude_code:
+                r["antigravity"] = alerts.install_antigravity(apply=a.apply)
+            r["next"] = "done" if a.apply else "the same with --apply writes it"
+            _emit(r, a.json)
+            return 0
+        raise SystemExit("fieldkit laptop alerts say|hook|watch|install")
+    if a.area == "sound":
+        act = act or "diagnose"
+        fn = {"diagnose": lambda: sound.diagnose(), "fix": lambda: sound.fix(a.apply), "undo": lambda: sound.undo(),
+              "drivers": lambda: sound.drivers(),
+              "open": lambda: sound.open_window((a.args or ["sound"])[0])}.get(act)
+        if not fn:
+            raise SystemExit("fieldkit laptop sound diagnose|fix|undo|open|drivers")
+        try:
+            r = fn()
+        except RuntimeError as e:
+            print(f"REFUSED: {e}")
+            return 2
+        _emit(r, a.json, lambda d: print("\n".join(sound.lines(d))))
+        return 0 if r["ok"] else 3
+    if a.area == "volume":
+        r = sound.volume(a.set)
+        _emit(r, a.json, lambda d: print("\n".join(sound.lines(d))))
+        return 0 if r["ok"] else 3
+    if a.area == "video":
+        r = desktop.video(a.apply)
+        _emit(r, a.json, _kv_lines)
+        return 0 if r["ok"] else 3
+    if a.area == "wallpaper":
+        r = desktop.wallpaper()
+        _emit(r, a.json, _kv_lines)
+        return 0 if r["ok"] else 3
+    rows = a.args or []
+    r = (rules.sync if act == "sync" else rules.check)(rows[0] if rows else None, rows[1:])
+    _emit(r, a.json, lambda d: print("\n".join(rules.lines(d))))
+    return 0 if r["ok"] else 3
+
+
 def cmd_repro(a):
     from .build import repro
     r = repro.compare(a.a, a.b, roots=a.root or [])
@@ -1162,6 +1260,24 @@ def cmd_repro(a):
 
 def cmd_thermal(a):
     from .thermal import governor, sensors
+    if a.action in ("profile", "monitor", "autostart"):
+        from .thermal import profiles
+        if a.action == "profile":
+            r = profiles.choose(a.value) if a.value else {"ok": True, "profile": profiles.chosen(),
+                                                           "profiles": {k: v["about"] for k, v in profiles.PROFILES.items()}}
+            _emit(r, a.json, _kv_lines)
+            return 0
+        if a.action == "autostart":
+            if a.value not in ("on", "off"):
+                raise SystemExit("fieldkit thermal autostart on|off")
+            r = profiles.autostart(a.value == "on")
+            _emit(r, a.json, _kv_lines)
+            return 0 if r["ok"] else 3
+        if a.stop:
+            _emit(profiles.stop_monitor(), a.json, _kv_lines)
+            return 0
+        profiles.monitor()
+        return 0
     if a.action == "status":
         for name, fn in sensors.PROVIDERS:
             print(f"  {name:14} {fn()}")
