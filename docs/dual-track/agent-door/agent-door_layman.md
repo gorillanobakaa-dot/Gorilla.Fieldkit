@@ -27,7 +27,7 @@ This group itself sends nothing over the internet. The `fieldkit mcp` door talks
 This desk lets a program run tools on your computer. Check that the safety rules are in place on your copy before you connect any AI program to it.
 
 **Step 1:** Open PowerShell: press the Windows key, type `PowerShell`, and press Enter. A window with a blinking cursor opens. Type `fieldkit --version` and press Enter.
-  - Look for: Pass: the line `fieldkit 0.1.0` appears. Fail: a message that `fieldkit` is not recognised, which means Fieldkit is not installed on this computer.
+  - Look for: Pass: the line `fieldkit 0.2.0` appears. Fail: a message that `fieldkit` is not recognised, which means Fieldkit is not installed on this computer.
 **Step 2:** Type `fieldkit readiness` and press Enter.
   - Look for: Pass: a short summary of how many tools are verified, tested, carded or draft. Draft tools are the ones the desk refuses to run. Fail: an error message instead of the summary.
 **Step 3:** Type `fieldkit cards list` and press Enter.
@@ -43,7 +43,7 @@ This desk lets a program run tools on your computer. Check that the safety rules
 
 Fieldkit is a collection of small tools that run on your own computer. The agent door is the part that decides how a language model (a program that reads and writes text, such as the small local model Gemma) is allowed to use those tools. Think of it as the reception desk of a workshop. The model asks at the desk for a job. The desk finds the right tool, checks the request, and only then hands the work to the tool.
 
-The group has four files. `__init__.py` gives Fieldkit its name and version number, `0.1.0`. `cli.py` is the single command you type, `fieldkit`, with one sub-command for every part of the collection, for example `fieldkit office`, `fieldkit pipeline`, `fieldkit docs` and `fieldkit agent`. `agent.py` is the reception desk itself: it finds tools, checks inputs, makes backups, runs the tool, checks the result and can undo it. `mcp.py` lets other programs that speak the Model Context Protocol (MCP) talk to that same desk.
+The group has four files. `__init__.py` gives Fieldkit its name and version number, `0.2.0`. `cli.py` is the single command you type, `fieldkit`, with one sub-command for every part of the collection, for example `fieldkit office`, `fieldkit pipeline`, `fieldkit docs` and `fieldkit agent`. `agent.py` is the reception desk itself: it finds tools, checks inputs, makes backups, runs the tool, checks the result and can undo it. `mcp.py` lets other programs that speak the Model Context Protocol (MCP) talk to that same desk.
 
 The rule at the centre of this group is written in the source: "Approval must come from a person, not from text a model produced." A model can look up tools, run tools that only read, and run tools whose changes Fieldkit can put back. A change that cannot be undone, or that touches system settings, stops and waits for you to approve it on the command line.
 
@@ -202,7 +202,7 @@ This group opens no network connection itself. Some tools it can start, and some
 ## How to use the agent door yourself
 
 **Before you start:**
-- Fieldkit is installed, so that `fieldkit --version` prints `fieldkit 0.1.0`.
+- Fieldkit is installed, so that `fieldkit --version` prints `fieldkit 0.2.0`.
 - A copy of a Word file named `report.docx` in a folder you know. Work on a copy, not your only version.
 
 **Step 1:** Open PowerShell: press the Windows key, type `PowerShell`, and press Enter. A window with a blinking cursor opens. Go to the folder that holds `report.docx`. Type `cd` and one space, but do not press Enter yet. Then drag the folder from File Explorer and drop it on this window: its full location appears after `cd`. Now press Enter.

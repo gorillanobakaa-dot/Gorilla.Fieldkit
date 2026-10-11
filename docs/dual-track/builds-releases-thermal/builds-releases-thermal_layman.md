@@ -263,7 +263,7 @@ You can read every threshold in these files: 75 C target, 90 C hot, 95 C stop, 3
 
 **EC (embedded controller)** — A small chip on a laptop's main board that runs the fans and reports temperatures.
 
-**Git tag** — A fixed name, such as `v0.1.0`, for one exact saved version of a project.
+**Git tag** — A fixed name, such as `v0.2.0`, for one exact saved version of a project.
 
 **Git tree id** — A fingerprint of a version's files that is the same on every computer.
 

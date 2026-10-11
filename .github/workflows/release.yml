@@ -1,0 +1,56 @@
+# A tag v* publishes a GitHub release, and only after the whole suite has passed for that exact commit on Windows
+# and on Linux. The page is releases/notes/<tag>/page.md, built by `fieldkit release-page compose` and checked here
+# again by `fieldkit release-page check`: both tracks in full, plain language first. The tag must name the version
+# the package carries, or nothing is published. Run by hand (workflow_dispatch) with a tag that does not exist yet,
+# it does the same for the commit it runs on and creates the tag there.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "the version to publish, e.g. v0.2.0 (created on this commit)"
+        required: true
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+jobs:
+  test:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pytest -q -rs
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: the tag names the package's version
+        run: |
+          v=$(python -c "import fieldkit; print(fieldkit.__version__)")
+          test "v$v" = "$TAG" || { echo "tag $TAG, package $v: not published"; exit 1; }
+      - name: the release page carries both tracks in full
+        run: |
+          d="releases/notes/$TAG"
+          python -m fieldkit release-page check "$d/page.md" --layman "$d/layman.md" --developer "$d/developer.md"
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then where=--verify-tag; else where="--target $GITHUB_SHA"; fi
+          gh release create "$TAG" --title "Fieldkit $TAG" \
+            --notes-file "releases/notes/$TAG/page.md" $where
