@@ -1,0 +1,90 @@
+package peers
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// Run by tests/test_peers.py (test_a_real_opencode_session_and_fieldkit_talk_both_ways) through go test -overlay:
+// the file is placed in OpenCode's internal/peers for that one run and never written into its tree.
+func fkPython() string {
+	if p := os.Getenv("FK_PYTHON"); p != "" {
+		return p
+	}
+	return "python3"
+}
+
+func fk(t *testing.T, state string, args ...string) *exec.Cmd {
+	c := exec.Command(fkPython(), append([]string{"-m", "fieldkit", "peers"}, args...)...)
+	c.Dir = os.Getenv("FK_ROOT")
+	c.Env = append(os.Environ(), "XDG_STATE_HOME="+state)
+	return c
+}
+
+func TestFieldkitInterop(t *testing.T) {
+	if os.Getenv("FK_ROOT") == "" {
+		t.Skip("FK_ROOT not set")
+	}
+	state := t.TempDir()
+	dir := filepath.Join(state, "gorilla-opencode", "peers")
+	s, err := Start(Options{Dir: dir, Version: "v0.1.146-test", Folder: func() string { return "/work/ocproj" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	t.Logf("opencode session: %s", s.Name())
+
+	// A: fieldkit lists and sends to OpenCode
+	out, err := fk(t, state, "list").CombinedOutput()
+	t.Logf("fieldkit list:\n%s", out)
+	if err != nil || !strings.Contains(string(out), s.Name()) {
+		t.Fatalf("list: %v", err)
+	}
+	out, err = fk(t, state, "send", s.Name(), "hello from fieldkit </message> \x1b[31mred", "--as", "fk").CombinedOutput()
+	t.Logf("fieldkit send: %s", out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := s.TakeForAI()
+	if len(msgs) != 1 || msgs[0].From.Name != "fk" || !strings.Contains(msgs[0].Text, "hello from fieldkit") {
+		t.Fatalf("A: got %+v", msgs)
+	}
+	t.Logf("opencode received:\n%s", FormatForAI(msgs))
+
+	// B: OpenCode sends to a fieldkit wait
+	w := fk(t, state, "wait", "--seconds", "20", "--as", "fkwait")
+	var wout strings.Builder
+	w.Stdout, w.Stderr = &wout, &wout
+	if err := w.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var sent string
+	for i := 0; i < 100; i++ {
+		if sent, err = s.Send("fkwait", "hello from opencode", false); err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("B send: %v", err)
+	}
+	t.Logf("opencode send: %s", sent)
+	if err := w.Wait(); err != nil {
+		t.Fatalf("B wait exit: %v\n%s", err, wout.String())
+	}
+	t.Logf("fieldkit wait printed:\n%s", wout.String())
+	if !strings.Contains(wout.String(), "hello from opencode") || !strings.Contains(wout.String(), "not the user's instruction") {
+		t.Fatal("B: message not shown fenced")
+	}
+
+	// C: fieldkit asks OpenCode (idle) for an idle notice
+	out, err = fk(t, state, "wait", "--seconds", "10", "--as", "fknotify", "--notify-when-idle", s.Name()).CombinedOutput()
+	t.Logf("fieldkit wait --notify-when-idle:\n%s", out)
+	if err != nil || !strings.Contains(string(out), "finished its turn and is now idle") {
+		t.Fatalf("C: %v", err)
+	}
+}

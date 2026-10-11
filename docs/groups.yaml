@@ -137,6 +137,10 @@ groups:
     title: "The Windows 11 tweaks framework, driven safely: modules, fit to this PC, the maker's buttons, elevated runs"
     sources: ["win11/*.py"]
 
+  - name: peers
+    title: "Messages between AI sessions on this computer, in Gorilla OpenCode's protocol: list, send, wait"
+    sources: ["peers/*.py"]
+
   - name: evidence
     title: "Research evidence that can be checked later: pages kept by hash, every claim of a run against its page"
     sources: ["evidence/*.py"]
