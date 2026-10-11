@@ -164,8 +164,15 @@ Guides: [plain language](docs/dual-track/office/office_layman.md) ·
   passing proof. There is no way to force it.
 - **Install, test, remove.** `fieldkit lifecycle SPEC --approve` installs a program, checks it,
   uninstalls it, and lists anything left behind.
-- **Debian kernels.** `fieldkit kernel` helps build a custom Debian kernel step by step. Its full
-  build has not run yet; only a dry run has.
+- **Debian kernels.** `fieldkit kernel` helps build a custom Debian kernel step by step. On
+  2026-10-11 its build, RPM and reproduction stages ran for real on Linux 7.2.9 with a small
+  configuration; a build with the full kernel.config has not run in this setup.
+- **Is the binary the same when someone else builds it?** `fieldkit repro compare A B` checks
+  two builds byte for byte. When they differ, it names the file (inside .deb, tar and zip
+  archives too) and the cause: a build folder, a date, a file order, a Windows link time. The
+  Go pipelines build every binary a second time in another folder and stop if the bytes
+  differ (Gorilla OpenCode: both binaries identical). The kernel pipeline does the same for
+  its packages, and `fieldkit build-harness repro TASK --run` does it for the Firefox build.
 - **Temperature.** On 2026-10-02 the build laptop switched itself off in the middle of a compile.
   The build had been trusting a temperature sensor that was stuck at 41.85 C for 386 readings
   while the processor heated up. Now Fieldkit trusts a sensor only after watching it rise under
@@ -559,7 +566,10 @@ release or fix the check.
 
 ## 8. Honest limits
 
-- The Debian kernel pipeline has run as a dry run only; its full build has not run yet.
+- The Debian kernel pipeline has run for real only with a small configuration (2026-10-11),
+  not yet with the full kernel.config.
+- The Firefox package has not been reproduced yet: `build-harness repro` needs a second full
+  build on the build machine.
 - The `firefox-windows` pipeline needs the Gorilla Firefox build harness.
 - The privacy scan finds patterns and the words you list. It cannot know a secret it has
   no pattern for.

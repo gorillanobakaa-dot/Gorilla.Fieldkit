@@ -151,6 +151,19 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_refcheck.py"]
 
+- id: repro-compare
+  title: Two builds of the same source compared byte for byte, and what differs named (inside archives) with its cause
+  harness: build
+  entry: [python, -m, fieldkit, repro, compare]
+  path: ${FIELDKIT}/fieldkit/build/repro.py
+  inputs:
+    - {name: a, flag: null, type: str, required: true, help: "the first build: a file or a folder"}
+    - {name: b, flag: null, type: str, required: true, help: "the second build, made elsewhere"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repro.py"]
+
 - id: snapshot-diff
   title: Show exactly what changed between two recorded snapshots
   harness: core
@@ -301,9 +314,37 @@ tools:
   harness: fieldkit
   entry: [python, -m, fieldkit, backup]
   path: ${FIELDKIT}/fieldkit/core/backup.py
+  inputs:
+    - {name: to, flag: --to, type: str, required: false, help: "the backup folder (default: backup.dir in fieldkit.local.json)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
   platforms: [windows, linux]
-  changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_career.py"]
+
+- id: fieldkit-backup-usb
+  title: Copy the newest backup to a USB stick and prove it there (never deletes, moves or overwrites anything on the stick)
+  harness: fieldkit
+  entry: [python, -m, fieldkit, backup, usb]
+  path: ${FIELDKIT}/fieldkit/core/usbcopy.py
+  inputs:
+    - {name: drive, flag: --drive, type: str, required: false, help: "the stick's drive letter (Windows) or mount folder"}
+    - {name: check, flag: --check, type: flag, required: false, help: "only list the copies on the stick"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_backup_usb.py"]
+
+- id: fieldkit-backup-remind
+  title: How old the last backup copy on a USB stick is, and a reminder (aloud at most once a day) when it is due
+  harness: fieldkit
+  entry: [python, -m, fieldkit, backup, remind]
+  path: ${FIELDKIT}/fieldkit/core/usbcopy.py
+  inputs:
+    - {name: quiet, flag: --quiet, type: flag, required: false, help: "do not say it aloud"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_backup_usb.py", -k, reminder]
 
 - id: fieldkit-icons
   title: Sharp desktop icons - the icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons

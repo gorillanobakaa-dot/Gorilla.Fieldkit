@@ -119,7 +119,8 @@ def test_the_gorilla_opencode_preset_matches_how_releases_are_built():
     p = Pipeline.load(PIPE.parent / "gorilla-opencode.yaml", state_dir="/tmp/x-unused", strict=False)
     assert p.vars["version_var"] == "github.com/opencode-ai/opencode/internal/version.Version"
     assert p.vars["windows_name"] == "gorilla-opencode.exe" and p.vars["cgo"] == "0"
-    assert [s["id"] for s in p.stages] == ["toolchain", "modules", "vet", "test", "build", "checksums"]
+    assert [s["id"] for s in p.stages] == ["toolchain", "modules", "vet", "test", "build", "repro",
+                                            "checksums"]
 
 
 def test_every_go_signature_compiles_and_names_a_fix():
@@ -154,9 +155,16 @@ def test_a_real_build_is_stamped_reproducible_and_resumable(tmp_path):
     shutil.rmtree(out)
     assert p.run(force=True)["ok"] and goapp._sha(linux) == first
 
-    # a changed binary is caught by its checksum
+    # the binary proven: built again from a copy elsewhere (own cache, temp, time zone), byte for byte the same
+    rp = goapp._load(_ctx(p), src, "repro")
+    assert rp["ok"] and all(x["identical"] for x in rp["results"]) and len(rp["results"]) == 2
+    assert rp["second_build"]["folder"] != str(src) and "reproduced" in rp["detail"]
+    assert goapp.verify_repro(_ctx(p))["ok"]
+
+    # a changed binary is caught by its checksum, and the reproduction no longer vouches for it
     linux.write_bytes(b"tampered")
     assert goapp.verify_checksums(_ctx(p))["ok"] is False
+    assert goapp.verify_build(_ctx(p))["ok"] is False
 
 
 @pytest.mark.skipif(not HAS_GO, reason="Go is not installed")

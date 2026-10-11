@@ -28,6 +28,7 @@
     fieldkit cards list [--level L] | show ID    the contract of every tool, with its trust level
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
+    fieldkit repro compare A B [--root RA RB]     two builds byte for byte: REPRODUCED, or what differs and why (exit 3)
     fieldkit snapshot take NAME [--path DIR...] [--services --tasks --programs --processes]
     fieldkit snapshot diff BEFORE AFTER          exit 3 when something changed
     fieldkit lifecycle SPEC.yaml --approve       install, verify, uninstall; report leftovers (exit 3)
@@ -44,6 +45,7 @@
     fieldkit build-harness migrate plan|sitrep|check|advance|work ... TASK
     fieldkit build-harness netbench [TASK] [--bench B1,...] / compare A B   network benches, local servers only
     fieldkit build-harness replay TASK              the public patch set on pristine upstream = the compiled tree (S9)
+    fieldkit build-harness repro TASK [--run]       the binary reproduced: built again elsewhere, packages byte for byte
     fieldkit build-harness techniques TASK          the ideas behind Gorilla's fixes: do they still hold in this tree?
     fieldkit build-harness probe TASK js=NAME       ask a copy of the build a question / try a JS fix without a build
     fieldkit build-harness probe-compare A B        two saved probe outputs (TOK|...): LOST / changed / now-set
@@ -129,6 +131,16 @@ def cmd_audio(a):
 
 def cmd_backup(a):
     from .core import backup
+    if a.action:
+        from .core import usbcopy
+        if a.action == "remind":
+            r = usbcopy.remind(speak=not a.quiet)
+        elif a.check:
+            r = usbcopy.check(a.drive, a.stick)
+        else:
+            r = usbcopy.copy(a.drive, a.stick, a.source)
+        _emit(r, a.json, lambda d: print("\n".join(usbcopy.lines(d))))
+        return 0 if r["ok"] else (2 if r["status"] in ("ask", "no-backup") else 3)
     r = backup.backup(to=a.to)
     _emit(r, a.json, lambda d: print("\n".join(backup.lines(d))))
     return 0 if r["ok"] else (2 if r["status"] in ("ask", "refused") else 1)
@@ -813,7 +825,15 @@ def build_parser():
 
     bk = sub.add_parser("backup", parents=[common],
                         help="a complete, dated, verified zip of the Fieldkit folder (the folder is never guessed)")
+    bk.add_argument("action", nargs="?", choices=["usb", "remind"],
+                    help="usb: copy the newest backup to a USB stick and verify it there (never deletes anything on "
+                         "the stick); remind: how old the last copy on a stick is")
     bk.add_argument("--to", help="the backup folder (default: backup.dir in fieldkit.local.json)")
+    bk.add_argument("--from", dest="source", help="usb: the folder holding the backups (default: backup.dir)")
+    bk.add_argument("--drive", help="usb: the stick's drive letter (Windows) or mount folder")
+    bk.add_argument("--stick", help="usb: the folder of the stick, named directly")
+    bk.add_argument("--check", action="store_true", help="usb: list the copies on the stick; change nothing")
+    bk.add_argument("--quiet", action="store_true", help="remind: do not say it aloud")
     bk.set_defaults(fn=cmd_backup)
 
     cvp = sub.add_parser("cv", parents=[common], help="check a CV against fixed rules; write CVs from the profile")
@@ -1042,6 +1062,15 @@ def build_parser():
     mv.add_argument("--out", help="also write the report here")
     k.set_defaults(fn=cmd_kernel)
 
+    rp = sub.add_parser("repro", parents=[common],
+                        help="two builds compared byte for byte: REPRODUCED, or which bytes differ (inside archives) and why")
+    rp.add_argument("action", choices=["compare"])
+    rp.add_argument("a", help="the first build: a file or a folder")
+    rp.add_argument("b", help="the second build, made elsewhere")
+    rp.add_argument("--root", nargs=2, metavar=("ROOT_A", "ROOT_B"),
+                    help="the two build folders, so a folder baked into a binary is named as the cause")
+    rp.set_defaults(fn=cmd_repro)
+
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
     th.add_argument("action", choices=["status", "prove", "watch"])
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
@@ -1053,7 +1082,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context",
-                                       "leakgate-proposal", "leakgate-selftest", "herald"])
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro"])
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
     bh.add_argument("--park", help="migration control: do NOT run this record/repair/build-run/decide; park it as a ticket with this reason")
@@ -1062,6 +1091,8 @@ def build_parser():
                                   "netbench: the results folder (default <firefox.root>/bench)")
     bh.add_argument("--prove", action="store_true", help="snapshot: rebuild a pristine copy from the set and compare it with the live tree")
     bh.add_argument("--reopen", action="store_true", help="verify: put every false completion back to pending")
+    bh.add_argument("--run", action="store_true", help="repro: make the second build, then compare (hours)")
+    bh.add_argument("--compare", action="store_true", help="repro: only compare a second build already made")
     bh.add_argument("args", nargs="*")
     bh.add_argument("--fix-locks", action="store_true", help="preflight: remove stale git locks (only when no git process runs)")
     bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
@@ -1120,6 +1151,13 @@ def cmd_build_harness(a):
     except task.Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
+
+
+def cmd_repro(a):
+    from .build import repro
+    r = repro.compare(a.a, a.b, roots=a.root or [])
+    _emit(r, a.json, lambda d: print("\n".join(repro.lines(d))))
+    return 0 if r["identical"] else 3
 
 
 def cmd_thermal(a):

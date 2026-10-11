@@ -66,14 +66,14 @@ def thermal_verdict(csv_path):
     return None
 
 
-def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None):
+def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None):
     """Run `cmd`, append its output to log_path, print a heartbeat, watch the owner's telemetry CSV and kill the
     process tree on a thermal verdict (2026-10-02: a stuck sensor and a flag nobody acted on cooked the laptop).
     -> (rc, lines)."""
     lines, last_beat, started, csv_path, last_check = [], time.time(), time.time(), None, time.time()
     with open(log_path, "a", encoding="utf-8", newline="\n") as lf:
         lf.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} $ {' '.join(cmd)}\n")
-        proc = subprocess.Popen(cmd, cwd=str(cwd), env=_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        proc = subprocess.Popen(cmd, cwd=str(cwd), env={**_env(), **(env or {})}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace", bufsize=1)
         if governor is not None:                         # the thermald: moves the cap, kills this tree on its verdict
             governor.kill = lambda why, p=proc: subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)

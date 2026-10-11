@@ -3,7 +3,8 @@ description: >-
   Build Gorilla OpenCode exactly as its releases are built (go build, CGO off, stamped with
   -X github.com/opencode-ai/opencode/internal/version.Version), for Linux and Windows, after
   verifying every dependency and running vet and the whole test suite. The Windows .exe keeps
-  its committed icon and version resources (rsrc_windows_*.syso). Then SHA256SUMS. Give the
+  its committed icon and version resources (rsrc_windows_*.syso). Each binary is built a second time
+  elsewhere and must be byte for byte identical (repro). Then SHA256SUMS. Give the
   version (--var version=v0.1.146) or let git describe name it. Packages (.deb/.rpm/Arch) are
   made from these binaries by the project's own scripts.
 vars:
@@ -51,6 +52,15 @@ stages:
     run: {python: "fieldkit.build.goapp:stage_build"}
     verify:
       - {python: {target: "fieldkit.build.goapp:verify_build"}}
+    triage: go
+
+  - id: repro
+    # the binary proven, not only the source: built again from a copy in another folder, own cache and temp folder,
+    # another time zone and locale; the bytes must be the build stage's (2026-10-11)
+    timeout: 7200
+    run: {python: "fieldkit.build.goapp:stage_repro"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_repro"}}
     triage: go
 
   - id: checksums
