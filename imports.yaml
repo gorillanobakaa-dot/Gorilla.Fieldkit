@@ -69,6 +69,12 @@ sources:
   what: One-click loudness compressor for quiet laptop speakers (PipeWire/PulseAudio)
   include: ["*.py", "README.md"]
 
+- name: windows-11-tweaks
+  github: gorillanobakaa-dot/windows.11.tweaks.optimisation
+  what: Windows 11 tweaks framework - ten measured, cited, reversible modules (run through fieldkit win11)
+  include: ["modules/**", "README.md", "PHILOSOPHY.md", "VERSION", "LICENSE"]
+  exclude: ["modules/**/backups/**", "Screenshots for github/**"]
+
 - name: black-gorilla-theme
   github: gorillanobakaa-dot/black-gorilla-theme
   what: Pure-black high-contrast GTK3/GTK4 theme with its .deb builder and installer
