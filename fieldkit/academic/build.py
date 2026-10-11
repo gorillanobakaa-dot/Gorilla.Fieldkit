@@ -22,9 +22,11 @@ from . import layout
 from . import profile as prof
 
 
-def _who(student_id=None, module=None):
+def _who(student_id=None, module=None, placeholder=True):
+    """The Student ID and module for the page header. A template keeps "[Module Code]" to fill in; a finished file
+    with no module known carries none (2026-10-11: `check` caught "[Module Code]" left on every built page)."""
     p = prof.load() or {}
-    return student_id or p.get("student_id") or "[Student ID]", module or "[Module Code]"
+    return student_id or p.get("student_id") or "[Student ID]", module or ("[Module Code]" if placeholder else "")
 
 
 def _free(path):
@@ -63,7 +65,7 @@ def build(draft, kind=None, to=None, contents=False, student_id=None, module=Non
         raise FileNotFoundError(f"no such file: {draft}")
     lay = layout.apply()
     folder = _assignment_of(draft)
-    sid, mod = _who(student_id, module or (folder and _module_of(folder)))
+    sid, mod = _who(student_id, module or (folder and _module_of(folder)), placeholder=False)
     if to is None:
         if folder:
             from .workspace import Workspace
@@ -122,7 +124,7 @@ def finish(path, student_id=None, module=None):
         raise FileNotFoundError(f"no such file: {path}")
     lay = layout.apply()
     folder = _assignment_of(path)
-    sid, mod = _who(student_id, module or (folder and _module_of(folder)))
+    sid, mod = _who(student_id, module or (folder and _module_of(folder)), placeholder=False)
     from .office_finalise import finalise, review_marks
     added = []
     marks, authors = 0, set()

@@ -135,7 +135,7 @@ def add_page_furniture(path, student_id, module_code="", force=False,
     header, numbered = page_furniture(path)
     added = []
     if force or not header:
-        _set_header(doc, student_id, module_code or "[Module Code]")
+        _set_header(doc, student_id, module_code)       # no module known: no "[Module Code]" left on a finished page
         added.append("header")
     if force or not numbered:
         _add_page_number_footer(doc)
@@ -166,7 +166,8 @@ def _set_header(doc, student_id, module_code):
     """Anonymous marking: Student ID and module only, never a name."""
     lab = _lay()["labels"]
     hp = doc.sections[0].header.paragraphs[0]
-    hp.text = "%s: %s | %s: %s" % (lab["student_id"], student_id, lab["module"], module_code)
+    hp.text = "%s: %s" % (lab["student_id"], student_id) + (" | %s: %s" % (lab["module"], module_code)
+                                                           if module_code else "")
     hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     for run in hp.runs:
         run.font.name = BODY_FONT

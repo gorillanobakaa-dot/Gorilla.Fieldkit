@@ -12,3 +12,8 @@ styles: [apa7, iso690, harvard-ctr]           # footnote style (humanities) come
 default_style: apa7
 plagiarism_tool: Turnitin / Compilatio
 avoid_long_dashes: false
+grades:                      # voti in trentesimi; 18 e' la sufficienza
+  scale: "0-30"
+  pass: 18
+  higher_is_better: true
+  bands: [[28, "Ottimo"], [25, "Buono"], [22, "Discreto"], [18, "Sufficiente"], [0, "Insufficiente"]]

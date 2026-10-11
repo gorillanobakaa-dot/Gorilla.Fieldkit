@@ -12,3 +12,8 @@ styles: [apa7, iso690]                        # ISO 690 is SR ISO 690 in Romania
 default_style: apa7
 plagiarism_tool: Turnitin / sistemantiplagiat.ro
 avoid_long_dashes: false
+grades:                      # note 1-10; 5 promoveaza
+  scale: "1-10"
+  pass: 5
+  higher_is_better: true
+  bands: [[9, "Foarte bine"], [7, "Bine"], [5, "Suficient"], [1, "Insuficient"]]

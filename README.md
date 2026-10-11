@@ -137,6 +137,9 @@ Guides: [plain language](docs/dual-track/tool-collection/tool-collection_layman.
 | A research run: did it open what it cites, and does each page say what the claim says? | `fieldkit evidence check FINDINGS.md --store` |
 | Which free sources cover sanctions, migration, genomics...? Search scholarly and data APIs without a key | `fieldkit evidence sources find WORDS`, `fieldkit evidence search SOURCE QUERY` |
 | Back up the whole kit into your backup folder, and prove the copy is good | `fieldkit backup` |
+| Copy that backup to a USB stick and prove it there; nothing on the stick is ever deleted or overwritten | `fieldkit backup usb` |
+| A student before submitting: every check in order, one verdict, the first thing to fix | `fieldkit academic check FOLDER DRAFT` |
+| A student with no AI to hand: a numbered menu, in English or Romanian, from a desktop shortcut | `fieldkit academic menu` |
 | Blurry desktop icons: find out why and fix them with one click (Windows, and GTK/KDE on Linux) | `fieldkit icons cache --apply`, `fieldkit icons install-fix-button` |
 
 `deliver` answers `SAFE TO SEND` or `NOT SAFE`, with the reason. Nothing is uploaded.
@@ -459,6 +462,8 @@ example the `fieldkit.exe` in your Python `Scripts` folder.
 | A laptop on a TV by HDMI: is it connected, what is wrong, and connect it now - restarting a stuck GPU driver (TV seen, 0 modes) when that is what it needs, with Windows' own consent prompt | `fieldkit hdmi status`, `fieldkit hdmi fix` |
 | Windows 11, made lighter on any PC: the tweaks framework's ten modules with a preview and an undo each, elevated runs waited for, and `fit` - which service-profile entries (measured on a ThinkPad) would be wrong on this PC | `fieldkit win11` (skill: `fieldkit-win11`) |
 | A dated, verified zip of the harness into the backup folder (never guessed) | `fieldkit backup --to FOLDER` |
+| The newest backup copied to a USB stick and read back (SHA-256, every CRC); a reminder when the last copy is old. Nothing already on the stick is deleted, moved or overwritten; a full stick stops the copy | `fieldkit backup usb`, `fieldkit backup remind` |
+| The academic harness's remaining parts, for any student: the whole pre-submission check with one verdict (`check`), reading the brief (`brief`, `date`), the marks and what markers say (`record`), assignments copied out of OneDrive (`local`), a self-test that builds real files (`preflight`), the numbered menu and its desktop shortcut (`menu`, `shortcut`); guides in [English](docs/academic/GUIDE.md) and [Romanian](docs/academic/GHID.md) | `fieldkit academic check / brief / record / local / preflight / menu` |
 | IconKit: why icons are soft (icon cache vs. the file), cache rebuild with backup, .ico frame reader and crisp gates, recoloured icons from one master | `fieldkit icons --help` (skill: `fieldkit-icons`) |
 | Find secrets, home paths, emails, your private words | `fieldkit privacy scan PATH [--git]` |
 | Name the cause of a failed build | `fieldkit triage LOG` |

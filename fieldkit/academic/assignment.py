@@ -167,6 +167,12 @@ def next_step(folder, today=None):
         part = text.split(WORKFLOW, 1)[1] if WORKFLOW in text else text
         m = re.search(r"^- \[ \] (.+)$", part, flags=re.M)
         step = m.group(1).strip() if m else None
+    last = st.get("last_check") or {}
+    if last.get("failed"):
+        say.append(f"The last check ({last.get('when')}) said NOT READY: fix '{last['failed'][0]}' first "
+                   f"({len(last['failed'])} to fix; the list: {last.get('todo')}).")
+    elif last.get("verdict"):
+        say.append(f"The last check ({last.get('when')}): {last['verdict']}.")
     say.append(f"Next: {step}." if step else "Every step is ticked. Check the file, then upload it.")
     if 0 <= days <= 7:
         for item in p["support"].get("agreed") or []:

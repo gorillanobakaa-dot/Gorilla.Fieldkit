@@ -12,3 +12,8 @@ styles: [apa7, harvard-ctr, iso690]           # ISO 690 is DIN ISO 690; "deutsch
 default_style: apa7
 plagiarism_tool: Turnitin / PlagScan
 avoid_long_dashes: false
+grades:                      # Notenskala 1,0-5,0: kleiner ist besser, 4,0 besteht
+  scale: "1.0-5.0"
+  pass: 4.0
+  higher_is_better: false
+  bands: [[1.5, "sehr gut"], [2.5, "gut"], [3.5, "befriedigend"], [4.0, "ausreichend"], [5.0, "nicht ausreichend"]]

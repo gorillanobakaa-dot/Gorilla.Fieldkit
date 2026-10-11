@@ -668,6 +668,126 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
 
+- id: academic-check
+  title: "Every pre-submission check in order, one verdict and the first fix; the work delivered only when it passes"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, check]
+  path: ${FIELDKIT}/fieldkit/academic/check.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+    - {name: draft, flag: null, type: str, required: true, help: "the draft: .md, .docx or .pptx"}
+    - {name: offline, flag: --offline, type: flag, required: false, help: "skip the online identifier check"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {3: findings}
+  scope: [folder]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, check or draft or word_file or cloud]
+
+- id: academic-brief
+  title: "Read the assignment brief: type, word count, module, learning outcomes, AI rules and hidden AI instructions"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, brief]
+  path: ${FIELDKIT}/fieldkit/academic/read_brief.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "write the proposal (type, words, module, template)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  scope: [folder]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, command_line]
+
+- id: academic-record
+  title: "The student's marks and what markers keep saying (each fault with the marker's own sentence)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, record]
+  path: ${FIELDKIT}/fieldkit/academic/record.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "add, set, link, show or brief", choices: [add, set, link, show, brief]}
+    - {name: what, flag: null, type: str, required: false, help: "add: a feedback file or folder; set: the module; link: a folder of work"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "add/link: write (without it: a proposal)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, feedback or grade or linked]
+
+- id: academic-date
+  title: "The submission date the brief or a deadline note states (a suggestion: setup still asks the dates)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, date]
+  path: ${FIELDKIT}/fieldkit/academic/extract_submission_date.py
+  inputs:
+    - {name: folder, flag: null, type: str, required: true, help: "the assignment folder"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-portfolio
+  title: "A portfolio draft (.md) as a finished Word document in the student's layout"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, portfolio]
+  path: ${FIELDKIT}/fieldkit/academic/build.py
+  inputs:
+    - {name: draft, flag: null, type: str, required: true, help: "the portfolio draft (.md)"}
+    - {name: to, flag: --to, type: str, required: false, help: "the folder for the Word file"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  scope: [to]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic.py"]
+
+- id: academic-menu
+  title: "The numbered menu for a person at the keyboard (English or Romanian); an agent runs the commands instead"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, menu]
+  path: ${FIELDKIT}/fieldkit/academic/menu.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, menu]
+
+- id: academic-shortcut
+  title: "A Fieldkit Academic shortcut on the desktop and in the Start menu that opens the menu (only its own removed)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, shortcut]
+  path: ${FIELDKIT}/fieldkit/academic/shortcut.py
+  inputs:
+    - {name: check, flag: --check, type: flag, required: false, help: "only look"}
+    - {name: remove, flag: --remove, type: flag, required: false, help: "remove the shortcuts this tool made"}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, shortcut]
+
+- id: academic-local
+  title: "Assignments in OneDrive/Dropbox/Google Drive copied onto this computer, proven, the cloud copy renamed (never deleted)"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, local]
+  path: ${FIELDKIT}/fieldkit/academic/local.py
+  inputs:
+    - {name: apply, flag: --apply, type: flag, required: false, help: "copy (without it: only look)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, onedrive]
+
+- id: academic-preflight
+  title: "The academic tools proven by building real files and measuring them: PREFLIGHT OK or which rule broke"
+  harness: academic
+  entry: [python, -m, fieldkit, academic, preflight]
+  path: ${FIELDKIT}/fieldkit/academic/preflight.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_academic_check.py", -k, preflight]
+
 # -- research evidence (fieldkit/evidence, docs/METHODS.md #16) ------------------------------------------------
 - id: evidence-fetch
   title: "Fetch pages as evidence: kept by hash with their words, robots.txt obeyed, private addresses refused"

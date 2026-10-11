@@ -13,3 +13,8 @@ styles: [harvard-ctr, apa7]       # Vancouver (numeric) comes in phase 2
 default_style: harvard-ctr
 plagiarism_tool: Turnitin
 avoid_long_dashes: true      # many UK markers penalise em/en dashes in academic prose
+grades:                      # typical UK undergraduate classification; the university's own scale wins
+  scale: "0-100"
+  pass: 40
+  higher_is_better: true
+  bands: [[70, "First"], [60, "Upper second (2:1)"], [50, "Lower second (2:2)"], [40, "Third"], [0, "Fail"]]
