@@ -20,12 +20,22 @@ pytestmark = pytest.mark.skipif(not TOOL.is_file(), reason="speaker-loudness-fix
 HW = "alsa_output.pci-0000_00_1b.0.analog-stereo"
 
 
+HDMI = "alsa_output.pci-0000_00_03.0.hdmi-stereo"
+
+
 class FakePulse:
+    """pactl simulated; any other program is absent, and running it raises FileNotFoundError exactly as
+    subprocess.run does (a fake that returned 127 hid an uninstall that crashed without systemd)."""
+
     def __init__(self, default_sticks=True):
         self.sinks, self.default, self.modules = [HW], HW, {}
         self.default_sticks = default_sticks
+        self.calls = []
 
     def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        if cmd[0] != "pactl":
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
         out, rc = "", 0
         if cmd[:2] == ["pactl", "info"]:
             out = "Server Name: pulseaudio\n"
@@ -61,6 +71,7 @@ def sl(tmp_path, monkeypatch):
                       ("MIRROR_BIN", ".local/bin/loudness-volume-mirror"),
                       ("MIRROR_UNIT", ".config/systemd/user/loudness-volume-mirror.service")):
         monkeypatch.setattr(mod, name, home / rel)
+    monkeypatch.setattr(mod, "PREVIOUS_SINK", home / ".config/speaker-loudness/previous-default-sink", raising=False)
     (tmp_path / "ladspa").mkdir()
     (tmp_path / "ladspa" / "sc4m_1916.so").write_bytes(b"")
     monkeypatch.setattr(mod, "LADSPA_DIRS", [str(tmp_path / "ladspa")])
@@ -126,3 +137,55 @@ def test_no_audio_server_is_a_clear_refusal(sl, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         main(sl, monkeypatch)
     assert "pactl not found" in capsys.readouterr().out and not sl.home.exists()
+
+
+def test_uninstall_puts_back_the_output_the_person_had(sl, monkeypatch, capsys):
+    """Not the first sound card: the HDMI output (or headphones) that was the default before the install."""
+    sl.pulse.sinks.append(HDMI)
+    sl.pulse.default = HDMI
+    main(sl, monkeypatch)
+    assert sl.pulse.default == "loudness_sink"
+    main(sl, monkeypatch, "--uninstall")
+    assert sl.pulse.default == HDMI and not sl.PREVIOUS_SINK.exists()
+
+
+def test_a_reinstall_does_not_record_the_compressor_as_the_previous_output(sl, monkeypatch):
+    sl.pulse.sinks.append(HDMI)
+    sl.pulse.default = HDMI
+    main(sl, monkeypatch)
+    main(sl, monkeypatch)
+    assert sl.PREVIOUS_SINK.read_text().strip() == HDMI
+
+
+def test_previous_output_gone_falls_back_to_the_speakers(sl, monkeypatch, capsys):
+    sl.pulse.sinks.append(HDMI)
+    sl.pulse.default = HDMI
+    main(sl, monkeypatch)
+    sl.pulse.sinks.remove(HDMI)                      # the TV was unplugged since
+    main(sl, monkeypatch, "--uninstall")
+    assert sl.pulse.default == HW and "is gone" in capsys.readouterr().out
+
+
+def test_uninstall_leaves_the_default_alone_when_the_compressor_is_not_it(sl, monkeypatch):
+    sl.pulse.sinks.append(HDMI)
+    sl.pulse.default = HDMI
+    main(sl, monkeypatch, "--uninstall")
+    assert sl.pulse.default == HDMI
+
+
+def test_uninstall_without_systemd_or_lsattr_finishes_and_asks_sudo_for_nothing(sl, monkeypatch):
+    main(sl, monkeypatch)
+    main(sl, monkeypatch, "--uninstall")               # would raise FileNotFoundError on systemctl before
+    assert marked(sl) == [] and not sl.pulse.modules
+    assert not [c for c in sl.pulse.calls if c[0] in ("sudo", "systemctl")]
+
+
+def test_sudo_never_waits_for_a_password_without_a_terminal(sl, monkeypatch):
+    seen = []
+    monkeypatch.setattr(sl, "run", lambda cmd, **kw: seen.append(cmd) or SimpleNamespace(
+        returncode=1, stdout="", stderr="sudo: a password is required"))
+    monkeypatch.setattr(sl.sys, "stdin", None)
+    monkeypatch.setattr(sl.shutil, "which", lambda n: "/usr/bin/" + n if n == "apt-get" else None)
+    with pytest.raises(SystemExit):
+        sl.install_sc4(assume_yes=True)
+    assert seen[0][:2] == ["sudo", "-n"]

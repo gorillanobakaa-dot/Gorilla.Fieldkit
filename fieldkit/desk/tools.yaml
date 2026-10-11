@@ -940,7 +940,7 @@ tools:
   test: [python, "${FIELDKIT}/toolbox/code-review-toolkit/tests/test_parsers.py"]
 
 - id: speaker-loudness-fix
-  title: "Loudness compressor for quiet laptop speakers (PipeWire/PulseAudio). Needs the SC4 plugin already installed: preview first"
+  title: "Loudness compressor for quiet laptop speakers (PipeWire/PulseAudio); undo puts back the output you had. A missing SC4 plugin stops it with the sudo command to run (never waits on a password)"
   harness: desk
   entry: [python3, "${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py", --yes]
   path: ${FIELDKIT}/toolbox/speaker-loudness-fix/speaker_loudness_setup.py
@@ -1147,6 +1147,7 @@ tools:
     - {name: payload, flag: --payload, type: flag, required: false, help: "also write paste-ready prompt files for a chat window"}
     - {name: no_auto_context, flag: --no-auto-context, type: flag, required: false, help: "leave out git details and nearby status documents"}
     - {name: no_precheck, flag: --no-precheck, type: flag, required: false, help: "skip the rule check (rarely right)"}
+    - {name: no_rules, flag: --no-rules, type: flag, required: false, help: "do not run the project's .dual-track-rules.py (it is Python): for a tree you did not write"}
   effects: [reads-files, writes-files, processes]
   safety: reversible
   output: own
@@ -1187,6 +1188,7 @@ tools:
   inputs:
     - {name: target, flag: null, type: str, required: true, help: "a file or folder to scan"}
     - {name: output_dir, flag: --output-dir, type: str, required: true, help: "where PRECHECK.md and PRECHECK.json go"}
+    - {name: no_rules, flag: --no-rules, type: flag, required: false, help: "do not run the project's .dual-track-rules.py (it is Python): for a tree you did not write"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
@@ -1206,11 +1208,12 @@ tools:
     - {name: format, flag: --format, type: str, required: false, help: "which documents", choices: [both, layman, developer]}
     - {name: narrative, flag: --narrative, type: str, required: false, help: "a text file of notes on why things were done"}
     - {name: payload, flag: --payload, type: flag, required: false, help: "also write paste-ready prompt files for a chat window"}
+    - {name: since, flag: --since, type: str, required: false, help: "the commit, tag or ref the session starts at (default HEAD~10)"}
   effects: [reads-files, writes-files, processes]
   safety: reversible
   output: own
   scope: [output_dir]
-  platforms: [linux]
+  platforms: [windows, linux]
 
 - id: dual-track-session-render
   title: "Turn the filled session specs into Markdown and check them"
