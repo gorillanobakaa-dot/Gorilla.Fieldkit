@@ -30,7 +30,7 @@ def _backup(folder, stamp="2026-10-11_1200", body=b"harness files"):
 
 def _tree(root):
     """{relative path: sha256} of everything under root: what 'untouched' is checked against."""
-    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+    return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(root.rglob("*")) if p.is_file()}
 
 

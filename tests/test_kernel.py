@@ -371,7 +371,7 @@ def _repro_ctx(tmp_path, second=None, release="7.2.9-unleashed.gorilla-x"):
     def run(cmd, env=None, name=None, **kw):
         other = Path(cmd[2])
         if "mrproper" in cmd:
-            seen["copied"] = sorted(str(p.relative_to(other)) for p in other.rglob("*") if p.is_file())
+            seen["copied"] = sorted(p.relative_to(other).as_posix() for p in other.rglob("*") if p.is_file())
             (other / ".config").unlink(missing_ok=True)
             return SimpleNamespace(ok=True, log="log")
         seen["env"], seen["cmd"] = env, cmd
