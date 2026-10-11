@@ -973,78 +973,79 @@ tools:
   platforms: [linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_speaker_loudness.py"]
 
+# HDMI Harness, through fieldkit hdmi (fieldkit/hdmi/run.py says why it needs a launcher)
 - id: hdmi-status
-  title: "Is the TV on the cable and active: the signal, the helper task and the saved profile (Windows)"
+  title: "Is the TV on the cable and active: the signal, the background helper and the confirmed mode (Windows)"
   harness: desk
-  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, status]
-  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/cli.py
+  entry: [python, -m, fieldkit, hdmi, status]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
   repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
   inputs: []
   effects: [reads-files]
   safety: read-only
   output: third-party
   platforms: [windows]
-  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
-
-- id: hdmi-diag
-  title: "Check the laptop and the TV: about 25 checks with evidence and advice, changing nothing (Windows; about a minute)"
-  harness: desk
-  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, diag]
-  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/diag.py
-  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
-  inputs:
-    - {name: area, flag: --area, type: str, required: false, help: "only the laptop checks or only the TV checks", choices: [laptop, tv]}
-  effects: [reads-files, network]
-  safety: read-only
-  output: third-party
-  platforms: [windows]
-  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
-
-- id: hdmi-profile-list
-  title: "Read the TV's EDID: the best HDMI mode for each profile, and every mode with its score (Windows)"
-  harness: desk
-  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, profile, list]
-  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/profile.py
-  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
-  inputs:
-    - {name: name, flag: null, type: str, required: false, help: "profile used to score the full mode list (default balanced)", choices: [balanced, clarity, speed, media, safe]}
-  effects: [reads-files]
-  safety: read-only
-  output: third-party
-  platforms: [windows]
-  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
 
 - id: hdmi-doctor
-  title: "Does this computer have what the HDMI Harness needs? (installs nothing; Windows)"
+  title: "Does this computer have what the HDMI Harness needs (Python, packages, the helper task)? Installs nothing"
   harness: desk
-  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", doctor]
-  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/env.py
+  entry: [python, -m, fieldkit, hdmi, doctor]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
   repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
   inputs: []
   effects: [reads-files]
   safety: read-only
   output: own
   platforms: [windows]
-  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
+
+- id: hdmi-diag
+  title: "Check the laptop and the TV: about 25 checks, each with what it measured and advice, changing nothing (about a minute)"
+  harness: desk
+  entry: [python, -m, fieldkit, hdmi, diag]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs:
+    - {name: area, flag: --area, type: str, required: false, help: "only the laptop or only the TV checks", choices: [laptop, tv]}
+  effects: [reads-files, network]
+  safety: read-only
+  output: third-party
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
+
+- id: hdmi-profile-list
+  title: "The TV's EDID: the best HDMI mode for each profile and every mode with its score (the TV must be active)"
+  harness: desk
+  entry: [python, -m, fieldkit, hdmi, profile-list]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs:
+    - {name: arg, flag: null, type: str, required: false, help: "profile to score the full list with (default balanced)", choices: [balanced, clarity, speed, media, safe]}
+  effects: [reads-files]
+  safety: read-only
+  output: third-party
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
 
 - id: hdmi-tv-info
   title: "Find the Samsung TV on the local network and show its device info (model, power, network)"
   harness: desk
-  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, tv, info]
-  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/tv/samsung.py
+  entry: [python, -m, fieldkit, hdmi, tv-info]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
   repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
   inputs: []
   effects: [network]
   safety: read-only
   output: third-party
   platforms: [windows]
-  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
 
 - id: hdmi-tv-wifi-report
-  title: "What stops a TV joining a Wi-Fi network (hidden, WPA3-only, 6 GHz)"
+  title: "What would stop the TV joining a Wi-Fi network (hidden, WPA3-only, 6 GHz)"
   harness: desk
-  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, tv, wifi-report]
-  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/win/wifi.py
+  entry: [python, -m, fieldkit, hdmi, tv-wifi-report]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
   repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
   inputs:
     - {name: arg, flag: null, type: str, required: false, help: "network name (default: the one the laptop is on)"}
@@ -1052,23 +1053,37 @@ tools:
   safety: read-only
   output: third-party
   platforms: [windows]
-  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
 
 - id: hdmi-fix
-  title: "Connect the TV now: switch the display topology, and restart a stuck GPU driver when elevated (no undo)"
+  title: "Connect the TV now: activate it in the configured topology; if the driver is stuck (TV seen, 0 modes), restart the GPU driver - the repair the harness exists for. Elevated (Windows asks)"
   harness: desk
-  entry: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, fix]
-  path: ${FIELDKIT}/toolbox/hdmi-harness/hdmiharness/fix.py
+  entry: [python, -m, fieldkit, hdmi, fix]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
   repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
   inputs: []
   effects: [hardware, admin, writes-files]
-  safety: irreversible
+  safety: irreversible    # a topology change and a driver restart have no undo: they are the repair
   output: third-party
   modes:
     verify:
-      - {command: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", "${FIELDKIT}/toolbox/hdmi-harness/hdmi.py", --no-elevate, status]}
+      - {command: [python, -m, fieldkit, hdmi, status]}
   platforms: [windows]
-  test: ["${FIELDKIT}/_sources/venv-hdmi/Scripts/python.exe", -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/hdmi-harness/tests"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
+
+- id: hdmi-test-quick
+  title: "Live HDMI checks H01-H08 (read-only), then the TV back in the configured topology; on a stuck driver that is the same repair as fix. Elevated (Windows asks)"
+  harness: desk
+  entry: [python, -m, fieldkit, hdmi, test-quick]
+  path: ${FIELDKIT}/fieldkit/hdmi/run.py
+  repo: gorillanobakaa-dot/Gorilla.HDMI.Harness
+  inputs:
+    - {name: only, flag: --only, type: str, required: false, help: "comma-separated test ids, e.g. H01,H07"}
+  effects: [hardware, admin, writes-files]
+  safety: irreversible
+  output: third-party
+  platforms: [windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
 
 - id: hdmi-tv-wake
   title: "Turn the TV on with a Wake-on-LAN packet"

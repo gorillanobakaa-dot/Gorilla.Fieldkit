@@ -63,7 +63,12 @@ def test_injector_refuses_an_unconfigured_tree(tmp_path):
 
 def test_every_readme_claim_holds_in_the_shipped_source(tmp_path):
     text = (REPO / "audit_readme_claims.py").read_text(encoding="utf-8")
-    text = re.sub(r"^P = pathlib\.Path\(.*\)$", lambda m: "P = pathlib.Path(%r)" % str(REPO), text, count=1, flags=re.M)
+    # The whole assignment line is replaced, whatever follows "Path(": debian-kernel b6642d1 made it
+    # `P = pathlib.Path(__file__).resolve().parent  # comment`, the old pattern stopped matching, and the script
+    # looked for the sources next to the temporary copy: 0/34, every claim "NO FILE".
+    text, n = re.subn(r"^P = pathlib\.Path\(.*$", lambda m: "P = pathlib.Path(%r)" % str(REPO), text,
+                      count=1, flags=re.M)
+    assert n == 1, "audit_readme_claims.py no longer sets P = pathlib.Path(...) on one line: update this test"
     (tmp_path / "audit.py").write_text(text, encoding="utf-8")
     code, out = run(tmp_path / "audit.py")
     m = re.search(r"(\d+)/(\d+) claims verified", out)
