@@ -23,7 +23,7 @@ fieldkit audio                                   Linux sound chain: each stage, 
 fieldkit backup [--to FOLDER]                    a dated, verified zip of the harness (the folder is never guessed)
 fieldkit cv init|import|check|render             a candidate's CV: fixed rules, the questions to ask, UK CVs in EN/RO
 fieldkit academic init|setup|next|accessed|refs|style|language|words|dashes|plagiarism|search|build|template|finish ...   students, 7 countries
-fieldkit evidence fetch|import|check|show ...   research evidence: pages kept by hash, every claim checked against them
+fieldkit evidence fetch|import|check|show|sources|search|render ...   research evidence: sources, searches, pages kept by hash, every claim checked, the report
 fieldkit jobs run|ingest-advert|pack|check-letter|apply|status ...   the job hunt: official APIs only, never submits
 fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...

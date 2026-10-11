@@ -742,3 +742,84 @@ tools:
   output: own
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-sources-find
+  title: "Find research sources in the 985-source registry: by words, category, free access and grade, best first"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, sources, find]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: words, flag: null, type: str, required: false, help: "words in the name, category or note"}
+    - {name: category, flag: --category, type: str, required: false, help: "e.g. sanctions, migration, genomics"}
+    - {name: free, flag: --free, type: flag, required: false, help: "free sources only"}
+    - {name: grade, flag: --grade, type: str, required: false, help: "this grade or better", choices: [A, B, C, D, E, F]}
+    - {name: limit, flag: --limit, type: int, required: false, help: "how many (default 20)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  answer_lines: 30
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-sources-check
+  title: "Check the source registry as data: fields, access classes, grades, addresses"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, sources, check]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: registry, flag: --registry, type: str, required: false, help: "a source-registry.json (default: Fieldkit's copy)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-sources-probe
+  title: "Is each registry source still at its address? Fetches each one (robots.txt obeyed, paced), lists the dead"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, sources, probe]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: category, flag: --category, type: str, required: false, help: "probe one category only"}
+    - {name: limit, flag: --limit, type: int, required: false, help: "at most this many"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-search
+  title: "Search a free scholarly or data API as JSON: OpenAlex, Crossref, Europe PMC, preprints, DOAJ, GDELT, World Bank, HDX, SEC and more"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, search]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: source, flag: null, type: str, required: true, help: "where to search", choices: [list, openalex, crossref, europepmc, preprints, unpaywall, doaj, gutenberg, openlibrary, wikipedia, gdelt, worldbank, hdx, sec, searxng]}
+    - {name: query, flag: null, type: str, required: false, help: "the query (a DOI for unpaywall)"}
+    - {name: limit, flag: --limit, type: int, required: false, help: "how many hits (default 10)"}
+    - {name: run, flag: --run, type: str, required: false, help: "keep the raw answer in the evidence store under this run"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {3: findings}
+  answer_lines: 60
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
+
+- id: evidence-render
+  title: "A checked research run as a report (.md, .docx, .pdf): unsupported claims first, every claim with its sources"
+  harness: research
+  entry: [python, -m, fieldkit, evidence, render]
+  path: ${FIELDKIT}/fieldkit/evidence/cli.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "a record (.jsonl) or findings file (.md)"}
+    - {name: out, flag: --out, type: str, required: true, help: "report.md, report.docx or report.pdf"}
+    - {name: store, flag: --store, type: str, required: false, help: "show when each source was fetched, and its hash"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: third-party
+  scope: [out]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]

@@ -4,6 +4,9 @@
     fieldkit evidence import FINDINGS.md [--out RECORD.jsonl] [--json]
     fieldkit evidence check RECORD.jsonl|FINDINGS.md [--store DIR] [--run RUN] [--fetched FILE] [--json]
     fieldkit evidence show URL [--store DIR] [--json]
+    fieldkit evidence sources find|check|probe ...     the 985-source registry (fieldkit/evidence/sources.py)
+    fieldkit evidence search SOURCE QUERY [--limit N] [--run RUN]   free scholarly/data APIs as JSON (search.py)
+    fieldkit evidence render RECORD|FINDINGS --out report.md|.docx|.pdf [--store]   the checked run as a report
 
 fetch goes online (an MCP client must say network=true). The store is FIELDKIT_EVIDENCE, else the user's data
 folder (~/.local/share/fieldkit/evidence, %LOCALAPPDATA%\\fieldkit\\evidence).
@@ -120,6 +123,90 @@ def _show(a):
     return 0
 
 
+def _sources(a):
+    from . import sources as srcmod
+    try:
+        srcs = srcmod.load(a.registry)
+    except (OSError, ValueError) as e:
+        print(f"REFUSED: cannot read the registry: {e}")
+        return 2
+    if a.what == "check":
+        problems, notes = srcmod.check(srcs)
+        out = {"ok": not problems, "sources": len(srcs), "problems": problems, "notes": notes,
+               "next": "" if not problems else "correct the registry entries named"}
+        emit(out, a.json, lambda d: [f"{d['sources']} sources, {len(d['problems'])} problem(s), "
+                                     f"{len(d['notes'])} note(s)"] + [f"PROBLEM  {p}" for p in d["problems"]]
+             + [f"note     {n}" for n in d["notes"][:40]])
+        return 0 if not problems else 3
+    found = srcmod.find(srcs, a.words, a.category, a.access, True if a.free else None, a.grade,
+                        None if a.what == "probe" and not a.limit else a.limit)
+    if a.what == "find":
+        emit({"ok": True, "count": len(found), "sources": found}, a.json,
+             lambda d: [f"[{s['reliability']} {s['access']}] {s['name']}  {s.get('url') or '(no URL)'}  "
+                        f"- {s.get('category', '')}" for s in d["sources"]] or ["nothing matches"])
+        return 0
+    f = Fetcher(Store(a.store), timeout=a.timeout, min_interval=a.min_interval)
+    rows = srcmod.probe(found, f, a.run or "sources-probe")
+    dead = [r for r in rows if r["ok"] is False]
+    out = {"ok": not dead, "probed": len(rows), "dead": len(dead), "rows": rows,
+           "next": "" if not dead else "a dead address is a registry fix: correct its url or note why it is gone"}
+    emit(out, a.json, lambda d: [f"{d['probed']} probed, {d['dead']} not reachable"]
+         + [f"{'ok  ' if r['ok'] else ('--  ' if r['ok'] is None else 'DEAD')}  {r['name']}  {r['why']}"
+            for r in d["rows"] if not r["ok"]])
+    return 0 if not dead else 3
+
+
+def _search(a):
+    from . import search as searchmod
+    if a.source == "list":
+        emit({"ok": True, "sources": {k: v[2] for k, v in searchmod.BACKENDS.items()}}, a.json,
+             lambda d: [f"{k:12} {v}" for k, v in d["sources"].items()])
+        return 0
+    if not a.query:
+        print("REFUSED: a query is needed: fieldkit evidence search SOURCE QUERY")
+        return 2
+    f = Fetcher(Store(a.store), timeout=a.timeout, min_interval=a.min_interval, respect_robots=False)
+    try:
+        r = searchmod.search(a.source, " ".join(a.query), a.limit, fetcher=f, run=a.run or None)
+    except ValueError as e:
+        print(f"REFUSED: {e}")
+        return 2
+    except (Refused, RuntimeError, OSError, http.client.HTTPException) as e:
+        emit({"ok": False, "source": a.source, "error": str(e)[:300],
+              "next": "nothing was searched: that is not evidence that nothing exists"}, a.json,
+             lambda d: [f"{d['source']}: {d['error']}"])
+        return 3
+    r["ok"] = True
+
+    def lines(d):
+        yield f"{d['count']} hit(s) from {d['source']} for {d['query']!r} ({d['searched_at']})"
+        for i, h in enumerate(d["hits"], 1):
+            meta = " · ".join(x for x in (h["date"] or h["year"], h["venue"]) if x)
+            yield f"{i:2}. {h['title']}" + (f"  [{meta}]" if meta else "")
+            if h["authors"]:
+                yield f"    {h['authors']}"
+            yield f"    {h['url'] or '(no url)'}" + (f"  free: {h['free_pdf']}" if h["free_pdf"] and
+                                                     h["free_pdf"] != h["url"] else "")
+    emit(r, a.json, lines)
+    return 0
+
+
+def _render(a):
+    from . import render as rendermod
+    recs = recmod.load(a.file)
+    store = Store(a.store) if a.store is not None else None
+    try:
+        r = rendermod.render(recs, a.out, store=store, run=a.run, fetched=a.fetched)
+    except ValueError as e:
+        print(f"REFUSED: {e}")
+        return 2
+    c = r["counts"]
+    out = {"ok": True, "out": a.out, "claims": c["claims"], "findings": c["findings"],
+           "next": f"fieldkit office check {a.out}" if not a.out.endswith(".md") else ""}
+    emit(out, a.json, lambda d: [f"{d['claims']} claim(s), {d['findings']} finding(s) -> {d['out']}"])
+    return 0
+
+
 def main(argv=None, prog="fieldkit evidence"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="action", required=True)
@@ -149,15 +236,46 @@ def main(argv=None, prog="fieldkit evidence"):
     s.add_argument("url")
     s.add_argument("--store")
     s.add_argument("--json", action="store_true")
+    so = sub.add_parser("sources", help="the source registry: find, check, probe")
+    so.add_argument("what", choices=["find", "check", "probe"])
+    so.add_argument("words", nargs="*", help="find: words in the name, category or note")
+    so.add_argument("--category")
+    so.add_argument("--access", nargs="+", help="access classes, e.g. api_keyless fetch_pattern")
+    so.add_argument("--free", action="store_true", help="free sources only")
+    so.add_argument("--grade", choices=list("ABCDEF"), help="this grade or better")
+    so.add_argument("--limit", type=int, default=20)
+    so.add_argument("--registry", help="a source-registry.json (default: FIELDKIT_SOURCES, else Fieldkit's copy)")
+    so.add_argument("--store", help="probe: the evidence store")
+    so.add_argument("--run", default="", help="probe: the run label in the store")
+    so.add_argument("--timeout", type=float, default=20)
+    so.add_argument("--min-interval", type=float, default=1.0)
+    so.add_argument("--json", action="store_true")
+    se = sub.add_parser("search", help="search a free scholarly or data API (goes online); 'list' names them")
+    se.add_argument("source")
+    se.add_argument("query", nargs="*")
+    se.add_argument("--limit", type=int, default=10)
+    se.add_argument("--run", default="", help="keep the raw answer in the evidence store under this run")
+    se.add_argument("--store")
+    se.add_argument("--timeout", type=float, default=30)
+    se.add_argument("--min-interval", type=float, default=1.0)
+    se.add_argument("--json", action="store_true")
+    re_ = sub.add_parser("render", help="the checked run as a report (.md, .docx, .pdf)")
+    re_.add_argument("file")
+    re_.add_argument("--out", required=True)
+    re_.add_argument("--store", nargs="?", const="", default=None)
+    re_.add_argument("--run", default=None)
+    re_.add_argument("--fetched")
+    re_.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if getattr(a, "store", None) == "":
-        a.store = None if a.action != "check" else ""
-    if a.action == "check" and a.store == "":
+        a.store = None if a.action not in ("check", "render") else ""
+    if a.action in ("check", "render") and a.store == "":
         a.store = str(Store().root)
-    if a.action in ("import", "check") and not Path(a.file).is_file():
+    if a.action in ("import", "check", "render") and not Path(a.file).is_file():
         print(f"REFUSED: no such file: {a.file}")
         return 2
-    return {"fetch": _fetch, "import": _import, "check": _check, "show": _show}[a.action](a)
+    return {"fetch": _fetch, "import": _import, "check": _check, "show": _show, "sources": _sources,
+            "search": _search, "render": _render}[a.action](a)
 
 
 if __name__ == "__main__":

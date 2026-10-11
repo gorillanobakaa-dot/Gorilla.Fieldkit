@@ -135,6 +135,7 @@ Guides: [plain language](docs/dual-track/tool-collection/tool-collection_layman.
 | Find UK jobs on official job sites, score them, and prepare each application (you press Submit) | `fieldkit jobs run` |
 | A student: when is it due, is every source cited and listed, is it all in the right language, what do I do next | `fieldkit academic next FOLDER` |
 | A research run: did it open what it cites, and does each page say what the claim says? | `fieldkit evidence check FINDINGS.md --store` |
+| Which free sources cover sanctions, migration, genomics...? Search scholarly and data APIs without a key | `fieldkit evidence sources find WORDS`, `fieldkit evidence search SOURCE QUERY` |
 | Back up the whole kit into your backup folder, and prove the copy is good | `fieldkit backup` |
 | Blurry desktop icons: find out why and fix them with one click (Windows, and GTK/KDE on Linux) | `fieldkit icons cache --apply`, `fieldkit icons install-fix-button` |
 

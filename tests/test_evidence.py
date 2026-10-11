@@ -24,7 +24,7 @@ class Site:
         class H(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 site.hits.append((self.path, self.headers.get("User-Agent")))
-                page = site.pages.get(self.path, (404, {}, b""))
+                page = site.pages.get(self.path, site.pages.get(self.path.split("?")[0], (404, {}, b"")))
                 if isinstance(page, list):
                     page = page.pop(0) if len(page) > 1 else page[0]
                 status, headers, body = page
@@ -360,3 +360,160 @@ def test_each_claim_is_held_to_what_its_own_lane_fetched():
             {"type": "fetched", "lane": "B", "url": "https://publisher.org/doi/10.1/Z"}]
     got = rules(record.check(recs))
     assert got == [("B claim 1", "cited-not-opened")], got        # A opened it; B only cited it
+
+
+# -- sources ---------------------------------------------------------------------------------------------------
+from fieldkit.evidence import search as searchmod, sources as srcmod
+
+REG = [
+    {"name": "Alpha API", "access": "api_keyless", "category": "sanctions", "free": True, "reliability": "B",
+     "url": "https://alpha.org", "note": "keyless"},
+    {"name": "Beta Pages", "access": "fetch_pattern", "category": "sanctions", "free": True, "reliability": "A",
+     "url": "https://beta.org", "note": "pages"},
+    {"name": "Gamma Paid", "access": "paid_only", "category": "sanctions", "free": False, "reliability": "A",
+     "note": "no url, paid"},
+    {"name": "Delta", "access": "api_keyless", "category": "news", "free": True, "reliability": "C",
+     "url": "https://delta.org"},
+]
+
+
+def test_the_bundled_registry_is_valid_data():
+    srcs = srcmod.load()
+    problems, notes = srcmod.check(srcs)
+    assert len(srcs) > 900 and problems == []
+
+
+def test_registry_rules():
+    bad = REG + [{"name": "alpha api", "access": "teleport", "category": "", "free": "yes", "reliability": "Z",
+                  "url": "ftp://x"}]
+    problems, notes = srcmod.check(bad)
+    text = " ".join(problems)
+    for want in ("used twice", "not one of the known classes", "not A-F", "free is not", "no category", "not http"):
+        assert want in text, want
+    assert any("no URL" in n for n in notes)
+
+
+def test_find_ranks_by_grade_then_reach_and_filters():
+    names = [s["name"] for s in srcmod.find(REG, ["sanctions"])]
+    assert names == ["Beta Pages", "Gamma Paid", "Alpha API"]          # A before B; keyless before pages before paid
+    assert [s["name"] for s in srcmod.find(REG, ["sanctions"], free=True)] == ["Beta Pages", "Alpha API"]
+    assert [s["name"] for s in srcmod.find(REG, [], grade="B", access=["api_keyless"])] == ["Alpha API"]
+    assert srcmod.find(REG, ["nothing-like-this"]) == []
+
+
+def test_probe_reports_dead_addresses(site, tmp_path):
+    site.pages["/gone"] = (404, {}, b"")
+    srcs = [{"name": "Up", "url": site.url + "/a"}, {"name": "Gone", "url": site.url + "/gone"},
+            {"name": "Nowhere", "url": None}]
+    rows = {r["name"]: r for r in srcmod.probe(srcs, fetcher(tmp_path), run="p")}
+    assert rows["Up"]["ok"] is True and rows["Gone"]["ok"] is False and "404" in rows["Gone"]["why"]
+    assert rows["Nowhere"]["ok"] is False
+
+
+# -- search ----------------------------------------------------------------------------------------------------
+def canned(body, status=200):
+    seen = []
+
+    def get(url, private_ok, run):
+        seen.append((url, private_ok))
+        return status, json.dumps(body).encode(), ""
+    return get, seen
+
+
+def test_world_bank_keeps_the_apis_order_and_dates():
+    body = {"documents": {"D9": {"display_title": "first", "docdt": "2023-06-30T04:00:00Z", "pdfurl": "https://x/1.pdf"},
+                          "facets": {}, "D1": {"display_title": "second"}, "D5": {"display_title": "third"}}}
+    get, _ = canned(body)
+    r = searchmod.search("worldbank", "kenya", 2, get=get)
+    assert [h["title"] for h in r["hits"]] == ["first", "second"]
+    assert r["hits"][0]["date"] == "2023-06-30" and r["hits"][0]["year"] == "2023" and r["hits"][0]["free_pdf"]
+
+
+def test_scholarly_backends_read_full_dates_and_authors():
+    get, _ = canned({"message": {"items": [{"title": ["T"], "DOI": "10.1/AbC", "URL": "https://doi.org/10.1/abc",
+                                            "issued": {"date-parts": [[2021, 3, 9]]}, "abstract": "<jats:p>An <i>x</i></jats:p>",
+                                            "author": [{"given": "A", "family": f"F{i}"} for i in range(6)]}]}})
+    h = searchmod.search("crossref", "q", 5, get=get)["hits"][0]
+    assert h["date"] == "2021-03-09" and h["doi"] == "10.1/abc" and h["abstract"] == "An x"
+    assert h["authors"].endswith("et al.") and h["authors"].count(",") == 4
+    get, _ = canned({"results": [{"title": "W", "publication_date": "2019-11-02", "publication_year": 2019,
+                                  "abstract_inverted_index": {"world": [1], "hello": [0]},
+                                  "best_oa_location": {"pdf_url": "https://x/w.pdf"}}]})
+    h = searchmod.search("openalex", "q", 5, get=get)["hits"][0]
+    assert h["abstract"] == "hello world" and h["date"] == "2019-11-02" and h["free_pdf"] == "https://x/w.pdf"
+    get, seen = canned({"resultList": {"result": [{"title": "P", "doi": "10.2/x", "publisher": "bioRxiv"}]}})
+    h = searchmod.search("preprints", "q", 5, get=get)["hits"][0]
+    assert h["peer_reviewed"] is False and "preprint" in h["venue"] and "SRC%3APPR" in seen[0][0]
+
+
+def test_sec_and_unpaywall_need_a_contact(monkeypatch):
+    monkeypatch.delenv("FIELDKIT_CONTACT_EMAIL", raising=False)
+    get, seen = canned({})
+    for src, q in (("sec", "battery"), ("unpaywall", "10.1038/nature12373")):
+        with pytest.raises(ValueError, match="FIELDKIT_CONTACT_EMAIL"):
+            searchmod.search(src, q, 1, get=get)
+    assert seen == []                                              # nothing went out without it
+    monkeypatch.setenv("FIELDKIT_CONTACT_EMAIL", "me@example.org")
+    get, seen = canned({"hits": {"hits": [{"_id": "0001628280-24-000123:tsla-10k.htm", "_source": {
+        "display_names": ["Tesla Inc"], "file_date": "2024-01-30", "file_type": "10-K", "ciks": ["0001318605"]}}]}})
+    h = searchmod.search("sec", "battery", 1, get=get)["hits"][0]
+    assert h["url"] == "https://www.sec.gov/Archives/edgar/data/1318605/000162828024000123/tsla-10k.htm"
+    assert h["date"] == "2024-01-30"
+    with pytest.raises(ValueError, match="needs a DOI"):
+        searchmod.search("unpaywall", "not a doi", 1, get=get)
+
+
+def test_wikipedia_links_are_valid_urls():
+    get, _ = canned({"query": {"search": [{"title": "C++ (programming language)", "snippet": "<b>x</b>"}]}})
+    h = searchmod.search("wikipedia", "q", 1, get=get)["hits"][0]
+    assert h["url"] == "https://en.wikipedia.org/wiki/C%2B%2B_(programming_language)" and h["abstract"] == "x"
+
+
+def test_searxng_end_to_end_through_the_guarded_connection(site, tmp_path, monkeypatch):
+    site.pages["/search"] = (200, {"Content-Type": "application/json"}, json.dumps(
+        {"results": [{"title": "R", "url": "https://r.org", "content": "c", "engines": ["ddg"]}]}).encode())
+    monkeypatch.setenv("FIELDKIT_SEARXNG", site.url)
+    f = fetcher(tmp_path, allow_private=False)
+    r = searchmod.search("searxng", "q", 5, fetcher=f, run="r1")
+    assert r["hits"][0]["title"] == "R" and r["raw_sha256"]
+    assert f.store.snapshots()[-1]["kind"] == "search"            # the raw answer is on record
+    assert f.allow_private is False                                # the exemption did not outlive the call
+    with pytest.raises(fetchmod.Refused):                          # the same address, for any other caller: refused
+        fetchmod._one(site.url + "/search", "ua", 5, False, 100)
+
+
+# -- render ----------------------------------------------------------------------------------------------------
+from fieldkit.evidence import render as rendermod
+
+
+def test_the_report_puts_unsupported_claims_first_and_rewords_nothing(tmp_path):
+    recs = record.import_text(FINDINGS.format(u="https://ex.org"))
+    out = tmp_path / "r.md"
+    rendermod.render(recs, out)
+    md = out.read_text(encoding="utf-8")
+    assert md.index("## Unsupported claims") < md.index("## LOCAL")
+    assert "| LOCAL | 2 | Y holds | claim-tier:" in md
+    assert "| 1 | X holds | primary_source | https://ex.org/a | holds |" in md
+    assert "This lane produced nothing" in md                            # the uncovered lane is said, not hidden
+    assert "one source, not 2 confirmations" in md
+
+
+def test_the_report_names_what_was_read(site, tmp_path):
+    f = fetcher(tmp_path)
+    rec = f.fetch(site.url + "/a", run="r1")
+    recs = record.import_text(FINDINGS.format(u=site.url))
+    out = tmp_path / "r.md"
+    rendermod.render(recs, out, store=f.store, run="r1")
+    md = out.read_text(encoding="utf-8")
+    assert f"| {site.url}/a | {rec['fetched_at']} | 200 | {rec['sha256'][:16]} |" in md
+    assert f"| {site.url}/b | not fetched |" in md
+
+
+def test_the_report_as_word(tmp_path):
+    out = tmp_path / "r.docx"
+    rendermod.render(record.import_text(FINDINGS.format(u="https://ex.org")), out)
+    import docx
+    d = docx.Document(str(out))
+    assert d.paragraphs[0].text.startswith("Evidence report: is X true?") and len(d.tables) >= 2
+    with pytest.raises(ValueError, match=r"\.md, \.docx or \.pdf"):
+        rendermod.render([], tmp_path / "r.xlsx")
