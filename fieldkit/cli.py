@@ -34,6 +34,8 @@
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
     fieldkit repro compare A B [--root RA RB]     two builds byte for byte: REPRODUCED, or what differs and why (exit 3)
     fieldkit laptop cpu|alerts|sound|volume|video|wallpaper|rules ...   a laptop's everyday repairs (fieldkit/laptop)
+    fieldkit voice doctor|install|say|clean ...          a voice worth listening to, on Linux (fieldkit/voice)
+    fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
     fieldkit snapshot take NAME [--path DIR...] [--services --tasks --programs --processes]
     fieldkit snapshot diff BEFORE AFTER          exit 3 when something changed
     fieldkit lifecycle SPEC.yaml --approve       install, verify, uninstall; report leftovers (exit 3)
@@ -1152,6 +1154,22 @@ def build_parser():
     lp.add_argument("--antigravity", action="store_true", help="alerts install: the watcher, started at login")
     lp.set_defaults(fn=cmd_laptop)
 
+    vp = sub.add_parser("voice", parents=[common], help="a voice worth listening to, on Linux: doctor, install, "
+                                                        "say, clean (fieldkit/voice). Windows is untouched.")
+    vp.add_argument("action", choices=["doctor", "install", "say", "clean"])
+    vp.add_argument("args", nargs="*", help="say: the sentence to speak")
+    vp.add_argument("--apply", action="store_true", help="install, clean: do it (without: the plan)")
+    vp.set_defaults(fn=cmd_voice)
+
+    wd = sub.add_parser("watchdog", parents=[common], help="keep this laptop online, or say so out loud: "
+                                                           "status, run, test, pause, install (fieldkit/watchdog)")
+    wd.add_argument("action", choices=["status", "run", "test", "pause", "install", "uninstall"])
+    wd.add_argument("args", nargs="*", help="pause: how many minutes")
+    wd.add_argument("--apply", action="store_true", help="install: do it (without: the plan)")
+    wd.add_argument("--alarm-after", type=int, default=90, help="offline seconds before the alarm (90)")
+    wd.add_argument("--reconnect-after", type=int, default=20, help="offline seconds before rejoining (20)")
+    wd.set_defaults(fn=cmd_watchdog)
+
     rp = sub.add_parser("repro", parents=[common],
                         help="two builds compared byte for byte: REPRODUCED, or which bytes differ (inside archives) and why")
     rp.add_argument("action", choices=["compare"])
@@ -1243,6 +1261,61 @@ def cmd_build_harness(a):
     except task.Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
+
+
+def cmd_watchdog(a):
+    from . import watchdog
+    from .watchdog import install as wdinstall
+    if a.action == "status":
+        st = watchdog.status()
+        _emit(st, a.json, lambda d: print("\n".join(
+            [f"online: {d['online']}", f"network: {d['ssid'] or 'unknown'}", f"alarms paused: {d['paused']}",
+             f"log: {d['log']}"] + ([f"MISSING: {', '.join(d['missing_tools'])}"] if d["missing_tools"] else []))))
+        return 0 if st["ok"] else 3
+    if a.action == "test":
+        r = watchdog.speak(watchdog.TEST)
+        _emit({"result": r}, a.json, lambda d: print(d["result"]))
+        return 0 if r == "spoken" else 3
+    if a.action == "pause":
+        if not a.args:
+            raise SystemExit("fieldkit watchdog pause MINUTES")
+        _emit(watchdog.set_pause(float(a.args[0])), a.json,
+              lambda d: print(f"alarms paused for {d['paused_minutes']} minutes"))
+        return 0
+    if a.action == "run":
+        watchdog.loop(alarm_after=a.alarm_after, reconnect_after=a.reconnect_after)
+        return 0
+    if a.action == "install":
+        r = wdinstall.apply() if a.apply else wdinstall.plan()
+        _emit(r, a.json, lambda d: print(json.dumps(d, indent=1, default=str)))
+        return 0 if r.get("status") in ("running", "plan", "not-this-platform") else 3
+    if a.action == "uninstall":
+        _emit(wdinstall.uninstall(), a.json, lambda d: print(json.dumps(d, indent=1, default=str)))
+        return 0
+    raise SystemExit("fieldkit watchdog status|run|test|pause|install|uninstall")
+
+
+def cmd_voice(a):
+    from . import voice
+    if a.action == "doctor":
+        d = voice.doctor()
+        _emit(d, a.json, lambda x: print("\n".join(voice.lines(x))))
+        return voice.exit_code(d)
+    if a.action == "say":
+        if not a.args:
+            raise SystemExit('fieldkit voice say "the sentence to speak"')
+        r = voice.speak(" ".join(a.args))
+        _emit({"result": r}, a.json, lambda x: print(x["result"]))
+        return 0 if r in ("spoken", "not-this-platform") else 3
+    if a.action == "install":
+        r = voice.apply() if a.apply else voice.plan()
+        _emit(r, a.json, lambda x: print(json.dumps(x, indent=1, default=str)))
+        return 0 if r.get("status") in ("ready", "plan", "not-this-platform") else 3
+    if a.action == "clean":
+        r = voice.clean(apply_it=a.apply)
+        _emit(r, a.json, lambda x: print(json.dumps(x, indent=1, default=str)))
+        return 0 if r.get("status") != "refused" else 3
+    raise SystemExit("fieldkit voice doctor|install|say|clean")
 
 
 def cmd_laptop(a):

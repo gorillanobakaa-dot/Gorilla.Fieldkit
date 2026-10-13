@@ -35,7 +35,19 @@ def voice(platform=None, which=shutil.which):
         return ["powershell", "-NoProfile", "-NonInteractive", "-Command",
                 "Add-Type -AssemblyName System.Speech; "
                 "(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak($env:FIELDKIT_SAY)"]
-    for exe in ("espeak-ng", "espeak", "spd-say"):
+    # GORILLA (2026-10-13): spd-say FIRST, not last.
+    #
+    # This list used to read ("espeak-ng", "espeak", "spd-say"), so on any Linux
+    # machine with espeak installed, which is almost all of them, Fieldkit spoke
+    # through espeak directly and silently ignored whatever voice the system was
+    # configured to use. The owner heard it as two different voices in one
+    # session: the desktop speaking with its configured neural voice, and
+    # Fieldkit answering in the 1990s one.
+    #
+    # spd-say means "use this machine's configured voice", so it belongs at the
+    # top. A tool should not override the user's system-wide choice. espeak
+    # stays as the last resort for a machine with no speech-dispatcher at all.
+    for exe in ("spd-say", "espeak-ng", "espeak"):
         p = which(exe)
         if p:
             return [p, "--wait"] if exe == "spd-say" else [p]
