@@ -50,6 +50,19 @@ If you want a better estimate you can teach it your own building. Stand at two k
 strength, and give it the pairs; it works out how much your particular walls absorb. It refuses to do this from a
 single measurement, because one reading cannot separate "far away" from "thick wall".
 
+## Showing somebody your results without naming your neighbours
+
+If you want to put a scan in a forum post, send it to whoever looks after your network, or just show it to a
+friend, `--anonymise` replaces every network name with "neighbour 1", "neighbour 2" and so on, and cuts the unique
+half off every hardware address. Your own network is labelled as yours, because half the report is about which one
+that is.
+
+Nothing else changes. Every signal strength, channel and score is exactly what was measured, so the picture is
+still evidence rather than a mock-up. Your neighbours' names are already going out over the air to anyone within
+range, which is not the same as being on a web page for ever.
+
+Without the flag you see the real names, which is what makes the tool useful at home in the first place.
+
 ## How many devices are on your network
 
 `fieldkit wifi devices` lists what is on your own home network, with the manufacturer where it can tell, and flags

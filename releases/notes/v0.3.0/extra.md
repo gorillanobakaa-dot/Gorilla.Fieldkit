@@ -1,24 +1,50 @@
-# What it actually prints
+# What it actually looks like
 
-Real output from this release, on the machine it was built on. One thing has been removed: every scan here also
-listed the neighbours' network names, and those belong to real people, so they are not reproduced on a public page.
-The tool shows them to you, on your screen, and stores and uploads nothing.
+Real runs on the machine this was built on, at full size. Click any picture for the original.
+
+The network names are replaced, and so is the unique half of every hardware address. Those belong to the
+neighbours, and a name broadcast down one street is not the same thing as a name indexed by a search engine for
+ever. The tool does this itself, with `--anonymise`, and **it changes no measurement**: signal, channel, width and
+the scores are exactly as measured. One test asserts the scores come out identical either way, another asserts that
+no real name survives into a sanitised report. On your own machine, without the flag, you see the real names, which
+is the whole point of it at home.
+
+## The survey, as it prints
+
+[![The sanitised channel survey: it recommends channel 11, says the user is already on 13 and that the two are level tonight so there is no reason to move, then a bar chart of how busy each channel is, who would be competing on each, and the warnings about channels 12 and 13 being illegal in the United States](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-channels-terminal.png)](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-channels-terminal.png)
+
+It recommends channel 11 and then argues against acting on it, because tonight channel 13 scores the same. That is
+the honest answer, and most tools will not give it.
+
+## The arithmetic, so you can check it
+
+[![The score breakdown for channel 11: three networks listed by label with the cost each contributed, 34, 24 and 19, totalling 77, and a note that the number has no units and means something only against the other channels in the same scan](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-score-arithmetic.png)](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-score-arithmetic.png)
+
+Every number in the main table comes apart like this. The total at the bottom is the number in the table.
+
+## The window, for anyone who would rather click
+
+[![The wifi channel survey window at 1000 by 680 pixels: a band selector, an exclude-channels box, a profile selector and a Scan button across the top, tabs for Channels, Networks, Why, Overlap check, This radio and Decode a rate, and the full channel table with scores and overlap warnings](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-channels-gui.png)](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-channels-gui.png)
+
+The window and the terminal call the same functions. Neither is a reduced version of the other.
 
 ## A connection speed, decoded
 
-`fieldkit wifi rate --mbps 2401`
+[![2401 Mbit/s decoded as Wi-Fi 6, 160 MHz wide, 2 spatial streams, on 5 or 6 GHz, with the notes that two working streams mean two antenna chains are connected and that this is a negotiated capability and not a throughput](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-rate-decoded.png)](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/wifi-rate-decoded.png)
 
-```
-2401 Mbit/s is Wi-Fi 6 (802.11ax), 160 MHz wide, 2 spatial stream(s), on 5 or 6 GHz
+## An aerial specification, and the cable that would have ruined it
 
-  2 spatial streams are working, so 2 antenna chains on that radio are connected and functioning. A dead chain would have halved this.
+[![The antenna specification for bands B3, B3, B7, n78 and n78: must cover 1805 to 3800 MHz, buy two not one, mount them cross-polarised, and a refusal of the supplied thin cable because 10 dB of loss over five metres exceeds the gain of almost any affordable aerial](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/net-antenna-spec.png)](https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/v0.3.0/docs/screenshots/gallery/net-antenna-spec.png)
 
-  160 MHz channels do not exist on 2.4 GHz, so this link is definitely on 5 or 6 GHz.
+The refusal in the middle is the point of the tool. Nobody selling aerials mentions the cable.
 
-  This is the NEGOTIATED CAPABILITY, not throughput. Real data moved is typically 40-60% of it, and less with distance or interference. Never quote it as a speed.
-```
+---
 
-## What a channel overlaps, and why partial overlap is the worse case
+# The same runs, as text
+
+So they can be read by a screen reader, searched, and pasted into a question somewhere. Sanitised the same way.
+
+## What a channel overlaps, and why a partial overlap is the worse case
 
 `fieldkit wifi channels --check 9`
 
@@ -31,12 +57,18 @@ HEADS UP: channel 9 overlaps channels 8, 10, 7, 11, 6, 12.
   radios queue for each other. PARTLY overlapping, they talk over each
   other and both retransmit. That is why 1, 6 and 11 exist.
 
+  Who is actually sitting on those overlapping channels right now:
+    ch 6    74%  unknown              neighbour 1
+    ch 6    42%  unknown              neighbour 2
+    ch 6    19%  unknown              neighbour 10
+    ch 11   39%  unknown              neighbour 3
+    ch 11   32%  unknown              neighbour 6
+    ch 11   14%  unknown              neighbour 11
 ```
 
-Below this point the real run names every network sitting on those channels, with its signal strength and what kind
-of device it appears to be. Removed here, for the reason given above.
+The second half is the part anybody can act on: who is actually sitting on those channels right now, and how loud.
 
-## An aerial specification, and the cable that would have ruined it
+## An aerial specification
 
 `fieldkit net antenna --bands B3+B3+B7+n78+n78 --cable-m 5`
 
@@ -70,6 +102,19 @@ CABLE (5.0 m of RG174 (thin, supplied with most kits)): REFUSE THIS CABLE. 10.0 
 bands: measured from the hub. Wall and cable loss figures: model inference, order-of-magnitude, for explaining the trade-off.
 ```
 
-The refusal in the middle is the point of the tool. Five metres of the thin coax that comes in the box costs about
-10 dB, which is more than an affordable aerial will give back, so the purchase nets out negative. Nobody selling
-aerials mentions that.
+Five metres of the thin coax that comes in the box costs about 10 dB, which is more than an affordable aerial will
+give back, so the purchase nets out negative.
+
+## A connection speed, decoded
+
+`fieldkit wifi rate --mbps 2401`
+
+```
+2401 Mbit/s is Wi-Fi 6 (802.11ax), 160 MHz wide, 2 spatial stream(s), on 5 or 6 GHz
+
+  2 spatial streams are working, so 2 antenna chains on that radio are connected and functioning. A dead chain would have halved this.
+
+  160 MHz channels do not exist on 2.4 GHz, so this link is definitely on 5 or 6 GHz.
+
+  This is the NEGOTIATED CAPABILITY, not throughput. Real data moved is typically 40-60% of it, and less with distance or interference. Never quote it as a speed.
+```

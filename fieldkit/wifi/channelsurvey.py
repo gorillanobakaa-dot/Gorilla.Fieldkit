@@ -33,13 +33,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import textwrap
 import platform
 import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 
 VERSION = "1.0.0"
 
@@ -389,7 +390,65 @@ def scan():
         return [], ("no networks returned. Either the wifi radio is off, this machine has no "
                     "wifi, or the scan needs permission (macOS requires Location Services for "
                     "wifi scanning; Linux may need the radio enabled with `nmcli radio wifi on`)")
+    if anonymising():
+        nets, _ = anonymise(nets, mine={_associated_ssid()})
     return nets, None
+
+
+# --------------------------------------------------------------------------
+# Sanitised output: every number real, other people's names gone
+# --------------------------------------------------------------------------
+# A scan is worth showing somebody: a forum thread, a screenshot, a release
+# page. It is also a list of the neighbours' network names and the hardware
+# addresses of their routers, and neither is yours to publish. They are already
+# broadcast to anyone in range, which is not the same as being indexed by a
+# search engine for ever.
+#
+# So this replaces the NAMES and the unique half of each address, and nothing
+# else. Signal, channel, width, security: exactly as measured. A sanitised
+# screenshot is therefore still evidence, which a mocked-up one would not be.
+#
+# Labels are assigned loudest first and reused for the rest of the run, so the
+# channel table, the score breakdown and the overlap warning still agree about
+# which neighbour is which.
+ANONYMISE_ENV = "FIELDKIT_WIFI_ANONYMISE"
+YOUR_NETWORK = "your network"
+_ANON = {}
+
+
+def anonymising():
+    """Is sanitised output switched on (FIELDKIT_WIFI_ANONYMISE)?"""
+    return os.environ.get(ANONYMISE_ENV, "").strip().lower() not in ("", "0", "false", "no")
+
+
+def _blur_bssid(bssid):
+    """Keep the manufacturer prefix, drop the part that identifies one device."""
+    parts = (bssid or "").split(":")
+    if len(parts) != 6:
+        return ""
+    return ":".join(parts[:3] + ["xx", "xx", "xx"])
+
+
+def anonymise(nets, mine=()):
+    """-> (networks, {real name: label}). Measurements are not touched.
+
+    Your own access point keeps a label that says so, because the whole point of
+    several of these reports is which one is yours.
+    """
+    mine = {m for m in (mine or ()) if m}
+    _ANON.clear()
+    n = 0
+    for net in sorted(nets, key=lambda x: (-x.signal, x.ssid or "")):
+        if net.hidden or net.ssid in _ANON:
+            continue
+        if net.ssid in mine:
+            _ANON[net.ssid] = YOUR_NETWORK
+        else:
+            n += 1
+            _ANON[net.ssid] = f"neighbour {n}"
+    out = [replace(net, ssid=_ANON.get(net.ssid, net.ssid), bssid=_blur_bssid(net.bssid))
+           for net in nets]
+    return out, dict(_ANON)
 
 
 # --------------------------------------------------------------------------
@@ -414,8 +473,6 @@ def scan():
 # invent capability: if a profile claims the card can do channel 13 and `iw phy`
 # says otherwise, the card wins. Measurement beats configuration, always.
 # ============================================================================
-import os
-
 PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "channel_profiles")
 
 # A SECOND place for profiles that must never be published.
@@ -876,7 +933,19 @@ def case_for(rows, rec, channel, rules, cfg=None):
 
 
 def current_network():
-    """What this machine is associated to right now, so it can be excluded."""
+    """What this machine is associated to right now, so it can be excluded.
+
+    Under sanitised output this returns the LABEL, because the caller compares it
+    with the names in the scan and those have been replaced. Returning the real
+    name here would put the operator's own access point back to being counted as
+    interference against itself, which is a bug this tool has already had once.
+    """
+    raw = _associated_ssid()
+    return _ANON.get(raw, raw) if raw else raw
+
+
+def _associated_ssid():
+    """The real name, straight from the system. Not for printing."""
     nm = _tool("nmcli")
     if not nm:
         return None
@@ -1449,6 +1518,9 @@ def main(argv=None):
                         "Repeat at two or more different distances to fit this building")
     p.add_argument("--no-sweep", action="store_true",
                    help="with --devices-here: read the address table without waking anything")
+    p.add_argument("--anonymise", "--anonymize", action="store_true", dest="anonymise",
+                   help="replace the neighbours' names and the unique half of their addresses, "
+                        "so the output can be shown to somebody. Every MEASUREMENT stays real")
     p.add_argument("--technical", action="store_true",
                    help="the full engineering table instead of the plain summary")
     p.add_argument("--check", type=int, metavar="CH",
@@ -1482,6 +1554,11 @@ def main(argv=None):
                    help="decode a reported link rate into standard, width and streams")
     p.add_argument("--version", action="version", version=f"channelsurvey {VERSION}")
     a = p.parse_args(argv)
+    if a.anonymise:
+        # set through the environment, not passed down: the sanitising happens
+        # at the scan boundary so that EVERY view inherits it, including the
+        # window, the JSON and anything written later that forgets to ask.
+        os.environ[ANONYMISE_ENV] = "1"
 
     if a.list_profiles:
         names = list_profiles()

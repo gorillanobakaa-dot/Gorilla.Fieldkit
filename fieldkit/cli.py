@@ -73,6 +73,7 @@
 Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets, failed stage).
 """
 import argparse
+import os
 import re
 import json
 import sys
@@ -1224,6 +1225,10 @@ def build_parser():
     wf.add_argument("--technical", action="store_true", help="the full engineering table")
     wf.add_argument("--no-sweep", action="store_true",
                     help="devices: read the address table without waking anything")
+    wf.add_argument("--anonymise", "--anonymize", action="store_true", dest="anonymise",
+                    help="replace the neighbours' names and the unique half of their "
+                         "addresses, so the output can be shown to somebody. Every "
+                         "MEASUREMENT stays real")
     wf.add_argument("--at", action="append", default=None, metavar="METRES:DBM",
                     help="calibrate: a reading at a KNOWN distance, e.g. --at 2.88:-34. "
                          "Repeat at two or more DIFFERENT distances to fit this building")
@@ -1352,6 +1357,12 @@ def cmd_build_harness(a):
 
 def cmd_wifi(a):
     from . import wifi
+    if getattr(a, "anonymise", False):
+        # Through the environment, not an argument: the sanitising happens at the
+        # scan boundary so EVERY view inherits it, including the window, the JSON
+        # and anything written later that forgets to ask for it.
+        from .wifi import channelsurvey as _cs
+        os.environ[_cs.ANONYMISE_ENV] = "1"
     if a.action == "doctor":
         d = wifi.doctor()
         _emit(d, a.json, lambda x: print("\n".join(wifi.lines(x))))

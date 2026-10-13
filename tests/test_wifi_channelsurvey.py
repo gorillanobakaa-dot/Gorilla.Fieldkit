@@ -943,3 +943,102 @@ def test_both_front_doors_offer_the_same_things():
     choices = set(next(a.choices for a in wifi._actions if a.dest == "action"))
     for needed in ("devices", "calibrate", "watch", "rate", "channels", "card", "gui"):
         assert needed in choices, f"fieldkit wifi cannot do {needed}, but the standalone file can"
+
+
+def _street():
+    """A street's worth of networks, including names chosen to be awkward."""
+    return [
+        cs.Network("Alice and Bob's House", 6, 2437, "2.4", 77, 20, "88:33:74:ab:cd:ef", "WPA2"),
+        cs.Network(":(", 13, 2472, "2.4", 55, 20, "fa:4f:22:11:22:33", "WPA2"),
+        cs.Network("BT-HUB-9ZQ4", 11, 2462, "2.4", 41, 40, "00:1a:2b:3c:4d:5e", "WPA3"),
+        cs.Network("<hidden>", 1, 2412, "2.4", 19, 20, "", ""),
+        cs.Network("Alice and Bob's House", 1, 2412, "2.4", 12, 20, "88:33:74:ab:cd:f0", "WPA2"),
+    ]
+
+
+def test_sanitised_output_changes_no_measurement():
+    """A sanitised screenshot is only evidence if the numbers are untouched."""
+    real = _street()
+    out, _ = cs.anonymise(real, mine={":("})
+    assert len(out) == len(real)
+    for before, after in zip(real, out):
+        assert (after.channel, after.mhz, after.band, after.signal, after.width_mhz, after.security) == \
+               (before.channel, before.mhz, before.band, before.signal, before.width_mhz, before.security)
+        assert after.ssid != before.ssid or before.hidden
+
+
+def test_sanitised_scores_are_identical_to_the_real_ones():
+    """If sanitising moved a single score the tool would be lying about the air."""
+    real = _street()
+    out, _ = cs.anonymise(real, mine={":("})
+    a, _ = cs.analyse(real, "2.4", mine={":("})
+    b, _ = cs.analyse(out, "2.4", mine={cs.YOUR_NETWORK})
+    assert [(r.channel, r.score) for r in a] == [(r.channel, r.score) for r in b]
+
+
+def test_one_network_keeps_one_label_so_the_tables_still_agree():
+    """The same name appears in the channel table, the breakdown and the warning."""
+    out, mapping = cs.anonymise(_street(), mine={":("})
+    labels = {n.ssid for n in out if not n.hidden}
+    assert mapping[":("] == cs.YOUR_NETWORK, "your own AP must stay identifiable: the own-AP rule needs it"
+    assert len([n for n in out if n.ssid == mapping["Alice and Bob's House"]]) == 2, \
+        "two radios of one network must share its label"
+    assert labels == {cs.YOUR_NETWORK, "neighbour 1", "neighbour 2"}
+
+
+def test_a_hidden_network_is_left_hidden():
+    out, mapping = cs.anonymise(_street())
+    assert any(n.ssid == "<hidden>" for n in out)
+    assert "<hidden>" not in mapping, "there is no name there to replace"
+
+
+def test_no_real_name_or_full_address_survives_into_a_sanitised_report():
+    """The promise the flag makes. Checked against the rendered text, not the data."""
+    real = _street()
+    out, _ = cs.anonymise(real, mine={":("})
+    rows, rules = cs.analyse(out, "2.4", mine={cs.YOUR_NETWORK})
+    rec = cs.recommend(rows, "2.4")
+    text = "\n".join([
+        cs.plain_report(out, rows, rec, rules, "2.4"),
+        cs.text_report(out, rows, rec, rules, "2.4"),
+        cs.network_table(out, "2.4"),
+        "\n".join(cs.warn_about(rows, 6)),
+        "\n".join(cs.breakdown_lines(cs.score_breakdown(out, 6, "2.4", None, {cs.YOUR_NETWORK}))),
+        cs.to_json(out, rows, rec, rules, "2.4"),
+    ])
+    for net in real:
+        if not net.hidden:
+            assert net.ssid not in text, f"{net.ssid!r} reached a sanitised report"
+        if net.bssid:
+            assert net.bssid not in text, f"{net.bssid} reached a sanitised report"
+
+
+def test_the_sanitising_switch_is_off_unless_asked_for(monkeypatch):
+    """Default behaviour prints the real names: that is what makes it useful at home."""
+    monkeypatch.delenv(cs.ANONYMISE_ENV, raising=False)
+    assert cs.anonymising() is False
+    for value in ("1", "yes", "true"):
+        monkeypatch.setenv(cs.ANONYMISE_ENV, value)
+        assert cs.anonymising() is True
+    for value in ("", "0", "no", "false"):
+        monkeypatch.setenv(cs.ANONYMISE_ENV, value)
+        assert cs.anonymising() is False
+
+
+def test_your_own_name_is_matched_by_its_label_after_a_sanitised_scan(monkeypatch):
+    """Otherwise the own-AP bug comes straight back.
+
+    cmd_wifi asks the scan what it can hear, then asks current_network() which of
+    those is yours. Under sanitising the scan returns labels, so an unmapped real
+    name matches nothing and your own access point is counted as interference
+    against itself: 89 points of one channel's 158, the first time.
+    """
+    monkeypatch.setenv(cs.ANONYMISE_ENV, "1")
+    monkeypatch.setattr(cs, "_associated_ssid", lambda: ":(")
+    monkeypatch.setattr(cs, "scan_linux", _street)
+    monkeypatch.setattr(cs.platform, "system", lambda: "Linux")
+    nets, problem = cs.scan()
+    assert problem is None
+    here = cs.current_network()
+    assert here == cs.YOUR_NETWORK
+    assert here in {n.ssid for n in nets}, "the label must match something in the scan"

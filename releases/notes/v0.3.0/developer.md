@@ -44,6 +44,14 @@ guess with a variable name:
 | `TX_EIRP_RANGE` | `(14.0, 20.0)` dBm | A weak access point to the legal maximum. Distance is estimated across the range, which is why the answer is a range. |
 | `TOO_WEAK_TO_GUESS` | `-80.0` dBm | Below this the honest spread is tens to hundreds of metres, so `distance_hint()` returns `None` with an explanation instead of a figure. |
 
+**Sanitised output.** `--anonymise` (or `FIELDKIT_WIFI_ANONYMISE=1`) is applied inside `scan()`, at the one
+boundary every view goes through, so the CLI, the JSON, the GUI and anything written later inherit it without
+asking. `anonymise()` relabels SSIDs loudest first and keeps the mapping for the run, so the channel table, the
+score breakdown and the overlap warning still agree about which neighbour is which; the BSSID keeps its OUI and
+loses the device half. Nothing numeric is touched, and a test asserts `analyse()` returns identical scores either
+way. `current_network()` returns the LABEL under sanitising, because the caller compares it with names in the scan
+and an unmapped real name would match nothing, putting the own-AP bug straight back.
+
 **Trust boundary.** Everything a scan returns is attacker-controlled: an SSID is arbitrary bytes chosen by a
 stranger. SSIDs are never interpolated into a shell string, never compiled as a regular expression and never split
 by position. `nmcli -t` output is parsed right to left, because the first field can contain the separator. Numeric
