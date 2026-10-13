@@ -158,3 +158,53 @@ def test_a_broken_speakable_never_stops_the_voice():
         assert out == "printed"
     finally:
         sp.speakable = real
+
+
+# ------------------------------------- every dash, not only the ASCII one
+def test_every_kind_of_dash_between_letters_becomes_a_space():
+    """2026-10-13: the first version checked only "-". Text reaching a
+    synthesiser comes from documents and other people's writing, where the
+    typographically correct forms appear constantly, and espeak-ng pauses on
+    all of them. An en dash would have sailed straight through."""
+    for dash in ("-", "‐", "‑", "‒", "–",
+                 "—", "―", "−", "﹘", "﹣", "－"):
+        assert dehyphenate(f"sixty{dash}one") == "sixty one", repr(dash)
+
+
+def test_a_dash_used_as_PUNCTUATION_becomes_a_comma_not_nothing():
+    """An em dash between words IS a pause. Keep the pause, but give the
+    synthesiser a mark it handles well instead of one it stumbles on."""
+    assert dehyphenate("wait — actually no") == "wait, actually no"
+    assert dehyphenate("a pause - then more") == "a pause, then more"
+
+
+def test_a_negative_number_survives():
+    """-40 dBm is a measurement. Turning it into "40 dBm" would be a far worse
+    bug than a pause: it inverts the meaning of every signal reading."""
+    assert dehyphenate("signal -40 dBm") == "signal -40 dBm"
+    assert dehyphenate("RSRP was −87") == "RSRP was −87"
+    assert dehyphenate("the gap is -3.5") == "the gap is -3.5"
+
+
+def test_a_command_line_flags_LEADING_dashes_survive():
+    """The leading dashes are what make it a flag, and they are not between
+    letters, so they are untouched."""
+    for flag in ("--json", "--devices local", "-s 540"):
+        assert dehyphenate(f"run with {flag}") == f"run with {flag}", flag
+
+
+def test_a_hyphen_INSIDE_a_flag_name_does_become_a_space():
+    """And that is correct FOR SPEECH: a listener cannot hear a hyphen, and
+    "length scale" is what a person says aloud.
+
+    It is also the limit of this function. Never run it over text somebody is
+    meant to TYPE or copy: it is for things that will be spoken and then gone.
+    """
+    assert dehyphenate("run with --length-scale 1.05") == "run with --length scale 1.05"
+
+
+def test_the_real_thermal_alert_is_cleaned():
+    """The alert that exposed this: "down to 61 degrees" was spoken as
+    "sixty ... one degrees" with a stop wedged in the middle."""
+    fixed, _ = speakable("The temperature is down to sixty-one degrees.")
+    assert fixed == "The temperature is down to sixty one degrees."

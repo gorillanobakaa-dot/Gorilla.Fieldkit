@@ -34,6 +34,14 @@ one of them had already shipped past a code review that could not hear.
 #    One clause, the number early, nothing after the full stop that matters.
 #
 # ============================================================================
+# NEVER RUN THIS OVER TEXT SOMEBODY IS MEANT TO TYPE
+# ============================================================================
+# It is for words that will be spoken and then gone. "--length-scale" becomes
+# "--length scale", which is right for speech (a listener cannot hear a hyphen)
+# and wrong for anything the person has to copy into a terminal. Speak the
+# cleaned text; display the original.
+#
+# ============================================================================
 # WHAT THIS DOES NOT DO
 # ============================================================================
 # It does not translate, guess at foreign pronunciation, or respell proper
@@ -64,14 +72,45 @@ HOMOPHONES = {
 }
 
 
-def dehyphenate(text):
-    """A hyphen BETWEEN LETTERS becomes a space. See finding 1.
+# EVERY dash, not only the ASCII one. Text reaching a synthesiser comes from
+# documents, pastes and other people's writing, so the typographically correct
+# forms turn up constantly and espeak-ng pauses on all of them. Checking only
+# "-" was the first version of this and it would have let an en dash straight
+# through.
+DASHES = (
+    "\u002d"   # hyphen-minus, the one on the keyboard
+    "\u2010"   # hyphen
+    "\u2011"   # non-breaking hyphen
+    "\u2012"   # figure dash
+    "\u2013"   # en dash
+    "\u2014"   # em dash
+    "\u2015"   # horizontal bar
+    "\u2212"   # minus sign
+    "\ufe58"   # small em dash
+    "\ufe63"   # small hyphen-minus
+    "\uff0d"   # fullwidth hyphen-minus
+)
 
-    Only between letters: a minus sign in "-40 dBm" and a leading dash in a
-    flag like "--json" are left alone, because they are not compounds and
-    mangling them would be a different bug.
+_BETWEEN_LETTERS = re.compile(rf"(?<=[^\W\d_])[{DASHES}](?=[^\W\d_])", re.UNICODE)
+_AS_PUNCTUATION = re.compile(rf"\s*[{DASHES}]{{1,3}}\s+")
+
+
+def dehyphenate(text):
+    """Every kind of dash BETWEEN LETTERS becomes a space. See finding 1.
+
+    Two cases, deliberately different:
+
+      compound     "sixty-one", "dual-track"   -> a space. The word is one word
+                   and the dash is only typography.
+      punctuation  "wait - actually"           -> a comma. An em dash used as
+                   punctuation IS a pause, so keep the pause and give the
+                   synthesiser a mark it handles well.
+
+    Left alone on purpose: a minus sign in "-40 dBm" and a flag like "--json",
+    because neither is a compound and mangling them would be a different bug.
     """
-    return re.sub(r"(?<=[A-Za-z])-(?=[A-Za-z])", " ", text)
+    text = _BETWEEN_LETTERS.sub(" ", text)
+    return _AS_PUNCTUATION.sub(", ", text)
 
 
 def homophones_in(text):
