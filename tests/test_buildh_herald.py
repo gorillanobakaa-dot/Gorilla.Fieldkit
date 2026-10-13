@@ -231,3 +231,26 @@ def test_no_spoken_line_is_too_long_to_follow():
         for template in group:
             line = template.format(n=1985, p=1985, f=3, t=1985)
             assert len(line) <= c.SPOKEN_LIMIT, f"{len(line)} chars, too long to follow: {line}"
+
+
+def test_no_spoken_line_contains_a_word_that_sounds_like_another():
+    """A spoken line has no spelling. 2026-10-13: a test sentence said "the full
+    Fieldkit suite" and the owner heard "sweet" — correctly, because that is how
+    the word is pronounced. The synthesiser was right and the word was wrong."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent))
+    import conftest as c
+
+    # words whose homophone would change or destroy the meaning HERE, in lines
+    # that are mostly numbers. Not a general English homophone list.
+    banned = {"suite": "sweet", "won": "one", "ate": "eight", "for": "four",
+              "to": "two", "weight": "wait", "sum": "some"}
+    for group in (c._STARTING, c._ALL_PASSED, c._SOME_FAILED):
+        for template in group:
+            words = template.format(n=1985, p=1985, f=3, t=1985).lower()
+            words = [w.strip(".,:") for w in words.split()]
+            for word, sounds_like in banned.items():
+                assert word not in words, (
+                    f"{word!r} sounds like {sounds_like!r} and this line is full of numbers: "
+                    f"{template}")

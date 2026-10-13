@@ -26,7 +26,7 @@ NOISE_SCALE    0.6                 variation in the voice
 NOISE_W_SCALE  0.7                 variation in cadence; lower is steadier
 PITCH_CENTS    -100                one semitone, applied by sox AFTER piper
 SAMPLE_RATE    22050               from the model's own .onnx.json
-SOX_CHAIN      pitch -100 compand 0.02,0.20 -40,-10,-20,-5,0,-3 0 -90 0.1 norm -0.5
+SOX_CHAIN      norm -1        (nothing else: see 'What was removed and why')
 ```
 
 These are preferences, not defaults. Do not change them without the owner
@@ -40,7 +40,7 @@ any program
     v
 speech-dispatcher          <- the fix goes HERE
     |
-    +-- piper-generic (sd_generic) -> piper-speak.sh -> piper | sox | paplay
+    +-- piper-generic (sd_generic) -> piper-speak.sh -> piper | sox norm | paplay
     |
     +-- espeak-ng (fallback, still registered)
 ```
@@ -142,3 +142,47 @@ have found it, because both voices are "working".
 The Windows half is untouched by instruction. `voice_check()` in `herald.py`
 still reports Windows voices without grading them, which is the same gap this
 module closes on Linux; it is left alone deliberately.
+
+## What was removed and why, 2026-10-13
+
+The settings below were chosen by ear the same day, on phrases of a few words,
+and every one of them was reverted that evening as soon as a long sentence was
+played:
+
+```
+pitch -100                 a semitone down, through sox
+compand 0.02,0.20 ...      peak squashing for weak laptop speakers
+--length-scale 0.90        10% faster than the model intends
+--noise-scale 0.6          the model ships 0.667
+--noise-w-scale 0.7        the model ships 0.8; this one flattens cadence
+```
+
+The maintainer, hearing a full sentence for the first time: *"after a few words
+the time stretch, the rhythm, the cadence get out of wack and it does not really
+sound human anymore"*, and on the candidates, *"sounds like a broken indian
+accent with weird halting spaces between"*.
+
+**Two separate causes, both in post-processing.**
+
+`sox pitch` is implemented as a time-stretch plus resample: a WSOLA-style
+algorithm that chops audio into segments and splices them back together. Those
+splice artefacts accumulate across a passage, which is the stuttering. Widening
+the segment from the default 82 ms to 120 ms helped slightly and did not fix it.
+
+Separately, **any pitch shift without formant correction moves the vowel
+formants**, and moving formants is precisely how an accent change is
+synthesised. That is why it stopped sounding American. `rubberband -p -1 -F`
+preserves them and was audibly better than sox, and still not worth its cost.
+
+**Tested, not argued.** Eleven candidates on one long sentence; then Frost's
+*Stopping by Woods on a Snowy Evening* read in full by three of them; then one
+stanza A/B'd three times. `en_US-lessac-high`, a 114 MB **high** quality model,
+was downloaded and rejected: *"all over the place way too fast"*.
+
+**The answer was to apply nothing.** The model's own output at the model's own
+defaults beat every processed version.
+
+Generalisation worth carrying: **tuning by ear on a sample shorter than the real
+workload is not tuning, it is guessing**, and each layer added hid the damage of
+the one before it. The old chain is quarantined with its full reasoning in
+`Agents.Work.Trash/piper-speak-sox-chain-26-10-13/`.

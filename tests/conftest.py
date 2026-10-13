@@ -123,6 +123,13 @@ def _announce(text):
 # A spoken line is not a written one. It has no punctuation you can see, no
 # second reading, and no scrollback. So: one clause, the number early, and
 # nothing after the full stop that matters. SPOKEN_LIMIT is enforced by a test.
+#
+# AND NO HOMOPHONES. A spoken line has no SPELLING either, which is a separate
+# trap. An earlier test sentence said "the full Fieldkit suite" and the owner
+# heard "the full Fieldkit sweet" — because that is correct English. "Suite" is
+# pronounced identically to "sweet", so the synthesiser was right and the WORD
+# was wrong. Nothing here says "suite", and "Reality won again" became "wins"
+# because "won" and "one" are indistinguishable in a line full of numbers.
 SPOKEN_LIMIT = 60
 
 _STARTING = [
@@ -139,7 +146,7 @@ _ALL_PASSED = [
 ]
 _SOME_FAILED = [
     "{f} failed, out of {t}. Check the output.",
-    "{f} failed, out of {t}. Reality won again.",
+    "{f} failed, out of {t}. Reality wins again.",
     "Bad news. {f} failed, out of {t}.",
 ]
 

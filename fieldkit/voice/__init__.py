@@ -59,8 +59,8 @@ notifications, Orca, and Claude Code's own speechSynthesis.
 #    stops sounding lower and starts sounding like a badly impersonated man.
 #    Four semitones was tried and rejected by ear.
 #
-# 6. DO NOT GO BELOW length-scale 0.80. Neural prosody smears and it acquires the
-#    rushed clipped quality that makes espeak tiring. 0.90 was chosen by ear.
+# 6. DO NOT TOUCH length-scale AT ALL, AND DO NOT PITCH-SHIFT. Superseded by
+#    the finding in note 11, which is the important one in this file.
 #
 # 7. edge-tts IS NOT A SOLUTION. It is an unofficial client for an undocumented
 #    Microsoft endpoint using a reverse-engineered token. It returned HTTP 403 on
@@ -77,7 +77,40 @@ notifications, Orca, and Claude Code's own speechSynthesis.
 #    which is precisely why this went unnoticed for months. doctor() below grades
 #    the engine and says plainly when it is an old one.
 #
-# 10. AVX2 IS NOT REQUIRED. It is absent on the owner's 2012 i7-3632QM and piper
+# 11. EVERY ONE OF THOSE SETTINGS WAS TUNED ON SHORT PHRASES AND BROKE ON LONG
+#    ONES. This is the correction that matters, made the same evening they were
+#    chosen, as soon as anybody listened to a whole sentence.
+#
+#    The owner, hearing one for the first time: "after a few words the time
+#    stretch, the rhythm, the cadence get out of wack and it does not really
+#    sound human anymore". Then, on the candidates: "sounds like a broken indian
+#    accent with weird halting spaces between... I like to move it move it".
+#
+#    TWO SEPARATE CAUSES, both in the post-processing:
+#
+#    (a) sox implements `pitch` as a TIME-STRETCH plus resample: a WSOLA-style
+#        algorithm that chops audio into segments and splices them back
+#        together. The splice artefacts accumulate across a long passage. The
+#        stuttering is the splices. Widening the segment from 82 to 120 ms
+#        helped a little and did not fix it.
+#
+#    (b) ANY pitch shift without formant correction moves the VOWEL FORMANTS,
+#        and moving formants is precisely how an accent change is synthesised.
+#        That is why it stopped sounding American. rubberband -F preserves
+#        them and was audibly better than sox, and still not worth its cost.
+#
+#    Tested rather than argued: eleven candidates on one long sentence, then
+#    Frost's "Stopping by Woods on a Snowy Evening" read in full by three of
+#    them, then a stanza A/B'd three times. Also tried and rejected,
+#    en_US-lessac-high, a 114 MB HIGH quality model: "all over the place way
+#    too fast".
+#
+#    THE ANSWER WAS TO APPLY NOTHING. The model's own output at the model's own
+#    defaults beat every processed version. Generalisation: tuning by ear on a
+#    sample shorter than the real workload is not tuning, it is guessing, and
+#    each layer added hid the damage of the last.
+#
+# 12. AVX2 IS NOT REQUIRED. It is absent on the owner's 2012 i7-3632QM and piper
 #    runs at 0.45x realtime regardless, because onnxruntime picks its instruction
 #    path at runtime. Do not refuse to try on an old CPU; measure instead.
 # ============================================================================
@@ -86,15 +119,18 @@ notifications, Orca, and Claude Code's own speechSynthesis.
 # mbrola, four British and four American neural voices. Do not change these
 # without the owner listening; they are preferences, not defaults.
 VOICE = "en_US-amy-medium"       # American female
-LENGTH_SCALE = "0.90"            # pace. Lower is faster. Floor is ~0.80 (note 6)
-NOISE_SCALE = "0.6"              # how much the voice varies
-NOISE_W_SCALE = "0.7"            # how much the cadence varies. Lower is steadier
-PITCH_CENTS = "-100"             # one semitone down. Ceiling is ~200 (note 5)
 SAMPLE_RATE = "22050"            # from the model's own .onnx.json
 
-# compand squashes the peaks and lifts quiet syllables, which is what makes it
-# audible on old laptop speakers. norm sets a consistent level under clipping.
-SOX_CHAIN = f"pitch {PITCH_CENTS} compand 0.02,0.20 -40,-10,-20,-5,0,-3 0 -90 0.1 norm -0.5"
+# NO INFERENCE OVERRIDES. The model's .onnx.json carries its own defaults
+# (noise_scale 0.667, length_scale 1.0, noise_w 0.8) and they are better than
+# the ones chosen here by ear on short phrases. See note 11. Passing nothing is
+# deliberate: an empty string here is the setting, not a missing value.
+PIPER_ARGS = ""
+
+# NO PITCH SHIFT AND NO COMPANDER. Only a level normalise, which cannot smear
+# anything because it applies a single constant gain. See note 11 for the
+# measurements and the listening test that removed the rest.
+SOX_CHAIN = "norm -1"
 
 WHY_LINUX_ONLY = ("Windows already sounds fine through System.Speech, and the owner's instruction on "
                   "2026-10-13 was to leave it exactly as it is. Nothing in this module runs there.")
@@ -103,4 +139,4 @@ from .doctor import doctor, lines, exit_code, speak          # noqa: E402
 from .install import plan, apply, clean                      # noqa: E402
 
 __all__ = ["doctor", "lines", "exit_code", "speak", "plan", "apply", "clean",
-           "VOICE", "LENGTH_SCALE", "SOX_CHAIN", "WHY_LINUX_ONLY"]
+           "VOICE", "PIPER_ARGS", "SOX_CHAIN", "WHY_LINUX_ONLY"]

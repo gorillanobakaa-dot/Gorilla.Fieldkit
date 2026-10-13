@@ -51,13 +51,32 @@ def test_the_wrapper_plays_through_pipewire_not_alsa():
         "aplay bypasses PipeWire and skips the loudness filter chain"
 
 
-# Pitch and pace have limits found by ear. Past them the voice stops being the
-# voice (notes 5 and 6).
-def test_pitch_and_pace_stay_inside_what_was_proven():
-    assert abs(int(voice.PITCH_CENTS)) <= 200, \
-        "beyond about two semitones a female voice sounds like a badly impersonated man"
-    assert float(voice.LENGTH_SCALE) >= 0.80, \
-        "below 0.80 neural prosody smears and it sounds rushed, like espeak"
+# 2026-10-13: this test used to police the LIMITS of the pitch shift and the
+# pace override. Both were removed once anybody listened to a long sentence, so
+# it now guards the opposite invariant: that nothing is applied at all.
+#
+# The owner, hearing a full sentence for the first time: "after a few words the
+# time stretch, the rhythm, the cadence get out of wack", and on the candidates
+# "sounds like a broken indian accent with weird halting spaces between".
+#
+# sox implements `pitch` as a time-stretch plus resample, so its splice
+# artefacts accumulate over a passage; and any pitch shift without formant
+# correction moves the vowel formants, which is how an accent change is made.
+def test_the_audio_is_not_processed_at_all():
+    assert voice.SOX_CHAIN.strip() == "norm -1", (
+        "only a level normalise may survive: a single constant gain cannot smear "
+        "anything. A pitch shift or compander here broke long sentences.")
+    for banned in ("pitch", "compand", "tempo", "speed", "stretch"):
+        assert banned not in voice.SOX_CHAIN, f"{banned} is a time-domain effect"
+
+
+def test_the_model_defaults_are_not_overridden():
+    """The model's own .onnx.json knows better than an ear-tuned guess made on a
+    four-second phrase. An empty PIPER_ARGS is the setting, not a missing value."""
+    assert voice.PIPER_ARGS.strip() == "", (
+        "passing length-scale, noise-scale or noise-w-scale overrides values the "
+        "model ships; every one of those overrides was reverted after a listening test")
+    assert not hasattr(voice, "PITCH_CENTS"), "the pitch shift was removed, not merely set to zero"
 
 
 # Cleaning early is how a 61 MB voice costs a gigabyte: the models get binned
@@ -86,3 +105,18 @@ def test_the_hard_won_notes_survive():
     src = (voice.__doc__ or "") + open(voice.__file__, encoding="utf-8").read()
     for must in ("aplay", "onnxruntime", "SSML", "pkill", "audition", "AVX2"):
         assert must.lower() in src.lower(), f"the note about {must} has been lost"
+
+
+def test_a_fresh_install_cannot_bring_the_old_chain_back():
+    """The wrapper is generated from these constants, so `fieldkit voice install`
+    would happily overwrite a hand-fixed script. Check the EXECUTABLE lines: the
+    comments mention pitch and compand deliberately, to explain why they are gone."""
+    run = "\n".join(l for l in vinstall.WRAPPER_BODY.splitlines()
+                    if not l.lstrip().startswith("#"))
+    for banned in ("pitch", "compand", "tempo", "speed",
+                   "length-scale", "noise-scale", "noise-w-scale"):
+        assert banned not in run, (
+            f"{banned!r} is back in the generated wrapper; it was removed on 2026-10-13 "
+            f"after a listening test and must not return without another one")
+    assert "norm -1" in run, "the level normalise is the one effect that stays"
+    assert "paplay" in run

@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import LENGTH_SCALE, NOISE_SCALE, NOISE_W_SCALE, SAMPLE_RATE, SOX_CHAIN, VOICE
+from . import PIPER_ARGS, SAMPLE_RATE, SOX_CHAIN, VOICE
 from .doctor import PIPER_DIR, SD_USER_DIR, _onnxruntime_present, _run, doctor
 
 WRAPPER = PIPER_DIR / "piper-speak.sh"
@@ -26,14 +26,19 @@ WRAPPER_BODY = f"""#!/bin/sh
 # so it skips any loudness filter chain and comes out noticeably quieter. This
 # was a real bug; see note 1 in fieldkit/voice/__init__.py.
 #
-# piper has no pitch control and does not speak SSML, so pitch and loudness are
-# a sox stage afterwards (notes 4 and 5).
+# NOTHING IS APPLIED TO THE AUDIO, AND THAT IS THE POINT. An earlier version
+# overrode three of the model's inference defaults and ran a pitch shift and a
+# compander through sox. All of it was tuned by ear on SHORT phrases and fell
+# apart on the first long sentence anybody listened to: halting, stuttering,
+# and an accent that was no longer American. See note 11 in voice/__init__.py.
+#
+# Only a level normalise survives, because a single constant gain cannot smear
+# anything. If a machine needs the loudness help the compander was giving, fix
+# it in the SYSTEM filter chain so every program benefits, not here.
 P="$HOME/.local/share/piper"
 VOICE="${{PIPER_VOICE:-{VOICE}}}"
 
-"$P/venv/bin/python" -m piper -m "$P/voices/$VOICE.onnx" \\
-    --length-scale {LENGTH_SCALE} --noise-scale {NOISE_SCALE} \\
-    --noise-w-scale {NOISE_W_SCALE} --output-raw 2>/dev/null \\
+"$P/venv/bin/python" -m piper -m "$P/voices/$VOICE.onnx" {PIPER_ARGS} --output-raw 2>/dev/null \\
   | sox -t raw -r {SAMPLE_RATE} -e signed -b 16 -c 1 - \\
         -t raw -r {SAMPLE_RATE} -e signed -b 16 -c 1 - {SOX_CHAIN} 2>/dev/null \\
   | paplay --raw --rate={SAMPLE_RATE} --format=s16le --channels=1
