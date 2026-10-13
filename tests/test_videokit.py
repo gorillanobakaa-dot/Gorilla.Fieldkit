@@ -25,9 +25,16 @@ def run(*args, cwd=None):
 
 @pytest.fixture(scope="module")
 def clip(tmp_path_factory):
+    # fps=30 before tpad is load-bearing, not decoration. After trim+setpts the
+    # frame rate does not survive on every ffmpeg build, and tpad then pads
+    # nothing: on Debian 13 (ffmpeg 7.1.5) this clip came out 3.97s instead of
+    # ~7s, the frozen stretch was simply absent, and 20 tests in this file
+    # failed. Measured 2026-10-13: with fps=30 the padded segment is 91 frames
+    # and 3.03s, as intended. Stating the rate makes the fixture deterministic
+    # on every build rather than relying on one that happens to propagate it.
     d = tmp_path_factory.mktemp("vk")
     out = d / "clip.mp4"
-    graph = ("[0:v]trim=0:2,setpts=PTS-STARTPTS[a];[0:v]trim=2:2.04,setpts=PTS-STARTPTS,tpad=stop_mode=clone:"
+    graph = ("[0:v]trim=0:2,setpts=PTS-STARTPTS[a];[0:v]trim=2:2.04,setpts=PTS-STARTPTS,fps=30,tpad=stop_mode=clone:"
              "stop_duration=3[b];[0:v]trim=2:4,setpts=PTS-STARTPTS[c];[a][b][c]concat=n=3:v=1,"
              "eq=brightness=-0.25,format=yuv420p[v]")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=240x426:rate=30:duration=4",
