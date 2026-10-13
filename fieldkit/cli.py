@@ -503,7 +503,14 @@ def cmd_triage(a):
 def cmd_privacy(a):
     from .core import privacy
     rep = {}
+    # count what was EXAMINED, not only what was flagged. "0 findings in 0
+    # files" reads as "nothing was scanned", which is the one thing a privacy
+    # gate must never be mistaken for. It misled a reader into reporting a
+    # vacuous pass twice on 2026-10-13; the scan had in fact examined 662 files.
+    examined = 0
     for p in a.paths:
+        files = privacy.git_publishable(p) if (a.git and Path(p).is_dir()) else None
+        examined += len([f for f in files if f.is_file()]) if files is not None else 1
         rep.update(privacy.scan_path(p, git_only=a.git, allow_paths=a.allow_paths, allow_emails=a.allow_emails))
 
     def human(r):
@@ -511,7 +518,12 @@ def cmd_privacy(a):
             print(f)
             for h in hits[:20]:
                 print(f"   line {h['line']:<5} {h['kind']:<26} {h['excerpt']}")
-        print(f"\n{sum(len(h) for h in r.values())} finding(s) in {len(r)} file(s)")
+        scope = "git would publish" if a.git else "scanned"
+        print(f"\n{sum(len(h) for h in r.values())} finding(s) in {len(r)} file(s), "
+              f"out of {examined} file(s) {scope}")
+        if not r and not examined:
+            print("NOTHING WAS EXAMINED. That is not a pass: check the path and whether "
+                  "--git is excluding everything.")
     _emit(rep, a.json, human)
     return 3 if rep else 0
 
