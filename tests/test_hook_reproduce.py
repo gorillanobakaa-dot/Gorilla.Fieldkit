@@ -11,6 +11,29 @@ HOOK = Path(__file__).resolve().parents[1] / "hooks" / "pre-commit"
 SH = shutil.which("sh")
 
 
+def _expose(tmp_path, dirname, names):
+    """Put the TEST interpreter on PATH under the given names.
+
+    TRAP: a SYMLINK does not work here. A venv interpreter finds its pyvenv.cfg
+    beside its own executable path, so a symlink from somewhere else silently
+    falls back to the system interpreter, which has no pytest. The hook then
+    correctly reports "no interpreter with pytest" and the test looks like a
+    hook bug. Use a wrapper that execs the real path instead.
+    """
+    import sys
+    d = tmp_path / dirname
+    d.mkdir(exist_ok=True)
+    for name in names:
+        w = d / name
+        w.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+        w.chmod(0o755)
+    return d
+
+
+def _bin_with_python(tmp_path):
+    return _expose(tmp_path, "bin", ("python", "python3"))
+
+
 def _repo(tmp_path, test_body):
     r = tmp_path / "repo"
     (r / "hooks").mkdir(parents=True)
@@ -18,6 +41,10 @@ def _repo(tmp_path, test_body):
     shutil.copy(HOOK, r / "hooks" / "pre-commit")
     (r / "tests" / "test_x.py").write_text(test_body, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["PATH"] = f"{_bin_with_python(tmp_path)}:{env.get('PATH', '')}"
+    env.pop("VIRTUAL_ENV", None)
+    # the temp repo is not fieldkit, so the privacy scan needs the real package
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
     subprocess.run(["git", "init", "-q", str(r)], check=True, env=env)
     return r, env
 
@@ -58,3 +85,37 @@ def test_a_collection_error_refuses_the_commit(tmp_path):
     r, env = _repo(tmp_path, "import no_such_module_anywhere\n")
     rc, out = _run(r, env)
     assert rc == 1 and "commit refused" in out
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-13: the hook called a bare `python`, which does not exist on Debian
+# (only python3). It therefore printed "tests failed - commit refused" when the
+# tests had never run at all. Refusing was right; the stated reason was false,
+# and a false reason sends somebody hunting a failure that does not exist.
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(not SH, reason="no sh")
+def test_the_hook_finds_an_interpreter_even_without_a_bare_python(tmp_path):
+    """PATH deliberately has python3 but NO `python`, which is normal Debian."""
+    r, env = _repo(tmp_path, "def test_fine():\n    assert True\n")
+    # python3 ONLY, no `python` alias: the normal Debian shape.
+    bin_ = _expose(tmp_path, "onlypython3", ("python3",))
+    env = dict(env, PATH=f"{bin_}:/usr/bin:/bin")
+    env.pop("VIRTUAL_ENV", None)
+    rc, out = _run(r, env)
+    assert "COULD NOT RUN" not in out, out
+    assert "tests failed" not in out, out
+
+
+@pytest.mark.skipif(not SH, reason="no sh")
+def test_no_interpreter_with_pytest_says_so_instead_of_blaming_the_tests(tmp_path):
+    """The distinction that matters: 'nothing was verified' is not 'tests failed'."""
+    r, env = _repo(tmp_path, "def test_fine():\n    assert True\n")
+    empty = tmp_path / "nointerp"
+    empty.mkdir()
+    env = dict(env, PATH=str(empty))
+    env.pop("VIRTUAL_ENV", None)
+    rc, out = _run(r, env)
+    assert rc == 1
+    assert "COULD NOT RUN THE TESTS" in out
+    assert "NOT a test failure" in out
+    assert "tests failed - commit refused" not in out
