@@ -113,12 +113,21 @@ class Controller:
 
 
 def words(ev):
+    """What to say. SHORT: state, then action. See the note in watchdog/__init__.
+
+    Measured 2026-10-13: the danger line went from 8.58 s to 3.39 s with no
+    change of pace, purely by dropping words that carried no information.
+    "The processor is at" is four words of preamble before the number that
+    matters, and the listener has already been told what the subject is by the
+    fact that the laptop just spoke to them.
+    """
     t = round(ev["temp"])
-    return {"up": f"The processor is at {t} degrees. Cooling mode {ev.get('mode')}."
-                  + (" Maximum cooling." if ev.get("mode") == 3 else ""),
-            "down": f"The temperature is down to {t} degrees. Cooling mode {ev.get('mode')}.",
-            "hot": f"The processor is at {t} degrees. Close heavy programs if you can.",
-            "danger": f"The processor is at {t} degrees. That is dangerous. Save your work and close heavy programs."
+    mode = ev.get("mode")
+    return {"up": f"{t} degrees. Cooling mode {mode}."
+                  + (" Maximum cooling." if mode == 3 else ""),
+            "down": f"Down to {t} degrees. Cooling mode {mode}.",
+            "hot": f"{t} degrees. Close heavy programs if you can.",
+            "danger": f"{t} degrees. Save your work now.",
             }[ev["kind"]]
 
 

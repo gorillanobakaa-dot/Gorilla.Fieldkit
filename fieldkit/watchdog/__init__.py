@@ -44,10 +44,22 @@ from .net import current_ssid, reconnect, state_dir, tools_present
 
 PROBES = [("1.1.1.1", 443), ("8.8.8.8", 53), ("9.9.9.9", 443), ("208.67.222.222", 443)]
 
-ALARM = ("Yo Gorilla. The laptop is offline and cannot get back on the internet. "
-         "Claude needs your help. Please switch on the phone hotspot.")
-RECOVERED = "Yo Gorilla. The laptop is back online. Thank you."
-TEST = "Yo Gorilla. This is a test of the offline alarm."
+# SHORT, AND CALM. Measured 2026-10-13: the old danger alert took 8.58 seconds
+# and the rewritten one takes 3.39, with NO change of pace, purely by removing
+# words that were not information.
+#
+# The alarm repeats while nobody is in the room, so every word is paid for on
+# every repetition. "and cannot get back on the internet" restates "offline",
+# and "Claude needs your help" is the program talking about itself rather than
+# telling you what to do.
+#
+# It is NOT hurried. A calm voice is correct for an emergency: aviation and
+# medical alarm practice settled this long ago, because a panicked voice
+# induces panic and degrades comprehension. Urgency comes from what is said
+# and from repetition, never from delivery. Do not "fix" this to sound urgent.
+ALARM = "The laptop is offline. Switch the hotspot on."
+RECOVERED = "The laptop is back online."
+TEST = "This is a test of the offline alarm."
 
 
 def log_path(platform=None):

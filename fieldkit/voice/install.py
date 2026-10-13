@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import PIPER_ARGS, SAMPLE_RATE, SOX_CHAIN, VOICE
+from . import PIPER_ARGS, PITCH_SEMITONES, SAMPLE_RATE, SOX_CHAIN, VOICE
 from .doctor import PIPER_DIR, SD_USER_DIR, _onnxruntime_present, _run, doctor
 
 WRAPPER = PIPER_DIR / "piper-speak.sh"
@@ -22,26 +22,50 @@ SD_CONF = SD_USER_DIR / "speechd.conf"
 WRAPPER_BODY = f"""#!/bin/sh
 # Written by `fieldkit voice install`. Speak text given on stdin.
 #
-# PLAYER: paplay, NOT aplay. aplay talks straight to ALSA and BYPASSES PipeWire,
-# so it skips any loudness filter chain and comes out noticeably quieter. This
-# was a real bug; see note 1 in fieldkit/voice/__init__.py.
+# Wired into speech-dispatcher as a generic module, so EVERY program on this
+# machine that speaks uses it: the herald, the laptop alerts, desktop
+# notifications, Orca and Claude Code's own speechSynthesis.
 #
-# NOTHING IS APPLIED TO THE AUDIO, AND THAT IS THE POINT. An earlier version
-# overrode three of the model's inference defaults and ran a pitch shift and a
-# compander through sox. All of it was tuned by ear on SHORT phrases and fell
-# apart on the first long sentence anybody listened to: halting, stuttering,
-# and an accent that was no longer American. See note 11 in voice/__init__.py.
+# Why these numbers and not the model's defaults: see notes 11 and 14 in
+# fieldkit/voice/__init__.py. Short version: slightly slower and a little lower
+# because the voice otherwise reads as a child, which is a product problem;
+# and the pitch shift is RUBBERBAND with -F, which preserves formants. The sox
+# one did not, and moving formants is how an accent change is synthesised.
 #
-# Only a level normalise survives, because a single constant gain cannot smear
-# anything. If a machine needs the loudness help the compander was giving, fix
-# it in the SYSTEM filter chain so every program benefits, not here.
+# RUBBERBAND CANNOT READ A PIPE. It makes two passes and seeks back to the
+# start; through a real pipe it silently truncated 70700 bytes to 4184. Tested
+# as `rubberband - - < in.wav` it looks fine, because a shell redirect gives
+# SEEKABLE stdin and a pipe does not. Hence the temporary file. Do not tidy
+# this back into one elegant pipeline.
+#
+# AN ALERT MUST NEVER BE SILENCED BY THE AUDIO CHAIN. With no rubberband, or
+# no writable temporary file, the plain voice plays instead. The watchdog
+# exists to speak when the laptop is offline; a higher voice beats no voice.
+#
+# paplay, NOT aplay: aplay bypasses PipeWire and skips the loudness filters.
 P="$HOME/.local/share/piper"
 VOICE="${{PIPER_VOICE:-{VOICE}}}"
+RATE={SAMPLE_RATE}
+PITCH="${{PIPER_PITCH:-{PITCH_SEMITONES}}}"
 
-"$P/venv/bin/python" -m piper -m "$P/voices/$VOICE.onnx" {PIPER_ARGS} --output-raw 2>/dev/null \\
-  | sox -t raw -r {SAMPLE_RATE} -e signed -b 16 -c 1 - \\
-        -t raw -r {SAMPLE_RATE} -e signed -b 16 -c 1 - {SOX_CHAIN} 2>/dev/null \\
-  | paplay --raw --rate={SAMPLE_RATE} --format=s16le --channels=1
+play_raw() {{ paplay --raw --rate=$RATE --format=s16le --channels=1; }}
+synth() {{ "$P/venv/bin/python" -m piper -m "$P/voices/$VOICE.onnx" {PIPER_ARGS} --output-raw 2>/dev/null; }}
+
+TMP="$(mktemp "${{TMPDIR:-/tmp}}/piper-XXXXXX" 2>/dev/null)"
+if [ -z "$TMP" ] || ! command -v rubberband >/dev/null 2>&1; then
+    synth | sox -t raw -r $RATE -e signed -b 16 -c 1 - \\
+                -t raw -r $RATE -e signed -b 16 -c 1 - {SOX_CHAIN} 2>/dev/null | play_raw
+    [ -n "$TMP" ] && rm -f "$TMP"
+    exit 0
+fi
+
+synth | sox -t raw -r $RATE -e signed -b 16 -c 1 - "$TMP.wav" 2>/dev/null
+if rubberband -p "$PITCH" -F --fine "$TMP.wav" "$TMP.rb.wav" 2>/dev/null && [ -s "$TMP.rb.wav" ]; then
+    sox "$TMP.rb.wav" -t raw -r $RATE -e signed -b 16 -c 1 - {SOX_CHAIN} 2>/dev/null | play_raw
+else
+    sox "$TMP.wav" -t raw -r $RATE -e signed -b 16 -c 1 - {SOX_CHAIN} 2>/dev/null | play_raw
+fi
+rm -f "$TMP" "$TMP.wav" "$TMP.rb.wav"
 """
 
 SD_MODULE_BODY = """# Written by `fieldkit voice install`. piper as a speech-dispatcher module.
@@ -82,7 +106,11 @@ DefaultModule piper-generic
 
 def _apt_missing():
     need = []
-    for exe, pkg in (("sox", "sox"), ("paplay", "pulseaudio-utils"), ("spd-say", "speech-dispatcher")):
+    # rubberband is the pitch shifter. The wrapper degrades to the plain voice
+    # without it, so it is not fatal, but a fresh install should get it: the
+    # voice reads as a child at its natural pitch, which is a product problem.
+    for exe, pkg in (("sox", "sox"), ("paplay", "pulseaudio-utils"),
+                     ("spd-say", "speech-dispatcher"), ("rubberband", "rubberband-cli")):
         if not shutil.which(exe):
             need.append(pkg)
     return need

@@ -110,7 +110,56 @@ notifications, Orca, and Claude Code's own speechSynthesis.
 #    sample shorter than the real workload is not tuning, it is guessing, and
 #    each layer added hid the damage of the last.
 #
-# 12. AVX2 IS NOT REQUIRED. It is absent on the owner's 2012 i7-3632QM and piper
+# 12. `< file` IS NOT A PIPE, AND TESTING WITH ONE PROVES NOTHING ABOUT THE
+#    OTHER. Recorded 2026-10-13 after it cost three failed attempts and two
+#    wrong explanations in a row.
+#
+#    I checked whether rubberband could run inside the speech pipeline:
+#
+#        rubberband -p -2 -F --fine - - < in.wav > out.wav      70700 bytes, fine
+#
+#    and concluded "it works in a pipe". It does not:
+#
+#        cat in.wav | rubberband -p -2 -F --fine - - > out.wav   4184 bytes, TRUNCATED
+#
+#    A SHELL REDIRECT FROM A FILE GIVES SEEKABLE STDIN. A real pipe does not.
+#    On the command line the two look nearly identical and the dash arguments
+#    are the same, so the test LOOKS like it exercised the pipe case.
+#
+#    rubberband says why in its own stderr, which I did not read: "Pass 1:
+#    Studying..." It analyses the whole stream, then seeks back to the start.
+#    Nothing can rewind a pipe.
+#
+#    The failure was silent in the way that wastes the most time: no error, no
+#    non-zero exit, just a short file. The first two "fixes" were guesses about
+#    WAV headers, both wrong, because I had not isolated the stages.
+#
+#    GENERALISATION, beyond this tool: any program that makes more than one
+#    pass over its input needs a real file. sort, tac, and anything that
+#    reports a total before its output all behave this way. When a tool must
+#    live in a pipeline, prove it with `cat x |`, never with `< x`.
+#
+# 13. TEST THE WORDS YOU WILL ACTUALLY SAY, NOT A SAMPLE SENTENCE. An hour was
+#    spent on Frost's "Stopping by Woods on a Snowy Evening" and the word that
+#    eliminated a candidate was "Gorilla", which is in half this project's own
+#    alerts. kristin mangles it. No setting fixes that: espeak-ng hands every
+#    model identical phonemes, so a voice that cannot say a word has simply
+#    never been trained on anything like it.
+#
+# 14. A CALM VOICE IS CORRECT FOR AN EMERGENCY. DO NOT "FIX" THIS TO SOUND
+#    URGENT. The obvious design for an alarm is fast and clipped. Aviation and
+#    medical alarm practice went the other way long ago: a panicked voice
+#    induces panic and degrades comprehension, while a calm one carries
+#    authority and stays intelligible to somebody already stressed.
+#
+#    So the urgency comes from WHAT IS SAID and from repetition, never from
+#    delivery. The alert texts are short; the voice is not hurried. Measured:
+#    the danger alert went from 8.58 s to 3.39 s with NO change of pace, purely
+#    by removing words that were not information ("The processor is at", "and
+#    close heavy programs"). Brevity and urgency are separable, and only one of
+#    them belongs in the voice.
+#
+# 15. AVX2 IS NOT REQUIRED. It is absent on the owner's 2012 i7-3632QM and piper
 #    runs at 0.45x realtime regardless, because onnxruntime picks its instruction
 #    path at runtime. Do not refuse to try on an old CPU; measure instead.
 # ============================================================================
@@ -118,19 +167,27 @@ notifications, Orca, and Claude Code's own speechSynthesis.
 # THE SETTLED SETUP. Chosen by ear on 2026-10-13 after comparing espeak-ng,
 # mbrola, four British and four American neural voices. Do not change these
 # without the owner listening; they are preferences, not defaults.
-VOICE = "en_US-amy-medium"       # American female
+VOICE = "en_US-amy-medium"       # American female, 60 MB
 SAMPLE_RATE = "22050"            # from the model's own .onnx.json
 
-# NO INFERENCE OVERRIDES. The model's .onnx.json carries its own defaults
-# (noise_scale 0.667, length_scale 1.0, noise_w 0.8) and they are better than
-# the ones chosen here by ear on short phrases. See note 11. Passing nothing is
-# deliberate: an empty string here is the setting, not a missing value.
-PIPER_ARGS = ""
+# Settled 2026-10-13 after auditioning ELEVEN voices, including three high
+# quality models, on the project's real alert texts rather than a sample
+# sentence. amy says "Gorilla" better than any of them, which mattered because
+# the word is in half the alerts; kristin mangled it and was disqualified on
+# that alone. See note 14 for why these four numbers and not the defaults.
+LENGTH_SCALE = "1.06"            # slightly SLOWER. Measured reads as an adult.
+SENTENCE_SILENCE = "0.1"         # small gap. 0.4 was a hesitation before a warning.
+PITCH_SEMITONES = "-2.5"         # rubberband, formants PRESERVED. See note 14.
+PIPER_ARGS = f"--length-scale {LENGTH_SCALE} --sentence-silence {SENTENCE_SILENCE}"
 
-# NO PITCH SHIFT AND NO COMPANDER. Only a level normalise, which cannot smear
-# anything because it applies a single constant gain. See note 11 for the
-# measurements and the listening test that removed the rest.
+# Still no compander, and still no sox pitch. Level only. The pitch shift that
+# came back is rubberband with -F, which is a different thing entirely: sox
+# moved the formants, which is how an accent change is synthesised.
 SOX_CHAIN = "norm -1"
+
+# rubberband makes TWO passes and seeks backwards, so it cannot read a pipe.
+# The wrapper gives it a real file. Do not tidy that away: see note 12.
+NEEDS = ("sox", "paplay", "rubberband")
 
 WHY_LINUX_ONLY = ("Windows already sounds fine through System.Speech, and the owner's instruction on "
                   "2026-10-13 was to leave it exactly as it is. Nothing in this module runs there.")
@@ -139,4 +196,4 @@ from .doctor import doctor, lines, exit_code, speak          # noqa: E402
 from .install import plan, apply, clean                      # noqa: E402
 
 __all__ = ["doctor", "lines", "exit_code", "speak", "plan", "apply", "clean",
-           "VOICE", "PIPER_ARGS", "SOX_CHAIN", "WHY_LINUX_ONLY"]
+           "VOICE", "PIPER_ARGS", "SOX_CHAIN", "PITCH_SEMITONES", "NEEDS", "WHY_LINUX_ONLY"]

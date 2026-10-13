@@ -62,21 +62,40 @@ def test_the_wrapper_plays_through_pipewire_not_alsa():
 # sox implements `pitch` as a time-stretch plus resample, so its splice
 # artefacts accumulate over a passage; and any pitch shift without formant
 # correction moves the vowel formants, which is how an accent change is made.
-def test_the_audio_is_not_processed_at_all():
+def test_sox_does_nothing_but_set_the_level():
     assert voice.SOX_CHAIN.strip() == "norm -1", (
-        "only a level normalise may survive: a single constant gain cannot smear "
-        "anything. A pitch shift or compander here broke long sentences.")
+        "only a level normalise may live in sox: a single constant gain cannot "
+        "smear anything. A sox pitch shift or compander here broke long sentences.")
     for banned in ("pitch", "compand", "tempo", "speed", "stretch"):
         assert banned not in voice.SOX_CHAIN, f"{banned} is a time-domain effect"
 
 
-def test_the_model_defaults_are_not_overridden():
-    """The model's own .onnx.json knows better than an ear-tuned guess made on a
-    four-second phrase. An empty PIPER_ARGS is the setting, not a missing value."""
-    assert voice.PIPER_ARGS.strip() == "", (
-        "passing length-scale, noise-scale or noise-w-scale overrides values the "
-        "model ships; every one of those overrides was reverted after a listening test")
-    assert not hasattr(voice, "PITCH_CENTS"), "the pitch shift was removed, not merely set to zero"
+def test_only_the_two_overrides_that_survived_a_listening_test_are_set():
+    """noise_scale and noise_w stay at the model's defaults: overriding those is
+    what smeared long sentences and was reverted. length_scale and
+    sentence_silence are set, both SLOWER than default, which is the opposite
+    direction from the change that broke it."""
+    assert "--length-scale" in voice.PIPER_ARGS
+    assert "--sentence-silence" in voice.PIPER_ARGS
+    assert "noise" not in voice.PIPER_ARGS, (
+        "noise-scale and noise-w-scale flatten the voice and its cadence; "
+        "overriding them was the cause of the smearing and must not return")
+    assert float(voice.LENGTH_SCALE) > 1.0, (
+        "slower than default is the point: a quick delivery reads as a child")
+
+
+def test_the_pitch_shift_is_rubberband_and_never_sox():
+    """sox pitch is a time-stretch that splices segments AND moves formants,
+    which is how an accent change is synthesised. rubberband -F preserves them."""
+    assert float(voice.PITCH_SEMITONES) < 0
+    assert "rubberband" in voice.NEEDS
+    assert "pitch" not in voice.SOX_CHAIN, "sox must never do the pitch shift again"
+
+
+def test_the_pitch_shift_stays_inside_what_was_proven():
+    """Past about four semitones a female voice stops sounding lower and starts
+    sounding like a badly impersonated man. -2.5 was chosen by ear."""
+    assert abs(float(voice.PITCH_SEMITONES)) <= 4
 
 
 # Cleaning early is how a 61 MB voice costs a gigabyte: the models get binned
@@ -113,10 +132,59 @@ def test_a_fresh_install_cannot_bring_the_old_chain_back():
     comments mention pitch and compand deliberately, to explain why they are gone."""
     run = "\n".join(l for l in vinstall.WRAPPER_BODY.splitlines()
                     if not l.lstrip().startswith("#"))
-    for banned in ("pitch", "compand", "tempo", "speed",
-                   "length-scale", "noise-scale", "noise-w-scale"):
+    for banned in ("compand", "tempo", "speed", "noise-scale", "noise-w-scale"):
         assert banned not in run, (
             f"{banned!r} is back in the generated wrapper; it was removed on 2026-10-13 "
             f"after a listening test and must not return without another one")
+    assert "sox" in run and "pitch" not in run.split("rubberband")[0], \
+        "sox must not do the pitch shift; rubberband does, because it keeps formants"
     assert "norm -1" in run, "the level normalise is the one effect that stays"
     assert "paplay" in run
+
+
+def test_a_two_pass_tool_is_never_put_in_a_pipe():
+    """2026-10-13: `rubberband - -` was tested with `< file`, which gives
+    SEEKABLE stdin, and declared pipe-safe. Through a real pipe it silently
+    truncated 70700 bytes to 4184: no error, no non-zero exit, just a short
+    file. It does a study pass and seeks back; nothing rewinds a pipe.
+
+    So any audio stage needing more than one pass must be given a real file.
+    This test guards the wrapper against someone 'tidying' it back into a
+    single elegant pipeline.
+    """
+    run = "\n".join(l for l in vinstall.WRAPPER_BODY.splitlines()
+                    if not l.lstrip().startswith("#"))
+    if "rubberband" in run:
+        assert "- -" not in run, (
+            "rubberband makes two passes over its input and cannot read a pipe. "
+            "Give it a real file, or it truncates silently.")
+
+
+def test_the_wrapper_gives_rubberband_a_real_file_not_a_pipe():
+    """rubberband makes two passes and seeks backwards. Through a real pipe it
+    silently truncated 70700 bytes to 4184: no error, no non-zero exit, just a
+    short file. See note 12."""
+    run = "\n".join(l for l in vinstall.WRAPPER_BODY.splitlines()
+                    if not l.lstrip().startswith("#"))
+    assert "mktemp" in run, "it needs a real file"
+    assert "rubberband -p" in run
+    assert "rubberband -p \"$PITCH\" -F --fine - -" not in run, "that silently truncates"
+
+
+def test_an_alert_is_never_silenced_by_a_missing_pitch_shifter():
+    """The watchdog's whole purpose is to speak when the laptop is offline. A
+    slightly higher voice beats no voice."""
+    run = "\n".join(l for l in vinstall.WRAPPER_BODY.splitlines()
+                    if not l.lstrip().startswith("#"))
+    assert "command -v rubberband" in run, "it must check before relying on it"
+    assert run.count("play_raw") >= 3, "there must be a fallback path that still plays"
+
+
+def test_rubberband_is_in_the_install_list():
+    import shutil as _sh
+    real = _sh.which
+    try:
+        _sh.which = lambda n: None
+        assert "rubberband-cli" in vinstall._apt_missing()
+    finally:
+        _sh.which = real
