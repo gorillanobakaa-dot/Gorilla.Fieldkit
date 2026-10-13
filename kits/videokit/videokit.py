@@ -944,10 +944,51 @@ def _xfade_join(files, lens, xs, out, fps, audio, crf, preset, td, final):
         for i in range(1, len(files)):
             g.append(f"[{pa}][{i}:a]acrossfade=d={xs[i]}:c1=tri:c2=tri[a{i}]")
             pa = f"a{i}"
+    vgraph = [x for x in g if not x.startswith("[0:a]") and "acrossfade" not in x]
+    agraph = [x for x in g if "acrossfade" in x]
+    venc = ["-c:v", "libx264", "-crf", str(crf), "-preset", preset, "-pix_fmt", "yuv420p"]
+    abr = "128k" if final else "192k"
+    tail = ["-movflags", "+faststart"] if final else []
+
+    # ------------------------------------------------------------------
+    # FOUR OR MORE INPUTS WITH AUDIO MUST BE RENDERED IN SEPARATE PASSES.
+    # ------------------------------------------------------------------
+    # ffmpeg 7.1.5 cannot run an xfade video chain and a chained acrossfade
+    # audio chain in ONE command past three inputs. The audio encoder is never
+    # opened and the output file is zero bytes:
+    #
+    #   [aost#0:1/aac] Could not open encoder before EOF
+    #   [out#0/mp4] Nothing was written into output file
+    #
+    # Measured 2026-10-13, bisected by input count on this exact ffmpeg:
+    #   2 inputs WORKS, 3 WORKS, 4 FAILS, 5 FAILS, 6 FAILS, 8 FAILS.
+    #
+    # Each chain alone is fine at eight inputs: video alone produced 2.60 s,
+    # audio alone 2.70 s. Only the combination deadlocks, because acrossfade
+    # must consume its whole first input before emitting anything while xfade
+    # emits progressively, and the two compete for the same demuxers.
+    #
+    # Neither -filter_complex_threads 1, -filter_threads 1, -shortest nor
+    # -max_muxing_queue_size makes any difference; all were tried.
+    #
+    # So: render video, render audio, then MUX BY STREAM COPY, which re-encodes
+    # nothing. The audio pass is cheap. -shortest holds the result to the video
+    # timeline, which is the planned one; acrossfade runs about 0.1 s long.
+    if audio and len(files) >= 4:
+        vtmp = pathlib.Path(td) / (pathlib.Path(out).stem + ".v.mp4")
+        atmp = pathlib.Path(td) / (pathlib.Path(out).stem + ".a.m4a")
+        run(["ffmpeg", "-v", "error", "-y"] + ins + ["-filter_complex", ";".join(vgraph),
+             "-map", f"[{prev}]", "-an"] + venc + [str(vtmp)], cwd=td)
+        run(["ffmpeg", "-v", "error", "-y"] + ins + ["-filter_complex", ";".join(agraph),
+             "-map", f"[{pa}]", "-vn", "-c:a", "aac", "-b:a", abr, str(atmp)], cwd=td)
+        run(["ffmpeg", "-v", "error", "-y", "-i", str(vtmp), "-i", str(atmp),
+             "-map", "0:v", "-map", "1:a", "-c", "copy", "-shortest"] + tail + [str(out)], cwd=td)
+        return merged
+
     cmd = ["ffmpeg", "-v", "error", "-y"] + ins + ["-filter_complex", ";".join(g), "-map", f"[{prev}]"]
-    cmd += (["-map", f"[{pa}]", "-c:a", "aac", "-b:a", "128k" if final else "192k"] if audio else ["-an"])
-    cmd += ["-c:v", "libx264", "-crf", str(crf), "-preset", preset, "-pix_fmt", "yuv420p"]
-    run(cmd + (["-movflags", "+faststart"] if final else []) + [str(out)], cwd=td)
+    cmd += (["-map", f"[{pa}]", "-c:a", "aac", "-b:a", abr] if audio else ["-an"])
+    cmd += venc
+    run(cmd + tail + [str(out)], cwd=td)
     return merged
 
 
