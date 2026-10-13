@@ -131,6 +131,16 @@ def silent():
 
 def say(text, platform=None, which=shutil.which, run=subprocess.run, out=print):
     """Speak `text`. -> "spoken" or "printed" (no voice on this machine, or the voice failed: LAST_PROBLEM says why)."""
+    # Fix the text for speech before anything says it, so every caller gets it
+    # without having to remember. A hyphen between letters is spoken as a PAUSE
+    # by espeak-ng, which breaks the word in two; see fieldkit/voice/speakable.py
+    # for the finding and the two rules it only reports rather than fixes.
+    try:
+        from fieldkit.voice.speakable import speakable as _speakable
+        text = _speakable(text)[0]
+    except Exception:
+        pass        # speaking imperfectly beats not speaking
+
     win = (platform or sys.platform) == "win32"
     cmd = voice(platform, which)
     if silent() and cmd:
