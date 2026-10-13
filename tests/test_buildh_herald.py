@@ -1,5 +1,6 @@
 """herald.py: the spoken herald on any platform; battery warnings, the run's result, a printed line when no voice."""
 import subprocess
+import os
 import sys
 
 from fieldkit.buildh import herald
@@ -59,16 +60,19 @@ def test_the_voice_is_offline_and_a_missing_one_prints():
 
 
 def test_the_command_line_says_something_on_this_machine():
+    # SILENT: this used to come out of the speakers on every full suite run
+    env = dict(os.environ, FIELDKIT_VOICE_SILENT="1")
     r = subprocess.run([sys.executable, "-m", "fieldkit.buildh.herald", "--say", "test"], capture_output=True, text=True,
-                       timeout=120)
+                       timeout=120, env=env)
     assert r.returncode == 0 and "herald: " in r.stdout
 
 
 def test_the_herald_command_works_from_any_folder(tmp_path):
     """2026-10-10: the owner was given `python -m fieldkit.buildh.herald` and ran it from C:\\WINDOWS\\system32; a
     command the harness gives must work from anywhere: `fieldkit build-harness herald "words"`."""
+    env = dict(os.environ, FIELDKIT_VOICE_SILENT="1")   # SILENT: see above
     r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "herald", "a test"], capture_output=True,
-                       text=True, timeout=120, cwd=str(tmp_path))
+                       text=True, timeout=120, cwd=str(tmp_path), env=env)
     assert r.returncode == 0 and "herald: " in r.stdout, r.stdout + r.stderr
 
 
@@ -106,3 +110,44 @@ def test_doctor_knows_the_herald_voice():
     from fieldkit.core import doctor
     req = json.loads(doctor.REQUIREMENTS.read_text(encoding="utf-8"))["tools"]["espeak-ng"]
     assert req["for"] == ["herald"] and req["only"] == "linux" and "battery" in req["why"]
+
+
+def test_the_suite_never_makes_the_computer_talk():
+    """2026-10-13: the owner asked why he kept hearing "test, a test" from his
+    speakers. Two tests ran the real herald, so every full run spoke aloud.
+    Same fault as a GUI test drawing on the real screen: a side effect on the
+    person running the suite. It should be runnable during a phone call."""
+    import subprocess as sp
+    spoke = []
+    env = dict(os.environ, FIELDKIT_VOICE_SILENT="1")
+    real = os.environ.get("FIELDKIT_VOICE_SILENT")
+    os.environ["FIELDKIT_VOICE_SILENT"] = "1"
+    try:
+        assert herald.silent() is True
+        result = herald.say("this must not be audible",
+                            which=lambda n: "/usr/bin/spd-say" if n == "spd-say" else None,
+                            run=lambda *a, **k: spoke.append(a) or sp.CompletedProcess(a, 0))
+        assert result == "spoken", "silent mode must still report success"
+        assert not spoke, "nothing may actually be run in silent mode"
+    finally:
+        if real is None:
+            os.environ.pop("FIELDKIT_VOICE_SILENT", None)
+        else:
+            os.environ["FIELDKIT_VOICE_SILENT"] = real
+
+
+def test_silent_mode_is_off_by_default_so_alerts_still_work():
+    """The watchdog's whole purpose is to speak when the laptop is offline."""
+    real = os.environ.pop("FIELDKIT_VOICE_SILENT", None)
+    try:
+        assert herald.silent() is False
+    finally:
+        if real is not None:
+            os.environ["FIELDKIT_VOICE_SILENT"] = real
+
+
+def test_an_explicit_off_value_is_not_treated_as_on():
+    for value in ("0", "false", "no", ""):
+        os.environ["FIELDKIT_VOICE_SILENT"] = value
+        assert herald.silent() is False, value
+    os.environ.pop("FIELDKIT_VOICE_SILENT", None)

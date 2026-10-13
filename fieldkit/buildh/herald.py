@@ -106,10 +106,37 @@ def explain(check):
                "Until then the herald still works: it prints its sentences on the screen instead of speaking them."])
 
 
+# ============================================================================
+# A TEST SUITE MUST NOT MAKE THE COMPUTER TALK.
+# ============================================================================
+# 2026-10-13: the owner asked why he kept hearing "test, a test" out of his
+# speakers. Two tests ran the real herald, so every full run spoke aloud,
+# twice, through whatever he was listening to.
+#
+# It is the same fault as a GUI test drawing on the real screen, found the same
+# day: a test with a side effect on the person running it. A suite should be
+# runnable during a phone call.
+#
+# FIELDKIT_VOICE_SILENT=1 does everything except make a sound: it still resolves
+# the voice program, still reports whether this machine HAS one, and still
+# returns "spoken" when it would have spoken. So the tests check the same path,
+# they just do not shout. It is also useful on its own, for anyone who wants the
+# harness quiet without pretending it has no voice.
+SILENT_ENV = "FIELDKIT_VOICE_SILENT"
+
+
+def silent():
+    return os.environ.get(SILENT_ENV, "").strip() not in ("", "0", "false", "no")
+
+
 def say(text, platform=None, which=shutil.which, run=subprocess.run, out=print):
     """Speak `text`. -> "spoken" or "printed" (no voice on this machine, or the voice failed: LAST_PROBLEM says why)."""
     win = (platform or sys.platform) == "win32"
     cmd = voice(platform, which)
+    if silent() and cmd:
+        # everything verified, nothing audible
+        LAST_PROBLEM["why"] = ""
+        return "spoken"
     LAST_PROBLEM["why"] = "" if cmd else "no offline voice on this machine: install espeak-ng"
     if cmd:
         argv = cmd if win else cmd + [text]
