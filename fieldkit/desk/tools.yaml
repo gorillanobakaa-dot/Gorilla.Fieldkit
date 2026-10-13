@@ -2072,3 +2072,145 @@ tools:
   safety: changes-things
   platforms: [linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_watchdog.py"]
+
+- id: wifi
+  title: Why the wifi is slow, answered from the hardware rather than from guesses
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi]
+  path: ${FIELDKIT}/fieldkit/wifi
+  platforms: [linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: net-antenna
+  title: What antenna the cellular bands in use actually require, with the loss budget
+  harness: net
+  entry: [python, -m, fieldkit, net, antenna]
+  path: ${FIELDKIT}/fieldkit/net/cellular.py
+  inputs:
+    - {name: bands, flag: --bands, type: str, required: true, help: "the hub's band line, e.g. B3+B3+B7+n78+n78"}
+    - {name: cable_m, flag: --cable-m, type: float, required: false, help: "planned coax run in metres"}
+    - {name: cable, flag: --cable, type: str, required: false, help: "coax type for the loss budget"}
+  effects: []
+  safety: read-only
+  platforms: [linux, darwin, windows, freebsd]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_net_cellular.py"]
+
+- id: net-route
+  title: Which interface the internet actually goes out of, before you measure anything
+  harness: net
+  entry: [python, -m, fieldkit, net, route]
+  path: ${FIELDKIT}/fieldkit/net/route.py
+  inputs: []
+  effects: [network]
+  safety: read-only
+  platforms: [linux]
+  changes: false
+
+- id: explain
+  title: "A written explanation read from a file: no model, no tokens, no variance"
+  harness: explain
+  entry: [python, -m, fieldkit, explain]
+  path: ${FIELDKIT}/fieldkit/explain/__init__.py
+  inputs:
+    - {name: topic, flag: null, type: str, required: false, help: "omit to list the topics"}
+    - {name: lang, flag: --lang, type: str, required: false, help: "language code, e.g. ro"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux, darwin, windows, freebsd]
+  changes: false
+
+- id: wifi-channels
+  title: Which 2.4 GHz channel is actually free, with the argument for the choice
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, channels]
+  path: ${FIELDKIT}/fieldkit/wifi/channelsurvey.py
+  inputs:
+    - {name: band, flag: --band, type: str, required: false, help: "2.4 or 5 (default 2.4)"}
+    - {name: check, flag: --check, type: int, required: false, help: "what does this channel overlap"}
+    - {name: avoid, flag: --avoid, type: str, required: false, help: "channels you control elsewhere"}
+    - {name: profile, flag: --profile, type: str, required: false, help: "a named profile. NEVER automatic"}
+  effects: [network]
+  safety: read-only
+  platforms: [linux, darwin, windows, freebsd]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi_channelsurvey.py"]
+
+- id: wifi-card
+  title: What this machine's radio can really tune, read from the card not guessed
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, card]
+  path: ${FIELDKIT}/fieldkit/wifi/channelsurvey.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi_channelsurvey.py"]
+
+- id: wifi-doctor
+  title: The link, the card's real limits, and which layer is the bottleneck
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, doctor]
+  path: ${FIELDKIT}/fieldkit/wifi/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: wifi-scan
+  title: Every network in range, with the band named honestly rather than from the SSID
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, scan]
+  path: ${FIELDKIT}/fieldkit/wifi/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: wifi-upgrade
+  title: Can this machine's wifi card be replaced, and what cannot be known from software
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, upgrade]
+  path: ${FIELDKIT}/fieldkit/wifi/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: shot
+  title: Read numbers off a screenshot, and reason about what they mean
+  harness: shot
+  entry: [python, -m, fieldkit, shot]
+  path: ${FIELDKIT}/fieldkit/shot
+  platforms: [windows, linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]
+
+- id: shot-speedtest
+  title: Pull download, upload and ping off a speedtest screenshot (never guesses)
+  harness: shot
+  entry: [python, -m, fieldkit, shot, speedtest]
+  path: ${FIELDKIT}/fieldkit/shot/read.py
+  inputs:
+    - {name: files, flag: null, type: str, required: true, help: "the image files"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]
+
+- id: shot-verdict
+  title: From several speedtest shots, say WHICH LAYER is limiting
+  harness: shot
+  entry: [python, -m, fieldkit, shot, verdict]
+  path: ${FIELDKIT}/fieldkit/shot/read.py
+  inputs:
+    - {name: files, flag: null, type: str, required: true, help: "the image files"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]

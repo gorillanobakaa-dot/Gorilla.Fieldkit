@@ -21,6 +21,15 @@ groups:
   - name: watchdog
     title: The online watchdog (rejoin the wifi by itself, or say so out loud)
     sources: [watchdog/*.py]
+  - name: wifi
+    title: Why the wifi is slow, answered from the hardware (card bands, streams, channels)
+    sources: [wifi/*.py]
+  - name: net
+    title: Which interface carries your traffic, what kind of line it is, and what antenna the cellular bands need
+    sources: [net/*.py]
+  - name: shot
+    title: Reading numbers off a screenshot, and reasoning about which layer is limiting
+    sources: [shot/*.py]
   - name: voice
     title: A voice worth listening to, on Linux (piper, speech-dispatcher, the loudness chain)
     sources: [voice/*.py]

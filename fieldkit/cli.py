@@ -36,6 +36,13 @@
     fieldkit laptop cpu|alerts|sound|volume|video|wallpaper|rules ...   a laptop's everyday repairs (fieldkit/laptop)
     fieldkit voice doctor|install|say|clean ...          a voice worth listening to, on Linux (fieldkit/voice)
     fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
+    fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
+    fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
+    fieldkit wifi doctor|scan|upgrade                   why the wifi is slow, from the hardware (fieldkit/wifi)
+    fieldkit wifi channels [--why|--check CH|--networks] which channel is free, and the argument for it
+    fieldkit wifi card                                  what this machine's radio can actually do
+    fieldkit wifi gui                                   the same thing in a clickable window
+    fieldkit shot read|speedtest|verdict FILE...        read numbers off a screenshot (fieldkit/shot)
     fieldkit snapshot take NAME [--path DIR...] [--services --tasks --programs --processes]
     fieldkit snapshot diff BEFORE AFTER          exit 3 when something changed
     fieldkit lifecycle SPEC.yaml --approve       install, verify, uninstall; report leftovers (exit 3)
@@ -66,6 +73,7 @@
 Exit codes: 0 fine, 1 error, 2 bad usage, 3 findings (problems, secrets, failed stage).
 """
 import argparse
+import re
 import json
 import sys
 from pathlib import Path
@@ -1170,6 +1178,60 @@ def build_parser():
     wd.add_argument("--reconnect-after", type=int, default=20, help="offline seconds before rejoining (20)")
     wd.set_defaults(fn=cmd_watchdog)
 
+    wf = sub.add_parser("wifi", parents=[common], help="why the wifi is slow, answered from the "
+                                                       "hardware: doctor, scan, channels, card, "
+                                                       "upgrade (fieldkit/wifi)")
+    wf.add_argument("action", choices=["doctor", "scan", "channels", "card", "upgrade", "gui",
+                                       "watch", "rate"])
+    wf.add_argument("--mbps", type=float, help="rate: the 'connection speed' a device reports")
+    wf.add_argument("--ssid", help="watch: the network name, exactly, punctuation included")
+    wf.add_argument("--bssid", help="watch: the radio's MAC, when one name covers both bands")
+    wf.add_argument("--samples", type=int, default=8, help="watch: how many scans (8)")
+    wf.add_argument("--band", default="2.4", choices=["2.4", "5"], help="which band (2.4)")
+    wf.add_argument("--avoid", default="", help="channels you control elsewhere, e.g. 6")
+    wf.add_argument("--check", type=int, metavar="CH", help="what does channel CH overlap")
+    wf.add_argument("--why", action="store_true", help="the argued rationale only")
+    wf.add_argument("--networks", action="store_true", help="every network, not the channels")
+    wf.add_argument("--profile", help="a named tuning profile. NEVER automatic: without this "
+                                      "the values are neutral and suit any machine")
+    wf.add_argument("--list-profiles", action="store_true", help="what profiles exist")
+    wf.add_argument("--mine", action="append", default=None, metavar="SSID",
+                    help="your OWN access point, never counted against itself")
+    wf.add_argument("--count-mine", action="store_true", help="include your own AP (biased)")
+    wf.add_argument("--devices", choices=["mixed", "local"], default=None,
+                    help="'local': YOU confirm every device here can use channels 12 and 13. "
+                         "Never guessed, because only you can know it")
+    wf.add_argument("--technical", action="store_true", help="the full engineering table")
+    wf.add_argument("--score", type=int, metavar="CH", help="the arithmetic behind one score")
+    wf.add_argument("--case", type=int, metavar="CH", help="argue YOUR channel vs the pick")
+    wf.set_defaults(fn=cmd_wifi)
+
+    nt = sub.add_parser("net", parents=[common], help="which interface carries your traffic, "
+                                                      "what kind of line it is, and what antenna "
+                                                      "the cellular bands need (fieldkit/net)")
+    nt.add_argument("action", choices=["route", "compare", "kind", "router", "risk",
+                                       "cellular", "antenna"])
+    nt.add_argument("--iface", help="interface, for prefer/unprefer")
+    nt.add_argument("--ip", help="the router's address (default: the gateway)")
+    nt.add_argument("--bands", help="carriers in use, e.g. B3+B3+B7+n78+n78")
+    nt.add_argument("--cable-m", type=float, default=5.0, help="planned coax run, metres (5)")
+    nt.add_argument("--cable", default="RG174 (thin, supplied with most kits)",
+                    help="coax type, for the loss budget")
+    nt.set_defaults(fn=cmd_net)
+
+    ex = sub.add_parser("explain", parents=[common], help="a written explanation, from a file: "
+                                                          "no model, no tokens (fieldkit/explain)")
+    ex.add_argument("topic", nargs="?", help="omit to list what can be explained")
+    ex.add_argument("--lang", help="a language code, e.g. ro. Falls back to English and says so")
+    ex.add_argument("--check", action="store_true", help="verify every translation has an original")
+    ex.set_defaults(fn=cmd_explain)
+
+    sh = sub.add_parser("shot", parents=[common], help="read numbers off a screenshot: read, "
+                                                       "speedtest, verdict (fieldkit/shot)")
+    sh.add_argument("action", choices=["read", "speedtest", "verdict"])
+    sh.add_argument("files", nargs="+", help="the image files")
+    sh.set_defaults(fn=cmd_shot)
+
     rp = sub.add_parser("repro", parents=[common],
                         help="two builds compared byte for byte: REPRODUCED, or which bytes differ (inside archives) and why")
     rp.add_argument("action", choices=["compare"])
@@ -1261,6 +1323,185 @@ def cmd_build_harness(a):
     except task.Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
+
+
+def cmd_wifi(a):
+    from . import wifi
+    if a.action == "doctor":
+        d = wifi.doctor()
+        _emit(d, a.json, lambda x: print("\n".join(wifi.lines(x))))
+        return wifi.exit_code(d)
+    if a.action == "scan":
+        nets = wifi.scan()
+        _emit({"networks": nets}, a.json, lambda x: print("\n".join(
+            f"  {n['signal']:>3}%  ch {n['channel']:<3} {n['band']:<8} {n['ssid']}"
+            for n in sorted(x["networks"], key=lambda n: -n["signal"]))))
+        return 0
+    if a.action == "upgrade":
+        _emit(wifi.upgrade(), a.json, lambda x: print(json.dumps(x, indent=1, default=str)))
+        return 0
+    if a.action == "rate":
+        from .wifi import channelsurvey as cs
+        if a.mbps is None:
+            print("REFUSED: pass --mbps with the number your device shows, e.g. --mbps 2401",
+                  file=sys.stderr)
+            return 2
+        d = cs.decode_rate(a.mbps)
+        _emit(d, a.json, lambda x: print("\n".join(cs.rate_lines(x))))
+        return 2 if "standard" not in d else 0
+    if a.action == "watch":
+        from .wifi import channelsurvey as cs
+        if not (a.ssid or a.bssid):
+            print("REFUSED: pass --ssid or --bssid. Watching 'the network' is ambiguous when "
+                  "several are in range.", file=sys.stderr)
+            return 2
+        d = cs.watch(a.ssid, a.bssid, samples=a.samples)
+        _emit(d, a.json, lambda x: print("\n".join(cs.watch_lines(x))))
+        return 2 if "error" in d else 0
+    if a.action in ("channels", "card", "gui"):
+        from .wifi import channelsurvey as cs
+        if a.list_profiles:
+            for n in cs.list_profiles():
+                cfg, _ = cs.load_profile(n)
+                print(f"  {n:<12} {cfg.get('description', '')}")
+            print("\nWithout --profile the values are neutral and suit any machine.")
+            return 0
+        if a.action == "gui":
+            return cs.gui()
+        if a.action == "card":
+            c = cs.card_report()
+            _emit(c, a.json, lambda x: print(cs.card_lines(x)))
+            return 0 if c["read"] else 3
+        cfg, prob = cs.load_profile(a.profile)
+        if a.devices:
+            cfg["devices"] = a.devices
+        if prob:
+            print("REFUSED: " + prob, file=sys.stderr)
+            return 2
+        nets, problem = cs.scan()
+        if problem:
+            print("REFUSED: " + problem, file=sys.stderr)
+            return 2
+        excl = {int(x) for x in re.findall(r"\d+", a.avoid)}
+        # the SAME own-AP rule as the standalone file: the two entry points must
+        # never disagree about the numbers they print (they did, 2026-10-13)
+        mine = set(a.mine or ())
+        if not mine and not a.count_mine:
+            here = cs.current_network()
+            if here:
+                mine.add(here)
+        if a.count_mine:
+            mine = set()
+        rows, rules = cs.analyse(nets, a.band, avoid=excl, cfg=cfg, mine=mine)
+        rec = cs.recommend(rows, a.band, cfg=cfg)
+        here_ch = next((n.channel for n in nets if n.ssid in mine), None)
+        if a.json:
+            print(cs.to_json(nets, rows, rec, rules, a.band, cfg))
+        elif a.score is not None:
+            print("\n".join(cs.breakdown_lines(
+                cs.score_breakdown(nets, a.score, a.band, cfg, mine))))
+        elif a.case is not None:
+            print("\n".join(cs.case_for(rows, rec, a.case, rules, cfg)))
+        elif a.check is not None:
+            print("\n".join(cs.warn_about(rows, a.check)))
+        elif a.networks:
+            print(cs.network_table(nets, a.band))
+        elif a.why:
+            print("\n".join(cs.rationale(rows, rec, rules, a.band, cfg)))
+        elif a.technical:
+            print(cs.text_report(nets, rows, rec, rules, a.band, cfg))
+        else:
+            print(cs.plain_report(nets, rows, rec, rules, a.band, cfg, here_ch))
+        return 0
+    raise SystemExit("fieldkit wifi doctor|scan|channels|card|gui|upgrade")
+
+
+def cmd_net(a):
+    from .net import route, router, cellular
+    # the band maths is pure arithmetic and works anywhere; everything else
+    # reads Linux state and must REFUSE rather than report an empty result
+    blocked = route.unsupported_here()
+    if blocked and a.action not in ("cellular", "antenna"):
+        print("REFUSED: " + blocked, file=sys.stderr)
+        return 4
+    if a.action == "route":
+        d = route.route_for()
+        _emit(d, a.json, lambda x: print("\n".join(route.lines(x))))
+        return route.exit_code(d)
+    if a.action == "compare":
+        d = route.compare()
+        _emit(d, a.json, lambda x: print(json.dumps(x, indent=1, default=str)))
+        return 0
+    if a.action == "kind":
+        d = route.kind()
+        _emit(d, a.json, lambda x: print(json.dumps(x, indent=1, default=str)))
+        return 0
+    if a.action == "router":
+        warn = route.gateway_warning()
+        if warn and not a.json:
+            print("  ! " + warn + "\n", file=sys.stderr)
+        d = router.identify(a.ip)
+        if warn:
+            d["other_routers"] = route.gateways()
+        _emit(d, a.json, lambda x: print("\n".join(router.lines(x))))
+        return 0
+    if a.action == "risk":
+        # reads the lockout policy BEFORE any credential is used, so a probe
+        # cannot cost the owner access to their own hub
+        d = router.risk(a.ip)
+        _emit(d, a.json, lambda x: print("\n".join(router.lines(x))))
+        return 0
+    if a.action in ("cellular", "antenna"):
+        if not a.bands:
+            print("REFUSED: pass --bands with the hub's own band line, e.g. "
+                  "--bands B3+B3+B7+n78+n78. Without it any antenna advice is a guess, "
+                  "and a mismatched antenna receives WORSE than none.", file=sys.stderr)
+            return 2
+        carriers = cellular.parse_bands(a.bands)
+        if a.action == "cellular":
+            d = cellular.read_status(a.bands)
+            _emit(d, a.json, lambda x: print("\n".join(cellular.lines(x))))
+            return 0
+        d = cellular.antenna_spec(carriers, cable_m=a.cable_m, cable=a.cable)
+        _emit(d, a.json, lambda x: print("\n".join(cellular.spec_lines(x))))
+        return 2 if "error" in d else 0
+    raise SystemExit("fieldkit net route|compare|kind|router|risk|cellular|antenna")
+
+
+def cmd_explain(a):
+    from . import explain
+    if a.check:
+        d = explain.check()
+        _emit(d, a.json, lambda x: print("\n".join(explain.lines(x))))
+        return explain.exit_code(d)
+    if not a.topic:
+        have = explain.topics()
+        _emit({"topics": have}, a.json, lambda x: print("\n".join(
+            f"  {t:<22} {'+'.join(langs)}" for t, langs in sorted(x["topics"].items()))))
+        return 0
+    d = explain.explain(a.topic, a.lang)
+    _emit(d, a.json, lambda x: print("\n".join(explain.lines(x))))
+    return explain.exit_code(d)
+
+
+def cmd_shot(a):
+    from . import shot
+    if a.action == "read":
+        for f in a.files:
+            text, err = shot.read_text(f)
+            _emit({"file": f, "text": text, "error": err}, a.json,
+                  lambda x: print(x["text"] or f"  {x['error']}"))
+        return 0
+    results = [shot.speedtest(f) for f in a.files]
+    if a.action == "speedtest":
+        _emit({"results": results}, a.json, lambda x: print("\n".join(
+            (f"  {r['file']:<14} down {r['download']:>8.2f}  up {r['upload']:>7.2f}  ping {r['ping']}"
+             if r["complete"] else f"  {r['file']:<14} INCOMPLETE: {r['error']}")
+            for r in x["results"])))
+        return 0 if any(r["complete"] for r in results) else 3
+    v = shot.verdict(results)
+    _emit(v, a.json, lambda x: print("\n".join(shot.lines(x))))
+    return shot.exit_code(v)
 
 
 def cmd_watchdog(a):
