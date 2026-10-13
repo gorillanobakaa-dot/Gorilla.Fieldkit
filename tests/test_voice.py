@@ -100,7 +100,16 @@ def test_the_pitch_shift_stays_inside_what_was_proven():
 
 # Cleaning early is how a 61 MB voice costs a gigabyte: the models get binned
 # while the owner is still choosing, then fetched again (note 2).
-def test_clean_refuses_while_the_voice_is_not_working(monkeypatch):
+def test_clean_refuses_while_the_voice_is_not_working(monkeypatch, tmp_path):
+    """The refusal is only reachable when there is something to clean.
+
+    Without a voices folder clean() answers "nothing-to-clean" first and the
+    refusal is never tested. That is the state of any machine that has not
+    installed the voice, which is every CI runner (2026-10-13).
+    """
+    (tmp_path / "voices").mkdir()
+    (tmp_path / "voices" / "en_GB-someone-else.onnx").write_bytes(b"x" * 16)
+    monkeypatch.setattr(vinstall, "PIPER_DIR", tmp_path)
     monkeypatch.setattr(vinstall, "doctor", lambda *a, **k: {"ok": False})
     out = vinstall.clean(platform="linux", apply_it=True)
     assert out["status"] == "refused"

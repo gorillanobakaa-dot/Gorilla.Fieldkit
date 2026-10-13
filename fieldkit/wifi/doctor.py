@@ -166,6 +166,13 @@ def channel_advice(nets, mine=None):
 
 def upgrade():
     """Can the card be swapped, and would it help? Says what it cannot know."""
+    # Same refusal as doctor(): this reads /sys/class/dmi and calls os.geteuid,
+    # neither of which exists on Windows, where it raised AttributeError instead
+    # of saying so (2026-10-13, windows-latest).
+    if sys.platform == "win32":
+        return {"platform": "windows", "status": "not-this-platform",
+                "why": "this reads Linux DMI and slot data (/sys/class/dmi, dmidecode)",
+                "notes": [], "cannot_determine_here": []}
     c = card()
     vendor = _dmi("sys_vendor")
     model = _dmi("product_name")

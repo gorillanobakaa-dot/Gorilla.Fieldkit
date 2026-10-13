@@ -137,7 +137,9 @@ def test_the_herald_fixes_text_before_speaking_it():
             spoken["argv"] = argv
             return type("R", (), {"returncode": 0, "stderr": b""})()
 
-        herald.say("Hello Yoshie-chan",
+        # platform="linux": on Windows the sentence travels in the ENVIRONMENT
+        # and never appears in argv, which is deliberate and tested elsewhere.
+        herald.say("Hello Yoshie-chan", platform="linux",
                    which=lambda n: "/usr/bin/spd-say" if n == "spd-say" else None,
                    run=fake_run)
         assert "Yoshie chan" in " ".join(spoken["argv"]), spoken

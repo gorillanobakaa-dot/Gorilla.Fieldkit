@@ -16,6 +16,23 @@ def net(ssid, ch, signal=50, width=20, band="2.4"):
     return cs.Network(ssid, ch, cs.freq_of(ch, band), band, signal, width_mhz=width)
 
 
+@pytest.fixture(autouse=True)
+def _a_known_card(monkeypatch):
+    """analyse() reads THIS machine's radio unless it is told otherwise.
+
+    local_rules() runs `iw` and, finding none, assumes the universally safe
+    channels 1 to 11. So on the laptop this was written on, which tunes 1 to 13,
+    the channel 12 and 13 tests passed; on a CI runner with no wifi at all, the
+    same channels came back as "your own card cannot tune this channel" and six
+    tests failed (2026-10-13, ubuntu-latest and windows-latest). The logic being
+    tested is the regulatory and overlap reasoning, not what radio the test
+    machine happens to own, so the card is pinned here. A test that wants a
+    different card passes `rules=` itself.
+    """
+    monkeypatch.setattr(cs, "local_rules", lambda: {
+        "regdomain": "GB", "usable_24": list(range(1, 14)), "note": ""})
+
+
 # ---------------------------------------------------------------- the maths
 def test_only_1_6_11_do_not_overlap_each_other():
     for a in cs.NON_OVERLAPPING_24:
@@ -84,7 +101,9 @@ def test_big_margin_does_justify_leaving():
 
 # -------------------------------------------------------------- regulation
 def test_channel_14_is_never_usable():
-    rows, _ = cs.analyse([net("a", 6)], "2.4")
+    """Even on a card that CAN tune it, which is the only interesting case."""
+    rows, _ = cs.analyse([net("a", 6)], "2.4",
+                         rules={"regdomain": "JP", "usable_24": list(range(1, 15)), "note": ""})
     ch14 = next(r for r in rows if r.channel == 14)
     assert not ch14.usable
     assert "802.11b" in ch14.legal_note

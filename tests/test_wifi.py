@@ -85,6 +85,7 @@ def test_mcs_indexes_give_the_stream_count(monkeypatch, top, streams):
 # The verdict must name the CARD when the card is the limit, because that is the
 # finding people chase router settings for hours to avoid hearing.
 def test_a_single_band_card_on_24ghz_blames_the_card(monkeypatch):
+    monkeypatch.setattr(W.sys, "platform", "linux")      # doctor() refuses on Windows, by design
     monkeypatch.setattr(W, "active_link", lambda: {
         "ssid": "5G-Hub-MH3S", "channel": "6", "mhz": "2437",
         "band": "2.4 GHz", "advertised_rate": "540 Mbit/s", "signal": "84"})
@@ -100,6 +101,7 @@ def test_a_single_band_card_on_24ghz_blames_the_card(monkeypatch):
 
 
 def test_a_dual_band_card_on_24ghz_blames_the_choice_not_the_card(monkeypatch):
+    monkeypatch.setattr(W.sys, "platform", "linux")      # doctor() refuses on Windows, by design
     monkeypatch.setattr(W, "active_link", lambda: {
         "ssid": "Home", "channel": "6", "mhz": "2437", "band": "2.4 GHz",
         "advertised_rate": "300 Mbit/s", "signal": "70"})
@@ -114,7 +116,8 @@ def test_a_dual_band_card_on_24ghz_blames_the_choice_not_the_card(monkeypatch):
 # upgrade() must say what it CANNOT know. Antenna count and BIOS whitelists are
 # not readable from software, and a tool that stays quiet about that invites
 # somebody to buy a card that will not help.
-def test_upgrade_states_what_software_cannot_determine():
+def test_upgrade_states_what_software_cannot_determine(monkeypatch):
+    monkeypatch.setattr(W.sys, "platform", "linux")      # upgrade() refuses on Windows, by design
     out = W.upgrade()
     blockers = " ".join(out["cannot_determine_here"]).lower()
     assert "antenna" in blockers, "antenna count is physical and must be declared unknown"

@@ -9,6 +9,18 @@ import pytest
 from fieldkit.net import route, router
 
 
+@pytest.fixture(autouse=True)
+def _on_linux(monkeypatch):
+    """These modules refuse on anything but Linux, so pin it and test the logic.
+
+    Without this the parsing tests pass on the machine they were written on and
+    fail on windows-latest, where gateways() correctly refuses and returns
+    nothing (2026-10-13). The refusal itself is worth testing and is: the tests
+    below that care about the platform set it themselves, after this fixture.
+    """
+    monkeypatch.setattr(route.platform, "system", lambda: "Linux")
+
+
 TWO_GATEWAYS = """\
 default via 192.168.0.1 dev Gorilla.WIFI proto dhcp src 192.168.0.20 metric 600
 default via 192.168.1.1 dev enp3s0 proto dhcp src 192.168.1.207 metric 900

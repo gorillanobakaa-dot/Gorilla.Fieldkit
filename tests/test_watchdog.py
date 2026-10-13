@@ -73,7 +73,9 @@ def test_linux_with_no_remembered_network_does_not_guess():
 
 def test_the_state_folder_follows_each_system_convention():
     assert "PortableNetworkHub" in str(net.state_dir(platform="win32"))
-    linux = str(net.state_dir(platform="linux"))
+    # as posix: on Windows, str(Path) writes backslashes and the literal
+    # ".local/state" is never found, though the folder is the right one
+    linux = net.state_dir(platform="linux").as_posix()
     assert ".local/state" in linux or "XDG" in linux
 
 
