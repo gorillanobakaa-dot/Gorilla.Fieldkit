@@ -5,30 +5,88 @@
 # file in trades/. Two runs on the same file give the same findings. The AI still judges the wording; these rules
 # are what it must not miss. Every pattern is a regular expression, case-insensitive.
 #
+# Languages: English, Spanish (Spain), Portuguese (Portugal), Italian, German and Romanian, equally (en es pt it de ro).
+#
 # severity: high (a UK employer may stop reading) | medium (weakens the CV) | low (polish)
 
-# sections: name -> every heading that counts as it (English and Romanian)
+# sections: name -> every heading that counts as it, lower case (en, es, pt, it, de, ro)
 sections:
-  contact:    {required: true,  headings: ["contact", "contact details", "date de contact", "personal details", "date personale"]}
-  profile:    {required: true,  headings: ["profile", "personal profile", "professional profile", "summary", "professional summary", "about me", "profil", "profil profesional", "despre mine", "rezumat"]}
-  experience: {required: true,  headings: ["experience", "work experience", "employment history", "employment", "career history", "experiență", "experienta", "experiență profesională", "experienta profesionala"]}
-  licences:   {required: false, headings: ["licences", "licenses", "licences and certificates", "licences & certifications", "driving licence", "qualifications", "certifications", "certificates", "permise", "permis", "permise și certificări", "permise si certificari", "certificări", "certificari", "calificări", "calificari"]}
-  skills:     {required: true,  headings: ["skills", "key skills", "core skills", "competences", "competențe", "competente", "abilități", "abilitati", "aptitudini"]}
-  languages:  {required: true,  headings: ["languages", "language skills", "limbi străine", "limbi straine", "limbi"]}
-  education:  {required: false, headings: ["education", "education and training", "educație", "educatie", "studii", "formare"]}
+  contact:    {required: true,  headings: ["contact", "contact details", "personal details",
+                                           "contacto", "datos de contacto", "datos personales",
+                                           "contactos", "dados pessoais",
+                                           "contatti", "recapiti", "dati personali",
+                                           "kontakt", "kontaktdaten", "persönliche daten",
+                                           "date de contact", "date personale"]}
+  profile:    {required: true,  headings: ["profile", "personal profile", "professional profile", "summary", "professional summary", "about me",
+                                           "perfil", "perfil profesional", "sobre mí", "resumen",
+                                           "perfil profissional", "sobre mim", "resumo",
+                                           "profilo", "profilo professionale", "chi sono", "sommario",
+                                           "kurzprofil", "über mich", "zusammenfassung",
+                                           "profil", "profil profesional", "despre mine", "rezumat"]}
+  experience: {required: true,  headings: ["experience", "work experience", "employment history", "employment", "career history",
+                                           "experiencia", "experiencia profesional", "experiencia laboral",
+                                           "experiência", "experiência profissional",
+                                           "esperienza", "esperienza professionale", "esperienze lavorative",
+                                           "berufserfahrung", "erfahrung", "beruflicher werdegang",
+                                           "experiență", "experienta", "experiență profesională", "experienta profesionala"]}
+  licences:   {required: false, headings: ["licences", "licenses", "licences and certificates", "licences & certifications", "driving licence", "qualifications", "certifications", "certificates",
+                                           "permisos", "permisos y certificados", "permiso de conducción", "carné de conducir", "certificados", "certificaciones",
+                                           "cartas de condução e certificados", "carta de condução", "certificações", "qualificações",
+                                           "patenti", "patente", "patenti e certificazioni", "certificazioni", "qualifiche",
+                                           "führerscheine", "führerschein", "führerscheine und zertifikate", "zertifikate", "qualifikationen",
+                                           "permise", "permis", "permise și certificări", "permise si certificari", "certificări", "certificari", "calificări", "calificari"]}
+  skills:     {required: true,  headings: ["skills", "key skills", "core skills", "competences",
+                                           "competencias", "habilidades",
+                                           "competências",
+                                           "competenze", "capacità",
+                                           "kenntnisse und fähigkeiten", "fähigkeiten", "kenntnisse", "kompetenzen",
+                                           "competențe", "competente", "abilități", "abilitati", "aptitudini"]}
+  languages:  {required: true,  headings: ["languages", "language skills",
+                                           "idiomas",
+                                           "línguas",
+                                           "lingue", "conoscenze linguistiche",
+                                           "sprachkenntnisse", "sprachen",
+                                           "limbi străine", "limbi straine", "limbi"]}
+  education:  {required: false, headings: ["education", "education and training",
+                                           "educación y formación", "formación", "formación académica", "educación",
+                                           "educação e formação", "formação", "formação académica", "educação",
+                                           "istruzione e formazione", "istruzione", "formazione",
+                                           "aus- und weiterbildung", "ausbildung", "bildung", "schulbildung",
+                                           "educație și formare", "educatie si formare", "educație", "educatie", "studii", "formare"]}
+
+# which language a CV is written in (when --lang is not given): each word below scores word_weight, each letter
+# below scores 1; the highest score wins if it reaches threshold and beats English, otherwise English. Words are
+# common in that language's CVs and not common words of the other five.
+language_detect:
+  threshold: 5
+  word_weight: 3
+  letters: {es: "ñ¿¡", pt: "ãõç", it: "èìòù", de: "äöüß", ro: "ășşțţ"}
+  words:
+    en: [the, and, with, from, experience, skills, years, licence, driving, present, languages, worked]
+    es: [experiencia, años, carné, idiomas, formación, habilidades, conocimientos, actualidad, los, las, y,
+         trabajo, laboral, conducción]
+    pt: [experiência, anos, condução, línguas, formação, competências, atualmente, não, uma, em, até,
+         motorista, profissional, trabalho]
+    it: [esperienza, anni, patente, lingue, formazione, competenze, oggi, della, delle, degli, nel, nella, il, di,
+         autista, lavoro, che, professionale]
+    de: [berufserfahrung, erfahrung, jahre, jahren, führerschein, sprachkenntnisse, kenntnisse, ausbildung,
+         fähigkeiten, heute, bis, und, der, die, das, mit, von, für, bei, als, fahrer]
+    ro: [experiență, experienta, permis, competențe, competente, limbi, șofer, sofer, despre, ani, și, din, pentru,
+         prezent, în, profesională]
 
 contact:
   email: '[\w.+-]+@[\w-]+\.[\w.-]+'
-  phone: '(\+44\s?7\d{3}|\b07\d{3}|\+40\s?7\d{2}|\b07\d{2})[\s-]?\d{3}[\s-]?\d{3,4}'
+  # UK, Romanian, Spanish, Portuguese, Italian and German mobile numbers
+  phone: '(\+44\s?7\d{3}|\b07\d{3}|\+40\s?7\d{2}|\b07\d{2})[\s-]?\d{3}[\s-]?\d{3,4}|\+34\s?[67]\d{2}([\s-]?\d{2,3}){2,3}|\+351\s?9\d{2}([\s-]?\d{3}){2}|\+39\s?3\d{2}[\s-]?\d{3}[\s-]?\d{3,4}|\+49\s?1[5-7]\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}'
 
 # a UK CV carries neither (Equality Act 2010: age and looks are not grounds for hiring)
 uk_forbidden:
-  - {id: date-of-birth, severity: high, pattern: '(date of birth|\bD\.?O\.?B\b|born on|data na[sș]terii|n[aă]scut(a)? (la|în|in)\b)',
+  - {id: date-of-birth, severity: high, pattern: '(date of birth|\bD\.?O\.?B\b|born on|fecha de nacimiento|nacid[oa] el|data de nascimento|nascid[oa] em|data di nascita|\bnat[oa] il|geburtsdatum|geboren am|data na[sș]terii|n[aă]scut(a)? (la|în|in)\b)',
      message: "Date of birth: a UK CV leaves it out (age discrimination law); remove it."}
-  - {id: marital-status, severity: medium, pattern: '(marital status|stare civil[aă]|c[aă]s[aă]torit|necăsătorit|single\b|married\b)',
+  - {id: marital-status, severity: medium, pattern: '(marital status|single\b|married\b|estado civil|casad[oa]\b|solter[oa]\b|stato civile|coniugat[oa]\b|sposat[oa]\b|celibe\b|nubile\b|familienstand|verheiratet|ledig\b|stare civil[aă]|c[aă]s[aă]torit|necăsătorit)',
      message: "Marital status: a UK CV leaves it out."}
-  - {id: nationality-id, severity: low, pattern: '(\bCNP\b|national insurance number|\bNI number\b|passport no)',
-     message: "ID numbers (CNP, NI number, passport): never on a CV; give them only after an offer."}
+  - {id: nationality-id, severity: low, pattern: '(\bCNP\b|national insurance number|\bNI number\b|passport no|\bDNI\b|\bNIE\s*:|\bNIF\b|cart[aã]o de cidad[aã]o|codice fiscale|personalausweis|steuer-?id)',
+     message: "ID numbers (NI number, passport, DNI/NIE, NIF, codice fiscale, Personalausweis, CNP): never on a CV; give them only after an offer."}
 
 max_pages: 2
 
@@ -41,6 +99,23 @@ vague:
   - "various tasks"
   - "etc\\.?"
   - "and so on"
+  - "muy trabajador"
+  - "trabajo en equipo"
+  - "diversas tareas"
+  - "muito trabalhador"
+  - "trabalho em equipa"
+  - "responsável por"
+  - "diversas tarefas"
+  - "gran lavoratore"
+  - "lavoro di squadra"
+  - "varie mansioni"
+  - "e così via"
+  - "fleißig"
+  - "teamfähig"
+  - "kommunikationsstark"
+  - "zuständig für"
+  - "verschiedene aufgaben"
+  - "usw\\.?"
   - "harnic"
   - "muncitor"
   - "comunicativ"
@@ -52,13 +127,43 @@ vague:
 
 # facts any CV is stronger with; each missing one is a finding, never invented
 checks:
-  - {id: years, pattern: '(\b\d{1,2}\+?\s*(years|yrs|ani)\b)', message: "The years of experience are not stated in figures (e.g. '7 years').", severity: medium}
-  - {id: results, pattern: '(\d+\s*%|£\s?\d|\b\d{2,}\s*(deliveries|customers|cases|clients|staff|people|orders|livr[aă]ri|clien[tț]i))', message: "No result in figures (how many, how much, how often), if there are true ones to give.", severity: low}
+  - {id: years, pattern: '(\b\d{1,2}\+?\s*(years|yrs|años|anos|anni|jahre|jahren|ani)\b)', message: "The years of experience are not stated in figures (e.g. '7 years').", severity: medium}
+  - {id: results, pattern: '(\d+\s*%|£\s?\d|\b\d{2,}\s*(deliveries|customers|cases|clients|staff|people|orders|entregas|clientes|pedidos|encomendas|consegne|clienti|ordini|lieferungen|kunden|auftr[aä]ge|livr[aă]ri|clien[tț]i))', message: "No result in figures (how many, how much, how often), if there are true ones to give.", severity: low}
 
 # the questions to ask when the CV does not answer them (owner's brief, ETAPA 1.4); a trade adds its own
 questions:
-  roles:   {en: "Which jobs do you want (titles, or the kind of work)?", ro: "Ce joburi vrei (titluri sau tipul de muncă)?"}
-  other:   {en: "What else can you do besides your main job?", ro: "Ce alte lucruri știi să faci în afară de meseria de bază?"}
-  where:   {en: "Where do you want to work (town or area, UK or abroad) and which hours do you prefer?", ro: "Unde vrei să lucrezi (oraș / zonă, Anglia sau alte țări) și ce program preferi?"}
-  pay:     {en: "What is the lowest pay you would accept (per year or per hour)?", ro: "Care este salariul minim pe care l-ai accepta (pe an sau pe oră)?"}
-  right:   {en: "Do you have the right to work in the UK (settled or pre-settled status, visa)?", ro: "Ai drept de muncă în Marea Britanie (settled / pre-settled status, viză)?"}
+  roles:
+    en: "Which jobs do you want (titles, or the kind of work)?"
+    es: "¿Qué trabajos buscas (puestos o tipo de trabajo)?"
+    pt: "Que empregos procuras (funções ou tipo de trabalho)?"
+    it: "Che lavori cerchi (nomi delle posizioni o tipo di lavoro)?"
+    de: "Welche Stellen suchst du (Berufsbezeichnungen oder Art der Arbeit)?"
+    ro: "Ce joburi vrei (titluri sau tipul de muncă)?"
+  other:
+    en: "What else can you do besides your main job?"
+    es: "¿Qué más sabes hacer además de tu trabajo principal?"
+    pt: "Que mais sabes fazer além da tua profissão principal?"
+    it: "Cos'altro sai fare oltre al tuo lavoro principale?"
+    de: "Was kannst du außer deinem Hauptberuf sonst noch?"
+    ro: "Ce alte lucruri știi să faci în afară de meseria de bază?"
+  where:
+    en: "Where do you want to work (town or area, UK or abroad) and which hours do you prefer?"
+    es: "¿Dónde quieres trabajar (ciudad o zona, Reino Unido o en el extranjero) y qué horario prefieres?"
+    pt: "Onde queres trabalhar (cidade ou zona, Reino Unido ou estrangeiro) e que horário preferes?"
+    it: "Dove vuoi lavorare (città o zona, Regno Unito o estero) e che orari preferisci?"
+    de: "Wo möchtest du arbeiten (Ort oder Gegend, Großbritannien oder Ausland) und welche Arbeitszeiten bevorzugst du?"
+    ro: "Unde vrei să lucrezi (oraș / zonă, Anglia sau alte țări) și ce program preferi?"
+  pay:
+    en: "What is the lowest pay you would accept (per year or per hour)?"
+    es: "¿Cuál es el sueldo mínimo que aceptarías (al año o por hora)?"
+    pt: "Qual é o salário mínimo que aceitarias (por ano ou por hora)?"
+    it: "Qual è la paga minima che accetteresti (all'anno o all'ora)?"
+    de: "Welches Gehalt würdest du mindestens akzeptieren (pro Jahr oder pro Stunde)?"
+    ro: "Care este salariul minim pe care l-ai accepta (pe an sau pe oră)?"
+  right:
+    en: "Do you have the right to work in the UK (settled or pre-settled status, visa)?"
+    es: "¿Tienes derecho a trabajar en el Reino Unido (settled o pre-settled status, visado)?"
+    pt: "Tens autorização para trabalhar no Reino Unido (settled ou pre-settled status, visto)?"
+    it: "Hai il diritto di lavorare nel Regno Unito (settled o pre-settled status, visto)?"
+    de: "Darfst du im Vereinigten Königreich arbeiten (Settled oder Pre-Settled Status, Visum)?"
+    ro: "Ai drept de muncă în Marea Britanie (settled / pre-settled status, viză)?"

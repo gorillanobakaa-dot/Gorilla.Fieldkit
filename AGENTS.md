@@ -50,6 +50,10 @@ fieldkit exam run --model ID / report            measure a model with and withou
 fieldkit agent discover|describe|run|undo ...     the agent interface: preview, approve, back up, verify, undo
 fieldkit mcp                                     the same interface over MCP (stdio)
 fieldkit cards list|show / readiness             each tool's contract and trust level
+fieldkit sweep [--run-tests]                     the weekly walk: what under Documents/Scripts (and sweep.roots) has no card, no test, or changed since
+fieldkit adopt NAME [--into G] [--apply]         move a Scripts tool into local/kits; repoints cards, shortcuts, Startup, skills, memory
+fieldkit guard -- CMD ...                        EVERY compile job on the Windows laptop: refuses unless the fan control is cooling
+                                                 (Compile/Gorilla mode), then keeps the CPU near 70 C (thermal.build_target 67)
 fieldkit release check|prove SPEC                published == tested; every claim proven, per platform
 fieldkit docs plan|prep|fill|render|check        dual-track documentation: a layman track and a developer track
 fieldkit docs guide                              how to write for a reader who has never opened a terminal
@@ -58,6 +62,19 @@ fieldkit docs release --manifest release-docs.yaml   a release's documents: ever
 fieldkit release-page compose|check              build or check a release page: both tracks in full ON the page, plain language first
 fieldkit lifecycle SPEC --approve                install, verify, uninstall; list what was left behind
 ```
+
+## The scratch folder and the weekly sweep
+
+`Documents/Scripts` is where a model saves the scripts it writes during a session, one
+folder per tool with a README, so they outlive the session. It is scratch, not the
+harness. Once a week, and at the end of any session that left scripts there, run
+`fieldkit sweep`. Every item it lists is either adopted or retired (`sweep.ignore` in
+`fieldkit.local.json`, with the reason). Adopted means it now lives inside Fieldkit with a
+card, a test, a doctor and a skill: `fieldkit adopt NAME` shows the plan, `--apply` moves it
+to `local/kits/` (the owner's own tools; `kits/` for public ones, by a reviewed commit) and
+repoints everything that used the old place. A card that still points into Scripts is not
+adoption: the sweep reports it as `adopt` and exits 3. Extra scratch roots (a repository's
+own test scripts, say) go in `sweep.roots`. The sweep is done when the command exits 0.
 
 ## Working with a small model
 

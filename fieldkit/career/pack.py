@@ -28,24 +28,35 @@ def _norm(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+UPPER = "A-ZÁÉÍÓÚÑÇÀÈÌÒÙÂÊÔÃÕÄÖÜĂÎȘȚŞŢ"            # capitals of en, es, pt, it, de and ro
+
+
 def sentences(text):
-    return [_norm(s) for s in re.split(r"(?<=[.!?])\s+(?=[A-ZĂÂÎȘȚ\"'(])", _norm(text)) if _norm(s)]
+    return [_norm(s) for s in re.split(rf"(?<=[.!?])\s+(?=[{UPPER}¿¡\"'(])", _norm(text)) if _norm(s)]
 
 
 def _words(t):
-    return set(re.findall(r"[a-zăâîșț0-9+]{3,}", (t or "").lower()))
+    return set(re.findall(r"[\w+]{3,}", (t or "").lower()))
 
 
 def lang_of(p):
     return (p.get("letter") or {}).get("lang", "en")
 
 
+def _opening(L, job):
+    """The opening sentence: with the employer's name, or the language's own words when the advert names none."""
+    if job.get("employer"):
+        return L["opening"].format(title=job.get("title") or "", employer=job["employer"])
+    return L["opening_anon"].format(title=job.get("title") or "")
+
+
 def approved(p, job, lang=None, tpl=None):
     """Every sentence a letter for this job may carry."""
     lang, tpl = lang or lang_of(p), tpl or _tpl()
     L = tpl["letter"][lang]
-    ok = {_norm(L[k].format(title=job.get("title") or "", employer=job.get("employer") or "the company"))
-          for k in ("greeting", "opening", "closing", "signoff")}
+    ok = set()
+    for t in (L["greeting"], _opening(L, job), L["closing"], L["signoff"]):
+        ok |= {_norm(t)} | set(sentences(t))          # "Exmos. Senhores," is split like any letter line
     texts = list(p["letter"]["pitch"]) + [e["first_person"] for e in p["evidence"]] + \
         list(p["letter"].get("extra_allowed") or [])
     for t in texts:
@@ -61,7 +72,7 @@ def build_letter(p, job, lang=None, tpl=None):
                                                               ie[0]))
     chosen = [e for _, e in ranked[:p["letter"].get("max_evidence", MAX_EVIDENCE)]]
     c = p["contact"]
-    parts = [L["greeting"], L["opening"].format(title=job.get("title"), employer=job.get("employer") or "the company"),
+    parts = [L["greeting"], _opening(L, job),
              " ".join(prof.T(x, lang, "letter.pitch") for x in p["letter"]["pitch"]),
              " ".join(prof.T(e["first_person"], lang, f"evidence.{e['id']}") for e in chosen),
              L["closing"], L["signoff"], p["name"], f"{c['phone']} | {c['email']}"]

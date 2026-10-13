@@ -359,6 +359,122 @@ def test_backup(tmp_path):
     assert not backup.verify(r["archive"], 2, r["bytes"])["ok"]           # a wrong archive is caught
 
 
+# -- six languages, equally ------------------------------------------------------------------------------------------------
+def _tables():
+    """Every per-language table of the module: name -> {lang: entry}."""
+    rules, tpl = yaml.safe_load(cv.RULES.read_text(encoding="utf-8")), yaml.safe_load(cv.TEMPLATES.read_text(
+        encoding="utf-8"))
+    out = {"templates.labels": tpl["labels"], "templates.letter": tpl["letter"], "store.ASK_NAME": store.ASK_NAME}
+    out.update({f"rules.questions.{k}": v for k, v in rules["questions"].items()})
+    for t in cv.trade_names():
+        out.update({f"trades/{t}.questions.{k}": v for k, v in (cv.load_trade(t).get("questions") or {}).items()})
+    return out
+
+
+def test_six_languages():
+    assert prof.LANGS == ("en", "es", "pt", "it", "de", "ro")
+
+
+@pytest.mark.parametrize("lang", prof.LANGS)
+def test_every_text_exists_in_every_language(lang):
+    """What English has, each of the six has: same keys, nothing empty (no language stands out)."""
+    for name, table in _tables().items():
+        assert set(table) == set(prof.LANGS), name
+        en, other = table["en"], table[lang]
+        if isinstance(en, dict):
+            assert set(other) == set(en), f"{name}.{lang}: keys differ from English"
+            assert all(other[k] for k in other), f"{name}.{lang}: an empty entry"
+            if "months" in other:
+                assert len(other["months"]) == 12, f"{name}.{lang}.months"
+        else:
+            assert isinstance(other, str) and other.strip(), f"{name}.{lang}"
+
+
+@pytest.mark.parametrize("lang", prof.LANGS)
+def test_rendered_headings_are_recognised_by_check(lang):
+    """A CV written in any of the six languages is read back with every section found."""
+    rules = yaml.safe_load(cv.RULES.read_text(encoding="utf-8"))
+    labels = yaml.safe_load(cv.TEMPLATES.read_text(encoding="utf-8"))["labels"][lang]
+    for section in ("profile", "experience", "licences", "skills", "languages", "education"):
+        assert cv._norm_heading(labels[section]) in rules["sections"][section]["headings"], (lang, section)
+
+
+SHORT_CV = {
+    "es": ["Alex Example", "07700 900123 alex@example.com", "Perfil",
+           "Conductor profesional con 7 años de experiencia en el Reino Unido.", "Experiencia profesional",
+           "Conductor de camión, Example Haulage, mar. 2019 – actualidad", "Idiomas",
+           "Español (nativo), inglés (fluido)"],
+    "de": ["Alex Example", "07700 900123 alex@example.com", "Profil",
+           "Berufskraftfahrer mit 7 Jahren Erfahrung in England und der EU.", "Berufserfahrung",
+           "LKW-Fahrer, Example Haulage, März 2019 – heute", "Sprachkenntnisse",
+           "Deutsch (Muttersprache), Englisch (fließend)"],
+    "pt": ["Alex Example", "Perfil", "Motorista profissional com 7 anos de experiência no Reino Unido.",
+           "Experiência profissional", "Motorista de pesados, Example Haulage, mar. 2019 – atualmente", "Línguas",
+           "Português (nativo), inglês (fluente)"],
+    "it": ["Alex Example", "Profilo", "Autista professionale con 7 anni di esperienza nel Regno Unito.",
+           "Esperienza professionale", "Autista di camion, Example Haulage, mar. 2019 – oggi", "Lingue",
+           "Italiano (madrelingua), inglese (fluente)"],
+    "ro": ["Alex Example", "Profil", "Șofer profesionist cu 7 ani de experiență în Marea Britanie.",
+           "Experiență profesională", "Șofer camion, Example Haulage, mar. 2019 – prezent", "Limbi străine",
+           "Română (nativ), engleză (fluent)"],
+}
+
+
+@pytest.mark.parametrize("lang", sorted(SHORT_CV))
+def test_short_cv_language_is_detected(lang):
+    text = "\n".join(SHORT_CV[lang])
+    assert cv.detect_lang(text) == lang
+    r = cv.check_text(text)
+    assert r["lang"] == lang and {"profile", "experience", "languages"} <= set(r["sections"])
+    q = yaml.safe_load(cv.RULES.read_text(encoding="utf-8"))["questions"]
+    assert q["pay"][lang] in [x["text"] for x in r["questions"]]          # the questions come in that language
+    assert "no-dates" not in {f["id"] for f in r["findings"]}             # "2019 – actualidad / heute / oggi ..."
+
+
+def test_english_cv_stays_english():
+    assert cv.detect_lang("\n".join(GOOD_CV)) == "en"                    # "Romanian (native)" does not flip it
+    assert cv.detect_lang("\n".join(BAD_CV)) == "en"
+
+
+PLAIN = {k: v for k, v in PROFILE.items()}
+PLAIN.update(right_to_work="UK", languages=[{"language": "English", "level": "C2"}],
+             licences=[{"category": "C+E", "detail": "CPC"}],
+             experience=[{"title": "HGV C+E", "employer": "Example Haulage Ltd", "start": "2019-03", "end": "present",
+                          "bullets": ["120 / day."]}],
+             cv_variants={"driver": {"headline": "HGV C+E", "profile": "HGV C+E, 7.", "keywords": ["hgv"],
+                                     "skills": ["ADR"]}})
+
+
+@pytest.mark.parametrize("lang", ["es", "pt", "it", "de"])
+def test_render_in_each_new_language(home, lang):
+    """The CV renders in each language with its own headings and dates, and passes its own re-check."""
+    from fieldkit.office.read import read
+    (home / "profile.yaml").write_text(yaml.safe_dump(PLAIN, allow_unicode=True), encoding="utf-8")
+    labels = yaml.safe_load(cv.TEMPLATES.read_text(encoding="utf-8"))["labels"][lang]
+    r = cv.render(variant="driver", lang=lang, today=TODAY)
+    assert r["ok"], r["findings"]
+    pdf = read(r["files"]["pdf"])
+    assert labels["experience"].upper() in pdf and labels["licences"].upper() in pdf     # ü, ç ... in the PDF
+    assert f"{labels['months'][2]} 2019 – {labels['present']}" in pdf
+
+
+def test_render_refuses_an_unknown_language(home):
+    with pytest.raises(prof.BadProfile, match="Spanish, Portuguese, Italian, German or Romanian"):
+        cv.render(variant="driver", lang="fr", today=TODAY)
+
+
+@pytest.mark.parametrize("lang", ["es", "pt", "it", "de"])
+def test_letter_in_each_new_language(lang):
+    """The fixed letter lines are approved in every language, including 'Exmos. Senhores,' that splits in two."""
+    p = prof.validate(PROFILE)
+    p["letter"] = {"lang": lang, "pitch": [{"en": "x", lang: "Tengo el permiso C+E. Conduzco desde 2017."}]}
+    p["evidence"] = [{"id": "a", "first_person": {lang: "Frase verdadera número uno."}, "source": "CV"}]
+    for j in (job(), job(employer=None)):
+        letter, _ = pack.build_letter(p, j)
+        assert pack.check_letter(p, j, letter) == [], (lang, letter)
+        assert "the company" not in letter
+
+
 def test_a_passing_mention_is_not_a_second_trade():
     """2026-10-10: a driver's CV listing 'forklift (FLT)' once was also checked as a warehouse CV."""
     assert cv.detect_trades("\n".join(GOOD_CV)) == ["driver"]

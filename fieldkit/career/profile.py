@@ -1,8 +1,9 @@
 """The candidate's profile: the only facts the CV, the scoring and the cover letters may use.
 
 profile.yaml lives in the data folder (local/career by default, git-ignored). Any text field may be a string, or
-{en: ..., ro: ...} when the CV is wanted in both languages: the code never translates; the AI writes the translation
-into the profile and the person confirms it.
+{en: ..., es: ..., pt: ..., it: ..., de: ..., ro: ...} (any of the six languages in LANGS) when the CV is wanted in
+more than one language: the code never translates; the AI writes the translation into the profile and the person
+confirms it.
 
     name, contact {phone, email, location, linkedin}, right_to_work, years_experience, trade (optional: trades/*.yaml)
     languages_spoken [..], languages [{language, level}], licences [{category, detail}], certificates [..]
@@ -26,7 +27,10 @@ FORBIDDEN_KEYS = {"date_of_birth": "date of birth", "dob": "date of birth", "bir
                   "age": "age", "photo": "photo", "picture": "photo", "marital_status": "marital status",
                   "cnp": "CNP", "national_insurance": "NI number", "ni_number": "NI number",
                   "passport": "passport number"}
-LANGS = ("en", "ro")
+LANGS = ("en", "es", "pt", "it", "de", "ro")   # English, Spanish (Spain), Portuguese (Portugal), Italian, German, Romanian
+LANG_NAMES = "English, Spanish, Portuguese, Italian, German or Romanian"
+PRESENT = ("present", "current", "now", "presente", "actualidad", "actual", "atual", "oggi", "heute", "aktuell",
+           "prezent")
 
 
 class BadProfile(ValueError):
@@ -54,7 +58,7 @@ def T(v, lang="en", where=""):
 
 def ym(v):
     v = str(v).strip().lower()
-    if v in ("present", "current", "now", "prezent"):
+    if v in PRESENT:
         return None
     m = re.fullmatch(r"((?:19|20)\d\d)(?:-(\d\d))?", v)
     if not m:
@@ -110,6 +114,8 @@ def validate(p):
         errs.append("evidence: two entries share an id")
     if not (p.get("letter") or {}).get("pitch"):
         errs.append("letter.pitch: missing (one to three first-person sentences)")
+    if (p.get("letter") or {}).get("lang", "en") not in LANGS:
+        errs.append(f"letter.lang: {p['letter']['lang']!r} - one of {', '.join(LANGS)} ({LANG_NAMES})")
     if errs:
         raise BadProfile("; ".join(errs))
     out = dict(p)

@@ -1,7 +1,7 @@
 """The student profile: who the student is, where they study, and how their work must look. Asked, never assumed.
 
     fieldkit academic init --name "..." --country uk|us|es|pt|it|de|ro [--university ...] [--programme ...]
-                           [--style apa7|harvard-ctr|iso690] [--language en|es|pt|it|de|ro] [--ui en|ro|...]
+                           [--style apa7|harvard-ctr|iso690] [--language en|es|pt|it|de|ro] [--ui en|es|pt|it|de|ro]
 
 Without a name or a country, init answers with the questions to ask (in the interface language), and changes
 nothing. The profile is local/academic/profile.json (git-ignored), and the name goes on the private word list so the
@@ -41,6 +41,34 @@ QUESTIONS = {
            "style": "Ce stil de citare cere cursul tău? (dacă nu știi, spune: scrie în cerința temei sau în "
                     "ghidul modulului)",
            "student_id": "Care este numărul tău de student? (apare pe lucrare în locul numelui)"},
+    "es": {"name": "¿Cuál es tu nombre completo, exactamente como lo tiene la universidad?",
+           "country": "¿En qué país está tu universidad? (uk, us, es, pt, it, de, ro)",
+           "university": "¿Cómo se llama tu universidad?",
+           "programme": "¿En qué titulación o curso estás?",
+           "style": "¿Qué estilo de citas pide tu curso? (si no lo sabes, dilo: lo indica el enunciado o la guía "
+                    "de la asignatura)",
+           "student_id": "¿Cuál es tu número de estudiante? (va en el trabajo en lugar de tu nombre)"},
+    "pt": {"name": "Qual é o teu nome completo, exatamente como a universidade o tem?",
+           "country": "Em que país fica a tua universidade? (uk, us, es, pt, it, de, ro)",
+           "university": "Como se chama a tua universidade?",
+           "programme": "Em que curso ou programa estás?",
+           "style": "Que estilo de citação pede o teu curso? (se não souberes, diz: vem no enunciado ou no guia "
+                    "da unidade curricular)",
+           "student_id": "Qual é o teu número de estudante? (vai no trabalho em vez do teu nome)"},
+    "it": {"name": "Qual è il tuo nome completo, esattamente come lo ha l'università?",
+           "country": "In quale paese si trova la tua università? (uk, us, es, pt, it, de, ro)",
+           "university": "Come si chiama la tua università?",
+           "programme": "Quale corso di laurea o corso frequenti?",
+           "style": "Quale stile di citazione richiede il tuo corso? (se non lo sai, dillo: lo indica la consegna "
+                    "o la guida del modulo)",
+           "student_id": "Qual è il tuo numero di matricola? (va sull'elaborato al posto del tuo nome)"},
+    "de": {"name": "Wie lautet dein vollständiger Name, genau wie die Universität ihn führt?",
+           "country": "In welchem Land ist deine Universität? (uk, us, es, pt, it, de, ro)",
+           "university": "Wie heißt deine Universität?",
+           "programme": "In welchem Studiengang oder Kurs bist du?",
+           "style": "Welchen Zitierstil verlangt dein Kurs? (wenn du es nicht weißt, sag es: es steht in der "
+                    "Aufgabenstellung oder im Modulhandbuch)",
+           "student_id": "Wie lautet deine Matrikelnummer? (sie steht auf der Arbeit statt deines Namens)"},
 }
 
 

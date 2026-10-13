@@ -27,6 +27,10 @@
     fieldkit mcp                                 the agent interface over MCP (LM Studio, Gorilla OpenCode, Claude)
     fieldkit cards list [--level L] | show ID    the contract of every tool, with its trust level
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
+    fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
+    fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
+    fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
+    fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
     fieldkit repro compare A B [--root RA RB]     two builds byte for byte: REPRODUCED, or what differs and why (exit 3)
     fieldkit laptop cpu|alerts|sound|volume|video|wallpaper|rules ...   a laptop's everyday repairs (fieldkit/laptop)
@@ -174,7 +178,7 @@ def cmd_cv(a):
     from .career.profile import BadProfile
     try:
         if a.action == "init":
-            r = store.init(name=a.name, lang=a.lang or "ro")
+            r = store.init(name=a.name, lang=a.lang or "en")
             if r.get("status") == "ask":
                 _emit(r, a.json, lambda d: print(f"QUESTION: {d['question']}\nNEXT: {d['next']}"))
                 return 2
@@ -672,6 +676,54 @@ def cmd_readiness(a):
     return 0
 
 
+def cmd_sweep(a):
+    from .desk import sweep, registry
+    rows = sweep.scan()
+    out = {"rows": rows, "summary": sweep.summary(rows)}
+    if a.run_tests:
+        ids = sorted({i for r in rows for i in r["cards"]})
+        out["tests"] = registry.check(run_tests=True, only=ids) if ids else []
+        rows = sweep.scan()
+        out["rows"], out["summary"] = rows, sweep.summary(rows)
+
+    def human(o):
+        print(chr(10).join(sweep.lines(o["rows"])))
+        for tr in o.get("tests", []):
+            print(f"test {tr.get('id')}: {'ok' if tr.get('test_ok') else 'FAILED'}" + ("" if tr.get('test_ok') else " " + " | ".join(tr.get('test_tail') or [])))
+    _emit(out, a.json, human)
+    return sweep.exit_code(rows)
+
+
+def cmd_guard(a):
+    from .thermal import buildguard
+    cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
+    if not cmd:
+        print("usage: fieldkit guard -- CMD ...   (e.g. fieldkit guard -- cargo build --release)")
+        return 2
+    return buildguard.run(cmd)
+
+
+def cmd_adopt(a):
+    from .desk import adopt
+    if a.finish:
+        rows = adopt.finish(do_apply=a.apply)
+        _emit({"old_copies": rows}, a.json, lambda o: print(chr(10).join(
+            f"{'removed' if r['removed'] else ('in use by PID ' + ','.join(map(str, r['running'])) if r['running'] else 'removable')}  {r['folder']}"
+            for r in o["old_copies"]) or "no old copies of adopted tools"))
+        return 0
+    if not a.names:
+        print("name the folder(s) under Documents/Scripts to adopt, or --finish")
+        return 2
+    p = adopt.plan(a.names, into=a.into)
+    if not a.apply or not p.get("ok"):
+        _emit(p, a.json, lambda o: print(chr(10).join(adopt.lines(o)) + ("" if not o.get("ok") else
+                                                                            chr(10) + "NEXT: the same command with --apply")))
+        return 0 if p.get("ok") else 2
+    r = adopt.apply(p, run_tests=not a.no_tests)
+    _emit(r, a.json, lambda o: print(json.dumps(o, indent=1, default=str)))
+    return 0 if r.get("ok") else 1
+
+
 def cmd_next(a):
     from .core import next as nxt
     from .core.pipeline import Pipeline
@@ -844,7 +896,7 @@ def build_parser():
                                                       "default: the trades the CV looks like")
     cvp.add_argument("--variant", help="render: which cv_variants entry of the profile")
     cvp.add_argument("--name", help="init: the candidate's full name (asked for, never assumed)")
-    cvp.add_argument("--lang", choices=["en", "ro"])
+    cvp.add_argument("--lang", choices=["en", "es", "pt", "it", "de", "ro"], help="English, Spanish, Portuguese, Italian, German or Romanian")
     cvp.set_defaults(fn=cmd_cv)
 
     jb = sub.add_parser("jobs", parents=[common], formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1005,6 +1057,24 @@ def build_parser():
     rd = sub.add_parser("readiness", parents=[common])
     rd.add_argument("--write-docs", action="store_true", help="refresh local/READINESS.md (this machine's numbers, never published)")
     rd.set_defaults(fn=cmd_readiness)
+
+    sw = sub.add_parser("sweep", parents=[common])
+    sw.add_argument("--run-tests", action="store_true", help="also run the tests of the registered tools under the sweep roots")
+    sw.set_defaults(fn=cmd_sweep)
+
+    gd = sub.add_parser("guard", parents=[common],
+                        help="run any compile job (cargo build, go build, make ...) with the fan check and the build governor")
+    gd.add_argument("cmd", nargs=argparse.REMAINDER, help="-- then the command")
+    gd.set_defaults(fn=cmd_guard)
+
+    ad = sub.add_parser("adopt", parents=[common],
+                        help="move a tool out of Documents/Scripts into local/kits and repoint everything (plan first)")
+    ad.add_argument("names", nargs="*", help="folders (or loose files, with --into) under Documents/Scripts")
+    ad.add_argument("--into", help="the local/kits folder that loose files share")
+    ad.add_argument("--apply", action="store_true", help="do it (backed up, tested, rolled back on any failure)")
+    ad.add_argument("--finish", action="store_true", help="remove old copies of adopted tools that nothing runs from")
+    ad.add_argument("--no-tests", action="store_true", help="skip running the moved tools' card tests")
+    ad.set_defaults(fn=cmd_adopt)
 
     nx = sub.add_parser("next", parents=[common])
     nx.add_argument("name", help="pipeline name or file")

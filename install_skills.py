@@ -9,7 +9,8 @@ Targets (only those whose parent folder exists, plus ~/.claude/skills):
     ~/.agents/skills   Codex, Gemini CLI (the shared .agents alias)
     ~/.gemini/skills   Gemini CLI
 
-Only folders named fieldkit-* or gorilla-* are ever written or removed. A copy is updated
+Private skills (the owner's own machines and procedures) live in local/skills/, which git ignores like the
+rest of local/; they install the same way. Only folders named fieldkit-* or gorilla-* are ever written or removed. A copy is updated
 only when its content differs, so running this twice changes nothing.
 """
 import argparse
@@ -18,6 +19,7 @@ import shutil
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parent / "skills"
+LOCAL_SRC = Path(__file__).resolve().parent / "local" / "skills"
 HOME = Path.home()
 TARGETS = [HOME / ".claude" / "skills", HOME / ".agents" / "skills", HOME / ".gemini" / "skills"]
 
@@ -40,7 +42,8 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--remove", action="store_true")
     a = ap.parse_args(argv)
-    skills = sorted(p for p in SRC.iterdir() if p.is_dir() and p.name.startswith(("fieldkit-", "gorilla-")))
+    skills = sorted((p for src in (SRC, LOCAL_SRC) if src.is_dir() for p in src.iterdir()
+                     if p.is_dir() and p.name.startswith(("fieldkit-", "gorilla-"))), key=lambda p: p.name)
     for t in targets():
         for s in skills:
             dest = t / s.name

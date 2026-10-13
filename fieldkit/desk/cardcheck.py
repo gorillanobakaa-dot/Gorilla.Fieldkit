@@ -40,6 +40,15 @@ def check_card(card):
     script = next((settings.expand(str(x), strict=False) for x in entry[1:2] if str(x).endswith(".py")), None)
     if script and not Path(script).is_file():
         return problems, [f"not on this machine: {script} (fieldkit gather)"]
+    if script:
+        # Never start a script that has not been PROVED safe to probe. 2026-10-13: a test run started
+        # run_commands_e2e.py with --help; it has no argparse, took "--help" as its output folder, made a Gorilla
+        # OpenCode profile (with a copy of the owner's OAuth file) inside this repository and sent five requests to
+        # a hosted model. Same lesson as organize.py --help on 2026-09-29.
+        from .registry import probe_safety
+        safe, why = probe_safety(script)
+        if not safe:
+            return problems, [f"not started (not safe to probe: {why}): its options were not checked against --help"]
     if entry[:1] in (["python"], ["python3"]):
         # --help goes before the first option of the entry ("harvest --find" takes a value)
         cut = next((i for i, x in enumerate(entry) if i > 2 and str(x).startswith("-")), len(entry))

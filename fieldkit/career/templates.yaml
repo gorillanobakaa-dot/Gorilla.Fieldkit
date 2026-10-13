@@ -1,4 +1,5 @@
-# Fixed wording for `fieldkit cv render` and `fieldkit cv letter`, English and Romanian. Data, not code.
+# Fixed wording for `fieldkit cv render` and `fieldkit cv letter`, in English, Spanish (Spain), Portuguese (Portugal),
+# Italian, German and Romanian. Data, not code. Every language has the same keys (tests/test_career.py checks it).
 #
 # The CV layout is UK style: no photo, no date of birth, newest job first, at most two pages.
 # A letter template slot in {braces} must be filled; `letter` refuses to write a letter with a slot left over.
@@ -15,6 +16,50 @@ labels:
     present: Present
     category: Licence category
     months: [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec]
+  es:
+    profile: Perfil
+    experience: Experiencia profesional
+    licences: Permisos y certificados
+    skills: Competencias
+    languages: Idiomas
+    education: Educación y formación
+    other: Otros
+    present: actualidad
+    category: Permiso de conducción clase
+    months: [ene., feb., mar., abr., may., jun., jul., ago., sept., oct., nov., dic.]
+  pt:
+    profile: Perfil
+    experience: Experiência profissional
+    licences: Cartas de condução e certificados
+    skills: Competências
+    languages: Línguas
+    education: Educação e formação
+    other: Outros
+    present: presente
+    category: Carta de condução categoria
+    months: [jan., fev., mar., abr., mai., jun., jul., ago., set., out., nov., dez.]
+  it:
+    profile: Profilo
+    experience: Esperienza professionale
+    licences: Patenti e certificazioni
+    skills: Competenze
+    languages: Lingue
+    education: Istruzione e formazione
+    other: Altro
+    present: oggi
+    category: Patente categoria
+    months: [gen., feb., mar., apr., mag., giu., lug., ago., set., ott., nov., dic.]
+  de:
+    profile: Profil
+    experience: Berufserfahrung
+    licences: Führerscheine und Zertifikate
+    skills: Kenntnisse und Fähigkeiten
+    languages: Sprachkenntnisse
+    education: Aus- und Weiterbildung
+    other: Sonstiges
+    present: heute
+    category: Führerscheinklasse
+    months: [Jan., Feb., März, Apr., Mai, Juni, Juli, Aug., Sept., Okt., Nov., Dez.]
   ro:
     profile: Profil
     experience: Experiență profesională
@@ -27,16 +72,43 @@ labels:
     category: Permis categoria
     months: [ian., feb., mar., apr., mai, iun., iul., aug., sept., oct., nov., dec.]
 
-# the only sentences of a cover letter that do not come from the profile; {title} and {employer} are filled in
+# the only sentences of a cover letter that do not come from the profile, in each country's formal register;
+# {title} and {employer} are filled in; opening_anon is the opening when the advert names no employer
 letter:
   en:
     greeting: "Dear Hiring Manager,"
     opening: "I am applying for the {title} role at {employer}."
+    opening_anon: "I am applying for the {title} role at the company."
     closing: "I would welcome the chance to discuss the role, and I can attend an interview at your convenience."
     signoff: "Yours sincerely,"
+  es:
+    greeting: "Estimados señores:"
+    opening: "Me dirijo a ustedes para presentar mi candidatura al puesto de {title} en {employer}."
+    opening_anon: "Me dirijo a ustedes para presentar mi candidatura al puesto de {title} en su empresa."
+    closing: "Quedo a su disposición para ampliar cualquier información y para mantener una entrevista cuando les resulte conveniente."
+    signoff: "Atentamente,"
+  pt:
+    greeting: "Exmos. Senhores,"
+    opening: "Venho por este meio apresentar a minha candidatura à vaga de {title} em {employer}."
+    opening_anon: "Venho por este meio apresentar a minha candidatura à vaga de {title} na vossa empresa."
+    closing: "Agradeço desde já a vossa atenção e mantenho-me disponível para uma entrevista na data que vos for mais conveniente."
+    signoff: "Com os melhores cumprimentos,"
+  it:
+    greeting: "Gentile Responsabile della selezione,"
+    opening: "Con la presente desidero candidarmi per la posizione di {title} presso {employer}."
+    opening_anon: "Con la presente desidero candidarmi per la posizione di {title} presso la Vostra azienda."
+    closing: "Resto a disposizione per un colloquio, nei tempi e nei modi che riterrete più opportuni."
+    signoff: "Distinti saluti,"
+  de:
+    greeting: "Sehr geehrte Damen und Herren,"
+    opening: "hiermit bewerbe ich mich um die Stelle als {title} bei {employer}."
+    opening_anon: "hiermit bewerbe ich mich um die Stelle als {title} in Ihrem Unternehmen."
+    closing: "Über die Einladung zu einem persönlichen Vorstellungsgespräch freue ich mich sehr."
+    signoff: "Mit freundlichen Grüßen"
   ro:
     greeting: "Stimată doamnă / Stimate domn,"
     opening: "Vă scriu pentru postul de {title} la {employer}."
+    opening_anon: "Vă scriu pentru postul de {title} din cadrul companiei dumneavoastră."
     closing: "Mi-ar face plăcere să discutăm despre acest post și pot veni la un interviu oricând vă este convenabil."
     signoff: "Cu stimă,"
 

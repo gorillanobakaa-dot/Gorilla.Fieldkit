@@ -53,3 +53,26 @@ def _offline_gethostbyaddr(addr):
 
 _socket.getaddrinfo = _offline_getaddrinfo
 _socket.gethostbyaddr = _offline_gethostbyaddr
+
+
+# Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
+# no-op for every test, except tests marked `real_build_guard`, which test the guard itself on fake status files.
+# There is deliberately NO runtime switch to skip the guard (2026-10-13: fail closed; an agent could flip a switch).
+@pytest.fixture(autouse=True)
+def _no_real_build_guard(request, monkeypatch):
+    if request.node.get_closest_marker("real_build_guard"):
+        yield
+        return
+    import contextlib
+    from fieldkit.thermal import buildguard
+
+    @contextlib.contextmanager
+    def _noop(*a, **k):
+        yield None
+    monkeypatch.setattr(buildguard, "guard", _noop)
+    monkeypatch.setattr(buildguard, "fan_check", lambda *a, **k: (True, "fan check: test (no real fan)"))
+    yield
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "real_build_guard: run the real build guard (fan check) on fake inputs")

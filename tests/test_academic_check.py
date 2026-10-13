@@ -277,3 +277,19 @@ def test_a_built_page_carries_no_module_placeholder_when_no_module_is_known(home
     folder, draft = _assignment(home)
     header, numbered = page_furniture(b.build(str(draft), "docx", str(home / "out"))["file"])
     assert "99990000" in header and "[Module Code]" not in header and numbered
+
+
+@pytest.mark.parametrize("lang", ["en", "es", "pt", "it", "de", "ro"])
+def test_every_interface_language_says_everything_english_says(lang):
+    """Six interface languages, none second-class: every menu label, menu prompt, profile question and date
+    question English has, each language has too (no language may fall back to English silently)."""
+    from fieldkit.academic import messages
+    assert set(menu.LABELS[lang]) == set(menu.LABELS["en"]) == {k for k, _ in menu.ITEMS}
+    for table in (menu.ASK, prof.QUESTIONS, assignment.ASK, messages.LABELS):
+        assert set(table[lang]) == set(table["en"]) and all(str(v).strip() for v in table[lang].values())
+
+
+def test_the_menu_speaks_the_profile_language(home):
+    seen = []
+    menu.run(read=lambda q: "0", out=seen.append, call=lambda argv: None, ui="de")
+    assert any("Kursmaterialien" in s for s in seen) and not any("study materials" in s for s in seen)

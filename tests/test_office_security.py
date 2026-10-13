@@ -115,8 +115,8 @@ def test_privacy_scans_a_large_file_in_pieces(tmp_path, monkeypatch):
 
 
 def test_a_file_name_is_not_an_api_key():
-    """2026-10-10: 'imx53-sk-imx53-atm0700d4-lvds.dts' in a kernel tree listing was reported as an OpenAI key."""
-    assert privacy.scan_text("├── imx53-sk-imx53-atm0700d4-lvds.dts") == []
+    """2026-10-10: 'imx53-sk-imx53-atm0700d4-lvds.dts' in a kernel tree listing was reported as an OpenAI key."""  # privacy-scan: allow (deliberate fixture)
+    assert privacy.scan_text("├── imx53-sk-imx53-atm0700d4-lvds.dts") == []  # privacy-scan: allow (deliberate fixture)
     assert privacy.scan_text('OPENAI_API_KEY="' + 'sk-' + 'proj-AbCdEfGhIjKlMnOpQrStUvWx12345"')[0]["kind"] == "openai-key"
 
 

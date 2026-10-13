@@ -60,3 +60,26 @@ def test_unparsable_python_is_unknown_not_read_only(tmp_path):
 
 def test_unused_safety_tuple_is_gone():
     assert not hasattr(cards, "SAFETY")
+
+
+def test_card_check_never_starts_a_script_that_is_not_safe_to_probe(tmp_path):
+    """2026-10-13: `cards check` ran a no-argparse script with --help; it took "--help" as a folder and did its job
+    for real (a hosted-model run on the owner's login). The check must refuse to start it."""
+    from fieldkit.desk import cardcheck
+    marker = tmp_path / "it-ran.txt"
+    tool = tmp_path / "job.py"
+    tool.write_text("import sys\nfrom pathlib import Path\n\ndef main():\n"
+                    f"    Path(r'{marker}').write_text(sys.argv[1])\n\nif __name__ == '__main__':\n    main()\n")
+    problems, notes = cardcheck.check_card({"id": "job", "entry": ["python", str(tool)], "inputs": []})
+    assert not marker.exists(), "the check started a script that is not safe to probe"
+    assert any("not started" in n and "argparse" in n for n in notes)
+
+
+def test_card_check_still_reads_the_help_of_a_safe_script(tmp_path):
+    from fieldkit.desk import cardcheck
+    tool = tmp_path / "ok.py"
+    tool.write_text("import argparse\n\ndef main():\n    ap = argparse.ArgumentParser()\n"
+                    "    ap.add_argument('--depth')\n    ap.parse_args()\n\nif __name__ == '__main__':\n    main()\n")
+    problems, notes = cardcheck.check_card({"id": "ok", "entry": ["python", str(tool)],
+                                            "inputs": [{"name": "depth", "flag": "--depth"}, {"name": "x", "flag": "--nope"}]})
+    assert any("--nope" in p for p in problems) and not any("--depth" in p for p in problems)

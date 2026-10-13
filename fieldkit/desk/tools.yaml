@@ -1921,3 +1921,42 @@ tools:
     undo: [python, -m, fieldkit, win11, run, text-input-guard, undo]
   platforms: [windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+# --- Media kits (kits/): photos and phone video, offline -----------------------
+- id: photokit
+  title: "Photos: contact sheets, near-duplicate candidates + side-by-side compare, mapping check, sort into per-item folders, fetch report photos, doctor"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/photokit/photokit.py"]
+  path: ${FIELDKIT}/kits/photokit/photokit.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--install] | sheet SRC OUT | dupes SRC [--window 1 --sheet OUT] | compare SRC OUT A:B... | check SRC MAP | sort SRC MAP OUT | fetch LIST OUT | serve ROOT"}
+  effects: [reads-files, writes-files, network-on-fetch, installs-on-doctor-install]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_photokit.py", -p, "no:cacheprovider"]
+  notes: "Writes only into the OUT folder named; never moves or deletes originals. dupes only proposes: decide duplicates by looking (compare). Procedure: skill fieldkit-property-inventory."
+
+- id: videokit
+  title: "Phone video: doctor (check/install + per-video VFR/HDR/rotation), analyse (cached, real timestamps), events/draft, shake/shakecompare (phase-correlation jitter), flow (freezes, hard joins), lock (OpenCV gimbal/tripod/similarity, streamed), render (best-second waits, per-segment stabiliser by measured jitter, dissolves, gamma, sharpen)"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/videokit/videokit.py"]
+  path: ${FIELDKIT}/kits/videokit/videokit.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--install] [--video V] | probe V | analyse V | events V | draft V PLAN | frames V OUT [--at-events] | measure V OUT.csv | shake V | shakecompare SRC PLAN OUT... [--strict] | flow V [--strict] | lock V OUT | render V PLAN OUT.mp4"}
+  effects: [reads-files, writes-files, installs-on-doctor-install]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_videokit.py", -p, "no:cacheprovider"]
+  notes: "Writes the output named plus an analysis cache in ~/.cache/videokit (VIDEOKIT_CACHE; safe to delete); the source is never touched. Needs numpy, Pillow, opencv-python and a full ffmpeg build (doctor checks; NOT the PyPI vidstab package). Long-video proof: kits/videokit/bench_long.py. Procedure: skill fieldkit-video-edit."
+- id: catchup
+  title: "Machine catch-up handover: repos (ahead/behind, token-free remotes), collect (memory, instructions, private tools, unpushed diffs/patches/untracked, bundles for repos with no remote), check (secrets fail it), public-check (Romanian text and private names before anything goes public), pack (verified zip to a stick, never overwrites)"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/catchup/catchup.py"]
+  path: ${FIELDKIT}/kits/catchup/catchup.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--dest D] | repos ROOT... [--since DATE] [--fetch] [--json] | collect --out DIR [--config F] [--since DATE] | check DIR | public-check PATH... [--no-terms] [--history] [--github ACCOUNT] | pack DIR DEST"}
+  effects: [reads-files, writes-files, network-on-fetch]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_catchup.py", -p, "no:cacheprovider"]
+  notes: "collect writes only into a NEW folder; pack writes DEST/<name>.zip via .part and never overwrites. The config (which folders to carry) is private: local/catchup.json. The bundle is internal documentation: hand-carried, never uploaded. Procedure: skill fieldkit-machine-catchup."

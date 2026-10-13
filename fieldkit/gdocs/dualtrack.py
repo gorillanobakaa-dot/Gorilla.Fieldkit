@@ -27,8 +27,10 @@ def candidates():
     local = settings.local_settings().get("dual_track")
     if local:
         out.append(Path(settings.expand(local, strict=False)))
-    out.append(Path(settings.expand("${DOCUMENTS}")) / "Scripts" / "DualTrackAgent" / "dual_track.py")
+    # the gathered copy of the published repository first: an old scratch copy in Documents/Scripts once shadowed
+    # the fixed one and failed five tests (2026-10-13); Scripts is a temporary dumping ground, never the source
     out.append(settings.ROOT / "toolbox" / "dual-track-doc-generator" / "dual_track.py")
+    out.append(Path(settings.expand("${DOCUMENTS}")) / "Scripts" / "DualTrackAgent" / "dual_track.py")
     return out
 
 

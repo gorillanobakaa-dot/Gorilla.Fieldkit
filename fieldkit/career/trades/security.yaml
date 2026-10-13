@@ -1,14 +1,32 @@
 # Trade rules: UK security (officer, door supervisor, CCTV operator, close protection). Same format as driver.yaml.
 name: security
-detect: '(security officer|door supervisor|\bSIA\b|CCTV|close protection|static guard|patrol officer|paz[aă]|agent de securitate)'
+detect: '(security officer|door supervisor|\bSIA\b|CCTV|close protection|static guard|patrol officer|vigilante de seguridad|seguridad privada|seguran[cç]a privada|vigilante de seguran[cç]a|guardia giurata|addetto alla sicurezza|vigilanza|sicherheitsdienst|sicherheitsmitarbeiter|wachmann|objektschutz|paz[aă]|agent de securitate)'
 checks:
   - {id: sia, pattern: '(\bSIA\b|security industry authority)', ask: sia,
      message: "No SIA licence stated: UK security employers check it first."}
   - {id: screening, pattern: '(BS ?7858|vetting|\bDBS\b|\bBPSS\b|\bSC\b clearance|\bCTC\b)', ask: screening}
-  - {id: first-aid, pattern: '(first aid|EFAW|FAW|prim ajutor)', ask: first-aid}
-  - {id: incident, pattern: '(incident report|report writing|incident log|rapoarte)', ask: null,
+  - {id: first-aid, pattern: '(first aid|EFAW|FAW|primeros auxilios|primeiros socorros|primo soccorso|erste hilfe|prim ajutor)', ask: first-aid}
+  - {id: incident, pattern: '(incident report|report writing|incident log|informes? de incidencias|relat[oó]rios? de ocorr[eê]ncias?|rapporti di servizio|verbali|vorfallsbericht|berichte|rapoarte)', ask: null,
      message: "Incident reporting is not mentioned: every security role asks for it."}
 questions:
-  sia:        {en: "Which SIA licence do you hold (security guarding, door supervision, CCTV, close protection)? Expiry date?", ro: "Ce licență SIA ai (security guarding, door supervision, CCTV, close protection)? Când expiră?"}
-  screening:  {en: "Which vetting or screening have you had (BS7858, DBS, BPSS, SC, CTC)?", ro: "Ce verificări de securitate ai avut (BS7858, DBS, BPSS, SC, CTC)?"}
-  first-aid:  {en: "Do you hold a first aid certificate? Which one, until when?", ro: "Ai certificat de prim ajutor? Care, valabil până când?"}
+  sia:
+    en: "Which SIA licence do you hold (security guarding, door supervision, CCTV, close protection)? Expiry date?"
+    es: "¿Qué licencia SIA tienes (security guarding, door supervision, CCTV, close protection)? ¿Cuándo caduca?"
+    pt: "Que licença SIA tens (security guarding, door supervision, CCTV, close protection)? Quando expira?"
+    it: "Quale licenza SIA hai (security guarding, door supervision, CCTV, close protection)? Quando scade?"
+    de: "Welche SIA-Lizenz hast du (security guarding, door supervision, CCTV, close protection)? Wann läuft sie ab?"
+    ro: "Ce licență SIA ai (security guarding, door supervision, CCTV, close protection)? Când expiră?"
+  screening:
+    en: "Which vetting or screening have you had (BS7858, DBS, BPSS, SC, CTC)?"
+    es: "¿Qué verificaciones de antecedentes o de seguridad has pasado (BS7858, DBS, BPSS, SC, CTC)?"
+    pt: "Que verificações de antecedentes ou de segurança já fizeste (BS7858, DBS, BPSS, SC, CTC)?"
+    it: "Quali verifiche dei precedenti o di sicurezza hai superato (BS7858, DBS, BPSS, SC, CTC)?"
+    de: "Welche Sicherheitsüberprüfungen hast du durchlaufen (BS7858, DBS, BPSS, SC, CTC)?"
+    ro: "Ce verificări de securitate ai avut (BS7858, DBS, BPSS, SC, CTC)?"
+  first-aid:
+    en: "Do you hold a first aid certificate? Which one, until when?"
+    es: "¿Tienes un certificado de primeros auxilios? ¿Cuál y hasta cuándo es válido?"
+    pt: "Tens certificado de primeiros socorros? Qual, e até quando é válido?"
+    it: "Hai un attestato di primo soccorso? Quale, e valido fino a quando?"
+    de: "Hast du einen Erste-Hilfe-Nachweis? Welchen, und bis wann ist er gültig?"
+    ro: "Ai certificat de prim ajutor? Care, valabil până când?"

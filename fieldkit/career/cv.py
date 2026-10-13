@@ -1,7 +1,11 @@
 """fieldkit cv: read and check a CV against fixed rules, and write CVs from the candidate's profile.
 
-    fieldkit cv check FILE [--trade NAME] [--lang en|ro]   findings by importance, and the questions to ask
-    fieldkit cv render [--variant NAME] [--lang en|ro]     profile.yaml -> CV_<variant>_<lang>_<date>.docx and .pdf
+    fieldkit cv check FILE [--trade NAME] [--lang en|es|pt|it|de|ro]   findings by importance, and the questions
+    fieldkit cv render [--variant NAME] [--lang en|es|pt|it|de|ro]     profile.yaml -> CV_<variant>_<lang>_<date>.docx/.pdf
+
+Languages: English, Spanish (Spain), Portuguese (Portugal), Italian, German and Romanian, equally (profile.LANGS): the
+questions, the CV headings and the fixed cover-letter lines exist in all six (rules.yaml, trades/*.yaml,
+templates.yaml), and `check` tells the six apart when --lang is not given (rules.yaml language_detect).
 
 Born 2026-10-10 from the owner's brief "CV si cautare joburi" (a driver's UK CV, in English and Romanian), then made
 general the same day: rules.yaml holds what every UK CV needs; trades/*.yaml what one trade looks for (driver,
@@ -68,10 +72,25 @@ def _pages(path, words):
     return max(1, math.ceil(words / 450)), "estimated (about 450 words a page)"
 
 
-def detect_lang(text):
-    ro = len(re.findall(r"[ăâîșşțţ]", text.lower())) + 3 * len(re.findall(
-        r"\b(experiență|experienta|permis|competențe|limbi|șofer|sofer|despre)\b", text.lower()))
-    return "ro" if ro >= 5 else "en"
+def detect_lang(text, rules=None):
+    """The CV's language, one of profile.LANGS: rules.yaml language_detect scores each language by its own common
+    words and letters; the best wins if it reaches the threshold and beats English, otherwise English."""
+    d = (rules or _load(RULES))["language_detect"]
+    low = text.lower()
+    words = re.findall(r"[^\W\d_]+", low)
+    score = {}
+    for lang, ws in d["words"].items():
+        s = set(ws)
+        score[lang] = d["word_weight"] * sum(w in s for w in words)
+    for lang, letters in d["letters"].items():
+        score[lang] = score.get(lang, 0) + sum(low.count(ch) for ch in letters)
+    best = max(score, key=lambda k: (score[k], k == "en"))     # a tie goes to English
+    return best if best != "en" and score[best] >= d["threshold"] and score[best] > score.get("en", 0) else "en"
+
+
+TO = r"to|bis|hasta|até|fino a|până la|pana la|până|pana"                 # "2019 to 2021" in the six languages
+NOW = (r"present|current|now|actualidad|actualmente|presente|atualmente|atual|ad oggi|oggi|heute|aktuell|derzeit|"
+       r"în prezent|in prezent|prezent")
 
 
 def load_trade(name):
@@ -98,7 +117,9 @@ def check_text(text, path=None, rules=None, lang=None, trades=None):
     rules = rules or _load(RULES)
     trades = [load_trade(n) for n in (detect_trades(text) if trades is None else trades)]
     lines = text.splitlines()
-    lang = lang or detect_lang(text)
+    lang = lang or detect_lang(text, rules)
+    if lang not in prof.LANGS:
+        raise prof.BadProfile(f"lang {lang!r}: one of {', '.join(prof.LANGS)} ({prof.LANG_NAMES})")
     findings = []
 
     def add(fid, sev, msg, line=None, excerpt=None):
@@ -134,11 +155,10 @@ def check_text(text, path=None, rules=None, lang=None, trades=None):
         nxt = min([v for k, v in where.items() if v > where["experience"]] + [len(lines) + 1])
         starts = []
         for i in range(where["experience"], nxt - 1):
-            m = re.search(r"((?:19|20)\d\d)\s*(?:[-–—]|to|până la|pana la|până|pana)\s*"
-                          r"((?:19|20)\d\d|present|current|now|prezent|în prezent|in prezent)", lines[i], re.I)
+            m = re.search(rf"((?:19|20)\d\d)\s*(?:[-–—]|{TO}|al|ao|a)\s*((?:19|20)\d\d|{NOW})", lines[i], re.I)
             if not m:
-                m = re.search(r"\b(?:\d{1,2}[/.])?((?:19|20)\d\d)\b.{0,25}?(?:[-–—]|to|până|pana).{0,25}?"
-                              r"((?:19|20)\d\d|present|current|now|prezent)", lines[i], re.I)
+                m = re.search(rf"\b(?:\d{{1,2}}[/.])?((?:19|20)\d\d)\b.{{0,25}}?(?:[-–—]|{TO}).{{0,25}}?"
+                              rf"((?:19|20)\d\d|{NOW})", lines[i], re.I)
             if m:
                 starts.append((int(m.group(1)), i + 1, lines[i]))
         if any(a[0] < b[0] for a, b in zip(starts, starts[1:])):
@@ -337,7 +357,7 @@ def _write_docx(blocks, out):
     doc.save(out)
 
 
-FONT_CANDIDATES = [  # a font with Romanian ș ț (comma below); Helvetica has none
+FONT_CANDIDATES = [  # a font with every supported language's letters (ș ț ñ ç ß ...); Helvetica lacks ș ț
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "C:/Windows/Fonts/arial.ttf",
     "C:/Windows/Fonts/calibri.ttf", "/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf"]
@@ -355,7 +375,8 @@ def _font():
             pdfmetrics.registerFont(TTFont("CV", str(p)))
             pdfmetrics.registerFont(TTFont("CV-Bold", str(b if b.is_file() else p)))
             return "CV", "CV-Bold"
-    raise RuntimeError("no font with Romanian letters (ș ț) found for the PDF; install one: "
+    raise RuntimeError("no font with every supported language's letters (e.g. ș ț ñ ç ß) found for the PDF; "
+                       "install one: "
                        "sudo apt-get install -y fonts-dejavu-core (Linux) - Windows and macOS have Arial")
 
 
@@ -419,8 +440,8 @@ def render(variant=None, lang="en", profile_path=None, out_dir=None, today=None,
     variant = variant or names[0]
     if variant not in names:
         raise prof.BadProfile(f"variant {variant!r}: the profile has {', '.join(names)}")
-    if lang not in tpl["labels"]:
-        raise prof.BadProfile(f"lang {lang!r}: one of {', '.join(tpl['labels'])}")
+    if lang not in prof.LANGS or lang not in tpl["labels"]:
+        raise prof.BadProfile(f"lang {lang!r}: one of {', '.join(prof.LANGS)} ({prof.LANG_NAMES})")
     out_dir = Path(out_dir or store.base() / "cvs")
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = _free(out_dir, f"CV_{variant}_{lang}_{(today or dt.date.today()).isoformat()}", (".docx", ".pdf"))

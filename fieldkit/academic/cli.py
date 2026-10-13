@@ -12,7 +12,7 @@ from . import profile as prof
 USAGE = """fieldkit academic COMMAND ...
 
   init        --name "FULL NAME" --country uk|us|es|pt|it|de|ro [--university U] [--programme P] [--style S]
-              [--language L] [--ui en|ro] [--student-id N]       (without name/country: the questions to ask)
+              [--language L] [--ui en|es|pt|it|de|ro] [--student-id N]       (without name/country: the questions to ask)
   setup       FOLDER --deadline DATE --upload DATE [--type T] [--words N] [--module M] [--title T]
   next        FOLDER                     days left to the earlier date, and the one next step
   accessed    FOLDER URL                 stamp a web source with today's date, in the profile's style
@@ -38,7 +38,7 @@ USAGE = """fieldkit academic COMMAND ...
   portfolio   DRAFT.md [--to FOLDER]     a portfolio draft as a finished Word document (build --as docx)
   local       [--apply] [--from DIR]     assignments in OneDrive/Dropbox/Google Drive, copied here and proven
   preflight                              the tools proven by building real files and measuring them
-  menu                                   the numbered menu (English, or Romanian with ui ro)
+  menu                                   the numbered menu, in the profile's ui language
   shortcut    [--check|--remove]         a "Fieldkit Academic" shortcut that opens the menu
 
   --json on any command: the result as JSON.
