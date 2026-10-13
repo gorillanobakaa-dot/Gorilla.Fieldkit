@@ -150,3 +150,34 @@ def test_a_mute_machine_does_not_stop_the_loop(monkeypatch):
     monkeypatch.setattr(watchdog, "log", lambda *a, **k: None)
     assert watchdog.speak("hello") == "not-spoken", \
         "a machine with no sound must not crash the watchdog; it is still useful offline"
+
+
+# ---------------------------------------------------------------------------
+# Hostile SSIDs. The owner names his networks ":(" and ":) :) _|_" on purpose,
+# to trip tools that parse network names. It worked: both bugs below were real.
+# ---------------------------------------------------------------------------
+def test_an_ssid_containing_a_colon_is_unescaped_before_use():
+    # nmcli -t escapes ":" as "\:", so an SSID of ":(" arrives as "\:(".
+    # Handing that straight to `nmcli connection up` asks for a network that
+    # does not exist, and the watchdog fails to rejoin SILENTLY, at exactly the
+    # moment it is needed.
+    got = net.current_ssid(platform="linux", runner=lambda a, timeout=30: "yes:\\:(\n")
+    assert got == ":(", f"got {got!r}; the escaping was not undone"
+
+
+def test_an_ssid_of_shell_metacharacters_never_reaches_a_shell():
+    # ":) :) _|_" contains spaces and a pipe. If an SSID were ever interpolated
+    # into a shell string, a network name would be a command. It must always be
+    # passed as a separate argv element.
+    calls = []
+    net.reconnect(":) :) _|_", platform="linux",
+                  runner=lambda a, timeout=30: calls.append(a) or "", log=lambda s: None)
+    join = [c for c in calls if "connection" in c]
+    assert join, "no join attempted"
+    assert join[0] == ["nmcli", "connection", "up", ":) :) _|_"], \
+        "the SSID must be its own argv element, never spliced into a string"
+
+
+def test_unescape_leaves_an_ordinary_name_alone():
+    assert net.unescape_nmcli("5G-Hub-MH3S") == "5G-Hub-MH3S"
+    assert net.unescape_nmcli("plain\\\\back") == "plain\\back"

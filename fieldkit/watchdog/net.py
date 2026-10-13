@@ -57,8 +57,27 @@ def current_ssid(platform=None, runner=None):
     for line in r(["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"]).splitlines():
         active, _, ssid = line.partition(":")
         if active == "yes" and ssid:
-            return ssid
+            # nmcli -t ESCAPES a colon inside a value as "\\:", so an SSID of
+            # ":(" arrives as "\\:(" and handing that straight to
+            # `nmcli connection up` asks for a network that does not exist. The
+            # watchdog would then fail to rejoin, silently, at the one moment it
+            # is needed. Found 2026-10-13 on a network deliberately named ":("
+            # to trip exactly this.
+            return unescape_nmcli(ssid)
     return ""
+
+
+def unescape_nmcli(value):
+    """Undo nmcli -t's escaping. It escapes ":" and "\\" with a backslash."""
+    out, i = [], 0
+    while i < len(value):
+        if value[i] == "\\" and i + 1 < len(value):
+            out.append(value[i + 1])
+            i += 2
+        else:
+            out.append(value[i])
+            i += 1
+    return "".join(out)
 
 
 def reconnect(ssid, platform=None, runner=None, log=lambda s: None):
