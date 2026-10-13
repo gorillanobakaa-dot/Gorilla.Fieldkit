@@ -191,11 +191,11 @@ The jitter thresholds decide how every later measurement is interpreted, so they
 
 ## Technical Debt
 
-🟠 **MEDIUM** — router.probe() and risk() have no direct unit tests. → They are the parts that touch a device and reason about its login behaviour, which is where testing matters most. Capture a fixture page and assert the parsing.
-🟡 **LOW** — The WAN jitter thresholds are reasoned, not fitted. → They were chosen from one cellular hub and one fixed line. Collect figures from more connections before tightening them.
-🟡 **LOW** — Wall and cable loss constants are order-of-magnitude estimates. → Marked as inference in the output. Measuring them would need equipment the toolkit does not assume.
-🟡 **LOW** — BANDS covers UK carriers only. → Unknown tokens are reported instead of dropped, so the failure is visible. Extend as other regions appear.
-🟠 **MEDIUM** — compare() transfers real data on a possibly metered connection. → It announces this, but a default byte count that small enough to be free would be safer for the intended audience.
+🟠 **MEDIUM**: router.probe() and risk() have no direct unit tests. → They are the parts that touch a device and reason about its login behaviour, which is where testing matters most. Capture a fixture page and assert the parsing.
+🟡 **LOW**: The WAN jitter thresholds are reasoned, not fitted. → They were chosen from one cellular hub and one fixed line. Collect figures from more connections before tightening them.
+🟡 **LOW**: Wall and cable loss constants are order-of-magnitude estimates. → Marked as inference in the output. Measuring them would need equipment the toolkit does not assume.
+🟡 **LOW**: BANDS covers UK carriers only. → Unknown tokens are reported instead of dropped, so the failure is visible. Extend as other regions appear.
+🟠 **MEDIUM**: compare() transfers real data on a possibly metered connection. → It announces this, but a default byte count that small enough to be free would be safer for the intended audience.
 
 ## Impact If Removed
 
@@ -211,17 +211,17 @@ fieldkit net disappears from the CLI and the net group leaves docs coverage inco
 | antenna_fit once reported a vacuous pass | 📄 stated in input | Reporting "covers every carrier" here would be a vacuous pass |
 | identify() used the default gateway's MAC regardless of --ip | 📄 stated in input | identify() used to report the DEFAULT GATEWAY's MAC no matter which --ip was probed |
 | Buying one antenna can cost half the throughput | 📄 stated in input | can cost half the throughput |
-| No credential is ever submitted | 🤖 model inference | *(none — model judgment)* |
-| Router content is never executed or deserialised | 🤖 model inference | *(none — model judgment)* |
-| Resource use is negligible | 🤖 model inference | *(none — model judgment)* |
+| No credential is ever submitted | 🤖 model inference | *(none, model judgment)* |
+| Router content is never executed or deserialised | 🤖 model inference | *(none, model judgment)* |
+| Resource use is negligible | 🤖 model inference | *(none, model judgment)* |
 | Wall and cable loss figures are estimates | 📄 stated in input | model inference, order-of-magnitude, for explaining the trade-off |
 
 
 ---
 **How to verify this document:**
-`📄 stated in input` — the model's phrasing of something your source text said.
+`📄 stated in input`: the model's phrasing of something your source text said.
 Find the matching line in the original to verify.
-`🤖 model inference` — the model's own judgment or synthesis. Treat as opinion,
+`🤖 model inference`: the model's own judgment or synthesis. Treat as opinion,
 not measurement. Re-run on the same input and check whether specific numbers
 stay consistent between runs.
 

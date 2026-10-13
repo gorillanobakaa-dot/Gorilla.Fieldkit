@@ -196,11 +196,11 @@ PARTIAL_OVERLAP_PENALTY and WORTH_LEAVING_1_6_11 are judgement, and both are del
 
 ## Technical Debt
 
-🟠 **MEDIUM** — Windows, macOS and FreeBSD scan backends are written but have never been executed. → Run scan() on each platform and capture real output as a test fixture. 'OS agnostic' is currently a design claim for three of the four platforms.
-🟠 **MEDIUM** — 5 GHz analysis is implemented but untested against real 5 GHz air. → Run --band 5 on a dual-band adapter and check the channel candidate list and width handling.
-🟡 **LOW** — The GUI exposes decode_rate but not watch, calibrate or devices. → Add tabs, or document that the window is a subset of the CLI.
-🟡 **LOW** — PARTIAL_OVERLAP_PENALTY and WORTH_LEAVING_1_6_11 are reasoned but unmeasured. → They are deliberately single defensible constants instead of a fitted curve, because the input is a scan's signal percentage. Fitting them would need throughput measurements the tool does not take.
-🟡 **LOW** — local_devices() sweeps with ping, which some hosts drop. → A device that ignores ICMP and has not recently spoken will be missed. Document, or add an ARP-level probe.
+🟠 **MEDIUM**: Windows, macOS and FreeBSD scan backends are written but have never been executed. → Run scan() on each platform and capture real output as a test fixture. 'OS agnostic' is currently a design claim for three of the four platforms.
+🟠 **MEDIUM**: 5 GHz analysis is implemented but untested against real 5 GHz air. → Run --band 5 on a dual-band adapter and check the channel candidate list and width handling.
+🟡 **LOW**: The GUI exposes decode_rate but not watch, calibrate or devices. → Add tabs, or document that the window is a subset of the CLI.
+🟡 **LOW**: PARTIAL_OVERLAP_PENALTY and WORTH_LEAVING_1_6_11 are reasoned but unmeasured. → They are deliberately single defensible constants instead of a fitted curve, because the input is a scan's signal percentage. Fitting them would need throughput measurements the tool does not take.
+🟡 **LOW**: local_devices() sweeps with ping, which some hosts drop. → A device that ignores ICMP and has not recently spoken will be missed. Document, or add an ARP-level probe.
 
 ## Impact If Removed
 
@@ -216,17 +216,17 @@ fieldkit wifi channels, card, gui, watch and rate stop existing, and the CLI par
 | The hardcoded reference was 20 dB wrong | 📄 stated in input | The hardcoded value was **20 dB out**, a factor of a hundred in power |
 | Below -80 dBm no distance is returned | 📄 stated in input | TOO_WEAK_TO_GUESS = -80.0 |
 | The maintainer's own AP contributed 89 of channel 13's score of 158 | 📄 stated in input | channel 13 scored 158 of which **89 was the maintainer's own access point sitting on channel 13** |
-| No shell is ever invoked | 🤖 model inference | *(none — model judgment)* |
-| Nothing is persisted or transmitted | 🤖 model inference | *(none — model judgment)* |
-| Resource use is negligible | 🤖 model inference | *(none — model judgment)* |
+| No shell is ever invoked | 🤖 model inference | *(none, model judgment)* |
+| Nothing is persisted or transmitted | 🤖 model inference | *(none, model judgment)* |
+| Resource use is negligible | 🤖 model inference | *(none, model judgment)* |
 | The non-Linux backends have never been run | 📄 stated in input | written but never run |
 
 
 ---
 **How to verify this document:**
-`📄 stated in input` — the model's phrasing of something your source text said.
+`📄 stated in input`: the model's phrasing of something your source text said.
 Find the matching line in the original to verify.
-`🤖 model inference` — the model's own judgment or synthesis. Treat as opinion,
+`🤖 model inference`: the model's own judgment or synthesis. Treat as opinion,
 not measurement. Re-run on the same input and check whether specific numbers
 stay consistent between runs.
 

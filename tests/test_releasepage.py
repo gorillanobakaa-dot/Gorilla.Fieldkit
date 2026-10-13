@@ -153,3 +153,21 @@ def test_the_philosophy_ships_with_the_package_and_is_printed(capsys):
     assert args.fn(args) == 0
     out = capsys.readouterr().out
     assert "Gorilla Open Source Philosophy" in out and "NEXT: fieldkit docs guide" in out
+
+
+def test_the_opening_does_not_end_as_a_heading():
+    """A horizontal rule directly under a line of text is setext syntax.
+
+    Found 2026-10-13 on this project's own v0.3.0 page: the opening's last
+    sentence, "It is free, and stays free.", rendered as an h2 on GitHub because
+    compose() put '---' on the very next line. Markdown is rendered by someone
+    else's parser, so the output has to be correct, not merely well intended.
+    """
+    page = RP.compose("# T\n\n## What this is\n\nx\n\n## Should you download it?\n\ny\n\n"
+                      "## Why this matters\n\nThe last sentence.",
+                      "# L\n\n## Lay\n\nbody", "# D\n\n## Dev\n\nbody")
+    lines = page.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() in ("---", "***", "___") and i:
+            assert not lines[i - 1].strip(), \
+                f"line {i}: a rule directly under {lines[i-1]!r} makes that line a heading"

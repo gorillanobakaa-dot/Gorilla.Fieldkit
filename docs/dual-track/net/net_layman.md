@@ -1,4 +1,4 @@
-# Which connection your computer is really using, what kind of line it is, and what aerial it needs — Plain Language Guide
+# Which connection your computer is really using, what kind of line it is, and what aerial it needs. Plain Language Guide
 
 > Generated 2026-10-13 from `net`
 
@@ -62,7 +62,7 @@ None of it changes anything on your machine by itself. Every answer here is read
 | `Aerial gain` | How much better an aerial listens in its best direction, which it pays for by listening worse everywhere else. | Cupping your hand behind one ear. You hear that direction better and the rest of the room worse. Nothing was amplified; attention was moved somewhere. |
 | `Lockout policy` | What your router does after wrong passwords: how many it tolerates, and how long it makes you wait afterwards. | A bank card that swallows itself after three wrong attempts. Worth knowing the number before you start guessing, not afterwards. |
 
-## How It Works — Step by Step
+## How It Works, Step by Step
 
 ### Step 1: Ask which road is signposted
 
@@ -220,23 +220,23 @@ The antenna advice matters for a different reason. It is about to cost you money
 
 ## Glossary
 
-**Gateway** — The device on your network that passes traffic out to the internet, usually your router.
+**Gateway**: The device on your network that passes traffic out to the internet, usually your router.
 
-**Interface** — One way your computer connects: a wifi adaptor, an ethernet socket, a mobile dongle.
+**Interface**: One way your computer connects: a wifi adaptor, an ethernet socket, a mobile dongle.
 
-**Routing table** — Your computer's own list of where to send traffic, held locally.
+**Routing table**: Your computer's own list of where to send traffic, held locally.
 
-**Ping** — A tiny message sent to see whether something answers and how long it takes.
+**Ping**: A tiny message sent to see whether something answers and how long it takes.
 
-**Band** — A slice of radio spectrum a mobile network uses, identified by a code such as B3 or n78.
+**Band**: A slice of radio spectrum a mobile network uses, identified by a code such as B3 or n78.
 
-**RSRP** — How loud the mobile signal arrives, in decibels relative to a milliwatt. Closer to zero is stronger.
+**RSRP**: How loud the mobile signal arrives, in decibels relative to a milliwatt. Closer to zero is stronger.
 
-**Coaxial cable** — The thick round cable that connects an aerial, which loses signal along its length.
+**Coaxial cable**: The thick round cable that connects an aerial, which loses signal along its length.
 
-**Decibel** — A ratio, not an amount, and it multiplies: ten decibels lost is nine tenths of the signal gone.
+**Decibel**: A ratio, not an amount, and it multiplies: ten decibels lost is nine tenths of the signal gone.
 
-**SMA and TS9** — Two kinds of aerial connector. They are not interchangeable, and one family screws into the other while making no electrical contact at all.
+**SMA and TS9**: Two kinds of aerial connector. They are not interchangeable, and one family screws into the other while making no electrical contact at all.
 
 ## Claim Sources
 
@@ -249,17 +249,17 @@ The antenna advice matters for a different reason. It is about to cost you money
 | Five metres of thin coax loses about 10 dB at 3.5 GHz | 📄 stated in input | RG174 (thin, supplied with most kits)": 2.0 |
 | Buying one antenna can cost half the throughput | 📄 stated in input | the modem falls back to a single stream, which can cost half the throughput |
 | A mismatched antenna reflects instead of receives | 📄 stated in input | A MISMATCHED ANTENNA IS WORSE THAN NO ANTENNA. It reflects instead of |
-| Nothing is uploaded or stored | 🤖 model inference | *(none — model judgment)* |
-| Resource use is negligible | 🤖 model inference | *(none — model judgment)* |
+| Nothing is uploaded or stored | 🤖 model inference | *(none, model judgment)* |
+| Resource use is negligible | 🤖 model inference | *(none, model judgment)* |
 | Wall and cable loss figures are estimates, not measurements of any particular wall | 📄 stated in input | model inference, order-of-magnitude, for explaining the trade-off |
 
 
 ---
 **How to verify this document:**
-`📄 stated in input` — the model's phrasing of something your source text said.
+`📄 stated in input`: the model's phrasing of something your source text said.
 Find the matching line in the original to verify.
-`🤖 model inference` — the model's own judgment or synthesis. Treat as opinion,
+`🤖 model inference`: the model's own judgment or synthesis. Treat as opinion,
 not measurement. Re-run on the same input and check whether specific numbers
 stay consistent between runs.
 
-*Human Track. Its Developer Track twin covers the same changes in technical detail. Neither is a simplified copy of the other — they are the same truth in two languages.*
+*Human Track. Its Developer Track twin covers the same changes in technical detail. Neither is a simplified copy of the other: they are the same truth in two languages.*

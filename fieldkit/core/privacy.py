@@ -319,11 +319,17 @@ def git_publishable(folder):
     return [Path(folder) / f for f in r.stdout.decode("utf-8", "replace").split("\0") if f]
 
 
-def scan_path(path, terms=None, git_only=False, **kw):
+def scan_path(path, terms=None, git_only=False, examined=None, **kw):
     """Scan a file or folder tree. Returns {file: [findings]} (only files with findings).
 
     git_only=True scans exactly what git would publish (respects .gitignore);
     it refuses to guess if the folder is not a git repository.
+
+    examined: a list, if given, has the number of files examined appended to it.
+    The caller cannot count them itself without repeating the walk, and a
+    privacy report that cannot say how many files it read is indistinguishable
+    from one that read none (2026-10-13: the count printed was the number of
+    PATH ARGUMENTS, so a folder of five files reported "out of 1 file scanned").
     """
     terms = private_terms() if terms is None else terms
     path = Path(path)
@@ -346,6 +352,8 @@ def scan_path(path, terms=None, git_only=False, **kw):
             for root, dirs, names in os.walk(path, onerror=unreadable_dir):
                 dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
                 files += [Path(root) / n for n in sorted(names) if n not in SKIP_DIRS]
+    if examined is not None:
+        examined.append(len(files))
     for f in files:
         # Archives (handover zips, .docx/.xlsx/.pptx) are compressed: scanning
         # their bytes proves nothing, so scan every member instead.

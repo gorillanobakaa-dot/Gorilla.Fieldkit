@@ -1,4 +1,4 @@
-# Which wifi channel to use, who else is on it, and why your wifi is slow — Plain Language Guide
+# Which wifi channel to use, who else is on it, and why your wifi is slow. Plain Language Guide
 
 > Generated 2026-10-13 from `wifi`
 
@@ -52,7 +52,7 @@ It also answers the other half of the question: whether the slowness is the air 
 | `dBm` | How loud a signal arrives. Always a negative number, and closer to zero is stronger. | Like temperature below freezing: minus 5 is warmer than minus 20. |
 | `Access point` | The thing broadcasting a wifi network: your router, hub, or a range extender. | The person doing the talking in a crowded room. The tool can hear every talker, but not the people quietly listening to them. |
 
-## How It Works — Step by Step
+## How It Works, Step by Step
 
 ### Step 1: Ask the operating system what is on the air
 
@@ -202,21 +202,21 @@ The recommendation this tool makes is a judgement, not a measurement, and you ca
 
 ## Glossary
 
-**2.4 GHz** — The older, slower, longer-range wifi band, where all the crowding happens.
+**2.4 GHz**: The older, slower, longer-range wifi band, where all the crowding happens.
 
-**5 GHz** — The newer, faster, shorter-range band, with far more room and far less interference.
+**5 GHz**: The newer, faster, shorter-range band, with far more room and far less interference.
 
-**Access point** — The thing broadcasting a wifi network, usually your router or hub.
+**Access point**: The thing broadcasting a wifi network, usually your router or hub.
 
-**BSSID** — The unique hardware address of one radio inside a router, as opposed to the name you see.
+**BSSID**: The unique hardware address of one radio inside a router, as opposed to the name you see.
 
-**Carrier sense** — How wifi devices listen before speaking so they do not talk over each other.
+**Carrier sense**: How wifi devices listen before speaking so they do not talk over each other.
 
-**MIMO** — Using several aerials at once to carry more than one conversation simultaneously.
+**MIMO**: Using several aerials at once to carry more than one conversation simultaneously.
 
-**Regulatory domain** — The country setting that decides which channels your hardware is allowed to use.
+**Regulatory domain**: The country setting that decides which channels your hardware is allowed to use.
 
-**Saturation** — When a meter has reached the top of its scale and stops responding to further change.
+**Saturation**: When a meter has reached the top of its scale and stops responding to further change.
 
 ## Claim Sources
 
@@ -227,18 +227,18 @@ The recommendation this tool makes is a judgement, not a measurement, and you ca
 | An unusual channel must be about 2.5 times better before it is recommended | 📄 stated in input | WORTH_LEAVING_1_6_11 = 2.5 |
 | Channel 14 is Japan only and 802.11b only | 📄 stated in input | JAPAN_ONLY_24 = (14,)                # and NO-OFDM: 11 Mbps ceiling |
 | Channels 12 and 13 are legal in the UK and EU and illegal in the US | 📄 stated in input | UK_EU_ONLY_24 = (12, 13)             # legal here, invisible to US-market kit |
-| Nothing is uploaded or stored | 🤖 model inference | *(none — model judgment)* |
+| Nothing is uploaded or stored | 🤖 model inference | *(none, model judgment)* |
 | A scan sees access points only, not their attached devices | 📄 stated in input | a wifi scan sees ACCESS POINTS, not clients |
 | Profiles are never applied automatically | 📄 stated in input | TRAP: NEVER AUTO-APPLY A PROFILE. |
-| Resource use is negligible | 🤖 model inference | *(none — model judgment)* |
+| Resource use is negligible | 🤖 model inference | *(none, model judgment)* |
 
 
 ---
 **How to verify this document:**
-`📄 stated in input` — the model's phrasing of something your source text said.
+`📄 stated in input`: the model's phrasing of something your source text said.
 Find the matching line in the original to verify.
-`🤖 model inference` — the model's own judgment or synthesis. Treat as opinion,
+`🤖 model inference`: the model's own judgment or synthesis. Treat as opinion,
 not measurement. Re-run on the same input and check whether specific numbers
 stay consistent between runs.
 
-*Human Track. Its Developer Track twin covers the same changes in technical detail. Neither is a simplified copy of the other — they are the same truth in two languages.*
+*Human Track. Its Developer Track twin covers the same changes in technical detail. Neither is a simplified copy of the other: they are the same truth in two languages.*

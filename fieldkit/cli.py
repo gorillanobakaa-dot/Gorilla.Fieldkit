@@ -507,11 +507,15 @@ def cmd_privacy(a):
     # files" reads as "nothing was scanned", which is the one thing a privacy
     # gate must never be mistaken for. It misled a reader into reporting a
     # vacuous pass twice on 2026-10-13; the scan had in fact examined 662 files.
-    examined = 0
+    # The count comes BACK from the scanner, which is the only thing that knows
+    # which files it opened. Counting a.paths here instead reported "out of 1
+    # file(s) scanned" for a folder of five (found 2026-10-13, same day as the
+    # message was added, by reading its own output on this release's notes).
+    counted = []
     for p in a.paths:
-        files = privacy.git_publishable(p) if (a.git and Path(p).is_dir()) else None
-        examined += len([f for f in files if f.is_file()]) if files is not None else 1
-        rep.update(privacy.scan_path(p, git_only=a.git, allow_paths=a.allow_paths, allow_emails=a.allow_emails))
+        rep.update(privacy.scan_path(p, git_only=a.git, examined=counted,
+                                     allow_paths=a.allow_paths, allow_emails=a.allow_emails))
+    examined = sum(counted)
 
     def human(r):
         for f, hits in r.items():
@@ -1193,8 +1197,12 @@ def build_parser():
     wf = sub.add_parser("wifi", parents=[common], help="why the wifi is slow, answered from the "
                                                        "hardware: doctor, scan, channels, card, "
                                                        "upgrade (fieldkit/wifi)")
+    # devices and calibrate exist in the standalone file and were missing here.
+    # The two entry points must offer the same things as well as print the same
+    # numbers: the layman track described `fieldkit wifi devices` and it did not
+    # exist (found 2026-10-13, second divergence between these two front doors).
     wf.add_argument("action", choices=["doctor", "scan", "channels", "card", "upgrade", "gui",
-                                       "watch", "rate"])
+                                       "watch", "rate", "devices", "calibrate"])
     wf.add_argument("--mbps", type=float, help="rate: the 'connection speed' a device reports")
     wf.add_argument("--ssid", help="watch: the network name, exactly, punctuation included")
     wf.add_argument("--bssid", help="watch: the radio's MAC, when one name covers both bands")
@@ -1214,6 +1222,11 @@ def build_parser():
                     help="'local': YOU confirm every device here can use channels 12 and 13. "
                          "Never guessed, because only you can know it")
     wf.add_argument("--technical", action="store_true", help="the full engineering table")
+    wf.add_argument("--no-sweep", action="store_true",
+                    help="devices: read the address table without waking anything")
+    wf.add_argument("--at", action="append", default=None, metavar="METRES:DBM",
+                    help="calibrate: a reading at a KNOWN distance, e.g. --at 2.88:-34. "
+                         "Repeat at two or more DIFFERENT distances to fit this building")
     wf.add_argument("--score", type=int, metavar="CH", help="the arithmetic behind one score")
     wf.add_argument("--case", type=int, metavar="CH", help="argue YOUR channel vs the pick")
     wf.set_defaults(fn=cmd_wifi)
@@ -1370,6 +1383,23 @@ def cmd_wifi(a):
         d = cs.watch(a.ssid, a.bssid, samples=a.samples)
         _emit(d, a.json, lambda x: print("\n".join(cs.watch_lines(x))))
         return 2 if "error" in d else 0
+    if a.action == "devices":
+        from .wifi import channelsurvey as cs
+        devs = cs.local_devices(sweep=not a.no_sweep)
+        _emit(devs, a.json, lambda x: print("\n".join(cs.device_lines(x))))
+        return 0
+    if a.action == "calibrate":
+        from .wifi import channelsurvey as cs
+        pts = []
+        for item in a.at or ():
+            m = re.match(r"\s*([0-9.]+)\s*:\s*(-?[0-9.]+)\s*$", item)
+            if not m:
+                print(f"REFUSED: {item!r} is not METRES:DBM, e.g. 2.88:-34", file=sys.stderr)
+                return 2
+            pts.append((float(m.group(1)), float(m.group(2))))
+        d = cs.calibrate(pts)
+        _emit(d, a.json, lambda x: print("\n".join(cs.calibration_lines(x))))
+        return 2 if "error" in d else 0
     if a.action in ("channels", "card", "gui"):
         from .wifi import channelsurvey as cs
         if a.list_profiles:
@@ -1425,7 +1455,7 @@ def cmd_wifi(a):
         else:
             print(cs.plain_report(nets, rows, rec, rules, a.band, cfg, here_ch))
         return 0
-    raise SystemExit("fieldkit wifi doctor|scan|channels|card|gui|upgrade")
+    raise SystemExit("fieldkit wifi doctor|scan|channels|card|gui|upgrade|watch|rate|devices|calibrate")
 
 
 def cmd_net(a):

@@ -3,7 +3,23 @@ import subprocess
 import os
 import sys
 
+import pytest
+
 from fieldkit.buildh import herald
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_silence(monkeypatch):
+    """This module's result must not depend on how the suite was started.
+
+    2026-10-13: a full run with FIELDKIT_VOICE_SILENT=1 exported failed two
+    tests here that passed without it. The switch returns early before the
+    injected `run` is reached, which is correct (it is a hard gate, and the test
+    below asserts nothing is run at all), so the ambient value has to go instead.
+    The tests that want the switch set it themselves inside their own bodies,
+    and the subprocess tests build their child's env explicitly.
+    """
+    monkeypatch.delenv("FIELDKIT_VOICE_SILENT", raising=False)
 
 
 def test_the_verdict_comes_from_the_log():

@@ -924,3 +924,22 @@ def test_a_local_profile_wins_over_a_shipped_one_of_the_same_name(tmp_path, monk
     assert problem is None
     assert cfg["avoid"] == [11] and cfg["local"] is True
     assert cs.list_profiles() == ["x"], "a shadowed name must not appear twice"
+
+
+def test_both_front_doors_offer_the_same_things():
+    """`fieldkit wifi X` and `channelsurvey.py --X` must not drift apart.
+
+    They already drifted twice: once over the own-AP rule, which made the two
+    print different scores for the same air, and once over this, where the
+    layman documentation described `fieldkit wifi devices` and only the
+    standalone file could do it. A reader following either front door has to
+    arrive at the same capability.
+    """
+    from fieldkit import cli
+
+    sub = next(a for a in cli.build_parser()._actions if getattr(a, "choices", None)
+               and "wifi" in a.choices)
+    wifi = sub.choices["wifi"]
+    choices = set(next(a.choices for a in wifi._actions if a.dest == "action"))
+    for needed in ("devices", "calibrate", "watch", "rate", "channels", "card", "gui"):
+        assert needed in choices, f"fieldkit wifi cannot do {needed}, but the standalone file can"
