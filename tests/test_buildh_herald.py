@@ -62,7 +62,8 @@ def test_the_voice_is_offline_and_a_missing_one_prints():
 def test_the_command_line_says_something_on_this_machine():
     # SILENT: this used to come out of the speakers on every full suite run
     env = dict(os.environ, FIELDKIT_VOICE_SILENT="1")
-    r = subprocess.run([sys.executable, "-m", "fieldkit.buildh.herald", "--say", "test"], capture_output=True, text=True,
+    r = subprocess.run([sys.executable, "-m", "fieldkit.buildh.herald", "--say",
+                        "Claude is checking that this computer has a voice at all"], capture_output=True, text=True,
                        timeout=120, env=env)
     assert r.returncode == 0 and "herald: " in r.stdout
 
@@ -71,7 +72,8 @@ def test_the_herald_command_works_from_any_folder(tmp_path):
     """2026-10-10: the owner was given `python -m fieldkit.buildh.herald` and ran it from C:\\WINDOWS\\system32; a
     command the harness gives must work from anywhere: `fieldkit build-harness herald "words"`."""
     env = dict(os.environ, FIELDKIT_VOICE_SILENT="1")   # SILENT: see above
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "herald", "a test"], capture_output=True,
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "build-harness", "herald",
+                        "Claude is checking the herald works from any folder"], capture_output=True,
                        text=True, timeout=120, cwd=str(tmp_path), env=env)
     assert r.returncode == 0 and "herald: " in r.stdout, r.stdout + r.stderr
 
@@ -151,3 +153,81 @@ def test_an_explicit_off_value_is_not_treated_as_on():
         os.environ["FIELDKIT_VOICE_SILENT"] = value
         assert herald.silent() is False, value
     os.environ.pop("FIELDKIT_VOICE_SILENT", None)
+
+
+# ------------------------------------------- what the suite says out loud
+def test_the_suite_announces_the_real_numbers_not_a_vague_word():
+    """2026-10-13, the owner's call: keep the voice, because an eight-minute
+    run that announces itself keeps you honest, but make it say the actual
+    thing. "test, a test" was ambiguous enough that he had to ask what it was."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent))
+    import conftest as c
+
+    for template in c._STARTING:
+        line = template.format(n=1985)
+        assert "1985" in line, "the count must be spoken, not implied"
+    for template in c._ALL_PASSED:
+        assert "1985" in template.format(p=1985)
+    for template in c._SOME_FAILED:
+        line = template.format(f=3, t=1985)
+        assert "3" in line and "1985" in line, "say how many failed AND out of what"
+
+
+def test_the_suite_is_silent_for_everybody_else_by_default():
+    """Somebody cloning this repo must not have their computer start talking,
+    and a build server must never talk at all."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent))
+    import conftest as c
+
+    real = os.environ.pop("FIELDKIT_VOICE_TESTS", None)
+    try:
+        assert c._voice_tests_on() is False
+        for off in ("0", "false", "no", ""):
+            os.environ["FIELDKIT_VOICE_TESTS"] = off
+            assert c._voice_tests_on() is False, off
+        os.environ["FIELDKIT_VOICE_TESTS"] = "1"
+        assert c._voice_tests_on() is True
+    finally:
+        os.environ.pop("FIELDKIT_VOICE_TESTS", None)
+        if real is not None:
+            os.environ["FIELDKIT_VOICE_TESTS"] = real
+
+
+def test_a_broken_voice_can_never_break_the_test_run():
+    """The suite's verdict must not depend on whether the speakers work."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent))
+    import conftest as c
+    # SILENT. The first version of this test said "this will be fine even if
+    # nothing can say it" out of the speakers: a sentence that means nothing to
+    # the person hearing it, spoken to prove the voice cannot crash the suite.
+    real = os.environ.get("FIELDKIT_VOICE_SILENT")
+    os.environ["FIELDKIT_VOICE_SILENT"] = "1"
+    try:
+        c._announce("checking the announcer cannot crash the suite")   # must not raise
+    finally:
+        if real is None:
+            os.environ.pop("FIELDKIT_VOICE_SILENT", None)
+        else:
+            os.environ["FIELDKIT_VOICE_SILENT"] = real
+
+
+def test_no_spoken_line_is_too_long_to_follow():
+    """2026-10-13, the owner listening to it: "on long sentences the voice gets
+    a bit weird and hard to understand". The worst line was 88 characters with a
+    four-digit number read out longhand in the middle, so the number was gone by
+    the end. A spoken line has no punctuation you can see and no second reading."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent))
+    import conftest as c
+
+    for group in (c._STARTING, c._ALL_PASSED, c._SOME_FAILED):
+        for template in group:
+            line = template.format(n=1985, p=1985, f=3, t=1985)
+            assert len(line) <= c.SPOKEN_LIMIT, f"{len(line)} chars, too long to follow: {line}"
