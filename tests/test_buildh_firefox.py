@@ -327,3 +327,34 @@ def test_a_deletion_is_done_when_the_file_is_gone_and_only_then(tmp_path):
     assert firefox.check_port(t, {"id": "d"}, "p", "gone.icns", {"binary": True, "deleted": True})["ok"]
     (tmp_path / "back.icns").write_bytes(b"x")
     assert not firefox.check_port(t, {"id": "d"}, "p", "back.icns", {"binary": True, "deleted": True})["ok"]
+
+
+def test_a_trial_submit_spends_nothing_and_changes_nothing(world):
+    """2026-10-14: a submit chained after a failing hand-run check spent an attempt; the trial is free."""
+    p = task.packet("ff")
+    assert "--dry-run (no attempt spent" in p["packet"]
+    w = world / "work" / "157.0"
+    prefs = w / "prefs.js"
+    r = task.trial("ff")
+    assert not r["ok"] and r["trial"] and r["would_be"] == "an attempt refused"
+    good = prefs.read_text().replace('pref("browser.startup.page", 1);\n',
+                                     'pref("browser.startup.page", 1);\npref("toolkit.telemetry.enabled", false);\n')
+    prefs.write_text(good, newline="\n")
+    r = task.trial("ff")
+    assert r["ok"] and r["would_be"] == "done"
+    s = task.current(task.load("ff"))
+    assert s["attempts"] == 0 and s["status"] != "done" and prefs.read_text() == good     # nothing spent, nothing put back
+
+
+def test_a_port_beside_an_intent_ledger_must_be_under_migration_control(world):
+    t = task.load("ff")
+    root = world / "Gorilla.firefox"
+    t["meta"]["harness_root"] = str(root)
+    task.save(t)
+    (root / "intents").mkdir(exist_ok=True)
+    (root / "intents" / "INTENTS.yaml").write_text("version: 1\nintents: []\n", encoding="utf-8")
+    with pytest.raises(task.Refused, match="migrate init ff"):
+        task.packet("ff")
+    (task._dir("ff") / "migrate").mkdir(parents=True, exist_ok=True)
+    (task._dir("ff") / "migrate" / "plan.json").write_text("{}", encoding="utf-8")
+    assert task.packet("ff")["state"] == "MODEL STEP"

@@ -1381,6 +1381,7 @@ def build_parser():
     bh.add_argument("--workdir")
     bh.add_argument("--version", help="vault verify/restore: a version other than the newest")
     bh.add_argument("--note", help="submit: a note for the log")
+    bh.add_argument("--dry-run", action="store_true", help="submit: run the check only; no attempt spent, nothing changed (try it before every submit)")
     bh.add_argument("--hand", action="store_true", help="submit: a PERSON ported this hunk by hand; judge it by meaning (removed lines gone, added text's tokens present), not by the letter")
     bh.add_argument("--adapted", default="", help="submit: the MODEL declares an adapted port (a symbol renamed upstream, code moved) with its reason; judged by meaning, saved as a proposal for the owner's one-go acceptance, no attempt spent")
     bh.add_argument("--session", help="watch/report: a Gorilla OpenCode session id (default: the newest)")

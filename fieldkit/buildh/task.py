@@ -233,6 +233,13 @@ def advance(task_id, in_flight_steps=None):
     t = load(task_id)
     if not t["approved"]:
         raise Refused("the plan is not approved; the owner runs: fieldkit build-harness approve " + task_id)
+    hr = (t.get("meta") or {}).get("harness_root")
+    if t.get("workflow") == "firefox-upgrade" and hr and (Path(hr) / "intents" / "INTENTS.yaml").is_file() \
+            and not (_dir(task_id) / "migrate" / "plan.json").is_file():
+        # 2026-10-14: the Linux 158 port ran a day without the migration plan and intent ledger Fable built on
+        # Windows, because nothing made a session look. A port with a ledger next to it goes under migration control.
+        raise Refused(f"this Firefox port is not under migration control. Read {hr}/MIGRATION-PLAN.md, then run: "
+                      f"{settings.self_cmd()} build-harness migrate init {task_id}")
     while True:
         s = current(t, in_flight_steps)
         # A blocked or deferred step is a person's; the rest of the plan goes on (live run 13: one parked CSS hunk
@@ -357,7 +364,9 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     else:
         head += ["You may change ONLY these files (anything else is undone):",
                  *[f"  - {a}" for a in s.get("allowed", [])],
-                 "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works."]
+                 "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works.",
+                 f"Test it first, free: {settings.self_cmd()} build-harness submit {t['id']} --dry-run (no attempt spent; "
+                 "add the same --adapted note you would submit with)."]
     from . import decisions as dec
     cited = dec.citations(t, list(s.get("allowed") or []))
     if cited:
@@ -367,6 +376,27 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
         text = text[:budget_chars] + "\n[... trimmed to fit the context budget]"
     journal(t, "packet", step=s["id"], chars=len(text), attempt=s["attempts"] + 1, by=by)
     return {"state": "MODEL STEP", "step": s["id"], "packet": text, "chars": len(text)}
+
+
+def trial(task_id, note="", adapted="", hand=False):
+    """The check of `submit`, with nothing spent and nothing changed: no attempt counted, no revert, no proposal saved.
+
+    2026-10-14 (Linux 158 port): a submit chained after a failing hand-run check spent attempt 1 of 3 on a port the
+    harness then refused. A trial costs nothing, so the packet tells every porter to run it first."""
+    t = load(task_id)
+    s = current(t)
+    if not s or s["kind"] != "model":
+        raise Refused("there is no model step waiting; call build_harness_next")
+    changed = changed_files(t)
+    outside = [c for c in changed if c not in set(s.get("allowed") or [])]
+    if outside:
+        return {"ok": False, "trial": True, "why": [f"changed files outside the step: {outside[:5]}"]}
+    probe = dict(s)
+    if adapted or hand:
+        probe["hand_port"], probe["hand_note"] = True, adapted or note
+    r = _call(probe["check"], t, probe, **(s.get("args") or {})) or {}
+    return {"ok": bool(r.get("ok")), "trial": True, "why": list(r.get("why") or []),
+            "would_be": ("a proposal for the owner" if adapted else "done") if r.get("ok") else "an attempt refused"}
 
 
 def _proposals_dir(t):
