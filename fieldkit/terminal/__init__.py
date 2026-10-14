@@ -120,7 +120,12 @@ def bash_script(command, mode, log, title=None, say=False):
     first = "PRESS ENTER to run it. Close this window to say no." if mode == "ask" else "Running it now. Wait for the last line."
     if say:
         words = say if isinstance(say, str) else say_settings()[1]
-        lines.append(f"({q(sys.executable)} -m fieldkit.buildh.herald --say {q(words)} >/dev/null 2>&1 </dev/null &)")
+        # The herald is DETACHED from the window (nohup): the voice takes seconds, and a quick person who closed the
+        # window killed it with the terminal's hang-up before it could speak or write (2026-10-14, the 17:22 window:
+        # allowed at :10, closed at :14, no herald line). "asked" is written at once; the herald's own verdict
+        # (spoken, or why not) follows when it is done, so the record says whether anyone was called.
+        lines.append(f"echo \"herald asked at $({stamp}) to say: {words}\" >> \"$log\"")
+        lines.append(f"nohup {q(sys.executable)} -m fieldkit.buildh.herald --say {q(words)} >> \"$log\" 2>&1 </dev/null &")
     lines += [f"printf '\\n  %s\\n' {q(first)}",
               f"printf '  %s\\n\\n' {q(short)}",
               f"printf '    %s\\n\\n' {q(cmd)}"]
