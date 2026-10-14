@@ -765,10 +765,55 @@ def _anchor(lines, context_and_removed, min_run=3):
     return near_i if near_i is not None else best_i
 
 
+FORWARD = re.compile(r"(for a later firefox|for the next firefox|on the next port|when porting|drop (?:the|this|these)\b|keep step)", re.I)
+
+
+def _head_lines(path):
+    head = []
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines()[:15]:
+        if not line.startswith("#"):
+            break
+        head.append(line.lstrip("# ").rstrip())
+    return [x for x in head if x]
+
+
+def author_note(t, patch, limit=900):
+    """The `# ...` lines at the head of a patch: what its author wrote about it (purpose, files, and sometimes what
+    to do on a later Firefox). 2026-10-14: patch 078 said 'For a later Firefox: drop the three 16.SNAPSHOT tokens-*.css
+    patches and this one'; the Linux 158 port showed only the patch's name and ported them anyway."""
+    try:
+        text = " ".join(_head_lines(_policy(t["meta"]["harness_root"])[0] / patch))
+    except (OSError, KeyError, ValueError, TypeError):
+        return ""
+    return text[:limit] + (" [...]" if len(text) > limit else "")
+
+
+def forward_instructions(harness_root):
+    """-> [(patch, sentence)] for every enabled patch whose author wrote what to do on a later Firefox. Read at the
+    START of a port: such a note can govern patches in EARLIER groups (078 in group 21 named three in group 16)."""
+    out = []
+    try:
+        pset, groups = _policy(harness_root)
+    except (OSError, KeyError, ValueError):
+        return out
+    for g, spec in groups.items():
+        if spec.get("status") != "enabled":
+            continue
+        excluded = set(spec.get("exclude", []))
+        for pf in sorted((pset / g).glob("*.patch")):
+            if pf.name in excluded:
+                continue
+            for sent in re.split(r"(?<=[.;:])\s+", " ".join(_head_lines(pf))):
+                if FORWARD.search(sent):
+                    out.append((f"{g}/{pf.name}", sent.strip()[:300]))
+    return out
+
+
 def packet_port(t, s, budget_chars, patch, file, hunk, answer_mode=False, **kw):
     removed, added, context = hunk_sides(hunk)
     target = Path(t["workdir"]) / file
-    parts = [f"PATCH: {patch}", f"FILE:  {file}", "",
+    note = author_note(t, patch)
+    parts = [f"PATCH: {patch}", f"FILE:  {file}"] + ([f"THE AUTHOR'S NOTE ON THIS PATCH: {note}"] if note else []) + ["",
              "The change this hunk makes (lines starting '-' are removed, '+' are added, ' ' are context):",
              hunk["header"], *hunk["lines"], ""]
     if not target.is_file():
@@ -1288,7 +1333,8 @@ def packet_port_questions(t, s, budget_chars, patch, file, hunk, **kw):
     from .answer import Q_INSTRUCTIONS
     removed, added, context = hunk_sides(hunk)
     target = Path(t["workdir"]) / file
-    parts = [f"PATCH: {patch}", f"FILE:  {file}", "",
+    note = author_note(t, patch)
+    parts = [f"PATCH: {patch}", f"FILE:  {file}"] + ([f"THE AUTHOR'S NOTE ON THIS PATCH: {note}"] if note else []) + ["",
              "The change this hunk makes (lines starting '-' are removed, '+' are added, ' ' are context):",
              hunk["header"], *hunk["lines"], ""]
     if not target.is_file():

@@ -393,3 +393,23 @@ def test_drop_refuses_with_uncommitted_work_or_an_unknown_patch(world):
     (world / "work" / "157.0" / "prefs.js").write_text("// half-done edit\n")
     with pytest.raises(task.Refused, match="uncommitted"):
         task.drop("ff", ["08.Look/accent.patch"], "x", patchset_root=pset)
+
+
+def test_forward_instructions_and_the_authors_note_are_read(tmp_path):
+    """078's header said what to do on a later Firefox; nothing read it (2026-10-14)."""
+    root = tmp_path / "harness"
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "patch_policy.json").write_text(json.dumps({"patchset_root": "ps", "groups": {
+        "21.FIX": {"status": "enabled"}, "16.OLD": {"status": "enabled", "exclude": ["gone.patch"]}}}))
+    (root / "ps" / "21.FIX").mkdir(parents=True)
+    (root / "ps" / "16.OLD").mkdir(parents=True)
+    (root / "ps" / "21.FIX" / "078-fix.patch").write_text(
+        "# Theme fix step 1 of 2.\n# For a later Firefox: drop the three tokens patches and this one; keep step 2.\n\n--- a/x\n")
+    (root / "ps" / "16.OLD" / "gone.patch").write_text("# For a later Firefox: drop me.\n--- a/y\n")
+    (root / "ps" / "16.OLD" / "plain.patch").write_text("--- a/z\n")
+    got = firefox.forward_instructions(root)
+    assert {p for p, _ in got} == {"21.FIX/078-fix.patch"}            # an excluded patch is not read
+    assert any("drop the three tokens patches" in n for _, n in got)
+    t = {"meta": {"harness_root": str(root)}}
+    assert firefox.author_note(t, "21.FIX/078-fix.patch").startswith("Theme fix step 1 of 2.")
+    assert firefox.author_note(t, "16.OLD/plain.patch") == "" and firefox.author_note({"meta": {}}, "x") == ""
