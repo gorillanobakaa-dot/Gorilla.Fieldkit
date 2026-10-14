@@ -1921,3 +1921,296 @@ tools:
     undo: [python, -m, fieldkit, win11, run, text-input-guard, undo]
   platforms: [windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
+
+# --- Media kits (kits/): photos and phone video, offline -----------------------
+- id: photokit
+  title: "Photos: contact sheets, near-duplicate candidates + side-by-side compare, mapping check, sort into per-item folders, fetch report photos, doctor"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/photokit/photokit.py"]
+  path: ${FIELDKIT}/kits/photokit/photokit.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--install] | sheet SRC OUT | dupes SRC [--window 1 --sheet OUT] | compare SRC OUT A:B... | check SRC MAP | sort SRC MAP OUT | fetch LIST OUT | serve ROOT"}
+  effects: [reads-files, writes-files, network-on-fetch, installs-on-doctor-install]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_photokit.py", -p, "no:cacheprovider"]
+  notes: "Writes only into the OUT folder named; never moves or deletes originals. dupes only proposes: decide duplicates by looking (compare). Procedure: skill fieldkit-property-inventory."
+
+- id: videokit
+  title: "Phone video: doctor (check/install + per-video VFR/HDR/rotation), analyse (cached, real timestamps), events/draft, shake/shakecompare (phase-correlation jitter), flow (freezes, hard joins), lock (OpenCV gimbal/tripod/similarity, streamed), render (best-second waits, per-segment stabiliser by measured jitter, dissolves, gamma, sharpen)"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/videokit/videokit.py"]
+  path: ${FIELDKIT}/kits/videokit/videokit.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--install] [--video V] | probe V | analyse V | events V | draft V PLAN | frames V OUT [--at-events] | measure V OUT.csv | shake V | shakecompare SRC PLAN OUT... [--strict] | flow V [--strict] | lock V OUT | render V PLAN OUT.mp4"}
+  effects: [reads-files, writes-files, installs-on-doctor-install]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_videokit.py", -p, "no:cacheprovider"]
+  notes: "Writes the output named plus an analysis cache in ~/.cache/videokit (VIDEOKIT_CACHE; safe to delete); the source is never touched. Needs numpy, Pillow, opencv-python and a full ffmpeg build (doctor checks; NOT the PyPI vidstab package). Long-video proof: kits/videokit/bench_long.py. Procedure: skill fieldkit-video-edit."
+- id: catchup
+  title: "Machine catch-up handover: repos (ahead/behind, token-free remotes), collect (memory, instructions, private tools, unpushed diffs/patches/untracked, bundles for repos with no remote), check (secrets fail it), public-check (Romanian text and private names before anything goes public), pack (verified zip to a stick, never overwrites)"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/catchup/catchup.py"]
+  path: ${FIELDKIT}/kits/catchup/catchup.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--dest D] | repos ROOT... [--since DATE] [--fetch] [--json] | collect --out DIR [--config F] [--since DATE] | check DIR | public-check PATH... [--no-terms] [--history] [--github ACCOUNT] | pack DIR DEST"}
+  effects: [reads-files, writes-files, network-on-fetch]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_catchup.py", -p, "no:cacheprovider"]
+  notes: "collect writes only into a NEW folder; pack writes DEST/<name>.zip via .part and never overwrites. The config (which folders to carry) is private: local/catchup.json. The bundle is internal documentation: hand-carried, never uploaded. Procedure: skill fieldkit-machine-catchup."
+
+- id: voice
+  title: A voice worth listening to on Linux (Windows is untouched)
+  harness: voice
+  entry: [python, -m, fieldkit, voice]
+  path: ${FIELDKIT}/fieldkit/voice
+  platforms: [linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_voice.py"]
+  skill: skills/fieldkit-voice/SKILL.md
+
+- id: voice-doctor
+  title: What this machine has for speech, what it needs, and how it will SOUND
+  harness: voice
+  entry: [python, -m, fieldkit, voice, doctor]
+  path: ${FIELDKIT}/fieldkit/voice/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_voice.py"]
+
+- id: voice-install
+  title: Fetch and wire up the neural voice, system-wide, user-level only
+  harness: voice
+  entry: [python, -m, fieldkit, voice, install]
+  path: ${FIELDKIT}/fieldkit/voice/install.py
+  inputs:
+    - {name: apply, flag: "--apply", type: bool, required: false, help: "do it; without this it prints the plan"}
+  effects: [writes-files, network]
+  safety: changes-things
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_voice.py"]
+
+- id: voice-say
+  title: Speak one sentence through whatever this machine is configured to use
+  harness: voice
+  entry: [python, -m, fieldkit, voice, say]
+  path: ${FIELDKIT}/fieldkit/voice/doctor.py
+  inputs:
+    - {name: text, flag: null, type: str, required: true, help: "the sentence to speak"}
+  effects: [plays-audio]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_voice.py"]
+
+- id: voice-clean
+  title: Remove voice models that are not the chosen one, only once it works
+  harness: voice
+  entry: [python, -m, fieldkit, voice, clean]
+  path: ${FIELDKIT}/fieldkit/voice/install.py
+  inputs:
+    - {name: apply, flag: "--apply", type: bool, required: false, help: "do it; without this it prints the plan"}
+  effects: [writes-files]
+  safety: changes-things
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_voice.py"]
+
+- id: watchdog
+  title: Keep this laptop online, or say so out loud when it cannot
+  harness: watchdog
+  entry: [python, -m, fieldkit, watchdog]
+  path: ${FIELDKIT}/fieldkit/watchdog
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_watchdog.py"]
+
+- id: watchdog-status
+  title: Is this laptop online, on which network, and is the alarm paused
+  harness: watchdog
+  entry: [python, -m, fieldkit, watchdog, status]
+  path: ${FIELDKIT}/fieldkit/watchdog/__init__.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_watchdog.py"]
+
+- id: watchdog-test
+  title: Say the offline alarm once, to hear what it sounds like
+  harness: watchdog
+  entry: [python, -m, fieldkit, watchdog, test]
+  path: ${FIELDKIT}/fieldkit/watchdog/__init__.py
+  inputs: []
+  effects: [plays-audio]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_watchdog.py"]
+
+- id: watchdog-pause
+  title: Stop the alarm for a while, for a deliberate offline test
+  harness: watchdog
+  entry: [python, -m, fieldkit, watchdog, pause]
+  path: ${FIELDKIT}/fieldkit/watchdog/__init__.py
+  inputs:
+    - {name: minutes, flag: null, type: str, required: true, help: "how many minutes to stay quiet"}
+  effects: [writes-files]
+  safety: changes-things
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_watchdog.py"]
+
+- id: watchdog-install
+  title: Start the watchdog at login (Linux only; Windows already has a scheduled task)
+  harness: watchdog
+  entry: [python, -m, fieldkit, watchdog, install]
+  path: ${FIELDKIT}/fieldkit/watchdog/install.py
+  inputs:
+    - {name: apply, flag: "--apply", type: bool, required: false, help: "do it; without this it prints the plan"}
+  effects: [writes-files]
+  safety: changes-things
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_watchdog.py"]
+
+- id: wifi
+  title: Why the wifi is slow, answered from the hardware rather than from guesses
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi]
+  path: ${FIELDKIT}/fieldkit/wifi
+  platforms: [linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: net-antenna
+  title: What antenna the cellular bands in use actually require, with the loss budget
+  harness: net
+  entry: [python, -m, fieldkit, net, antenna]
+  path: ${FIELDKIT}/fieldkit/net/cellular.py
+  inputs:
+    - {name: bands, flag: --bands, type: str, required: true, help: "the hub's band line, e.g. B3+B3+B7+n78+n78"}
+    - {name: cable_m, flag: --cable-m, type: float, required: false, help: "planned coax run in metres"}
+    - {name: cable, flag: --cable, type: str, required: false, help: "coax type for the loss budget"}
+  effects: []
+  safety: read-only
+  platforms: [linux, darwin, windows, freebsd]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_net_cellular.py"]
+
+- id: net-route
+  title: Which interface the internet actually goes out of, before you measure anything
+  harness: net
+  entry: [python, -m, fieldkit, net, route]
+  path: ${FIELDKIT}/fieldkit/net/route.py
+  inputs: []
+  effects: [network]
+  safety: read-only
+  platforms: [linux]
+  changes: false
+
+- id: explain
+  title: "A written explanation read from a file: no model, no tokens, no variance"
+  harness: explain
+  entry: [python, -m, fieldkit, explain]
+  path: ${FIELDKIT}/fieldkit/explain/__init__.py
+  inputs:
+    - {name: topic, flag: null, type: str, required: false, help: "omit to list the topics"}
+    - {name: lang, flag: --lang, type: str, required: false, help: "language code, e.g. ro"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux, darwin, windows, freebsd]
+  changes: false
+
+- id: wifi-channels
+  title: Which 2.4 GHz channel is actually free, with the argument for the choice
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, channels]
+  path: ${FIELDKIT}/fieldkit/wifi/channelsurvey.py
+  inputs:
+    - {name: band, flag: --band, type: str, required: false, help: "2.4 or 5 (default 2.4)"}
+    - {name: check, flag: --check, type: int, required: false, help: "what does this channel overlap"}
+    - {name: avoid, flag: --avoid, type: str, required: false, help: "channels you control elsewhere"}
+    - {name: profile, flag: --profile, type: str, required: false, help: "a named profile. NEVER automatic"}
+  effects: [network]
+  safety: read-only
+  platforms: [linux, darwin, windows, freebsd]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi_channelsurvey.py"]
+
+- id: wifi-card
+  title: What this machine's radio can really tune, read from the card not guessed
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, card]
+  path: ${FIELDKIT}/fieldkit/wifi/channelsurvey.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi_channelsurvey.py"]
+
+- id: wifi-doctor
+  title: The link, the card's real limits, and which layer is the bottleneck
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, doctor]
+  path: ${FIELDKIT}/fieldkit/wifi/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: wifi-scan
+  title: Every network in range, with the band named honestly rather than from the SSID
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, scan]
+  path: ${FIELDKIT}/fieldkit/wifi/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: wifi-upgrade
+  title: Can this machine's wifi card be replaced, and what cannot be known from software
+  harness: wifi
+  entry: [python, -m, fieldkit, wifi, upgrade]
+  path: ${FIELDKIT}/fieldkit/wifi/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wifi.py"]
+
+- id: shot
+  title: Read numbers off a screenshot, and reason about what they mean
+  harness: shot
+  entry: [python, -m, fieldkit, shot]
+  path: ${FIELDKIT}/fieldkit/shot
+  platforms: [windows, linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]
+
+- id: shot-speedtest
+  title: Pull download, upload and ping off a speedtest screenshot (never guesses)
+  harness: shot
+  entry: [python, -m, fieldkit, shot, speedtest]
+  path: ${FIELDKIT}/fieldkit/shot/read.py
+  inputs:
+    - {name: files, flag: null, type: str, required: true, help: "the image files"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]
+
+- id: shot-verdict
+  title: From several speedtest shots, say WHICH LAYER is limiting
+  harness: shot
+  entry: [python, -m, fieldkit, shot, verdict]
+  path: ${FIELDKIT}/fieldkit/shot/read.py
+  inputs:
+    - {name: files, flag: null, type: str, required: true, help: "the image files"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]

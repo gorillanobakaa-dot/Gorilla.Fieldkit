@@ -29,6 +29,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -332,15 +333,22 @@ def stage_build(ctx):
     ld = "-s -w" + (f" -X {v['version_var']}={version}" if v.get("version_var") else "")
     fp = fingerprint(src)
     built = []
-    for goos, goarch in _targets(ctx):
-        f = out / _file_name(ctx, version, goos, goarch)
-        cmd = [go, "build", "-trimpath", "-ldflags", ld, "-o", str(f), v.get("main") or "."]
-        r = _run(ctx, cmd, src, f"go-build-{goos}-{goarch}",
-                 env={"GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": str(v.get("cgo") or "0")}, timeout=3600)
-        if not r.ok or not f.is_file():
-            first = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][:6]
-            return {"ok": False, "detail": f"{goos}/{goarch} failed: " + " | ".join(first)[:400], "log": r.log}
-        built.append({"target": f"{goos}/{goarch}", "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size})
+    # every compile runs guarded: the fan must be cooling, and the governor keeps the CPU near thermal.build_target
+    from ..thermal import buildguard
+    say = getattr(ctx, "say", None) or (lambda m: print(m, file=sys.stderr))
+    try:
+        with buildguard.guard(say, label=f"go-{v.get('name') or 'app'}"):
+            for goos, goarch in _targets(ctx):
+                f = out / _file_name(ctx, version, goos, goarch)
+                cmd = [go, "build", "-trimpath", "-ldflags", ld, "-o", str(f), v.get("main") or "."]
+                r = _run(ctx, cmd, src, f"go-build-{goos}-{goarch}",
+                         env={"GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": str(v.get("cgo") or "0")}, timeout=3600)
+                if not r.ok or not f.is_file():
+                    first = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][:6]
+                    return {"ok": False, "detail": f"{goos}/{goarch} failed: " + " | ".join(first)[:400], "log": r.log}
+                built.append({"target": f"{goos}/{goarch}", "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size})
+    except buildguard.BuildRefused as e:
+        return {"ok": False, "detail": f"not built: {e}"}
     rec = {"ok": True, "version": version, "go": (_load(ctx, src, "toolchain") or {}).get("have"), "ldflags": ld,
            "fingerprint": fp, "built": built, "when": time.strftime("%Y-%m-%d %H:%M:%S"),
            "detail": f"{version}: " + ", ".join(f"{Path(b['file']).name} ({b['bytes']:,} bytes)" for b in built)}

@@ -26,6 +26,20 @@ STEP_DOWN, STEP_UP, FLOOR = 10, 5, 30
 HOT, KILL = 90.0, 95.0
 RELAX_S, STALE_S = 45.0, 30.0
 DEAD, BUSY = 60, 50.0        # 3 minutes at 3 s: a 1-degree EC sensor sits flat for a minute at steady load, not three
+# The target every build-harness build uses. The cap comes down at target + 3, so 67 keeps a build at about 70 C at
+# most (owner, 2026-10-13: "keep it to MAXIMUM 70 C"; it was 75, so up to ~78). fieldkit.local.json thermal.build_target
+# overrides it; a value outside 50-90 is ignored. The fan's Compile mode only decides when the fan spins up.
+BUILD_TARGET_DEFAULT = 67.0
+
+
+def build_target(local=None):
+    from ..core import settings
+    local = settings.local_settings() if local is None else local
+    try:
+        t = float((local.get("thermal") or {}).get("build_target"))
+    except (TypeError, ValueError):
+        return BUILD_TARGET_DEFAULT
+    return t if 50.0 <= t <= 90.0 else BUILD_TARGET_DEFAULT
 
 
 def _powercfg(*args):

@@ -205,3 +205,19 @@ def test_the_sensor_proof_stops_loading_at_the_ceiling():
     ok, detail = sensors.prove_live(lambda: next(readings), settle=8, samples=6, interval=0.0, threads=2,
                                     load=lambda n: [P() for _ in range(n)], ceiling=80.0)
     assert ok and killed == [1, 1] and "82.0" in detail
+
+
+def test_builds_are_capped_near_70_c_unless_the_owner_says_otherwise():
+    """Owner, 2026-10-13: a build may reach 70 C at most. The cap comes down at target + 3, so the default is 67."""
+    assert governor.build_target({}) == 67.0
+    assert governor.build_target({"thermal": {"build_target": 72}}) == 72.0
+    for nonsense in ("hot", 20, 120, None):
+        assert governor.build_target({"thermal": {"build_target": nonsense}}) == 67.0
+
+
+def test_both_build_paths_use_the_build_target():
+    from pathlib import Path
+    root = Path(governor.__file__).resolve().parents[1] / "buildh"
+    for f in ("buildrun.py", "reprobuild.py"):
+        src = (root / f).read_text(encoding="utf-8")
+        assert "target_c=gv.build_target()" in src and "target_c=75.0" not in src, f

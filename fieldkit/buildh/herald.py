@@ -35,7 +35,19 @@ def voice(platform=None, which=shutil.which):
         return ["powershell", "-NoProfile", "-NonInteractive", "-Command",
                 "Add-Type -AssemblyName System.Speech; "
                 "(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak($env:FIELDKIT_SAY)"]
-    for exe in ("espeak-ng", "espeak", "spd-say"):
+    # GORILLA (2026-10-13): spd-say FIRST, not last.
+    #
+    # This list used to read ("espeak-ng", "espeak", "spd-say"), so on any Linux
+    # machine with espeak installed, which is almost all of them, Fieldkit spoke
+    # through espeak directly and silently ignored whatever voice the system was
+    # configured to use. The owner heard it as two different voices in one
+    # session: the desktop speaking with its configured neural voice, and
+    # Fieldkit answering in the 1990s one.
+    #
+    # spd-say means "use this machine's configured voice", so it belongs at the
+    # top. A tool should not override the user's system-wide choice. espeak
+    # stays as the last resort for a machine with no speech-dispatcher at all.
+    for exe in ("spd-say", "espeak-ng", "espeak"):
         p = which(exe)
         if p:
             return [p, "--wait"] if exe == "spd-say" else [p]
@@ -94,10 +106,47 @@ def explain(check):
                "Until then the herald still works: it prints its sentences on the screen instead of speaking them."])
 
 
+# ============================================================================
+# A TEST SUITE MUST NOT MAKE THE COMPUTER TALK.
+# ============================================================================
+# 2026-10-13: the owner asked why he kept hearing "test, a test" out of his
+# speakers. Two tests ran the real herald, so every full run spoke aloud,
+# twice, through whatever he was listening to.
+#
+# It is the same fault as a GUI test drawing on the real screen, found the same
+# day: a test with a side effect on the person running it. A suite should be
+# runnable during a phone call.
+#
+# FIELDKIT_VOICE_SILENT=1 does everything except make a sound: it still resolves
+# the voice program, still reports whether this machine HAS one, and still
+# returns "spoken" when it would have spoken. So the tests check the same path,
+# they just do not shout. It is also useful on its own, for anyone who wants the
+# harness quiet without pretending it has no voice.
+SILENT_ENV = "FIELDKIT_VOICE_SILENT"
+
+
+def silent():
+    return os.environ.get(SILENT_ENV, "").strip() not in ("", "0", "false", "no")
+
+
 def say(text, platform=None, which=shutil.which, run=subprocess.run, out=print):
     """Speak `text`. -> "spoken" or "printed" (no voice on this machine, or the voice failed: LAST_PROBLEM says why)."""
+    # Fix the text for speech before anything says it, so every caller gets it
+    # without having to remember. A hyphen between letters is spoken as a PAUSE
+    # by espeak-ng, which breaks the word in two; see fieldkit/voice/speakable.py
+    # for the finding and the two rules it only reports rather than fixes.
+    try:
+        from fieldkit.voice.speakable import speakable as _speakable
+        text = _speakable(text)[0]
+    except Exception:
+        pass        # speaking imperfectly beats not speaking
+
     win = (platform or sys.platform) == "win32"
     cmd = voice(platform, which)
+    if silent() and cmd:
+        # everything verified, nothing audible
+        LAST_PROBLEM["why"] = ""
+        return "spoken"
     LAST_PROBLEM["why"] = "" if cmd else "no offline voice on this machine: install espeak-ng"
     if cmd:
         argv = cmd if win else cmd + [text]

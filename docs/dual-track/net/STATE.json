@@ -1,0 +1,31 @@
+{
+ "brief_sha256": "6f942a6ef37d6703",
+ "gorilla_check": "PASS",
+ "group": "net",
+ "metrics": {
+  "developer": {
+   "commands": 0,
+   "words_total": 2320
+  },
+  "layman": {
+   "commands": 5,
+   "concept_rows": 8,
+   "glossary_terms": 9,
+   "trust_steps": 5,
+   "usage_steps": 6,
+   "words_total": 3542
+  }
+ },
+ "rendered": "2026-10-13",
+ "scores": {
+  "developer": 90,
+  "layman": 98
+ },
+ "sources": {
+  "net/__init__.py": "6fe47508dfd4d177a1a679f199121d15f733e21807700d802f2fadb87f88cf71",
+  "net/cellular.py": "22ff08732a739737190de0582f635072f924947c62cf47cc5726e3548f32ed75",
+  "net/route.py": "36b2047943e904a337ae06b6abdee0cbe190c2d031416dcc2c8b485b80766989",
+  "net/router.py": "ea6f6a0a6a15f8cf9a0117ab617fc63c375880920a18fe49025bec3dd7f7240b"
+ },
+ "title": "Which interface carries your traffic, what kind of line it is, and what antenna the cellular bands need"
+}

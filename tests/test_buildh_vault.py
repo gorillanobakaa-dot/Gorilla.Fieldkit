@@ -17,23 +17,25 @@ def _git(repo, *args):
 
 @pytest.fixture
 def mozilla(tmp_path):
-    """A stand-in for github.com/mozilla-firefox/firefox with an old and a new release tag, and a newer main."""
+    """A stand-in for github.com/mozilla-firefox/firefox with an old and a new release tag, and a newer main.
+    Files are written with LF on every OS: write_text on Windows wrote CRLF, and with this machine's git
+    storing it as-is, upstream itself held CRLF (2026-10-12)."""
     r = tmp_path / "upstream"
     r.mkdir()
     _git(r, "init", "-q", "-b", "main")
     _git(r, "config", "user.email", "t@example.com")
     _git(r, "config", "user.name", "t")
     (r / "browser").mkdir()
-    (r / "browser" / "version.txt").write_text("156.0\n")
+    (r / "browser" / "version.txt").write_text("156.0\n", newline="\n")
     _git(r, "add", ".")
     _git(r, "commit", "-q", "-m", "156")
     _git(r, "tag", "FIREFOX_156_0_RELEASE")
-    (r / "browser" / "version.txt").write_text("157.0\n")
-    (r / "dom.cpp").write_text("int x;\n")
+    (r / "browser" / "version.txt").write_text("157.0\n", newline="\n")
+    (r / "dom.cpp").write_text("int x;\n", newline="\n")
     _git(r, "add", ".")
     _git(r, "commit", "-q", "-m", "157")
     _git(r, "tag", "FIREFOX_157_0_RELEASE")
-    (r / "browser" / "version.txt").write_text("159.0a1\n")               # main moves on: Nightly
+    (r / "browser" / "version.txt").write_text("159.0a1\n", newline="\n")               # main moves on: Nightly
     _git(r, "commit", "-q", "-am", "nightly")
     return r
 

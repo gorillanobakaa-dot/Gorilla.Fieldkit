@@ -86,6 +86,10 @@ def compose(opening: str, layman_md: str, developer_md: str, extra: str = "") ->
     """Build the page. The order is the point and is not configurable."""
     parts = [
         opening.replace("\r\n", "\n").strip(),
+        # The blank line is load-bearing. A rule directly under a line of text is
+        # SETEXT syntax, so GitHub rendered the opening's last sentence as a
+        # heading ("It is free, and stays free." became an h2) (found 2026-10-13).
+        "",
         "---",
         "# In plain language: everything in this release",
         "",

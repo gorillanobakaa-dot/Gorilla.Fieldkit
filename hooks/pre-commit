@@ -2,18 +2,37 @@
 # Fieldkit pre-commit: no commit unless the tests pass and nothing private is staged.
 # Installed with: git config core.hooksPath hooks
 cd "$(git rev-parse --show-toplevel)" || exit 1
+# Find an interpreter that ACTUALLY HAS PYTEST. Debian ships python3 with no
+# "python" alias, so a bare `python -m pytest` fails with "command not found"
+# and the hook then printed "tests failed - commit refused", which is a lie: the
+# tests never ran. Refusing is right, but the REASON must be true, and a
+# misleading refusal sends somebody hunting a test failure that does not exist.
+#
+# Each candidate is checked for pytest before being chosen. Do NOT relax this to
+# "first interpreter found": on 2026-10-13 an earlier attempt fell back to a
+# pytest-less interpreter and made the behaviour worse than the bug it fixed.
+PY=""
+for c in "${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}" ./.venv/bin/python python3 python; do
+  [ -n "$c" ] || continue
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c "import pytest" >/dev/null 2>&1; then PY="$c"; break; fi
+done
+if [ -z "$PY" ]; then
+  echo "pre-commit: COULD NOT RUN THE TESTS - no interpreter with pytest - commit refused"
+  echo "  this is NOT a test failure: nothing was verified. Activate the venv or install pytest."
+  exit 1
+fi
 # own temporary folder: a pytest-current link once made by an elevated run cannot be replaced by a normal account,
 # and pytest then exits non-zero with every test passed (2026-10-07: every commit refused for that alone)
 BT="$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-hook-$$")"
 OUT="$BT.out"
-if ! python -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
+if ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
   # A failure must reproduce before it refuses the commit (2026-10-09: a timing test failed once under load, then
   # passed 3 of 3 on its own). Only the failed tests run again, once, in a fresh folder. A failure that does not
   # reproduce is written to state/flaky-tests.log (time and test) so it gets fixed, never silently forgotten.
   # Anything else (a collection error, no FAILED line, a second failure) refuses the commit.
   FAILED="$(sed -n 's/^FAILED \([^ ]*\).*/\1/p' "$OUT")"
   BT2="$(mktemp -d 2>/dev/null || echo "$BT-again")"
-  if [ -z "$FAILED" ] || ! python -m pytest -q -p no:cacheprovider --basetemp "$BT2" $FAILED >/dev/null 2>&1; then
+  if [ -z "$FAILED" ] || ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT2" $FAILED >/dev/null 2>&1; then
     echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"
     [ -n "$FAILED" ] && echo "$FAILED"
     exit 1
@@ -22,8 +41,8 @@ if ! python -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; 
   for t in $FAILED; do echo "$(date '+%Y-%m-%d %H:%M:%S') failed once, passed when run again: $t" >> state/flaky-tests.log; done
   echo "pre-commit: WARNING - failed once and passed when run again (logged in state/flaky-tests.log): $FAILED"
 fi
-if ! python -m fieldkit privacy scan . --git >/dev/null 2>&1; then
+if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
-  python -m fieldkit privacy scan . --git; exit 1
+  "$PY" -m fieldkit privacy scan . --git; exit 1
 fi
 exit 0

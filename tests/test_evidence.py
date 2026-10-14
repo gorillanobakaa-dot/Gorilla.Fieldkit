@@ -11,7 +11,7 @@ import pytest
 from fieldkit.evidence import cli, fetch as fetchmod, record, store as storemod, text, urls
 
 HTML = ("<html><head><title>A page</title><script>var s='the hidden script';</script></head>"
-        "<body><p>Șapte: the quick brown\nfox jumps over the lazy dog.</p></body></html>").encode()
+        "<body><p>Été: the quick brown\nfox jumps over the lazy dog.</p></body></html>").encode()
 
 
 class Site:

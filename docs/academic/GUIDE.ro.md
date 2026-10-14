@@ -3,6 +3,8 @@
 Pentru studenți, pe românește, fără termeni tehnici. Funcționează la fel pe orice laptop (Windows sau Linux) și în
 oricare din cele șapte țări: Marea Britanie, SUA, Spania, Portugalia, Italia, Germania, România.
 
+Alte limbi: [English](GUIDE.md) · [Español](GUIDE.es.md) · [Português](GUIDE.pt.md) · [Italiano](GUIDE.it.md) · [Deutsch](GUIDE.de.md)
+
 ## Ce fac pentru tine, pe scurt
 
 - Îți pregătesc folderul temei, cu un loc pentru fiecare lucru.

@@ -179,13 +179,17 @@ def run(task_id, say=print, execute=None, sensor=None, owner_root=None, free_gb=
     task.journal(t, "repro-start", work2=str(work2), obj2=str(obj2), pin=p["pin"], log=str(log))
     if execute is None:
         from . import buildrun
-        from ..thermal import governor as gv
+        from ..thermal import governor as gv, buildguard
+        fan_ok, fan_msg = buildguard.fan_check()          # 2026-10-13: no build while the fan is not cooling
+        say("  " + fan_msg)
+        if not fan_ok:
+            return {"ok": False, "why": fan_msg}
         name, fn, surface = (sensor or buildrun.thermal_sensor)(say)
         if fn is None:
             return {"ok": False, "why": "no CPU temperature source responds to load (fieldkit thermal prove)"}
 
         def execute(cmd, cwd, env, log):
-            gov = gv.Governor(fn, target_c=75.0, interval=3.0, kill=lambda why: None, on_event=say,
+            gov = gv.Governor(fn, target_c=gv.build_target(), interval=3.0, kill=lambda why: None, on_event=say,
                               csv_path=task.STATE / task_id / f"thermal-repro-{time.strftime('%Y%m%d-%H%M%S')}.csv",
                               max_cap=buildrun.SURFACE_CAP if surface else None, dead_check=not surface)
             rc, lines = buildrun._stream(cmd, cwd, log, say, governor=gov, watch_thermal=not surface, env=env)

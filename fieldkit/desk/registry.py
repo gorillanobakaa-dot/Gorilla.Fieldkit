@@ -22,6 +22,8 @@ its options; it has no argument handling and ran its whole job instead. Only
 tests listed in tools.yaml are ever executed, and only with run_tests=True.
 """
 import ast
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -319,8 +321,20 @@ def check(run_tests=False, only=None, timeout=300):
         row["status"] = "present"
         if run_tests and t.get("test") and platform_ok(t.get("platforms")):
             cmd = [sys.executable if c in ("python", "python3") else c for c in t["test"]]
+            # GORILLA FIX (2026-10-12): pytest's own scratch folder under %TEMP%
+            # (pytest-of-<user>/pytest-current, a dangling reparse point left by
+            # an earlier run) made every pytest-based card test fail with
+            # "Access is denied" before a single test ran, and the sweep reported
+            # 24 tools broken that were not. Each test gets a fresh base temp of
+            # its own under state/, unless the caller already chose one.
+            env = dict(os.environ)
+            if "PYTEST_ADDOPTS" not in env:
+                base = settings.ROOT / "state" / "pytest-tmp" / t["id"]
+                shutil.rmtree(base, ignore_errors=True)
+                base.mkdir(parents=True, exist_ok=True)
+                env["PYTEST_ADDOPTS"] = f'--basetemp="{base}" -p no:cacheprovider'
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                               timeout=timeout, cwd=p.parent if p.is_file() else p)
+                               timeout=timeout, cwd=p.parent if p.is_file() else p, env=env)
             row["test_ok"] = r.returncode == 0
             row["test_tail"] = (r.stdout + r.stderr).strip().splitlines()[-5:]
             from .cards import record_test          # trust level "tested" needs a pass on THIS file

@@ -250,3 +250,28 @@ def test_before_publish_needs_nothing_published_and_blocks_on_privacy(tmp_path, 
     r = release.before_publish(_spec(tmp_path, repo))
     priv = next(g for g in r["gates"] if g["gate"] == "privacy")
     assert not r["clear"] and "notes.txt: linux-home-path" in priv["detail"]   # it names the file and the kind
+
+
+def test_no_module_defines_the_same_function_twice():
+    """A second def of the same name wins silently and the first becomes a decoy.
+
+    Found 2026-10-13 in release.py: a bad paste left two check()s. The second
+    ran; the first was half of check() and half of prove(), and would have
+    raised NameError had it ever been called. A maintainer editing the one a
+    reader finds first would have changed nothing. Four helpers beside it were
+    byte-identical second copies. Nothing failed, which is why a test has to
+    look instead of a person.
+    """
+    import ast
+    from collections import Counter
+    from fieldkit.core import settings
+
+    bad = {}
+    for f in sorted((settings.ROOT / "fieldkit").rglob("*.py")):
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        names = [n.name for n in tree.body
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+        again = [n for n, c in Counter(names).items() if c > 1]
+        if again:
+            bad[f.relative_to(settings.ROOT).as_posix()] = again
+    assert not bad, f"top-level names defined more than once: {bad}"

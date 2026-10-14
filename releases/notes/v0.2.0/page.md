@@ -20,6 +20,7 @@ A program you download should be the program its published source builds, and no
 builds it a second time, somewhere else, and compares every byte. A student should not lose marks to a missing
 citation, a stray dash or their name left in the file, and should never lose the only copy of their work to a
 cleanup tool. Both are what this release is about. It is free, and stays free.
+
 ---
 # In plain language: everything in this release
 

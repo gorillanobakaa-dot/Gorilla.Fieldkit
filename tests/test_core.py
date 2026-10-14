@@ -171,3 +171,21 @@ def test_privacy_scan_of_a_missing_path_is_an_error(tmp_path):
 def test_local_settings_may_use_variables_themselves():
     local = {"vault": {"root": "${HOME}/Vault"}}
     assert settings.expand("${LOCAL:vault.root}", local) == str(Path.home()) + "/Vault"
+
+
+def test_privacy_says_how_many_files_it_examined(tmp_path):
+    """A clean report must be distinguishable from one that read nothing.
+
+    The count has to come back from the scanner. On 2026-10-13 the CLI counted
+    its own path ARGUMENTS instead, so a folder of five files printed "out of 1
+    file(s) scanned": the exact ambiguity the message was added to remove.
+    """
+    for n in ("a.txt", "b.txt", "c.txt"):
+        (tmp_path / n).write_text("nothing here")
+    counted = []
+    assert privacy.scan_path(tmp_path, terms=[], examined=counted) == {}
+    assert counted == [3]
+
+    counted = []
+    privacy.scan_path(tmp_path / "a.txt", terms=[], examined=counted)
+    assert counted == [1]

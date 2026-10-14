@@ -440,7 +440,11 @@ def check_layman(md, allowed_nums, url_corpus, parser=None, terms=None):
     m["usage_code_blocks"] = len(code_blocks(usage))
     ts = body.get("troubleshooting") or ""
     m["troubleshooting_entries"] = len(re.findall(r"^\*\*.+\*\*\s*$", ts, re.M))
-    m["glossary_terms"] = len(re.findall(r"^\*\*[^*]+\*\* — ", body.get("glossary") or "", re.M))
+    # A glossary line is **Term** then a separator then the definition. The
+    # separator may be a colon: em-dashes are banned in published text here
+    # (directives §1), and this pattern previously accepted ONLY an em-dash, so
+    # obeying that rule silently dropped the glossary count to zero.
+    m["glossary_terms"] = len(re.findall(r"^\*\*[^*]+\*\*\s*(?:[-:\u2013\u2014]|is\b)\s", body.get("glossary") or "", re.M))
     m["limit_statements"] = sum(1 for s in sentences(strip_code(md)) if LIMIT_RX.search(s))
     for key in ("trust_steps", "concept_rows", "usage_steps", "usage_code_blocks",
                 "troubleshooting_entries", "glossary_terms", "limit_statements"):

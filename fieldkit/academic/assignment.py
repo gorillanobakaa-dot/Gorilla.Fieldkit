@@ -38,6 +38,22 @@ ASK = {
            "upload": "Până când trebuie urcată în {tool}? (de multe ori aceeași zi cu termenul; verifică)",
            "found": " În cerință scrie: {date}. E corect?",
            "unread": "Nu pot citi {raw!r} ca dată. Scrie așa: 28 septembrie 2026 sau 2026-09-28."},
+    "es": {"deadline": "¿Cuál es la fecha límite? (el día en que hay que entregar el trabajo)",
+           "upload": "¿Hasta cuándo hay que subirlo a {tool}? (a menudo el mismo día que la fecha límite; compruébalo)",
+           "found": " El enunciado dice: {date}. ¿Es correcto?",
+           "unread": "No puedo leer {raw!r} como fecha. Escríbela así: 28 de septiembre de 2026 o 2026-09-28."},
+    "pt": {"deadline": "Qual é o prazo? (o dia em que o trabalho tem de ser entregue)",
+           "upload": "Até quando tem de ser carregado no {tool}? (muitas vezes no mesmo dia do prazo; confirma)",
+           "found": " O enunciado diz: {date}. Está certo?",
+           "unread": "Não consigo ler {raw!r} como data. Escreve assim: 28 de setembro de 2026 ou 2026-09-28."},
+    "it": {"deadline": "Qual è la scadenza? (il giorno in cui va consegnato l'elaborato)",
+           "upload": "Entro quando va caricato su {tool}? (spesso lo stesso giorno della scadenza; verifica)",
+           "found": " La consegna dice: {date}. È corretto?",
+           "unread": "Non riesco a leggere {raw!r} come data. Scrivila così: 28 settembre 2026 o 2026-09-28."},
+    "de": {"deadline": "Wann ist der Abgabetermin? (der Tag, an dem die Arbeit fällig ist)",
+           "upload": "Bis wann muss sie in {tool} hochgeladen werden? (oft am selben Tag wie der Abgabetermin; prüfe es)",
+           "found": " In der Aufgabenstellung steht: {date}. Stimmt das?",
+           "unread": "Ich kann {raw!r} nicht als Datum lesen. Schreib es so: 28. September 2026 oder 2026-09-28."},
 }
 
 

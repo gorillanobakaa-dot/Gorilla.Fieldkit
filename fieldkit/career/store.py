@@ -37,6 +37,13 @@ def base(local=None):
 
 
 ASK_NAME = {"en": "Whose CV is this? Give the full name exactly as it should appear on the CV.",
+            "es": "¿A nombre de quién creo este CV? Escribe el nombre completo, exactamente como debe aparecer en "
+                  "el CV.",
+            "pt": "Em nome de quem crio este CV? Escreve o nome completo, exatamente como deve aparecer no CV.",
+            "it": "A quale nome devo intestare questo CV? Scrivi il nome completo, esattamente come deve comparire "
+                  "nel CV.",
+            "de": "Auf welchen Namen soll ich diesen Lebenslauf erstellen? Schreib den vollständigen Namen genau so, "
+                  "wie er im Lebenslauf stehen soll.",
             "ro": "Pe ce nume vrei să creez acest CV? Scrie numele complet, exact cum trebuie să apară pe CV."}
 STARTER = """# The candidate's profile: the ONLY facts a CV, a score or a cover letter may use (fieldkit/career/profile.py).
 # Private: this folder is git-ignored, and the name below is on the private word list, so the pre-commit privacy
@@ -58,7 +65,7 @@ experience: []           # [{{title, employer, location, start: YYYY-MM, end: YY
 education: []
 cv_variants: {{}}          # {{name: {{headline, profile, keywords: [...], skills: [...]}}}}
 evidence: []             # [{{id, first_person: "I ...", source: "where this fact comes from"}}]
-letter: {{pitch: [], extra_allowed: []}}
+letter: {{lang: en, pitch: [], extra_allowed: []}}   # lang: en | es | pt | it | de | ro
 queries: []              # [{{what: "job title", where: "town"}}]
 """
 
@@ -80,8 +87,11 @@ def remember_private(terms, root=None):
     return {"added": added, "file": str(f)}
 
 
-def init(where=None, name=None, lang="ro", root=None):
-    """The data folder, and a starter profile on the candidate's own name. Without a name: the question to ask."""
+def init(where=None, name=None, lang="en", root=None):
+    """The data folder, and a starter profile on the candidate's own name. Without a name: the question to ask, in
+    the candidate's language (one of profile.LANGS)."""
+    if lang not in ASK_NAME:
+        raise prof.BadProfile(f"lang {lang!r}: one of {', '.join(prof.LANGS)} ({prof.LANG_NAMES})")
     b = Path(where or base())
     prof_file = b / "profile.yaml"
     if not prof_file.exists() and not (name or "").strip():

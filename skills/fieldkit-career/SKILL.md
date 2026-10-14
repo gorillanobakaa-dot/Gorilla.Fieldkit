@@ -1,12 +1,14 @@
 ---
 name: fieldkit-career
-description: A CV and a UK job hunt for one candidate, in English and Romanian, any trade - check the CV against fixed rules and ask what is missing, write UK-style CVs (.docx and .pdf) from verified facts only, search official job-board APIs (Reed, Adzuna), score vacancies, build application packs with cover letters made only of approved sentences, track every application, and back the harness up. Use when asked to check or rewrite a CV, find jobs, refresh the shortlist, prepare an application, or "cv si joburi" / "CV și căutare joburi". Never submits an application.
+description: A CV and a UK job hunt for one candidate, in English, Spanish, Portuguese, Italian, German or Romanian, any trade - check the CV against fixed rules and ask what is missing, write UK-style CVs (.docx and .pdf) from verified facts only, search official job-board APIs (Reed, Adzuna), score vacancies, build application packs with cover letters made only of approved sentences, track every application, and back the harness up. Use when asked to check or rewrite a CV, find jobs, refresh the shortlist, prepare an application, or "currículum y búsqueda de empleo" / "currículo e procura de emprego" / "curriculum e ricerca di lavoro" / "Lebenslauf und Jobsuche" / "CV și căutare joburi" / "cv si joburi". Never submits an application.
 ---
 
 # CV and job hunt (fieldkit cv, fieldkit jobs)
 
 The AI judges the words; Fieldkit does everything else the same way every time. Every command takes `--json`; every
-output ends with `NEXT:`. Answer the candidate in their language (Romanian if they write Romanian).
+output ends with `NEXT:`. Answer the candidate in their language. The module speaks English, Spanish (Spain),
+Portuguese (Portugal), Italian, German or Romanian equally (`--lang en|es|pt|it|de|ro`): the questions, the CV headings
+and the fixed cover-letter lines exist in all six, and `cv check` detects which of the six a CV is written in.
 
 ## Hard boundaries (enforced in code and tests; do not work around them)
 
@@ -21,13 +23,15 @@ output ends with `NEXT:`. Answer the candidate in their language (Romanian if th
   never overwrites (dated names, `_2`, `_3` ...).
 - **Personal data never leaves the machine**: it lives in `local/career/` (git-ignored); the candidate's name is
   added to the private word list, so the pre-commit privacy scan blocks it.
-- **Stop at every confirmation point below** and wait for the person's answer (DA / NU / corrections).
+- **Stop at every confirmation point below** and wait for the person's answer (yes / no / corrections, in their
+  language).
 
 ## Stage 0 - whose CV, and a backup
 
 1. `fieldkit backup` - before any change to the harness. With no folder configured it lists the folders that look
    like backup folders and stops: ask which one, never guess; then `fieldkit backup --to "FOLDER"`.
-2. `fieldkit cv init` - it asks **"Pe ce nume vrei să creez acest CV?"**. Ask the person, then
+2. `fieldkit cv init --lang LANG` - it asks, in the candidate's language, whose CV it is (e.g. **"Whose CV is
+   this?"**, **"¿A nombre de quién creo este CV?"**, **"Pe ce nume vrei să creez acest CV?"**). Ask the person, then
    `fieldkit cv init --name "FULL NAME"`. Never use a name from an example, a test or another person's files.
 
 ## Stage 1 - read and judge the CV (STOP at the end)
@@ -44,9 +48,11 @@ output ends with `NEXT:`. Answer the candidate in their language (Romanian if th
 1. Write the facts and answers into `local/career/profile.yaml` (format: `fieldkit/career/profile.py`):
    experience newest first, action verbs, results in figures only where the person gave them, one or more
    `cv_variants` (one per kind of job, each with its own headline, profile, keywords, skills), text as
-   `{en: ..., ro: ...}` for a CV in both languages. Show what you wrote; the person confirms it.
-2. `fieldkit cv render --variant NAME --lang en` (and `--lang ro`): .docx and .pdf, UK style (at most 2 pages, no
-   photo, no date of birth, ATS-friendly), re-checked as an applicant-tracking system would read it.
+   `{en: ..., es: ..., ...}` (any of `en es pt it de ro`) for a CV in more than one language. Show what you wrote;
+   the person confirms it. The cover-letter language is `letter.lang` (default `en`).
+2. `fieldkit cv render --variant NAME --lang en` (and once per other language wanted: `es`, `pt`, `it`, `de`, `ro`):
+   .docx and .pdf, UK style (at most 2 pages, no photo, no date of birth, ATS-friendly), re-checked as an
+   applicant-tracking system would read it.
 3. Show both files; apply every correction in `profile.yaml`, then render again.
 
 ## Stage 3 - find jobs (STOP before writing letters)
@@ -78,8 +84,9 @@ output ends with `NEXT:`. Answer the candidate in their language (Romanian if th
 
 ## Stage 6 - reminder
 
-End with, on its own line: **⚠️ NU UITA: fă backup la harness și pe USB-ul ROȘU!** (put it in
-`fieldkit.local.json` as `{"backup": {"reminder": "..."}}` and `fieldkit backup` prints it every time).
+End with the backup reminder on its own line, in the candidate's language - the one set in `fieldkit.local.json` as
+`{"backup": {"reminder": "..."}}`, which `fieldkit backup` prints every time (e.g. **⚠️ Don't forget: back up the
+harness to the RED USB stick too!**, or in Romanian **⚠️ NU UITA: fă backup la harness și pe USB-ul ROȘU!**).
 
 ## Final report
 

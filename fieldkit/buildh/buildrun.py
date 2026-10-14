@@ -762,6 +762,13 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         return {"ok": False, "why": "the owner's preflight reports a blocker a build cannot resolve", "blockers": blockers}
     if needs_force and not force:
         return {"ok": False, "why": "only build-dependent owner blockers remain; run again with --force to pass them on", "blockers": blockers}
+    # 2026-10-13: no build while the fan control is not cooling (not running, not updating, BIOS/Smart/Manual mode)
+    from ..thermal import buildguard
+    fan_ok, fan_msg = buildguard.fan_check()
+    say("  " + fan_msg)
+    if not fan_ok:
+        task.journal(t, "build-refused", why=[fan_msg])
+        return {"ok": False, "why": fan_msg}
     # 2026-10-02: no build without a CPU sensor proven to move under load (the laptop reset with a blind governor)
     sensor_name, sensor, surface = thermal_sensor(say)
     if sensor is None:
@@ -819,7 +826,7 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
                         task.journal(t, "objdir-sweep", removed=len(removed), first=removed[0])
             power = active_power_scheme()
             from ..thermal import governor as gv
-            gov = gv.Governor(sensor, target_c=75.0, interval=3.0, kill=lambda why: None, on_event=say,
+            gov = gv.Governor(sensor, target_c=gv.build_target(), interval=3.0, kill=lambda why: None, on_event=say,
                               csv_path=task.STATE / task_id / f"thermal-{stage}-{time.strftime('%Y%m%d-%H%M%S')}.csv",
                               max_cap=SURFACE_CAP if surface else None, dead_check=not surface)
             rc, lines = _stream(cmd, root, log_path, say, governor=gov, watch_thermal=not surface)

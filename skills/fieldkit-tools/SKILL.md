@@ -23,6 +23,34 @@ The list shows each tool's purpose, the systems it runs on, whether it changes t
 and whether it has a test. If a tool already does the job, use it. Tools marked
 `changes` modify files or system state, so ask the owner before running one.
 
+## When you build a tool during a job (the owner's standing rule)
+
+Anything written on the fly becomes a harness tool in the same session. It is never left as a loose script.
+A tool is finished when it has all of these:
+1. **One script with subcommands**: an argparse `__main__` guard and no work at import, with a README that
+   says what was measured and what the limits are. Put it in `kits/<name>/` in this repo when it is generic
+   and holds nothing personal (privacy scan first), otherwise in `Documents/Scripts/<Name>Kit/`.
+2. **`doctor [--install]`**:
+   - it probes the machine for every dependency: interpreter version, Python packages, external
+     programs, and the program features used (for example ffmpeg filters);
+   - it prints the exact install command for each missing one, and exits 1 while anything is missing;
+   - `--install` fetches what can be fetched unattended (pip from PyPI, scoop or winget, apt with sudo);
+   - it states what only the owner can do (browser extensions, sign-ins).
+   Run `doctor` first on any machine. Say who supplies each install before installing.
+3. **A card and a test**: `fieldkit/desk/tools.yaml` and `tests/` for a kit in this repo, or `local/tools.yaml`
+   and `local/tests/` (git-ignored) for a private tool. The test runs the real tool on real or synthetic data
+   and shows it failing as well as passing.
+4. **A skill** in `skills/fieldkit-<job>/SKILL.md` holding the procedure: the order of steps, the decisions
+   made by looking, what was measured, the traps hit, and what is refused or needs the owner. A private
+   procedure (the owner's machines, their accounts) goes in `local/skills/` instead (git-ignored).
+   Install either with `python install_skills.py`.
+5. **Inside Fieldkit, not in Scripts.** A tool first saved in `Documents/Scripts` is moved in with
+   `fieldkit adopt NAME --apply` (to `local/kits/`; it repoints cards, shortcuts, Startup, skills and memory, and
+   rolls back if its tests fail). Private tests find tools through `local/tests/_owner.py`.
+6. `fieldkit sweep --run-tests` exits 0, and `fieldkit privacy scan` is clean before anything public.
+
+Examples, 2026-10-12: `kits/photokit` with fieldkit-property-inventory; `kits/videokit` with fieldkit-video-edit.
+
 ## Before running a script you have not used
 
 ```

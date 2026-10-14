@@ -1,0 +1,30 @@
+{
+ "brief_sha256": "6f942a6ef37d6703",
+ "gorilla_check": "PASS",
+ "group": "wifi",
+ "metrics": {
+  "developer": {
+   "commands": 1,
+   "words_total": 2370
+  },
+  "layman": {
+   "commands": 4,
+   "concept_rows": 6,
+   "glossary_terms": 8,
+   "trust_steps": 4,
+   "usage_steps": 7,
+   "words_total": 3534
+  }
+ },
+ "rendered": "2026-10-13",
+ "scores": {
+  "developer": 90,
+  "layman": 98
+ },
+ "sources": {
+  "wifi/__init__.py": "e8d976c5b839045f1e57cdab7cb47ec67bcccd32d00d2f0aeefa892fba1177bb",
+  "wifi/channelsurvey.py": "89885fcdfc8e7fa4673b405d6f06a51192ef6edf406cd0ee2ce139813b923b15",
+  "wifi/doctor.py": "fd124afbfaa720f01d1cadcdfbec7273b2b5d581053ea4c080d08b323f292129"
+ },
+ "title": "Why the wifi is slow, answered from the hardware (card bands, streams, channels)"
+}
