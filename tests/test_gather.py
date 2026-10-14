@@ -84,3 +84,33 @@ def test_discover_facts(tmp_path, monkeypatch):
     assert got["demo/win.py"]["platforms"] == ["windows"] and got["demo/win.py"]["portable"] is False
     assert got["demo/run.sh"]["platforms"] == ["linux"] and got["demo/run.sh"]["title"] == "Installs the theme."
     assert got["demo/win.py"]["tests_present"] == ["test_win.py"]
+
+
+def test_a_skip_for_an_ungathered_tool_names_the_command_that_fixes_it():
+    """"not gathered" reads as "you do not have this program".
+
+    What it means is narrower: this checkout has not fetched its copy into
+    toolbox/, which `fieldkit gather` does and which is gitignored. The owner
+    hit exactly that on 2026-10-14, having every one of those tools installed on
+    the machine and reading six skips that appeared to say otherwise. A skip is
+    a message to a person, so it has to name the cure and name it correctly.
+    """
+    import re
+    import yaml
+    from pathlib import Path
+
+    from fieldkit.core import settings
+
+    root = Path(settings.ROOT)
+    known = {s["name"] for s in yaml.safe_load((root / "imports.yaml").read_text())["sources"]}
+    pattern = re.compile(r'reason="([a-z0-9.-]+) not gathered([^"]*)"')
+
+    checked = 0
+    for f in sorted((root / "tests").glob("test_*.py")):
+        for name, rest in pattern.findall(f.read_text(encoding="utf-8")):
+            checked += 1
+            assert name in known, \
+                f"{f.name}: {name!r} is not a source in imports.yaml, so the advice would not work"
+            assert rest == f": fieldkit gather --only {name}", \
+                f"{f.name}: the skip for {name} must say how to fix it, not only that it happened"
+    assert checked >= 6, f"only found {checked} of these skips; has the wording changed?"

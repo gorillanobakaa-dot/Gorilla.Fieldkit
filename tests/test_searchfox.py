@@ -17,7 +17,7 @@ import pytest
 from fieldkit.core import settings
 
 TOOL = Path(settings.expand("${FIELDKIT}")) / "toolbox" / "searchfox-tools" / "searchfox_tools.py"
-pytestmark = pytest.mark.skipif(not TOOL.is_file(), reason="searchfox-tools not gathered")
+pytestmark = pytest.mark.skipif(not TOOL.is_file(), reason="searchfox-tools not gathered: fieldkit gather --only searchfox-tools")
 
 INDEX = {   # query -> the files that mention it
     "PDMFactory": [("dom/media/platforms/PDMFactory.cpp", 12, "PDMFactory::PDMFactory()"),

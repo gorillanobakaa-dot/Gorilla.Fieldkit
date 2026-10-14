@@ -10,7 +10,7 @@ import pytest
 from fieldkit.core import settings
 
 GRADE = Path(settings.expand("${FIELDKIT}")) / "toolbox" / "model-eval" / "grade.py"
-pytestmark = pytest.mark.skipif(not GRADE.is_file(), reason="model-eval not gathered")
+pytestmark = pytest.mark.skipif(not GRADE.is_file(), reason="model-eval not gathered: fieldkit gather --only model-eval")
 
 
 @pytest.fixture(scope="module")
