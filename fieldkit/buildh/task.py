@@ -356,7 +356,9 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     budget_chars = int(t["budget_tokens"] * PACKET_SHARE * CHARS_PER_TOKEN)
     body = _call(s["packet"], t, s, budget_chars=budget_chars, answer_mode=answer_mode, **(s.get("args") or {}))
     done = sum(1 for x in t["steps"] if x["status"] == "done")
-    head = [f"TASK {t['id']} - step {done + 1} of {len(t['steps'])}: {s['title']}",
+    pos = next(i for i, x in enumerate(t["steps"]) if x["id"] == s["id"]) + 1   # ONE numbering: the place in the plan
+    head = [f"TASK {t['id']} - step {pos} of {len(t['steps'])} ({done} done): {s['title']}",
+            "IN WORDS: " + describe_step(t, s, with_result=False),
             f"Attempt {s['attempts'] + 1} of {s['max_attempts']}."]
     if s.get("last_why"):
         head.append("Your last attempt was put back because: " + "; ".join(s["last_why"]))
@@ -471,6 +473,62 @@ PORT_AND_TEACH = (
     "this step alone, your submit note (or --adapted reason) must carry one line `lesson: <what the harness should "
     "learn so the next port does this alone>`. An adapted or hand port without it is refused. The lessons are "
     "collected (`build-harness lessons TASK`) and each becomes a harness rule with a test.")
+
+
+RESULT_WORDS = {"done": "ported", "obsolete": "nothing to port", "proposed": "waiting for the owner's acceptance",
+                "deferred": "waiting for the owner (upstream removed what it changes)", "blocked": "waiting for a person",
+                "pending": "not done yet", "failed": "last try refused, tries left"}
+
+
+def describe_step(t, s, with_result=True):
+    """A step in words a person can hold: where it is, what it does, the result.
+
+    Owner, 2026-10-14 (Miller 1956: about seven items; Cowan 2001: about four): "Step 120: nothing to port" means nothing
+    to anyone who does not hold the whole plan in mind, and this harness is for people with ADHD and dyslexia. So every
+    step is said in full: its place in the plan and in the migration stage, its group, what it does in plain words (the
+    patch author's own note when there is one), the file, then the result."""
+    steps = t["steps"]
+    pos = next((i for i, x in enumerate(steps) if x["id"] == s["id"]), 0) + 1
+    a = s.get("args") or {}
+    patch = a.get("patch") or ""
+    group = a.get("group") or (patch.split("/")[0] if "/" in patch else "")
+    stage = ""
+    pj = _dir(t["id"]) / "migrate" / "plan.json"
+    if pj.is_file():
+        try:
+            st = json.loads(pj.read_text(encoding="utf-8")).get("stage")
+            from ..migrate import plan as mplan
+            stage = f"stage {st} ({mplan.STAGE[st]['name']})" if st in mplan.STAGE else f"stage {st}"
+        except (ValueError, KeyError, ImportError):
+            stage = ""
+    what = ""
+    if patch:
+        from . import firefox
+        note = firefox.author_note(t, patch, limit=400)
+        for lead in ("Gorilla 157 port fix ", "Gorilla 157 privacy cut ", "Gorilla 157 "):
+            if note.startswith(lead):
+                note = note[len(lead):]
+        what = note.split(" Files:")[0].strip()
+    if not what:
+        what = s.get("title", "")
+    parts = [f"Step {pos} of {len(steps)}"] + ([stage] if stage else []) + ([f"group {group}"] if group else [])
+    if len(what) > 260:
+        what = what[:260].rsplit(" ", 1)[0] + " ..."          # cut at a word, never inside one
+    line = ", ".join(parts) + f": {what}"
+    if a.get("file"):
+        line += f" (file {a['file']})"
+    if with_result:
+        word = RESULT_WORDS.get(s.get("status"), s.get("status"))
+        if s.get("skipped_by_owner"):
+            word = "nothing to port, marked so by the owner"
+        elif s.get("done_by") == "harness":
+            word = "ported by the harness itself"
+        elif s.get("accepted_by"):
+            word = f"ported, an adapted port accepted by {s['accepted_by']}"
+        line += f". Result: {word}"
+        if s.get("status") == "obsolete" and s.get("last_why"):
+            line += f" ({str(s['last_why'][0])[:160]})"
+    return line
 
 
 def lessons(task_id):
