@@ -2124,6 +2124,20 @@ tools:
   platforms: [linux]
   changes: false
 
+- id: teach
+  title: "A teaching log from a session transcript: every command a session ran, in order, with what came back"
+  harness: teach
+  entry: [python, -m, fieldkit, teach]
+  path: ${FIELDKIT}/fieldkit/teach/__init__.py
+  inputs:
+    - {name: session, flag: null, type: str, required: false, help: "session id prefix, a .jsonl path, or newest"}
+    - {name: out, flag: --out, type: str, required: true, help: "the markdown log to write"}
+    - {name: since, flag: --since, type: str, required: false, help: "ISO time; earlier commands left out"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [linux, darwin, windows, freebsd]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_teach.py"]
+
 - id: sitrep
   title: "A situation report a reader can take in a few seconds at a time: template, check, render (six languages), doctor"
   harness: sitrep

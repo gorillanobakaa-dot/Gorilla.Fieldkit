@@ -39,6 +39,7 @@
     fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
     fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
+    fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
     fieldkit update [--only apt|github|native] [--apply]   what is behind what was published (fieldkit/update)
     fieldkit wifi doctor|scan|upgrade                   why the wifi is slow, from the hardware (fieldkit/wifi)
     fieldkit wifi channels [--why|--check CH|--networks] which channel is free, and the argument for it
@@ -1267,6 +1268,17 @@ def build_parser():
     ex.add_argument("--check", action="store_true", help="verify every translation has an original")
     ex.set_defaults(fn=cmd_explain)
 
+    te = sub.add_parser("teach", parents=[common],
+                        help="a teaching log from a session transcript: every command run, in order, with what came "
+                             "back (fieldkit/teach)")
+    te.add_argument("session", nargs="?", default="newest", help="session id prefix, a .jsonl path, or 'newest'")
+    te.add_argument("--out", required=True, help="the markdown log to write")
+    te.add_argument("--since", default="", help="ISO time; commands before it are left out")
+    te.add_argument("--tools", default="Bash,PowerShell", help="tool names to include, comma-separated")
+    te.add_argument("--max-chars", type=int, default=4000, help="output kept per command")
+    te.add_argument("--title", default=None)
+    te.set_defaults(fn=cmd_teach)
+
     st = sub.add_parser("sitrep", parents=[common],
                         help="a situation report a reader can take in a few seconds at a time: template, check, "
                              "render, example, doctor (fieldkit/sitrep)")
@@ -1601,6 +1613,15 @@ def cmd_explain(a):
     d = explain.explain(a.topic, a.lang)
     _emit(d, a.json, lambda x: print("\n".join(explain.lines(x))))
     return explain.exit_code(d)
+
+
+def cmd_teach(a):
+    from . import teach
+    d = teach.write(a.session, a.out, since=a.since, tools=tuple(t for t in a.tools.split(",") if t),
+                    max_chars=a.max_chars, title=a.title)
+    _emit(d, a.json, lambda x: print(f"  wrote {x['out']}: {x['commands']} command(s), {x['failed']} failed, from {x['source']}"
+                                     if x["ok"] else f"  REFUSED: {x['why']}"))
+    return 0 if d["ok"] else 3
 
 
 def cmd_sitrep(a):
