@@ -210,3 +210,23 @@ def test_self_cmd_is_an_absolute_launcher_or_the_running_python():
     from fieldkit.core import settings
     c = settings.self_cmd()
     assert os.path.isabs(c.split(" ")[0]), c
+
+
+def test_the_screen_run_drops_its_own_flag_and_ends_the_log_with_the_exit_status(tmp_path):
+    """2026-10-15: long pipeline runs go into GNU screen; the log's last line says how the run ended."""
+    from fieldkit import cli
+    a = cli.build_parser().parse_args(["pipeline", "run", "firefox-linux", "--screen", "ff158", "--only", "build"])
+    cmd = cli.screen_command(a, tmp_path / "x.log", argv=["pipeline", "run", "firefox-linux", "--screen", "ff158",
+                                                           "--only", "build"])
+    assert "--screen" not in cmd and "ff158" not in cmd and "pipeline run firefox-linux --only build" in cmd
+    assert cmd.endswith(f'echo "pipeline exit $?" >> {tmp_path / "x.log"}')
+
+
+def test_a_pipeline_stage_reports_its_start_and_end_on_stderr_as_it_runs(tmp_path, capsys):
+    """2026-10-15: a Firefox build in screen left an empty log for hours; each stage now says when it starts and ends."""
+    import sys
+    from fieldkit.core.pipeline import Pipeline
+    stages = [{"id": "hello", "run": {"cmd": [sys.executable, "-c", "print(1)"]}}]
+    Pipeline({"name": "demo", "stages": stages}, state_dir=tmp_path / "st").run(force=True)
+    err = capsys.readouterr().err
+    assert "demo: stage hello started" in err and "demo: stage hello " in err.split("started", 1)[1]

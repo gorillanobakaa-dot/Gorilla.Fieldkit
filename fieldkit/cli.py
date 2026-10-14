@@ -445,6 +445,49 @@ def cmd_office(a):
     return 2
 
 
+def screen_command(a, log, argv=None):
+    """The pipeline command line for a screen session: this same run without --screen, every word quoted."""
+    import shlex
+    argv = list(argv if argv is not None else sys.argv[1:])
+    out, skip = [], False
+    for x in argv:
+        if skip:
+            skip = False
+            continue
+        if x == "--screen":
+            skip = True
+            continue
+        if x.startswith("--screen="):
+            continue
+        out.append(x)
+    inner = " ".join(shlex.quote(x) for x in [settings.self_cmd()] + out)
+    return f"{inner} > {shlex.quote(str(log))} 2>&1; echo \"pipeline exit $?\" >> {shlex.quote(str(log))}"
+
+
+def _pipeline_in_screen(a):
+    """Owner, 2026-10-15: the Firefox compile runs in screen, and the harness is told how. Long runs (a Firefox build is
+    hours on the VAIO) must survive the terminal or the session that started them; the log is dated (an artifact)
+    and the last line says the pipeline's exit status, so silence never looks like success."""
+    import shutil
+    import subprocess
+    import time
+    if not shutil.which("screen"):
+        print("fieldkit pipeline: GNU screen is not installed (sudo apt install screen); nothing was started")
+        return 2
+    name = a.screen
+    if subprocess.run(["screen", "-ls", name], capture_output=True, text=True).stdout.count(f".{name}\t"):
+        print(f"fieldkit pipeline: a screen session named {name} is already running; nothing was started")
+        return 2
+    logs = settings.ROOT / "state" / "pipelines"
+    logs.mkdir(parents=True, exist_ok=True)
+    log = logs / f"{a.name}-{name}-{time.strftime('%y-%m-%d-%H-%M')}.log"
+    cmd = screen_command(a, log)
+    subprocess.run(["screen", "-dmS", name, "bash", "-c", cmd], check=True)
+    print(f"started in screen session {name}\n  log:    {log}\n  watch:  tail -f {log}\n"
+          f"  attach: screen -r {name}   (detach again with Ctrl-a d)\n  done when the log's last line is 'pipeline exit N'")
+    return 0
+
+
 def cmd_pipeline(a):
     from .core.pipeline import Pipeline
     if a.action == "list":
@@ -455,6 +498,8 @@ def cmd_pipeline(a):
         _emit(rows, a.json, lambda rs: [print(f"{r['name']:<18} {' > '.join(r['stages'])}") for r in rs])
         return 0
     path = _pipeline_path(a.name)
+    if a.action == "run" and getattr(a, "screen", None) and not a.dry_run:
+        return _pipeline_in_screen(a)
     strict = a.action == "run" and not a.dry_run
     pl = Pipeline.load(path, overrides=_vars(a.var), strict=strict)
     if a.action == "plan":
@@ -1032,6 +1077,8 @@ def build_parser():
     p.add_argument("--stage")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--screen", metavar="NAME", help="run: start the run in a detached GNU screen session NAME, with a "
+                                                     "dated log, and return at once (long builds survive a closed terminal)")
     p.set_defaults(fn=cmd_pipeline)
 
     tr = sub.add_parser("triage", parents=[common])
