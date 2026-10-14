@@ -173,3 +173,108 @@ def built_rows(objdir, gate_at, say=print, pinned=None, about=True):
     if about:                 # build-verify reads the About window on the package instead (pkgproof.py, 2026-10-09)
         rows += about_rows(app, say=say)
     return rows, bid
+
+
+# -- the source change, as code the harness applies (D-157-38 part 2) ------------------------------------------------
+#
+# 2026-10-15, Linux 158: part 2 (2026-10-09, "build N" in the version line and "Build ID <14 digits>" under it) was
+# made by hand in the Windows tree and never exported to the shared patch set; only the register knew its shape. So
+# the change itself lives here, anchored on text, never on line numbers, so any later Firefox gets it the same way:
+#   apply_source(tree, number)     edit the four files; idempotent; refuses (and writes nothing) when an anchor is gone
+#   source_problems(tree)          what of it is missing, in words (the technique scan and the register check this too)
+# Files and what goes where:
+#   browser/branding/gorilla/pref/firefox-branding.js   pref("gorilla.build.number", N): raised once per candidate
+#   browser/locales/en-US/browser/aboutDialog.ftl       the four -gorilla version lines say "build { $build }, built ..."
+#                                                       and aboutDialog-buildid-gorilla = Build ID { $buildid }
+#   browser/base/content/aboutDialog.xhtml              <label id="gorilla-buildid" ... hidden="true"/> under #version
+#   browser/base/content/aboutDialog.js                 passes $build, fills and shows #gorilla-buildid
+
+BRANDING = "browser/branding/gorilla/pref/firefox-branding.js"
+FTL = "browser/locales/en-US/browser/aboutDialog.ftl"
+XHTML = "browser/base/content/aboutDialog.xhtml"
+JS = "browser/base/content/aboutDialog.js"
+ID_LABEL = '<label id="gorilla-buildid" class="text-blurb" hidden="true"/>'
+ID_MESSAGE = "aboutDialog-buildid-gorilla = Build ID { $buildid }"
+PART1_JS = "GORILLA D-157-38 (2026-10-08): every version line also says when this build was made"
+NUMBER_JS = 'versionAttributes.build = Services.prefs.getIntPref("gorilla.build.number", 0);'
+SHOW_JS_MARK = "GORILLA D-157-38 part 2"
+
+
+def _edits(number):
+    """-> [(file, anchor, replacement, already_done_marker)]; each anchor must occur exactly once."""
+    show = (
+        "  // " + SHOW_JS_MARK + " (2026-10-09): under the version line, the build's own BuildID in full, the string\n"
+        "  // the harness reports, so the owner can tell which build is installed.\n"
+        '  let gorillaBuildId = document.getElementById("gorilla-buildid");\n'
+        "  if (gorillaBuildId && /^\\d{14}$/.test(buildStamp)) {\n"
+        '    document.l10n.setAttributes(gorillaBuildId, "aboutDialog-buildid-gorilla", {\n'
+        "      buildid: buildStamp,\n"
+        "    });\n"
+        "    gorillaBuildId.hidden = false;\n"
+        "  }\n\n")
+    out = [
+        (BRANDING, None, f"\n// GORILLA D-157-38 part 2 (2026-10-09): the build number Help > About shows (\"build N\"); "
+                         f"raised once per release candidate.\npref(\"gorilla.build.number\", {int(number)});\n",
+         'pref("gorilla.build.number", '),
+        (JS, '    versionIdKey += "-gorilla";\n',
+         '    versionIdKey += "-gorilla";\n    ' + NUMBER_JS + "\n", NUMBER_JS),
+        (JS, "  // Show a release notes link if we have a URL.\n", show + "  // Show a release notes link if we have a URL.\n",
+         SHOW_JS_MARK),
+        (XHTML, '<label id="version"/>\n', '<label id="version"/>\n          ' + ID_LABEL + "\n", 'id="gorilla-buildid"'),
+        (FTL, "aboutDialog-version-gorilla = { $version } ({ $bits }-bit) built { $built }\n",
+         "aboutDialog-version-gorilla = { $version } ({ $bits }-bit) build { $build }, built { $built }\n" + ID_MESSAGE + "\n",
+         ID_MESSAGE),
+        (FTL, "aboutDialog-version-nightly-gorilla = { $version } ({ $isodate }) ({ $bits }-bit) built { $built }\n",
+         "aboutDialog-version-nightly-gorilla = { $version } ({ $isodate }) ({ $bits }-bit) build { $build }, built { $built }\n",
+         "({ $bits }-bit) build { $build }, built { $built }\naboutdialog"),
+        (FTL, "aboutdialog-version-arch-gorilla = { $version } ({ $arch }) built { $built }\n",
+         "aboutdialog-version-arch-gorilla = { $version } ({ $arch }) build { $build }, built { $built }\n",
+         "aboutdialog-version-arch-gorilla = { $version } ({ $arch }) build { $build }"),
+        (FTL, "aboutdialog-version-arch-nightly-gorilla = { $version } ({ $isodate }) ({ $arch }) built { $built }\n",
+         "aboutdialog-version-arch-nightly-gorilla = { $version } ({ $isodate }) ({ $arch }) build { $build }, built { $built }\n",
+         "aboutdialog-version-arch-nightly-gorilla = { $version } ({ $isodate }) ({ $arch }) build { $build }"),
+    ]
+    return out
+
+
+def source_problems(tree):
+    """What of D-157-38 (part 1 and 2) the tree lacks, in words. [] = all there."""
+    t = Path(tree)
+    want = [(JS, PART1_JS), (JS, NUMBER_JS), (JS, SHOW_JS_MARK), (XHTML, ID_LABEL), (FTL, ID_MESSAGE),
+            (FTL, "aboutDialog-version-gorilla = { $version } ({ $bits }-bit) build { $build }, built { $built }"),
+            (BRANDING, 'pref("gorilla.build.number", ')]
+    out = []
+    for rel, text in want:
+        p = t / rel
+        if not p.is_file() or text not in p.read_text(encoding="utf-8", errors="replace"):
+            out.append(f"{rel} lacks: {text[:80]}")
+    return out
+
+
+def apply_source(tree, number):
+    """Put D-157-38 part 2 into a Firefox tree that has part 1. -> {"changed": [files], "already": n}.
+    Refuses with ValueError, writing nothing, when part 1 is missing or an anchor is not there exactly once."""
+    t = Path(tree)
+    if int(number) < 1:
+        raise ValueError("the build number starts at 1")
+    js = t / JS
+    if not js.is_file() or PART1_JS not in js.read_text(encoding="utf-8"):
+        raise ValueError(f"part 1 (the 'built' stamp) is not in {JS}: port D-157-38 part 1 first")
+    texts = {}
+    plan = []
+    for rel, anchor, repl, done in _edits(number):
+        text = texts.setdefault(rel, (t / rel).read_text(encoding="utf-8"))
+        if done in text:
+            continue                                        # already applied: idempotent
+        if anchor is None:
+            plan.append((rel, None, repl))
+            continue
+        n = text.count(anchor)
+        if n != 1:
+            raise ValueError(f"{rel}: anchor found {n} times, expected once: {anchor.strip()[:70]}")
+        plan.append((rel, anchor, repl))
+    for rel, anchor, repl in plan:
+        texts[rel] = texts[rel].rstrip("\n") + "\n" + repl if anchor is None else texts[rel].replace(anchor, repl, 1)
+    for rel in {r for r, _, _ in plan}:
+        (t / rel).write_text(texts[rel], encoding="utf-8")
+    return {"changed": sorted({r for r, _, _ in plan}), "already": len(_edits(number)) - len(plan)}
