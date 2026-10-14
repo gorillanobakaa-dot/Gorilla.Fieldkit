@@ -203,7 +203,8 @@ def evaluate(owner, workdir, install_dir, task_id=None, journal=None, items=None
     except (FileNotFoundError, OSError, ValueError):
         reg = []
     decided = _decided(task_id) if task_id else {}
-    lists = {rel: tool_lists(owner / rel) for rel in TOOLS if (owner / rel).is_file()}
+    from ..buildh.decisions import owner_path                 # gorilla-patchset/ is the folder itself on Linux
+    lists = {rel: tool_lists(owner_path(owner, rel)) for rel in TOOLS if owner_path(owner, rel).is_file()}
     covered = set()
     for it in items:
         for s in it.get("statements") or []:
@@ -240,7 +241,7 @@ def evaluate(owner, workdir, install_dir, task_id=None, journal=None, items=None
                 quote = "; ".join(f"(\"{r[0]}\", \"{r[1]}\", \"{r[2][:60]}\")" for r in sel)
                 rows.append(_run(where, quote, checks, ctx))
             else:
-                p = owner / s["where"]
+                p = owner_path(owner, s["where"])
                 text = cl.norm(p.read_text(encoding="utf-8", errors="replace")) if p.is_file() else None
                 if text is None or cl.norm(s["quote"]) not in text:
                     rows.append({"where": s["where"], "quote": s["quote"], "state": "STALE", "checks": [],

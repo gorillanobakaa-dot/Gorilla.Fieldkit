@@ -117,6 +117,12 @@ class Migration:
         if owner is None:
             from ..buildh import buildrun
             owner = buildrun._owner_root(self.t)
+        if owner is None:
+            # Linux (2026-10-14): the harness folder is the shared patch-set repo and holds the plan and the intent
+            # ledger itself; there is no owner repo with harness/gorilla_build.py, so the migration found nothing
+            hr = (self.t.get("meta") or {}).get("harness_root")
+            if hr and (Path(hr) / "intents" / "INTENTS.yaml").is_file():
+                owner = hr
         self.owner = Path(owner) if owner else None
         self._install, self._find, self._tree = install, find_install, tree
         self._events = None

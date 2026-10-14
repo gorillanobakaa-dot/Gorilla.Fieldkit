@@ -203,7 +203,8 @@ def check(m, only=None, say=print):
         m.put("export", {"exported": len(names) - len(missing), "missing": missing})
         took("export", f"{len(names) - len(missing)} of {len(names)} hand edit(s) in the public patch set")
         from ..core import privacy
-        pub = m.owner / "gorilla-patchset"
+        from ..buildh.decisions import owner_path
+        pub = owner_path(m.owner, "gorilla-patchset/")   # the folder itself on Linux
         try:
             rep = privacy.scan_path(pub, git_only=True)
             m.put("privacy", {"findings": sum(len(v) for v in rep.values()), "files": sorted(rep)[:10]})
