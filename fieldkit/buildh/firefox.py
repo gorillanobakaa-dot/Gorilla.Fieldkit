@@ -1660,7 +1660,7 @@ def block_removal(body, hunk, notes=None):
     return new
 
 
-def obsolete_upstream(body, hunk):
+def obsolete_upstream(body, hunk, css=False):
     """Is the thing this hunk changes simply gone from the new source? Returns the reason, or None.
 
     Live run 7 (2026-10-01, hunk h23 of firefox.js): Gorilla's old comment block and `#if` around
@@ -1678,7 +1678,26 @@ def obsolete_upstream(body, hunk):
         return ("every specific line this hunk would remove is already gone from the new source, and none of the lines it "
                 "would add are there: upstream removed or replaced this. Not a job for a model; the owner decides whether "
                 "the Gorilla change is still wanted")
+    # The rule above needs EVERY removed line gone, and generic lines (`display: flex;`, a stylelint comment) live
+    # all over a CSS file. 158 browser-shared.css h10 (2026-10-14): the CFR milestone block is gone from the whole
+    # tree, yet the hunk was sent for porting and the packet pointed at an unrelated flex block. Judge by the
+    # DISTINCTIVE lines only: long, not comments. Replayed over the 45 hunks of firefox-158-linux, this flagged the
+    # three already judged obsolete and this one, and no ported hunk. STYLESHEETS ONLY: tried for every file type
+    # first, it called the renamed-and-moved telemetry pref (test_buildh_firefox) obsolete, and a vanished hunk in
+    # code or prefs is often a rename a model must chase. In CSS the generic declarations are what hide a removal.
+    dr, da, dc = _distinctive(removed), _distinctive(added), _distinctive(context)
+    if css and dr and not any(l in have for l in dr + da + dc):
+        return ("none of this hunk's distinctive lines (the long, non-comment ones it removes, adds or keeps as context) "
+                "exist in the new source: upstream removed what it changes. Not a job for a model; the owner decides "
+                "whether the Gorilla change is still wanted")
     return None
+
+
+_COMMENT = re.compile(r"^(/\*|\*|//|#|<!--)")
+
+
+def _distinctive(lines):
+    return [l.strip() for l in lines if len(l.strip()) >= 30 and not _COMMENT.match(l.strip())]
 
 
 def auto_port(t, s, patch, file, hunk, **kw):
@@ -1760,7 +1779,7 @@ def auto_port(t, s, patch, file, hunk, **kw):
     if already_upstream(body, hunk):
         return {"ok": True, "why": [], "notes": ["already in place: the added lines are there and the removed ones gone"]}
 
-    gone = obsolete_upstream(body, hunk)
+    gone = obsolete_upstream(body, hunk, css=file.endswith(".css"))
     if gone:
         return {"ok": False, "defer": True, "obsolete": True, "why": [gone]}
 

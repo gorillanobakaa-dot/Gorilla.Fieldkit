@@ -110,3 +110,23 @@ def test_spans_end_on_the_same_line_when_upstream_inserted_a_block():
     i = after.index("  --toolbox-background-image: var(--lwt-additional-images);")
     left = after[:i] + ["  --toolbox-background-image: none;"] + after[i:]
     assert f.hunk_problems(before, left, hunk) == ["line should be gone: --toolbox-background-image: none;"]
+
+
+def test_hunk_whose_distinctive_lines_are_all_gone_is_obsolete():
+    """158 browser-shared.css h10 (2026-10-14): the CFR milestone block left the tree; generic lines like
+    `display: flex;` still exist elsewhere and hid that from the all-lines rule."""
+    from fieldkit.buildh import firefox as f
+    hunk = {"lines": [
+        '   &[data-notification-bucket="CFR_MILESTONE_MESSAGE"] {',
+        "-    display: flex;",
+        "-    background: radial-gradient(circle farthest-side at top right, var(--short-notification-gradient));",
+        "+    &:not([hidden]) {",
+        "+      display: flex;",
+        "+      background: radial-gradient(circle farthest-side at top right, var(--short-notification-gradient));",
+        "+    }",
+    ]}
+    body = ["#sidebar {", "  display: flex;", "  /* stylelint-disable-next-line */", "}"]
+    assert f.obsolete_upstream(body, hunk, css=True)
+    assert f.obsolete_upstream(body, hunk) is None              # code and prefs: may be a rename, a model chases it
+    still = body + ['&[data-notification-bucket="CFR_MILESTONE_MESSAGE"] {', "    background: radial-gradient(circle farthest-side at top right, var(--short-notification-gradient));", "}"]
+    assert f.obsolete_upstream(still, hunk, css=True) is None
