@@ -33,6 +33,19 @@ OUT="$BT.out"
 MARK="$(git rev-parse --git-common-dir)/pre-commit.running.$$"
 date '+%Y-%m-%d %H:%M:%S' > "$MARK" 2>/dev/null || true
 trap 'rm -rf "$BT" "$OUT" "${BT2:-}" "$MARK"' EXIT
+# 2026-10-14 (owner): a new module must never be blocked by the docs map. Put every module that is in no group into
+# its folder's group first, and stage the map; a module in a brand-new folder (or a tie) is refused with the reason.
+if [ -f docs/groups.yaml ]; then
+  if ! "$PY" -m fieldkit docs assign >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: a new module could not be put in a documentation group - commit refused (see above)"
+    exit 1
+  fi
+  if grep -q '^assigned ' "$OUT"; then
+    grep '^assigned ' "$OUT" | sed 's/^/pre-commit: /'
+    git add docs/groups.yaml
+  fi
+fi
 if ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
   # A failure must reproduce before it refuses the commit (2026-10-09: a timing test failed once under load, then
   # passed 3 of 3 on its own). Only the failed tests run again, once, in a fresh folder. A failure that does not
