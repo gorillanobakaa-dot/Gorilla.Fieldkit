@@ -6,7 +6,9 @@
                                          [--budget TOKENS] [--workdir DIR]
     fieldkit build-harness approve TASK          the owner, only here (never over MCP)
     fieldkit build-harness next|status [TASK]
-    fieldkit build-harness submit [TASK] [--note TEXT]
+    fieldkit build-harness submit [TASK] [--note TEXT] [--adapted WHY]   --adapted: saved for the owner, no attempt spent
+    fieldkit build-harness proposals [TASK]               the adapted ports waiting for the owner
+    fieldkit build-harness accept [TASK] --all|STEP...    the owner accepts them in one go (applied, judged by meaning, checkpointed)
     fieldkit build-harness unblock TASK STEP retry|skip      the owner
     fieldkit build-harness log [TASK]
     fieldkit build-harness watch|report [TASK] [--session ID]   the recorder: live, or the whole run
@@ -45,7 +47,10 @@ The model gets four MCP tools: build_harness_status, build_harness_next, build_h
 build_harness_briefs. It never gets a tool that records a decision.
 """
 import json
+import os as _os
 import time
+
+from ..core import settings as _settings
 from pathlib import Path
 
 from . import firefox, task, upstream, vault
@@ -565,9 +570,21 @@ def run(a, emit):
         r = task.packet(tid)
         return emit(r, lambda r: print(lines_for(r))) or 0
     if act == "submit":
-        r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli")
+        r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "proposals":
+        rows = task.proposals(tid)
+        return emit(rows, lambda rows: print("\n".join(
+            [f"{len(rows)} adapted port(s) wait for the owner:"] +
+            [f"  {r['step']}\n      why adapted: {r['reason'][:160]}\n      the letter said: {'; '.join(r.get('literal_check_said') or [])[:160]}" for r in rows] +
+            ([f"NEXT, in one go: {_settings.self_cmd()} build-harness accept {tid} --all"] if rows else [])))) or 0
+    if act == "accept":
+        ids = [x for x in a.args[1:] if x != "--all"]
+        r = task.accept(tid, step_ids=ids or None, who=_os.environ.get("USER") or _os.environ.get("USERNAME") or "owner")
+        return emit(r, lambda r: print("\n".join(
+            [f"accepted {len(r['accepted'])}: {', '.join(r['accepted'])}" if r["accepted"] else "accepted none"] +
+            [f"  FAILED {f['step']}: {f['why']}" for f in r["failed"]]))) or (0 if not r["failed"] else 3)
     if act == "preflight":
         from . import preflight
         rows = preflight.run(tid, build=bool(a.build), model=bool(a.model), fix_locks=bool(a.fix_locks), fan_required=bool(a.build))
