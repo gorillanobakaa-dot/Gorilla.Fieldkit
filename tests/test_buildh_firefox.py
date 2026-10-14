@@ -413,3 +413,21 @@ def test_forward_instructions_and_the_authors_note_are_read(tmp_path):
     t = {"meta": {"harness_root": str(root)}}
     assert firefox.author_note(t, "21.FIX/078-fix.patch").startswith("Theme fix step 1 of 2.")
     assert firefox.author_note(t, "16.OLD/plain.patch") == "" and firefox.author_note({"meta": {}}, "x") == ""
+
+
+def test_a_line_endings_hunk_is_nothing_to_port_on_an_lf_tree(tmp_path):
+    """067 (2026-10-14): CRLF -> LF only; the tree is LF already."""
+    hunk = {"header": "@@ -1,2 +1,2 @@", "lines": ["-a = 1\r", "-b = 2\r", "+a = 1", "+b = 2"]}
+    assert firefox.line_endings_only(hunk)
+    assert not firefox.line_endings_only({"lines": ["-a = 1\r", "+a = 2"]})
+    f = tmp_path / "x.ftl"
+    f.write_bytes(b"a = 1\nb = 2\n")
+    assert firefox._lf_only(f)
+    f.write_bytes(b"a = 1\r\nb = 2\r\n")
+    assert not firefox._lf_only(f)
+
+
+def test_a_trial_refuses_nothing_changed_like_submit(world):
+    task.packet("ff")
+    r = task.trial("ff")
+    assert not r["ok"] and r["why"] == ["nothing was changed"]

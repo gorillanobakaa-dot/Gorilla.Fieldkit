@@ -391,6 +391,9 @@ def trial(task_id, note="", adapted="", hand=False):
     outside = [c for c in changed if c not in set(s.get("allowed") or [])]
     if outside:
         return {"ok": False, "trial": True, "why": [f"changed files outside the step: {outside[:5]}"]}
+    if not changed and not hand:
+        # the same rule as submit (2026-10-14: a trial said ok, the submit then spent an attempt on 'nothing was changed')
+        return {"ok": False, "trial": True, "why": ["nothing was changed"], "would_be": "an attempt refused"}
     probe = dict(s)
     if adapted or hand:
         probe["hand_port"], probe["hand_note"] = True, adapted or note
