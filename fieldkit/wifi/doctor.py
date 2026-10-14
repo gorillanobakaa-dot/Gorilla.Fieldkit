@@ -81,7 +81,16 @@ def card():
                 info["pci_id"] = f"{m.group(1)}:{m.group(2)}"
             break
 
-    for iface in os.listdir("/sys/class/net"):
+    # sysfs is Linux. On Windows this raised FileNotFoundError and took the
+    # whole card report with it, rather than saying what it could not read
+    # (2026-10-13, windows-latest). The rule in this module is that a missing
+    # source is reported, never fatal.
+    try:
+        interfaces = os.listdir("/sys/class/net")
+    except OSError as e:
+        interfaces = []
+        info["tools_missing"].append(f"/sys/class/net is not readable ({e.strerror or e})")
+    for iface in interfaces:
         if os.path.isdir(f"/sys/class/net/{iface}/wireless"):
             try:
                 info["driver"] = os.path.basename(
@@ -191,7 +200,7 @@ def upgrade():
     dmi = tool("dmidecode")
     if not dmi:
         blockers.append("dmidecode not found (sudo apt install dmidecode)")
-    elif os.geteuid() != 0:
+    elif getattr(os, "geteuid", lambda: 0)() != 0:        # geteuid is POSIX only
         blockers.append("slot data needs root: sudo dmidecode -t slot")
     else:
         rc, out = run([dmi, "-t", "slot"])

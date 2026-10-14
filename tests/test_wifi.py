@@ -122,3 +122,23 @@ def test_upgrade_states_what_software_cannot_determine(monkeypatch):
     blockers = " ".join(out["cannot_determine_here"]).lower()
     assert "antenna" in blockers, "antenna count is physical and must be declared unknown"
     assert "whitelist" in blockers, "a BIOS whitelist must be declared unknown"
+
+
+def test_a_missing_sysfs_is_reported_not_fatal(monkeypatch):
+    """Windows and macOS have no /sys/class/net.
+
+    card() called os.listdir on it unguarded, so on windows-latest it raised
+    FileNotFoundError and took the whole card report down with it, including the
+    parts that had already been read (2026-10-13). This module's rule is that a
+    source it cannot read is NAMED, never fatal, so the reader can tell an empty
+    answer from an unasked question.
+    """
+    def no_sysfs(path):
+        raise FileNotFoundError(2, "The system cannot find the path specified", path)
+
+    monkeypatch.setattr(W.os, "listdir", no_sysfs)
+    monkeypatch.setattr(W, "run", lambda a, **k: (1, ""))
+    monkeypatch.setattr(W, "tool", lambda n: None)
+    c = W.card()
+    assert c["driver"] is None
+    assert any("/sys/class/net" in m for m in c["tools_missing"]), c["tools_missing"]
