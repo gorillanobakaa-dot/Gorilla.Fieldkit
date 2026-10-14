@@ -28,7 +28,8 @@ GUIDE = Path(__file__).resolve().parent / "LAYMAN_GUIDE.md"
 def register(sub, common):
     d = sub.add_parser("docs", parents=[common],
                        help="dual-track documentation (Gorilla.Documentation.IBM.Style): plan, prep, render, check, guide")
-    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index", "guide", "philosophy", "release"])
+    d.add_argument("action", choices=["plan", "prep", "fill", "render", "check", "index", "guide", "philosophy", "release",
+                                      "assign"])
     d.add_argument("groups", nargs="*", help="group names from docs/groups.yaml (default: see each action); "
                                              "release: plain documents (numbers, web addresses, privacy)")
     d.add_argument("--force", action="store_true", help="prep: re-prep even when the prep files are current")
@@ -171,6 +172,12 @@ def cmd_docs(a):
             return _render(W.render(a.groups), a.json)
         if a.action == "check":
             return _check(W.check(a.groups, strict=a.strict), a.json)
+        if a.action == "assign":
+            r = G.assign_orphans()
+            _emit(r, a.json, lambda r: print("\n".join([f"assigned {rel} -> {g}" for rel, g in r["added"]] +
+                                                      [f"REFUSED {rel}: {why}" for rel, why in r["refused"]] or
+                                                      ["every module is in a group"])))
+            return 0 if not r["refused"] else 3
         r = W.index()
         _emit(r, a.json, lambda r: print(f"wrote {r['written']} ({r['lines']} lines)"))
         return 0

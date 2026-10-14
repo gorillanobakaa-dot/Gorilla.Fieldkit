@@ -102,6 +102,55 @@ def coverage(groups, pkg=None):
             "duplicates": dup, "empty_groups": empty}
 
 
+def assign_orphans(path=None, pkg=None):
+    """Put every module that is in no group into the group that already holds most of its folder's modules, and write
+    docs/groups.yaml. -> {"added": [(rel, group)], "refused": [(rel, why)]}.
+
+    Owner, 2026-10-14: a new tool must never be blocked by the docs map. fluentcheck.py (a new build-harness module)
+    was refused by the pre-commit hook because no group named it. The rule is deterministic: the folder's majority
+    group wins; a tie, or a folder with no grouped module yet, is refused with the reason (nothing is guessed). The
+    pre-commit hook runs this before the tests. Only an explicit `sources` list entry is added; globs are left alone."""
+    path = Path(path or GROUPS_FILE)
+    groups = load(path)
+    cov = coverage(groups, pkg)
+    added, refused = [], []
+    text = path.read_text(encoding="utf-8")
+    for rel in cov["orphans"]:
+        folder = rel.rsplit("/", 1)[0] + "/" if "/" in rel else ""
+        counts = {}
+        for g in groups:
+            n = sum(1 for f in files_of(g, pkg) if (f.rsplit("/", 1)[0] + "/" if "/" in f else "") == folder)
+            if n:
+                counts[g["name"]] = n
+        if not counts:
+            refused.append((rel, f"no group holds a module of {folder or 'the top level'} yet: add it to docs/groups.yaml by hand"))
+            continue
+        best = sorted(counts.items(), key=lambda kv: -kv[1])
+        if len(best) > 1 and best[0][1] == best[1][1]:
+            refused.append((rel, f"tie between groups {best[0][0]} and {best[1][0]}: add it by hand"))
+            continue
+        name = best[0][0]
+        lines = text.split("\n")
+        head = next((i for i, l in enumerate(lines) if re.match(rf"^\s*-\s*name:\s*{re.escape(name)}\s*$", l)), None)
+        src = next((i for i in range(head + 1, len(lines)) if lines[i].strip() == "sources:"), None) if head is not None else None
+        if src is None:
+            refused.append((rel, f"group {name} keeps its sources on one line: add it by hand"))
+            continue
+        k = src + 1
+        indent = lines[k][:len(lines[k]) - len(lines[k].lstrip())] if k < len(lines) else "      "
+        last = k
+        while k < len(lines) and lines[k].startswith(indent + "- "):
+            if lines[k].strip()[2:] <= rel:
+                last = k + 1
+            k += 1
+        lines.insert(last, f"{indent}- {rel}")
+        text = "\n".join(lines)
+        added.append((rel, name))
+    if added:
+        path.write_text(text, encoding="utf-8", newline="\n")
+    return {"added": added, "refused": refused}
+
+
 def staged_name(rel):
     """build/kernel.py -> build__kernel.py; top-level files keep their name.
 

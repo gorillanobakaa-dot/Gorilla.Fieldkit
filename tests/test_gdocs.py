@@ -318,3 +318,20 @@ def test_layman_guide_as_json(capsys):
     assert args.fn(args) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["path"].endswith("LAYMAN_GUIDE.md") and data["lines"] > 100 and "## 6. Analogies" in data["text"]
+
+
+def test_a_new_module_is_assigned_to_its_folders_group_and_a_new_folder_is_refused(tmp_path):
+    """Owner, 2026-10-14: a new tool must never be blocked by the docs map (fluentcheck.py was)."""
+    pkg = tmp_path / "fieldkit"
+    for rel in ("buildh/task.py", "buildh/firefox.py", "buildh/new_tool.py", "core/host.py", "brandnew/thing.py"):
+        (pkg / rel).parent.mkdir(parents=True, exist_ok=True)
+        (pkg / rel).write_text("x = 1\n")
+    gf = tmp_path / "groups.yaml"
+    gf.write_text("groups:\n  - name: port-engine\n    title: Port\n    sources:\n      - buildh/firefox.py\n"
+                  "      - buildh/task.py\n\n  - name: core\n    title: Core\n    sources: [\"core/*.py\"]\n")
+    r = G.assign_orphans(gf, pkg)
+    assert r["added"] == [("buildh/new_tool.py", "port-engine")]
+    assert [x[0] for x in r["refused"]] == ["brandnew/thing.py"]
+    text = gf.read_text()
+    assert "      - buildh/firefox.py\n      - buildh/new_tool.py\n      - buildh/task.py\n" in text   # sorted in place
+    assert G.coverage(G.load(gf), pkg)["orphans"] == ["brandnew/thing.py"]
