@@ -1,5 +1,6 @@
 """`fieldkit build-harness migrate ...` - migration control from the command line.
 
+    migrate brief                          every migration under control in 3 lines each (the SessionStart hook)
     migrate plan TASK                      the plan's stages S0-S9 with the current gate status of each
     migrate sitrep TASK [--json]           where it stands, and THE ONE NEXT ACTION
     migrate seed TASK                      (re)generate intents/INTENTS.yaml and judge every intent for TASK
@@ -16,11 +17,12 @@
 TASK may be left out when `--task` is given or a current task exists.
 """
 import json
+from pathlib import Path
 
 from ..buildh import task
 from . import plan
 
-SUBS = ("plan", "sitrep", "seed", "check", "gate", "init", "advance", "work", "park", "unpark", "intents", "intake",
+SUBS = ("brief", "plan", "sitrep", "seed", "check", "gate", "init", "advance", "work", "park", "unpark", "intents", "intake",
         "consistency")
 
 
@@ -42,7 +44,42 @@ def _split(a, current_id):
     return sub, tid, rest, kv
 
 
+def brief_lines(state_root=None, harness_root=None):
+    """Every migration under control, in a few lines each, for the start of ANY session (Linux or Windows).
+
+    Why (owner, 2026-10-14): a handover was written and not read; the Linux 158 port ran for a day without the
+    migration plan Fable built on Windows. Reading must not depend on a session deciding to read: the
+    SessionStart hook runs `migrate brief`, so every session starts knowing the stage, the gate and THE next action."""
+    from . import sitrep
+    from ..core import settings
+    root = Path(state_root) if state_root else task.STATE
+    out = []
+    for pj in sorted(root.glob("*/migrate/plan.json")):
+        tid = pj.parent.parent.name
+        try:
+            m = plan.Migration(tid, find_install=False)
+            rep = sitrep.build(m)
+        except Exception as e:                              # a broken migration is news, not silence
+            out.append(f"FIREFOX MIGRATION {tid}: SITREP failed ({type(e).__name__}: {e})")
+            continue
+        if rep["stage"] == plan.IDS[-1] and rep["gate"]["ok"]:
+            continue                                        # finished: nothing to say at session start
+        g = rep["gate"]
+        nxt = rep["next"]["command"].replace(plan.FH, f"{settings.self_cmd()} build-harness", 1)
+        owner = m.owner or harness_root
+        out += [f"FIREFOX MIGRATION IN PROGRESS: {tid} at {rep['stage']} ({rep['stage_name']}), gate "
+                f"{'GREEN' if g['ok'] else 'RED'} ({g['green']} of {g['total']} green).",
+                f"  NEXT: {nxt}",
+                f"  Before any Firefox work read {owner}/MIGRATION-PLAN.md and the port's intents/port-*/STATE.md; "
+                f"full picture: {settings.self_cmd()} build-harness migrate sitrep {tid}"]
+    return out
+
+
 def run(a, emit, current_id):
+    if a.args and a.args[0] == "brief":
+        lines = brief_lines()
+        emit({"lines": lines}, lambda r: print("\n".join(r["lines"])) if r["lines"] else None)
+        return 0
     sub, tid, rest, kv = _split(a, current_id)
     as_json = getattr(a, "json", False)
     say = (lambda msg: None) if as_json else (lambda msg: print(msg, flush=True))

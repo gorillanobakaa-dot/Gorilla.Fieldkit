@@ -14,3 +14,13 @@ def test_the_harness_folder_with_the_intent_ledger_is_the_owner(tmp_path, monkey
     assert plan.Migration("x", t=t, find_install=False).owner == root
     t2 = {"id": "y", "meta": {"harness_root": str(tmp_path / "elsewhere")}, "steps": []}
     assert plan.Migration("y", t=t2, find_install=False).owner is None          # nothing invented
+
+
+def test_brief_is_silent_without_migrations_and_loud_when_one_breaks(tmp_path, monkeypatch):
+    from fieldkit.migrate import cli as mc
+    assert mc.brief_lines(state_root=tmp_path) == []
+    (tmp_path / "broken" / "migrate").mkdir(parents=True)
+    (tmp_path / "broken" / "migrate" / "plan.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(plan, "Migration", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no task")))
+    out = mc.brief_lines(state_root=tmp_path)
+    assert len(out) == 1 and out[0].startswith("FIREFOX MIGRATION broken: SITREP failed (RuntimeError")
