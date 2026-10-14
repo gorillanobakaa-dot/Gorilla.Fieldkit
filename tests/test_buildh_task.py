@@ -287,3 +287,16 @@ def test_port_and_teach_an_adapted_port_without_a_lesson_is_refused_and_lessons_
     task.submit("t2", adapted="upstream renamed it\nlesson: compare symbols case-insensitively")
     got = task.lessons("t2")
     assert [x["lesson"] for x in got] == ["compare symbols case-insensitively"] and got[0]["step"] == "fix-alpha"
+
+
+def test_the_owner_at_a_window_whose_output_is_logged_is_still_the_owner(monkeypatch):
+    """The terminal opener logs the output (stdout is a pipe); the person's keyboard is still stdin (2026-10-14)."""
+    import io
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+    monkeypatch.setattr(task.sys, "stdin", Tty())
+    monkeypatch.setattr(task.sys, "stdout", io.StringIO())
+    assert task.owner_terminal()
+    monkeypatch.setattr(task.sys, "stdin", io.StringIO())
+    assert not task.owner_terminal()
