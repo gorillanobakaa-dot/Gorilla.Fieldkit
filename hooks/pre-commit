@@ -25,6 +25,9 @@ fi
 # and pytest then exits non-zero with every test passed (2026-10-07: every commit refused for that alone)
 BT="$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-hook-$$")"
 OUT="$BT.out"
+# 2026-10-14: the suite writes about 170 MB of videos into each basetemp; left behind, a dozen commits
+# filled /tmp past the point where videokit doctor (needs 5 GB free) failed and refused every commit.
+trap 'rm -rf "$BT" "$OUT" "${BT2:-}"' EXIT
 if ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
   # A failure must reproduce before it refuses the commit (2026-10-09: a timing test failed once under load, then
   # passed 3 of 3 on its own). Only the failed tests run again, once, in a fresh folder. A failure that does not

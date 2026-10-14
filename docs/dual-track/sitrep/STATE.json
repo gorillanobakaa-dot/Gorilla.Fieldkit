@@ -1,0 +1,28 @@
+{
+ "brief_sha256": "6f942a6ef37d6703",
+ "gorilla_check": "PASS",
+ "group": "sitrep",
+ "metrics": {
+  "developer": {
+   "commands": 8,
+   "words_total": 2248
+  },
+  "layman": {
+   "commands": 6,
+   "concept_rows": 10,
+   "glossary_terms": 8,
+   "trust_steps": 4,
+   "usage_steps": 6,
+   "words_total": 4066
+  }
+ },
+ "rendered": "2026-10-14",
+ "scores": {
+  "developer": 95,
+  "layman": 96
+ },
+ "sources": {
+  "sitrep/__init__.py": "31568da2716a07df6d35fc448b205bee786a9426bf9a5bfdab7e34852c54437e"
+ },
+ "title": "A situation report a reader can take in a few seconds at a time (ADHD, dyslexia, autism)"
+}

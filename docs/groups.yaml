@@ -18,6 +18,9 @@
 #   test: tests/test_gdocs.py, skill: skills/gorilla-documentation-ibm-style/SKILL.md
 
 groups:
+  - name: sitrep
+    title: A situation report a reader can take in a few seconds at a time (ADHD, dyslexia, autism)
+    sources: [sitrep/*.py]
   - name: watchdog
     title: The online watchdog (rejoin the wifi by itself, or say so out loud)
     sources: [watchdog/*.py]

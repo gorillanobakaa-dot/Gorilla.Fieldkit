@@ -38,6 +38,7 @@
     fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
     fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
+    fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit update [--only apt|github|native] [--apply]   what is behind what was published (fieldkit/update)
     fieldkit wifi doctor|scan|upgrade                   why the wifi is slow, from the hardware (fieldkit/wifi)
     fieldkit wifi channels [--why|--check CH|--networks] which channel is free, and the argument for it
@@ -1266,6 +1267,17 @@ def build_parser():
     ex.add_argument("--check", action="store_true", help="verify every translation has an original")
     ex.set_defaults(fn=cmd_explain)
 
+    st = sub.add_parser("sitrep", parents=[common],
+                        help="a situation report a reader can take in a few seconds at a time: template, check, "
+                             "render, example, doctor (fieldkit/sitrep)")
+    st.add_argument("action", choices=["template", "check", "render", "example", "doctor"])
+    st.add_argument("file", nargs="?", help="the filled-in report (check, render)")
+    st.add_argument("--lang", default="en", help="heading language: en es pt it de ro")
+    st.add_argument("--order", choices=["ask-first", "classic"], default="ask-first",
+                    help="ask-first puts 'What I need from you' second; classic is the military order, asks last")
+    st.add_argument("--md", action="store_true", help="render as markdown instead of plain text")
+    st.set_defaults(fn=cmd_sitrep)
+
     sh = sub.add_parser("shot", parents=[common], help="read numbers off a screenshot: read, "
                                                        "speedtest, verdict (fieldkit/shot)")
     sh.add_argument("action", choices=["read", "speedtest", "verdict"])
@@ -1589,6 +1601,36 @@ def cmd_explain(a):
     d = explain.explain(a.topic, a.lang)
     _emit(d, a.json, lambda x: print("\n".join(explain.lines(x))))
     return explain.exit_code(d)
+
+
+def cmd_sitrep(a):
+    from . import sitrep
+    if a.action == "doctor":
+        d = sitrep.doctor()
+        _emit(d, a.json, lambda x: print("\n".join(
+            [f"  languages: {', '.join(x['languages'])}"] + [f"  {p}" for p in x["problems"]] +
+            ["  OK: sitrep can run here" if x["ok"] else "  NEXT: fix the lines above"])))
+        return 0 if d["ok"] else 3
+    if a.action == "template":
+        print(sitrep.template(a.lang, a.order), end="")
+        return 0
+    if a.action == "example":
+        print(sitrep.example(), end="")
+        return 0
+    if not a.file:
+        raise SystemExit(f"fieldkit sitrep {a.action} FILE")
+    try:
+        with open(a.file, encoding="utf-8-sig") as fh:
+            text = fh.read()
+    except OSError as e:
+        raise SystemExit(f"REFUSED: cannot read {a.file}: {e.strerror}")
+    if a.action == "check":
+        d = sitrep.check(text)
+        _emit(d, a.json, lambda x: print("\n".join(sitrep.lines(x))))
+        return sitrep.exit_code(d)
+    d = sitrep.render(text, lang=a.lang, order=a.order, md=a.md)
+    _emit(d, a.json, lambda x: print("\n".join(sitrep.lines(x))))
+    return sitrep.exit_code(d)
 
 
 def cmd_shot(a):

@@ -1,0 +1,11 @@
+# The seven headings of a sitrep, in the six languages the academic kit speaks (en is the key).
+# A heading missing here stays in English: add it here, never in the code. Grey man: never Romanian alone.
+# order of each row: es, pt, it, de, ro
+headings:
+  "One line": ["Una línea", "Uma linha", "Una riga", "Ein Satz", "O linie"]
+  "What I need from you": ["Qué necesito de ti", "O que preciso de ti", "Cosa mi serve da te", "Was ich von dir brauche", "Ce am nevoie de la tine"]
+  "Where we started": ["De dónde partimos", "De onde partimos", "Da dove siamo partiti", "Wo wir angefangen haben", "De unde am plecat"]
+  "What happened": ["Qué pasó", "O que aconteceu", "Cosa è successo", "Was passiert ist", "Ce s-a întâmplat"]
+  "What was achieved": ["Qué se logró", "O que foi conseguido", "Cosa è stato ottenuto", "Was erreicht wurde", "Ce s-a realizat"]
+  "Where we are now": ["Dónde estamos ahora", "Onde estamos agora", "Dove siamo ora", "Wo wir jetzt stehen", "Unde suntem acum"]
+  "What is left": ["Qué falta", "O que falta", "Cosa resta", "Was noch fehlt", "Ce a rămas"]

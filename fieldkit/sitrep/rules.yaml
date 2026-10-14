@@ -1,0 +1,40 @@
+# What `fieldkit sitrep check` enforces, and where each number comes from. Numbers marked "stated in source"
+# were read in that source; numbers marked "model inference" are this tool's choice, made from the source's
+# wording, and are the ones to argue with.
+limits:
+  one_line_words: 25        # one sentence a reader gets in the first seconds. 25 = GOV.UK content design
+                            # sentence limit, applied to the headline (model inference from that guidance).
+  sentence_words: 25        # "Use short, simple sentences" (Ako Aotearoa Dyslexia-Friendly Style Guide 2023,
+                            # adapted from the British Dyslexia Association; no number stated). 25 = GOV.UK.
+  steps_max: 7              # "Chunk the learning" (same guide). Seven numbered steps is the ceiling before the
+                            # list itself needs chunking (model inference; working-memory guidance says 4 to 7).
+  asks_max: 3               # one request per message is the workplace guidance for ADHD readers; three is the
+                            # most a report may carry before it becomes a to-do list (model inference).
+  line_width: 80            # left-aligned, wrapped: "left alignment without justification" (BDA 2018 summary).
+banned:
+  # Figurative or indirect phrases. Autistic readers "are more likely to take phrases and expressions literally"
+  # (Scope, citing the National Autistic Society); workplace guidance names the first two as the classic cases.
+  idioms:
+    - at the end of the day
+    - circle back
+    - touch base
+    - low-hanging fruit
+    - going forward
+    - moving forward
+    - on the same page
+    - ducks in a row
+    - hit the ground running
+    - ballpark
+    - reach out
+    - loop you in
+    - loop in
+    - no-brainer
+    - quick win
+    - in the loop
+    - heads up
+    - boil the ocean
+  # "Avoid abbreviations where possible. Always use the full word" (Ako / BDA guide).
+  abbreviations: ["e.g.", "i.e.", "etc.", "etc", "viz.", "cf.", "n.b.", "NB:"]
+  # Em-dash: house rule. Italics and underline: "avoid using, or at least overusing, italics and underlines"
+  # (Ako / BDA guide); bold is the one emphasis allowed, and only on the first words of an item.
+  markup: ["—", "<u>"]

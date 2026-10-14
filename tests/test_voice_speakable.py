@@ -11,12 +11,12 @@ from fieldkit.voice.speakable import (HOMOPHONES, SPOKEN_LIMIT, check, dehyphena
 
 # ------------------------------------------------- finding 1: hyphens pause
 def test_a_hyphen_between_letters_becomes_a_space():
-    """The owner: "it can not pronounce yoshie chan when it is joined by a -.
+    """The owner: "it can not pronounce Hana chan when it is joined by a -.
     it sounded halted like Yohsh-eeh-eh cha". espeak-ng treats '-' as a word
     boundary, so the word is spoken as two utterances with a gap between."""
-    assert dehyphenate("Yoshie-chan") == "Yoshie chan"
-    assert dehyphenate("Hello Yoshie-chan. Pinko-chan speaks.") == \
-        "Hello Yoshie chan. Pinko chan speaks."
+    assert dehyphenate("Hana-chan") == "Hana chan"
+    assert dehyphenate("Hello Hana-chan. Pinko-chan speaks.") == \
+        "Hello Hana chan. Pinko chan speaks."
 
 
 def test_it_is_not_only_about_names():
@@ -139,11 +139,11 @@ def test_the_herald_fixes_text_before_speaking_it():
 
         # platform="linux": on Windows the sentence travels in the ENVIRONMENT
         # and never appears in argv, which is deliberate and tested elsewhere.
-        herald.say("Hello Yoshie-chan", platform="linux",
+        herald.say("Hello Hana-chan", platform="linux",
                    which=lambda n: "/usr/bin/spd-say" if n == "spd-say" else None,
                    run=fake_run)
-        assert "Yoshie chan" in " ".join(spoken["argv"]), spoken
-        assert "Yoshie-chan" not in " ".join(spoken["argv"])
+        assert "Hana chan" in " ".join(spoken["argv"]), spoken
+        assert "Hana-chan" not in " ".join(spoken["argv"])
     finally:
         if real is not None:
             os.environ["FIELDKIT_VOICE_SILENT"] = real
