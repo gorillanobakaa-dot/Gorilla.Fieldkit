@@ -137,6 +137,22 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core.py"]
 
+- id: update-check
+  title: What on this machine is behind what was published, and the line that fixes it
+  harness: core
+  entry: [python, -m, fieldkit, update]
+  path: ${FIELDKIT}/fieldkit/update/__init__.py
+  inputs:
+    - {name: only, flag: --only, type: string, required: false, help: "one source: apt, github or native"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "do the steps that need no root, then read the artefact back"}
+  effects: [reads-files, network]
+  # read-only without --apply. With it, the only thing it can change is a
+  # launcher symlink: anything needing root is printed and refused, because
+  # typing sudo is the owner's decision and not a tool's.
+  safety: reversible
+  platforms: [linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_update.py"]
+
 - id: refcheck
   title: Which files named in a list (manifest), link or import do not exist
   harness: build
