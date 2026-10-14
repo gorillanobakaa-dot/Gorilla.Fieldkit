@@ -431,3 +431,33 @@ def test_a_trial_refuses_nothing_changed_like_submit(world):
     task.packet("ff")
     r = task.trial("ff")
     assert not r["ok"] and r["why"] == ["nothing was changed"]
+
+
+def test_a_step_replaced_on_purpose_is_superseded_and_lost_work_is_not(tmp_path):
+    """2026-10-14: Fable's 063 rewrote the comment 060 added; final-checks called it a regression."""
+    import subprocess as sp
+    w = tmp_path / "w"
+    w.mkdir()
+    g = lambda *a: sp.run(["git", "-C", str(w), *a], check=True, capture_output=True)
+    g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t")
+    f = w / "menu.css"
+    f.write_text("a {\n  color: red;\n}\n"); g("add", "."); g("commit", "-q", "-m", "pristine")
+    f.write_text("a {\n  color: red;\n  /* the menu in grey and cyan, hard to read */\n}\n"); g("commit", "-qam", "checkpoint: port-060")
+    c060 = sp.run(["git", "-C", str(w), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    f.write_text("a {\n  color: red;\n  /* the menu in the theme's cyan token */\n}\n"); g("commit", "-qam", "checkpoint: port-063")
+    assert firefox.superseded_by(w, c060, "menu.css") == "port-063"
+    f.write_text("a {\n  color: blue;\n  /* the menu in the theme's cyan token */\n}\n"); g("commit", "-qam", "checkpoint: other")
+    c_other = sp.run(["git", "-C", str(w), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    assert firefox.superseded_by(w, c_other, "menu.css") is None       # nothing later touched its lines
+
+
+def test_the_file_wide_second_opinion_ignores_generic_lines():
+    hunk = {"lines": ['     {"settings", "chrome://browser/content/preferences/preferences.xhtml",',
+                      '-    {"smartwindowtasks", "chrome://browser/content/aiwindow/tasks.html",',
+                      "-     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |",
+                      "+    // LOCK: about:smartwindowtasks removed"]}
+    before = ['    {"smartwindowtasks", "chrome://browser/content/aiwindow/tasks.html",',
+              "     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |", "     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |"]
+    now = ["    // LOCK: about:smartwindowtasks removed", "     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |"]
+    assert firefox.holds_file_wide(hunk, now, before)            # the generic flag line lives on for other pages
+    assert not firefox.holds_file_wide(hunk, now + [before[0]], before)   # the page entry itself is back: not held
