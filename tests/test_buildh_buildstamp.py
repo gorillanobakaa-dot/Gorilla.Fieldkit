@@ -98,3 +98,35 @@ def test_the_probe_reads_the_build_number_and_the_build_id_line():
     js = (bs.Path(bs.__file__).parent / "probes" / "build-stamp.js").read_text(encoding="utf-8")
     assert 'getIntPref("gorilla.build.number", 0)' in js and 'getElementById("gorilla-buildid")' in js
     assert "Build ID ${id}" in js
+
+
+def test_apply_source_puts_part_2_in_a_tree_with_part_1_and_is_idempotent(tmp_path):
+    """D-157-38 part 2 as harness code (2026-10-15: it lived only in the Windows tree)."""
+    from fieldkit.buildh import buildstamp as b
+    files = {
+        b.JS: '  // ' + b.PART1_JS + ', from ...\n  if (x) {\n    versionIdKey += "-gorilla";\n  }\n\n'
+              '  // Show a release notes link if we have a URL.\n',
+        b.XHTML: '        <div>\n          <label id="version"/>\n        </div>\n',
+        b.FTL: ("aboutDialog-version-gorilla = { $version } ({ $bits }-bit) built { $built }\n"
+                "aboutDialog-version-nightly-gorilla = { $version } ({ $isodate }) ({ $bits }-bit) built { $built }\n"
+                "aboutdialog-version-arch-gorilla = { $version } ({ $arch }) built { $built }\n"
+                "aboutdialog-version-arch-nightly-gorilla = { $version } ({ $isodate }) ({ $arch }) built { $built }\n"),
+        b.BRANDING: 'pref("app.update.enabled", false);\n',
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+    assert len(b.source_problems(tmp_path)) == 6
+    r = b.apply_source(tmp_path, 3)
+    assert len(r["changed"]) == 4 and b.source_problems(tmp_path) == []
+    assert 'pref("gorilla.build.number", 3);' in (tmp_path / b.BRANDING).read_text()
+    assert b.apply_source(tmp_path, 3) == {"changed": [], "already": 8}
+
+
+def test_apply_source_refuses_without_part_1(tmp_path):
+    import pytest
+    from fieldkit.buildh import buildstamp as b
+    (tmp_path / b.JS).parent.mkdir(parents=True)
+    (tmp_path / b.JS).write_text("nothing\n")
+    with pytest.raises(ValueError, match="part 1"):
+        b.apply_source(tmp_path, 1)

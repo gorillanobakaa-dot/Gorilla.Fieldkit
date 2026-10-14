@@ -544,3 +544,40 @@ def lines(results, verbose=False):
             out += [f"     apply {i}. {a}" for i, a in enumerate(t["apply"], 1)]
             out.append(f"     verify: {'; '.join(t['verify'])}")
     return out
+
+TECHNIQUES.append({
+    "id": "T-157-38-A",
+    "title": "Help > About names the build: 'build N, built YY:MM:DD:HH:MM:SS' and under it 'Build ID <14 digits>'",
+    "decision": "D-157-38",
+    "found": "2026-10-15, Linux 158: part 2 lived only in the Windows tree; the shared patch set and the port lacked it",
+    "problem": (
+        "The owner tells builds apart from Help > About. Part 1 (2026-10-08) ends the version line with the BuildID as "
+        "'built YY:MM:DD:HH:MM:SS'. Part 2 (2026-10-09) adds the build number (branding pref gorilla.build.number, "
+        "raised once per release candidate) and a second line 'Build ID <the 14 digits>', the string the harness "
+        "reports, so an installed build can be matched to the harness's record. Part 2 was made by hand on Windows "
+        "and never exported, so the Linux 158 port shipped without it until the register's check failed."),
+    "concept": (
+        "The change is harness code, not a patch: fieldkit.buildh.buildstamp.apply_source(tree, number) edits the four "
+        "files on text anchors (never line numbers), is idempotent, and refuses when part 1 or an anchor is missing. "
+        "source_problems(tree) lists what is missing in words."),
+    "signals": [
+        {"name": "build-number-pref", "kind": "must_have", "path": "browser/branding/gorilla/pref/firefox-branding.js",
+         "text": 'pref("gorilla.build.number", '},
+        {"name": "version-line-says-build", "kind": "must_have", "path": "browser/locales/en-US/browser/aboutDialog.ftl",
+         "text": "aboutDialog-version-gorilla = { $version } ({ $bits }-bit) build { $build }, built { $built }"},
+        {"name": "build-id-message", "kind": "must_have", "path": "browser/locales/en-US/browser/aboutDialog.ftl",
+         "text": "aboutDialog-buildid-gorilla = Build ID { $buildid }"},
+        {"name": "build-id-label", "kind": "must_have", "path": "browser/base/content/aboutDialog.xhtml",
+         "text": '<label id="gorilla-buildid" class="text-blurb" hidden="true"/>'},
+        {"name": "about-passes-the-number", "kind": "must_have", "path": "browser/base/content/aboutDialog.js",
+         "text": 'versionAttributes.build = Services.prefs.getIntPref("gorilla.build.number", 0);'},
+        # a NEW place that writes the About version line (a Firefox that adds another path) must carry the stamp too:
+        # each hit is guarded when a GORILLA comment naming D-157-38 sits within 30 lines above it
+        {"name": "version-line-writers", "kind": "watch", "pathspec": ["browser/base/content", ":!**/test/**", ":!**/tests/**"],
+         "regex": r"setAttributes\(\s*versionField", "guard_lines": 30, "allow": {}},
+    ],
+    "apply": ["from fieldkit.buildh import buildstamp; buildstamp.apply_source('<tree>', <build number>)",
+              "raise the number in firefox-branding.js once per release candidate (the owner's runbook)"],
+    "verify": ["probe build-stamp: the About window's version line ends 'build N, built ...' and #gorilla-buildid "
+               "reads 'Build ID <BuildID>'", "decision D-157-38 checks"],
+})
