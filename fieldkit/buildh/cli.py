@@ -593,7 +593,9 @@ def run(a, emit):
             [f"  {r['step']}\n      why adapted: {r['reason'][:160]}\n      the letter said: {'; '.join(r.get('literal_check_said') or [])[:160]}" for r in rows] +
             ([f"NEXT, in one go: {_settings.self_cmd()} build-harness accept {tid} --all"] if rows else [])))) or 0
     if act == "accept":
-        ids = [x for x in a.args[1:] if x != "--all"]
+        # `--all` (a flag) or no ids: every waiting proposal. 2026-10-14: the printed `accept TASK --all` failed with
+        # 'unrecognized arguments: --all' because the flag was never declared; the tests called task.accept() only
+        ids = [] if getattr(a, "all", False) else [x for x in a.args[1:] if x != "--all"]
         r = task.accept(tid, step_ids=ids or None, who=_os.environ.get("USER") or _os.environ.get("USERNAME") or "owner")
         return emit(r, lambda r: print("\n".join(
             [f"accepted {len(r['accepted'])}: {', '.join(r['accepted'])}" if r["accepted"] else "accepted none"] +

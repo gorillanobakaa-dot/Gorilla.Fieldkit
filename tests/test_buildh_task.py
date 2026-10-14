@@ -265,3 +265,12 @@ def test_a_proposal_that_no_longer_applies_goes_back_to_failed_not_guessed(job2)
     r = task.accept("t2", who="owner")
     assert r["accepted"] == [] and r["failed"][0]["step"] == "fix-alpha" and "no longer applies" in r["failed"][0]["why"]
     assert task.load("t2")["steps"][1]["status"] == "failed"
+
+
+def test_the_printed_accept_all_command_parses():
+    """The owner's one-go command must be accepted by the real command line, not only by task.accept() (2026-10-14)."""
+    from fieldkit import cli
+    a = cli.build_parser().parse_args(["build-harness", "accept", "some-task", "--all"])
+    assert a.all is True and "some-task" in a.args
+    a = cli.build_parser().parse_args(["build-harness", "submit", "some-task", "--dry-run", "--adapted", "why"])
+    assert a.dry_run is True and a.adapted == "why"
