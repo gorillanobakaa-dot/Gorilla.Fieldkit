@@ -75,3 +75,58 @@ def test_a_declared_removed_line_is_not_reported_as_renamed_onto_an_earlier_gori
              "         }", "  return NS_OK;", "}"]
     keeps = firefox.hand_keeps("why\nkeeps: s == nsILoadInfo::IPAddressSpace::Private;")
     assert not [w for w in firefox.hand_port_check(pristine, after, hunk, pristine, keeps) if "new names" in w]
+
+
+
+def test_a_declared_removal_is_the_twin_of_a_declared_keep():
+    """StaticPrefList.yaml h1 of the 158 port (2026-10-14): the hunk removes `value: @IS_NIGHTLY_BUILD@`, upstream had
+    made it `value: true`; removing THAT line shares no distinctive token with the hunk and read as damage."""
+    assert firefox.hand_removes("upstream changed it; removes: value: true") == ["value: true"]
+    hunk = {"lines": ["#ifdef MOZ_ENABLE_SKIA_PDF", "- name: accessibility.tagged_pdf_output.enabled", "   type: bool",
+                      "-  value: @IS_NIGHTLY_BUILD@", "+  value: false", "   mirror: always", "#endif"]}
+    before = ["#ifdef MOZ_ENABLE_SKIA_PDF", "- name: accessibility.tagged_pdf_output.enabled", "  type: bool",
+              "  value: true", "  mirror: always", "#endif", ""]
+    after = ["#ifdef MOZ_ENABLE_SKIA_PDF", "- name: accessibility.tagged_pdf_output.enabled", "  type: bool",
+             "  value: false", "  mirror: always", "#endif", ""]
+    assert any("you removed" in w for w in firefox.hand_port_check(before, after, hunk, before))
+    assert firefox.hand_port_check(before, after, hunk, before, removes=firefox.hand_removes("removes: value: true")) == []
+
+
+def test_spans_end_on_the_same_line_when_upstream_inserted_a_block():
+    """158 browser-shared.css h4 (2026-10-14): upstream put a mini-window block between the hunk's lines and its
+    trailing context, and that block holds a second `--toolbox-background-image: none;`. A correct literal port
+    was refused because only the after-side span reached that copy."""
+    import json
+    from pathlib import Path
+    from fieldkit.buildh import firefox as f
+    d = json.loads((Path(__file__).parent / "data" / "span-mini-window-158.json").read_text())
+    hunk, before = d["hunk"], d["before"]
+    body = hunk["lines"][:-2]                                   # the trailing context moved in 158
+    old = "\n".join(l[1:] for l in body if l[:1] in " -")
+    new = "\n".join(l[1:] for l in body if l[:1] in " +")
+    after = "\n".join(before).replace(old, new).splitlines()
+    assert after != before
+    assert f.hunk_problems(before, after, hunk) == []
+    i = after.index("  --toolbox-background-image: var(--lwt-additional-images);")
+    left = after[:i] + ["  --toolbox-background-image: none;"] + after[i:]
+    assert f.hunk_problems(before, left, hunk) == ["line should be gone: --toolbox-background-image: none;"]
+
+
+def test_hunk_whose_distinctive_lines_are_all_gone_is_obsolete():
+    """158 browser-shared.css h10 (2026-10-14): the CFR milestone block left the tree; generic lines like
+    `display: flex;` still exist elsewhere and hid that from the all-lines rule."""
+    from fieldkit.buildh import firefox as f
+    hunk = {"lines": [
+        '   &[data-notification-bucket="CFR_MILESTONE_MESSAGE"] {',
+        "-    display: flex;",
+        "-    background: radial-gradient(circle farthest-side at top right, var(--short-notification-gradient));",
+        "+    &:not([hidden]) {",
+        "+      display: flex;",
+        "+      background: radial-gradient(circle farthest-side at top right, var(--short-notification-gradient));",
+        "+    }",
+    ]}
+    body = ["#sidebar {", "  display: flex;", "  /* stylelint-disable-next-line */", "}"]
+    assert f.obsolete_upstream(body, hunk, css=True)
+    assert f.obsolete_upstream(body, hunk) is None              # code and prefs: may be a rename, a model chases it
+    still = body + ['&[data-notification-bucket="CFR_MILESTONE_MESSAGE"] {', "    background: radial-gradient(circle farthest-side at top right, var(--short-notification-gradient));", "}"]
+    assert f.obsolete_upstream(still, hunk, css=True) is None

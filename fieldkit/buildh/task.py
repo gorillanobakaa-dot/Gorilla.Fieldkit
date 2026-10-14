@@ -358,6 +358,10 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
         head += ["You may change ONLY these files (anything else is undone):",
                  *[f"  - {a}" for a in s.get("allowed", [])],
                  "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works."]
+    from . import decisions as dec
+    cited = dec.citations(t, list(s.get("allowed") or []))
+    if cited:
+        head += [""] + cited
     text = "\n".join(head) + "\n\n" + body
     if len(text) > budget_chars:
         text = text[:budget_chars] + "\n[... trimmed to fit the context budget]"
@@ -404,9 +408,10 @@ def submit(task_id, note="", by="cli", step_id=None, adapted=""):
         why.append("nothing was changed, and the tree does not hold the result: " + "; ".join(chk.get("why") or [])[:200])
     if not why and adapted and by != "hand":
         literal = _call(s["check"], t, s, **(s.get("args") or {}))
-        s["hand_port"] = True                                   # judged by meaning, as a declared port is
-        res = _call(s["check"], t, s, **(s.get("args") or {}))
+        s["hand_port"], s["hand_note"] = True, adapted           # judged by meaning, as a declared port is; the reason
+        res = _call(s["check"], t, s, **(s.get("args") or {}))   # may carry `keeps:` / `removes:` declarations
         s["hand_port"] = False
+        s.pop("hand_note", None)
         if res.get("ok"):
             _git(t, "add", "-A")
             diff = subprocess.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
