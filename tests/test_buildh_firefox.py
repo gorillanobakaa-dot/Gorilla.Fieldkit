@@ -358,3 +358,38 @@ def test_a_port_beside_an_intent_ledger_must_be_under_migration_control(world):
     (task._dir("ff") / "migrate").mkdir(parents=True, exist_ok=True)
     (task._dir("ff") / "migrate" / "plan.json").write_text("{}", encoding="utf-8")
     assert task.packet("ff")["state"] == "MODEL STEP"
+
+
+def test_drop_puts_the_files_back_and_applies_the_kept_patch_again(world):
+    """078 (2026-10-14): 'drop the three 16.SNAPSHOT tokens patches and this one; keep step 2'."""
+    task.packet("ff")
+    w = world / "work" / "157.0"
+    prefs = w / "prefs.js"
+    prefs.write_text(prefs.read_text().replace('pref("browser.startup.page", 1);\n',
+                                               'pref("browser.startup.page", 1);\npref("toolkit.telemetry.enabled", false);\n'),
+                     newline="\n")
+    assert task.submit("ff")["ok"]
+    task.packet("ff")                                         # the script steps ran: 08.Look made theme.css purple
+    pset = world / "Gorilla.firefox" / "patchset"
+    assert "purple" in (w / "theme.css").read_text()
+    r = task.drop("ff", ["08.Look/accent.patch"], "the author: drop it for a later Firefox", who="sam", patchset_root=pset)
+    assert r["files"] == ["theme.css"] and "blue" in (w / "theme.css").read_text() and not task.changed_files(task.load("ff"))
+    j = (task._dir("ff") / "journal.jsonl").read_text()
+    assert '"dropped"' in j and "the author: drop it" in j
+    keep = pset / "08.Look" / "accent-step-2.patch"         # context on both sides, as patch(1) with no fuzz needs
+    keep.write_text("--- a/theme.css\n+++ b/theme.css\n@@ -1,3 +1,3 @@\n :root {\n-  --accent: blue;\n+  --accent: pink;\n }\n",
+                    newline="\n")
+    r = task.drop("ff", ["08.Look/accent.patch"], "again, keeping step 2", who="sam", keep=["08.Look/accent-step-2.patch"],
+                  patchset_root=pset)
+    assert r["reapplied"] == ["08.Look/accent-step-2.patch"] and "pink" in (w / "theme.css").read_text()
+    assert not task.changed_files(task.load("ff"))
+
+
+def test_drop_refuses_with_uncommitted_work_or_an_unknown_patch(world):
+    task.packet("ff")
+    pset = world / "Gorilla.firefox" / "patchset"
+    with pytest.raises(task.Refused, match="no patch"):
+        task.drop("ff", ["08.Look/nope.patch"], "x", patchset_root=pset)
+    (world / "work" / "157.0" / "prefs.js").write_text("// half-done edit\n")
+    with pytest.raises(task.Refused, match="uncommitted"):
+        task.drop("ff", ["08.Look/accent.patch"], "x", patchset_root=pset)

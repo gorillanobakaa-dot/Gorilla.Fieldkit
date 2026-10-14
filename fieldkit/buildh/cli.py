@@ -577,6 +577,15 @@ def run(a, emit):
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "drop":
+        # drop TASK --note "reason" PATCH... [keep=PATCH]
+        pats = [x for x in a.args[1:] if not x.startswith("keep=")]
+        keep = [x[5:] for x in a.args[1:] if x.startswith("keep=")]
+        if not pats or not (a.note or "").strip():
+            raise task.Refused("drop TASK --note \"why (quote the author)\" PATCH ... [keep=PATCH]")
+        r = task.drop(tid, pats, a.note.strip(), who=_os.environ.get("USER") or _os.environ.get("USERNAME") or "owner", keep=keep)
+        return emit(r, lambda r: print(f"dropped {len(r['dropped'])} step(s); files back to pristine: {', '.join(r['files'])}; "
+                                       f"applied again: {', '.join(r['reapplied']) or 'none'}")) or 0
     if act == "proposals":
         rows = task.proposals(tid)
         return emit(rows, lambda rows: print("\n".join(

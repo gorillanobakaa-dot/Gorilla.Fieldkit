@@ -399,6 +399,62 @@ def trial(task_id, note="", adapted="", hand=False):
             "would_be": ("a proposal for the owner" if adapted else "done") if r.get("ok") else "an attempt refused"}
 
 
+def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
+    """Drop whole patches from a running port, the way their author said to, with the reason recorded.
+
+    2026-10-14, Linux 158: patch 078 (21.PORT.FIXES.157) says "For a later Firefox: drop the three 16.SNAPSHOT
+    tokens-*.css patches and this one; keep step 2". The port had already ported most of them, and the policy's
+    `exclude` list only shapes the NEXT plan. So: every step of the dropped patches ends as obsolete (with the
+    reason, who, and the author's words), a waiting proposal of theirs is withdrawn (moved, not deleted), the files
+    they touch go back to the pristine release, and the `keep` patches that share those files are applied again
+    (patch(1), no fuzz). Refused when a step of another patch already changed one of those files: dropping would
+    erase that work. -> {"dropped": [...], "files": [...], "reapplied": [...]}"""
+    import shutil
+    from . import firefox
+    t = load(task_id)
+    root = Path(patchset_root) if patchset_root else firefox._policy(t["meta"]["harness_root"])[0]
+    files = set()
+    for p in list(patches) + list(keep):
+        pf = root / p
+        if not pf.is_file():
+            raise Refused(f"no patch {p} under {root}")
+        if p in patches:
+            files |= {f["file"] for f in firefox.parse_patch(pf.read_text(encoding="utf-8", errors="replace"))}
+    drop_steps = [x for x in t["steps"] if (x.get("args") or {}).get("patch") in set(patches)]
+    others = [x["id"] for x in t["steps"] if x["kind"] == "model" and x["status"] == "done" and x not in drop_steps
+              and (x.get("args") or {}).get("file") in files and (x.get("args") or {}).get("patch") not in set(keep)]
+    if others:
+        raise Refused(f"other ported steps changed these files; dropping would erase them: {others[:5]}")
+    if changed_files(t):
+        raise Refused("the work tree has uncommitted changes; submit or revert the current step first")
+    pristine = _git(t, "rev-list", "--max-parents=0", "HEAD").split()[0]
+    for f in sorted(files):
+        _git(t, "checkout", pristine, "--", f)
+    reapplied = []
+    for p in keep:
+        r = subprocess.run(["patch", "-p1", "--fuzz=0", "--no-backup-if-mismatch", "-i", str(root / p)],
+                           cwd=t["workdir"], capture_output=True, text=True)
+        if r.returncode != 0:
+            revert_to_checkpoint(t)
+            raise Refused(f"the kept patch {p} does not apply on the pristine files: {(r.stdout + r.stderr)[-300:]}")
+        reapplied.append(p)
+    withdrawn = _proposals_dir(t) / "withdrawn"
+    for x in drop_steps:
+        if x["status"] == "proposed":
+            withdrawn.mkdir(exist_ok=True)
+            for ext in (".diff", ".json"):
+                src = _proposals_dir(t) / f"{x['id']}{ext}"
+                if src.is_file():
+                    shutil.move(str(src), str(withdrawn / src.name))
+        x["status"], x["last_why"] = "obsolete", [f"dropped by {who}: {reason}"]
+        x["dropped_by"] = who
+    checkpoint(t, f"drop {len(patches)} patch(es): {reason[:80]}")
+    journal(t, "dropped", patches=list(patches), keep=list(keep), files=sorted(files), steps=[x["id"] for x in drop_steps],
+            by=who, reason=reason)
+    save(t)
+    return {"dropped": [x["id"] for x in drop_steps], "files": sorted(files), "reapplied": reapplied}
+
+
 def _proposals_dir(t):
     d = _dir(t["id"]) / "proposals"
     d.mkdir(parents=True, exist_ok=True)
