@@ -146,3 +146,18 @@ def test_short_leading_context_belongs_to_the_span():
     add = "    console.warn(`CustomizeMode.enter called, customizing=${this.#customizing}`);"
     assert f.hunk_problems(before, before[:4] + [add] + before[4:], hunk) == []
     assert f.hunk_problems(before, before, hunk)
+
+
+def test_a_declared_keep_matches_a_line_that_ends_in_a_semicolon():
+    """hand_keeps splits the note on `;`; a kept CSS declaration must still match its own line (2026-10-14)."""
+    from fieldkit.buildh import firefox as f
+    hunk = {"lines": ["   --button-background-color: transparent;",
+                      "-  --button-background-color-muted: light-dark(var(--color-gray-20), var(--color-gray-55));",
+                      "   --button-background-color-primary: var(--color-accent-primary);"]}
+    body = ["  --button-background-color: transparent;",
+            "  --button-background-color-muted: light-dark(var(--color-gray-20), var(--color-gray-55));",
+            "  --button-background-color-primary: var(--color-accent-primary);"]
+    keeps = f.hand_keeps("adapted: 158 still uses it\nkeeps: --button-background-color-muted: "
+                         "light-dark(var(--color-gray-20), var(--color-gray-55));")
+    assert not [w for w in f.hand_port_check(body, body, hunk, keeps=keeps) if "should be gone" in w]
+    assert [w for w in f.hand_port_check(body, body, hunk) if "should be gone" in w]

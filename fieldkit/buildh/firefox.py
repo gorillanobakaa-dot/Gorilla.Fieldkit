@@ -2032,8 +2032,10 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_che
             continue
         if not _specific(_key(k)) or k.startswith(("/*", "//", "*", "<!--")):
             continue                                        # a comment follows its block; it proves nothing alone
-        if k in kept or any(d.startswith(k) for d in kept):
+        if k in kept or k.rstrip(";") in kept or any(d.startswith(k) for d in kept):
             continue                                        # declared (a reason may follow the line), journaled with the submit
+            # (hand_keeps splits the note on `;`, so a declared CSS/JS line arrives without its own `;`:
+            # 158 tokens-shared.css h22, 2026-10-14, five declared keeps were refused as 'should be gone')
         wide = _judgeable_rename(k)
         here = ca[k] if wide else cn[k]
         if not here:
