@@ -37,6 +37,7 @@ import hashlib
 import importlib
 import json
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -231,6 +232,9 @@ class Pipeline:
                 entry.update(status="would-run", run=s["run"])
                 continue
             t0 = time.monotonic()
+            # progress on stderr as it happens (2026-10-15: a Firefox build in screen left an empty log for hours, the
+            # summary is printed only at the end; stderr keeps --json output clean)
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {self.name}: stage {sid} started", file=sys.stderr, flush=True)
             run = s["run"]
             if "cmd" in run:
                 res = self.runner.run(run["cmd"], cwd=run.get("cwd"), env=run.get("env"),
@@ -253,6 +257,8 @@ class Pipeline:
             entry["status"] = "done" if passed and vok else ("ran-unverified" if passed else "failed")
             st[sid] = {"status": entry["status"], "fingerprint": fp,
                        "finished": time.strftime("%Y-%m-%d %H:%M:%S")}
+            print(f"[{st[sid]['finished']}] {self.name}: stage {sid} {entry['status']} after {entry['seconds']:.0f} s",
+                  file=sys.stderr, flush=True)
             self._save(st)
             if not passed:
                 if s.get("triage") and log:
