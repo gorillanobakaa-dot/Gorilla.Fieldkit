@@ -705,6 +705,56 @@ def changed_vs_root(workdir):
     return [l for l in r.stdout.splitlines() if l]
 
 
+def _diff_sides(w, a, b, file):
+    r = subprocess.run(["git", "-C", str(w), "diff", "--unified=0", a, b, "--", file], capture_output=True)
+    added, removed = set(), set()
+    for line in r.stdout.decode("utf-8", "replace").splitlines():
+        if line.startswith(("+++", "---")):
+            continue
+        body = line[1:].strip()
+        if len(body) < 6 or TRIVIAL.match(body):
+            continue                                        # braces and blank-ish lines prove nothing
+        if line.startswith("+"):
+            added.add(body)
+        elif line.startswith("-"):
+            removed.add(body)
+    return added, removed
+
+
+def superseded_by(w, commit, file):
+    """The later commit that replaced this step's own change on purpose, or None.
+
+    2026-10-14 (Linux 158): five 'regressions' at final-checks were later steps doing their job: Fable's 063 rewrote
+    the comment 060 added, a recorded hand repair replaced a broken port, 093 replaced 036's lock comments. A step is
+    superseded when a LATER commit to the same file removes a line this step added, or adds back a line it removed.
+    Lost work shows neither: nothing later touched those lines."""
+    added, removed = _diff_sides(w, f"{commit}~1", commit, file)
+    r = subprocess.run(["git", "-C", str(w), "log", "--format=%H %s", f"{commit}..HEAD", "--", file],
+                       capture_output=True, text=True)
+    for row in reversed(r.stdout.splitlines()):             # oldest later commit first
+        c, _, subject = row.partition(" ")
+        a2, r2 = _diff_sides(w, f"{c}~1", c, file)
+        if (added & r2) or (removed & a2):
+            return subject.replace("checkpoint: ", "")
+    return None
+
+
+def holds_file_wide(hunk, now, before=()):
+    """A second opinion when the span-based re-check fails: every meaningful added line is in the file, and every
+    DISTINCTIVE removed line (long, not a comment: _distinctive) is gone from it. Generic removed lines are not
+    judged here, because they live all over a file. True only when there is at least one line to judge by."""
+    removed, added, _ = hunk_sides(hunk)
+    have = {l.strip() for l in now}
+    want_added = [x.strip() for x in added if x.strip() and not TRIVIAL.match(x.strip())]
+    import collections
+    nb, nr = collections.Counter(l.strip() for l in before), collections.Counter(x.strip() for x in removed)
+    # a removed line the file held more often than the hunk removes it is generic (`nsIAboutModule::...`, one per page)
+    want_gone = [x for x in _distinctive(removed) if x not in {a.strip() for a in added} and nb[x] <= nr[x]]
+    if not want_added and not want_gone:
+        return False
+    return all(x in have for x in want_added) and not any(x in have for x in want_gone)
+
+
 def step_final_checks(t, **kw):
     w = Path(t["workdir"])
     why = [f"leftover {p.relative_to(w)}" for p in leftovers(w)[:10]]
@@ -732,7 +782,16 @@ def step_final_checks(t, **kw):
         before = subprocess.run(["git", "-C", str(w), "show", f"{base_commit}~1:{a['file']}"], capture_output=True
                                 ).stdout.decode("utf-8", "replace").splitlines() if base_commit else []
         lost = still_holds(s, a["file"], a["hunk"], before, now) if before else []
+        if lost and holds_file_wide(a["hunk"], now, before):
+            # the span could not find lines that ARE there (a neighbour was removed later), or counted a generic line
+            # (`parent: {`) that lives all over the file: judged file-wide, the change stands (2026-10-14, 16 h3, 036 h3)
+            taskmod.journal(t, "holds-file-wide", step=s["id"], span_said=lost[0])
+            continue
         if lost:
+            by = superseded_by(w, base_commit, a["file"]) if base_commit else None
+            if by:
+                taskmod.journal(t, "superseded", step=s["id"], by=by, why=lost[0])
+                continue
             why.append(f"regression: {s['id']} no longer holds: {lost[0]}")
             taskmod.journal(t, "regression", step=s["id"], why=lost[0])
     return {"ok": not why, "why": why, "summary": "clean" if not why else f"{len(why)} problem(s)"}
