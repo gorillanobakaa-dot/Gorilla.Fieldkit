@@ -220,7 +220,7 @@ def test_an_adapted_port_is_saved_for_the_owner_not_spent_and_the_run_goes_on(jo
     task.approve("t2", "owner")
     task.packet("t2")
     (job2 / "alpha.txt").write_text("ALPHA\n")                    # right by meaning, wrong by the letter
-    r = task.submit("t2", adapted="upstream renamed the symbol to upper case")
+    r = task.submit("t2", adapted="upstream renamed the symbol to upper case\nlesson: match a symbol case-insensitively")
     assert r["ok"] and r["proposed"]
     t = task.load("t2")
     s = next(x for x in t["steps"] if x["id"] == "fix-alpha")
@@ -235,14 +235,14 @@ def test_an_adapted_port_that_does_not_hold_by_meaning_is_an_ordinary_failed_att
     task.approve("t2", "owner")
     task.packet("t2")
     (job2 / "alpha.txt").write_text("nothing here\n")
-    r = task.submit("t2", adapted="trust me")
+    r = task.submit("t2", adapted="trust me\nlesson: none")
     assert not r["ok"] and "meaning does not hold" in r["why"][0] and r["attempts"] == "1 of 3"
 
 
 def test_the_owner_accepts_every_proposal_in_one_go(job2):
     task.approve("t2", "owner")
-    task.packet("t2"); (job2 / "alpha.txt").write_text("ALPHA\n"); task.submit("t2", adapted="renamed")
-    task.packet("t2"); (job2 / "beta.txt").write_text("BETA\n"); task.submit("t2", adapted="renamed too")
+    task.packet("t2"); (job2 / "alpha.txt").write_text("ALPHA\n"); task.submit("t2", adapted="renamed\nlesson: follow renames")
+    task.packet("t2"); (job2 / "beta.txt").write_text("BETA\n"); task.submit("t2", adapted="renamed too\nlesson: follow renames")
     end = task.advance("t2")
     assert end["state"] == "PROPOSED" and end["steps"] == ["fix-alpha", "fix-beta"] and "accept t2 --all" in end["next"]
     assert len(task.proposals("t2")) == 2
@@ -259,7 +259,7 @@ def test_the_owner_accepts_every_proposal_in_one_go(job2):
 
 def test_a_proposal_that_no_longer_applies_goes_back_to_failed_not_guessed(job2):
     task.approve("t2", "owner")
-    task.packet("t2"); (job2 / "alpha.txt").write_text("ALPHA\n"); task.submit("t2", adapted="renamed")
+    task.packet("t2"); (job2 / "alpha.txt").write_text("ALPHA\n"); task.submit("t2", adapted="renamed\nlesson: follow renames")
     (job2 / "alpha.txt").write_text("someone else\n")
     task.checkpoint(task.load("t2"), "something else moved the file")
     r = task.accept("t2", who="owner")
@@ -274,3 +274,16 @@ def test_the_printed_accept_all_command_parses():
     assert a.all is True and "some-task" in a.args
     a = cli.build_parser().parse_args(["build-harness", "submit", "some-task", "--dry-run", "--adapted", "why"])
     assert a.dry_run is True and a.adapted == "why"
+
+
+def test_port_and_teach_an_adapted_port_without_a_lesson_is_refused_and_lessons_are_collected(job2):
+    """Owner, 2026-10-14: porting and teaching the harness happen together, at every step."""
+    task.approve("t2", "owner")
+    p = task.packet("t2")
+    assert "PORT AND TEACH" in p["packet"]
+    (job2 / "alpha.txt").write_text("ALPHA\n")
+    with pytest.raises(task.Refused, match="PORT AND TEACH"):
+        task.submit("t2", adapted="upstream renamed the symbol to upper case")
+    task.submit("t2", adapted="upstream renamed it\nlesson: compare symbols case-insensitively")
+    got = task.lessons("t2")
+    assert [x["lesson"] for x in got] == ["compare symbols case-insensitively"] and got[0]["step"] == "fix-alpha"
