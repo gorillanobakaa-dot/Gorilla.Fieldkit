@@ -716,6 +716,10 @@ def step_final_checks(t, **kw):
     if lost:
         why.append(f"{len(lost)} file(s) of the pristine source are gone and no patch deletes them, e.g. {lost[0]}")
     why += [f"does not parse: {x}" for x in syntax_problems(w, changed_vs_root(w))[:5]]
+    # Fluent: empty values and upstream messages gone (2026-10-14: neither fails to parse; both got past the steps)
+    from . import fluentcheck
+    fc = fluentcheck.check(w, (t.get("meta") or {}).get("harness_root"))
+    why += [p for p in fc["problems"] if not p.startswith("syntax: ")][:10]
     # regression: every hunk a model ported must still be in place at the end
     from . import task as taskmod
     for s in t["steps"]:

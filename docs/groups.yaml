@@ -78,6 +78,7 @@ groups:
       - buildh/firefox.py
       - buildh/fluent.py
       - buildh/handedit.py
+      - buildh/fluentcheck.py
       - buildh/keyed.py
       - buildh/prefs.py
       - buildh/probe.py

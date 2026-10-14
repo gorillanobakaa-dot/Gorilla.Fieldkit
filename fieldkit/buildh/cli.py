@@ -577,6 +577,12 @@ def run(a, emit):
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "fluent-check":
+        from . import fluentcheck
+        t = task.load(tid)
+        r = fluentcheck.check(t["workdir"], (t.get("meta") or {}).get("harness_root"))
+        emit(r, lambda r: print("\n".join(fluentcheck.lines(r))))
+        return 0 if r["ok"] else 3
     if act == "describe":
         # describe TASK [STEP_ID]: the step in full words (the current one by default), for messages and window titles
         t = task.load(tid)
