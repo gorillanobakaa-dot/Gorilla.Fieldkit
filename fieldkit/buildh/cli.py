@@ -577,6 +577,14 @@ def run(a, emit):
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "describe":
+        # describe TASK [STEP_ID]: the step in full words (the current one by default), for messages and window titles
+        t = task.load(tid)
+        sid = a.args[1] if len(a.args) > 1 else None
+        s = next((x for x in t["steps"] if x["id"] == sid), None) if sid else task.current(t)
+        if s is None:
+            raise task.Refused(f"no step {sid!r}" if sid else "no current step")
+        return emit({"step": s["id"], "words": task.describe_step(t, s)}, lambda r: print(r["words"])) or 0
     if act == "lessons":
         rows = task.lessons(tid)
         return emit(rows, lambda rows: print("\n".join([f"{len(rows)} lesson(s) waiting to become harness rules:"] +

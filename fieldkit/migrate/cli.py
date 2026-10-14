@@ -72,6 +72,9 @@ def brief_lines(state_root=None, harness_root=None):
                 f"  NEXT: {nxt}",
                 f"  Before any Firefox work read {owner}/MIGRATION-PLAN.md and the port's intents/port-*/STATE.md; "
                 f"full picture: {settings.self_cmd()} build-harness migrate sitrep {tid}"]
+        cur = task.current(task.load(tid))
+        if cur is not None:
+            out.append("  NOW: " + task.describe_step(task.load(tid), cur))
         n_lessons = len(task.lessons(tid))
         if n_lessons:
             out.append(f"  {n_lessons} PORT-AND-TEACH lesson(s) wait to become harness rules: "
