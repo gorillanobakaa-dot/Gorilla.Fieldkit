@@ -27,7 +27,12 @@ BT="$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-hook-$$")"
 OUT="$BT.out"
 # 2026-10-14: the suite writes about 170 MB of videos into each basetemp; left behind, a dozen commits
 # filled /tmp past the point where videokit doctor (needs 5 GB free) failed and refused every commit.
-trap 'rm -rf "$BT" "$OUT" "${BT2:-}"' EXIT
+# 2026-10-14: a marker while the hook runs, so a waiter checks a FILE, not the process list. `pgrep -f hooks/pre-commit`
+# inside a waiting loop matched the loop's own command line and waited the full 10-minute timeout, several times.
+# hooks/wait-for-hook.sh waits on these markers and removes the ones whose process is gone.
+MARK="$(git rev-parse --git-common-dir)/pre-commit.running.$$"
+date '+%Y-%m-%d %H:%M:%S' > "$MARK" 2>/dev/null || true
+trap 'rm -rf "$BT" "$OUT" "${BT2:-}" "$MARK"' EXIT
 if ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
   # A failure must reproduce before it refuses the commit (2026-10-09: a timing test failed once under load, then
   # passed 3 of 3 on its own). Only the failed tests run again, once, in a fresh folder. A failure that does not

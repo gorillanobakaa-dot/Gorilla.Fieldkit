@@ -569,6 +569,10 @@ def run(a, emit):
     if act == "next":
         r = task.packet(tid)
         return emit(r, lambda r: print(lines_for(r))) or 0
+    if act == "submit" and getattr(a, "dry_run", False):
+        r = task.trial(tid, a.note or "", adapted=getattr(a, "adapted", "") or "", hand=bool(getattr(a, "hand", False)))
+        emit(r, None)
+        return 0 if r["ok"] else 3
     if act == "submit":
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
