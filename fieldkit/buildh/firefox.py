@@ -393,11 +393,93 @@ def restore_deleted(task_id):
 def step_export_group(t, harness_root, group, out_dir=None, **kw):
     w = Path(t["workdir"])
     base = t["meta"]["group_base"][group]
+    # D-158-02: the vendored crates this port changed get their .cargo-checksum.json recomputed and committed
+    # before the diff, so the exported patch carries hashes of the files as they now are
+    redone = [c for c in changed_vendored_crates(w) if recompute_cargo_checksum(w / c)]
+    if redone:
+        from . import task as taskmod
+        taskmod.checkpoint(t, f"recompute .cargo-checksum.json for {group}: {', '.join(redone)}")
     diff = subprocess.run(["git", "-C", str(w), "diff", "--binary", base, "HEAD"], capture_output=True).stdout
     out = Path(out_dir or (Path(t["workdir"]).parent / f"patchset-{t['meta']['upstream']['version']}")) / f"{group}.patch"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(diff)
-    return {"ok": True, "summary": f"{out.name}: {len(diff):,} bytes"}
+    return {"ok": True, "checksums_recomputed": redone,
+            "summary": f"{out.name}: {len(diff):,} bytes" + (f", checksums recomputed for {len(redone)} crate(s)" if redone else "")}
+
+
+# -- vendored Rust crates: .cargo-checksum.json is derived data ---------------------------------------------
+# Owner decision D-158-02 (2026-10-14): when the patch set edits third_party/rust/<crate>/, that crate's
+# .cargo-checksum.json is recomputed from the edited files, the step Mozilla's own vendoring tooling performs.
+# Cargo refuses a vendored crate whose listed hashes do not match its files, and the hashes an older Firefox's
+# patch carries are for that version's files. The checksum hunk also comes BEFORE the group's source hunks
+# (13.TELEMETRY.KILL, glean-core), so hashes written at that step are stale by the group's end: the file is
+# never ported line by line, it is recomputed at the group's export.
+
+CARGO_CHECKSUM = ".cargo-checksum.json"
+
+
+def is_cargo_checksum(file):
+    return Path(file).name == CARGO_CHECKSUM
+
+
+def cargo_checksum_problems(crate_dir):
+    """What is wrong with a crate's .cargo-checksum.json against its files -> list of reasons, [] when it parses
+    and every listed file exists with the listed SHA-256."""
+    import hashlib
+    crate = Path(crate_dir)
+    try:
+        data = json.loads((crate / CARGO_CHECKSUM).read_text(encoding="utf-8"))
+        files = data["files"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return [f"{CARGO_CHECKSUM} does not parse: {e}"]
+    why = []
+    for rel, want in files.items():
+        p = crate / rel
+        if not p.is_file():
+            why.append(f"{rel}: listed but missing")
+        elif hashlib.sha256(p.read_bytes()).hexdigest() != want:
+            why.append(f"{rel}: hash does not match the file")
+    return why
+
+
+def recompute_cargo_checksum(crate_dir):
+    """Rewrite one crate's .cargo-checksum.json so every "files" entry holds the SHA-256 of that file's current
+    content. Entries for files that no longer exist are dropped, "package" is kept as it was, and the JSON stays
+    on one line with no trailing newline, the way the vendored files are written. -> True when the file changed."""
+    import hashlib
+    path = Path(crate_dir) / CARGO_CHECKSUM
+    raw = path.read_text(encoding="utf-8")
+    data = json.loads(raw)
+    files = {}
+    for rel in data.get("files", {}):
+        p = Path(crate_dir) / rel
+        if p.is_file():
+            files[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+    data["files"] = files
+    new = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+    if new == raw:
+        return False
+    path.write_text(new, encoding="utf-8", newline="")
+    return True
+
+
+def changed_vendored_crates(workdir):
+    """Crate folders under third_party/rust/ with a changed file: committed since the root commit (pristine
+    upstream) or not yet committed (against HEAD). Only crates that carry a .cargo-checksum.json."""
+    w = Path(workdir)
+    root = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True,
+                          text=True).stdout.split()
+    names = set()
+    for ref in ["HEAD"] + root[:1]:
+        r = subprocess.run(["git", "-C", str(w), "diff", "--name-only", ref, "--", "third_party/rust/"],
+                           capture_output=True, text=True)
+        names.update(l.strip() for l in r.stdout.splitlines() if l.strip())
+    crates = set()
+    for n in names:
+        parts = n.split("/")
+        if len(parts) >= 4 and (w / Path(*parts[:3]) / CARGO_CHECKSUM).is_file():
+            crates.add("/".join(parts[:3]))
+    return sorted(crates)
 
 
 def still_holds(s, file, hunk, before, now):
@@ -405,6 +487,8 @@ def still_holds(s, file, hunk, before, now):
     it (Fluent by message with the step's rename mapping, prefs by name, lines inside the span), and only the
     hunk's result: later hunks legitimately touch the same file, so no collateral here. Live run 15: the literal
     re-check called the Fluent transfer of browser.ftl h30 a regression and failed the final checks three times."""
+    if is_cargo_checksum(file):
+        return []                                       # derived data, recomputed at the export (D-158-02)
     if s.get("hand_port") or s.get("done_by") == "hand":
         return hand_port_holds(now, hunk, before, hand_keeps(s.get("hand_note")))
     if file.endswith(".ftl"):
@@ -1680,6 +1764,9 @@ def auto_port(t, s, patch, file, hunk, **kw):
       1. transplant: exact contiguous-block matching (cheapest, most reliable)
       2. auto_substitute: individual line matching for 1-to-1 substitutions
       3. answer-key fallback: copy the known-good file from Gorilla.firefox/src"""
+    if is_cargo_checksum(file):
+        return {"ok": True, "why": [], "notes": [
+            f"{file}: hashes are derived data, never ported; recomputed from the crate's files at the group's export (D-158-02)"]}
     target = Path(t["workdir"]) / file
     if not target.is_file():
         return {"ok": False, "why": [f"{file} does not exist"]}
@@ -1972,6 +2059,14 @@ def check_port(t, s, patch, file, hunk, **kw):
         return {"ok": not target.exists(), "why": [] if not target.exists() else [f"{file} should be deleted and still exists"]}
     if not target.is_file():
         return {"ok": False, "why": [f"{file} does not exist; this hunk needs the owner"]}
+    if is_cargo_checksum(file):
+        # D-158-02: never judged against the hunk's hashes (an older version's files). Done when the file is
+        # untouched (the export recomputes it) or consistent with the crate's files as they are now.
+        head = subprocess.run(["git", "-C", t["workdir"], "show", f"HEAD:{file}"], capture_output=True)
+        if head.returncode == 0 and head.stdout == target.read_bytes():
+            return {"ok": True, "why": []}
+        why = cargo_checksum_problems(target.parent)
+        return {"ok": not why, "why": why[:8]}
     if isinstance(hunk, dict) and hunk.get("binary"):              # a binary hand edit is judged by its bytes
         import hashlib
         got = hashlib.sha256(target.read_bytes()).hexdigest()
