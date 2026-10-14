@@ -67,3 +67,60 @@ def test_register_found_in_the_harness_root_without_the_owner_preflight(tmp_path
     assert dec.register_root({"meta": {"harness_root": str(owner)}}) == owner
     assert dec.register_root({"meta": {"harness_root": str(tmp_path / "work")}}) is None
     assert dec.register_root({"meta": {}}) is None
+
+
+CHECKS = """release: test
+decisions:
+  - id: cfg
+    title: mozconfig disables
+    decided: 2026-10-14
+    by: maintainer
+    provenance: test
+    status: enforced
+    why: a check
+    verify:
+      - mozconfig_has: {file: gorilla-patchset/mozconfig, text: "ac_add_options --disable-updater"}
+      - mozconfig_has: {file: config/mozconfig.win64, platform: windows, text: "ac_add_options --disable-updater"}
+  - id: win-cfg
+    title: windows config only
+    decided: 2026-10-14
+    by: maintainer
+    provenance: test
+    status: enforced
+    why: a check
+    verify:
+      - mozconfig_has: {file: config/mozconfig.win64, platform: windows, text: "ac_add_options --disable-updater"}
+"""
+
+
+def _patchset_root(tmp_path, nested):
+    root = tmp_path / "owner"
+    (root / "decisions").mkdir(parents=True)
+    (root / "decisions" / "PRODUCT-DECISIONS.yaml").write_text(CHECKS, encoding="utf-8")
+    ps = root / "gorilla-patchset" if nested else root
+    ps.mkdir(exist_ok=True)
+    (ps / "mozconfig").write_text("ac_add_options --disable-updater\n", encoding="utf-8")
+    return root
+
+
+def test_linux_layout_resolves_the_patchset_prefix_and_skips_windows_checks(tmp_path, monkeypatch):
+    monkeypatch.setattr(dec, "this_platform", lambda: "linux")
+    r = dec.check(_patchset_root(tmp_path, nested=False), tmp_path)
+    v = {x["id"]: x for x in r["rows"]}
+    assert v["cfg"]["verdict"] == "ENFORCED" and any(e.startswith("skip mozconfig_has: windows") for e in v["cfg"]["evidence"])
+    assert v["win-cfg"]["verdict"] == "OTHER OS"          # every check skipped: not ENFORCED on zero checks
+    assert r["ok"]
+
+
+def test_windows_layout_keeps_the_subfolder(tmp_path):
+    root = _patchset_root(tmp_path, nested=True)
+    assert dec.owner_path(root, "gorilla-patchset/mozconfig") == root / "gorilla-patchset" / "mozconfig"
+    flat = _patchset_root(tmp_path / "flat", nested=False)
+    assert dec.owner_path(flat, "gorilla-patchset/mozconfig") == flat / "mozconfig"
+
+
+def test_unknown_platform_on_a_check_is_a_register_problem(tmp_path):
+    root = _patchset_root(tmp_path, nested=False)
+    p = root / "decisions" / "PRODUCT-DECISIONS.yaml"
+    p.write_text(CHECKS.replace("platform: windows,", "platform: macos,", 1), encoding="utf-8")
+    assert any("unknown platform 'macos' on a check" in x for x in dec.load(root)["problems"])

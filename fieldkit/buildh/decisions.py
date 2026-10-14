@@ -66,6 +66,20 @@ def register_root(t):
     return None
 
 
+PATCHSET = "gorilla-patchset/"
+
+
+def owner_path(owner, rel):
+    """A path the register names relative to the owner repo. On Windows the shared patch set is the owner repo's
+    `gorilla-patchset/` subfolder; on Linux the harness folder IS the patch set (2026-10-14: D-157-01 and D-157-22
+    named gorilla-patchset/mozconfig and were uncheckable on Linux). The prefix is dropped only when no such
+    subfolder exists, so the Windows layout is never second-guessed."""
+    owner = Path(owner)
+    if rel.startswith(PATCHSET) and not (owner / PATCHSET).is_dir():
+        return owner / rel[len(PATCHSET):]
+    return owner / rel
+
+
 class Unreadable(Exception):
     pass
 
@@ -95,6 +109,10 @@ def load(owner_root):
         for c in e.get("verify") or []:
             if len(c) != 1 or next(iter(c)) not in KINDS:
                 problems.append(f"{i}: unknown check {c!r} (kinds: {', '.join(KINDS)})")
+                continue
+            arg = next(iter(c.values()))
+            if isinstance(arg, dict) and arg.get("platform") and arg["platform"] not in PLATFORMS:
+                problems.append(f"{i}: unknown platform {arg['platform']!r} on a check (platforms: {', '.join(PLATFORMS)})")
     return {"path": str(p), "sha256": hashlib.sha256(raw).hexdigest(), "release": data.get("release"),
             "entries": entries, "problems": problems}
 
@@ -114,7 +132,7 @@ def _check(kind, arg, ctx):
     """-> (ok, evidence). Raises Unreadable when the check cannot run."""
     owner, workdir, install = ctx["owner"], ctx["workdir"], ctx["install"]
     if kind == "mozconfig_has":
-        p = Path(owner) / arg["file"]
+        p = owner_path(owner, arg["file"])
         if not p.is_file():
             raise Unreadable(f"{arg['file']} not found")
         lines = [l.split("#")[0].strip() for l in p.read_text(encoding="utf-8", errors="replace").splitlines()]
@@ -192,7 +210,7 @@ def _check(kind, arg, ctx):
         # still registered (2026-10-08: about:about hides 30 pages; a new upstream page must be reviewed first)
         if not workdir:
             raise Unreadable("no ported tree")
-        return about_register(Path(owner) / arg["file"], workdir)
+        return about_register(owner_path(owner, arg["file"]), workdir)
     if kind == "fieldkit_test":
         # its own temporary folder: pytest's shared pytest-current link, once made by an ELEVATED run (the owner's
         # leakgate-baseline window, 2026-10-06), cannot be replaced by a normal account, and every later run then exits
@@ -242,7 +260,7 @@ def _image_sharp(workdir, arg, owner=None):
     # `owner:<path>`: the master lives in the owner repo (D-157-35: the canonical 2598 px master is in
     # gorilla-patchset/deb_template, and the tree keeps only the one 1400 px about-logo.png made from it)
     m_arg = arg["master"]
-    master = (Path(owner) / m_arg[6:]) if m_arg.startswith("owner:") and owner else workdir / m_arg
+    master = owner_path(owner, m_arg[6:]) if m_arg.startswith("owner:") and owner else workdir / m_arg
     raster = workdir / arg["path"]
     if not raster.is_file() or not master.is_file():
         raise Unreadable(f"missing {arg['path'] if not raster.is_file() else arg['master']}")
@@ -291,6 +309,9 @@ def check(owner_root, workdir=None, install_dir=None, strict=False, source_prefs
         verdict, ev = "ENFORCED", []
         for c in checks:
             kind, arg = next(iter(c.items()))
+            if isinstance(arg, dict) and arg.get("platform") and arg["platform"] != this_platform():
+                ev.append(f"skip {kind}: {arg['platform']} only")         # one register, two operating systems
+                continue
             try:
                 ok, what = _check(kind, arg, ctx)
             except (Unreadable, OSError, subprocess.TimeoutExpired) as x:
@@ -300,6 +321,8 @@ def check(owner_root, workdir=None, install_dir=None, strict=False, source_prefs
             ev.append(("ok   " if ok else "FAIL ") + f"{kind}: {what}")
             if not ok:
                 verdict = "VIOLATED"
+        if all(x.startswith("skip ") for x in ev):
+            verdict = "OTHER OS"                  # nothing ran here: never report ENFORCED on zero checks
         rows.append({"id": e["id"], "title": e["title"], "verdict": verdict, "evidence": ev})
     notes = {e["id"]: " ".join(str(e["models"]).split()) for e in reg["entries"] if e.get("models")}
     for r in rows:
