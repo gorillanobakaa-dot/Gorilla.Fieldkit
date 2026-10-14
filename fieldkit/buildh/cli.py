@@ -577,6 +577,10 @@ def run(a, emit):
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "lessons":
+        rows = task.lessons(tid)
+        return emit(rows, lambda rows: print("\n".join([f"{len(rows)} lesson(s) waiting to become harness rules:"] +
+                                                       [f"  {r['t']}  {r['step'][:60]}\n      {r['lesson']}" for r in rows]))) or 0
     if act == "drop":
         # drop TASK --note "reason" PATCH... [keep=PATCH]
         pats = [x for x in a.args[1:] if not x.startswith("keep=")]

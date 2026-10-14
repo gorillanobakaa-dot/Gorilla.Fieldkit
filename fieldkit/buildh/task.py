@@ -29,6 +29,7 @@ Workflows (firefox.py, kernel.py) supply the steps.
 import hashlib
 import importlib
 import json
+import re
 import os
 import subprocess
 import sys
@@ -366,7 +367,7 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
                  *[f"  - {a}" for a in s.get("allowed", [])],
                  "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works.",
                  f"Test it first, free: {settings.self_cmd()} build-harness submit {t['id']} --dry-run (no attempt spent; "
-                 "add the same --adapted note you would submit with)."]
+                 "add the same --adapted note you would submit with).", PORT_AND_TEACH]
     from . import decisions as dec
     cited = dec.citations(t, list(s.get("allowed") or []))
     if cited:
@@ -464,7 +465,33 @@ def _proposals_dir(t):
     return d
 
 
-def submit(task_id, note="", by="cli", step_id=None, adapted=""):
+LESSON = re.compile(r"^\s*lesson:\s*(\S.*)$", re.I | re.M)
+PORT_AND_TEACH = (
+    "PORT AND TEACH: porting and teaching the harness happen together, at every step. When the harness could not do "
+    "this step alone, your submit note (or --adapted reason) must carry one line `lesson: <what the harness should "
+    "learn so the next port does this alone>`. An adapted or hand port without it is refused. The lessons are "
+    "collected (`build-harness lessons TASK`) and each becomes a harness rule with a test.")
+
+
+def lessons(task_id):
+    """-> [{t, step, lesson, by}] recorded with submits, oldest first."""
+    f = _dir(task_id) / "lessons.jsonl"
+    if not f.is_file():
+        return []
+    return [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+
+def _record_lessons(t, s, text, by):
+    found = [m.group(1).strip() for m in LESSON.finditer(text or "")]
+    if found:
+        with open(_dir(t["id"]) / "lessons.jsonl", "a", encoding="utf-8", newline="\n") as fh:
+            for x in found:
+                fh.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M"), "step": s["id"], "lesson": x, "by": by}) + "\n")
+        journal(t, "lesson", step=s["id"], lessons=found)
+    return found
+
+
+def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=True):
     """`adapted`: the model declares that the hunk cannot be put in by the letter (a symbol renamed upstream,
     the code moved) and that its edit carries the hunk's MEANING. The owner, 2026-10-14: "I wanna approve it
     all in one go; I can't be sitting the whole day in front of this laptop approving things". So: the edit is
@@ -478,6 +505,12 @@ def submit(task_id, note="", by="cli", step_id=None, adapted=""):
     s = next((x for x in t["steps"] if x["id"] == step_id), None) if step_id else current(t)
     if not s or s["kind"] != "model":
         raise Refused("there is no model step waiting; call build_harness_next")
+    if require_lesson and (adapted or by == "hand") and not LESSON.search(adapted or note or ""):
+        # owner, 2026-10-14: "porting and teaching the harness happen together, at every step" - an adapted or hand
+        # port is exactly the place the harness failed; the porter says what it should learn, or the port is refused
+        raise Refused("PORT AND TEACH: an adapted or hand port must carry one line `lesson: <what the harness should "
+                      "learn so the next port does this alone>` in its note")
+    _record_lessons(t, s, "\n".join(x for x in (adapted, note) if x), by)
     changed = changed_files(t)
     allowed = set(s.get("allowed") or [])
     outside = [c for c in changed if c not in allowed]
@@ -573,7 +606,8 @@ def accept(task_id, step_ids=None, who="owner"):
             continue
         _git(t, "reset", "-q")                                # the files are in the tree; submit judges the tree
         s["status"] = "pending"
-        res = submit(task_id, note=f"accepted adapted port: {s['proposal'].get('reason', '')[:300]}", by="hand", step_id=s["id"])
+        res = submit(task_id, note=f"accepted adapted port: {s['proposal'].get('reason', '')[:300]}", by="hand", step_id=s["id"],
+                     require_lesson=False)               # the lesson came with the proposal; the owner only accepts
         t = load(task_id)
         s = next(x for x in t["steps"] if x["id"] == s["id"])
         if res.get("ok"):
