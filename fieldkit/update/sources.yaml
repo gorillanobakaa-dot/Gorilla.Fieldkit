@@ -1,0 +1,43 @@
+# What `fieldkit update` watches, and how each thing is updated on THIS kind of
+# machine. Data, not code: adding a program here must never need a code change.
+#
+# Three mechanisms, because this machine genuinely has three and none of them
+# knows about the others:
+#
+#   apt     a Debian package from a repository. apt can see the new version and
+#           install it; it needs root, so we print the line and never run sudo.
+#   github  a Debian package built by us and published as a GitHub release.
+#           apt cannot see it at all: nothing is watching these.
+#   native  an unpacked tree with a launcher symlink. Its own updater is the
+#           only mechanism, and for claude it is recorded as unreliable here.
+
+apt:
+  # Packages worth naming. Everything else pending still gets counted, but these
+  # are called out by name because the owner cares about them specifically.
+  watch:
+    - claude-desktop
+
+github:
+  # package (as dpkg knows it) -> the repository that publishes its releases
+  - package: gorilla-opencode
+    repo: gorillanobakaa-dot/Gorilla.Opencode
+    what: the terminal coding agent
+  - package: gorilla-portable-network-hub
+    repo: gorillanobakaa-dot/Gorilla.Portable.Network.Hub
+    what: the classroom file hub
+  - package: gorilla-unleashed
+    repo: gorillanobakaa-dot/gorilla-firefox
+    what: the browser
+    # The Linux and Windows builds are released under different tags from one
+    # repository, so a bare "latest release" is the WINDOWS one and would read
+    # as though Linux were behind by more than it is.
+    asset_suffix: _amd64.deb
+
+native:
+  - name: claude
+    root: ~/.local/share/claude/versions
+    launcher: ~/.local/bin/claude
+    what: Claude Code, the terminal agent
+    # 2026-10: `claude update` printed success and left the old directory in
+    # place. Whatever it reports, the launcher is the only thing worth reading.
+    trust_its_exit_code: false

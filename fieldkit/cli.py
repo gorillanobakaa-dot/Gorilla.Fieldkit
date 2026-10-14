@@ -38,6 +38,7 @@
     fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
     fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
+    fieldkit update [--only apt|github|native] [--apply]   what is behind what was published (fieldkit/update)
     fieldkit wifi doctor|scan|upgrade                   why the wifi is slow, from the hardware (fieldkit/wifi)
     fieldkit wifi channels [--why|--check CH|--networks] which channel is free, and the argument for it
     fieldkit wifi card                                  what this machine's radio can actually do
@@ -1236,6 +1237,15 @@ def build_parser():
     wf.add_argument("--case", type=int, metavar="CH", help="argue YOUR channel vs the pick")
     wf.set_defaults(fn=cmd_wifi)
 
+    up = sub.add_parser("update", parents=[common],
+                        help="what on this machine is behind what was published, and the "
+                             "line that fixes it (fieldkit/update)")
+    up.add_argument("--only", choices=["apt", "github", "native"],
+                    help="one source instead of all three")
+    up.add_argument("--apply", action="store_true",
+                    help="do the ones that need no root, then read the artifact back")
+    up.set_defaults(fn=cmd_update)
+
     nt = sub.add_parser("net", parents=[common], help="which interface carries your traffic, "
                                                       "what kind of line it is, and what antenna "
                                                       "the cellular bands need (fieldkit/net)")
@@ -1467,6 +1477,50 @@ def cmd_wifi(a):
             print(cs.plain_report(nets, rows, rec, rules, a.band, cfg, here_ch))
         return 0
     raise SystemExit("fieldkit wifi doctor|scan|channels|card|gui|upgrade|watch|rate|devices|calibrate")
+
+
+def cmd_update(a):
+    """What is behind. Reports by default; --apply does only the rootless ones."""
+    from . import update as U
+    r = U.survey()
+    if a.only:
+        keep = {"apt": {"apt": r["apt"]}, "github": {"github": r["github"]},
+                "native": {"native": r["native"]}}[a.only]
+        r = dict(r, **{k: ([] if k != a.only and isinstance(v, list) else v)
+                       for k, v in (("apt", {"status": U.OK, "items": []}),
+                                    ("github", []), ("native", []))})
+        r.update(keep)
+        r["behind_count"] = sum(1 for x in (r["github"] + r["native"]) if x["status"] == U.BEHIND)
+        r["behind_count"] += len(r["apt"].get("items") or [])
+        r["unknown_count"] = sum(1 for x in (r["github"] + r["native"]) if x["status"] == U.UNKNOWN)
+        r["unknown_count"] += 1 if r["apt"]["status"] == U.UNKNOWN else 0
+
+    if not a.apply:
+        plan = U.apply_plan(r)
+        _emit(dict(r, plan=plan), a.json, lambda x: print("\n".join(U.lines(x))))
+        if not a.json and plan["needs_root"]:
+            print("\nNEEDS ROOT, so it is printed and not run:")
+            for item in plan["needs_root"]:
+                print(f"  {item['what']}:\n    {item['command']}")
+        return 3 if (r["behind_count"] or r["unknown_count"]) else 0
+
+    plan = U.apply_plan(r)
+    done, refused = [], plan["needs_root"]
+    for item in plan["doable"]:
+        rc, out = U._run(["sh", "-c", item["command"]])
+        # Never trust the exit code: read the artefact back (directive 2).
+        after = U.survey()
+        still = [x for x in after["native"] if x["name"] == item["what"]
+                 and x["status"] == U.BEHIND]
+        done.append({"what": item["what"], "exit": rc, "fixed": not still,
+                     "detail": out.strip()[-200:] if rc else "verified by re-reading the launcher"})
+    _emit({"applied": done, "refused": refused}, a.json, lambda x: print(
+        "\n".join([f"{'fixed' if d['fixed'] else 'DID NOT TAKE'}  {d['what']}: {d['detail']}"
+                    for d in x["applied"]] or ["nothing could be done without root"])
+        + ("\n\nNEEDS ROOT, so it is printed and not run:\n" +
+           "\n".join(f"  {i['what']}:\n    {i['command']}" for i in x["refused"])
+           if x["refused"] else "")))
+    return 3 if refused or any(not d["fixed"] for d in done) else 0
 
 
 def cmd_net(a):
