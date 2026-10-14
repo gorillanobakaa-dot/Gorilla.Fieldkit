@@ -203,9 +203,9 @@ fieldkit sitrep render FILE --lang <code>
 
 🟡 **LOW** — headings.yaml and rules.yaml are re-read on every call, including several times inside one check() → cache per process with functools.lru_cache keyed on file mtime if a profile ever shows it; not measured, and the files are small
 🟡 **LOW** — the sentence splitter and the word counter are regex approximations (Dr. X splits; URLs count as one word) → keep, and document the limit (done in the layman track); a real tokeniser would add a dependency the maintainer's audience cannot afford
-🟠 **MEDIUM** — the idiom list is English-only → add per-language lists under banned.idioms_<lang> and apply them when --lang is given, with the academic kit's language detection
 🟡 **LOW** — the expansion check for capitals is a bracket heuristic → accept a glossary section as an alternative expansion, matching the dyslexia guide's glossary advice
 🟡 **LOW** — check() has 26 branches and 27 local variables by pylint's count → split into one function per rule family (structure, length, banned, style) when the next rule is added
+🟡 **LOW** — the idiom lists (six languages) are short, hand-written and applied without language detection → grow each list from real reports that passed the check and should not have; keep applying every list to every report
 
 ## Impact If Removed
 

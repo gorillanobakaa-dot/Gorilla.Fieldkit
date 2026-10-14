@@ -33,6 +33,45 @@ banned:
     - in the loop
     - heads up
     - boil the ocean
+  # The same class of phrase in the other five languages the headings speak. Every list is applied to every
+  # report whatever --lang says, because a literal reader is literal in any language (added 2026-10-14).
+  idioms_es:
+    - a fin de cuentas
+    - al final del día
+    - retomar el tema
+    - ponerse las pilas
+    - en la misma página
+    - fruta madura
+    - de cara al futuro
+  idioms_pt:
+    - no fim do dia
+    - no final do dia
+    - voltar ao assunto
+    - na mesma página
+    - daqui para a frente
+    - meter mãos à obra
+  idioms_it:
+    - alla fine della giornata
+    - in fin dei conti
+    - sulla stessa lunghezza d'onda
+    - rimettersi in carreggiata
+    - andando avanti
+    - frutti a portata di mano
+  idioms_de:
+    - am ende des tages
+    - unterm strich
+    - auf einen nenner bringen
+    - auf derselben seite
+    - den ball flach halten
+    - in die hände spucken
+  idioms_ro:
+    - la sfârșitul zilei
+    - la sfarsitul zilei
+    - în final de zi
+    - pe aceeași pagină
+    - pe aceeasi pagina
+    - de acum încolo
+    - a pune osul la treabă
   # "Avoid abbreviations where possible. Always use the full word" (Ako / BDA guide).
   abbreviations: ["e.g.", "i.e.", "etc.", "etc", "viz.", "cf.", "n.b.", "NB:"]
   # Em-dash: house rule. Italics and underline: "avoid using, or at least overusing, italics and underlines"

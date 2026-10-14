@@ -128,7 +128,7 @@ The 25-word sentence limit, the limit of three asks and the seven-step warning a
 
 ### What this cannot do
 
-It cannot tell whether a sentence is true. It cannot tell whether an ask is reasonable. It does not read the expansion of a capitalised word, only whether a bracket follows it. Its idiom list is short and English-only; a figure of speech not on the list passes, and a Romanian or Spanish idiom always passes. It counts words by splitting on spaces, so a long web address is one word and a hyphenated pair is one word. It splits sentences at a full stop, question mark or exclamation mark followed by a space and a capital letter or digit, so a sentence beginning with a lower-case word after a full stop is not seen as a new sentence, and an abbreviation such as Dr. followed by a capital is seen as one. It does not check spelling or grammar. It does not measure how long a reader takes; nothing in this tool is measured. It has no sound, no colours and no fonts: the terminal decides those.
+It cannot tell whether a sentence is true. It cannot tell whether an ask is reasonable. It does not read the expansion of a capitalised word, only whether a bracket follows it. Its idiom lists are short: one for each of the six languages, every list applied to every report, so a figure of speech not on any list passes. It counts words by splitting on spaces, so a long web address is one word and a hyphenated pair is one word. It splits sentences at a full stop, question mark or exclamation mark followed by a space and a capital letter or digit, so a sentence beginning with a lower-case word after a full stop is not seen as a new sentence, and an abbreviation such as Dr. followed by a capital is seen as one. It does not check spelling or grammar. It does not measure how long a reader takes; nothing in this tool is measured. It has no sound, no colours and no fonts: the terminal decides those.
 
 ## What This Means For You
 
@@ -257,8 +257,8 @@ The rules that decide what a good report is are written in a plain file you can 
 | A capitalised word is treated as expanded only when a bracket follows it somewhere in the file | 🤖 model inference | *(none — model judgment)* |
 | A report that fails the check is not rendered; the problems are | 📄 stated in input | a report that fails the check is not rendered, the problems are |
 | Processor, memory and speed effects are not measured | 🤖 model inference | *(none — model judgment)* |
-| The idiom list is short and English-only, so idioms in other languages pass | 🤖 model inference | *(none — model judgment)* |
 | The 8-second attention span figure is a myth and the tool does not assume a reader cannot focus | 📄 stated in input | This tool does not assume a reader cannot focus |
+| Idiom lists exist for all six languages and every list applies to every report | 📄 stated in input | in all six languages, whatever --lang says |
 
 
 ---
