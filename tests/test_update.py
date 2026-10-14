@@ -82,8 +82,11 @@ def test_the_report_says_out_loud_that_unchecked_is_not_current():
 # ------------------------------------------------------------- the findings
 def test_an_installed_package_behind_its_release_is_reported_with_the_command(monkeypatch):
     monkeypatch.setattr(U.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(U, "platform_asset_suffix", lambda: "_amd64.deb")
     row = U.github_state({"package": "gorilla-opencode", "repo": "o/r", "what": "x"},
                          run=fake_run({"dpkg-query": (0, "0.1.132"),
+                                       "gh release list": (0, '[{"tagName":"v0.1.147"}]'),
+                                       "gh release view v0.1.147": (0, '{"assets":[{"name":"gorilla-opencode_0.1.147_amd64.deb"}]}'),
                                        "gh release view": (0, '{"tagName": "v0.1.147"}')}))
     assert row["status"] == U.BEHIND
     assert row["installed"] == "0.1.132" and row["latest"] == "v0.1.147"
@@ -111,6 +114,40 @@ def test_a_suffix_picks_the_newest_release_carrying_THAT_asset(monkeypatch):
              "gh release view v155.0-3": (0, '{"assets":[{"name":"gorilla-unleashed_155.0-3_amd64.deb"}]}')}
     tag, why = U.github_latest("o/r", asset_suffix="_amd64.deb", run=fake_run(calls))
     assert tag == "v155.0-3", why
+
+
+def test_a_platform_dropped_from_the_releases_is_said_not_called_current(monkeypatch):
+    """2026-10-14, the hub: Linux .deb and Arch packages from v0.7.1, static tarball from 0.9.0, then
+    v0.9.6 to v0.9.10 ship a Windows zip only. With no suffix in the entry, update named v0.9.10 as the
+    Linux update and printed a .deb download that fails with 'no assets match'. The owner's correction:
+    'the hub was first a linux binary'. Latest is a property of a tag, not of a platform."""
+    monkeypatch.setattr(U.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(U, "platform_asset_suffix", lambda: "_amd64.deb")
+    calls = {"dpkg-query": (0, "0.9.5"),
+             "gh release list": (0, '[{"tagName":"v0.9.10"},{"tagName":"v0.9.6"},{"tagName":"v0.9.5"}]'),
+             "gh release view -R": (0, '{"tagName":"v0.9.10"}'),
+             "gh release view v0.9.10": (0, '{"assets":[{"name":"hub-0.9.10-windows-x86_64.zip"}]}'),
+             "gh release view v0.9.6": (0, '{"assets":[{"name":"hub-0.9.6-windows-x86_64.zip"}]}'),
+             "gh release view v0.9.5": (0, '{"assets":[{"name":"hub_0.9.5_amd64.deb"},{"name":"hub-0.9.5-windows-x86_64.zip"}]}')}
+    row = U.github_state({"package": "gorilla-portable-network-hub", "repo": "o/hub"}, run=fake_run(calls))
+    assert row["status"] == U.DROPPED, row
+    assert row["latest"] == "v0.9.5" and row["newest_any"] == "v0.9.10"
+    assert "dropped" in row["why"] and "v0.9.10" in row["why"]
+    text = "\n".join(U.lines({"apt": {"status": U.OK, "items": [], "security_count": 0, "command": "",
+                                      "unknown_count": 0, "behind_count": 0},
+                              "github": [row], "native": [], "behind_count": 0, "unknown_count": 0}))
+    assert "current for this platform, but v0.9.10 exists" in text
+
+
+def test_an_entry_without_a_suffix_uses_the_platform_default(monkeypatch):
+    monkeypatch.setattr(U.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(U, "platform_asset_suffix", lambda: "_amd64.deb")
+    calls = {"dpkg-query": (0, "0.1.132"),
+             "gh release list": (0, '[{"tagName":"v0.1.147"}]'),
+             "gh release view -R": (0, '{"tagName":"v0.1.147"}'),
+             "gh release view v0.1.147": (0, '{"assets":[{"name":"gorilla-opencode_0.1.147_amd64.deb"}]}')}
+    row = U.github_state({"package": "gorilla-opencode", "repo": "o/oc"}, run=fake_run(calls))
+    assert row["status"] == U.BEHIND and row["latest"] == "v0.1.147" and row["asset_suffix"] == "_amd64.deb"
 
 
 def test_security_updates_are_counted_separately(monkeypatch):

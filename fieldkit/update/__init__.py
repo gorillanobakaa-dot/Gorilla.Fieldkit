@@ -57,6 +57,21 @@ OK = "ok"               # installed and current
 BEHIND = "behind"       # a newer version exists
 UNKNOWN = "unknown"     # could NOT be determined, and why
 ABSENT = "absent"       # not installed here at all
+DROPPED = "dropped"     # newer releases exist, but none of them ships anything this platform can install
+
+# What a release must carry for THIS kind of machine to install it. 2026-10-14: the hub's newest five
+# releases ship a Windows zip only; `fieldkit update` named v0.9.10 as the Linux update and printed a .deb
+# download that fails with "no assets match", because the entry had no suffix and the newest tag was
+# taken regardless of what it ships. "Latest" is a property of a tag, not of a platform.
+PLATFORM_ASSET = {"linux": "_amd64.deb", "win32": ".zip", "darwin": ".dmg"}
+
+
+def platform_asset_suffix():
+    import sys
+    for key, suffix in PLATFORM_ASSET.items():
+        if sys.platform.startswith(key):
+            return suffix
+    return None
 
 
 def _run(cmd, timeout=120):
@@ -130,6 +145,29 @@ def apt_pending(run=_run, watch=()):
 
 
 # ---------------------------------------------------------------- github
+def github_releases_for(repo, asset_suffix, run=_run):
+    """Every release, newest first, with whether it carries an asset ending in asset_suffix.
+    -> ([{"tag", "carries"}], why). Read-only; one gh call per release."""
+    rc, out = run(["gh", "release", "list", "-R", repo, "--limit", "30", "--json", "tagName"])
+    if rc != 0:
+        return [], f"gh release list failed: {out.strip()[:160]}"
+    try:
+        tags = [r["tagName"] for r in json.loads(out)]
+    except (ValueError, KeyError) as e:
+        return [], f"could not read the release list: {e}"
+    rows = []
+    for tag in tags:
+        rc, out = run(["gh", "release", "view", tag, "-R", repo, "--json", "assets"])
+        if rc != 0:
+            continue
+        try:
+            assets = json.loads(out).get("assets") or []
+        except ValueError:
+            continue
+        rows.append({"tag": tag, "carries": any(a.get("name", "").endswith(asset_suffix) for a in assets)})
+    return rows, None
+
+
 def github_latest(repo, asset_suffix=None, run=_run):
     """The newest release tag, and for a suffix the newest release carrying such
     an asset. One repository can publish Linux and Windows builds under separate
@@ -137,25 +175,13 @@ def github_latest(repo, asset_suffix=None, run=_run):
     if not shutil.which("gh"):
         return None, "the gh command is not installed, so releases cannot be read"
     if asset_suffix:
-        rc, out = run(["gh", "release", "list", "-R", repo, "--limit", "30",
-                       "--json", "tagName"])
-        if rc != 0:
-            return None, f"gh release list failed: {out.strip()[:160]}"
-        try:
-            tags = [r["tagName"] for r in json.loads(out)]
-        except (ValueError, KeyError) as e:
-            return None, f"could not read the release list: {e}"
-        for tag in tags:
-            rc, out = run(["gh", "release", "view", tag, "-R", repo, "--json", "assets"])
-            if rc != 0:
-                continue
-            try:
-                assets = json.loads(out).get("assets") or []
-            except ValueError:
-                continue
-            if any(a.get("name", "").endswith(asset_suffix) for a in assets):
-                return tag, None
-        return None, f"no release in the last {len(tags)} carries a {asset_suffix} asset"
+        rows, why = github_releases_for(repo, asset_suffix, run=run)
+        if why:
+            return None, why
+        for r in rows:
+            if r["carries"]:
+                return r["tag"], None
+        return None, f"no release in the last {len(rows)} carries a {asset_suffix} asset"
     rc, out = run(["gh", "release", "view", "-R", repo, "--json", "tagName"])
     if rc != 0:
         return None, f"gh release view failed: {out.strip()[:160]}"
@@ -176,17 +202,28 @@ def github_state(entry, run=_run):
         row["status"] = ABSENT
         row["why"] = note or "not installed here"
         return row
-    tag, why = github_latest(entry["repo"], entry.get("asset_suffix"), run=run)
+    suffix = entry.get("asset_suffix") or platform_asset_suffix()
+    row["asset_suffix"] = suffix
+    tag, why = github_latest(entry["repo"], suffix, run=run)
+    newest_any, _ = github_latest(entry["repo"], None, run=run)
+    row["newest_any"] = newest_any
     if tag is None:
         row["why"] = why
         return row
     row["latest"] = tag
     if is_newer(tag, have):
         row["status"] = BEHIND
-        row["command"] = (f"gh release download {tag} -R {entry['repo']} -p '*{entry.get('asset_suffix') or '.deb'}' "
+        row["command"] = (f"gh release download {tag} -R {entry['repo']} -p '*{suffix or '.deb'}' "
                           f"-D /tmp && sudo apt install /tmp/*.deb")
     else:
         row["status"] = OK
+    if newest_any and newest_any != tag and is_newer(newest_any, tag):
+        # 2026-10-14: the newest release overall ships nothing for this platform; say so instead of
+        # calling the install current. The hub: Linux assets stopped at v0.9.5, Windows went on to v0.9.10.
+        row["status"] = DROPPED if row["status"] == OK else row["status"]
+        row["why"] = (f"the newest release {newest_any} ships no {suffix} asset; the newest that does is {tag}. "
+                      f"This platform was dropped from the releases, or the build was never published here: "
+                      f"build it from the checkout, or publish the asset")
     return row
 
 
@@ -276,6 +313,10 @@ def lines(r):
             out.append(f"      run: {row['command']}")
         elif row["status"] == OK:
             out.append(f"    {row['name']:<28} {row['installed']:<22} current")
+        elif row["status"] == DROPPED:
+            out.append(f"  ! {row['name']:<28} {row['installed']:<22} current for this platform, but "
+                       f"{row.get('newest_any')} exists")
+            out.append(f"      {row['why']}")
         elif row["status"] == ABSENT:
             out.append(f"    {row['name']:<28} not installed here")
         else:
