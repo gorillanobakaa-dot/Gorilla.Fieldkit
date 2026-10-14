@@ -620,8 +620,12 @@ def accept(task_id, step_ids=None, who="owner"):
 
 
 def owner_terminal():
-    """True only at a real terminal: an agent running shell commands has none."""
-    return sys.stdin.isatty() and sys.stdout.isatty()
+    """True only when a PERSON can type into this process: an agent running shell commands has no terminal on stdin.
+
+    Only stdin is judged (2026-10-14): the terminal opener (`fieldkit terminal ask`) shows a command in a window, the
+    owner presses Enter, and the window copies the output into its log, so stdout is a pipe. Requiring a terminal on
+    stdout as well refused the owner's own skip in the window built for exactly that."""
+    return sys.stdin.isatty()
 
 
 def unblock(task_id, step_id, how):
