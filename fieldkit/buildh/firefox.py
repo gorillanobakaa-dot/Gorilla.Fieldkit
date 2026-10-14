@@ -860,8 +860,21 @@ def _bounds(lines, hunk, anchor):
         if counts.get(key, 0) > 1 and sum(1 for i in range(hi + 1, nxt) if _key(lines[i]) not in hunk_keys) >= 3:
             continue                        # (two unknown lines: upstream added a pair inside the span, tokens-platform.css)
         hi = nxt
-    # the hunk's trailing removals right after the last match (`}`, a blank) belong to the span when contiguous
     hl = [l for l in hunk["lines"] if l[:1] in (" ", "-")]
+    # the hunk's LEADING lines that are too short to anchor (`enter() {`, `if (`, ` */`) belong to the span when
+    # they sit right above the first match, line for line: an insertion between them was outside the span and
+    # every correct port was refused as 'missing added line' (158 CustomizeMode h2, 2026-10-14)
+    # ONLY when the hunk adds lines above its first anchoring line: otherwise the span starts at that line, by
+    # design (test_buildh_merge, test_buildh_verify: a wider start pulls in unrelated lines)
+    first = next((i for i, l in enumerate(hl) if _key(l[1:]) == seq[0]), None)
+    at = next((i for i, l in enumerate(hunk["lines"]) if l[:1] in (" ", "-") and _key(l[1:]) == seq[0]), None)
+    if first is not None and at is not None and any(l.startswith("+") for l in hunk["lines"][:at]):
+        for l in reversed(hl[:first]):
+            if lo > 0 and _key(lines[lo - 1]) == _key(l[1:]):
+                lo -= 1
+            else:
+                break
+    # the hunk's trailing removals right after the last match (`}`, a blank) belong to the span when contiguous
     pos = next((i for i, l in enumerate(hl) if _key(l[1:]) == _key(lines[hi])), None)
     if pos is not None:
         for l in hl[pos + 1:]:
