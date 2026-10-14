@@ -238,6 +238,12 @@ def _same_tree(a, b):
         for f in fns:
             pa = Path(dp, f)
             pb = b / pa.relative_to(a)
+            if pa.is_symlink():
+                # 2026-10-14: a vendored source tree (pfind's eza test fixtures) carries symlinks that point
+                # at nothing on purpose; they are copied as links and compared as links, never followed.
+                if not pb.is_symlink() or os.readlink(pa) != os.readlink(pb):
+                    return False
+                continue
             if not pb.is_file() or not filecmp.cmp(pa, pb, shallow=False):
                 return False
     return True
@@ -276,11 +282,15 @@ def apply(p, run_tests=True, log=print):
     try:
         for a, b in moves:                                   # 1. copy, then prove the copy
             b.parent.mkdir(parents=True, exist_ok=True)
+            # 2026-10-14: the destination is on the undo list BEFORE the copy starts. Two adoptions failed
+            # part-way (a root-owned log; a dangling symlink in a vendored tree), the rollback left a partial
+            # copy because it was only recorded after a successful copy, and the retry then refused with
+            # "already in local/kits". symlinks=True copies links as links instead of following them.
+            made.append(str(b))
             if a.is_dir():
-                shutil.copytree(a, b, ignore=shutil.ignore_patterns("__pycache__"))
+                shutil.copytree(a, b, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
             else:
                 shutil.copy2(a, b)
-            made.append(str(b))
             if not _same_tree(a, b):
                 return undo(f"the copy of {a} differs from the original")
         keys = p["keys"]
