@@ -124,3 +124,18 @@ def test_unknown_platform_on_a_check_is_a_register_problem(tmp_path):
     p = root / "decisions" / "PRODUCT-DECISIONS.yaml"
     p.write_text(CHECKS.replace("platform: windows,", "platform: macos,", 1), encoding="utf-8")
     assert any("unknown platform 'macos' on a check" in x for x in dec.load(root)["problems"])
+
+
+def test_citations_quote_the_decisions_that_cover_a_step(tmp_path, monkeypatch):
+    monkeypatch.setattr(dec, "this_platform", lambda: "linux")
+    owner, _ = _owner(tmp_path)
+    p = owner / "decisions" / "PRODUCT-DECISIONS.yaml"
+    p.write_text(REG.replace("    models: quote", "    covers: [remote/*]\n    models: quote"), encoding="utf-8")
+    t = {"meta": {"harness_root": str(owner)}}
+    lines = dec.citations(t, ["remote/components/Marionette.sys.mjs"])
+    assert any(l.startswith("DECISION both (enforced)") for l in lines)
+    assert "  for models: quote this id, do not re-argue it" in lines
+    assert any(l.startswith("DECISION both") for l in dec.citations(t, ["a.txt"]))     # named by a check
+    assert dec.citations(t, ["missing.txt"]) == []           # win-only entry: not cited on linux
+    assert dec.citations(t, ["browser/other.js"]) == []
+    assert dec.citations({"meta": {}}, ["a.txt"]) == []     # no register: nothing, never a crash

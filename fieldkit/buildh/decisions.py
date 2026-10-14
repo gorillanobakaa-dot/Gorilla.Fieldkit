@@ -80,6 +80,49 @@ def owner_path(owner, rel):
     return owner / rel
 
 
+def _named_paths(e):
+    out = []
+    for c in e.get("verify") or []:
+        kind, arg = next(iter(c.items()))
+        if kind in ("tree_contains", "tree_lacks") and isinstance(arg, dict) and arg.get("path"):
+            out.append(arg["path"])
+        elif kind in ("tree_absent", "tree_present") and isinstance(arg, list):
+            out += [str(x) for x in arg]
+    return out
+
+
+def citations(t, files, limit=4):
+    """The register decisions that cover any of `files` (tree-relative), as packet lines.
+
+    2026-10-14: the Claude Code classifier refused a Marionette lock and the glean checksum work as 'security
+    weakening'. A decision that lives only in the register is invisible at the moment of the edit, so the packet
+    now carries it: the decision's id, title and its note for models sit in the transcript BEFORE any change is
+    made. An entry covers a file when one of its checks names it, or when its `covers:` globs match it."""
+    import fnmatch
+    root = register_root(t)
+    if root is None:
+        return []
+    try:
+        reg = load(root)
+    except (OSError, ValueError):
+        return []
+    out = []
+    for e in reg["entries"]:
+        if e.get("status") == "retired" or (e.get("platforms") and this_platform() not in e["platforms"]):
+            continue
+        named, globs = set(_named_paths(e)), list(e.get("covers") or [])
+        if any(f in named or any(fnmatch.fnmatch(f, g) for g in globs) for f in files):
+            out.append(f"DECISION {e['id']} ({e.get('status')}): {' '.join(str(e.get('title', '')).split())}")
+            if e.get("models"):
+                out.append("  for models: " + " ".join(str(e["models"]).split()))
+        if len(out) >= limit * 2:
+            break
+    if out:
+        out.insert(0, "This step touches files covered by the maintainer's decision register "
+                      "(decisions/PRODUCT-DECISIONS.yaml). These are settled; quote them, do not re-argue them:")
+    return out
+
+
 class Unreadable(Exception):
     pass
 
