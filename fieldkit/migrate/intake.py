@@ -45,6 +45,29 @@ ACTOR = re.compile(r"^  ([A-Z]\w+): \{", re.M)
 ABOUT = re.compile(r"\{\s*\"([a-z0-9-]+)\",\s*\"")
 STATIC = re.compile(r"^- name:\s*(\S+)\s*$")
 BGTASK = re.compile(r"BackgroundTask_\w+\.sys\.mjs$")
+
+# D-158-03 (owner, 2026-10-15): closed by default. A new upstream thing in one of these classes is cut at the source
+# without asking; only what fits no class becomes a question (a brief). "We are trying to close all the doors and
+# secure the browser ... Everything that is not compatible with our philosophy we should not even have to ask."
+DENY = [
+    ("AI / ML", r"(^|[/._-])(ai|ml|genai|llm|llama|chatbot|aichat|inference|embeddings?|smart\w*|aiwindow|onnx|"
+                                r"transformers?|semantic|pageassist|linkpreview|shortcut-?chat)([/._-]|$)"),
+    ("chat bots and assistants", r"(chat|assistant|copilot|sidekick)"),
+    ("weather and content widgets", r"(weather|stocks|widget|sponsored|pocket|discoverystream|topstories|newsfeed|trending)"),
+    ("helpers and suggestions", r"(suggest|recommend|cfr|asrouter|onboarding|feature-?callout|spotlight|messaging|tips?\b)"),
+    ("experiments and remote control of features", r"(nimbus|experiment|normandy|studies|shield|rollout|trainhop|remote-?settings)"),
+    ("remote control of the browser", r"(marionette|remote-?agent|webdriver|bidi|cdp\b)"),
+    ("telemetry and reporting", r"(telemetry|glean|fog\b|ping|crash-?report|usage-?report|attribution|metrics)"),
+    ("translations and other languages", r"(translat|langpack|language-?pack|locale-?switch|intl\.locale)"),
+    ("themes and colorways", r"(colorway|theme-?(store|picker|gallery)|lightweight-?theme)"),
+]
+_DENY_RX = [(c, re.compile(rx, re.I)) for c, rx in DENY]
+
+
+def deny_class(*texts):
+    """The D-158-03 class a new upstream item falls in, or None (then it is a question for the owner)."""
+    hay = " ".join(t for t in texts if t)
+    return next((c for c, rx in _DENY_RX if rx.search(hay)), None)
 LABEL = {"pref": "pref", "host": "host", "module": "module", "actor": "actor", "about": "about",
          "backgroundtask": "backgroundtask"}
 
@@ -141,7 +164,7 @@ def compute(old, new, dispositions=None, allow=None, say=None):
     def add(category, name, where, detail, network, ai, auto=None, hosts=()):
         items.append({"id": _iid(category, name), "category": category, "name": name, "where": where,
                       "detail": str(detail)[:300], "network": bool(network), "ai": bool(ai), "auto": auto,
-                      "hosts": sorted(hosts)[:10]})
+                      "hosts": sorted(hosts)[:10], "default_cut": deny_class(name, where)})
     say and say(f"  intake: listing files of {old.commit[:12]} and {new.commit[:12]} ...")
     of, nf = old.files(), new.files()
     op, np_ = _prefs(old), _prefs(new)
@@ -256,11 +279,18 @@ def decided_items(task_id):
     return out
 
 
+def default_cuts(data):
+    """-> [item] the D-158-03 classes cut without asking: port work (cut at the source), never a question."""
+    return [i for i in data.get("items") or [] if i.get("default_cut") and not i.get("auto")]
+
+
 def open_clusters(data, decided):
-    """The clusters with at least one item that has neither an automatic nor a recorded disposition."""
+    """The clusters with at least one item that has neither an automatic nor a recorded disposition. An item in a
+    D-158-03 class is disposed (cut) by that decision and is never a question."""
+    cut = {i["id"] for i in default_cuts(data)}
     out = []
     for c in data.get("clusters") or []:
-        left = [i for i in c["items"] if i not in decided]
+        left = [i for i in c["items"] if i not in decided and i not in cut]
         if left:
             out.append({**c, "open": left})
     return out
