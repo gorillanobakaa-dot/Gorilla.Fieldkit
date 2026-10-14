@@ -130,3 +130,19 @@ def test_hunk_whose_distinctive_lines_are_all_gone_is_obsolete():
     assert f.obsolete_upstream(body, hunk) is None              # code and prefs: may be a rename, a model chases it
     still = body + ['&[data-notification-bucket="CFR_MILESTONE_MESSAGE"] {', "    background: radial-gradient(circle farthest-side at top right, var(--short-notification-gradient));", "}"]
     assert f.obsolete_upstream(still, hunk, css=True) is None
+
+
+def test_short_leading_context_belongs_to_the_span():
+    """158 CustomizeMode h2 (2026-10-14): the hunk inserts a line after `enter() {`, a line too short to anchor,
+    and 158 rewrote the last context line. The span began below the insertion and refused every correct port."""
+    from fieldkit.buildh import firefox as f
+    hunk = {"lines": ["    * window.", "    */", "   enter() {",
+                      "+    console.warn(`CustomizeMode.enter called, customizing=${this.#customizing}`);",
+                      "     if (", "       !this.#window.toolbar.visible ||",
+                      '       this.#window.document.documentElement.hasAttribute("taskbartab")']}
+    before = ["  /**", "   * window.", "   */", "  enter() {", "    if (", "      !this.#window.toolbar.visible ||",
+              '      this.#window.document.documentElement.hasAttribute("taskbartab") ||',
+              '      this.#window.document.documentElement.hasAttribute("mini-window")', "    ) {", "      return;", "    }"]
+    add = "    console.warn(`CustomizeMode.enter called, customizing=${this.#customizing}`);"
+    assert f.hunk_problems(before, before[:4] + [add] + before[4:], hunk) == []
+    assert f.hunk_problems(before, before, hunk)
