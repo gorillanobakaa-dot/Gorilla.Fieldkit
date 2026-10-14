@@ -1,6 +1,7 @@
 """fieldkit adopt: every spelling of a Scripts path is repointed, nothing else is; a copy that differs or a failing
 test rolls everything back; a folder in use keeps its old copy with a marker."""
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,36 @@ def test_a_bad_copy_rolls_everything_back(world, monkeypatch):
     assert (world["scripts"] / "Tool" / "tool.py").is_file()
     assert not (world["fk"] / "local" / "kits" / "Tool").exists()
     assert (world["fk"] / "local" / "tools.yaml").read_bytes() == before
+
+
+def test_a_copy_that_fails_part_way_leaves_no_destination_and_a_retry_succeeds(world, monkeypatch):
+    """2026-10-14: a root-owned log and a dangling symlink each made the copy raise part-way; the partial copy
+    stayed in local/kits and the retry refused with 'already in local/kits'."""
+    import shutil as _shutil
+    real = _shutil.copytree
+
+    def half_copy(a, b, **kw):
+        Path(b).mkdir(parents=True)
+        (Path(b) / "tool.py").write_text("partial", encoding="utf-8")
+        raise PermissionError(13, "Permission denied", str(Path(a) / "secret.log"))
+
+    monkeypatch.setattr(adopt.shutil, "copytree", half_copy)
+    r = adopt.apply(adopt.plan(["Tool"]), run_tests=False, log=lambda *a: None)
+    assert not r["ok"] and "Permission denied" in r["error"]
+    assert not (world["fk"] / "local" / "kits" / "Tool").exists(), "the partial copy must be gone"
+    assert (world["scripts"] / "Tool" / "tool.py").is_file()
+    monkeypatch.setattr(adopt.shutil, "copytree", real)
+    r = adopt.apply(adopt.plan(["Tool"]), run_tests=False, log=lambda *a: None)
+    assert r["ok"], r
+
+
+def test_a_dangling_symlink_inside_the_tool_is_copied_as_a_link(world):
+    link = world["scripts"] / "Tool" / "symlink-broken"
+    link.symlink_to("does-not-exist")
+    r = adopt.apply(adopt.plan(["Tool"]), run_tests=False, log=lambda *a: None)
+    assert r["ok"], r
+    moved = world["fk"] / "local" / "kits" / "Tool" / "symlink-broken"
+    assert moved.is_symlink() and os.readlink(moved) == "does-not-exist"
 
 
 def test_refusals(world):
