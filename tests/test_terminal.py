@@ -124,6 +124,9 @@ def test_the_window_is_shaped_for_ten_seconds():
     assert ask.rstrip().splitlines()[-4].startswith("printf") and "PRESS ENTER to close" in ask.rstrip().splitlines()[-4]
     spoken = T.bash_script(["/opt/fk", "doctor"], "ask", "/tmp/x.log", say="Oi. Look at the window.")
     assert "fieldkit.buildh.herald --say" in spoken and "Oi. Look at the window." in spoken and "herald" not in ask
+    assert '>> "$log"' in spoken.split("herald --say", 1)[1].split("\n", 1)[0], "the herald's verdict is logged"
+    assert "nohup " in spoken.split("herald --say", 1)[0].rsplit("\n", 1)[-1], "detached: closing the window must not kill the voice"
+    assert "herald asked at" in spoken and spoken.index("herald asked at") < spoken.index("nohup ")
 
 
 def test_the_spoken_words_are_the_owners_setting_and_always_say_is_a_setting():

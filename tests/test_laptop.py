@@ -280,3 +280,12 @@ def test_danger_is_spoken_even_on_the_off_profile_and_no_reading_resets_the_cap(
     profiles.monitor(sensor=lambda: next(temps), set_cap=caps.append, say=said.append, clock=lambda: now[0],
                      sleep=lambda s: now.__setitem__(0, now[0] + 10), ticks=10)
     assert said == ["I cannot read the processor temperature. Cooling is back to normal."]
+
+
+def test_the_alert_words_are_the_owners_where_set():
+    """2026-10-14: "I need you to have a look at this" was "way too polite"; the words come from fieldkit.local.json."""
+    from fieldkit.laptop import alerts
+    own = {"alerts": {"phrases": {"look": "yo, pay attention, look at this"}}}
+    assert alerts.sentence("look", name="", local=own) == "Yo, pay attention, look at this."
+    assert alerts.sentence("done", name="", local=own) == "The task is done.", "unset ones stay as shipped"
+    assert alerts.sentence("look", name="Sam", local=own) == "Sam, yo, pay attention, look at this."

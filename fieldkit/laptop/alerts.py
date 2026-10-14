@@ -34,9 +34,19 @@ TRIGGERS = [("the task is done", "done"), ("have a look at this", "look"), ("foc
 ANTIGRAVITY = Path.home() / ".gemini" / "antigravity" / "brain"
 
 
-def sentence(kind, name=None):
-    name = name if name is not None else (settings.local_settings().get("alerts") or {}).get("name", "")
-    s = PHRASES[kind]
+def phrases(local=None):
+    """The three sentences, the owner's where set: fieldkit.local.json {"alerts": {"phrases": {"look": "..."}}}.
+    2026-10-14, the owner, on hearing "I need you to have a look at this": "way too polite ... a sure way to make
+    someone look" is his own line. The words are his, per machine; the shipped ones stay plain."""
+    local = settings.local_settings() if local is None else local
+    own = ((local.get("alerts") or {}).get("phrases") or {}) if isinstance(local, dict) else {}
+    return {k: str(own.get(k) or v) for k, v in PHRASES.items()}
+
+
+def sentence(kind, name=None, local=None):
+    local = settings.local_settings() if local is None else local
+    name = name if name is not None else (local.get("alerts") or {}).get("name", "")
+    s = phrases(local)[kind]
     return f"{name}, {s}." if name else s[0].upper() + s[1:] + "."
 
 
