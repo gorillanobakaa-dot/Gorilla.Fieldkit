@@ -1244,7 +1244,11 @@ def run(a, emit):
     if act == "decisions":
         from . import decisions as dec, buildrun, install as inst
         t = task.load(tid)
-        owner = Path(buildrun._owner_root(t))
+        owner = dec.register_root(t)
+        if owner is None:
+            print(f"no decision register for {tid}: expected decisions/PRODUCT-DECISIONS.yaml in the owner repo or in "
+                  f"{t.get('meta', {}).get('harness_root')}. Nothing was checked.")
+            return 3
         target = a.install_dir or inst.find_install()
         r = dec.check(owner, t["workdir"], target, strict=getattr(a, "strict", False))
         emit(r, lambda r: print("\n".join(dec.lines(r))))

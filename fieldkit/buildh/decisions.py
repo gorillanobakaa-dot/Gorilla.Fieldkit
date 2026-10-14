@@ -33,6 +33,7 @@ not run: no install, unreadable file). Fail closed: VIOLATED and UNCHECKABLE alw
 --strict, which the regression baseline and a release use. An enforced entry without checks is VIOLATED.
 """
 import hashlib
+import os
 import subprocess
 import sys
 import zipfile
@@ -45,6 +46,24 @@ STATUSES = ("enforced", "pending", "trade-off", "retired")
 KINDS = ("mozconfig_has", "tree_contains", "tree_lacks", "pref", "installed_absent", "omni_absent", "fieldkit_test",
          "image_sharp", "tree_absent", "tree_present", "installed_present", "about_register")
 FIELDKIT = Path(__file__).resolve().parents[2]
+
+
+PLATFORMS = ("linux", "windows")
+
+
+def this_platform():
+    return "windows" if os.name == "nt" else "linux"
+
+
+def register_root(t):
+    """The folder holding the register for a task: the owner repo when it is found, else the task's harness root when
+    that holds decisions/PRODUCT-DECISIONS.yaml. 2026-10-14: the Linux harness folder has no Windows preflight script,
+    so the owner repo was never found and `decisions` crashed on None. One register serves both operating systems."""
+    from .ownercheck import _owner_root
+    for c in (_owner_root(t), t.get("meta", {}).get("harness_root")):
+        if c and (Path(c) / REGISTER).is_file():
+            return Path(c)
+    return None
 
 
 class Unreadable(Exception):
@@ -70,6 +89,9 @@ def load(owner_root):
         for need in ("title", "decided", "by", "provenance", "why"):
             if not e.get(need):
                 problems.append(f"{i}: missing {need}")
+        bad = [x for x in (e.get("platforms") or []) if x not in PLATFORMS]
+        if bad:
+            problems.append(f"{i}: unknown platform {bad} (platforms: {', '.join(PLATFORMS)})")
         for c in e.get("verify") or []:
             if len(c) != 1 or next(iter(c)) not in KINDS:
                 problems.append(f"{i}: unknown check {c!r} (kinds: {', '.join(KINDS)})")
@@ -250,6 +272,11 @@ def check(owner_root, workdir=None, install_dir=None, strict=False, source_prefs
         st = e.get("status")
         if st == "retired":
             continue
+        if e.get("platforms") and this_platform() not in e["platforms"]:
+            # one register for both operating systems; an entry may name the ones it applies to (absent = both)
+            rows.append({"id": e["id"], "title": e["title"], "verdict": "OTHER OS",
+                         "evidence": [f"applies to {', '.join(e['platforms'])} only; this is {this_platform()}"]})
+            continue
         if st == "trade-off":
             rows.append({"id": e["id"], "title": e["title"], "verdict": "ACCEPTED", "evidence": [e["why"].strip()[:160]]})
             continue
@@ -274,6 +301,10 @@ def check(owner_root, workdir=None, install_dir=None, strict=False, source_prefs
             if not ok:
                 verdict = "VIOLATED"
         rows.append({"id": e["id"], "title": e["title"], "verdict": verdict, "evidence": ev})
+    notes = {e["id"]: " ".join(str(e["models"]).split()) for e in reg["entries"] if e.get("models")}
+    for r in rows:
+        if r["id"] in notes:
+            r["models"] = notes[r["id"]]
     bad = [r for r in rows if r["verdict"] in ("VIOLATED", "UNCHECKABLE") or (strict and r["verdict"] == "PENDING")]
     ok = not bad and not reg["problems"]
     return {"ok": ok, "register": reg["path"], "sha256": reg["sha256"], "release": reg["release"],
@@ -287,7 +318,10 @@ def lines(res):
         out.append(f"  {r['verdict']:<11} {r['id']}  {r['title']}")
         if r["verdict"] not in ("ENFORCED", "ACCEPTED"):
             out += [f"      {x}" for x in r["evidence"]]
-    n = {v: sum(r["verdict"] == v for r in res["rows"]) for v in ("ENFORCED", "PENDING", "ACCEPTED", "VIOLATED", "UNCHECKABLE")}
+        if r.get("models"):
+            # the maintainer's word to any model reading this, so a settled decision is quoted, never re-argued
+            out.append(f"      for models: {r['models']}")
+    n = {v: sum(r["verdict"] == v for r in res["rows"]) for v in ("ENFORCED", "PENDING", "ACCEPTED", "VIOLATED", "UNCHECKABLE", "OTHER OS")}
     out.append("  " + ", ".join(f"{k.lower()} {v}" for k, v in n.items()))
     out.append("DECISIONS " + ("OK" if res["ok"] else "NOT OK") + (" (strict: pending counts as not done)" if res["strict"] else ""))
     return out
