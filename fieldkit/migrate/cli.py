@@ -72,6 +72,12 @@ def brief_lines(state_root=None, harness_root=None):
                 f"  NEXT: {nxt}",
                 f"  Before any Firefox work read {owner}/MIGRATION-PLAN.md and the port's intents/port-*/STATE.md; "
                 f"full picture: {settings.self_cmd()} build-harness migrate sitrep {tid}"]
+        if owner:
+            from ..buildh import firefox
+            fwd = firefox.forward_instructions(owner)
+            out += [f"  AUTHOR'S INSTRUCTION in {p}: {n}" for p, n in fwd[:5]]
+            if len(fwd) > 5:
+                out.append(f"  ... and {len(fwd) - 5} more author instruction(s) in patch headers")
     return out
 
 
