@@ -96,7 +96,10 @@ def test_the_lock_keeps_the_execute_bit_and_verify_ignores_modes(mozilla, tmp_pa
     (d / "plain.txt").write_text("x\n", encoding="utf-8")
     n = vault._readonly(d)
     assert n >= 2
-    assert stat.S_IMODE(os.lstat(d / "mach").st_mode) == 0o555, "execute kept, write gone"
+    if os.name == "nt":                     # Windows has no execute bit: chmod only sets read-only (CI, 2026-10-14)
+        assert not os.lstat(d / "mach").st_mode & 0o222, "write gone"
+    else:
+        assert stat.S_IMODE(os.lstat(d / "mach").st_mode) == 0o555, "execute kept, write gone"
     assert stat.S_IMODE(os.lstat(d / "plain.txt").st_mode) & 0o222 == 0
     # a lock that changed modes must not read as damage
     subprocess.run(["git", "-C", str(d), "add", "-A"], check=True)
