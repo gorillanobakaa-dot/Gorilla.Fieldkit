@@ -1,0 +1,74 @@
+# Firefox on Linux (Debian), from the public gorilla-firefox folder: the untouched source from the
+# vault, the tuned mozconfig, the patch set, mach bootstrap, the build under the guard, a .deb.
+#
+# 2026-10-14: the first Linux pipeline. The Windows one drives the owner's own orchestrator; here
+# the stages are Fieldkit's own (fieldkit/build/firefox_linux.py), read from the public repository's
+# recreate.sh, scripts/run_build_and_capture.sh and scripts/build_deb.sh, and from the 18 solved
+# compile errors of the 154 build (signatures/firefox-linux.yaml). Every stage is dry-runnable.
+name: firefox-linux
+description: >-
+  Build Gorilla Firefox on Debian from the public patch set: vault source, mozconfig, patches,
+  bootstrap, build, package. Stages that need a Linux desktop say so; the plan runs anywhere.
+vars:
+  harness: "${LOCAL:firefox.root}"               # the gorilla-firefox clone (mozconfig, patches/, scripts/)
+  version: "158.0"                               # the vaulted stable release to build
+  work: "${LOCAL:vault.root}/../Build.Work/firefox"
+  src: "{work}/firefox-{version}"
+  release: "{work}/release-{version}"
+stages:
+  - id: deps
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_deps"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:stage_deps"}}
+    triage: firefox-linux
+
+  - id: source
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_source"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:verify_source"}}
+    triage: firefox-linux
+
+  - id: mozconfig
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_mozconfig"}
+    verify:
+      - {files_exist: ["{src}/mozconfig"]}
+
+  - id: patches-check
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_patches", args: {check_only: true}}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:stage_patches", args: {check_only: true}}}
+    triage: firefox-linux
+
+  - id: patches
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_patches"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:verify_patches"}}
+    triage: firefox-linux
+
+  - id: bootstrap
+    platforms: [linux]
+    timeout: 7200
+    run: {python: "fieldkit.build.firefox_linux:stage_bootstrap"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:verify_bootstrap"}}
+    triage: firefox-linux
+
+  - id: build
+    platforms: [linux]
+    timeout: 43200
+    run: {python: "fieldkit.build.firefox_linux:stage_build"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:verify_build"}}
+    triage: firefox-linux
+
+  - id: package
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_package"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:verify_package"}}
+    triage: debian-packaging

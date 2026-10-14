@@ -1,0 +1,83 @@
+# Firefox build failures on Debian (mach / clang-21 / lld / Fluent / Wayland runtime).
+# Imported 2026-10-14 from FIrefox.154.Work/patches/Compile.errors.fixed.so.far..txt: 18 errors
+# solved by hand on the 154 build (sessions 2026-07-15 and 2026-07-15b), each with the cause and the
+# fix the person found. `check` is null until a Linux preflight row prevents it. Add new ones as they
+# are hit: the same failure should never cost a build twice.
+success:
+- 'Your build was successful!'
+- 'your build finally finished successfully!'
+
+signatures:
+- id: mozilla-atomic-float
+  pattern: "implicit instantiation of undefined template 'mozilla::Atomic<float>'"
+  check: null
+  cause: mozilla::Atomic supports integers, bools and pointers only; a patch used it for a float.
+  fix: Use std::atomic<float> for floats (ERROR 1, dom/media/AudioStream.h).
+
+- id: mozilla-atomic-load
+  pattern: "no member named 'load' in 'mozilla::Atomic<"
+  check: null
+  cause: mozilla::Atomic<T> is read bare and written with =; .load()/.store() is the std::atomic API.
+  fix: Replace .load() with a bare read on mozilla::Atomic values (ERROR 2).
+
+- id: staticprefs-missing-member
+  pattern: "no member named '[A-Za-z0-9_]+' in namespace 'mozilla::StaticPrefs'"
+  check: null
+  cause: >-
+    The patched modules/libpref/init/StaticPrefList.yaml is missing prefs that upstream has; the
+    generated StaticPrefs accessors then do not exist and every C++ user fails.
+  fix: Diff StaticPrefList.yaml against the vault copy and restore the missing entries in place (ERROR 3).
+
+- id: js-signature-drift
+  pattern: 'too few arguments to function call, expected \d+, have \d+'
+  check: null
+  cause: A patch written against an earlier revision calls a function whose signature changed upstream.
+  fix: Read the current signature in the vault tree and update the call (ERROR 4, js/src/frontend/Stencil.cpp).
+
+- id: coding-agent-env
+  pattern: 'is_running_under_coding_agent|CLAUDECODE'
+  check: null
+  cause: >-
+    python/mozbuild/mozbuild/util.py changes mach's behaviour when a coding-agent environment variable
+    is set; builds started from an assistant's shell behave differently from the owner's.
+  fix: Run mach with the variable removed (the stages do, see firefox_linux.mach_env) (ERROR 4b).
+
+- id: switch-case-dropped
+  pattern: 'SyntaxError: invalid switch statement'
+  check: null
+  cause: A patch to a .sys.mjs dropped the first case label of a switch block (twice in XPIInstall.sys.mjs).
+  fix: Restore every case label; check the whole file, a second block broke the same way (ERROR 5, 5b).
+
+- id: fluent-missing-message
+  pattern: '\[fluent\] Missing message in locale en-US'
+  check: null
+  cause: >-
+    Either a PLATFORM() selector key was written with a capital (keys are lowercase: windows, linux,
+    macos, android), or new upstream messages were never added to the branded locale file.
+  fix: Lowercase the selector keys; diff the .ftl against the vault and append the missing entries (ERROR 6, 8).
+
+- id: fluent-term-undefined
+  pattern: '\[fluent\]\[resolver\] errors in en-US/'
+  check: null
+  cause: An .ftl references a term (-name) that this FILE does not define; terms are scoped per file.
+  fix: Define the term at the top of every .ftl that uses it, not only one (ERROR 7, 7b).
+
+- id: gfx-window-null
+  pattern: '\[GFX1-\]: window is null'
+  check: null
+  cause: The GPU-process ForceDisable block for Wayland in gfx/thebes/gfxPlatformGtk.cpp was commented out by a patch.
+  fix: Never uncomment that block; keep the GPU process disabled on Wayland (ERROR 9; ERROR 12's root cause).
+
+- id: dead-code-after-early-return
+  pattern: 'JavaScript warning: .*unreachable code after return statement'
+  check: null
+  cause: An excision stub returned early and left the original body as dead code below it.
+  fix: Delete the dead body after the early return (ERROR 10, 11).
+
+- id: blocked-software-video-codec
+  pattern: "Your browser can't play this video|IsBlockedSoftwareOnlyVideoCodec"
+  check: null
+  cause: >-
+    The hardware-only codec policy blocks anything that is not H.264, and SupportsMimeType() applied it
+    to audio types too, so AAC and Opus failed to initialise.
+  fix: Guard the policy with a video-only check in PDMFactory::SupportsMimeType (ERROR 12c).

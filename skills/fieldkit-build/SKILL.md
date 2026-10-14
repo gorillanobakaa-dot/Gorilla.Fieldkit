@@ -1,6 +1,6 @@
 ---
 name: fieldkit-build
-description: Run or resume staged build pipelines (Gorilla Firefox on Windows, custom Debian kernel packages) and diagnose a failed build from its log with the fieldkit command. Use when asked to build Firefox or the kernel, when a build or packaging step failed, or to find out which stage a build is at.
+description: Run or resume staged build pipelines (Gorilla Firefox on Windows and on Debian, custom Debian kernel packages) and diagnose a failed build from its log with the fieldkit command. Use when asked to build Firefox or the kernel, when a build or packaging step failed, or to find out which stage a build is at.
 ---
 
 # Builds with fieldkit
@@ -14,6 +14,7 @@ fieldkit pipeline plan firefox-windows            # resolved commands; changes n
 fieldkit pipeline run  firefox-windows --only preflight
 fieldkit pipeline run  firefox-windows --from patches
 fieldkit pipeline run  debian-kernel --dry-run
+fieldkit pipeline plan firefox-linux             # Debian: vault source, mozconfig, patches, bootstrap, build, .deb
 fieldkit pipeline status debian-kernel
 ```
 
@@ -28,7 +29,7 @@ fieldkit pipeline status debian-kernel
 ## When a build fails
 
 ```
-fieldkit triage LOG --set auto          # or firefox-windows | debian-kernel | debian-packaging
+fieldkit triage LOG --set auto          # or firefox-windows | firefox-linux | debian-kernel | debian-packaging
 ```
 
 The verdict is one of:
