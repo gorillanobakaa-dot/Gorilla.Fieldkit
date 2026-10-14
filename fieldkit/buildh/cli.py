@@ -577,6 +577,11 @@ def run(a, emit):
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "withdraw":
+        if len(a.args) < 2 or not (a.note or "").strip():
+            raise task.Refused("withdraw TASK STEP --note \"why\"")
+        r = task.withdraw(tid, a.args[1], a.note.strip(), who=_os.environ.get("USER") or _os.environ.get("USERNAME") or "owner")
+        return emit(r, lambda r: print(f"withdrawn {r['withdrawn']}: {r['reason']}")) or 0
     if act == "fluent-check":
         from . import fluentcheck
         t = task.load(tid)
