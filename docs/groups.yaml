@@ -18,6 +18,9 @@
 #   test: tests/test_gdocs.py, skill: skills/gorilla-documentation-ibm-style/SKILL.md
 
 groups:
+  - name: teach
+    title: A teaching log from a session transcript (what was run, in order, with what came back)
+    sources: [teach/*.py]
   - name: sitrep
     title: A situation report a reader can take in a few seconds at a time (ADHD, dyslexia, autism)
     sources: [sitrep/*.py]

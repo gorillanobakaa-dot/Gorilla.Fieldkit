@@ -1,0 +1,28 @@
+{
+ "brief_sha256": "6f942a6ef37d6703",
+ "gorilla_check": "PASS",
+ "group": "teach",
+ "metrics": {
+  "developer": {
+   "commands": 8,
+   "words_total": 2282
+  },
+  "layman": {
+   "commands": 4,
+   "concept_rows": 7,
+   "glossary_terms": 7,
+   "trust_steps": 4,
+   "usage_steps": 6,
+   "words_total": 3206
+  }
+ },
+ "rendered": "2026-10-14",
+ "scores": {
+  "developer": 89,
+  "layman": 97
+ },
+ "sources": {
+  "teach/__init__.py": "022969fc4732049ec51b309d30749a03a2fb00bc6562d7bae07c116b337f4d76"
+ },
+ "title": "A teaching log from a session transcript (what was run, in order, with what came back)"
+}
