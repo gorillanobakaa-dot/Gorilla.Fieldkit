@@ -823,6 +823,14 @@ def hunk_problems(before, after, hunk):
     sa = _span(after, hunk, lo=sb[0]) if sb else None
     pinned = bool(sb and sa)
     if pinned:
+        # both spans must end on the SAME line: the after-span runs to the first trailing context line it finds,
+        # while the before-span stops where the hunk's own lines end. When upstream inserted a block between the
+        # two (158 browser-shared.css h4: a mini-window block holding a second `--toolbox-background-image: none;`),
+        # only the after side counted that copy and a correct literal port was refused (2026-10-14). Widen the
+        # before-span with the same search so both sides count the same region.
+        wide = _span(before, hunk, lo=sb[0])
+        if wide and wide[1] > sb[1]:
+            sb = wide
         # the after-span must reach over the lines the hunk ADDS: when the hunk's trailing context is too short to
         # pin (`BackupUI: {`), the span ended before the inserted lines and called them missing (DesktopActorRegistry h1)
         add_keys = {_key(l[1:]) for l in hunk["lines"] if l.startswith("+") and _specific(_key(l[1:]))}

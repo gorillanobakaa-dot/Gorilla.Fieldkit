@@ -90,3 +90,23 @@ def test_a_declared_removal_is_the_twin_of_a_declared_keep():
              "  value: false", "  mirror: always", "#endif", ""]
     assert any("you removed" in w for w in firefox.hand_port_check(before, after, hunk, before))
     assert firefox.hand_port_check(before, after, hunk, before, removes=firefox.hand_removes("removes: value: true")) == []
+
+
+def test_spans_end_on_the_same_line_when_upstream_inserted_a_block():
+    """158 browser-shared.css h4 (2026-10-14): upstream put a mini-window block between the hunk's lines and its
+    trailing context, and that block holds a second `--toolbox-background-image: none;`. A correct literal port
+    was refused because only the after-side span reached that copy."""
+    import json
+    from pathlib import Path
+    from fieldkit.buildh import firefox as f
+    d = json.loads((Path(__file__).parent / "data" / "span-mini-window-158.json").read_text())
+    hunk, before = d["hunk"], d["before"]
+    body = hunk["lines"][:-2]                                   # the trailing context moved in 158
+    old = "\n".join(l[1:] for l in body if l[:1] in " -")
+    new = "\n".join(l[1:] for l in body if l[:1] in " +")
+    after = "\n".join(before).replace(old, new).splitlines()
+    assert after != before
+    assert f.hunk_problems(before, after, hunk) == []
+    i = after.index("  --toolbox-background-image: var(--lwt-additional-images);")
+    left = after[:i] + ["  --toolbox-background-image: none;"] + after[i:]
+    assert f.hunk_problems(before, left, hunk) == ["line should be gone: --toolbox-background-image: none;"]
