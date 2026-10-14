@@ -316,3 +316,20 @@ def test_one_proposal_can_be_withdrawn_with_a_reason(job2):
     assert not Path(task.STATE, "t2", "proposals", "fix-alpha.diff").exists()
     assert Path(task.STATE, "t2", "proposals", "withdrawn", "fix-alpha.diff").is_file()
     assert task.proposals("t2") == []
+
+
+def test_accept_passes_the_whole_reason_so_late_keeps_lines_count(job2, monkeypatch):
+    """2026-10-14: the reason was cut at 300 characters and its keeps: lines, which come last, were lost."""
+    task.approve("t2", "owner")
+    task.packet("t2")
+    (job2 / "alpha.txt").write_text("ALPHA\n")
+    long_reason = "renamed upstream; " + "x" * 400 + "\nlesson: follow renames\nkeeps: the line that must stay"
+    task.submit("t2", adapted=long_reason)
+    seen = {}
+    real = task.submit
+    def spy(*a, **k):
+        seen["note"] = k.get("note", "")
+        return real(*a, **k)
+    monkeypatch.setattr(task, "submit", spy)
+    task.accept("t2", who="sam")
+    assert seen["note"].endswith("keeps: the line that must stay")

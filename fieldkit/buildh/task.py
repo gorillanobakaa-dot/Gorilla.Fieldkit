@@ -676,7 +676,9 @@ def accept(task_id, step_ids=None, who="owner"):
     longer applies (a later checkpoint moved the lines) is reported and the step goes back to failed for a fresh
     attempt; nothing is guessed. Called from the command line only, like approve."""
     t = load(task_id)
-    wanted = [s for s in t["steps"] if s["status"] == "proposed" and (not step_ids or s["id"] in step_ids)]
+    # a proposal that failed only at acceptance (2026-10-14: a harness fault, not the port) is offered again
+    wanted = [s for s in t["steps"] if (s["status"] == "proposed" or (s["status"] == "failed" and s.get("accept_failed")
+              and (_proposals_dir(t) / f"{s['id']}.diff").is_file())) and (not step_ids or s["id"] in step_ids)]
     out = {"accepted": [], "failed": [], "by": who}
     for s in wanted:
         diff = _proposals_dir(t) / f"{s['id']}.diff"
@@ -685,14 +687,25 @@ def accept(task_id, step_ids=None, who="owner"):
             continue
         r = subprocess.run(["git", "-C", t["workdir"], "apply", "--index", str(diff)], capture_output=True, text=True)
         if r.returncode != 0:
+            # later checkpoints moved the lines around the change (2026-10-14: 093 edited AboutRedirector.cpp after
+            # 036 h4's proposal was saved): a three-way apply merges by content, using the blobs the diff names
+            r = subprocess.run(["git", "-C", t["workdir"], "apply", "--index", "--3way", str(diff)], capture_output=True,
+                               text=True)
+            if r.returncode != 0 or changed_files(t) and _git(t, "diff", "--name-only", "--diff-filter=U").strip():
+                revert_to_checkpoint(t)
+                r = subprocess.CompletedProcess(r.args, 1, r.stdout, r.stderr or "three-way apply left a conflict")
+        if r.returncode != 0:
             s["status"], s["last_why"] = "failed", [f"the accepted proposal no longer applies: {(r.stderr or '').strip()[:200]}"]
+            s["accept_failed"] = True
             save(t); journal(t, "accept-failed", step=s["id"], who=who, why=s["last_why"])
             revert_to_checkpoint(t)
             out["failed"].append({"step": s["id"], "why": s["last_why"][0]})
             continue
         _git(t, "reset", "-q")                                # the files are in the tree; submit judges the tree
         s["status"] = "pending"
-        res = submit(task_id, note=f"accepted adapted port: {s['proposal'].get('reason', '')[:300]}", by="hand", step_id=s["id"],
+        # the WHOLE reason: its keeps:/removes: lines come last, and a 300-character cut dropped them, so three accepted
+        # proposals were refused for removing lines they declared kept (2026-10-14)
+        res = submit(task_id, note=f"accepted adapted port: {s['proposal'].get('reason', '')}", by="hand", step_id=s["id"],
                      require_lesson=False)               # the lesson came with the proposal; the owner only accepts
         t = load(task_id)
         s = next(x for x in t["steps"] if x["id"] == s["id"])
@@ -701,6 +714,8 @@ def accept(task_id, step_ids=None, who="owner"):
             save(t); journal(t, "accept", step=s["id"], who=who)
             out["accepted"].append(s["id"])
         else:
+            s["accept_failed"] = True
+            save(t)
             out["failed"].append({"step": s["id"], "why": "; ".join(res.get("why") or [])[:200]})
     return out
 
