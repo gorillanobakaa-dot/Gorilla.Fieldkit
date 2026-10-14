@@ -1922,6 +1922,8 @@ def auto_port(t, s, patch, file, hunk, **kw):
             return {"ok": True, "why": [], "notes": pnotes}
 
     # Tier 0: nothing to do (upstream already has it, or an earlier attempt landed and the record was reopened)
+    if line_endings_only(hunk) and _lf_only(target):
+        return {"ok": True, "why": [], "notes": ["line endings only: this tree's file is LF already, nothing to port"]}
     if already_upstream(body, hunk):
         return {"ok": True, "why": [], "notes": ["already in place: the added lines are there and the removed ones gone"]}
 
@@ -2202,6 +2204,8 @@ def check_port(t, s, patch, file, hunk, **kw):
     if keyed.kind(file):
         why = keyed.check(before, after, hunk, file)
         return {"ok": not why, "why": why[:8]}
+    if before == after and line_endings_only(hunk) and _lf_only(target):
+        return {"ok": True, "why": []}                  # a CRLF->LF hunk on a tree that is LF already (067, 2026-10-14)
     if before == after and already_upstream(after, hunk):
         # nothing was changed because nothing needed changing (tier 0 / a reopened step whose result had landed):
         # the net-count check below would read the present lines as 'missing' (live run 10, h39)
@@ -2214,6 +2218,22 @@ def check_port(t, s, patch, file, hunk, **kw):
     if len(after) > len(before) + 3 * max(1, len(added)) + 20:
         why.append(f"{len(after) - len(before)} lines added for a {len(added)}-line hunk: change only what the hunk changes")
     return {"ok": not why, "why": why[:8]}
+
+
+def line_endings_only(hunk):
+    """True when the hunk changes nothing but line endings (CRLF <-> LF): its removed and added lines are the same text.
+    2026-10-14: 22.EGRESS.LOCKDOWN.157/067 restored LF after a Windows tool wrote CRLF; on Linux there is nothing to
+    port, yet the step went to a porter, a trial passed, and the submit spent an attempt on 'nothing was changed'."""
+    rem = [l[1:].rstrip("\r") for l in hunk.get("lines", []) if l.startswith("-")]
+    add = [l[1:].rstrip("\r") for l in hunk.get("lines", []) if l.startswith("+")]
+    return bool(rem) and rem == add
+
+
+def _lf_only(path):
+    try:
+        return b"\r\n" not in Path(path).read_bytes()
+    except OSError:
+        return False
 
 
 def already_upstream(file_lines, hunk):
