@@ -358,6 +358,10 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
         head += ["You may change ONLY these files (anything else is undone):",
                  *[f"  - {a}" for a in s.get("allowed", [])],
                  "When you have made the change, call build_harness_submit. The harness checks it; do not claim it works."]
+    from . import decisions as dec
+    cited = dec.citations(t, list(s.get("allowed") or []))
+    if cited:
+        head += [""] + cited
     text = "\n".join(head) + "\n\n" + body
     if len(text) > budget_chars:
         text = text[:budget_chars] + "\n[... trimmed to fit the context budget]"
