@@ -80,7 +80,7 @@ def test_prep_prints_a_render_command_that_runs(tool, tmp_path):
 
 # -- git without a shell, project rules named (dual-track-doc-generator 2026-10-11) -------------------------------
 GEN = Path(settings.expand("${FIELDKIT}")) / "toolbox" / "dual-track-doc-generator" / "dual_track.py"
-needs_gen = pytest.mark.skipif(not GEN.is_file(), reason="dual-track-doc-generator not gathered")
+needs_gen = pytest.mark.skipif(not GEN.is_file(), reason="dual-track-doc-generator not gathered: fieldkit gather --only dual-track-doc-generator")
 
 
 def git(repo, *args):

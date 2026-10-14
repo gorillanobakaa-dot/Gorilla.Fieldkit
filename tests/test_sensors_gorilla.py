@@ -17,7 +17,7 @@ import pytest
 from fieldkit.core import settings
 
 REPO = Path(settings.expand("${FIELDKIT}")) / "toolbox" / "sensors-gorilla"
-pytestmark = pytest.mark.skipif(not (REPO / "thermal-profile-daemon").is_file(), reason="sensors-gorilla not gathered")
+pytestmark = pytest.mark.skipif(not (REPO / "thermal-profile-daemon").is_file(), reason="sensors-gorilla not gathered: fieldkit gather --only sensors-gorilla")
 
 
 class Stop(Exception):

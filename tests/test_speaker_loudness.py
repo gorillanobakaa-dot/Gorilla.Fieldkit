@@ -16,7 +16,7 @@ import pytest
 from fieldkit.core import settings
 
 TOOL = Path(settings.expand("${FIELDKIT}")) / "toolbox" / "speaker-loudness-fix" / "speaker_loudness_setup.py"
-pytestmark = pytest.mark.skipif(not TOOL.is_file(), reason="speaker-loudness-fix not gathered")
+pytestmark = pytest.mark.skipif(not TOOL.is_file(), reason="speaker-loudness-fix not gathered: fieldkit gather --only speaker-loudness-fix")
 HW = "alsa_output.pci-0000_00_1b.0.analog-stereo"
 
 

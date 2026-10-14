@@ -9,7 +9,7 @@ import pytest
 from fieldkit.core import settings
 
 REPO = Path(settings.expand("${FIELDKIT}")) / "toolbox" / "debian-kernel"
-pytestmark = pytest.mark.skipif(not (REPO / "kernel_config_injector.py").is_file(), reason="debian-kernel not gathered")
+pytestmark = pytest.mark.skipif(not (REPO / "kernel_config_injector.py").is_file(), reason="debian-kernel not gathered: fieldkit gather --only debian-kernel")
 
 
 def run(*args, cwd=None):
