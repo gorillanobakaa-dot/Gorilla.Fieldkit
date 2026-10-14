@@ -2124,6 +2124,23 @@ tools:
   platforms: [linux]
   changes: false
 
+- id: sitrep
+  title: "A situation report a reader can take in a few seconds at a time: template, check, render (six languages), doctor"
+  harness: sitrep
+  entry: [python, -m, fieldkit, sitrep]
+  path: ${FIELDKIT}/fieldkit/sitrep/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "template | check | render | example | doctor"}
+    - {name: file, flag: null, type: str, required: false, help: "the filled-in report, for check and render"}
+    - {name: lang, flag: --lang, type: str, required: false, help: "heading language: en es pt it de ro"}
+    - {name: order, flag: --order, type: str, required: false, help: "ask-first (default) or classic"}
+    - {name: md, flag: --md, type: bool, required: false, help: "render as markdown"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [linux, darwin, windows, freebsd]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sitrep.py"]
+  skill: skills/fieldkit-sitrep/SKILL.md
+
 - id: explain
   title: "A written explanation read from a file: no model, no tokens, no variance"
   harness: explain

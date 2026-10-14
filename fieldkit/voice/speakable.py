@@ -12,9 +12,9 @@ one of them had already shipped past a code review that could not hear.
 #
 # 1. A HYPHEN BECOMES A PAUSE.
 #    piper does not read letters. espeak-ng turns text into phonemes first, and
-#    it treats "-" as a word boundary. So "Yoshie-chan" is spoken as two
+#    it treats "-" as a word boundary. So "Hana-chan" is spoken as two
 #    utterances with a gap wedged between them. The owner, hearing it: "it can
-#    not pronounce yoshie chan when it is joined by a -. it sounded halted like
+#    not pronounce Hana chan when it is joined by a -. it sounded halted like
 #    Yohsh-eeh-eh cha".
 #
 #    This is not about names. "dual-track", "pre-commit", "2.4-gigahertz" and
