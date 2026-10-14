@@ -507,7 +507,9 @@ def run(a, emit):
         return emit({"task": t["id"], "steps": [s["id"] for s in t["steps"]], "workdir": t["workdir"]},
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
-                                    f"NEXT: the owner reads the plan and runs: fieldkit build-harness approve {r['task']}")) or 0
+                                    f"NEXT: the owner reads the plan and runs: {settings.self_cmd()} build-harness approve {r['task']}\n"
+                                    f"      or let the harness open the window for them: {settings.self_cmd()} terminal ask -- "
+                                    f"{settings.self_cmd()} build-harness approve {r['task']}")) or 0
     if act == "herald":
         # herald --say "words" | herald [name=..] [pid=..] [log=..] [every=..]: the spoken herald (herald.py), from any
         # folder (2026-10-10: `python -m fieldkit.buildh.herald` was given to the owner and depends on where it runs)
@@ -535,7 +537,7 @@ def run(a, emit):
             print(f"  {'ok  ' if r['root'] else 'MISS'} root")
             print("READY" if r["ok"] else f"NOT READY: missing {r['missing_required'] or []}"
                   + ("" if r["root"] else "; the leak gate needs root (network namespace, nftables)"))
-            print("NEXT: " + ("fieldkit build-harness leakgate TASK" if r["ok"] else
+            print("NEXT: " + (f"{settings.self_cmd()} build-harness leakgate TASK" if r["ok"] else
                               "fieldkit doctor --for leakgate (it gives the install lines); run as root; then "
                               "fieldkit build-harness leakgate-selftest"))
         return 0 if r["ok"] else 3
@@ -963,7 +965,7 @@ def run(a, emit):
                     say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
                 if r["ok"]:
                     say(f"second source folder: {r['work2']}\nsecond objdir:        {r['obj2']}")
-                    say(f"NEXT: fieldkit build-harness window repro {tid} --run   (a full build, like the first)")
+                    say(f"NEXT: {settings.self_cmd()} build-harness window repro {tid} --run   (a full build, like the first)")
                 else:
                     say("REPRO CANNOT RUN YET: fix the FAIL rows above")
             return 0 if r["ok"] else 3

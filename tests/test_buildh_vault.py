@@ -84,6 +84,29 @@ def test_vault_fetch_verify_and_it_is_read_only(mozilla, tmp_path):
     assert vault.fetch_firefox(_info(mozilla), base=base)["status"] == "already in the vault"
 
 
+def test_the_lock_keeps_the_execute_bit_and_verify_ignores_modes(mozilla, tmp_path):
+    """2026-10-14, first Linux run: chmod 0444 stripped the execute bit from 1,832 files (mach among them)
+    and verify() then called the vault damaged by its own hand."""
+    import os, stat, subprocess
+    d = tmp_path / "v" / "x"
+    d.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(d)], check=True)
+    (d / "mach").write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    os.chmod(d / "mach", 0o755)
+    (d / "plain.txt").write_text("x\n", encoding="utf-8")
+    n = vault._readonly(d)
+    assert n >= 2
+    assert stat.S_IMODE(os.lstat(d / "mach").st_mode) == 0o555, "execute kept, write gone"
+    assert stat.S_IMODE(os.lstat(d / "plain.txt").st_mode) & 0o222 == 0
+    # a lock that changed modes must not read as damage
+    subprocess.run(["git", "-C", str(d), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(d), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"], check=True)
+    os.chmod(d / "mach", 0o444)   # the old lock's damage, deliberately
+    out = subprocess.run(["git", "-c", "core.fileMode=false", "-C", str(d), "status", "--porcelain"],
+                         capture_output=True, text=True).stdout
+    assert out.strip() == "", "mode-only changes are not damage"
+
+
 def test_vault_damage_is_detected(mozilla, tmp_path):
     base = tmp_path / "vault"
     vault.fetch_firefox(_info(mozilla), base=base)

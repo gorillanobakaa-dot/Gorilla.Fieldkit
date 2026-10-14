@@ -18,6 +18,9 @@
 #   test: tests/test_gdocs.py, skill: skills/gorilla-documentation-ibm-style/SKILL.md
 
 groups:
+  - name: terminal
+    title: A terminal window opened in front of a person, with the command ready
+    sources: [terminal/*.py]
   - name: teach
     title: A teaching log from a session transcript (what was run, in order, with what came back)
     sources: [teach/*.py]

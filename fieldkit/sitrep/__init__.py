@@ -182,6 +182,11 @@ def check(text):
     for i, a in enumerate(asks, 1):
         if len(_sentences(a)) > 1:
             problems.append(f"FAIL ask {i} is more than one sentence: one ask, one sentence")
+        # 2026-10-14, the owner, from the Windows harness: a command handed to a person carries its full path, so it
+        # runs from whatever folder their terminal opened in. A bare program name is a command that fails for them.
+        if re.search(r"(?<![/\\\w.~-])(fieldkit|python3?|bash|git|mach)\s+\S", a):
+            warnings.append(f"WARN ask {i} hands over a bare command; give the full path to the program "
+                            f"(the owner's rule: it must run from any folder)")
     for name, items in sec.items():
         for item in items:
             low = item.lower()

@@ -58,6 +58,8 @@ def test_patches_check_reads_the_counts_and_refuses_on_a_failure(tmp_path):
     assert fl.stage_patches(c, check_only=True, run=lambda cmd, **k: (0, good))["ok"]
     r = fl.stage_patches(c, check_only=True, run=lambda cmd, **k: (1, bad))
     assert not r["ok"] and r["failed"] == 1 and "refusing" in r["detail"]
+    r = fl.stage_patches(c, check_only=True, run=lambda cmd, **k: (1, "FATAL: source tree not found: /x"))
+    assert not r["ok"] and r["detail"].startswith("apply.sh exited 1: FATAL")
     seen = {}
     fl.stage_patches(c, run=lambda cmd, **k: seen.update(cmd=cmd) or (0, good))
     assert "--check" not in seen["cmd"] and seen["cmd"][-1] == c.vars["src"]

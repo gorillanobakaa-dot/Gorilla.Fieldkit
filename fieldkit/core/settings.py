@@ -91,3 +91,17 @@ def expand(value, local=None, strict=True):
 
 def load(path, strict=True):
     return expand(read_file(path), strict=strict)
+
+
+def self_cmd():
+    """The fieldkit command as a person can paste it from ANY folder: the launcher's absolute path, or
+    the running Python with -m fieldkit when there is no launcher. Owner's rule (2026-10-14, from the
+    Windows harness, for readers who open a terminal wherever they are): a command handed to a person
+    carries its full path. Every NEXT line that hands a person the command goes through here."""
+    import shutil
+    import sys
+    user_launcher = os.path.join(os.path.expanduser("~"), ".local", "bin", "fieldkit")   # what a person's PATH has
+    exe = user_launcher if os.path.isfile(user_launcher) else shutil.which("fieldkit")
+    if exe:
+        return os.path.abspath(exe)
+    return f"{sys.executable} -m fieldkit"

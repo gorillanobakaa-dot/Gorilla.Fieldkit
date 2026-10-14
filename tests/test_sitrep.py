@@ -112,6 +112,14 @@ def test_warnings_do_not_fail_but_are_said():
     assert not d["warnings"], d["warnings"]
 
 
+def test_an_ask_with_a_bare_command_is_warned_and_a_full_path_is_not():
+    """2026-10-14, the owner: a command handed to a person carries its full path (from the Windows harness)."""
+    d = sitrep.check(_report(**{"What I need from you": ["1. Run fieldkit sitrep doctor."]}))
+    assert d["ok"] and any("bare command" in w for w in d["warnings"]), d
+    d = sitrep.check(_report(**{"What I need from you": ["1. Run /opt/kit/bin/fieldkit sitrep doctor."]}))
+    assert not any("bare command" in w for w in d["warnings"]), d["warnings"]
+
+
 def test_a_failing_report_is_not_rendered():
     r = sitrep.render(_report(**{"One line": ["Status"]}))
     assert not r["ok"] and r["text"] == "" and r["problems"]
