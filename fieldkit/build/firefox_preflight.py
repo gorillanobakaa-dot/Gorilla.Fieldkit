@@ -188,6 +188,60 @@ def _c_temp_source(ctx):
     return False, "no temperature source readable"
 
 
+# The VAIO build: every Gorilla Linux build is compiled for the machine it runs on. The tuned mozconfig carries it, and
+# SETTLED.md says "-march=native -O3 ... not up for debate". Losing one of these is silent: the browser still builds,
+# only slower or untuned (Windows, 2026-09: sccache dropped from a rewritten mozconfig, eight builds from scratch).
+TUNING = [
+    ("-O3 -march=native for C and C++", "--enable-optimize=\"-O3 -march=native -mtune=native\""),
+    ("Rust tuned for this CPU", "-C target-cpu=native"),
+    ("the sccache compile cache", "--with-ccache=sccache"),
+    ("ThinLTO", "--enable-lto=thin"),
+    ("the lld linker", "--enable-linker=lld"),
+    ("parallel jobs set (MOZ_MAKE_FLAGS)", "MOZ_MAKE_FLAGS="),
+]
+
+
+def _c_vaio_tuning(ctx):
+    m = Path(ctx.root) / "mozconfig"
+    live = "\n".join(mozconfig_lines(m))                  # active lines only: a commented-out option is a lost option
+    missing = [what for what, needle in TUNING if needle not in live]
+    if missing:
+        return False, "the mozconfig lost: " + ", ".join(missing)
+    have_sccache = bool(ctx.which("sccache"))
+    return have_sccache, "native tuning, sccache, ThinLTO, lld and job count all set" + (
+        "" if have_sccache else "; but the sccache program is not installed")
+
+
+def _patchset_version(root):
+    """The Firefox version the patch set is for, from config/patch_policy.json or the port state notes."""
+    for p in sorted((Path(root) / "intents").glob("port-*/STATE.md")):
+        return p.parent.name.split("port-", 1)[1]
+    return None
+
+
+def _c_recreate_current(ctx):
+    r = Path(ctx.root) / "recreate.sh"
+    if not r.is_file():
+        return False, "recreate.sh is missing: other people have no way to build it themselves"
+    text = r.read_text(encoding="utf-8", errors="replace")
+    want = _patchset_version(ctx.root)
+    if re.search(r"nightly|a1\b", text, re.I) and not (want and want in text):
+        return False, (f"recreate.sh still builds a Nightly (it names 154.0a1), the patch set is for {want or 'a stable release'}: "
+                       "it must clone the stable tag the patch set was ported to")
+    if want and want not in text:
+        return False, f"recreate.sh does not name {want}, the version the patch set is for"
+    return True, f"recreate.sh builds {want}"
+
+
+def _c_deb_packaging(ctx):
+    root = Path(ctx.root)
+    need = ["scripts/build_deb.sh", "scripts/fonts-microsoft.sh",
+            "deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png",
+            "deb_template/usr/share/applications/gorilla-unleashed.desktop"]
+    missing = [x for x in need if not (root / x).is_file()]
+    return not missing, "packaging pieces present" if not missing else "missing: " + ", ".join(missing)
+
+
 CHECKS = [
     Check("source", "Source tree", BLOCKER, _c_source, "Restore the working copy from the vault.",
           "Obvious, but worth failing fast rather than inside mach."),
@@ -227,6 +281,24 @@ CHECKS = [
           "Without a live sensor the build cannot be verified as thermally safe.",
           linux="Windows reads a performance counter (MSAcpi is static there); Linux reads hwmon, and only a CPU "
                 "sensor (coretemp/k10temp) counts, since acpitz is a board zone."),
+    Check("vaio-tuning", "Native tuning in the mozconfig", BLOCKER, _c_vaio_tuning,
+          "Put the line back in the harness folder's mozconfig (see TUNING in fieldkit/build/firefox_preflight.py).",
+          "Every Gorilla Linux build is compiled for the machine it runs on (-O3 -march=native, Rust target-cpu=native, "
+          "sccache, ThinLTO, lld): SETTLED.md, not up for debate. A lost line builds fine and silently slower; on Windows "
+          "sccache vanished from a rewritten mozconfig and eight builds recompiled from scratch.",
+          origin="Linux, 2026-10-15 (owner: the build is tuned to run natively on the Sony VAIO); Windows sccache check",
+          linux="the owner's build and recreate.sh share this mozconfig: native for whichever machine compiles it"),
+    Check("recreate-current", "recreate.sh builds the same release", WARN, _c_recreate_current,
+          "Point recreate.sh at the stable tag the patch set was ported to (it must clone that tag, never Nightly).",
+          "recreate.sh is how other people compile Gorilla themselves (\"recreate the success\"). On 2026-10-15 it still "
+          "cloned Nightly 154.0a1 while the patch set was for stable 158: anyone following it built the wrong thing.",
+          origin="Linux, 2026-10-15 (owner)", linux="becomes a BLOCKER for publishing (S9)"),
+    Check("deb-packaging", "Packaging pieces", BLOCKER, _c_deb_packaging,
+          "Restore the missing file in the harness folder (scripts/ and deb_template/).",
+          "The .deb carries the Gorilla name, the large crisp icon (D-157-35: one master, never drawn small), the "
+          "desktop entry and the Microsoft fonts (they ship inside the .deb, decided). A missing piece fails at package "
+          "time, after hours of compiling.",
+          origin="Linux, 2026-10-15 (owner: naming, crisp icons, install and packaging must not be forgotten)"),
 ]
 
 
