@@ -42,7 +42,8 @@ What that means for the SHAPE (stated in source unless marked):
      `--order classic` keeps the owner's original military order for readers who prefer it.
   3. Each section is bullets or numbered steps, not paragraphs. Steps are capped (rules.yaml).
   4. Sentences are capped at 25 words (GOV.UK content design number; the dyslexia guide gives no number).
-  5. Idioms, abbreviations, em-dashes, italics and underline fail the check. Bold is allowed.
+  5. Idioms (in all six languages, whatever --lang says), abbreviations, em-dashes, italics and
+     underline fail the check. Bold is allowed.
   6. Headings exist in six languages; Romanian never alone (grey man, 2026-10-13).
   7. The whole thing is plain text, left aligned, wrapped at 80 columns, with a blank line around every
      heading. Fonts and colours are the reader's terminal's business, not this tool's.
@@ -189,9 +190,10 @@ def check(text):
                 if n > lim.get("sentence_words", 25):
                     problems.append(f"FAIL {n}-word sentence under '{name}' (limit {lim.get('sentence_words', 25)}):"
                                     f" '{s[:60]}...'")
-            for idiom in ban.get("idioms", []):
-                if re.search(r"\b" + re.escape(idiom.lower()) + r"\b", low):
-                    problems.append(f"FAIL idiom under '{name}': '{idiom}'. Say the literal thing")
+            for key in [k for k in ban if k == "idioms" or k.startswith("idioms_")]:
+                for idiom in ban.get(key, []):
+                    if re.search(r"(?<!\w)" + re.escape(idiom.lower()) + r"(?!\w)", low):
+                        problems.append(f"FAIL idiom under '{name}': '{idiom}'. Say the literal thing")
             for ab in ban.get("abbreviations", []):
                 if re.search(r"(?<![A-Za-z])" + re.escape(ab.lower()) + r"(?![A-Za-z])", low):
                     problems.append(f"FAIL abbreviation under '{name}': '{ab}'. Use the full words")

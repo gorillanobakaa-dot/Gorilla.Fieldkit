@@ -5,7 +5,7 @@
  "metrics": {
   "developer": {
    "commands": 8,
-   "words_total": 2248
+   "words_total": 2258
   },
   "layman": {
    "commands": 6,
@@ -13,16 +13,16 @@
    "glossary_terms": 8,
    "trust_steps": 4,
    "usage_steps": 6,
-   "words_total": 4066
+   "words_total": 4076
   }
  },
  "rendered": "2026-10-14",
  "scores": {
   "developer": 95,
-  "layman": 96
+  "layman": 97
  },
  "sources": {
-  "sitrep/__init__.py": "31568da2716a07df6d35fc448b205bee786a9426bf9a5bfdab7e34852c54437e"
+  "sitrep/__init__.py": "780934f332ba865a24903081d60b0b6139c9908306da84030a417a078931c5ad"
  },
  "title": "A situation report a reader can take in a few seconds at a time (ADHD, dyslexia, autism)"
 }

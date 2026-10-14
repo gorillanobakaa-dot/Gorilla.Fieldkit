@@ -1,0 +1,16 @@
+# gitleaks configuration for Gorilla.Fieldkit.
+#
+# 2026-10-14: gitleaks-history flagged commit d944bc7 for a "generic-api-key". The value is the
+# SHA-256 of fieldkit/buildh/keyed.py recorded in docs/dual-track/port-engine/STATE.json by the
+# documentation renderer (every rendered group keeps the hash of each source file it was rendered
+# from, so `fieldkit docs check` can say when a document is stale). A 64-character hex digest in a
+# STATE.json is a file hash, never a credential. Everything else keeps the default rules.
+title = "Gorilla.Fieldkit"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "source-file hashes kept by the dual-track documentation renderer"
+paths = ['''docs/dual-track/.*/STATE\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']

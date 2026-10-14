@@ -89,6 +89,17 @@ def test_long_sentence_idiom_abbreviation_emdash_and_italics_each_fail():
     assert d["ok"], d["problems"]
 
 
+def test_idioms_in_the_other_five_languages_fail_too_whatever_the_heading_language():
+    """2026-10-14: the English list alone left a Romanian or Spanish figure of speech standing."""
+    for phrase in ("La sfârșitul zilei, merge.", "Al final del día funciona.", "Unterm Strich passt es.",
+                   "No fim do dia funciona.", "In fin dei conti funziona."):
+        d = sitrep.check(_report(**{"What is left": ["- " + phrase]}))
+        assert any("idiom" in p for p in d["problems"]), phrase
+    r = sitrep.rules()["banned"]
+    for lang in ("es", "pt", "it", "de", "ro"):
+        assert r.get(f"idioms_{lang}"), lang
+
+
 def test_warnings_do_not_fail_but_are_said():
     eight = [f"{i}. Step {i}." for i in range(1, 9)]
     d = sitrep.check(_report(**{"What happened": eight}))
