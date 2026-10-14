@@ -461,6 +461,34 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
     return {"dropped": [x["id"] for x in drop_steps], "files": sorted(files), "reapplied": reapplied}
 
 
+def withdraw(task_id, step_id, reason, who="owner"):
+    """Take back one waiting proposal: it is moved to proposals/withdrawn (never deleted), the step ends as obsolete
+    with the reason, and the owner's one-go accept no longer offers it.
+
+    2026-10-14, Linux 158: 052's adapted port (the about:pdf logo at 64 px) waited for acceptance while a LATER
+    decision, D-157-35 (no Gorilla drawn small), removes that logo altogether. `drop` takes whole patches; one hunk
+    of a many-file patch needed its own way out."""
+    import shutil
+    t = load(task_id)
+    s = next((x for x in t["steps"] if x["id"] == step_id), None)
+    if s is None:
+        raise Refused(f"no step {step_id!r}")
+    if s["status"] != "proposed":
+        raise Refused(f"{step_id} is {s['status']}, not a waiting proposal")
+    if not (reason or "").strip():
+        raise Refused("say why the proposal is withdrawn (--note)")
+    out = _proposals_dir(t) / "withdrawn"
+    out.mkdir(exist_ok=True)
+    for ext in (".diff", ".json"):
+        src = _proposals_dir(t) / f"{step_id}{ext}"
+        if src.is_file():
+            shutil.move(str(src), str(out / src.name))
+    s["status"], s["last_why"], s["withdrawn_by"] = "obsolete", [f"proposal withdrawn by {who}: {reason}"], who
+    journal(t, "withdrawn", step=step_id, by=who, reason=reason)
+    save(t)
+    return {"withdrawn": step_id, "reason": reason}
+
+
 def _proposals_dir(t):
     d = _dir(t["id"]) / "proposals"
     d.mkdir(parents=True, exist_ok=True)

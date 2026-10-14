@@ -300,3 +300,19 @@ def test_the_owner_at_a_window_whose_output_is_logged_is_still_the_owner(monkeyp
     assert task.owner_terminal()
     monkeypatch.setattr(task.sys, "stdin", io.StringIO())
     assert not task.owner_terminal()
+
+
+def test_one_proposal_can_be_withdrawn_with_a_reason(job2):
+    """052's about:pdf logo waited for acceptance while D-157-35 removes that logo (2026-10-14)."""
+    task.approve("t2", "owner")
+    task.packet("t2")
+    (job2 / "alpha.txt").write_text("ALPHA\n")
+    task.submit("t2", adapted="renamed\nlesson: follow renames")
+    with pytest.raises(task.Refused, match="say why"):
+        task.withdraw("t2", "fix-alpha", "")
+    r = task.withdraw("t2", "fix-alpha", "a later decision removes this", who="sam")
+    s = next(x for x in task.load("t2")["steps"] if x["id"] == "fix-alpha")
+    assert r["withdrawn"] == "fix-alpha" and s["status"] == "obsolete" and "a later decision" in s["last_why"][0]
+    assert not Path(task.STATE, "t2", "proposals", "fix-alpha.diff").exists()
+    assert Path(task.STATE, "t2", "proposals", "withdrawn", "fix-alpha.diff").is_file()
+    assert task.proposals("t2") == []
