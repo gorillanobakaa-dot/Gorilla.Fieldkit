@@ -50,6 +50,13 @@ stages:
       - {python: {target: "fieldkit.build.firefox_linux:verify_patches"}}
     triage: firefox-linux
 
+  - id: preflight
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_preflight:stage_preflight"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_preflight:stage_preflight"}}
+    triage: firefox-linux
+
   - id: bootstrap
     platforms: [linux]
     timeout: 7200
