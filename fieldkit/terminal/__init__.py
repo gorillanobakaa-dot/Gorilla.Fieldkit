@@ -52,7 +52,9 @@ DESKTOP_FIRST = {"GNOME": "gnome-terminal", "UBUNTU": "gnome-terminal", "XFCE": 
 def log_path(now=None):
     d = settings.ROOT / "state" / "terminal"
     d.mkdir(parents=True, exist_ok=True)
-    return d / f"{time.strftime('%Y%m%d-%H%M%S', now)}.log"
+    # 2026-10-14: strftime refuses None; the first real run crashed here while the test had stubbed this function out
+    stamp = time.strftime("%Y%m%d-%H%M%S", now) if now else time.strftime("%Y%m%d-%H%M%S")
+    return d / f"{stamp}.log"
 
 
 def pick_linux(which=None, env=None):

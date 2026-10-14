@@ -60,3 +60,14 @@ def test_doctor_says_what_is_missing():
     assert not d["ok"] and len(d["problems"]) == 2
     d = T.doctor(which=lambda n: "/usr/bin/xterm" if n == "xterm" else None, env={"DISPLAY": ":0"}, platform="linux")
     assert d["ok"] and d["terminal"] == "xterm"
+
+
+def test_log_path_works_unstubbed_with_and_without_a_time(tmp_path, monkeypatch):
+    """2026-10-14: the first real `fieldkit terminal run` crashed in log_path because strftime refuses None and
+    every test had stubbed the function out. A stub is not a test of the thing it replaces."""
+    import time
+    monkeypatch.setattr(T.settings, "ROOT", tmp_path)
+    a = T.log_path()
+    b = T.log_path(time.localtime(0))
+    assert a.parent == tmp_path / "state" / "terminal" and a.suffix == ".log"
+    assert b.name == time.strftime("%Y%m%d-%H%M%S", time.localtime(0)) + ".log"
