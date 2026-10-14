@@ -2124,6 +2124,19 @@ tools:
   platforms: [linux]
   changes: false
 
+- id: terminal
+  title: "Open a terminal window in front of a person with a command ready: ask waits for their Enter, run runs at once"
+  harness: terminal
+  entry: [python, -m, fieldkit, terminal]
+  path: ${FIELDKIT}/fieldkit/terminal/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "doctor | ask | run"}
+    - {name: command, flag: null, type: str, required: false, help: "after --: the command, with the program's full path"}
+  effects: [starts-process, writes-files]
+  safety: reversible
+  platforms: [linux, darwin, windows]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_terminal.py"]
+
 - id: teach
   title: "A teaching log from a session transcript: every command a session ran, in order, with what came back"
   harness: teach
@@ -2136,7 +2149,7 @@ tools:
   effects: [reads-files, writes-files]
   safety: reversible
   platforms: [linux, darwin, windows, freebsd]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_teach.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_teach.py", "${FIELDKIT}/tests/test_teach_propose.py"]
 
 - id: sitrep
   title: "A situation report a reader can take in a few seconds at a time: template, check, render (six languages), doctor"

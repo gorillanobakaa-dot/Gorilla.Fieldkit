@@ -40,6 +40,8 @@
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
     fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
+    fieldkit teach propose LOG.md --out DIR [--name N]   a pipeline draft, signature stubs and card candidates from a teaching log
+    fieldkit terminal doctor|ask|run [-- COMMAND ...]   open a terminal window in front of a person with the command ready (fieldkit/terminal)
     fieldkit update [--only apt|github|native] [--apply]   what is behind what was published (fieldkit/update)
     fieldkit wifi doctor|scan|upgrade                   why the wifi is slow, from the hardware (fieldkit/wifi)
     fieldkit wifi channels [--why|--check CH|--networks] which channel is free, and the argument for it
@@ -1268,11 +1270,22 @@ def build_parser():
     ex.add_argument("--check", action="store_true", help="verify every translation has an original")
     ex.set_defaults(fn=cmd_explain)
 
+    tm = sub.add_parser("terminal", parents=[common],
+                        help="open a terminal window in front of a person with a command ready: doctor, ask (wait for "
+                             "their Enter), run (fieldkit/terminal)")
+    tm.add_argument("action", choices=["doctor", "ask", "run"])
+    tm.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --; give the program's full path")
+    tm.add_argument("--title", default=None)
+    tm.set_defaults(fn=cmd_terminal)
+
     te = sub.add_parser("teach", parents=[common],
                         help="a teaching log from a session transcript: every command run, in order, with what came "
                              "back (fieldkit/teach)")
-    te.add_argument("session", nargs="?", default="newest", help="session id prefix, a .jsonl path, or 'newest'")
-    te.add_argument("--out", required=True, help="the markdown log to write")
+    te.add_argument("session", nargs="?", default="newest",
+                    help="session id prefix, a .jsonl path, 'newest', or 'propose' (then LOG is the teaching log)")
+    te.add_argument("log", nargs="?", help="with propose: the teaching log to read")
+    te.add_argument("--out", required=True, help="the markdown log to write; with propose, the folder for the drafts")
+    te.add_argument("--name", default=None, help="with propose: the pipeline name for the draft")
     te.add_argument("--since", default="", help="ISO time; commands before it are left out")
     te.add_argument("--tools", default="Bash,PowerShell", help="tool names to include, comma-separated")
     te.add_argument("--max-chars", type=int, default=4000, help="output kept per command")
@@ -1615,8 +1628,32 @@ def cmd_explain(a):
     return explain.exit_code(d)
 
 
+def cmd_terminal(a):
+    from . import terminal
+    if a.action == "doctor":
+        d = terminal.doctor()
+        _emit(d, a.json, lambda x: print("\n".join(terminal.lines(x))))
+        return 0 if d["ok"] else 3
+    cmd = [c for c in a.command if c != "--"]
+    if not cmd:
+        raise SystemExit(f"fieldkit terminal {a.action} -- COMMAND ...")
+    d = terminal.open_window(cmd, mode=a.action, title=a.title)
+    _emit(d, a.json, lambda x: print("\n".join(terminal.lines(x))))
+    return 0 if d["ok"] else 3
+
+
 def cmd_teach(a):
     from . import teach
+    if a.session == "propose":
+        from .teach import propose
+        if not a.log:
+            raise SystemExit("fieldkit teach propose LOG.md --out DIR")
+        d = propose.write(a.log, a.out, name=a.name)
+        _emit(d, a.json, lambda x: print(
+            f"  wrote {x['out']}: {x['stages']} stage(s), {x['signatures']} signature stub(s), {x['cards']} card "
+            f"candidate(s) from {x['commands']} command(s) ({x['failed']} failed). Edit, then fieldkit pipeline plan."
+            if x["ok"] else f"  REFUSED: {x['why']}"))
+        return 0 if d["ok"] else 3
     d = teach.write(a.session, a.out, since=a.since, tools=tuple(t for t in a.tools.split(",") if t),
                     max_chars=a.max_chars, title=a.title)
     _emit(d, a.json, lambda x: print(f"  wrote {x['out']}: {x['commands']} command(s), {x['failed']} failed, from {x['source']}"

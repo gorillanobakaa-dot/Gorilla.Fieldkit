@@ -137,9 +137,15 @@ def _apply(ctx, check_only, run=_run):
     m = re.search(r"ok\s*:\s*(\d+).*?fail\s*:\s*(\d+)", out, re.S | re.I)
     fail_n = int(m.group(2)) if m else len(failed)
     ok = rc == 0 and fail_n == 0
+    if ok:
+        detail = "every patch applies"
+    elif fail_n:
+        detail = f"{fail_n} patch(es) do not apply; refusing to build a partly patched tree" + \
+            (": " + ", ".join(failed[:5]) if failed else "")
+    else:   # 2026-10-14: apply.sh exited non-zero before counting (no source tree): say its last line, not "0 patches"
+        detail = f"apply.sh exited {rc}: " + (out.strip().splitlines()[-1] if out.strip() else "(no output)")
     return {"ok": ok, "failed": fail_n, "failed_patches": failed[:50], "mode": "check" if check_only else "apply",
-            "detail": ("every patch applies" if ok else f"{fail_n} patch(es) do not apply; refusing to build a partly patched tree")
-            + (": " + ", ".join(failed[:5]) if failed else ""), "output_tail": out[-2000:]}
+            "detail": detail, "output_tail": out[-2000:]}
 
 
 def stage_patches(ctx, check_only=False, run=_run):

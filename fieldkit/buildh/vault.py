@@ -63,16 +63,25 @@ def _write_meta(d, meta):
     (d / "vault.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
 
 
+_WRITE_BITS = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+
+
 def _readonly(path):
     """Mark every file read-only. Directories stay listable; git's own index is left writable
-    so `git status` can refresh its cache, which changes no source file."""
+    so `git status` can refresh its cache, which changes no source file.
+
+    2026-10-14, first run on Linux: the old chmod set every file to 0444, which also stripped the
+    EXECUTE bit; git then reported 1,832 mode changes (100755 -> 100644), `mach` itself was no longer
+    runnable, and verify() called the vault damaged by its own hand. Written on Windows, where the bit
+    does not exist, so it never showed. Now only the write bits are removed."""
     n = 0
     for dirpath, _dirs, files in os.walk(path):
         for f in files:
             p = os.path.join(dirpath, f)
             if os.path.basename(p) == "index" and ".git" in Path(p).parts:
                 continue
-            os.chmod(p, stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH)
+            mode = stat.S_IMODE(os.lstat(p).st_mode)
+            os.chmod(p, mode & ~_WRITE_BITS)
             n += 1
     return n
 
@@ -190,7 +199,9 @@ def verify(product, version=None, base=None):
         head = _git("rev-parse", "HEAD", cwd=d).strip()
         if head != m["commit"]:
             problems.append(f"HEAD is {head[:12]}, the vault recorded {m['commit'][:12]}")
-        dirty = [l for l in _git("status", "--porcelain", "--untracked-files=all", cwd=d).splitlines()
+        # content and names, never file modes: a mode is this machine's business (and the lock changes it)
+        dirty = [l for l in _git("-c", "core.fileMode=false", "status", "--porcelain", "--untracked-files=all",
+                                 cwd=d).splitlines()
                  if l[3:] != "vault.json"]
         if dirty:
             problems.append(f"{len(dirty)} file(s) changed or added, e.g. {dirty[0][3:]}")
@@ -219,7 +230,7 @@ def restore(product, workdir, version=None, base=None):
         _git("clone", "--quiet", "--config", "core.autocrlf=false", "--no-hardlinks", str(d), str(workdir))
         for f in workdir.rglob("*"):
             if f.is_file() and not os.access(f, os.W_OK):
-                os.chmod(f, stat.S_IREAD | stat.S_IWRITE)
+                os.chmod(f, stat.S_IMODE(os.lstat(f).st_mode) | stat.S_IWUSR)   # writable again, execute bit kept
     else:
         workdir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(d / m["file"]) as t:

@@ -202,3 +202,11 @@ def test_a_private_term_matches_as_a_word_not_inside_a_domain_name():
     assert any(h["kind"] == "private-term" for h in hits), "a term before @ is still the term"
     hits = privacy.scan_text("/home/lauren/notes\n", terms=["lauren"], allow_paths=True)  # privacy-scan: allow
     assert any(h["kind"] == "private-term" for h in hits), "a term between slashes is still the term"
+
+
+def test_self_cmd_is_an_absolute_launcher_or_the_running_python():
+    """2026-10-14: a command handed to a person carries its full path."""
+    import os
+    from fieldkit.core import settings
+    c = settings.self_cmd()
+    assert os.path.isabs(c.split(" ")[0]), c
