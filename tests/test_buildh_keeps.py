@@ -75,3 +75,18 @@ def test_a_declared_removed_line_is_not_reported_as_renamed_onto_an_earlier_gori
              "         }", "  return NS_OK;", "}"]
     keeps = firefox.hand_keeps("why\nkeeps: s == nsILoadInfo::IPAddressSpace::Private;")
     assert not [w for w in firefox.hand_port_check(pristine, after, hunk, pristine, keeps) if "new names" in w]
+
+
+
+def test_a_declared_removal_is_the_twin_of_a_declared_keep():
+    """StaticPrefList.yaml h1 of the 158 port (2026-10-14): the hunk removes `value: @IS_NIGHTLY_BUILD@`, upstream had
+    made it `value: true`; removing THAT line shares no distinctive token with the hunk and read as damage."""
+    assert firefox.hand_removes("upstream changed it; removes: value: true") == ["value: true"]
+    hunk = {"lines": ["#ifdef MOZ_ENABLE_SKIA_PDF", "- name: accessibility.tagged_pdf_output.enabled", "   type: bool",
+                      "-  value: @IS_NIGHTLY_BUILD@", "+  value: false", "   mirror: always", "#endif"]}
+    before = ["#ifdef MOZ_ENABLE_SKIA_PDF", "- name: accessibility.tagged_pdf_output.enabled", "  type: bool",
+              "  value: true", "  mirror: always", "#endif", ""]
+    after = ["#ifdef MOZ_ENABLE_SKIA_PDF", "- name: accessibility.tagged_pdf_output.enabled", "  type: bool",
+             "  value: false", "  mirror: always", "#endif", ""]
+    assert any("you removed" in w for w in firefox.hand_port_check(before, after, hunk, before))
+    assert firefox.hand_port_check(before, after, hunk, before, removes=firefox.hand_removes("removes: value: true")) == []

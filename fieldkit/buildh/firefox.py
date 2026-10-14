@@ -1813,6 +1813,20 @@ def auto_port(t, s, patch, file, hunk, **kw):
 _TOKEN = re.compile(r"[A-Za-z_$][\w$]{5,}|\"[^\"]{4,}\"|'[^']{4,}'|`[^`]{4,}`")
 
 
+def hand_removes(note):
+    """The lines a declared port removes that are not the hunk's own '-' lines, declared in the submit note (or the
+    adapted reason) as `removes: <line>` (one per line or `;`-separated): the twin of `keeps:`. StaticPrefList.yaml
+    h1 of the 158 port (2026-10-14): the hunk removes `value: @IS_NIGHTLY_BUILD@`, upstream had already made it
+    `value: true`, the port must remove THAT line, and `value: true` shares no distinctive token with the hunk, so
+    the collateral check read it as damage and the step lost two attempts."""
+    out = []
+    for chunk in re.split(r"[\n;]", note or ""):
+        m = re.match(r"\s*removes?:\s*(.+?)\s*$", chunk)
+        if m:
+            out.append(m.group(1).strip())
+    return out
+
+
 def hand_keeps(note):
     """The removed lines a hand port keeps on purpose, declared in the submit note as `keeps: <line>` (one per
     line or `;`-separated). ml/moz.build h1 (live run 16): upstream added `"ipc",` inside the `if ... android`
@@ -1851,7 +1865,7 @@ def _facts(lines):
     return f
 
 
-def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_check=True):
+def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_check=True, removes=()):
     """A PERSON ported this hunk by hand (not a model): the shape may differ from the patch, the meaning may not.
     Required: every specific removed line is gone (from the frame when it can be pinned, else the file); every
     distinctive token of the added lines (identifiers of 6+ chars, quoted strings) is present near the change;
@@ -1938,8 +1952,9 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_che
         if any({norm(t) for t in _TOKEN.findall(x)} & hunk_tokens for x in run):
             allowed += [x for x in run if {norm(t) for t in _TOKEN.findall(x)} & hunk_tokens or not _TOKEN.findall(x)]
     new_lines = [l for l in after if l.strip() and l.strip() not in {b.strip() for b in before}]
+    declared = [x.strip() for x in removes]                   # `removes: <line>`: the current form of a removed line
     extra = collateral(before, after, {"lines": [l for l in hunk["lines"] if not l.startswith("+")] + ["+" + l for l in new_lines]},
-                       extra_removals=allowed)
+                       extra_removals=allowed + [l for l in before if l.strip() in declared])
     why += [w for w in extra if w.startswith("you removed")]
     return why
 
@@ -1984,7 +1999,8 @@ def check_port(t, s, patch, file, hunk, **kw):
         root = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
         pristine = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
             "utf-8", "replace").splitlines() if root else None
-        why = hand_port_check(before, after, hunk, pristine or None, keeps=hand_keeps(s.get("hand_note")))
+        why = hand_port_check(before, after, hunk, pristine or None, keeps=hand_keeps(s.get("hand_note")),
+                              removes=hand_removes(s.get("hand_note")))
         return {"ok": not why, "why": why[:8]}
     if file.endswith(".ftl"):
         from . import fluent
