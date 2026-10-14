@@ -41,7 +41,7 @@
     fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
     fieldkit teach propose LOG.md --out DIR [--name N]   a pipeline draft, signature stubs and card candidates from a teaching log
-    fieldkit terminal doctor|ask|run [-- COMMAND ...]   open a terminal window in front of a person with the command ready (fieldkit/terminal)
+    fieldkit terminal doctor|ask|run|history [-- COMMAND ...]   open a terminal window in front of a person with the command ready; history = every window's outcome (fieldkit/terminal)
     fieldkit update [--only apt|github|native] [--apply]   what is behind what was published (fieldkit/update)
     fieldkit wifi doctor|scan|upgrade                   why the wifi is slow, from the hardware (fieldkit/wifi)
     fieldkit wifi channels [--why|--check CH|--networks] which channel is free, and the argument for it
@@ -1273,9 +1273,10 @@ def build_parser():
     tm = sub.add_parser("terminal", parents=[common],
                         help="open a terminal window in front of a person with a command ready: doctor, ask (wait for "
                              "their Enter), run (fieldkit/terminal)")
-    tm.add_argument("action", choices=["doctor", "ask", "run"])
+    tm.add_argument("action", choices=["doctor", "ask", "run", "history"])
     tm.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --; give the program's full path")
     tm.add_argument("--title", default=None)
+    tm.add_argument("--say", action="store_true", help="also speak the first line, for a reader who hears better than reads")
     tm.set_defaults(fn=cmd_terminal)
 
     te = sub.add_parser("teach", parents=[common],
@@ -1634,10 +1635,14 @@ def cmd_terminal(a):
         d = terminal.doctor()
         _emit(d, a.json, lambda x: print("\n".join(terminal.lines(x))))
         return 0 if d["ok"] else 3
-    cmd = [c for c in a.command if c != "--"]
+    if a.action == "history":
+        rows = terminal.history()
+        _emit({"windows": rows}, a.json, lambda x: print("\n".join(terminal.history_lines(x["windows"]))))
+        return 0
+    cmd, title = terminal.split_args(a.command, a.title)
     if not cmd:
-        raise SystemExit(f"fieldkit terminal {a.action} -- COMMAND ...")
-    d = terminal.open_window(cmd, mode=a.action, title=a.title)
+        raise SystemExit(f"fieldkit terminal {a.action} [--title T] -- COMMAND ...")
+    d = terminal.open_window(cmd, mode=a.action, title=title, say=a.say)
     _emit(d, a.json, lambda x: print("\n".join(terminal.lines(x))))
     return 0 if d["ok"] else 3
 
