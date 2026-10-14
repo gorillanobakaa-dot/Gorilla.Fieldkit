@@ -31,7 +31,9 @@ TOOLS = ["git", "python3", "patch", "rsync", "curl", "unzip", "node", "rustc", "
          "llvm-objdump-21"]
 NEED_GB, MIN_GB = 25, 20          # recreate.sh: "Compiling Firefox needs ~25 GB"; refuses under 20
 MIN_RAM_GB = 8                    # recreate.sh: under 8 GB with no swap, the link step dies
-MACH_ENV_DROP = ("CLAUDECODE",)   # ERROR 4: mozbuild util.py is_running_under_coding_agent()
+# ERROR 4: mozbuild util.py is_running_under_coding_agent() checks all four; Linux dropped only CLAUDECODE until the
+# Windows preflight port (agent-env, 2026-10-14) showed the other three would silence mach the same way
+MACH_ENV_DROP = ("CLAUDECODE", "CODEX_SANDBOX", "GEMINI_CLI", "OPENCODE")
 
 
 def _v(ctx, key):
