@@ -65,6 +65,14 @@ def private_terms(local=None):
     return [t for t in (local.get("privacy", {}) or {}).get("terms", []) if t and len(t) > 2]
 
 
+
+def term_pattern(term):
+    """A private term matches as a whole word, not inside another one. 2026-10-14: a five-letter name
+    matched inside 36 unrelated domain names in uBlock's third-party filter lists on the public
+    Firefox tree, so the scan could not gate that repository. Letters and digits on either side
+    mean 'inside a word'; punctuation, spaces and line ends do not."""
+    return re.compile(r"(?<![a-z0-9])" + re.escape(term.lower()) + r"(?![a-z0-9])")
+
 def scan_text(text, terms=(), allow_paths=False, allow_emails=False):
     """Return a list of findings {kind, line, excerpt} for one text."""
     out = []
@@ -86,7 +94,7 @@ def scan_text(text, terms=(), allow_paths=False, allow_emails=False):
                 out.append({"kind": kind, "line": lineno, "excerpt": _mask(m.group(0))})
         low = line.lower()
         for t in terms:
-            if t.lower() in low:
+            if term_pattern(t).search(low):
                 out.append({"kind": "private-term", "line": lineno, "excerpt": _mask(t)})
     return out
 
@@ -382,7 +390,7 @@ def scan_path(path, terms=None, git_only=False, examined=None, **kw):
         # folder: the folder's own location (C:\Users\<login>) is not published
         rel = str(f.relative_to(path)) if path.is_dir() else f.name
         for t in terms:
-            if t.lower() in rel.lower():
+            if term_pattern(t).search(rel.lower()):
                 hits.append({"kind": "private-term-in-filename", "line": 0, "excerpt": _mask(t)})
         if hits:
             report[str(f)] = hits

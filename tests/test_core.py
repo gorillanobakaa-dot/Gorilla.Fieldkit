@@ -189,3 +189,16 @@ def test_privacy_says_how_many_files_it_examined(tmp_path):
     counted = []
     privacy.scan_path(tmp_path / "a.txt", terms=[], examined=counted)
     assert counted == [1]
+
+
+def test_a_private_term_matches_as_a_word_not_inside_a_domain_name():
+    """2026-10-14: a five-letter name inside 36 unrelated domains in uBlock's filter lists."""
+    from fieldkit.core import privacy
+    hits = privacy.scan_text("||laurenberninteriors.com^\n", terms=["lauren"])
+    assert [h for h in hits if h["kind"] == "private-term"] == [], hits
+    hits = privacy.scan_text("written by Lauren, 2026\n", terms=["lauren"])
+    assert [h["kind"] for h in hits] == ["private-term"]
+    hits = privacy.scan_text("mail from lauren@example.org\n", terms=["lauren"], allow_emails=True)
+    assert any(h["kind"] == "private-term" for h in hits), "a term before @ is still the term"
+    hits = privacy.scan_text("/home/lauren/notes\n", terms=["lauren"], allow_paths=True)  # privacy-scan: allow
+    assert any(h["kind"] == "private-term" for h in hits), "a term between slashes is still the term"
