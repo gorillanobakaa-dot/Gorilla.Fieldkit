@@ -352,8 +352,11 @@ TECHNIQUES.append({
          "text": '--gorilla-master-icon: url("chrome://branding/content/about-logo.png");'},
         {"name": "no-page-title-logo", "kind": "must_have", "path": "toolkit/content/widgets/moz-page-nav/moz-page-nav.css",
          "text": "GORILLA D-157-35: no 24 px Gorilla beside the page title"},
+        # browser/components/aiwindow is excised from the build (DIRS in browser/components/moz.build); Firefox 158 added
+        # new files there that the 157 deletion list does not name, and they are never built or packaged (2026-10-15)
         {"name": "retired-logo-files", "kind": "watch", "pathspec": ["browser", "toolkit", "docshell", ":!**/test/**",
-                                                                     ":!**/tests/**", ":!*.md"],
+                                                                     ":!**/tests/**", ":!*.md",
+                                                                     ":!browser/components/aiwindow/**"],
          "regex": r"chrome://branding/content/(about-logo\.svg|about-logo@2x|about-logo-private|about\.svg|about\.png)",
          "guard_lines": 0, "allow": {}},
     ],
