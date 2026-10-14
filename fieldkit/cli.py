@@ -1332,7 +1332,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro"])
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept"])
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
     bh.add_argument("--park", help="migration control: do NOT run this record/repair/build-run/decide; park it as a ticket with this reason")
@@ -1382,6 +1382,7 @@ def build_parser():
     bh.add_argument("--version", help="vault verify/restore: a version other than the newest")
     bh.add_argument("--note", help="submit: a note for the log")
     bh.add_argument("--hand", action="store_true", help="submit: a PERSON ported this hunk by hand; judge it by meaning (removed lines gone, added text's tokens present), not by the letter")
+    bh.add_argument("--adapted", default="", help="submit: the MODEL declares an adapted port (a symbol renamed upstream, code moved) with its reason; judged by meaning, saved as a proposal for the owner's one-go acceptance, no attempt spent")
     bh.add_argument("--session", help="watch/report: a Gorilla OpenCode session id (default: the newest)")
     bh.add_argument("--harness", help="start: the Gorilla.firefox folder to read patches from (default firefox.root)")
     bh.add_argument("--agent", help="drive: the agent command (default gorilla-opencode)")

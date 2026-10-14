@@ -181,3 +181,87 @@ def test_a_blocked_step_does_not_halt_the_rest_and_the_run_ends_with_the_list(jo
     assert end["state"] == "BLOCKED" and end["steps"] == ["fix-alpha"] and "wait for a person" in end["next"]
     ev = [json.loads(l)["event"] for l in (task.STATE / "t1" / "journal.jsonl").read_text(encoding="utf-8").splitlines()]
     assert "done" not in ev
+
+
+
+def chk_meaning(t, s, word):
+    """A check that is literal unless the step is a declared port: then the word may appear in any case."""
+    f = Path(t["workdir"], f"{word}.txt")
+    text = f.read_text() if f.is_file() else ""
+    ok = (word.lower() in text.lower()) if s.get("hand_port") else (word in text)
+    return {"ok": ok, "why": [] if ok else [f"{word}.txt does not contain {word}" + (" (by the letter)" if not s.get("hand_port") else "")]}
+
+
+def step_prepare_meaning(t, **kw):
+    return {"ok": True, "summary": "x",
+            "add_steps": [{"id": f"fix-{n}", "kind": "model", "title": f"put {n} into {n}.txt",
+                           "packet": "tests.test_buildh_task:pkt", "check": "tests.test_buildh_task:chk_meaning",
+                           "allowed": [f"{n}.txt"], "args": {"word": n}} for n in ("alpha", "beta")]}
+
+
+@pytest.fixture
+def job2(tmp_path, monkeypatch):
+    monkeypatch.setattr(task, "STATE", tmp_path / "state")
+    w = tmp_path / "work"
+    w.mkdir()
+    subprocess.run(["git", "init", "-q", str(w)], check=True)
+    (w / "base.txt").write_text("base\n")
+    subprocess.run(["git", "-C", str(w), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "commit", "-q", "-m", "base"], check=True)
+    task.start("t2", "demo", w, [{"id": "prepare", "kind": "script", "title": "prepare",
+                                  "run": "tests.test_buildh_task:step_prepare_meaning"}], budget_tokens=1000)
+    return w
+
+
+def test_an_adapted_port_is_saved_for_the_owner_not_spent_and_the_run_goes_on(job2):
+    """2026-10-14, the owner: "I wanna approve it all in one go". The model declares the port adapted; the
+    harness judges it by meaning, keeps the diff, puts the tree back, spends no attempt, moves on."""
+    task.approve("t2", "owner")
+    task.packet("t2")
+    (job2 / "alpha.txt").write_text("ALPHA\n")                    # right by meaning, wrong by the letter
+    r = task.submit("t2", adapted="upstream renamed the symbol to upper case")
+    assert r["ok"] and r["proposed"]
+    t = task.load("t2")
+    s = next(x for x in t["steps"] if x["id"] == "fix-alpha")
+    assert s["status"] == "proposed" and s["attempts"] == 0
+    assert "by the letter" in s["proposal"]["literal_check_said"][0]
+    assert not (job2 / "alpha.txt").exists(), "the tree was put back"
+    assert Path(task.STATE, "t2", "proposals", "fix-alpha.diff").read_bytes()
+    assert task.packet("t2")["step"] == "fix-beta", "the run goes on"
+
+
+def test_an_adapted_port_that_does_not_hold_by_meaning_is_an_ordinary_failed_attempt(job2):
+    task.approve("t2", "owner")
+    task.packet("t2")
+    (job2 / "alpha.txt").write_text("nothing here\n")
+    r = task.submit("t2", adapted="trust me")
+    assert not r["ok"] and "meaning does not hold" in r["why"][0] and r["attempts"] == "1 of 3"
+
+
+def test_the_owner_accepts_every_proposal_in_one_go(job2):
+    task.approve("t2", "owner")
+    task.packet("t2"); (job2 / "alpha.txt").write_text("ALPHA\n"); task.submit("t2", adapted="renamed")
+    task.packet("t2"); (job2 / "beta.txt").write_text("BETA\n"); task.submit("t2", adapted="renamed too")
+    end = task.advance("t2")
+    assert end["state"] == "PROPOSED" and end["steps"] == ["fix-alpha", "fix-beta"] and "accept t2 --all" in end["next"]
+    assert len(task.proposals("t2")) == 2
+    r = task.accept("t2", who="owner")
+    assert r["accepted"] == ["fix-alpha", "fix-beta"] and not r["failed"], r
+    assert (job2 / "alpha.txt").read_text() == "ALPHA\n" and (job2 / "beta.txt").read_text() == "BETA\n"
+    t = task.load("t2")
+    assert all(s["status"] == "done" and s.get("done_by") == "hand" and s.get("accepted_by") == "owner"
+               for s in t["steps"] if s["kind"] == "model")
+    log = subprocess.run(["git", "-C", str(job2), "log", "--oneline"], capture_output=True, text=True).stdout
+    assert "checkpoint: fix-alpha" in log and "checkpoint: fix-beta" in log
+    assert task.advance("t2")["state"] == "DONE"
+
+
+def test_a_proposal_that_no_longer_applies_goes_back_to_failed_not_guessed(job2):
+    task.approve("t2", "owner")
+    task.packet("t2"); (job2 / "alpha.txt").write_text("ALPHA\n"); task.submit("t2", adapted="renamed")
+    (job2 / "alpha.txt").write_text("someone else\n")
+    task.checkpoint(task.load("t2"), "something else moved the file")
+    r = task.accept("t2", who="owner")
+    assert r["accepted"] == [] and r["failed"][0]["step"] == "fix-alpha" and "no longer applies" in r["failed"][0]["why"]
+    assert task.load("t2")["steps"][1]["status"] == "failed"

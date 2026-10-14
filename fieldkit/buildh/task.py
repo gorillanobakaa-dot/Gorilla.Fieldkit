@@ -246,6 +246,12 @@ def advance(task_id, in_flight_steps=None):
                         "steps": [x["id"] for x in blocked],
                         "next": f"{len(blocked)} step(s) wait for a person: fix by hand then `build-harness submit`, "
                                 "or `build-harness unblock ... retry`; the build gate stays closed"}
+            proposed = [x["id"] for x in t["steps"] if x["status"] == "proposed"]
+            if proposed:
+                journal(t, "done-with-proposals", steps=proposed)
+                return {"state": "PROPOSED", "steps": proposed,
+                        "why": [f"{len(proposed)} adapted port(s) wait for the owner's acceptance, in one go"],
+                        "next": f"the owner runs: {settings.self_cmd()} build-harness accept {t['id']} --all"}
             parked = [x["id"] for x in t["steps"] if x["status"] == "deferred"]
             if parked:
                 journal(t, "done-with-deferred", steps=parked)
@@ -359,7 +365,20 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     return {"state": "MODEL STEP", "step": s["id"], "packet": text, "chars": len(text)}
 
 
-def submit(task_id, note="", by="cli", step_id=None):
+def _proposals_dir(t):
+    d = _dir(t["id"]) / "proposals"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def submit(task_id, note="", by="cli", step_id=None, adapted=""):
+    """`adapted`: the model declares that the hunk cannot be put in by the letter (a symbol renamed upstream,
+    the code moved) and that its edit carries the hunk's MEANING. The owner, 2026-10-14: "I wanna approve it
+    all in one go; I can't be sitting the whole day in front of this laptop approving things". So: the edit is
+    judged by meaning the way a person's declared port is; when it holds, it is SAVED as a proposal (the diff
+    and the reason, under proposals/), the tree is put back, no attempt is spent, and the run goes on. The
+    owner accepts the whole list later with `accept --all`; each accepted proposal is applied and recorded as a
+    hand port. When the meaning does not hold, it is an ordinary failed attempt."""
     t = load(task_id)
     if not t["approved"]:
         raise Refused("the plan is not approved yet")
@@ -383,6 +402,30 @@ def submit(task_id, note="", by="cli", step_id=None):
             journal(t, "submit", step=s["id"], ok=True, by=by, note="already in the tree")
             return {"ok": True, "step": s["id"], "note": "already in the tree; recorded as done by hand"}
         why.append("nothing was changed, and the tree does not hold the result: " + "; ".join(chk.get("why") or [])[:200])
+    if not why and adapted and by != "hand":
+        literal = _call(s["check"], t, s, **(s.get("args") or {}))
+        s["hand_port"] = True                                   # judged by meaning, as a declared port is
+        res = _call(s["check"], t, s, **(s.get("args") or {}))
+        s["hand_port"] = False
+        if res.get("ok"):
+            _git(t, "add", "-A")
+            diff = subprocess.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
+                                  capture_output=True, timeout=600).stdout
+            _git(t, "reset", "-q")
+            pdir = _proposals_dir(t)
+            (pdir / f"{s['id']}.diff").write_bytes(diff)
+            meta = {"step": s["id"], "reason": adapted[:1000], "files": changed, "by": by,
+                    "literal_check_said": list(literal.get("why") or [])[:8],
+                    "meaning_check": "holds", "t": time.strftime("%Y-%m-%d %H:%M:%S")}
+            (pdir / f"{s['id']}.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+            s["status"], s["last_why"], s["proposal"] = "proposed", None, meta
+            revert_to_checkpoint(t)
+            save(t)
+            journal(t, "proposed", step=s["id"], reason=adapted[:500], files=changed,
+                    literal=meta["literal_check_said"])
+            return {"ok": True, "proposed": True, "step": s["id"], "proposal": str(pdir / f"{s['id']}.diff"),
+                    "next": "saved for the owner's acceptance; the tree was put back; call build_harness_next"}
+        why = ["adapted port declared, but the meaning does not hold: " + "; ".join(res.get("why") or [])[:300]]
     if not why:
         s["hand_port"] = by == "hand"                       # a person's declared port is judged by meaning, anything else by the letter
         if by == "hand" and note:
@@ -406,6 +449,46 @@ def submit(task_id, note="", by="cli", step_id=None):
             "reverted": True,
             "next": ("BLOCKED: the owner takes over this step" if s["status"] == "blocked"
                      else "your changes were put back; call build_harness_next and try again")}
+
+
+def proposals(task_id):
+    """Every adapted port waiting for the owner, in plan order, with the reason and what the literal check said."""
+    t = load(task_id)
+    return [dict(s["proposal"], title=s.get("title", "")) for s in t["steps"] if s["status"] == "proposed"]
+
+
+def accept(task_id, step_ids=None, who="owner"):
+    """The owner accepts adapted ports in ONE go (`--all`) or by step id: each proposal's diff is applied to the
+    tree and submitted as a hand port (judged by meaning, checkpointed, recorded as the owner's). A diff that no
+    longer applies (a later checkpoint moved the lines) is reported and the step goes back to failed for a fresh
+    attempt; nothing is guessed. Called from the command line only, like approve."""
+    t = load(task_id)
+    wanted = [s for s in t["steps"] if s["status"] == "proposed" and (not step_ids or s["id"] in step_ids)]
+    out = {"accepted": [], "failed": [], "by": who}
+    for s in wanted:
+        diff = _proposals_dir(t) / f"{s['id']}.diff"
+        if changed_files(t):
+            out["failed"].append({"step": s["id"], "why": "the working copy has uncommitted changes; put it back first"})
+            continue
+        r = subprocess.run(["git", "-C", t["workdir"], "apply", "--index", str(diff)], capture_output=True, text=True)
+        if r.returncode != 0:
+            s["status"], s["last_why"] = "failed", [f"the accepted proposal no longer applies: {(r.stderr or '').strip()[:200]}"]
+            save(t); journal(t, "accept-failed", step=s["id"], who=who, why=s["last_why"])
+            revert_to_checkpoint(t)
+            out["failed"].append({"step": s["id"], "why": s["last_why"][0]})
+            continue
+        _git(t, "reset", "-q")                                # the files are in the tree; submit judges the tree
+        s["status"] = "pending"
+        res = submit(task_id, note=f"accepted adapted port: {s['proposal'].get('reason', '')[:300]}", by="hand", step_id=s["id"])
+        t = load(task_id)
+        s = next(x for x in t["steps"] if x["id"] == s["id"])
+        if res.get("ok"):
+            s["accepted_by"], s["done_by"] = who, "hand"         # the owner's acceptance IS the hand decision
+            save(t); journal(t, "accept", step=s["id"], who=who)
+            out["accepted"].append(s["id"])
+        else:
+            out["failed"].append({"step": s["id"], "why": "; ".join(res.get("why") or [])[:200]})
+    return out
 
 
 def owner_terminal():
