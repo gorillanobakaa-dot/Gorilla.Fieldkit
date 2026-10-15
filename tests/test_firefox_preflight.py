@@ -6,12 +6,26 @@ from fieldkit.build import firefox_preflight as p
 from fieldkit.build.firefox_linux import MACH_ENV_DROP, mach_env
 
 
+TUNED = ('export RUSTFLAGS="-C opt-level=3 -C target-cpu=native"\n'
+         'ac_add_options --enable-optimize="-O3 -march=native -mtune=native"\n'
+         "ac_add_options --with-ccache=sccache\nac_add_options --enable-lto=thin\n"
+         "ac_add_options --enable-linker=lld-21\nmk_add_options MOZ_MAKE_FLAGS=\"-j6\"\n")
+
+
 def _tree(tmp_path, branding=True, fonts=()):
     root, src = tmp_path / "harness", tmp_path / "src"
     root.mkdir()
     (src / "browser" / "config").mkdir(parents=True)
     (src / "browser" / "config" / "version.txt").write_text("158.0\n")
-    (root / "mozconfig").write_text("ac_add_options --with-branding=browser/branding/gorilla  # brand\n")
+    (root / "mozconfig").write_text("ac_add_options --with-branding=browser/branding/gorilla  # brand\n" + TUNED)
+    (root / "recreate.sh").write_text("git clone --branch FIREFOX_158_0_RELEASE ...  # stable 158.0\n")
+    (root / "intents" / "port-158.0").mkdir(parents=True)
+    (root / "intents" / "port-158.0" / "STATE.md").write_text("state\n")
+    for rel in ("scripts/build_deb.sh", "scripts/fonts-microsoft.sh",
+                "deb_template/usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png",
+                "deb_template/usr/share/applications/gorilla-unleashed.desktop"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x\n")
     if branding:
         (src / "browser" / "branding" / "gorilla").mkdir(parents=True)
         (src / "browser" / "branding" / "gorilla" / "a.png").write_bytes(b"x")
@@ -106,3 +120,24 @@ def test_hwmon_reader(tmp_path):
     (h / "temp1_input").write_text("56000\n")
     (h / "temp2_input").write_text("garbage\n")
     assert p.hwmon_temps(tmp_path) == [("coretemp", 56.0)]
+
+
+def test_a_lost_tuning_line_blocks_the_build(tmp_path):
+    ctx = _tree(tmp_path)
+    m = ctx.root / "mozconfig"
+    m.write_text(m.read_text().replace("ac_add_options --with-ccache=sccache\n", "# ac_add_options --with-ccache=sccache\n"))
+    r = _row(p.run(ctx), "vaio-tuning")
+    assert not r["ok"] and "sccache compile cache" in r["detail"]
+
+
+def test_recreate_building_a_nightly_is_flagged(tmp_path):
+    ctx = _tree(tmp_path)
+    (ctx.root / "recreate.sh").write_text('say "Baseline: Firefox 154.0a1 nightly"\n')
+    r = _row(p.run(ctx), "recreate-current")
+    assert not r["ok"] and "Nightly" in r["detail"] and "158.0" in r["detail"]
+
+
+def test_a_missing_packaging_piece_blocks(tmp_path):
+    ctx = _tree(tmp_path)
+    (ctx.root / "scripts" / "fonts-microsoft.sh").unlink()
+    assert "deb-packaging" in p.run(ctx)["blockers"]
