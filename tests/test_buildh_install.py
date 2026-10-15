@@ -270,6 +270,7 @@ def test_post_install_is_not_ok_while_a_check_is_skipped_or_missing(tmp_path, mo
 def test_post_install_refuses_without_a_gorilla_target(tmp_path, monkeypatch):
     _post_install_world(tmp_path, monkeypatch)
     monkeypatch.setattr(inst, "_uninstall_entries", lambda: [])
+    monkeypatch.setattr(inst, "linux_installs", lambda run=None: [])      # and no Linux package either
     r = inst.post_install("t1", say=lambda m: None)
     assert not r["ok"] and "--install-dir" in r["next"]
 
@@ -370,3 +371,21 @@ def test_the_window_gets_every_option_as_typed(monkeypatch):
     from fieldkit import cli
     cli.main(sys.argv[1:])
     assert got["args"] == ["post-install", "t", "--only", "verify_address_bar", "--drive"]
+
+
+def test_linux_install_is_found_through_dpkg(tmp_path):
+    # 2026-10-15: on Linux the register looked only in the Windows uninstall registry and saw no install at all
+    app = tmp_path / "usr" / "lib" / "gorilla-unleashed"
+    app.mkdir(parents=True)
+    (app / "firefox").write_text("")
+    (app / "application.ini").write_text("[App]\n")
+
+    class R:
+        returncode = 0
+        stdout = f"/.\n{app}\n{app / 'application.ini'}\n{app / 'firefox'}\n"
+    assert inst.linux_installs(run=lambda *a, **k: R()) == [app]
+
+    class Missing:
+        returncode = 1
+        stdout = ""
+    assert inst.linux_installs(run=lambda *a, **k: Missing()) == []

@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-15-14-32
 """Install a verified build on this machine, with a backup first and a way back.
 
 Order of events, every one measured and journaled:
@@ -85,12 +86,34 @@ def _uninstall_entries():
     return out
 
 
+def linux_installs(run=None):
+    """Linux: the folder of the installed gorilla-unleashed package, asked of dpkg (never guessed from a path).
+    2026-10-15: the register looked only in the Windows uninstall registry, so on Linux every check against the
+    installed browser (prefs, absent files) was silently UNCHECKABLE."""
+    import subprocess
+    run = run or subprocess.run
+    try:
+        r = run(["dpkg-query", "-L", "gorilla-unleashed"], capture_output=True, text=True)
+    except OSError:
+        return []
+    if r.returncode != 0:
+        return []
+    for line in r.stdout.splitlines():
+        p = Path(line.strip())
+        if p.name == "application.ini" and (p.parent / "firefox").is_file():
+            return [p.parent]
+    return []
+
+
 def gorilla_installs(entries=None):
     """Install folders whose uninstall entry says Gorilla in its name or in the install folder's own name (not
     anywhere in the path: an account named, say, gorillafan puts Gorilla in every path under its home folder, so ordinary Mozilla Firefox would match)
     and that hold a firefox.exe, without duplicates. An entry that only says Firefox is never one."""
+    raw = _uninstall_entries() if entries is None else entries
+    if entries is None and not raw and not sys.platform.startswith("win"):
+        return linux_installs()                  # no uninstall registry here: the Linux package, from dpkg
     found, seen = [], set()
-    for name, loc in (_uninstall_entries() if entries is None else entries):
+    for name, loc in raw:
         if not loc:
             continue
         p = Path(loc)

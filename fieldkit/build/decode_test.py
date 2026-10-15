@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-12-21
+# Version: 1.1.0 · updated 26-10-15-14-22
 """Does the installed browser decode video on the GPU's video engine? Measured, not assumed.
 
     fieldkit build-harness decode-test TASK [--seconds N]
@@ -286,3 +286,35 @@ def run_batch(work, configs, out=print):
         isolation.restore(closed, out=out)
         isolation.finished("the video decoding measurements", out=out)
     return results
+
+
+ARCHIVE = "https://archive.mozilla.org/pub/firefox/releases"
+
+
+def stock_firefox(version, root=None, run=subprocess.run):
+    """Mozilla's own build of `version`, the same-version control for any comparison (2026-10-15: comparing Gorilla
+    158 with ESR 153 blamed the wrong thing; stock 158 found the real cost). Downloaded once into
+    state/stock-firefox/<version>, checked against Mozilla's SHA256SUMS, reused after. -> path of the firefox binary,
+    or raises with the reason. Never installed: it runs from its folder in a throwaway profile."""
+    from ..core import settings
+    d = Path(root or settings.ROOT / "state" / "stock-firefox") / version
+    exe = d / "firefox" / "firefox"
+    if exe.is_file():
+        return exe
+    d.mkdir(parents=True, exist_ok=True)
+    tar = d / f"firefox-{version}.tar.xz"
+    sums = d / "SHA256SUMS"
+    for url, dst in ((f"{ARCHIVE}/{version}/linux-x86_64/en-US/{tar.name}", tar), (f"{ARCHIVE}/{version}/SHA256SUMS", sums)):
+        # 2026-10-15: a plain curl stalled at 82.9 of 90.5 MB and waited forever: time limits, retries, resume
+        if run(["curl", "-sfL", "--connect-timeout", "30", "--speed-limit", "1024", "--speed-time", "60",
+                "--retry", "3", "-C", "-", "-o", str(dst), url], capture_output=True).returncode != 0:
+            raise RuntimeError(f"download failed: {url}")
+    want = next((l.split()[0] for l in sums.read_text().splitlines()
+                 if l.endswith(f" linux-x86_64/en-US/{tar.name}")), None)
+    import hashlib
+    have = hashlib.sha256(tar.read_bytes()).hexdigest()
+    if not want or want != have:
+        raise RuntimeError(f"{tar.name}: sha256 {have} does not match Mozilla's SHA256SUMS ({want})")
+    if run(["tar", "xJf", str(tar), "-C", str(d)], capture_output=True).returncode != 0 or not exe.is_file():
+        raise RuntimeError(f"could not unpack {tar}")
+    return exe

@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-10-45
+# Version: 1.0.0 · updated 26-10-15-13-59
 """fieldkit build-harness - the Firefox & kernel build harness, from the command line and over MCP.
 
     fieldkit build-harness latest firefox|kernel
@@ -596,6 +596,13 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "pref-bisect":
+        # pref-bisect TASK: which of our graphics pref changes costs dropped frames, by halving (isolated, measured)
+        from ..build import prefbisect
+        t = task.load(tid)
+        r = prefbisect.run(t["workdir"], _settings.ROOT / "state" / "decode-test")
+        emit(r, lambda r: print(r["detail"]))
+        return 0 if r["ok"] else 3
     if act == "decode-test":
         # decode-test TASK: does the INSTALLED browser decode video on the GPU's video engine (D-158-06)?
         from ..build import decode_test

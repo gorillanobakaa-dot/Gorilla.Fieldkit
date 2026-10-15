@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-09-41
+# Version: 1.0.0 · updated 26-10-15-14-22
 """Firefox on Linux (Debian): the pieces, as tested functions, plus pipeline stages
 (build/pipelines/firefox-linux.yaml).
 
@@ -182,15 +182,68 @@ def verify_bootstrap(ctx, home=None):
 
 
 # ---------------------------------------------------------------- build
+# THE BUILD-COST DECISION (owner's convention, brain lesson Unpackaged_Dev_Build_Inject_Dont_Full_Compile,
+# 2026-08-02; taught to the harness 2026-10-15): the dev build is UNPACKED (no omni.ja; JS, CSS, FTL and prefs are
+# loose files in dist/bin), so only compiled sources need the full `./mach build` (hours on the VAIO). Everything
+# else needs `./mach build faster` (minutes). omni.ja is packed only for the artifact uploaded to GitHub.
+COMPILED = re.compile(r"(\.(c|cc|cpp|cxx|h|hh|hpp|mm|m|s|S|asm|rs|toml|webidl|idl|ipdl|ipdlh|py|configure|build)|"
+                      r"(^|/)(moz\.build|Cargo\.lock|StaticPrefList\.yaml|mozconfig|old-configure\.in|"
+                      r"moz\.configure|Makefile\.in|jar\.mn|jar\.inc\.mn))$")
+STAMP = ".gorilla-built-commit"
+
+
+def build_mode(src, objdir=None):
+    """-> ("full" | "faster" | "nothing", why). Compares the tree with the commit of the last successful build
+    (recorded in the objdir); no record, a missing objdir or any compiled source changed means full."""
+    src = Path(src)
+    od = Path(objdir) if objdir else src / "obj-x86_64-pc-linux-gnu"
+    stamp = od / STAMP
+    if not (od / "dist" / "bin").is_dir() or not stamp.is_file():
+        return "full", "no successful build recorded in the objdir"
+    last = stamp.read_text().strip()
+    r = subprocess.run(["git", "-C", str(src), "diff", "--name-only", last], capture_output=True, text=True)
+    if r.returncode != 0:
+        return "full", f"cannot compare with the last built commit {last[:12]}"
+    changed = [f for f in r.stdout.split() if not f.startswith("build_logs/")]
+    if not changed:
+        return "nothing", f"no change since the last build ({last[:12]})"
+    compiled = [f for f in changed if COMPILED.search(f)]
+    if compiled:
+        return "full", f"{len(compiled)} compiled source(s) changed, e.g. {compiled[0]}"
+    return "faster", f"{len(changed)} file(s) changed, none compiled (e.g. {changed[0]}): mach build faster"
+
+
+def _record_built(src, run=_run):
+    rc, head = run(["git", "-C", str(src), "rev-parse", "HEAD"])
+    od = Path(src) / "obj-x86_64-pc-linux-gnu"
+    if rc == 0 and od.is_dir():
+        (od / STAMP).write_text(head.strip() + "\n", encoding="utf-8")
+
+
 def stage_build(ctx, run=_run, env=None):
     """`scripts/run_build_and_capture.sh SRC`: ./mach build with the whole output captured and summarised,
-    CLAUDECODE removed (ERROR 4). Hours. Run it under `fieldkit guard` for the thermal check."""
+    CLAUDECODE removed (ERROR 4). Hours. Run it under `fieldkit guard` for the thermal check. When no compiled
+    source changed since the last successful build, `./mach build faster` instead (build_mode)."""
     harness, src = Path(_v(ctx, "harness")), Path(_v(ctx, "src"))
+    mode, why = build_mode(src)
+    if mode == "nothing":
+        return {"ok": True, "detail": f"nothing to build: {why}", "mode": mode}
+    if mode == "faster":
+        logs = src / "build_logs"
+        logs.mkdir(exist_ok=True)
+        rc, out = run(["./mach", "build", "faster"], cwd=str(src), env=mach_env(env), timeout=7200)
+        (logs / "latest_faster.log").write_text(out, encoding="utf-8")
+        if rc == 0:
+            _record_built(src, run)
+        return {"ok": rc == 0, "mode": mode, "detail": f"mach build faster exited {rc} ({why})",
+                "output_tail": out[-3000:]}
     script = harness / "scripts" / "run_build_and_capture.sh"
     if not script.is_file():
         return {"ok": False, "detail": f"no build wrapper at {script}"}
     rc, out = run(["bash", str(script), str(src)], cwd=str(harness), env=mach_env(env), timeout=43200)
-    detail = "build wrapper exited 0" if rc == 0 else f"build wrapper exited {rc}"
+    if rc == 0:
+        _record_built(src, run)
+    detail = (f"build wrapper exited 0 (full build: {why})" if rc == 0 else f"build wrapper exited {rc}")
     if rc != 0:
         detail += "; " + failure_summary(src / "build_logs" / "latest_build.log")
     return {"ok": rc == 0, "detail": detail, "output_tail": out[-3000:]}
