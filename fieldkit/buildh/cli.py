@@ -836,6 +836,21 @@ def run(a, emit):
         emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))
                                 + (f"\n{r['next']}" if r.get("next") else "")))
         return 0 if r.get("ok") else 3
+    if act == "release-roundtrip":
+        # release-roundtrip TASK tag=<tag> [repo=owner/name] [asset=x.deb] [keep=1]: remove the installed browser,
+        # download the published .deb, check it against SHA256SUMS, install it, verify (build/release_roundtrip.py)
+        from ..build import release_roundtrip as _rr
+        import tempfile as _tf
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        if not opts.get("tag"):
+            raise task.Refused("release-roundtrip TASK tag=<release tag> [repo=owner/name] [asset=<file.deb>] [keep=1]")
+        t = task.load(tid)
+        r = _rr.run(opts["tag"], _tf.mkdtemp(prefix="groundtrip_"), t["workdir"], repo=opts.get("repo", _rr.DEFAULT_REPO),
+                    asset=opts.get("asset"), keep=opts.get("keep", "0") not in ("0", "no", "false", ""),
+                    say=lambda m: print(m, flush=True))
+        task.journal(t, "release-roundtrip", ok=r["ok"], tag=opts["tag"], failed=[x["check"] for x in r["rows"] if not x["ok"]])
+        print(f"RELEASE-ROUNDTRIP {'OK' if r['ok'] else 'FAILED'}: {sum(x['ok'] for x in r['rows'])}/{len(r['rows'])} rows")
+        return 0 if r["ok"] else 3
     if act == "platform-steps":
         # platform-steps TASK: what to do on THIS operating system, computed from the machine (platformsteps.py)
         from . import platformsteps as _ps
