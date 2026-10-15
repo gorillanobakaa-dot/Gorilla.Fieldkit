@@ -141,3 +141,15 @@ def test_a_missing_packaging_piece_blocks(tmp_path):
     ctx = _tree(tmp_path)
     (ctx.root / "scripts" / "fonts-microsoft.sh").unlink()
     assert "deb-packaging" in p.run(ctx)["blockers"]
+
+
+def test_the_vaio_sensors_tool_is_read_first_and_warns_on_throttling(tmp_path):
+    """2026-10-15: the owner's sensors.gorilla knows the Sony profile, the fan daemon and throttling."""
+    ctx = _tree(tmp_path)
+    ctx.vaio = {"tool": "x", "package_c": 77.0, "fan_pct": 58, "profile": "performance", "daemon": "active",
+                "package_w": 30.0, "throttle_events": 0}
+    r = _row(p.run(ctx), "temp-source")
+    assert r["ok"] and "profile performance" in r["detail"]
+    ctx.vaio = dict(ctx.vaio, throttle_events=3, daemon="inactive")
+    r = _row(p.run(ctx), "temp-source")
+    assert not r["ok"] and "throttled 3" in r["detail"] and "daemon is inactive" in r["detail"]

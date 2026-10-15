@@ -54,6 +54,7 @@ class Ctx:
     which: object = shutil.which
     free_gb: object = None                # injectable for tests
     temps: object = None                  # injectable for tests
+    vaio: object = None                   # injectable for tests: a sensors.gorilla snapshot (fieldkit.thermal.vaio)
 
 
 def mozconfig_lines(path):
@@ -179,6 +180,23 @@ CPU_SENSORS = ("coretemp", "k10temp", "zenpower")
 
 
 def _c_temp_source(ctx):
+    # the owner's sensors.gorilla first (2026-10-15): it also knows the Sony thermal profile, the fan daemon and
+    # throttling since boot, which plain hwmon does not
+    if ctx.vaio is not None or ctx.temps is None:
+        try:
+            from ..thermal import vaio
+            s = ctx.vaio if ctx.vaio is not None else vaio.snapshot()
+        except Exception:                                    # noqa: BLE001 - fall back to hwmon below
+            s = {"tool": None}
+        if s.get("tool") and s.get("package_c") is not None:
+            worry = []
+            if s.get("daemon") not in (None, "active"):
+                worry.append(f"thermal-profile-daemon is {s['daemon']} (fan profiles are not stepped)")
+            if s.get("throttle_events"):
+                worry.append(f"the CPU throttled {s['throttle_events']} time(s) since boot")
+            text = (f"sensors.gorilla: package {s['package_c']} C, fan {s.get('fan_pct')}%, profile {s.get('profile')}, "
+                    f"daemon {s.get('daemon')}, {s.get('package_w')} W")
+            return (not worry), text + ("" if not worry else "; " + "; ".join(worry))
     got = (ctx.temps or hwmon_temps)()
     cpu = [x for x in got if x[0] in CPU_SENSORS]
     if cpu:
@@ -277,7 +295,8 @@ CHECKS = [
           linux="Measured where the objdir is (or the source tree before the first build); the floor is "
                 "recreate.sh's 20 GB."),
     Check("temp-source", "Live temperature source", WARN, _c_temp_source,
-          "Load the coretemp module (sudo modprobe coretemp) so the CPU temperature is readable.",
+          "Load the coretemp module (sudo modprobe coretemp); start thermal-profile-daemon (systemctl start "
+          "thermal-profile-daemon); a throttled CPU means a cooler room or a lower -j before compiling.",
           "Without a live sensor the build cannot be verified as thermally safe.",
           linux="Windows reads a performance counter (MSAcpi is static there); Linux reads hwmon, and only a CPU "
                 "sensor (coretemp/k10temp) counts, since acpitz is a board zone."),

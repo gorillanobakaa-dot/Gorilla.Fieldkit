@@ -82,6 +82,7 @@ import os
 import re
 import json
 import sys
+import time
 from pathlib import Path
 
 from . import __version__
@@ -1367,11 +1368,14 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log"])
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
     th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
+    th.add_argument("--interval", type=int, default=60, help="log (Linux): seconds between lines")
+    th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux): keep logging until this process ends "
+                                                                     "(a build's thermal record); --seconds is then ignored")
     th.set_defaults(fn=cmd_thermal)
 
     bh = sub.add_parser("build-harness", parents=[common],
@@ -1911,6 +1915,18 @@ def cmd_repro(a):
 
 
 def cmd_thermal(a):
+    if sys.platform.startswith("linux") and a.action in ("status", "log"):
+        # the Sony VAIO, through the owner's sensors.gorilla (2026-10-15); the rest of this command is Windows
+        from .thermal import vaio
+        if a.action == "status":
+            s = vaio.snapshot()
+            _emit(s, a.json, lambda s: print(vaio.line(s)))
+            return 0 if s.get("tool") else 2
+        out = Path(a.value) if a.value else settings.ROOT / "state" / "thermal" / f"vaio-{time.strftime('%y-%m-%d-%H-%M')}.log"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        n = vaio.log(out, interval=a.interval, until_pid=a.until_pid, seconds=None if a.until_pid else a.seconds)
+        print(f"{n} line(s) in {out}")
+        return 0
     from .thermal import governor, sensors
     if a.action in ("profile", "monitor", "autostart"):
         from .thermal import profiles
