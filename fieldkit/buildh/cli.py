@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-10-34
+# Version: 1.0.0 · updated 26-10-15-10-45
 """fieldkit build-harness - the Firefox & kernel build harness, from the command line and over MCP.
 
     fieldkit build-harness latest firefox|kernel
@@ -596,6 +596,12 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "decode-test":
+        # decode-test TASK: does the INSTALLED browser decode video on the GPU's video engine (D-158-06)?
+        from ..build import decode_test
+        r = decode_test.run(_settings.ROOT / "state" / "decode-test")
+        emit(r, lambda r: print(r["detail"]))
+        return 0 if r["ok"] else 3
     if act == "loss-audit":
         # loss-audit TASK [FOLDER ...]: every line every Gorilla patch ever added, counted in the ported tree
         from . import lossaudit
