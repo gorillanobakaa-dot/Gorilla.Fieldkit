@@ -68,3 +68,20 @@ def test_a_disabled_group_is_not_judged(tmp_path):
     sets = _set(tmp_path, _binary_patch(tmp_path, old, new))
     tree = _tree(tmp_path, old)
     assert binpatch.audit(tree, sets, {"groups": {"22.LOOK": {"status": "disabled"}}})["rows"] == []
+
+
+def test_the_preflight_row_runs_on_a_real_context(tmp_path):
+    """2026-10-15: the row read ctx.vars, which a preflight Ctx does not have; the preflight tests stub this row, so
+    only a run on the real tree showed it. Run the real row on a real Ctx."""
+    from fieldkit.build import firefox_preflight as fp
+    old, new = os.urandom(3000), os.urandom(5000)
+    sets = _set(tmp_path, _binary_patch(tmp_path, old, new))
+    root = tmp_path / "harness"
+    root.mkdir()
+    sets.rename(root / "patches")
+    tree = _tree(tmp_path, old)
+    ok, why = fp._c_binary_patches(fp.Ctx(root=root, src=tree))
+    assert not ok and "branding/logo.png" in why
+    binpatch.restore(tree, root / "patches")
+    ok, why = fp._c_binary_patches(fp.Ctx(root=root, src=tree))
+    assert ok, why

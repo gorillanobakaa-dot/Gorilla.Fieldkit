@@ -341,9 +341,11 @@ def _c_august_gates(ctx):
 def _c_binary_patches(ctx):
     import json as _json
     from ..buildh import binpatch
-    pol_path = Path(ctx.vars["harness"]) / "config" / "patch_policy.json"
+    pol_path = Path(ctx.root) / "config" / "patch_policy.json"
     pol = _json.loads(pol_path.read_text(encoding="utf-8")) if pol_path.is_file() else {}
-    r = binpatch.audit(ctx.src, Path(ctx.vars["harness"]) / "patches", pol)
+    if not (Path(ctx.root) / "patches").is_dir():
+        return False, f"no patches/ folder in {ctx.root}: the pictures the set carries cannot be checked"
+    r = binpatch.audit(ctx.src, Path(ctx.root) / "patches", pol)
     n = sum(x["state"] == "applied" for x in r["rows"])
     if r["ok"]:
         return True, f"{n} picture(s) the set carries are in the tree byte for byte"

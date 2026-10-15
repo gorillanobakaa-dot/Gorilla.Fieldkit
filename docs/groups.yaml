@@ -133,6 +133,7 @@ groups:
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py
+      - buildh/profilefresh.py
       - buildh/recorder.py
       - buildh/repair.py
       - buildh/stats.py

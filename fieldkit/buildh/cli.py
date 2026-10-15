@@ -619,6 +619,38 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "profile-fresh":
+        # profile-fresh TASK from=<old profile> to=<new profile> [machine=<pref>=<value>:<reason> ...] [--apply]: the
+        # person's data into a fresh profile, none of the old version's settings; lists user.js settings the build does
+        # not carry (fieldkit/buildh/profilefresh.py; born 2026-10-15 from the 154-era profile under Gorilla 158)
+        from . import profilefresh, proof, install as _inst
+        kv = dict(x.split("=", 1) for x in (list(getattr(a, "args", None) or [])) if "=" in x and not x.startswith("machine="))
+        machine = {}
+        for x in (list(getattr(a, "args", None) or [])):
+            if x.startswith("machine="):
+                name, _, rest = x[len("machine="):].partition("=")
+                val, _, why = rest.partition(":")
+                machine[name] = (val, why or "this machine only")
+        src, dst = kv.get("from"), kv.get("to")
+        if not src or not dst:
+            print("profile-fresh needs from=<old profile> to=<new profile>")
+            return 2
+        target = getattr(a, "install_dir", None) or _inst.find_install()
+        r = {"plan": profilefresh.plan(src, dst),
+             "stranded": profilefresh.stranded(Path(src) / "user.js", proof.shipped_prefs(target) if target else {})}
+        if getattr(a, "apply", False):
+            r["applied"] = profilefresh.apply(src, dst, machine)
+            r["check"] = profilefresh.check(dst)
+        def show(r):
+            print(f"copy: {', '.join(r['plan']['copy'])}")
+            print(f"never: {', '.join(r['plan']['never'])}")
+            for n, v, b in r["stranded"]:
+                print(f"  STRANDED {n} = {v} (build: {b if b is not None else 'not set'}): move it into the build or "
+                      "into machine=, or decide it is not needed, before retiring the old profile")
+            if r.get("check"):
+                print("PROFILE-FRESH " + ("OK" if r["check"]["ok"] else "NOT OK: " + "; ".join(r["check"]["problems"])))
+        emit(r, show)
+        return 0 if not r.get("check") or r["check"]["ok"] else 3
     if act in ("binary-patches", "whole-files"):
         # binary-patches TASK [--apply]: every GIT binary patch of the shared set (pictures, icons) in the tree, by git hash;
         # --apply restores the missing ones, each verified (fieldkit/buildh/binpatch.py; born 2026-10-15: 0 of 31 applied).
