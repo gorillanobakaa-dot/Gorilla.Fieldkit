@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-03-33
+# Version: 1.0.0 · updated 26-10-15-10-34
 """fieldkit build-harness - the Firefox & kernel build harness, from the command line and over MCP.
 
     fieldkit build-harness latest firefox|kernel
@@ -596,6 +596,21 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "loss-audit":
+        # loss-audit TASK [FOLDER ...]: every line every Gorilla patch ever added, counted in the ported tree
+        from . import lossaudit
+        t = task.load(tid)
+        root = Path((t.get("meta") or {}).get("harness_root") or ".")
+        if not (root / ".git").is_dir():
+            raise task.Refused(f"{root} is not the shared patch-set repository (no git history to read)")
+        sources = [("git", lossaudit.from_git(root))]
+        for d in sorted(root.glob("patchset-*")) + [Path(x) for x in a.args[1:]]:
+            if not d.is_dir():
+                raise task.Refused(f"no patch folder at {d}")
+            sources.append((d.name, lossaudit.from_folder(d, d.name)))
+        r = lossaudit.audit(t["workdir"], sources)
+        emit(r, lambda r: print("\n".join(lossaudit.lines(r))))
+        return 0
     if act == "archive-gap":
         # archive-gap TASK [ARCHIVE]: what the last Linux-built patch set changed and this port never touched
         from . import companions
