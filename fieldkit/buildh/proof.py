@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-15-14-22
 """Production proof of the INSTALLED browser against the owner's intent in the ported tree.
 
 The build harness proves that patches applied; `build-verify` proves the package is branded and the binary says the
@@ -94,7 +95,12 @@ def shipped_prefs(install_dir):
             with zipfile.ZipFile(Path(install_dir) / ja) as z:
                 text = z.read(member).decode("utf-8", "replace")
         except (OSError, KeyError):
-            continue
+            # an UNPACKED install (D-158-11, the Linux working build): the same file lies loose next to where the
+            # omni.ja would be. 2026-10-15: reading only the zip left every Linux pref check reading "not set".
+            loose = Path(install_dir) / Path(ja).parent / member
+            if not loose.is_file():
+                continue
+            text = loose.read_text(encoding="utf-8", errors="replace")
         for name, (val, flag, _) in pref_lines(text).items():
             out[name] = (val, flag)
     return out
