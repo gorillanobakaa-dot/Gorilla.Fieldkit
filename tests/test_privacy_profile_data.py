@@ -2,6 +2,7 @@
 """Browser profile data never reaches a public repository (owner 2026-10-16: "make sure you don't upload my
 personal data like my bookmarks and history ... those are mine, private"). Fake data only."""
 import subprocess
+import sys
 
 from fieldkit.core import privacy
 
@@ -54,7 +55,8 @@ def test_the_hook_is_installed_in_the_repository_and_never_overwrites_a_foreign_
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     p = privacy.install_hook(tmp_path, "/opt/fieldkit/bin/fieldkit")
     text = p.read_text()
-    assert "/opt/fieldkit/bin/fieldkit privacy push-check . --range" in text and p.stat().st_mode & 0o111
+    assert "/opt/fieldkit/bin/fieldkit privacy push-check . --range" in text
+    assert sys.platform == "win32" or p.stat().st_mode & 0o111     # Git for Windows runs hooks without the bit
     p.write_text("#!/bin/sh\nexit 0\n")
     try:
         privacy.install_hook(tmp_path, "/opt/fieldkit/bin/fieldkit")

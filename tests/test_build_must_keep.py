@@ -8,7 +8,10 @@ from fieldkit.build import firefox_preflight as fp
 POLICY = {"must_keep": {"files": [
     {"file": "widget/gtk/GfxInfo.cpp", "platform": "linux", "decision": "D-158-06", "why": "gtk layer"},
     {"file": "widget/GfxInfoBase.cpp", "platform": "all", "decision": "D-158-06", "why": "shared layer"},
-    {"file": "widget/windows/Only.cpp", "platform": "windows", "decision": "x", "why": "not this platform"}]}}
+    {"file": "widget/windows/Only.cpp", "platform": "windows", "decision": "x", "why": "not this platform"}]},
+    "patchset_root": "patches", "groups": {"02.GPU": {"status": "enabled"}}}
+# what a patch WRITES decides, not its name (2026-10-16: exported patches are named after their reason)
+NAMES = {"widget_gtk_GfxInfo.cpp.patch": "widget/gtk/GfxInfo.cpp", "widget_GfxInfoBase.cpp.patch": "widget/GfxInfoBase.cpp"}
 
 
 class Ctx:
@@ -22,7 +25,8 @@ def _setup(tmp_path, changed, patches):
     (root / "config" / "patch_policy.json").write_text(json.dumps(POLICY))
     (root / "patches" / "02.GPU").mkdir(parents=True)
     for p in patches:
-        (root / "patches" / "02.GPU" / p).write_text("x")
+        f = NAMES[p]
+        (root / "patches" / "02.GPU" / p).write_text(f"--- a/{f}\n+++ b/{f}\n@@ -1 +1,2 @@\n upstream\n+// GORILLA\n")
     (src / "widget" / "gtk").mkdir(parents=True)
     for f in ("widget/gtk/GfxInfo.cpp", "widget/GfxInfoBase.cpp"):
         (src / f).write_text("upstream\n")
@@ -52,3 +56,11 @@ def test_complete_tree_and_set_pass(tmp_path):
 def test_rows_are_registered_with_the_right_weight():
     rows = {c.cid: c for c in fp.CHECKS}
     assert rows["must-keep-tree"].severity == fp.BLOCKER and rows["must-keep-set"].severity == fp.WARN
+
+
+def test_a_patch_named_after_its_reason_counts_by_what_it_writes(tmp_path):
+    c = _setup(tmp_path, ["widget/gtk/GfxInfo.cpp", "widget/GfxInfoBase.cpp"], ["widget_GfxInfoBase.cpp.patch"])
+    f = "widget/gtk/GfxInfo.cpp"
+    (c.root / "patches" / "02.GPU" / "010-gpu-blocklist-short-circuit.patch").write_text(
+        f"--- a/{f}\n+++ b/{f}\n@@ -1 +1,2 @@\n upstream\n+// GORILLA\n")
+    assert fp._c_must_keep_set(c)[0]

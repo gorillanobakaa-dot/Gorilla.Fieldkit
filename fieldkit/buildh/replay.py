@@ -95,7 +95,9 @@ def _apply_patch(pf, scratch):
                            env={**ENV, "GIT_CEILING_DIRECTORIES": str(Path(scratch).parent)})
     else:
         with open(pf, "rb") as fh:
-            r = subprocess.run([firefox._patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0",
+            # --binary: Strawberry's patch.exe 2.5.9 aborts on LF patches read in text mode ("Expression: hunk",
+            # Windows CI 2026-10-16); the bytes are compared exactly anyway. No effect on Linux.
+            r = subprocess.run([firefox._patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0", "--binary",
                                 "-d", str(scratch)], stdin=fh, capture_output=True, timeout=600)
     out = (r.stdout + r.stderr).decode("utf-8", "replace")
     return r.returncode == 0 and "previously applied" not in out, out
