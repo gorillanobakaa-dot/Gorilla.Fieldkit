@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-01-50
+# Version: 1.1.0 · updated 26-10-15-03-50
 """A ported change that compiles without its other half: find the missing half in the archived patch sets.
 
     fieldkit build-harness companions TASK [LOG] [--apply]
@@ -163,4 +163,24 @@ def lines(r, root=None):
         out.append("COMPANIONS: every missing name is already brought by a patch present in the tree: rebuild")
     else:
         out.append("COMPANIONS: nothing in the archived patch sets applies cleanly; a person writes the declaration")
+    return out
+
+
+def archive_gap(workdir, archive):
+    """Files a patch set in `archive` changed that the port never changed (diff from the pristine root commit), and
+    that still exist in the tree. 2026-10-15: two of the first three Linux 158 build failures were exactly this
+    (PDMFactory.h from 16.SNAPSHOT.DELTA, browser/fonts/moz.build from 11.FONT.SYSTEM): Linux-only pieces that the
+    archived Linux set had and the Windows-exported 157 set did not. Report only: a person decides each one, since
+    a deliberate removal (the AI excision) looks the same. -> [{"group", "file", "patch"}]"""
+    w, archive = Path(workdir), Path(archive)
+    rc, root = _git(w, "rev-list", "--max-parents=0", "HEAD")
+    if rc != 0 or not root.strip():
+        return None
+    _, names = _git(w, "diff", "--name-only", root.split()[0])
+    changed = set(names.split())
+    out = []
+    for p in sorted(archive.rglob("*.patch")):
+        for target, _sec in sections(p.read_text(encoding="utf-8", errors="replace")):
+            if target not in changed and (w / target).exists():
+                out.append({"group": p.parent.name, "file": target, "patch": str(p.relative_to(archive))})
     return out

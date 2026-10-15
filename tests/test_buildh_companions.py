@@ -90,3 +90,14 @@ def test_a_failed_build_stage_names_the_known_failure_and_its_fix(tmp_path):
     s = firefox_linux.failure_summary(log)
     assert s.startswith("known failure ported-half-without-declaration") and "companions" in s
     assert "no mach log" in firefox_linux.failure_summary(tmp_path / "absent.log")
+
+
+def test_archive_gap_lists_what_the_archived_set_had_and_the_port_never_touched(tmp_path):
+    w, root = _tree(tmp_path)
+    (w / "dom" / "Other.cpp").write_text("x\n")
+    _git(w, "add", "-A")
+    _git(w, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "upstream file")
+    gap = companions.archive_gap(w, root / "patchset-155.0b4")
+    assert [x["file"] for x in gap] == ["dom/PDMFactory.h"]                 # archived change, port never made it
+    (w / "dom" / "PDMFactory.h").write_text("ported\n")
+    assert companions.archive_gap(w, root / "patchset-155.0b4") == []      # once the port changes it, no gap

@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-02-12
+# Version: 1.0.0 · updated 26-10-15-03-33
 # Firefox build failures on Debian (mach / clang-21 / lld / Fluent / Wayland runtime).
 # Imported 2026-10-14 from FIrefox.154.Work/patches/Compile.errors.fixed.so.far..txt: 18 errors
 # solved by hand on the 154 build (sessions 2026-07-15 and 2026-07-15b), each with the cause and the
@@ -108,3 +108,18 @@ signatures:
     ~/.local/bin/fieldkit build-harness api-drift TASK --apply rewrites every known change (table
     build/api-drift/firefox.yaml). A change not in the table yet: read the new signature in the tree, fix it, and add
     a row with the pattern, the replacement and the evidence, so the preflight row api-drift catches it next time.
+
+- id: package-gate-fonts
+  pattern: "FONT-001.*missing from"
+  whole_log: true
+  check: package-fonts
+  cause: >-
+    The .deb gate (scripts/release_gate.py) found the Microsoft fonts missing from dist/bin/fonts. First seen
+    2026-10-15 after the Linux 158 build compiled in 87 minutes: the 157 set came from Windows, which excludes
+    browser/fonts/moz.build, so only TwemojiMozilla.ttf was listed and bundled.
+  fix: >-
+    The preflight row package-fonts now refuses this before compiling. Apply
+    patchset-155.0b4/11.FONT.SYSTEM/browser_fonts_moz.build.patch, put the 7 fonts in browser/fonts (an earlier build
+    tree, or get-microsoft-fonts.sh), keep them out of git, and rebuild: the build stage fingerprints the source tree,
+    so the change is no longer called up to date. ~/.local/bin/fieldkit build-harness archive-gap TASK lists other
+    Linux pieces the archived set had.

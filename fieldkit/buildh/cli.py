@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-02-12
+# Version: 1.0.0 · updated 26-10-15-03-33
 """fieldkit build-harness - the Firefox & kernel build harness, from the command line and over MCP.
 
     fieldkit build-harness latest firefox|kernel
@@ -596,6 +596,24 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "archive-gap":
+        # archive-gap TASK [ARCHIVE]: what the last Linux-built patch set changed and this port never touched
+        from . import companions
+        t = task.load(tid)
+        root = Path((t.get("meta") or {}).get("harness_root") or ".")
+        arch = Path(a.args[1]) if len(a.args) > 1 else root / "patchset-155.0b4"
+        if not arch.is_dir():
+            raise task.Refused(f"no archived patch set at {arch}")
+        rows = companions.archive_gap(t["workdir"], arch)
+        if rows is None:
+            raise task.Refused(f"{t['workdir']} is not a work tree with a pristine root commit")
+        def show(rows):
+            for x in rows:
+                print(f"  {x['group']:32} {x['file']}")
+            print(f"ARCHIVE-GAP: {len(rows)} file(s) the archived set {arch.name} changed and this port did not. "
+                  "Each is either a deliberate removal (say so in the patch policy) or a missing piece (apply it).")
+        emit(rows, show)
+        return 0
     if act == "companions":
         # companions TASK [LOG] [--apply]: a compile error naming a missing declaration -> its other half, from the
         # archived patch sets, dry-run with git before anything is applied
