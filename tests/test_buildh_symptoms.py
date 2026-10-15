@@ -23,8 +23,10 @@ def test_every_entry_is_complete_and_matches_its_own_example():
 
 def test_every_command_is_a_real_build_harness_action():
     acts = _actions()
+    top = set(re.findall(r'sub\.add_parser\("([a-z-]+)"', open("fieldkit/cli.py", encoding="utf-8").read()))
     for e in sy.SYMPTOMS:
-        assert e["action"] in acts, e["id"]
+        # a build-harness action, or a top-level fieldkit command its run line names (privacy push-check)
+        assert e["action"] in acts or (e["action"] in top and e["run"].startswith(f"fieldkit {e['action']} ")), e["id"]
 
 
 def test_the_owner_s_own_words_find_the_tool():
@@ -33,6 +35,12 @@ def test_the_owner_s_own_words_find_the_tool():
     assert sy.match("you see the difference in the icons from the ones in the grid and the one on the taskbar")[0]["id"] \
         == "launcher-old-name-or-icon"
     assert sy.match("iconita din grid e diferita si scrie 155")[0]["id"] == "launcher-old-name-or-icon"
+
+
+def test_today_s_owner_words_2026_10_15_16():
+    assert sy.match("Feature Queries Manager could not be installed because it is not compatible with Gorilla Unleashed 158.0")[0]["id"] == "addon-or-theme-refused"
+    assert sy.match("asigura-te ca nu imi urci bookmarkurile si history pe github")[0]["id"] == "private-data-before-publishing"
+    assert sy.match("cele 77 de patchuri vechi nu se aplica pe 158")[0]["id"] == "patches-do-not-apply-to-new-release"
 
 
 def test_unknown_symptom_matches_nothing():
