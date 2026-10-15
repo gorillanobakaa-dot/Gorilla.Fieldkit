@@ -89,6 +89,7 @@ groups:
       - buildh/replay.py
       - buildh/rebase.py
       - buildh/platformsteps.py
+      - buildh/lessonrules.py
       - buildh/reprobuild.py
       - buildh/changecheck.py
       - buildh/snapshot.py

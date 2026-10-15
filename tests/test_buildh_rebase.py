@@ -100,3 +100,27 @@ def test_a_file_a_linux_only_group_touches_gets_a_linux_only_rebase_patch(tmp_pa
     assert pol["groups"]["23.REBASE.158.linux"]["platforms"] == ["linux"]
     assert list((o / "patches" / "23.REBASE.158.linux").glob("*-b_txt.patch"))
     assert list((o / "patches" / "23.REBASE.158").glob("*-a_txt.patch"))
+
+
+def test_a_renamed_fluent_message_s_gorilla_wording_is_found_on_its_successor(tmp_path):
+    w = tmp_path / "src"
+    w.mkdir()
+    g = lambda *a: subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True,
+                                  capture_output=True, text=True).stdout
+    (w / "b.ftl").write_text("tabs4 = Tabs\nkeep = Same\n")             # 158 renamed tabs3 to tabs4
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-qm", "pristine")
+    o = tmp_path / "owner"
+    (o / "config").mkdir(parents=True)
+    (o / "patches" / "08.Look").mkdir(parents=True)
+    (o / "patches" / "08.Look" / "b.patch").write_text(
+        "--- a/b.ftl\n+++ b/b.ftl\n@@ -1,2 +1,2 @@\n-tabs3 = Tabs\n+tabs3 = Gorilla Tabs\n keep = Same\n")
+    (o / "config" / "patch_policy.json").write_text(json.dumps({"patchset_root": "patches", "groups": {
+        "08.Look": {"status": "enabled"}}}))
+    moves = rebase.fluent_moves(o, w, {"08.Look": {"b.patch"}}, "158")
+    assert [(m["id"], m["to"]) for m in moves] == [("tabs3", "tabs4")]
+    (w / "b.ftl").write_text("tabs4 = Gorilla Tabs\nkeep = Same\n")
+    g("commit", "-qam", "carried")
+    assert rebase.fluent_moves(o, w, {"08.Look": {"b.patch"}}, "158") == []
+    assert rebase.fluent_moves(o, w, {"21.PORT.FIXES.158": {"b.patch"}}, "158") == []   # own release: never judged

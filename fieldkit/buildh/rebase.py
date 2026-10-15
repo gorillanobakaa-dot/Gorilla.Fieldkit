@@ -210,7 +210,7 @@ def _meaningful(line):
     return len(s) > 3 and s not in ("{", "}", "};", "});", ")", "*/", "/*", "<!--", "-->")
 
 
-def carried(owner_root, workdir, excl):
+def carried(owner_root, workdir, excl, major=None):
     """Is the LOGIC of every superseded patch in the built tree? For each patch: the lines it adds must be in the
     built file and the lines it removes must be gone from it (meaningful lines, compared stripped).
     -> [{group, patch, round, cause, verdict, added, found, removed, gone, missing: [...]}]
@@ -223,6 +223,8 @@ def carried(owner_root, workdir, excl):
     pristine = _git(w, "rev-list", "--max-parents=0", "HEAD").decode().split()[0]
     rows = []
     for g in sorted(excl):
+        if major and g.endswith(f".{major}"):
+            continue                # this release's own exports: a later edit of the same file is the truth, not a loss
         for name in sorted(excl[g]):
             pf = next((p for p in (pset / g).rglob(name)), None)
             if pf is None:
@@ -271,6 +273,51 @@ def carried(owner_root, workdir, excl):
     return rows
 
 
+def fluent_moves(owner_root, workdir, excl, major=None):
+    """Gorilla wording a superseded .ftl patch gave a message that the built tree does not carry: on the same id
+    (WORDING-NOT-CARRIED) or, when upstream renamed the id (aboutRestartRequired -> ...2, searchmode-tabs -> -tabs4),
+    on its successor (MOVE). -> [{"patch", "file", "id", "to", "want"}]. 2026-10-16: the line-by-line review found
+    about 20 such strings by hand (browser.ftl search-mode chips, preferences.ftl, appmenu, netError, aboutAddons,
+    migrationWizard); this finds them by itself. Lesson of 2026-10-14: 'when a Fluent message is renamed with a 2
+    suffix, put the patch's wording on the new id'."""
+    from . import fluent
+    pset, _ = firefox._policy(owner_root)
+    w = Path(workdir)
+    out = []
+    for g in sorted(excl):
+        if major and g.endswith(f".{major}"):
+            continue                # this release's own exports: a later edit of the same file is the truth, not a loss
+        for name in sorted(excl[g]):
+            pf = next((p for p in (pset / g).rglob(name)), None)
+            if pf is None:
+                continue
+            for fp in firefox.parse_patch(pf.read_text(encoding="utf-8", errors="replace")):
+                if not fp["file"].endswith(".ftl"):
+                    continue
+                built = _blob(w, "HEAD", fp["file"])
+                if built is None:
+                    continue
+                have = {e["id"]: e for e in fluent.entries(built.splitlines())}
+                for h in fp["hunks"]:
+                    try:
+                        sem = fluent.semantics(h)
+                    except Exception:                       # Ambiguous: judged by the line check instead
+                        continue
+                    for mid, parts in {**sem["changed"], **sem["added"]}.items():
+                        want = fluent._texts(parts)
+                        if "Gorilla" not in " ".join(want.values()):
+                            continue                        # only the Gorilla wording is judged here
+                        # the id itself and every successor upstream gave it (tabs3 -> tabs4): carried if ANY has it
+                        names = ([mid] if mid in have else []) + fluent.candidates(mid, list(have))
+                        # compared on the parts the 158 message still has (158 dropped .accesskey from tabs4)
+                        same = lambda n: all(want.get(k) == v for k, v in fluent._texts(have[n]["parts"]).items())
+                        if not names or any(same(n) for n in names):
+                            continue
+                        live = sorted(names, key=lambda n: (len(n), n))[-1]   # the newest name is the one code reads
+                        out.append({"patch": f"{g}/{name}", "file": fp["file"], "id": mid, "to": live, "want": want})
+    return out
+
+
 def report(rows, major):
     """The SUPERSEDED.md written beside 23.REBASE.<major>: every superseded patch, why, and whether its logic is in."""
     from collections import Counter
@@ -294,11 +341,16 @@ def run(owner_root, workdir, major, write=False, say=print):
     """-> {"ok", "patches", "deleted", "superseded", "replay"}"""
     excl, r = superseded(owner_root, workdir, major, say=say)
     out = write_group(owner_root, workdir, major, r["replayed"], excl, say=say, dry=not write)
-    rows = carried(owner_root, workdir, excl)
+    rows = carried(owner_root, workdir, excl, major)
     from collections import Counter
     out["carried"] = dict(Counter(x["verdict"] for x in rows))
     say("  rebase: logic of the superseded patches in the built tree: "
         + ", ".join(f"{k} {v}" for k, v in sorted(out["carried"].items())))
+    moves = fluent_moves(owner_root, workdir, excl, major)
+    out["fluent_moves"] = len(moves)
+    for m in moves:
+        say(f"    FLUENT {'WORDING-NOT-CARRIED' if m['to'] == m['id'] else 'MOVE'}: {m['file']} {m['id']}"
+            + (f" -> {m['to']}" if m["to"] != m["id"] else "") + f" ({m['patch']}): {list(m['want'].values())[0][:70]}")
     for x in rows:
         if x["verdict"] in ("MISSING", "PARTLY"):
             say(f"    {x['verdict']}: {x['group']}/{x['patch']} ({x['found']}/{x['added']} added lines in, "

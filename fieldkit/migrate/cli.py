@@ -82,7 +82,8 @@ def brief_lines(state_root=None, harness_root=None):
                            if acts else [])
         except Exception as e:                              # a broken check is news, not silence
             out.append(f"  platform-steps failed ({type(e).__name__}: {e})")
-        n_lessons = len(task.lessons(tid))
+        from ..buildh import lessonrules
+        n_lessons = len(lessonrules.split(task.lessons(tid))[0])     # only lessons no harness rule covers yet
         if n_lessons:
             out.append(f"  {n_lessons} PORT-AND-TEACH lesson(s) wait to become harness rules: "
                        f"{settings.self_cmd()} build-harness lessons {tid}")

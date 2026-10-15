@@ -731,9 +731,19 @@ def run(a, emit):
             raise task.Refused(f"no step {sid!r}" if sid else "no current step")
         return emit({"step": s["id"], "words": task.describe_step(t, s)}, lambda r: print(r["words"])) or 0
     if act == "lessons":
+        # lessons TASK [--all]: the lessons no harness rule covers yet (lessonrules.py); --all adds the ruled ones
+        from . import lessonrules as _lr
         rows = task.lessons(tid)
-        return emit(rows, lambda rows: print("\n".join([f"{len(rows)} lesson(s) waiting to become harness rules:"] +
-                                                       [f"  {r['t']}  {r['step'][:60]}\n      {r['lesson']}" for r in rows]))) or 0
+        waiting, ruled = _lr.split(rows)
+
+        def _show(_):
+            out = [f"{len(waiting)} lesson(s) waiting to become harness rules ({len(ruled)} already are):"]
+            out += [f"  {r['t']}  {r['step'][:60]}\n      {r['lesson']}" for r in waiting]
+            if getattr(a, "all", False):
+                out += ["ruled (lesson -> the tool that does it now):"]
+                out += [f"  {r['lesson'][:90]}\n      -> {rule['tool']}" for r, rule in ruled]
+            print("\n".join(out))
+        return emit(waiting, _show) or 0
     if act == "drop":
         # drop TASK --note "reason" PATCH... [keep=PATCH]
         pats = [x for x in a.args[1:] if not x.startswith("keep=")]
