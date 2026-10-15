@@ -4,6 +4,8 @@
 import os
 import time
 
+import pytest
+
 from fieldkit.build import deb_install as d
 
 PNG = lambda size: b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + size.to_bytes(4, "big") + size.to_bytes(4, "big")
@@ -39,6 +41,7 @@ def test_a_shell_older_than_the_menu_entry_gets_a_note_not_a_failure(tmp_path):
     assert d.stale_shell_note([entry], started=None) == []
 
 
+@pytest.mark.skipif(not hasattr(os, "sysconf"), reason="/proc and sysconf are Linux; GNOME Shell is too")
 def test_shell_start_is_read_from_proc(tmp_path):
     (tmp_path / "stat").write_text("cpu 1 2 3\nbtime 1000\n")
     p = tmp_path / "4242"

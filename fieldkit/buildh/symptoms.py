@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-17-30
+# Version: 1.0.0 · updated 26-10-15-17-56
 """What you SEE -> the tool that diagnoses it. The first command for any visible problem in a Gorilla build.
 
 Born 2026-10-15. The owner: "a narrative is not exactly a deterministic tool ... none of the models was trained on
@@ -122,6 +122,24 @@ SYMPTOMS = [
                  "git -C <src> log --oneline -1: a pristine tree has only Mozilla's commit"],
         "last_fix": "2026-10-15: preflight refused the pristine tree (correctly); re-run with --var src=<work tree>",
         "then": "",
+    },
+    {
+        "id": "files-damaged-need-the-original",
+        "seen": "Files in the Firefox work tree are damaged (by a model, a bad patch, a script) and must go back to "
+                "Mozilla's original, without git (or with GitHub unreachable).",
+        "example": "a model broke browser.xhtml and I need the original file back",
+        "words": [r"broke|broken|damag|corrupt|stric|distrus|screw|messed|wrong", r"original|pristine|vault|restore|back|"
+                  r"[iî]napoi|restaur|mozilla"],
+        "action": "vault",
+        "run": "build-harness vault restore-files firefox <work tree> <path> [<path> ...]",
+        "proves": "the vault (Vault.Do.Not.Delete, read-only, checked against its recorded commit first) gives back each "
+                  "file or folder byte for byte; the current versions go to Agents.Work.Trash; a Gorilla-only file "
+                  "(not in the release) is listed and left alone",
+        "look": ["build-harness vault verify firefox (is the vault itself intact)",
+                 "build-harness vault list (which releases the vault holds)",
+                 "git -C <work tree> diff <root commit> -- <path> (what the port changed, when git works)"],
+        "last_fix": "2026-10-15: restore-files added; whole trees: build-harness vault restore firefox <new folder>",
+        "then": "re-apply only the Gorilla change that file needs (its patch or technique), then the register",
     },
     {
         "id": "decision-not-held",

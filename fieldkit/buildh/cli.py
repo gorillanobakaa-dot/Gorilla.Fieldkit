@@ -519,6 +519,14 @@ def run(a, emit):
             return 0 if r["intact"] else 3
         if sub == "restore":
             return emit(vault.restore(rest[0], rest[1], a.version), None) or 0
+        if sub == "restore-files":
+            # restore-files firefox WORKDIR PATH [PATH ...]: pristine files back without git (vault.restore_files)
+            r = vault.restore_files(rest[0], rest[1], rest[2:], a.version)
+            emit(r, lambda r: print("\n".join([f"restored {p}" for p in r["restored"]]
+                                               + [f"already pristine {p}" for p in r["already"]]
+                                               + [f"NOT IN THE RELEASE (left as it is) {p}" for p in r["not_in_release"]]
+                                               + ([f"the replaced versions are in {r['trash']}"] if r["trash"] else []))))
+            return 0 if not r["not_in_release"] else 3
         if sub == "list":
             return emit(vault.listing(), lambda rows: [print(f"{r['product']:8} {r['version']:10} {r['fetched']}  {r['path']}") for r in rows]) or 0
     if act == "start":
