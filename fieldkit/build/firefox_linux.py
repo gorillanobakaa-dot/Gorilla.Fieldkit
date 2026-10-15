@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-15-01-43
 """Firefox on Linux (Debian): the pieces, as tested functions, plus pipeline stages
 (build/pipelines/firefox-linux.yaml).
 
@@ -189,8 +190,24 @@ def stage_build(ctx, run=_run, env=None):
     if not script.is_file():
         return {"ok": False, "detail": f"no build wrapper at {script}"}
     rc, out = run(["bash", str(script), str(src)], cwd=str(harness), env=mach_env(env), timeout=43200)
-    return {"ok": rc == 0, "detail": "build wrapper exited 0" if rc == 0 else f"build wrapper exited {rc}",
-            "output_tail": out[-3000:]}
+    detail = "build wrapper exited 0" if rc == 0 else f"build wrapper exited {rc}"
+    if rc != 0:
+        detail += "; " + failure_summary(src / "build_logs" / "latest_build.log")
+    return {"ok": rc == 0, "detail": detail, "output_tail": out[-3000:]}
+
+
+def failure_summary(log):
+    """The failed build named in one line: the first compiler error and what the signatures know about it.
+    Added 2026-10-15: the first 158 build failed and the pipeline log said only "build wrapper exited 2"."""
+    from .triage import triage_file
+    if not Path(log).is_file():
+        return f"no mach log at {log}"
+    r = triage_file(log, "firefox-linux")
+    first = r["errors"][0]["line"][:200] if r["errors"] else "no error line"
+    if r["matches"]:
+        m = r["matches"][0]
+        return f"known failure {m['id']}: {first}. Fix: {' '.join(str(m.get('fix', '')).split())}"
+    return f"UNRECOGNISED failure, add a signature to signatures/firefox-linux.yaml: {first} (log {log})"
 
 
 def dist_bin(ctx):

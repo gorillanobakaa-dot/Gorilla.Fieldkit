@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-15-01-43
 """fieldkit build-harness - the Firefox & kernel build harness, from the command line and over MCP.
 
     fieldkit build-harness latest firefox|kernel
@@ -582,6 +583,28 @@ def run(a, emit):
             raise task.Refused("withdraw TASK STEP --note \"why\"")
         r = task.withdraw(tid, a.args[1], a.note.strip(), who=_os.environ.get("USER") or _os.environ.get("USERNAME") or "owner")
         return emit(r, lambda r: print(f"withdrawn {r['withdrawn']}: {r['reason']}")) or 0
+    if act == "companions":
+        # companions TASK [LOG] [--apply]: a compile error naming a missing declaration -> its other half, from the
+        # archived patch sets, dry-run with git before anything is applied
+        from . import companions
+        t = task.load(tid)
+        root = (t.get("meta") or {}).get("harness_root")
+        log = Path(a.args[1]) if len(a.args) > 1 else Path(t["workdir"]) / "build_logs" / "latest_build.log"
+        if not root or not Path(root).is_dir():
+            raise task.Refused(f"task {tid} has no harness folder to search (meta.harness_root)")
+        if not log.is_file():
+            raise task.Refused(f"no build log at {log}")
+        r = companions.diagnose(t["workdir"], root, log.read_text(encoding="utf-8", errors="replace"))
+        if getattr(a, "apply", False) and r["plan"]:
+            r["applied"] = companions.apply(t["workdir"], r["plan"])
+        r["plan"] = [{k: v for k, v in c.items() if k not in ("text", "mtime")} for c in r["plan"]]
+        def show(r):
+            print("\n".join(companions.lines(r, root)))
+            if r.get("applied"):
+                print("APPLIED: " + "; ".join(r["applied"]["applied"]) if r["applied"]["ok"]
+                      else f"APPLY FAILED at {r['applied']['failed']}: {r['applied']['why']}")
+        emit(r, show)
+        return 0 if r["ok"] and (not r.get("applied") or r["applied"]["ok"]) else 3
     if act == "fluent-check":
         from . import fluentcheck
         t = task.load(tid)
