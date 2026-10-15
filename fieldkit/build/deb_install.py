@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-09-53
+# Version: 1.0.0 · updated 26-10-15-11-31
 """Install the newest Gorilla .deb on this machine and prove what the person will see.
 
 Pipeline stage `install` of firefox-linux (after `package`). The only Firefox stage that needs root, kept out of
@@ -11,6 +11,8 @@ and all that (teach the harness how to do it)"):
   binary    /usr/lib/gorilla-unleashed/firefox --version names the release
   menu      the installed .desktop Name= is the branding's name, and its Icon= resolves in hicolor at 48 and 256
   caches    the hicolor icon-theme.cache and the desktop mimeinfo.cache are at least as new as the install
+  shadow    a personal ~/.local/share/applications/gorilla-unleashed.desktop wins over the system one; it must name the
+            same release too (2026-10-15: one from August still said "Gorilla Unleashed 155" over the 158 install)
 """
 import os
 import re
@@ -20,6 +22,7 @@ from pathlib import Path
 PKG = "gorilla-unleashed"
 APP = Path("/usr/lib/gorilla-unleashed/firefox")
 DESKTOP = Path("/usr/share/applications/gorilla-unleashed.desktop")
+PERSONAL = Path.home() / ".local" / "share" / "applications" / DESKTOP.name
 HICOLOR = Path("/usr/share/icons/hicolor")
 
 
@@ -69,6 +72,14 @@ def verify_install(ctx, run=_run):
         problems.append(f"menu: {DESKTOP} is missing")
     elif name:
         problems += name_problems(text, name, "installed")
+    for f in sorted(PERSONAL.parent.glob("*.desktop")) if PERSONAL.parent.is_dir() else []:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if "/usr/lib/gorilla-unleashed/firefox" in text:
+            problems.append(f"shadow: personal launcher {f} starts /usr/lib/gorilla-unleashed/firefox, so the task "
+                            "manager shows 'firefox': point it at /usr/lib/gorilla-unleashed/gorilla-unleashed")
+    if name and PERSONAL.is_file():
+        problems += [p.replace("installed", f"personal launcher {PERSONAL}", 1)
+                     for p in name_problems(PERSONAL.read_text(encoding="utf-8", errors="replace"), name, "installed")]
     icon = re.search(r"^Icon=(.*)$", main, re.M)
     for sz in (48, 256):
         if icon and not (HICOLOR / f"{sz}x{sz}" / "apps" / f"{icon.group(1).strip()}.png").is_file():

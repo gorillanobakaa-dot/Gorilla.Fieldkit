@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-10-45
+# Version: 1.1.0 · updated 26-10-15-11-31
 """Does the installed browser decode video on the GPU's video engine? Measured, not assumed.
 
     fieldkit build-harness decode-test TASK [--seconds N]
@@ -14,6 +14,10 @@ Deterministic steps, no model:
      /proc gives the CPU time of that browser's processes only
   4. the page reports the video's own counters (getVideoPlaybackQuality: frames shown and dropped, and the play
      position) to a local HTTP server the test runs, so "nothing played" can never pass for "played cheaply"
+  4b. a hidden or covered test window makes Firefox suspend the video and throttle the page's timers (2026-10-15:
+     three of five runs "failed" while the owner was using the desktop; the page simply stopped reporting). The
+     throwaway profile turns that off, and a run whose page reported for less than 80% of the measured seconds is
+     INCONCLUSIVE, never SOFTWARE
   5. verdict: HARDWARE when the Video engine is busy and frames were shown; NOT-PLAYING when the position did not
      move; SOFTWARE when frames were shown with the Video engine at zero; the numbers are reported either way
 """
@@ -60,6 +64,17 @@ def _tree_pids(root):
         out.append(x)
         todo += kids.get(x, [])
     return out
+
+
+def _names(pids):
+    """Process names (comm) of the browser's tree, e.g. RDD Process, GPU Process, Isolated Web Co."""
+    out = []
+    for pid in pids:
+        try:
+            out.append(Path(f"/proc/{pid}/comm").read_text().strip())
+        except OSError:
+            pass
+    return sorted(out)
 
 
 def _cpu_ticks(pids):
@@ -131,22 +146,37 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
     (profile / "user.js").write_text('user_pref("browser.shell.checkDefaultBrowser", false);\n'
                                      'user_pref("media.autoplay.default", 0);\n'
                                      'user_pref("browser.aboutwelcome.enabled", false);\n'
+                                     'user_pref("media.suspend-background-video.enabled", false);\n'
+                                     'user_pref("dom.timeout.enable_budget_timer_throttling", false);\n'
+                                     'user_pref("dom.min_background_timeout_value", 1000);\n'
+                                     'user_pref("widget.windows.window_occlusion_tracking.enabled", false);\n'
                                      + "".join(f'user_pref("{k}", {json.dumps(v)});\n' for k, v in (extra_prefs or {}).items()),
                                      encoding="utf-8")
     if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
         return {"ok": False, "detail": "intel_gpu_top needs root and sudo asks for a password: a person runs this"}
-    br = subprocess.Popen([str(app), "--no-remote", "--profile", str(profile), url],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    blog = open(work / "browser.log", "w", encoding="utf-8")
+    # The engines block is the whole GPU; per-client figures are not trustworthy on Ivy Bridge (2026-10-15: one idle
+    # program "used" 2259% of the video engine). So the video engine is measured BEFORE the browser starts: anything
+    # else decoding (the person's own YouTube, 2026-10-15) makes the run INCONCLUSIVE instead of a false pass.
+    pre = subprocess.run(["sudo", "-n", "timeout", "--signal=INT", "5", "intel_gpu_top", "-J", "-s", "1000"],
+                         capture_output=True, text=True)
+    pv = [x[k] for x in parse_gpu_top(pre.stdout) for k in x if k.lower().split("/")[0] == "video"]
+    before = round(sum(pv) / len(pv), 2) if pv else None
+    br = subprocess.Popen([str(app), "--name", "gorilla-unleashed", "--no-remote", "--profile", str(profile), url],
+                          stdout=blog, stderr=subprocess.STDOUT, start_new_session=True)
     try:
         time.sleep(warmup)
         if br.poll() is not None:
             return {"ok": False, "detail": f"the browser exited during warm-up (code {br.returncode})"}
         pids = _tree_pids(br.pid)
+        names_start = _names(pids)
+        mark = len(reports)
         c0, t0 = _cpu_ticks(pids), time.monotonic()
         g = subprocess.run(["sudo", "-n", "timeout", "--signal=INT", str(seconds), "intel_gpu_top", "-J", "-s",
                             "1000"], capture_output=True, text=True)
         pids = _tree_pids(br.pid)
         c1, t1 = _cpu_ticks(pids), time.monotonic()
+        names = _names(pids)
     finally:
         try:
             os.killpg(br.pid, signal.SIGTERM)
@@ -155,6 +185,7 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
             os.killpg(br.pid, signal.SIGKILL)
         shutil.rmtree(profile, ignore_errors=True)
         srv.shutdown()
+        blog.close()
     samples = parse_gpu_top(g.stdout)
     def avg(key):
         # names are "Render/3D", "Blitter", "Video" (i965/Ivy Bridge) or "Video/0" (newer): compare the base name
@@ -169,10 +200,26 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
     shown = int(last["shown"]) if last else 0
     dropped = int(last["dropped"]) if last else 0
     v = verdict(video, cpu) if played else "NOT-PLAYING"
-    return {"ok": v == "HARDWARE", "verdict": v, "video_engine_pct": video, "render_pct": render,
+    during = len(reports) - mark
+    if before is not None and before >= 0.3:
+        v = "INCONCLUSIVE"                                      # reports that arrived while we measured
+    if played and during < 0.8 * seconds:
+        v = "INCONCLUSIVE"
+    series = [int(r["shown"]) for r in reports]
+    resets = sum(1 for a, b in zip(series, series[1:]) if b < a)          # the page's counters started again
+    errors = [l.strip() for l in (work / "browser.log").read_text(errors="replace").splitlines()
+              if re.search(r"crash|abort|channel error|segfault|assert|IPC|RDD|VA-API|vaapi|libva", l, re.I)][:12]
+    return {"ok": v == "HARDWARE", "verdict": v, "video_engine_before_pct": before, "reports_while_measuring": during, "video_engine_pct": video, "render_pct": render,
             "browser_cpu_pct_of_one_core": cpu, "cores": cores, "samples": len(samples), "seconds": seconds,
             "clip": "1920x1080 30 fps H.264 High, 8 Mb/s (ffmpeg testsrc2)", "processes": len(pids),
+            "process_names": names, "process_names_start": names_start, "counter_resets": resets,
+            "frames_series": series, "browser_log": errors, "rdd": any(n.startswith("RDD") for n in names),
             "frames_shown": shown, "frames_dropped": dropped, "media_error": int(last["err"]) if last else None,
             "detail": (f"{v}: video engine {video}% busy, render {render}%, browser CPU {cpu}% of one core, "
                        f"frames shown {shown}, dropped {dropped} ({len(pids)} processes, {len(samples)} samples "
-                       f"over {seconds} s)")}
+                       f"over {seconds} s); RDD process {'present' if any(n.startswith('RDD') for n in names) else 'ABSENT'}"
+                       + (f"; page restarted {resets} time(s)" if resets else "")
+                       + (f"; something else was using the video engine before the test ({before}%)"
+                          if before is not None and before >= 0.3 else "")
+                       + (f"; the page reported only {during} of {seconds} s: window hidden or covered?"
+                          if played and during < 0.8 * seconds else ""))}
