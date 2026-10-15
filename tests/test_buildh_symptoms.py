@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-16-58
+# Version: 1.0.0 · updated 26-10-15-17-30
 """symptom: what you see -> the tool built for it. Every entry is checked: its words match its own example (English
 and the Romanian the owner writes), its command is a real build-harness action, and no two entries claim one example."""
 import re
@@ -51,3 +51,9 @@ def test_word_boundaries_are_real_boundaries():
             assert "\\\\" not in g, (e["id"], g)
     assert sy.match("the old icon in the grid")[0]["id"] == "launcher-old-name-or-icon"
     assert sy.match("the bold gridline") == []
+
+
+def test_every_command_is_printed_with_the_full_path_of_its_program():
+    for e in sy.SYMPTOMS:
+        c = sy.command(e["run"], "/opt/fieldkit/bin/fieldkit", "/opt/venv/bin/python")
+        assert c.startswith("/opt/"), (e["id"], c)

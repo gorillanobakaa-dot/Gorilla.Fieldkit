@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-16-58
+# Version: 1.0.0 · updated 26-10-15-17-30
 """What you SEE -> the tool that diagnoses it. The first command for any visible problem in a Gorilla build.
 
 Born 2026-10-15. The owner: "a narrative is not exactly a deterministic tool ... none of the models was trained on
@@ -16,6 +16,7 @@ example, and two entries may not claim the same example. A symptom that is not h
 then add the entry here (tests/test_buildh_symptoms.py shows the shape). The registry grows with every fault.
 """
 import re
+import sys
 
 SYMPTOMS = [
     {
@@ -41,7 +42,7 @@ SYMPTOMS = [
         "example": "the app grid says Gorilla Unleashed 155 and the icon differs from the one on the taskbar",
         "words": [r"icon|iconi|launcher|app grid|\bgrid\b|dock|taskbar|bara de|desktop file", r"\bold\b|155|154|differ|diferit|wrong|blurry|vechi|\balt[aă]\b|not the same|nu e la fel"],
         "action": "install",
-        "run": "python3 -c \"from fieldkit.build import deb_install as d; print(d.icon_shadows('gorilla-unleashed'));"
+        "run": "{python} -c \"from fieldkit.build import deb_install as d; print(d.icon_shadows('gorilla-unleashed'));"
                " print(d.stale_shell_note([d.DESKTOP, d.PERSONAL], d.shell_started()))\"",
         "proves": "personal icon files that shadow the package's (~/.local/share/icons, ~/.icons, wrong-size ones "
                   "marked), personal launchers that shadow the system one, and a GNOME Shell older than the menu "
@@ -106,6 +107,23 @@ SYMPTOMS = [
         "then": "every new build error becomes a tool + signature + test + lesson (owner priority 2026-10-15)",
     },
     {
+        "id": "pipeline-wrong-source-tree",
+        "seen": "The firefox-linux pipeline's preflight fails on things the work tree has (must-keep files missing, "
+                "fonts not listed, 'no objdir yet (clean build)') right after a build that worked.",
+        "example": "preflight fails must-keep-tree and package-fonts and says no objdir yet",
+        "words": [r"preflight|pipeline|must-keep|package-fonts", r"fail|no objdir|missing|not carry|e[sș]u"],
+        "action": "preflight",
+        "run": "fieldkit pipeline run firefox-linux --from preflight --var src=<the task's work tree>",
+        "proves": "the pipeline's default src is {work}/firefox-{version} under Build.Work: the PRISTINE Mozilla "
+                  "tree. The Gorilla work tree (task firefox-158-linux) is ~/Documents/FIREFOX.WORK/work/firefox-158.0; "
+                  "with --var src= pointing there, preflight passes and the build uses the existing objdir",
+        "look": ["fieldkit/build/pipelines/firefox-linux.yaml (vars: work, src)",
+                 "the task's workdir: build-harness migrate sitrep <task>, or intents/port-*/STATE.md",
+                 "git -C <src> log --oneline -1: a pristine tree has only Mozilla's commit"],
+        "last_fix": "2026-10-15: preflight refused the pristine tree (correctly); re-run with --var src=<work tree>",
+        "then": "",
+    },
+    {
         "id": "decision-not-held",
         "seen": "Something the owner decided against is back (AI feature, new-tab tiles, translations, a theme), or "
                 "a decision may not hold in this build.",
@@ -133,11 +151,20 @@ def match(text):
     return [e for _, e in sorted(scored, key=lambda x: -x[0])]
 
 
-def lines(entries, self_cmd="fieldkit"):
+def command(run, self_cmd="fieldkit", python=None):
+    """The entry's command with the full path of its program (directives 12b: it runs from any folder)."""
+    if run.startswith("build-harness"):
+        return f"{self_cmd} {run}"
+    if run.startswith("fieldkit "):
+        return self_cmd + run[len("fieldkit"):]
+    return run.replace("{python}", python or sys.executable)
+
+
+def lines(entries, self_cmd="fieldkit", python=None):
     out = []
     for e in entries:
         out += [f"SYMPTOM {e['id']}: {e['seen']}",
-                f"  RUN FIRST: {self_cmd} {e['run']}" if e["run"].startswith("build-harness") else f"  RUN FIRST: {e['run']}",
+                f"  RUN FIRST: {command(e['run'], self_cmd, python)}",
                 f"  it proves: {e['proves']}"]
         out += [f"  look at: {x}" for x in e["look"]]
         if e["last_fix"]:
