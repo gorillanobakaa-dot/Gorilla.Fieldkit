@@ -1,4 +1,4 @@
-# Version: 0.1.0 · updated 26-10-15-02-12
+# Version: 0.1.0 · updated 26-10-15-03-33
 """Firefox preflight checks for Linux: the accumulated list of things that have broken a build, checked before
 mach runs, each with the fix and the incident that made it a check.
 
@@ -116,6 +116,35 @@ def _c_bundled_files(ctx):
         return False, "browser/fonts missing: " + ", ".join(missing[:4])
     return True, f"{len(listed)} bundled font(s), all present"
 
+
+
+def required_fonts(root):
+    """The fonts the package gate demands, read from the gate itself (scripts/release_gate.py REQUIRED_FONTS): one
+    list, so the check before the build and the gate after it can never disagree. None when the gate is absent."""
+    g = Path(root) / "scripts" / "release_gate.py"
+    if not g.is_file():
+        return None
+    m = re.search(r"REQUIRED_FONTS\s*=\s*\[(.*?)\]", g.read_text(encoding="utf-8", errors="replace"), re.S)
+    return re.findall(r'"([^"]+)"', m.group(1)) if m else None
+
+
+def _c_package_fonts(ctx):
+    want = required_fonts(ctx.root)
+    if want is None:
+        return True, "no release gate with REQUIRED_FONTS in the harness folder: nothing to compare"
+    fonts = Path(ctx.src) / "browser" / "fonts"
+    mb = fonts / "moz.build"
+    listed = set(re.findall(r'"([^"]+\.(?:ttf|ttc|otf))"', mb.read_text(encoding="utf-8"))) if mb.is_file() else set()
+    absent = [f for f in want if not (fonts / f).is_file()]
+    unlisted = [f for f in want if f not in listed]
+    if absent or unlisted:
+        bits = []
+        if absent:
+            bits.append("not in browser/fonts: " + ", ".join(absent))
+        if unlisted:
+            bits.append("not listed in browser/fonts/moz.build: " + ", ".join(unlisted))
+        return False, "; ".join(bits)
+    return True, f"all {len(want)} fonts the package gate requires are present and listed"
 
 def _c_clobber(ctx):
     src_c = Path(ctx.src) / "CLOBBER"
@@ -285,6 +314,13 @@ CHECKS = [
           "2026-09-09 (Windows): configure aborted with 'File listed in FINAL_TARGET_FILES does not exist: "
           "browser/fonts/consola.ttf'. 11.FONT.SYSTEM bundles fonts that Debian fetches via get-microsoft-fonts.sh.",
           linux="On Linux the fonts ship inside the .deb (decided), so a missing one is fetched, never dropped."),
+    Check("package-fonts", "Fonts the package gate requires", BLOCKER, _c_package_fonts,
+          "Copy the fonts from an earlier build tree or run the patch set's get-microsoft-fonts.sh (FF_SRC=<tree>); "
+          "the moz.build listing is patchset-155.0b4/11.FONT.SYSTEM/browser_fonts_moz.build.patch on Linux.",
+          "2026-10-15 (Linux 158): the build compiled in 87 minutes and the package gate then refused FONT-001: the 157 "
+          "set came from Windows, which excludes browser/fonts/moz.build, and bundled-files only checked the fonts "
+          "moz.build already listed (1 of 8). The list now comes from the gate, so both ends agree.",
+          linux="Fonts ship inside the .deb on Linux (settled 2026-08-03); the public repo carries only the fetch script."),
     Check("clobber", "Objdir vs CLOBBER", BLOCKER, _c_clobber, "Delete the objdir (or ./mach clobber) and rebuild.",
           "Standard Firefox behaviour: some moz.build changes invalidate the build backend and incremental builds "
           "cannot reconcile them. The first version compared contents and called every healthy objdir stale."),

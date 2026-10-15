@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-15-03-33
 """The pipeline engine: staged, resumable, deterministic.
 
 Generalised from the Gorilla.firefox Windows harness (preflight -> deps ->
@@ -47,6 +48,24 @@ from .proc import Runner
 
 _LOCAL_VAR = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 
+
+
+def tree_state(path):
+    """git HEAD plus a hash of `git status --porcelain` and `git diff HEAD` for a source tree; 'no-git' when it has none
+    (then nothing is ever up to date by mistake: the text differs from any recorded fingerprint)."""
+    import subprocess
+    try:
+        head = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              timeout=60)
+        if head.returncode != 0:
+            return f"no-git {time.time()}"
+        dirty = subprocess.run(["git", "-C", str(path), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, timeout=600).stdout
+        diff = subprocess.run(["git", "-C", str(path), "diff", "HEAD"], capture_output=True, timeout=600).stdout \
+            if dirty.strip() else b""
+    except (OSError, subprocess.TimeoutExpired):
+        return f"no-git {time.time()}"
+    return head.stdout.strip() + " " + hashlib.sha256(dirty + diff).hexdigest()[:16]
 
 class PipelineError(ValueError):
     pass
@@ -128,7 +147,14 @@ class Pipeline:
 
     @staticmethod
     def fingerprint(stage):
-        return hashlib.sha256(json.dumps(stage, sort_keys=True).encode()).hexdigest()[:16]
+        """The stage definition, plus the state of its `source_tree` when it names one: the git commit and a hash of
+        the uncommitted changes. 2026-10-15: a Firefox build stage was called up-to-date after browser/fonts/moz.build
+        changed, because only the stage's own text was hashed; the fonts never reached the package."""
+        body = json.dumps(stage, sort_keys=True)
+        tree = stage.get("source_tree")
+        if tree:
+            body += "\n" + tree_state(tree)
+        return hashlib.sha256(body.encode()).hexdigest()[:16]
 
     # -- verify --------------------------------------------------------------
     def verify(self, stage, ctx, output=None):

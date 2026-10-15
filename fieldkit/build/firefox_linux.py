@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-01-43
+# Version: 1.0.0 · updated 26-10-15-03-33
 """Firefox on Linux (Debian): the pieces, as tested functions, plus pipeline stages
 (build/pipelines/firefox-linux.yaml).
 
@@ -235,8 +235,12 @@ def stage_package(ctx, run=_run):
     release.mkdir(parents=True, exist_ok=True)
     rc, out = run(["bash", str(script), "", str(dist_bin(ctx)), str(release), str(harness / "deb_template"),
                    str(src / "browser" / "branding" / "gorilla")], cwd=str(harness))
-    return {"ok": rc == 0, "detail": "build_deb.sh exited 0" if rc == 0 else f"build_deb.sh exited {rc}",
-            "output_tail": out[-3000:]}
+    detail = "build_deb.sh exited 0"
+    if rc != 0:
+        # 2026-10-15: the gate refused FONT-001 and the pipeline log said only "build_deb.sh exited 1"
+        why = [l.strip() for l in out.splitlines() if re.match(r"\s*(FAIL|FATAL|ERROR)\b", l)]
+        detail = f"build_deb.sh exited {rc}" + (": " + " | ".join(why[:6]) if why else "")
+    return {"ok": rc == 0, "detail": detail, "output_tail": out[-3000:]}
 
 
 def verify_package(ctx, run=_run):

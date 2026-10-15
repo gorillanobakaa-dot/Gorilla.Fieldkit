@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-15-03-33
 # Firefox on Linux (Debian), from the public gorilla-firefox folder: the untouched source from the
 # vault, the tuned mozconfig, the patch set, mach bootstrap, the build under the guard, a .deb.
 #
@@ -68,6 +69,7 @@ stages:
   - id: build
     platforms: [linux]
     timeout: 43200
+    source_tree: "{src}"           # a change in the Firefox tree means the build is no longer up to date
     run: {python: "fieldkit.build.firefox_linux:stage_build"}
     verify:
       - {python: {target: "fieldkit.build.firefox_linux:verify_build"}}
