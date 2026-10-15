@@ -162,6 +162,7 @@ def test_firefox_default_identity_is_refused(tmp_path):
                      "gorilla-unleashed: a plain launch shows under the wrong name"]
 
 
+@LINUX_DEB
 def test_a_logo_rewritten_while_packaging_is_caught(tmp_path):
     """D-157-35, 2026-10-15: build_deb.sh wrote a 500 px logo over the 1400 px master and added an @2x copy."""
     deb, br = _deb(tmp_path, name=GOOD, extra=FIELDS, postinst="gtk-update-icon-cache\nupdate-desktop-database\n",
