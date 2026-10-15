@@ -65,11 +65,11 @@ def _materialise(w, commit, paths, dest):
     return {p: m for p, (m, _) in modes.items()}
 
 
-def _targets(pset, groups):
+def _targets(pset, groups, extra_exclude=None, include=None):
     """Every path the enabled groups touch (patch targets, new, replaced, deleted)."""
     out = set()
     for g, spec in groups:
-        ex = set(spec.get("exclude", []))
+        ex = (set(spec.get("exclude", [])) - set((include or {}).get(g, ()))) | set((extra_exclude or {}).get(g, ()))
         for pf in sorted((pset / g).rglob("*.patch")):
             if pf.name in ex:
                 continue
@@ -101,11 +101,14 @@ def _apply_patch(pf, scratch):
     return r.returncode == 0 and "previously applied" not in out, out
 
 
-def replay(owner_root, workdir, say=print, keep=False):
-    """-> {ok, replayed, built, pristine, failures, dirty, differ, patches, scratch}."""
+def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=(), include=None):
+    """-> {ok, replayed, built, pristine, failures, dirty, differ, patches, scratch}.
+    `extra_exclude` {group: {patch name}} and `skip` (group names) are for rebase.py: a replay as if the policy
+    already excluded those patches and had no such group; `include` {group: {patch name}} applies patches the policy
+    excludes (rebase.py recomputes what is superseded from scratch on every run)."""
     w = Path(workdir)
     pset, policy = firefox._policy(owner_root)
-    groups = [(g, s) for g, s in policy.items() if s.get("status") == "enabled"]
+    groups = [(g, s) for g, s in policy.items() if s.get("status") == "enabled" and g not in skip]
     pristine = _git(w, "rev-list", "--max-parents=0", "HEAD").decode().split()[0]
     built = _git(w, "rev-parse", "HEAD^{tree}").decode().strip()
     dirty = [l for l in _git(w, "status", "--porcelain", "--untracked-files=no").decode("utf-8", "replace").splitlines() if l.strip()]
@@ -113,13 +116,13 @@ def replay(owner_root, workdir, say=print, keep=False):
     res = {"ok": False, "built": built, "pristine": pristine, "failures": [], "dirty": dirty[:20], "differ": [],
            "patches": 0, "scratch": str(scratch)}
     try:
-        paths = _targets(pset, groups)
+        paths = _targets(pset, groups, extra_exclude, include)
         modes = _materialise(w, pristine, paths, scratch / "t")
         say(f"  replay: {len(paths)} path(s) touched by {len(groups)} group(s); {len(modes)} taken from pristine {pristine[:10]}")
         t = scratch / "t"
         t.mkdir(exist_ok=True)
         for g, spec in groups:
-            ex = set(spec.get("exclude", []))
+            ex = (set(spec.get("exclude", [])) - set((include or {}).get(g, ()))) | set((extra_exclude or {}).get(g, ()))
             n = 0
             for pf in sorted((pset / g).rglob("*.patch")):
                 if pf.name in ex:

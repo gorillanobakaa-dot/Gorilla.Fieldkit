@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from ..core import settings
@@ -107,9 +108,34 @@ def _patch_exe():
 
 # -- the steps -------------------------------------------------------------------------------
 
-def _policy(root):
+def this_platform():
+    """'windows' or 'linux': the system this harness runs on, the one the patches are chosen for."""
+    return "windows" if os.name == "nt" or sys.platform.startswith(("win", "cygwin", "msys")) else "linux"
+
+
+def for_platform(groups, platform):
+    """The policy's groups as THIS platform applies them (2026-10-15: there was no OS selection at all; each machine
+    kept its own patch_policy.json, and the Windows one was never published, so a Windows port of the shared set
+    would have applied the Linux media group and the GTK patches).
+      "platforms": ["linux"]                 the group exists only there; elsewhere it reads as disabled
+      "exclude_on": {"windows": [names]}     patches of the group left out on that platform only
+    A group without either applies everywhere. Returns copies: the file is never changed by reading it."""
+    out = {}
+    for g, spec in groups.items():
+        s = dict(spec)
+        plats = s.get("platforms")
+        if plats and platform not in plats and s.get("status") == "enabled":
+            s["status"] = f"disabled on {platform} (platforms: {', '.join(plats)})"
+        extra = (s.get("exclude_on") or {}).get(platform) or []
+        if extra:
+            s["exclude"] = sorted(set(s.get("exclude", [])) | set(extra))
+        out[g] = s
+    return out
+
+
+def _policy(root, platform=None):
     pol = json.loads((Path(root) / "config" / "patch_policy.json").read_text(encoding="utf-8"))
-    return Path(root) / pol["patchset_root"], pol["groups"]
+    return Path(root) / pol["patchset_root"], for_platform(pol["groups"], platform or this_platform())
 
 
 def step_resolve(t, **kw):

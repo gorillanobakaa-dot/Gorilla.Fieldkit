@@ -15,10 +15,12 @@ def owner(tmp_path, monkeypatch):
     monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
     from fieldkit.buildh import ownercheck
     monkeypatch.setattr(ownercheck, "patchset_owner", lambda t: str(tmp_path))      # capture_patches asks this (2026-10-15)
+    from fieldkit.buildh import rebase
+    monkeypatch.setattr(rebase, "run", lambda *a, **k: {"ok": True})              # tested in test_buildh_rebase.py
     return tmp_path
 
 
-T = {"meta": {"upstream": {"version": "157.0"}}}
+T = {"meta": {"upstream": {"version": "157.0"}}, "workdir": "/tree"}
 
 
 def test_export_runs_before_replay_with_the_patch_set_and_major(owner, monkeypatch):
@@ -27,9 +29,12 @@ def test_export_runs_before_replay_with_the_patch_set_and_major(owner, monkeypat
     monkeypatch.setattr(replay, "run", lambda tid, say=print: calls.append(("replay", tid)) or
                         {"ok": True, "failures": [], "differ": []})
     monkeypatch.setattr(changecheck, "commit_patches", lambda owner, msg, say=print: calls.append(("commit",)) or (True, "committed"))
+    from fieldkit.buildh import rebase
+    monkeypatch.setattr(rebase, "run", lambda o, w, major, write=False, say=print: calls.append(("rebase", w, major, write)))
     r = buildrun.capture_patches(T, "task-x", say=lambda m: None)
     assert r == {"replay": "OK", "commit": (True, "committed")}
-    assert calls == [("export", "task-x", owner / "gorilla-patchset/patches", "157"), ("replay", "task-x"), ("commit",)]
+    assert calls == [("export", "task-x", owner / "gorilla-patchset/patches", "157"), ("rebase", "/tree", "157", True),
+                     ("replay", "task-x"), ("commit",)]
 
 
 def test_a_set_that_does_not_reproduce_the_tree_makes_the_build_not_ok(owner, monkeypatch):

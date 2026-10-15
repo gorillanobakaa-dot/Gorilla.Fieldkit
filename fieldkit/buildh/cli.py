@@ -774,6 +774,20 @@ def run(a, emit):
         emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))
                                 + (f"\n{r['next']}" if r.get("next") else "")))
         return 0 if r.get("ok") else 3
+    if act == "rebase-set":
+        # rebase-set TASK [write=1]: pristine upstream + the patch set = the built tree, by superseding the patches
+        # that no longer apply and generating 23.REBASE.<major> (rebase.py). Dry unless write=1.
+        from . import rebase as _rb
+        from .ownercheck import patchset_owner
+        t = task.load(tid)
+        owner = patchset_owner(t)
+        if not owner:
+            raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        r = _rb.run(owner, t["workdir"], t["meta"]["upstream"]["version"].split(".")[0],
+                    write=opts.get("write", "0") not in ("0", "no", "false", ""), say=lambda m: print(m, flush=True))
+        task.journal(t, "rebase-set", **{k: v for k, v in r.items() if k != "replay"}, replay=str(r["replay"])[:300])
+        return 0 if r["ok"] else 3
     if act == "export-hand":
         from . import export as ex, buildrun
         t = task.load(tid)
