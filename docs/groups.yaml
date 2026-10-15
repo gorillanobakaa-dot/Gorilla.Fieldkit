@@ -87,6 +87,7 @@ groups:
       - buildh/releasecheck.py
       - buildh/relocate.py
       - buildh/replay.py
+      - buildh/rebase.py
       - buildh/reprobuild.py
       - buildh/changecheck.py
       - buildh/snapshot.py
