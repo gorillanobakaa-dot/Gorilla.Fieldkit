@@ -347,13 +347,41 @@ def _c_must_keep_tree(ctx):
     return not lost, ("the tree does not carry: " + ", ".join(lost)) if lost else f"all {len(keep)} must-keep changes in the tree"
 
 
+def _set_writes(root, path, platform):
+    """True when an enabled, not excluded patch of the set writes `path` on `platform` ('all' = on every platform).
+    2026-10-16: the check looked for a patch NAMED after the file (widget_gtk_GfxInfo.cpp.patch, the per-file
+    convention of the old groups) and warned 'no patch for widget/gtk/GfxInfo.cpp' while 21.PORT.FIXES.158/010
+    carried it: exported patches are named after their reason. It reads what the patches write instead."""
+    from ..buildh import firefox as _ff
+    plats = ["linux", "windows"] if platform == "all" else [platform]
+    for plat in plats:
+        try:
+            pset, groups = _ff._policy(root, plat)
+        except (OSError, ValueError, KeyError):
+            return False
+        found = False
+        for g, spec in groups.items():
+            if spec.get("status") != "enabled" or not (pset / g).is_dir():
+                continue
+            ex = set(spec.get("exclude", []))
+            for pf in (pset / g).rglob("*.patch"):
+                if pf.name in ex:
+                    continue
+                if any(x["file"] == path for x in _ff.parse_patch(pf.read_text(encoding="utf-8", errors="replace"))):
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            return False
+    return True
+
+
 def _c_must_keep_set(ctx):
     keep = must_keep(ctx.root)
     if not keep:
         return True, "no must_keep list in config/patch_policy.json"
-    patches = Path(ctx.root) / "patches"
-    have = {p.name for p in patches.rglob("*.patch")} if patches.is_dir() else set()
-    lost = [k["file"] for k in keep if k["file"].replace("/", "_") + ".patch" not in have]
+    lost = [k["file"] for k in keep if not _set_writes(ctx.root, k["file"], k.get("platform", "all"))]
     return not lost, ("patches/ has no patch for: " + ", ".join(lost) + " (the next export must restore them)") if lost \
         else f"all {len(keep)} must-keep patches in patches/"
 
