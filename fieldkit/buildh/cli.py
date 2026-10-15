@@ -619,6 +619,27 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "profile-check":
+        # profile-check TASK [profile=<intended>] [paint=1]: every profile on the machine and which version last ran
+        # it, every launcher of the install and the profile it names, the desktop's menu cache, and (paint=1) the new
+        # tab's pixels on a COPY of the intended profile (fieldkit/buildh/profilecheck.py; born 2026-10-15)
+        from . import profilecheck as pc, install as _inst
+        opts = dict(x.split("=", 1) for x in list(getattr(a, "args", None) or [])[1:] if "=" in x)
+        inst = a.install_dir or _inst.find_install()
+        want = opts.get("profile") or pc.intended()
+        paint = pc.paint_probe(inst, say=lambda m: None) if opts.get("paint", "0") not in ("0", "") else None
+        found = pc.profiles()
+        rows = pc.rows(inst, want, found=found, paint=paint)
+        def show(r):
+            import time as _t
+            for p in r["profiles"]:
+                print(f"  {_t.strftime('%Y-%m-%d %H:%M', _t.localtime(p['when']))}  {p['last_version'] or '?':10} "
+                      f"{p['path']}  (last run by {p['last_install'] or '?'})")
+            for row in r["rows"]:
+                print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+            print("PROFILE-CHECK " + ("OK" if all(x["ok"] for x in r["rows"]) else "NOT OK"))
+        emit({"profiles": found, "rows": rows, "intended": want}, show)
+        return 0 if all(x["ok"] for x in rows) else 3
     if act == "profile-fresh":
         # profile-fresh TASK from=<old profile> to=<new profile> [machine=<pref>=<value>:<reason> ...] [--apply]: the
         # person's data into a fresh profile, none of the old version's settings; lists user.js settings the build does
@@ -902,7 +923,11 @@ def run(a, emit):
         if not inst:
             raise task.Refused("no installed build found: give --install-dir")
         opts, change, _notes = _change_args(a.args[1:], tid, inst, "gprobe_tree_", say=lambda m: print(m, flush=True))
+        # visible=1: a normal window instead of headless (2026-10-15: the new tab drew in every headless snapshot and
+        # was black on the owner's screen; only a real window goes through the GPU path a person sees)
+        _visible = opts.get("visible", "0") not in ("0", "no", "false", "")
         r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)),
+                   headless=not _visible, profile=opts.get("profile"),
                    omni=change.get("omni"), timeout=float(opts.get("timeout", 90)), say=lambda m: print(m, flush=True),
                    files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
         for l in r["timeline"]:                  # the probe's lines and its local pages' requests, in time order

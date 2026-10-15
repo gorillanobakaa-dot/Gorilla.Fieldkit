@@ -525,7 +525,7 @@ POST_INSTALL = (
     ("verify_address_bar", ["--install", "{dir}", "--yes"]),    # real window: typing an address navigates (title changes)
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
-PROOF_CHECKS = frozenset({"prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui",
+PROOF_CHECKS = frozenset({"profile", "prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui",
                           "about", "stamp", "satellite"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
@@ -652,6 +652,11 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         plan = [("carried", lambda: [carry_row])] if carry_row else []
         if "startup" in want:
             plan.append(("profiles", lambda: [caches_row((installed(target) or {}).get("build_id"))]))
+        if "profile" in want and sys.platform != "win32":
+            # 2026-10-15: the new build ran on the OLD profile (GNOME's cached menu) and the new tab was black there;
+            # which profile the build runs, every launcher, and the new tab's pixels on a copy of the intended one
+            from . import profilecheck as _pc
+            plan.append(("profile", lambda: _pc.rows(target, _pc.intended(), paint=_pc.paint_probe(target, say=lambda m: None))))
         for n in ("prefs", "excised", "startup", "egress", "adblock"):
             if n in want:
                 plan.append((n, lambda n=n: proof.rows(t["workdir"], target, deleted, which=(n,), truth_root=truth)))

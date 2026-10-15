@@ -5,7 +5,14 @@ import sqlite3
 
 import pytest
 
-from fieldkit.buildh import profilefresh as pf
+from fieldkit.buildh import profilecheck, profilefresh as pf
+
+
+@pytest.fixture(autouse=True)
+def _own_record(tmp_path, monkeypatch):
+    # apply() records the intended profile; a test must never write the real record (2026-10-15: one run of this file
+    # replaced ~/.local/state/fieldkit/intended-profile with a pytest folder and profile-check judged against it)
+    monkeypatch.setattr(profilecheck, "RECORD", tmp_path / "intended-profile")
 
 
 def _old(tmp_path):

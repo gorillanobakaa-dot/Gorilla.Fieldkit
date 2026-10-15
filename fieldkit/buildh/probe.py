@@ -329,13 +329,36 @@ def prepare_copy(install_dir, js, wait=15, omni=None, files=None, added=None, su
     return copy, app, patched
 
 
-def launch(app, url="about:blank", timeout=90, headless=True, on_line=None):
+SEED_SKIP = ("lock", ".parentlock", "parent.lock", "startupCache", "cache2", "crashes", "minidumps", "user.js")
+
+
+def seed(prof, profile):
+    """Copy a real profile's files into the throwaway one (2026-10-15: the new tab drew in a fresh profile and was
+    black in the owner's; a probe must be able to run on a COPY of the person's profile, never the profile itself).
+    The probe's own user.js stays; the person's user.js is appended after it, so their settings win as in real use."""
+    src = Path(profile)
+    for f in src.iterdir():
+        if f.name in SEED_SKIP:
+            continue
+        dst = Path(prof) / f.name
+        if f.is_dir():
+            shutil.copytree(f, dst, dirs_exist_ok=True, ignore_dangling_symlinks=True)
+        elif f.is_file():
+            shutil.copy2(f, dst)
+    if (src / "user.js").is_file():
+        with open(Path(prof) / "user.js", "a", encoding="utf-8") as out:
+            out.write("\n" + (src / "user.js").read_text(encoding="utf-8", errors="replace"))
+
+
+def launch(app, url="about:blank", timeout=90, headless=True, on_line=None, profile=None):
     """One headless run of a prepared copy on a FRESH throwaway profile -> {"lines", "times" (the clock time each
     line arrived), "done", "seconds"}. Only the process this started is stopped (stop_tree: by PID, with its children).
     headless=False opens a normal window (the owner watches it: about-pages walk=1); on_line(line) is called with
     each probe line as it arrives, for a live view."""
     prof = throwaway.profile("gprobe_", PROFILE_JS)
     try:
+        if profile:
+            seed(prof, profile)
         t0 = time.time()
         # -wait-for-browser: on Windows firefox.exe is a launcher that starts the real browser and exits; with it the
         # launcher stays until the browser ends, so the PID this run stops is the browser's parent (2026-10-08: two
@@ -380,7 +403,7 @@ def timeline(r, reqs):
 
 
 def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=print, files=None, added=None, subs=None,
-        headless=True, on_line=None):
+        headless=True, on_line=None, profile=None):
     """-> {"lines": [...], "done": bool, "patched": [...], "seconds": float, "requests": [...], "timeline": [...]}
     The local pages the probe declares run only while the browser does (probe_servers.py)."""
     from . import probe_servers
@@ -390,7 +413,8 @@ def run(install_dir, js, url="about:blank", wait=15, omni=None, timeout=90, say=
                                           say=say, body=body)
         try:
             say(f"  probe: {Path(js).name} in a copy of {install_dir}" + (f", with {len(patched)} replaced member(s)" if patched else ""))
-            r = launch(app, url=url, timeout=timeout, headless=headless, on_line=on_line)
+            r = launch(app, url=url, timeout=timeout, headless=headless, on_line=on_line,
+                       **({"profile": profile} if profile else {}))
         finally:
             if not remove_copy(copy):
                 say(f"  probe: could not remove {copy} (files still held); the next run removes it")

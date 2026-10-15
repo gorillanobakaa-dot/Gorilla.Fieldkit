@@ -99,6 +99,9 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     monkeypatch.setattr(leaks, "rows", lambda d, seconds=45: [])
     monkeypatch.setattr(inst, "_decisions_row", lambda t, target: [])
     monkeypatch.setattr(inst, "_claims_row", lambda t, target: [])
+    from fieldkit.buildh import profilecheck          # the profile group starts a real probe: tested on its own
+    monkeypatch.setattr(profilecheck, "rows", lambda *a, **k: [])
+    monkeypatch.setattr(profilecheck, "paint_probe", lambda *a, **k: None)
     monkeypatch.setattr(inst, "_visual_row", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "_ui_rows", lambda t, target, say=print: [])
     monkeypatch.setattr(inst, "_about_rows", lambda t, target, say=print: [])      # its own tests: test_buildh_aboutpages.py
@@ -245,6 +248,10 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
     monkeypatch.setattr(task, "journal", lambda t, ev, **kw: None)
+    # the profile group starts a real browser probe; its logic is tested on its own (test_buildh_profilecheck.py)
+    from fieldkit.buildh import profilecheck
+    monkeypatch.setattr(profilecheck, "rows", lambda *a, **k: [{"check": "profile: stand-in", "ok": True, "evidence": ""}])
+    monkeypatch.setattr(profilecheck, "paint_probe", lambda *a, **k: None)
 
 
 def test_post_install_is_not_ok_while_a_check_is_skipped_or_missing(tmp_path, monkeypatch):

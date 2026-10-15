@@ -113,6 +113,8 @@ def apply(src, dst, machine=None):
         for name, (val, why) in machine.items():
             lines += [f"// {why}", f"user_pref({name!r}, {val});".replace("'", '"')]
         (dst / "user.js").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    from .profilecheck import record
+    record(dst)                                           # profile-check holds every launcher to this profile
     return {"copied": done, "dst": str(dst)}
 
 
