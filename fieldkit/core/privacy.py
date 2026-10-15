@@ -40,7 +40,7 @@ SECRETS = [
     ("url-credentials", r"https?://[^/\s@\"']+@[^/\s]+"),   # user:pass@ or token@ in a URL
 ]
 PERSONAL = [
-    ("windows-user-path", r"[A-Za-z]:\\+Users\\+(?!Public\\|Default\\|All Users\\|<)([^\\\s\"'<>]+)"),
+    ("windows-user-path", r"[A-Za-z]:\\+Users\\+(?!Public\\|Default\\|Default User\\|All Users\\|<)([^\\\s\"'<>]+)"),
     ("windows-user-path", r"[A-Za-z]:/Users/(?!Public/|Default/)([^/\s\"']+)"),
     ("linux-home-path", r"/home/([a-z_][a-z0-9_-]*)"),
     ("email", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
@@ -52,7 +52,50 @@ ALLOW_MARK = "privacy-scan: allow"          # put on a line holding a deliberate
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".pytest_cache"}
 TEXT_LIMIT = 5_000_000
 # Emails that are fine to publish (placeholders, bots).
-EMAIL_OK = re.compile(r"(@example\.(com|org)|noreply|no-reply|@users\.noreply\.github\.com|@localhost)$", re.I)
+EMAIL_OK = re.compile(r"(@example\.(com|org)|noreply|no-reply|@users\.noreply\.github\.com|@localhost"
+                      # Mozilla's public add-on and theme ids (default-theme@mozilla.org), and picture files named
+                      # name@2x.png, which the address pattern reads as an address (2026-10-16 push of the 158 set)
+                      r"|@mozilla\.(org|com)|\.(png|jpe?g|svg|ico|webp|gif|avif|bmp))$", re.I)
+
+# A browser profile: the person's bookmarks and history (places.sqlite), cookies, saved passwords (logins.json +
+# key4.db), form entries, open tabs and sessions (.jsonlz4), certificates, site storage; Chromium's equivalents.
+# Owner 2026-10-16: "make sure you don't upload my personal data like my bookmarks and history search ... those are
+# mine, private". Never allowed by any flag or allow mark: a finding of these kinds always fails the scan.
+PROFILE_FILE = re.compile(
+    r"(^|/)("
+    r"(places|cookies|formhistory|favicons|permissions|webappsstore|content-prefs|storage|protections|cert9|key4|"
+    r"cert8|key3|signons|history|bookmarks|downloads|chromeappsstore)\.(sqlite|db)(-wal|-shm|-journal)?"
+    r"|logins(-backup)?\.json|signedInUser\.json|sessionCheckpoints\.json|handlers\.json|extension-preferences\.json"
+    r"|[^/]*\.(mozlz4|jsonlz4|baklz4)"
+    r"|(bookmarkbackups|sessionstore-backups|datareporting|storage/default)/[^/]+"
+    r"|Login Data|Web Data|History|Bookmarks|Cookies|Top Sites|Visited Links|Favicons"
+    r")$", re.I)
+PROFILE_KINDS = ("browser-profile-data", "browser-profile-data-in-patch", "sqlite-database", "bookmarks-export")
+_PATCH_PATH = re.compile(r"^(?:diff --git a/(\S+) b/(\S+)|\+\+\+ b/(\S+)|--- a/(\S+))")
+
+
+def profile_findings(rel, data):
+    """Findings for browser profile data in one file: by its path (rel, '/' separated), by its first bytes (an SQLite
+    database, Mozilla's mozLz4 compression, a bookmarks export) and, in a patch, by the paths the patch writes."""
+    out = []
+    rel = str(rel).replace("\\", "/")
+    if PROFILE_FILE.search(rel):
+        out.append({"kind": "browser-profile-data", "line": 0, "excerpt": _mask(rel.rsplit("/", 1)[-1])})
+    head = data[:64] if isinstance(data, (bytes, bytearray)) else b""
+    if head.startswith(b"SQLite format 3\x00"):
+        out.append({"kind": "sqlite-database", "line": 0, "excerpt": "SQLite format 3"})
+    if head.startswith(b"mozLz40\x00"):
+        out.append({"kind": "browser-profile-data", "line": 0, "excerpt": "mozLz40 (session or backup)"})
+    text = _as_text(data) if isinstance(data, (bytes, bytearray)) else str(data)
+    if "NETSCAPE-Bookmark-file-1" in text[:4096]:
+        out.append({"kind": "bookmarks-export", "line": 1, "excerpt": "NETSCAPE-Bookmark-file-1"})
+    if rel.endswith((".patch", ".diff")):
+        for n, line in enumerate(text.splitlines(), 1):
+            m = _PATCH_PATH.match(line)
+            p = m and next((g for g in m.groups() if g), None)
+            if p and PROFILE_FILE.search(p):
+                out.append({"kind": "browser-profile-data-in-patch", "line": n, "excerpt": _mask(p.rsplit("/", 1)[-1])})
+    return out
 
 
 def _mask(s):
@@ -384,6 +427,7 @@ def scan_path(path, terms=None, git_only=False, examined=None, **kw):
             report[str(f)] = [not_scanned(f"unreadable ({e.strerror or type(e).__name__})")]
             continue
         hits = scan_text(_as_text(data), terms, **kw)
+        hits += profile_findings(f.relative_to(path).as_posix() if path.is_dir() else f.name, data)
         if data[:5] == b"%PDF-" or f.suffix.lower() == ".pdf":
             report.update(_scan_pdf(data, terms, str(f), **kw))
         # names inside the path count too - but only the part inside the scanned
@@ -395,3 +439,72 @@ def scan_path(path, terms=None, git_only=False, examined=None, **kw):
         if hits:
             report[str(f)] = hits
     return report
+
+
+def push_files(repo, rng):
+    """Files a push publishes: added, copied, modified or renamed in the commit range `rng` (A..B). Fails closed."""
+    import subprocess
+    r = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", "-z", "--no-renames", "--diff-filter=ACMR", rng],
+                       capture_output=True)
+    if r.returncode != 0:
+        raise ValueError(f"git could not list the range {rng}: {r.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    return [f for f in r.stdout.decode("utf-8", "replace").split("\0") if f]
+
+
+def push_check(repo, rng, terms=None):
+    """-> {"files": n, "report": {path: [findings]}, "profile": [paths with browser profile data]}
+    Scans each file AS IT IS IN THE PUSHED COMMIT (git show B:path), not the working copy, so what is checked is
+    exactly what reaches the remote. Profile data is matched on the repository path as well."""
+    import subprocess
+    terms = private_terms() if terms is None else terms
+    tip = rng.split("..")[-1] or "HEAD"
+    files = push_files(repo, rng)
+    report = {}
+    for rel in files:
+        r = subprocess.run(["git", "-C", str(repo), "show", f"{tip}:{rel}"], capture_output=True)
+        if r.returncode != 0:
+            report[rel] = [not_scanned("not readable from the pushed commit")]
+            continue
+        data = r.stdout
+        hits = profile_findings(rel, data)
+        hits += scan_text(_as_text(data), terms) if len(data) <= LARGE_LIMIT else [not_scanned("over the size limit")]
+        if hits:
+            report[rel] = hits
+    profile = [p for p, h in report.items() if any(x["kind"] in PROFILE_KINDS for x in h)]
+    return {"files": len(files), "report": report, "profile": profile}
+
+
+PRE_PUSH = """#!/bin/sh
+# Installed by: fieldkit privacy install-hook (owner 2026-10-16: nothing private reaches GitHub).
+# Every push is scanned AS PUSHED: secrets, personal paths and names, emails, and browser profile data
+# (bookmarks, history, cookies, passwords, sessions). Any finding refuses the push.
+z=0000000000000000000000000000000000000000
+while read lref lsha rref rsha; do
+  [ "$lsha" = "$z" ] && continue
+  if [ "$rsha" = "$z" ]; then
+    base=$(git merge-base "$lsha" refs/remotes/origin/HEAD 2>/dev/null || git rev-list --max-parents=0 "$lsha" | tail -n 1)
+    rng="$base..$lsha"
+  else
+    rng="$rsha..$lsha"
+  fi
+  {fieldkit} privacy push-check . --range "$rng" || { echo "pre-push: refused, see the findings above"; exit 1; }
+done
+exit 0
+"""
+
+
+def install_hook(repo, fieldkit_cmd):
+    """Write .git/hooks/pre-push (the repository's own hooks folder, never committed). -> its path."""
+    import subprocess
+    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-path", "hooks"], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise ValueError(f"{repo} is not a git repository")
+    hooks = Path(r.stdout.strip())
+    hooks = hooks if hooks.is_absolute() else Path(repo) / hooks
+    hooks.mkdir(parents=True, exist_ok=True)
+    p = hooks / "pre-push"
+    if p.exists() and "fieldkit privacy" not in p.read_text(encoding="utf-8", errors="replace"):
+        raise ValueError(f"{p} exists and is not ours: merge it by hand")
+    p.write_text(PRE_PUSH.replace("{fieldkit}", fieldkit_cmd), encoding="utf-8", newline="\n")
+    p.chmod(0o755)
+    return p
