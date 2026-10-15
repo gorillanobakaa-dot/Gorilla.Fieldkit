@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-11-31
+# Version: 1.1.0 · updated 26-10-15-11-43
 """Does the installed browser decode video on the GPU's video engine? Measured, not assumed.
 
     fieldkit build-harness decode-test TASK [--seconds N]
@@ -14,6 +14,9 @@ Deterministic steps, no model:
      /proc gives the CPU time of that browser's processes only
   4. the page reports the video's own counters (getVideoPlaybackQuality: frames shown and dropped, and the play
      position) to a local HTTP server the test runs, so "nothing played" can never pass for "played cheaply"
+  0. isolation (fieldkit.build.isolation, owner 2026-10-15: troubleshooting 101): wait for the harness's own work,
+     warn the person out loud with a countdown, close other browsers gently, re-measure that the machine is quiet,
+     reopen what was closed afterwards. A run in noise is INCONCLUSIVE with the noise named
   4b. a hidden or covered test window makes Firefox suspend the video and throttle the page's timers (2026-10-15:
      three of five runs "failed" while the owner was using the desktop; the page simply stopped reporting). The
      throwaway profile turns that off, and a run whose page reported for less than 80% of the measured seconds is
@@ -108,7 +111,7 @@ def verdict(video_avg, cpu_pct):
     return "SOFTWARE"
 
 
-def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
+def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, out=print):
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     clip = work / "h264-1080p30.mp4"
@@ -154,6 +157,16 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
                                      encoding="utf-8")
     if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
         return {"ok": False, "detail": "intel_gpu_top needs root and sudo asks for a password: a person runs this"}
+    closed, noise = [], []
+    if isolate:
+        from . import isolation
+        still = isolation.wait_own(out=out)
+        if still:
+            return {"ok": False, "verdict": "INCONCLUSIVE", "noise": still,
+                    "detail": "INCONCLUSIVE: the harness's own work is still running: " + "; ".join(still)}
+        isolation.warn("the video decoding test of the installed browser", out=out)
+        closed = isolation.quiet(isolation.browsers() + isolation.heavy_apps(), out=out)
+        noise = isolation.noisy(isolation.survey())
     blog = open(work / "browser.log", "w", encoding="utf-8")
     # The engines block is the whole GPU; per-client figures are not trustworthy on Ivy Bridge (2026-10-15: one idle
     # program "used" 2259% of the video engine). So the video engine is measured BEFORE the browser starts: anything
@@ -199,9 +212,15 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
     played = bool(last and first and (last["shown"] > first["shown"] or last["t"] != first["t"]))
     shown = int(last["shown"]) if last else 0
     dropped = int(last["dropped"]) if last else 0
+    if isolate:
+        from . import isolation
+        isolation.restore(closed, out=out)
+        isolation.finished("the video decoding test", out=out)
     v = verdict(video, cpu) if played else "NOT-PLAYING"
     during = len(reports) - mark
     if before is not None and before >= 0.3:
+        v = "INCONCLUSIVE"
+    if noise:
         v = "INCONCLUSIVE"                                      # reports that arrived while we measured
     if played and during < 0.8 * seconds:
         v = "INCONCLUSIVE"
@@ -209,7 +228,7 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
     resets = sum(1 for a, b in zip(series, series[1:]) if b < a)          # the page's counters started again
     errors = [l.strip() for l in (work / "browser.log").read_text(errors="replace").splitlines()
               if re.search(r"crash|abort|channel error|segfault|assert|IPC|RDD|VA-API|vaapi|libva", l, re.I)][:12]
-    return {"ok": v == "HARDWARE", "verdict": v, "video_engine_before_pct": before, "reports_while_measuring": during, "video_engine_pct": video, "render_pct": render,
+    return {"ok": v == "HARDWARE", "verdict": v, "noise": noise, "closed": [b["name"] for b in closed], "video_engine_before_pct": before, "reports_while_measuring": during, "video_engine_pct": video, "render_pct": render,
             "browser_cpu_pct_of_one_core": cpu, "cores": cores, "samples": len(samples), "seconds": seconds,
             "clip": "1920x1080 30 fps H.264 High, 8 Mb/s (ffmpeg testsrc2)", "processes": len(pids),
             "process_names": names, "process_names_start": names_start, "counter_resets": resets,
@@ -219,6 +238,7 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None):
                        f"frames shown {shown}, dropped {dropped} ({len(pids)} processes, {len(samples)} samples "
                        f"over {seconds} s); RDD process {'present' if any(n.startswith('RDD') for n in names) else 'ABSENT'}"
                        + (f"; page restarted {resets} time(s)" if resets else "")
+                       + (f"; the machine was not quiet: {'; '.join(noise)}" if noise else "")
                        + (f"; something else was using the video engine before the test ({before}%)"
                           if before is not None and before >= 0.3 else "")
                        + (f"; the page reported only {during} of {seconds} s: window hidden or covered?"
