@@ -1,4 +1,4 @@
-# Version: 0.1.0 · updated 26-10-15-03-33
+# Version: 0.1.0 · updated 26-10-15-10-23
 """Firefox preflight checks for Linux: the accumulated list of things that have broken a build, checked before
 mach runs, each with the fix and the incident that made it a check.
 
@@ -299,6 +299,47 @@ def _c_api_drift(ctx):
         return True, f"{r['rules']} known API change(s) apply, none left in {r['files']} ported C/C++ file(s)"
     return False, "; ".join(f"{x['file']} uses {x['rule']} x{x['count']}" for x in r["found"])
 
+
+def must_keep(root, platform="linux"):
+    """config/patch_policy.json must_keep.files that apply to this platform -> [{file, platform, decision, why}]."""
+    import json
+    try:
+        d = json.loads((Path(root) / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return [f for f in (d.get("must_keep") or {}).get("files", []) if f.get("platform") in ("all", platform)]
+
+
+def _changed(src):
+    import subprocess
+    r = subprocess.run(["git", "-C", str(src), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    d = subprocess.run(["git", "-C", str(src), "diff", "--name-only", r.stdout.split()[0]], capture_output=True, text=True)
+    return set(d.stdout.split())
+
+
+def _c_must_keep_tree(ctx):
+    keep = must_keep(ctx.root)
+    if not keep:
+        return True, "no must_keep list in config/patch_policy.json"
+    changed = _changed(ctx.src)
+    if changed is None:
+        return True, "not a ported work tree (no pristine root commit): nothing to compare"
+    lost = [f"{k['file']} ({k['decision']})" for k in keep if k["file"] not in changed]
+    return not lost, ("the tree does not carry: " + ", ".join(lost)) if lost else f"all {len(keep)} must-keep changes in the tree"
+
+
+def _c_must_keep_set(ctx):
+    keep = must_keep(ctx.root)
+    if not keep:
+        return True, "no must_keep list in config/patch_policy.json"
+    patches = Path(ctx.root) / "patches"
+    have = {p.name for p in patches.rglob("*.patch")} if patches.is_dir() else set()
+    lost = [k["file"] for k in keep if k["file"].replace("/", "_") + ".patch" not in have]
+    return not lost, ("patches/ has no patch for: " + ", ".join(lost) + " (the next export must restore them)") if lost \
+        else f"all {len(keep)} must-keep patches in patches/"
+
 CHECKS = [
     Check("source", "Source tree", BLOCKER, _c_source, "Restore the working copy from the vault.",
           "Obvious, but worth failing fast rather than inside mach."),
@@ -336,6 +377,15 @@ CHECKS = [
           "2026-09-09 (Windows), and ERROR 4 of the Linux 154 build (2026-07-15): mozbuild forces quiet mode when "
           "CLAUDECODE/CODEX_SANDBOX/GEMINI_CLI/OPENCODE are set, so a failing build printed only '*** Fix above "
           "errors'."),
+    Check("must-keep-tree", "Must-keep changes in the tree", BLOCKER, _c_must_keep_tree,
+          "Apply the file's patch from the last set built on this platform (fieldkit build-harness archive-gap TASK).",
+          "2026-10-03 (commit 1070063 in gorilla-firefox): the set was regenerated from the Windows 157 tree and 83 "
+          "patch files vanished, among them the GPU unlock (D-158-06) and the font listing. The first Linux 158 build "
+          "shipped without the GPU unlock. The list is config/patch_policy.json must_keep, not prose."),
+    Check("must-keep-set", "Must-keep patches in the shared set", WARN, _c_must_keep_set,
+          "Export the work tree into the shared set (S9) so every must-keep file has its patch again.",
+          "Same incident: a promise in the policy's prose ('on Linux widget/gtk/GfxInfo.cpp is included') with no "
+          "check behind it. A warning before a build; the export must make it pass."),
     Check("api-drift", "Upstream API changes in ported code", BLOCKER, _c_api_drift,
           "~/.local/bin/fieldkit build-harness api-drift TASK --apply rewrites them (table: build/api-drift/firefox.yaml).",
           "2026-10-15 (Linux 158): the second build ran 17 minutes and stopped on FindInReadable(pattern, source, "
