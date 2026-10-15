@@ -2,6 +2,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from fieldkit.build import firefox_preflight as p
 from fieldkit.build.firefox_linux import MACH_ENV_DROP, mach_env
 
@@ -11,6 +13,13 @@ TUNED = ('export RUSTFLAGS="-C opt-level=3 -C target-cpu=native"\n'
          "ac_add_options --with-ccache=sccache\nac_add_options --enable-lto=thin\n"
          "ac_add_options --enable-linker=lld-21\nmk_add_options MOZ_MAKE_FLAGS=\"-j6\"\n")
 
+
+
+@pytest.fixture(autouse=True)
+def _no_machine_tasks(monkeypatch):
+    # source-is-the-port reads this machine's harness tasks; the fixture trees here belong to no task
+    from fieldkit.build import firefox_linux
+    monkeypatch.setattr(firefox_linux, "task_work_trees", lambda version, state=None: [])
 
 def _tree(tmp_path, branding=True, fonts=()):
     root, src = tmp_path / "harness", tmp_path / "src"

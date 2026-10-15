@@ -122,6 +122,8 @@ groups:
       - buildh/stops.py
       - buildh/power.py
       - buildh/buildstamp.py
+      - buildh/clipcheck.py
+      - buildh/symptoms.py
       - buildh/companions.py
       - buildh/satellite.py
       - buildh/window.py

@@ -23,4 +23,5 @@ def test_brief_is_silent_without_migrations_and_loud_when_one_breaks(tmp_path, m
     (tmp_path / "broken" / "migrate" / "plan.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(plan, "Migration", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no task")))
     out = mc.brief_lines(state_root=tmp_path)
-    assert len(out) == 1 and out[0].startswith("FIREFOX MIGRATION broken: SITREP failed (RuntimeError")
+    assert len(out) == 2 and out[0].startswith("FIREFOX MIGRATION broken: SITREP failed (RuntimeError")
+    assert "build-harness symptom" in out[1]           # 2026-10-15: every brief ends with the symptom router

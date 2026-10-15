@@ -1,3 +1,4 @@
+# Version: 1.0.1 · updated 26-10-15-23-26
 """vault - an untouched copy of every upstream source, to verify against and restore from.
 
 Same idea as the Debian box's Kernel.Vault.Do.Not.Delete: the source exactly as fetched,
@@ -11,6 +12,12 @@ never worked in, set read-only, and a fresh working copy can be made from it at 
     fieldkit build-harness vault fetch firefox|kernel     latest stable -> vault (read-only)
     fieldkit build-harness vault verify firefox|kernel [--version V]
     fieldkit build-harness vault restore firefox|kernel WORKDIR [--version V]
+    fieldkit build-harness vault restore-files firefox WORKDIR PATH [PATH ...] [--version V]
+                                    one file or a set of files (a folder: every file under it) put back to the
+                                    pristine release, WITHOUT git: the owner's emergency path when a model has
+                                    damaged files (2026-10-15: "without having to use the git ... GitHub begun to
+                                    glitch out"). The current versions go to Agents.Work.Trash first; files the
+                                    release does not have are listed, never deleted.
     fieldkit build-harness vault list
 
 Layout: <vault root>/<product>/<version>/ plus vault.json (what, from where, when, commit/sha256).
@@ -237,6 +244,48 @@ def restore(product, workdir, version=None, base=None):
             t.extractall(workdir, filter="data")
     return {"workdir": str(workdir), "from": str(d), "product": product, "version": m["version"],
             "commit": m.get("commit"), "sha256": m.get("sha256")}
+
+
+def restore_files(product, workdir, paths, version=None, base=None, trash=None):
+    """Put `paths` (relative to the tree; a folder means every file under it) in `workdir` back to the vault's
+    pristine copy. The vault is verified first; each current file is moved to the trash (never deleted) before the
+    pristine one is copied in. -> {restored, already, not_in_release, trash}, paths as
+    POSIX text (browser/x/a.css) on every system"""
+    d = _pick(product, version, base)
+    check = verify(product, _meta(d)["version"], base)
+    if not check["intact"]:
+        raise RuntimeError(f"the vault itself is damaged, refusing to copy from it: {check['problems']}")
+    workdir = Path(workdir).resolve()
+    if workdir.is_relative_to(Path(base or root()).resolve()):
+        raise ValueError("the target must never be inside the vault")
+    stamp = time.strftime("%y-%m-%d-%H-%M-%S")
+    trash = Path(trash or Path.home() / "Agents.Work.Trash") / f"vault-restore-files-{stamp}"
+    restored, already, missing, moved = [], [], [], []
+    for rel in paths:
+        rel = Path(rel)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"{rel}: give a path inside the tree, e.g. browser/base/content/browser.xhtml")
+        src = d / rel
+        files = sorted(f for f in src.rglob("*") if f.is_file()) if src.is_dir() else [src]
+        for f in files:
+            r = f.relative_to(d)
+            if not f.is_file():
+                missing.append(r.as_posix())
+                continue
+            dest = workdir / r
+            if dest.is_file() and dest.read_bytes() == f.read_bytes():
+                already.append(r.as_posix())
+                continue
+            if dest.exists() or dest.is_symlink():
+                (trash / r).parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(dest), str(trash / r))
+                moved.append(r.as_posix())
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(f, dest)
+            os.chmod(dest, stat.S_IMODE(os.lstat(f).st_mode) | stat.S_IWUSR)    # writable again, execute bit kept
+            restored.append(r.as_posix())
+    return {"restored": restored, "already": already, "not_in_release": missing,
+            "trash": str(trash) if moved else None, "moved_to_trash": moved, "from": str(d)}
 
 
 def listing(base=None):

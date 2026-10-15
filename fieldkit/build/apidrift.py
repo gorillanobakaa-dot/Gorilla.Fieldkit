@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-02-15
+# Version: 1.0.0 · updated 26-10-15-17-56
 """Upstream API changes that break ported code, found and rewritten before the compiler meets them.
 
     fieldkit build-harness api-drift TASK [--apply]
@@ -16,6 +16,7 @@ The knowledge is data, build/api-drift/firefox.yaml, one row per change (see its
 Deterministic: regex in, regex out, no model; a file is rewritten only by a row whose new API the tree has.
 """
 import re
+import os
 import subprocess
 from pathlib import Path
 
@@ -34,9 +35,15 @@ def rules(path=TABLE):
     return out
 
 
-def _git(src, *args):
-    r = subprocess.run(["git", "-C", str(src), *args], capture_output=True, text=True)
-    return r.returncode, r.stdout
+# the harness's own identity, through the environment (as task.checkpoint): a machine or CI with no git identity
+# otherwise fails the commit SILENTLY and the tool reports a change it never recorded (CI, 2026-10-15)
+IDENT = {"GIT_AUTHOR_NAME": "build-harness", "GIT_AUTHOR_EMAIL": "build-harness@localhost",
+         "GIT_COMMITTER_NAME": "build-harness", "GIT_COMMITTER_EMAIL": "build-harness@localhost"}
+
+def _git(src, *args, env=None):
+    r = subprocess.run(["git", "-C", str(src), *args], capture_output=True, text=True,
+                       env={**os.environ, **env} if env else None)
+    return r.returncode, r.stdout + (r.stderr if r.returncode else "")
 
 
 def changed_files(src):
@@ -88,8 +95,10 @@ def apply(src, found, table=None):
         done.append(f"{f}: {n_total} rewritten")
     if done:
         _git(src, "add", "--", *sorted({x["file"] for x in found}))
-        _git(src, "commit", "-q", "-m", "api-drift: upstream API changes rewritten\n\n" + "\n".join(
-            f"{x['file']}: {x['rule']} x{x['count']} (since {x['since']})" for x in found))
+        rc, out = _git(src, "commit", "-q", "--no-verify", "-m", "api-drift: upstream API changes rewritten\n\n" + "\n".join(
+            f"{x['file']}: {x['rule']} x{x['count']} (since {x['since']})" for x in found), env=IDENT)
+        if rc != 0:
+            raise RuntimeError(f"api-drift: the files were rewritten but the checkpoint commit failed: {out.strip()[:200]}")
     return done
 
 

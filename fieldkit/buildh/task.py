@@ -464,7 +464,10 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
         _git(t, "checkout", pristine, "--", f)
     reapplied = []
     for p in keep:
-        r = subprocess.run(["patch", "-p1", "--fuzz=0", "--no-backup-if-mismatch", "-i", str(root / p)],
+        # --binary: the work tree holds upstream's LF bytes (cloned with core.autocrlf=false). Without it the Windows
+        # GNU patch 2.5.9 (Strawberry, GnuWin32) reads an LF-only patch in text mode and aborts with the assertion
+        # "Expression: hunk" (CI, 2026-10-15). On Linux --binary changes nothing.
+        r = subprocess.run(["patch", "-p1", "--fuzz=0", "--binary", "--no-backup-if-mismatch", "-i", str(root / p)],
                            cwd=t["workdir"], capture_output=True, text=True)
         if r.returncode != 0:
             revert_to_checkpoint(t)

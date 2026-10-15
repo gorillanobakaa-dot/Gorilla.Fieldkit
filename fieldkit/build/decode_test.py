@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-14-22
+# Version: 1.1.0 · updated 26-10-15-17-56
 """Does the installed browser decode video on the GPU's video engine? Measured, not assumed.
 
     fieldkit build-harness decode-test TASK [--seconds N]
@@ -38,7 +38,7 @@ import time
 from pathlib import Path
 
 APP = Path("/usr/lib/gorilla-unleashed/firefox")
-CLK = os.sysconf("SC_CLK_TCK")
+CLK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100   # Windows has no sysconf (CI, 2026-10-15)
 
 
 def make_clip(path, seconds=60, fps=30):

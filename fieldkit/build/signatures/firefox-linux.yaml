@@ -123,3 +123,10 @@ signatures:
     tree, or get-microsoft-fonts.sh), keep them out of git, and rebuild: the build stage fingerprints the source tree,
     so the change is no longer called up to date. ~/.local/bin/fieldkit build-harness archive-gap TASK lists other
     Linux pieces the archived set had.
+
+- id: deb-dangling-dist-links
+  pattern: 'rsync error: some files/attrs were not transferred .*\(code 23\)'
+  check: null
+  source: Gorilla 158 Linux package stage, 2026-10-15 (rsync code 23 after D-158-08 removed seven AI files)
+  cause: The unpacked dev build (D-158-11) keeps symlinks in dist/bin to source files; a file deleted from the tree leaves its link pointing at nothing, and build_deb.sh's rsync refuses it (exit 23).
+  fix: The package stage now moves such links to Agents.Work.Trash before packaging (firefox_linux.prune_dangling); a link to anything outside the source tree is refused for a person to look at. Re-run the package stage.
