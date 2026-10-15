@@ -13,6 +13,8 @@ def owner(tmp_path, monkeypatch):
     (tmp_path / "config" / "patch_policy.json").write_text(json.dumps({"patchset_root": "gorilla-patchset/patches"}),
                                                           encoding="utf-8")
     monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
+    from fieldkit.buildh import ownercheck
+    monkeypatch.setattr(ownercheck, "patchset_owner", lambda t: str(tmp_path))      # capture_patches asks this (2026-10-15)
     return tmp_path
 
 

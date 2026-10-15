@@ -777,7 +777,10 @@ def run(a, emit):
     if act == "export-hand":
         from . import export as ex, buildrun
         t = task.load(tid)
-        owner = Path(buildrun._owner_root(t))
+        from .ownercheck import patchset_owner
+        owner = patchset_owner(t)               # the patch-set repo on Linux as well (2026-10-15)
+        if not owner:
+            raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
         import json as _js
         pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
         r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True))

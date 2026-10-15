@@ -169,9 +169,9 @@ def replay(owner_root, workdir, say=print, keep=False):
 
 
 def run(task_id, say=print):
-    from . import buildrun
+    from .ownercheck import patchset_owner
     t = task.load(task_id)
-    owner = Path(buildrun._owner_root(t))
+    owner = Path(patchset_owner(t))              # the patch-set repo, Linux included (2026-10-15)
     r = replay(owner, t["workdir"], say=say)
     task.journal(t, "replay-proof", ok=r["ok"], tree=r["built"], replayed=r.get("replayed"), pristine=r["pristine"],
                  patches=r["patches"], failures=r["failures"][:20], dirty=r["dirty"][:10], differ=r["differ"][:20])

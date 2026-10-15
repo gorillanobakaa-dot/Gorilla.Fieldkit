@@ -883,7 +883,8 @@ def capture_patches(t, task_id, say=print, note=None):
     release gate was the first place a missing patch would show. Fail closed: a set that does not reproduce the
     compiled tree makes the build NOT OK."""
     from . import export as ex, replay as rp
-    owner = Path(_owner_root(t))
+    from .ownercheck import patchset_owner
+    owner = Path(patchset_owner(t))          # the patch-set repo, Linux included (2026-10-15)
     pol = json.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
     say("  patches: export-hand (hand steps -> public patch set)")
     ex.export(task_id, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=say)
