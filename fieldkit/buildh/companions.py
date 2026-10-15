@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-17-56
+# Version: 1.1.1 · updated 26-10-15-23-26
 """A ported change that compiles without its other half: find the missing half in the archived patch sets.
 
     fieldkit build-harness companions TASK [LOG] [--apply]
@@ -26,7 +26,7 @@ import subprocess
 from pathlib import Path
 
 PREFIX = re.compile(r"^\s*[\d:.]+\s+[EW]\s+")          # mach's "51:31.26 E " in front of every compiler line
-LOC = re.compile(r"^(?P<file>/\S+?):(?P<line>\d+):\d+: error: (?P<msg>.*)$")
+LOC = re.compile(r"^(?P<file>(?:/|[A-Za-z]:[\\/])\S+?):(?P<line>\d+):\d+: error: (?P<msg>.*)$")   # POSIX or C:\ path
 NAMED = [re.compile(p) for p in (
     r"unknown type name '(?P<id>\w+)'",
     r"use of undeclared identifier '(?P<id>\w+)'",

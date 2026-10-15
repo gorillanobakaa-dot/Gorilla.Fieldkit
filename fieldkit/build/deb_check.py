@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-15-11-31
+# Version: 1.2.1 · updated 26-10-15-23-26
 """What a Gorilla .deb gives the person who installs it: the menu entry, the launcher, crisp icons, the refresh.
 
     verify of the firefox-linux pipeline package stage (fieldkit.build.firefox_linux:verify_deb)
@@ -21,6 +21,7 @@ Each finding is deterministic, read from the package itself (dpkg-deb), never fr
             package and is what the entry starts (the task manager shows the file name)
 """
 import re
+import shutil
 import struct
 import subprocess
 import tarfile
@@ -90,6 +91,9 @@ def _control(deb, name):
 
 
 def check(deb, branding):
+    if shutil.which("dpkg-deb") is None:                  # Windows, or a Linux without dpkg: say so, never crash
+        return {"ok": False, "deb": str(deb), "notes": [], "icon": None, "name": None,
+                "problems": ["dpkg-deb is not installed: a .deb is checked only on a Debian-family Linux"]}
     files = _members(deb)
     read = lambda p: files[p][1].extractfile(files[p][0]).read() if p in files and files[p][0].isfile() else None
     problems, notes = [], []
