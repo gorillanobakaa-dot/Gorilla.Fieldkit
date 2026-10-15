@@ -826,6 +826,12 @@ def run(a, emit):
         emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))
                                 + (f"\n{r['next']}" if r.get("next") else "")))
         return 0 if r.get("ok") else 3
+    if act == "platform-steps":
+        # platform-steps TASK: what to do on THIS operating system, computed from the machine (platformsteps.py)
+        from . import platformsteps as _ps
+        from ..core import settings as _st
+        print("\n".join(_ps.lines(task.load(tid), self_cmd=_st.self_cmd())))
+        return 0
     if act == "rebase-set":
         # rebase-set TASK [write=1]: pristine upstream + the patch set = the built tree, by superseding the patches
         # that no longer apply and generating 23.REBASE.<major> (rebase.py). Dry unless write=1.

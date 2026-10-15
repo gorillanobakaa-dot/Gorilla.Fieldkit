@@ -88,6 +88,7 @@ groups:
       - buildh/relocate.py
       - buildh/replay.py
       - buildh/rebase.py
+      - buildh/platformsteps.py
       - buildh/reprobuild.py
       - buildh/changecheck.py
       - buildh/snapshot.py
