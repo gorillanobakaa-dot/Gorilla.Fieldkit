@@ -216,6 +216,11 @@ def register_for(t):
     """The owner's register for task `t` -> path, or None when the task has no owner repo (unit tests)."""
     from .ownercheck import _owner_root
     root = _owner_root(t) if t else None
+    if not root and t:
+        # Linux (2026-10-15): no Windows orchestrator in the harness folder, so the lookup above finds nothing and the
+        # removed-pages row said "no register at None"; the harness folder itself holds decisions/ on Linux
+        hr = t.get("meta", {}).get("harness_root")
+        root = hr if hr and (Path(hr) / REGISTER).is_file() else None
     return Path(root) / REGISTER if root else None
 
 

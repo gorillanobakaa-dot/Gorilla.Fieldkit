@@ -619,6 +619,26 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act in ("binary-patches", "whole-files"):
+        # binary-patches TASK [--apply]: every GIT binary patch of the shared set (pictures, icons) in the tree, by git hash;
+        # --apply restores the missing ones, each verified (fieldkit/buildh/binpatch.py; born 2026-10-15: 0 of 31 applied).
+        # whole-files TASK: every NEW_FILES/REPLACE_FILES file of the set against the tree (report; lossaudit.whole_files)
+        import json as _json
+        from . import binpatch, lossaudit
+        t = task.load(tid)
+        root = Path(t["meta"]["harness_root"])
+        pol = _json.loads((root / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        sets = root / "patches"
+        if act == "whole-files":
+            r = lossaudit.whole_files(sets, t["workdir"], pol)
+            emit(r, lambda r: print("\n".join(lossaudit.whole_lines(r))))
+            return 0 if not (r["missing"] or r["differs"]) else 3
+        if getattr(a, "apply", False):
+            got = binpatch.restore(t["workdir"], sets, pol)
+            print("\n".join([f"  restored {x}" for x in got["restored"]] + [f"  FAILED {x}" for x in got["failed"]]))
+        r = binpatch.audit(t["workdir"], sets, pol)
+        emit(r, lambda r: print("\n".join(binpatch.lines(r))))
+        return 0 if r["ok"] else 3
     if act == "clip-check":
         # clip-check TASK [repeats=3] [stock=0] [swap=<build>=<tree> ...] [try=<build>=<file> ...] [pref=<n>=<v> ...]: is dialog
         # text cut in the installed build? repeated, against stock of the same version, a cause convicted only against

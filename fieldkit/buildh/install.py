@@ -168,7 +168,20 @@ def profiles_dir():
     return Path(os.environ.get("APPDATA", "")) / "Mozilla" / "Firefox" if sys.platform == "win32" else Path.home() / ".mozilla" / "firefox"
 
 
-def running(install_dir):
+def running(install_dir, proc=Path("/proc")):
+    """Processes started from this install -> [path]. On Linux /proc/<pid>/exe (2026-10-15: this was PowerShell only,
+    so post-install crashed on its first line on Linux and none of its checks had ever run on the Linux build)."""
+    if sys.platform != "win32":
+        root, out = str(Path(install_dir).resolve()) + "/", []
+        for d in proc.iterdir() if proc.is_dir() else []:
+            if d.name.isdigit():
+                try:
+                    exe = os.readlink(d / "exe")
+                except OSError:
+                    continue
+                if exe.startswith(root):
+                    out.append(exe)
+        return out
     exe = str(Path(install_dir) / "firefox.exe").lower()
     r = subprocess.run(["powershell", "-NoProfile", "-Command",
                         "Get-Process firefox -ErrorAction SilentlyContinue | ForEach-Object { $_.Path }"],
@@ -528,17 +541,17 @@ def startup_errors(install_dir, seconds=25, say=print):
     address bar check needed four keyboard-taking runs to find what one line of stderr said at startup:
     `DesktopActorRegistry.sys.mjs, line 242: SyntaxError`. -> {ok, lines, log}."""
     from . import throwaway
-    exe = Path(install_dir) / "firefox.exe"
+    from . import layout
+    exe = layout.exe(install_dir)
     prof = throwaway.profile("gstartup_", throwaway.USER_JS + 'user_pref("devtools.console.stdout.chrome", true);\n')
     log = prof / "stderr.txt"
     with open(log, "wb") as err, open(prof / "stdout.txt", "wb") as out:
-        proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), "about:blank"], stdout=out, stderr=err)
+        proc = layout.start([exe, "-headless", "-no-remote", "-profile", prof, "about:blank"], stdout=out, stderr=err)
         try:
             proc.wait(timeout=seconds)
         except subprocess.TimeoutExpired:
             pass
-        # only the process this check started, with its own children
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+        layout.stop(proc)                                  # only the process this check started, with its children
     text = log.read_text(encoding="utf-8", errors="replace") + (prof / "stdout.txt").read_text(encoding="utf-8", errors="replace")
     lines = sorted({l.strip()[:220] for l in text.splitlines() if STARTUP_ERROR.search(l)})
     log = throwaway.keep(prof, "stderr.txt", "stdout.txt") / "stderr.txt"
@@ -553,7 +566,8 @@ def scripts_dir():
 
 def _decisions_row(t, target):
     from . import buildrun, decisions
-    return [decisions.proof_row(buildrun._owner_root(t), t["workdir"], target)]
+    # register_root, not the Windows-only owner lookup: on Linux the row said "unchecked" on every run (2026-10-15)
+    return [decisions.proof_row(decisions.register_root(t), t["workdir"], target)]
 
 
 def _claims_row(t, target):

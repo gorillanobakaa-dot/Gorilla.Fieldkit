@@ -124,8 +124,8 @@ def prefs_row(workdir, install_dir):
     bad, unjudged, ok = [], 0, 0
     later = {}                                            # prefs firefox.js also sets: the later file wins at runtime
     try:
-        with zipfile.ZipFile(Path(install_dir) / "browser/omni.ja") as z:
-            later = pref_lines(z.read("defaults/preferences/firefox.js").decode("utf-8", "replace"))
+        from . import layout
+        later = pref_lines(layout.read(install_dir, "browser/omni.ja", "defaults/preferences/firefox.js").decode("utf-8", "replace"))
     except (OSError, KeyError):
         pass
     for name, (val, flag, cond, src) in sorted(intent.items()):
@@ -153,15 +153,13 @@ def excised_row(install_dir, deleted_paths, truth_root=None, tree_files=None):
     survivors = {Path(f).name for f in (tree_files or []) if f not in deleted}
     names = {Path(p).name for p in deleted if Path(p).name not in survivors}
     hits = []
+    from . import layout
     for ja in ("omni.ja", "browser/omni.ja"):
         try:
-            with zipfile.ZipFile(Path(install_dir) / ja) as z:
-                for n in z.namelist():
-                    if n.endswith("/"):
-                        continue
-                    if Path(n).name in names or any(n.startswith(pre) for pre in EXCISED_PACKAGED):
-                        hits.append(f"{ja}:{n}")
-        except OSError:
+            for n in layout.members(install_dir, ja):  # packed or unpacked (2026-10-15: zip-only checked NOTHING on Linux)
+                if Path(n).name in names or any(n.startswith(pre) for pre in EXCISED_PACKAGED):
+                    hits.append(f"{ja}:{n}")
+        except (OSError, zipfile.BadZipFile):
             hits.append(f"{ja}: unreadable")
     return {"check": "excised: nothing the port removes is packaged", "ok": not hits,
             "evidence": f"{len(names)} removed module names and {len(EXCISED_PACKAGED)} packaged prefixes checked" + (f"; packaged: {hits[:3]}" if hits else ""),
@@ -175,15 +173,16 @@ STARTUP_BAD = re.compile(r"JavaScript error:.*(SyntaxError|No such JSWindowActor
 def startup_row(install_dir, seconds=25):
     """Headless start on a throwaway profile; stderr+stdout read for the three classes above."""
     from . import throwaway
-    exe = Path(install_dir) / "firefox.exe"
+    from . import layout
+    exe = layout.exe(install_dir)
     prof = throwaway.profile("gproof_", throwaway.USER_JS + 'user_pref("devtools.console.stdout.chrome", true);\n')
     with open(prof / "stderr.txt", "wb") as err, open(prof / "stdout.txt", "wb") as out:
-        proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), "about:blank"], stdout=out, stderr=err)
+        proc = layout.start([str(exe), "-headless", "-no-remote", "-profile", str(prof), "about:blank"], stdout=out, stderr=err)
         try:
             proc.wait(timeout=seconds)
         except subprocess.TimeoutExpired:
             pass
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+        layout.stop(proc)
     text = (prof / "stderr.txt").read_text(encoding="utf-8", errors="replace") + (prof / "stdout.txt").read_text(encoding="utf-8", errors="replace")
     lines = sorted({l.strip()[:200] for l in text.splitlines() if STARTUP_BAD.search(l)})
     kept = throwaway.keep(prof, "stderr.txt", "stdout.txt")
@@ -238,16 +237,17 @@ def egress_row(install_dir, url="https://www.anthropic.com/legal/archive/21d66aa
     may appear. Unknown third parties are listed (the page's own CDNs mostly), never silently passed."""
     import os as _os
     from . import throwaway
-    exe = Path(install_dir) / "firefox.exe"
+    from . import layout
+    exe = layout.exe(install_dir)
     prof = throwaway.profile("gegress_")
     env = dict(_os.environ, MOZ_LOG="nsHttp:3,timestamp", MOZ_LOG_FILE=str(prof / "http.log"))
-    proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
+    proc = layout.start([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         proc.wait(timeout=seconds)
     except subprocess.TimeoutExpired:
         pass
-    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    layout.stop(proc)
     text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in sorted(prof.glob("http.log*")))
     hosts = http_hosts(text)
     vendor, unknown = judge_hosts(hosts, url.split("/")[2])
@@ -272,16 +272,17 @@ def adblock_row(install_dir, url="https://www.theguardian.com/international", se
     Origin is active and MV2 blocking works in this Firefox."""
     import os as _os
     from . import throwaway
-    exe = Path(install_dir) / "firefox.exe"
+    from . import layout
+    exe = layout.exe(install_dir)
     prof = throwaway.profile("gadblock_")
     env = dict(_os.environ, MOZ_LOG="nsHttp:3,timestamp", MOZ_LOG_FILE=str(prof / "http.log"))
-    proc = subprocess.Popen([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
+    proc = layout.start([str(exe), "-headless", "-no-remote", "-profile", str(prof), url], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         proc.wait(timeout=seconds)
     except subprocess.TimeoutExpired:
         pass
-    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    layout.stop(proc)
     text = "".join(f.read_text(encoding="utf-8", errors="replace") for f in sorted(prof.glob("http.log*")))
     hosts = http_hosts(text)
     throwaway.discard(prof)
