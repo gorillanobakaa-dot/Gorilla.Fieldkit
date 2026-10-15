@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-11-43
+# Version: 1.1.1 · updated 26-10-15-23-26
 """Isolate the machine before a browser test: warn the person, quiet what competes, measure that it is quiet, restore.
 
 Owner, 2026-10-15, after a decode test "failed" because he was using his own browser at the same time and minimised
@@ -71,6 +71,24 @@ def _cmdline(pid):
         return []
 
 
+def _processes():
+    """(name, cmdline()) of every running process: /proc on Linux; psutil where there is no /proc (Windows), with
+    the .exe dropped from the name so the same OWN names match. Nothing when neither is available."""
+    if Path("/proc").is_dir():
+        for p in Path("/proc").iterdir():
+            if p.name.isdigit():
+                yield _comm(int(p.name)), (lambda pid=int(p.name): _cmdline(pid))
+        return
+    try:
+        import psutil
+    except ImportError:
+        return
+    for p in psutil.process_iter(["name", "cmdline"]):
+        n = p.info.get("name") or ""
+        n = n[:-4] if n.lower().endswith(".exe") else n
+        yield n, (lambda c=p.info.get("cmdline") or []: c)
+
+
 OWN = re.compile(r"^(cc1plus|cc1|clang\S*|rustc|ld\.lld|ld|lld|mach|sccache|pytest\S*|make|gmake|ninja|cargo|"
                  r"dpkg-deb|xz|build_deb\.sh)$")
 
@@ -78,12 +96,12 @@ OWN = re.compile(r"^(cc1plus|cc1|clang\S*|rustc|ld\.lld|ld|lld|mach|sccache|pyte
 def own_work(roots=None):
     """The harness's own background work now -> [reason, ...]. Pre-commit markers under each repo in `roots`
     (default: the Fieldkit checkout), screen sessions, and compiler / test / packaging processes by name."""
-    from ..core import settings
+    from ..core import proc, settings
     why = []
     for root in roots or [settings.ROOT]:
         for m in sorted(Path(root).glob(".git/pre-commit.running.*")):
             pid = m.name.rsplit(".", 1)[-1]
-            if pid.isdigit() and Path(f"/proc/{pid}").exists():
+            if pid.isdigit() and proc.create_time(int(pid)) is not None:     # /proc on Linux, the process table on Windows
                 why.append(f"a pre-commit check is running in {root} (pid {pid})")
     try:
         sl = subprocess.run(["screen", "-ls"], capture_output=True, text=True, timeout=5).stdout
@@ -91,15 +109,12 @@ def own_work(roots=None):
     except (OSError, subprocess.TimeoutExpired):
         pass
     names = {}
-    for p in Path("/proc").iterdir():
-        if p.name.isdigit():
-            n = _comm(int(p.name))
-            if OWN.match(n):
-                names[n] = names.get(n, 0) + 1
-            elif n.startswith("python"):
-                cmd = " ".join(_cmdline(int(p.name)))
-                if "pytest" in cmd:
-                    names["pytest"] = names.get("pytest", 0) + 1
+    for n, cmdline in _processes():
+        if OWN.match(n):
+            names[n] = names.get(n, 0) + 1
+        elif n.startswith("python"):
+            if "pytest" in " ".join(cmdline()):
+                names["pytest"] = names.get("pytest", 0) + 1
     why += [f"{c} {n} process(es) running (build, test or packaging)" for n, c in sorted(names.items())]
     return why
 

@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-17-56
+# Version: 1.0.1 · updated 26-10-15-23-26
 """vault - an untouched copy of every upstream source, to verify against and restore from.
 
 Same idea as the Debian box's Kernel.Vault.Do.Not.Delete: the source exactly as fetched,
@@ -249,7 +249,8 @@ def restore(product, workdir, version=None, base=None):
 def restore_files(product, workdir, paths, version=None, base=None, trash=None):
     """Put `paths` (relative to the tree; a folder means every file under it) in `workdir` back to the vault's
     pristine copy. The vault is verified first; each current file is moved to the trash (never deleted) before the
-    pristine one is copied in. -> {restored, already, not_in_release, trash}"""
+    pristine one is copied in. -> {restored, already, not_in_release, trash}, paths as
+    POSIX text (browser/x/a.css) on every system"""
     d = _pick(product, version, base)
     check = verify(product, _meta(d)["version"], base)
     if not check["intact"]:
@@ -269,20 +270,20 @@ def restore_files(product, workdir, paths, version=None, base=None, trash=None):
         for f in files:
             r = f.relative_to(d)
             if not f.is_file():
-                missing.append(str(r))
+                missing.append(r.as_posix())
                 continue
             dest = workdir / r
             if dest.is_file() and dest.read_bytes() == f.read_bytes():
-                already.append(str(r))
+                already.append(r.as_posix())
                 continue
             if dest.exists() or dest.is_symlink():
                 (trash / r).parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(dest), str(trash / r))
-                moved.append(str(r))
+                moved.append(r.as_posix())
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(f, dest)
             os.chmod(dest, stat.S_IMODE(os.lstat(f).st_mode) | stat.S_IWUSR)    # writable again, execute bit kept
-            restored.append(str(r))
+            restored.append(r.as_posix())
     return {"restored": restored, "already": already, "not_in_release": missing,
             "trash": str(trash) if moved else None, "moved_to_trash": moved, "from": str(d)}
 

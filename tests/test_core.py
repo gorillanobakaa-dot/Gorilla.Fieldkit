@@ -219,7 +219,8 @@ def test_the_screen_run_drops_its_own_flag_and_ends_the_log_with_the_exit_status
     cmd = cli.screen_command(a, tmp_path / "x.log", argv=["pipeline", "run", "firefox-linux", "--screen", "ff158",
                                                            "--only", "build"])
     assert "--screen" not in cmd and "ff158" not in cmd and "pipeline run firefox-linux --only build" in cmd
-    assert cmd.endswith(f'echo "pipeline exit $?" >> {tmp_path / "x.log"}')
+    import shlex                                           # the log path is quoted for sh (a C:\ path on Windows)
+    assert cmd.endswith(f'echo "pipeline exit $?" >> {shlex.quote(str(tmp_path / "x.log"))}')
 
 
 def test_a_pipeline_stage_reports_its_start_and_end_on_stderr_as_it_runs(tmp_path, capsys):
