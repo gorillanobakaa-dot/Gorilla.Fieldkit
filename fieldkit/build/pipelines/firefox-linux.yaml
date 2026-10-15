@@ -14,7 +14,9 @@ vars:
   harness: "${LOCAL:firefox.root}"               # the gorilla-firefox clone (mozconfig, patches/, scripts/)
   version: "158.0"                               # the vaulted stable release to build
   work: "${LOCAL:vault.root}/../Build.Work/firefox"
-  src: "{work}/firefox-{version}"
+  # the tree to BUILD: the port's work tree (firefox.src in fieldkit.local.json); preflight "source-is-the-port"
+  # refuses a src that is not the work tree of the harness task holding this version's port (2026-10-15)
+  src: "${LOCAL:firefox.src}"
   release: "{work}/release-{version}"
 stages:
   - id: deps

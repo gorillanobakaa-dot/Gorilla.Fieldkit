@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-14-22
+# Version: 1.0.0 · updated 26-10-15-17-56
 """Firefox on Linux (Debian): the pieces, as tested functions, plus pipeline stages
 (build/pipelines/firefox-linux.yaml).
 
@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 # recreate.sh's preflight, as rows. Stated in that source; the LLVM major is the mozconfig's.
@@ -129,8 +130,40 @@ def stage_mozconfig(ctx):
 _COUNTS = re.compile(r"(\d+) clean, (\d+) applied-with-fuzz, (\d+) failed|patches\s*:\s*(\d+)")
 
 
+def ported_commits(src):
+    """Commits on top of the pristine root commit (Mozilla's release) -> int, or None when src is not a git tree."""
+    r = subprocess.run(["git", "-C", str(src), "rev-list", "--count", "HEAD"], capture_output=True, text=True)
+    return int(r.stdout.strip()) - 1 if r.returncode == 0 and r.stdout.strip().isdigit() else None
+
+
+def task_work_trees(version, state=None):
+    """Work trees of build-harness tasks that hold this Firefox version AND carry a port (commits on top of the
+    pristine release) -> [(task id, path)]. 2026-10-15: the pipeline's default src was the pristine copy under
+    Build.Work while the 158 port lived in the task's work tree; sessions passed --var src= by hand, from memory."""
+    import json as _json
+    if state is None:
+        from ..buildh import task
+        state = task.STATE
+    out = []
+    for f in sorted(Path(state).glob("*/task.json")):
+        try:
+            w = Path(_json.loads(f.read_text(encoding="utf-8")).get("workdir") or "")
+        except (OSError, ValueError):
+            continue
+        vt = w / "browser" / "config" / "version.txt"
+        if vt.is_file() and vt.read_text(encoding="utf-8").strip() == version and (ported_commits(w) or 0) > 0:
+            out.append((f.parent.name, w))
+    return out
+
+
 def _apply(ctx, check_only, run=_run):
     harness, src = Path(_v(ctx, "harness")), Path(_v(ctx, "src"))
+    n = ported_commits(src)
+    if n:
+        # a ported work tree already carries the port as commits; the public set (an older version) is not applied
+        # over it. The set is rebuilt FROM this tree at publishing (S9 export).
+        return {"ok": True, "failed": 0, "mode": "ported", "detail": f"ported work tree ({n} commit(s) on top of the "
+                f"pristine release): the patch set is not re-applied; export (S9) rebuilds it from this tree"}
     script = harness / "patches" / "apply.sh"
     if not script.is_file():
         return {"ok": False, "detail": f"no apply.sh at {script}"}
@@ -279,16 +312,56 @@ def verify_build(ctx, run=_run):
 
 
 # ---------------------------------------------------------------- package
+def dangling_links(dist, src):
+    """Symlinks in the unpacked dist/bin whose target is gone -> (removed-from-the-tree, other).
+
+    D-158-11 keeps the dev build unpacked: dist/bin holds SYMLINKS to the source files. A file deleted from the tree
+    (2026-10-15, D-158-08: seven AI texts and stylesheets) leaves its link behind, pointing at nothing; the build does
+    not prune it, and build_deb.sh's rsync stops with code 23 ("symlink has no referent"). A link whose target lies
+    inside the source tree and no longer exists is safe to drop: nothing can ship from it."""
+    gone, other = [], []
+    if not Path(dist).is_dir():
+        return gone, other
+    src = Path(src).resolve()
+    for p in Path(dist).rglob("*"):
+        if p.is_symlink() and not p.exists():
+            target = Path(os.readlink(p))
+            target = target if target.is_absolute() else (p.parent / target)
+            (gone if str(target.resolve()).startswith(str(src) + os.sep) else other).append((p, target))
+    return gone, other
+
+
+def prune_dangling(dist, src, trash=None):
+    """Move dangling links of files removed from the tree to the trash (house rule: never delete) -> (moved, refused)."""
+    gone, other = dangling_links(dist, src)
+    moved = []
+    if other:                       # refuse BEFORE touching anything: a person looks at the whole set first
+        return moved, [f"{p} -> {t}" for p, t in other]
+    if gone:
+        trash = Path(trash or Path.home() / "Agents.Work.Trash") / ("dangling-dist-links-" + time.strftime("%y-%m-%d-%H-%M"))
+        for p, target in gone:
+            dest = trash / p.relative_to(dist)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(p), str(dest))      # moves the link itself; os.rename fails across filesystems
+            moved.append(f"{p.relative_to(dist)} -> {target}")
+    return moved, []
+
+
 def stage_package(ctx, run=_run):
     """`scripts/build_deb.sh "" DIST_BIN OUT_DIR deb_template BRANDING`, exactly as recreate.sh calls it."""
     harness, src, release = Path(_v(ctx, "harness")), Path(_v(ctx, "src")), Path(_v(ctx, "release"))
     script = harness / "scripts" / "build_deb.sh"
     if not script.is_file():
         return {"ok": False, "detail": f"no package script at {script}"}
+    moved, refused = prune_dangling(dist_bin(ctx), src)
+    if refused:
+        return {"ok": False, "detail": "dist/bin has links to nothing that are NOT files removed from the tree "
+                f"(look before packaging): {'; '.join(refused[:5])}"}
     release.mkdir(parents=True, exist_ok=True)
     rc, out = run(["bash", str(script), "", str(dist_bin(ctx)), str(release), str(harness / "deb_template"),
                    str(src / "browser" / "branding" / "gorilla")], cwd=str(harness))
-    detail = "build_deb.sh exited 0"
+    detail = "build_deb.sh exited 0" + (f"; {len(moved)} dangling dist/bin link(s) of removed files moved to the "
+                                         f"trash first: {', '.join(m.split(' -> ')[0] for m in moved[:4])}" if moved else "")
     if rc != 0:
         # 2026-10-15: the gate refused FONT-001 and the pipeline log said only "build_deb.sh exited 1"
         why = [l.strip() for l in out.splitlines() if re.match(r"\s*(FAIL|FATAL|ERROR)\b", l)]
@@ -303,6 +376,13 @@ def verify_package(ctx, run=_run):
     if not debs:
         return {"ok": False, "detail": f"no .deb in {release}"}
     deb = debs[-1]
+    # 2026-10-15: build_deb.sh failed (rsync code 23) and this check read the OLD .deb from the morning and said OK.
+    # A .deb older than the browser it should contain is not this build's package.
+    lib = dist_bin(ctx) / "libxul.so"
+    if lib.is_file() and deb.stat().st_mtime < lib.stat().st_mtime:
+        return {"ok": False, "deb": str(deb), "detail": f"{deb.name} is OLDER than the build it should hold "
+                f"({time.strftime('%H:%M', time.localtime(deb.stat().st_mtime))} vs libxul.so "
+                f"{time.strftime('%H:%M', time.localtime(lib.stat().st_mtime))}): the package stage did not produce it"}
     rc, out = run(["dpkg-deb", "-f", str(deb), "Version"])
     said = out.strip()
     sha = hashlib.sha256(deb.read_bytes()).hexdigest()

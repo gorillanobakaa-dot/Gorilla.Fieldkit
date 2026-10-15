@@ -48,6 +48,7 @@ The model gets four MCP tools: build_harness_status, build_harness_next, build_h
 build_harness_briefs. It never gets a tool that records a decision.
 """
 import json
+import re
 import os as _os
 import time
 
@@ -457,6 +458,20 @@ def run(a, emit):
         r = window.launch(raw)
         print(f"started in its own window (PID {r['pid']}); everything it prints is also in {r['log']}")
         return 0
+    if act == "symptom":
+        # symptom "<what you see>" [--all]: the tool already built and proven for a visible problem (symptoms.py).
+        # The FIRST command for a screenshot or a complaint, before any guessing (owner 2026-10-15)
+        from . import symptoms
+        from ..core import settings as _st
+        words = " ".join(a.args)
+        hits = symptoms.SYMPTOMS if getattr(a, "all", False) else symptoms.match(words)
+        if not hits:
+            print(f"no recorded symptom matches {words!r}. Diagnose it with the harness's probes (build-harness probe, "
+                  "clip-check, decisions), then add an entry to fieldkit/buildh/symptoms.py so the next session "
+                  f"starts from the tool. All recorded symptoms: {_st.self_cmd()} build-harness symptom --all")
+            return 3
+        emit({"symptoms": hits}, lambda r: print("\n".join(symptoms.lines(r["symptoms"], _st.self_cmd()))))
+        return 0
     if act == "follow":
         # follow [<log>|latest] [cmd=build-run] [every=1] [timeout=S]: a window log's milestones as they are written,
         # flushed; exits with the run's own exit code (124 at the timeout) (window.py)
@@ -504,6 +519,14 @@ def run(a, emit):
             return 0 if r["intact"] else 3
         if sub == "restore":
             return emit(vault.restore(rest[0], rest[1], a.version), None) or 0
+        if sub == "restore-files":
+            # restore-files firefox WORKDIR PATH [PATH ...]: pristine files back without git (vault.restore_files)
+            r = vault.restore_files(rest[0], rest[1], rest[2:], a.version)
+            emit(r, lambda r: print("\n".join([f"restored {p}" for p in r["restored"]]
+                                               + [f"already pristine {p}" for p in r["already"]]
+                                               + [f"NOT IN THE RELEASE (left as it is) {p}" for p in r["not_in_release"]]
+                                               + ([f"the replaced versions are in {r['trash']}"] if r["trash"] else []))))
+            return 0 if not r["not_in_release"] else 3
         if sub == "list":
             return emit(vault.listing(), lambda rows: [print(f"{r['product']:8} {r['version']:10} {r['fetched']}  {r['path']}") for r in rows]) or 0
     if act == "start":
@@ -596,6 +619,35 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "clip-check":
+        # clip-check TASK [repeats=3] [stock=0] [swap=<build>=<tree> ...] [try=<build>=<file> ...] [pref=<n>=<v> ...]: is dialog
+        # text cut in the installed build? repeated, against stock of the same version, a cause convicted only against
+        # a control (fieldkit/buildh/clipcheck.py; born 2026-10-15 from the owner's "Leave page?" screenshot)
+        from . import clipcheck, install as _inst
+        from ..build import decode_test
+        t = task.load(tid)
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir")
+        kv = [x.split("=", 1) for x in a.args[1:] if "=" in x]
+        opts = {k: v for k, v in kv if k not in ("swap", "pref", "try")}
+        swaps = dict(v.split("=", 1) for k, v in kv if k == "swap")
+        prefs = dict(v.split("=", 1) for k, v in kv if k == "pref")
+        tries = dict(v.split("=", 1) for k, v in kv if k == "try")
+        stock = None
+        if opts.get("stock", "1") != "0":
+            # the control is stock Firefox of the version the INSTALLED build reports (application.ini), never a guess
+            ini = Path(inst) / "application.ini"
+            m = re.search(r"^Version=(\S+)", ini.read_text(errors="replace"), re.M) if ini.is_file() else None
+            ver = opts.get("version") or (m.group(1) if m else None)
+            if not ver:
+                raise task.Refused(f"cannot tell the installed version ({ini} has no Version=): give version=<x.y>")
+            stock = str(Path(decode_test.stock_firefox(ver)).parent)
+        r = clipcheck.run(inst, workdir=t["workdir"], repeats=int(opts.get("repeats", 3)), stock_dir=stock,
+                          swaps=swaps, prefs=prefs, tries=tries, surface=opts.get("surface", "leave-page"),
+                          out=lambda m: print(m, flush=True))
+        emit(r, lambda r: print(r["detail"]))
+        return 0 if r["ok"] else 3
     if act == "pref-bisect":
         # pref-bisect TASK: which of our graphics pref changes costs dropped frames, by halving (isolated, measured)
         from ..build import prefbisect

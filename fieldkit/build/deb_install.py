@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-11-31
+# Version: 1.1.0 · updated 26-10-15-16-38
 """Install the newest Gorilla .deb on this machine and prove what the person will see.
 
 Pipeline stage `install` of firefox-linux (after `package`). The only Firefox stage that needs root, kept out of
@@ -13,6 +13,17 @@ and all that (teach the harness how to do it)"):
   caches    the hicolor icon-theme.cache and the desktop mimeinfo.cache are at least as new as the install
   shadow    a personal ~/.local/share/applications/gorilla-unleashed.desktop wins over the system one; it must name the
             same release too (2026-10-15: one from August still said "Gorilla Unleashed 155" over the 158 install)
+  icons     no personal copy of the icon (~/.local/share/icons, ~/.icons) wins over the package's crisp per-size files:
+            2026-10-15 the app grid and the dock showed two different Gorilla icons because July files in
+            ~/.local/share/icons/hicolor (64, 96, 128, a 2048 px picture in 256x256, an SVG wrapping a PNG) shadowed
+            the package's 16..1024 set, at some sizes and not others. Each PNG must also be the size its folder says.
+  shell     NOTE, not a failure: a GNOME Shell that started before the menu entry or the icons changed keeps showing
+            the old name and picture in the app grid (2026-10-15: the grid said "Gorilla Unleashed 155" while the
+            file and the dock said 158). On Wayland the shell cannot be restarted: the person logs out and back in.
+
+Where to look by hand, in lookup order: ~/.local/share/applications then /usr/share/applications (the menu entry);
+~/.local/share/icons, ~/.icons, then /usr/share/icons/hicolor/<size>/apps (the picture). The grid's app id is in
+`gsettings get org.gnome.shell app-picker-layout`; the shell's start time is /proc/<gnome-shell pid>.
 """
 import os
 import re
@@ -24,6 +35,55 @@ APP = Path("/usr/lib/gorilla-unleashed/firefox")
 DESKTOP = Path("/usr/share/applications/gorilla-unleashed.desktop")
 PERSONAL = Path.home() / ".local" / "share" / "applications" / DESKTOP.name
 HICOLOR = Path("/usr/share/icons/hicolor")
+
+
+TRASH = Path.home() / "Agents.Work.Trash"          # the house rule: quarantine, never delete
+PERSONAL_ICON_DIRS = (Path.home() / ".local" / "share" / "icons", Path.home() / ".icons")
+
+
+def _png_size(path):
+    with open(path, "rb") as f:
+        head = f.read(24)
+    return int.from_bytes(head[16:20], "big") if head[:8] == b"\x89PNG\r\n\x1a\n" else None
+
+
+def icon_shadows(icon, dirs=PERSONAL_ICON_DIRS):
+    """Personal files named after the app's icon, which GTK finds BEFORE the package's -> [problem]."""
+    out = []
+    for base in dirs:
+        if not base.is_dir():
+            continue
+        for f in sorted(list(base.glob(f"{icon}.*")) + list(base.glob(f"*/*/apps/{icon}.*"))):
+            note = ""
+            m = re.match(r"(\d+)x(\d+)$", f.parent.parent.name)
+            if m and f.suffix == ".png" and _png_size(f) not in (None, int(m.group(1))):
+                note = f" (a {_png_size(f)} px picture in {f.parent.parent.name})"
+            out.append(f"icons: personal {f}{note} wins over the package's icon: move it to "
+                       f"{TRASH}/ so the package's crisp files are used")
+    return out
+
+
+def shell_started(proc=Path("/proc")):
+    """Start time (epoch seconds) of the running gnome-shell, or None."""
+    try:
+        boot = next(float(l.split()[1]) for l in (proc / "stat").read_text().splitlines() if l.startswith("btime"))
+        tick = os.sysconf("SC_CLK_TCK")
+        for d in proc.iterdir():
+            if d.name.isdigit() and (d / "comm").is_file() and (d / "comm").read_text().strip() == "gnome-shell":
+                start = int((d / "stat").read_text().rsplit(")", 1)[1].split()[19])
+                return boot + start / tick
+    except (OSError, StopIteration, ValueError, IndexError):
+        return None
+    return None
+
+
+def stale_shell_note(paths, started):
+    """A note when anything the menu shows changed after the shell started (it keeps the old name and picture)."""
+    if started is None:
+        return []
+    newer = [str(p) for p in paths if p.exists() and p.stat().st_mtime > started]
+    return [f"shell: GNOME Shell started before {', '.join(newer[:3])} changed, so the app grid can still show the "
+            "old name and icon; log out and back in (on Wayland the shell cannot be restarted)"] if newer else []
 
 
 def _run(cmd, timeout=900):
@@ -84,9 +144,14 @@ def verify_install(ctx, run=_run):
     for sz in (48, 256):
         if icon and not (HICOLOR / f"{sz}x{sz}" / "apps" / f"{icon.group(1).strip()}.png").is_file():
             problems.append(f"menu: icon {icon.group(1).strip()} has no {sz}x{sz} file in {HICOLOR}")
+    notes = []
+    if icon:
+        problems += icon_shadows(icon.group(1).strip())
+        notes += stale_shell_note([DESKTOP, PERSONAL, HICOLOR / "256x256" / "apps" / f"{icon.group(1).strip()}.png"],
+                                  shell_started())
     if DESKTOP.is_file():
         for cache in (HICOLOR / "icon-theme.cache", DESKTOP.parent / "mimeinfo.cache"):
             if not cache.is_file() or cache.stat().st_mtime + 1 < DESKTOP.stat().st_mtime:
                 problems.append(f"caches: {cache} is older than the installed menu entry (postinst did not refresh it)")
-    return {"ok": not problems,
-            "detail": "; ".join(problems) if problems else f"{PKG} {have.strip()} installed, menu {name!r}, icons and caches fresh"}
+    detail = "; ".join(problems) if problems else f"{PKG} {have.strip()} installed, menu {name!r}, icons and caches fresh"
+    return {"ok": not problems, "notes": notes, "detail": detail + "".join(f"; NOTE {n}" for n in notes)}

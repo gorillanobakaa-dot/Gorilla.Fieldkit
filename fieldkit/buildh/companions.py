@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-03-50
+# Version: 1.1.1 · updated 26-10-15-23-26
 """A ported change that compiles without its other half: find the missing half in the archived patch sets.
 
     fieldkit build-harness companions TASK [LOG] [--apply]
@@ -21,11 +21,12 @@ Deterministic, no model:
 The next export of the work tree carries the recovered halves into the shared patch set.
 """
 import re
+import os
 import subprocess
 from pathlib import Path
 
 PREFIX = re.compile(r"^\s*[\d:.]+\s+[EW]\s+")          # mach's "51:31.26 E " in front of every compiler line
-LOC = re.compile(r"^(?P<file>/\S+?):(?P<line>\d+):\d+: error: (?P<msg>.*)$")
+LOC = re.compile(r"^(?P<file>(?:/|[A-Za-z]:[\\/])\S+?):(?P<line>\d+):\d+: error: (?P<msg>.*)$")   # POSIX or C:\ path
 NAMED = [re.compile(p) for p in (
     r"unknown type name '(?P<id>\w+)'",
     r"use of undeclared identifier '(?P<id>\w+)'",
@@ -103,8 +104,14 @@ def candidates(root, idents):
     return out
 
 
-def _git(w, *args, input=None):
-    r = subprocess.run(["git", "-C", str(w), *args], capture_output=True, input=input)
+# the harness's own identity, through the environment (as task.checkpoint): a machine or CI with no git identity
+# otherwise fails the commit SILENTLY and the tool reports a change it never recorded (CI, 2026-10-15)
+IDENT = {"GIT_AUTHOR_NAME": "build-harness", "GIT_AUTHOR_EMAIL": "build-harness@localhost",
+         "GIT_COMMITTER_NAME": "build-harness", "GIT_COMMITTER_EMAIL": "build-harness@localhost"}
+
+def _git(w, *args, input=None, env=None):
+    r = subprocess.run(["git", "-C", str(w), *args], capture_output=True, input=input,
+                       env={**os.environ, **env} if env else None)
     return r.returncode, (r.stdout + r.stderr).decode("utf-8", "replace")
 
 
@@ -143,7 +150,10 @@ def apply(workdir, plan):
         done.append(f"{c['file']} from {c['patch']}")
     if done:
         _git(workdir, "add", "-A", "--", *[c["file"] for c in plan])
-        _git(workdir, "commit", "-q", "-m", "companions: the missing other half of a ported change\n\n" + "\n".join(done))
+        rc, msg = _git(workdir, "commit", "-q", "--no-verify", "-m",
+                       "companions: the missing other half of a ported change\n\n" + "\n".join(done), env=IDENT)
+        if rc != 0:
+            return {"ok": False, "applied": done, "failed": "checkpoint commit", "why": msg.strip()[:300]}
     return {"ok": True, "applied": done}
 
 

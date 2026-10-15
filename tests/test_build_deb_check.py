@@ -1,10 +1,17 @@
-# Version: 1.0.0 · updated 26-10-15-09-50
+# Version: 1.0.1 · updated 26-10-15-23-26
 """deb-check and the install stage: the 2026-10-15 "Gorilla Unleashed 154" package, rebuilt in miniature."""
 import struct
 import subprocess
+import sys
 import zlib
 
+import pytest
+
 from fieldkit.build import deb_check, deb_install
+
+# the fixture builds a real .deb with dpkg-deb, and the check reads it back with dpkg-deb: a Debian-family tool
+LINUX_DEB = pytest.mark.skipif(sys.platform == "win32",
+                               reason="Linux-only tool: dpkg-deb builds and reads the .deb; Windows has none")
 
 
 def _png(w, h):
@@ -54,6 +61,7 @@ def test_png_size_reads_the_header():
     assert deb_check.png_size(b"not a png at all, long enough") is None
 
 
+@LINUX_DEB
 def test_the_158_package_as_first_built_is_refused(tmp_path):
     deb, br = _deb(tmp_path)
     r = deb_check.check(deb, br)
@@ -63,6 +71,7 @@ def test_the_158_package_as_first_built_is_refused(tmp_path):
     assert not any(p.startswith("icons") for p in r["problems"])        # the icons were already right
 
 
+@LINUX_DEB
 def test_a_raw_non_square_master_in_a_size_folder_is_caught(tmp_path):
     deb, br = _deb(tmp_path, name=GOOD, extra=FIELDS, bad_icon=1024,
                    postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
@@ -71,23 +80,33 @@ def test_a_raw_non_square_master_in_a_size_folder_is_caught(tmp_path):
         "icons: /usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png is 2598x2626 pixels, not 1024x1024"]
 
 
+@LINUX_DEB
 def test_a_launcher_missing_from_the_package_is_caught(tmp_path):
     deb, br = _deb(tmp_path, name=GOOD, extra=FIELDS, exec_ok=False,
                    postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
     assert any(p.startswith("exec:") for p in deb_check.check(deb, br)["problems"])
 
 
+@LINUX_DEB
 def test_the_fixed_package_passes(tmp_path):
     deb, br = _deb(tmp_path, name=GOOD, extra=FIELDS, postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
     assert deb_check.check(deb, br)["ok"]
 
 
+@LINUX_DEB
 def test_the_name_without_the_version_is_refused(tmp_path):
     # D-158-05: "Gorilla Unleashed followed by the version"; the branding name alone (this check's first rule) is wrong
     deb, br = _deb(tmp_path, name="Gorilla Unleashed", postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
     probs = deb_check.check(deb, br)["problems"]
     assert any("Name=Gorilla Unleashed ," in p and "wants Gorilla Unleashed 158" in p for p in probs)
     assert any("hover tooltip" in p for p in probs) and any("desktop search" in p for p in probs)
+
+
+def test_without_dpkg_deb_the_check_says_so_and_never_crashes(tmp_path, monkeypatch):
+    monkeypatch.setattr(deb_check.shutil, "which", lambda name: None)
+    r = deb_check.check(tmp_path / "x.deb", tmp_path)
+    assert not r["ok"] and r["problems"] == ["dpkg-deb is not installed: a .deb is checked only on a Debian-family Linux"]
+    assert "NOT OK" in deb_check.lines(r)[-1]
 
 
 def test_expected_name_is_branding_plus_major_version(tmp_path):
@@ -125,6 +144,7 @@ def test_install_reinstalls_a_repackaged_same_version(tmp_path):
     assert "--reinstall" in calls[-1]
 
 
+@LINUX_DEB
 def test_firefox_default_identity_is_refused(tmp_path):
     deb, br = _deb(tmp_path, name=GOOD, extra=FIELDS, remoting="firefox-default",
                    postinst="gtk-update-icon-cache\nupdate-desktop-database\n")

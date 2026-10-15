@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-01-55
+# Version: 1.0.1 · updated 26-10-15-23-26
 """companions: a ported .cpp without its header (the 2026-10-15 PDMFactory failure), recovered from an archived set."""
 import subprocess
 
@@ -32,13 +32,13 @@ def _git(w, *a):
 def _tree(tmp_path):
     w = tmp_path / "tree"
     (w / "dom").mkdir(parents=True)
-    (w / "dom" / "PDMFactory.h").write_text("class PDMFactory {\n  PDMFactory();\n};\n")
+    (w / "dom" / "PDMFactory.h").write_text("class PDMFactory {\n  PDMFactory();\n};\n", newline="\n")
     _git(w, "init", "-q")
     _git(w, "add", "-A")
     _git(w, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pristine")
     root = tmp_path / "harness"
     (root / "patchset-155.0b4" / "16.SNAPSHOT.DELTA").mkdir(parents=True)
-    (root / "patchset-155.0b4" / "16.SNAPSHOT.DELTA" / "dom_PDMFactory.h.patch").write_text(HEADER)
+    (root / "patchset-155.0b4" / "16.SNAPSHOT.DELTA" / "dom_PDMFactory.h.patch").write_text(HEADER, newline="\n")
     (root / "patches").mkdir()
     (root / "patches" / "unrelated.patch").write_text("--- a/x.c\n+++ b/x.c\n@@ -1 +1 @@\n-a\n+int unrelated;\n")
     return w, root
@@ -72,7 +72,7 @@ def test_finds_dry_runs_and_applies_the_missing_header(tmp_path):
 
 def test_nothing_fits_means_a_person_and_no_change(tmp_path):
     w, root = _tree(tmp_path)
-    (w / "dom" / "PDMFactory.h").write_text("something else entirely\n")
+    (w / "dom" / "PDMFactory.h").write_text("something else entirely\n", newline="\n")
     r = companions.diagnose(w, root, LOG.format(w=w))
     assert not r["ok"] and not r["plan"]
     assert "a person writes the declaration" in companions.lines(r)[-1]

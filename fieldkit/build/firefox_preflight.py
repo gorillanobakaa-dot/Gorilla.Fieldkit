@@ -1,4 +1,4 @@
-# Version: 0.1.0 · updated 26-10-15-10-23
+# Version: 0.1.0 · updated 26-10-15-17-56
 """Firefox preflight checks for Linux: the accumulated list of things that have broken a build, checked before
 mach runs, each with the fix and the incident that made it a check.
 
@@ -319,6 +319,23 @@ def _changed(src):
     return set(d.stdout.split())
 
 
+def _c_source_is_the_port(ctx):
+    from .firefox_linux import ported_commits, task_work_trees
+    v = Path(ctx.src) / "browser" / "config" / "version.txt"
+    if not v.is_file():
+        return False, f"no source tree at {ctx.src}"
+    version = v.read_text(encoding="utf-8").strip()
+    trees = task_work_trees(version)
+    mine = [t for t, w in trees if w.resolve() == Path(ctx.src).resolve()]
+    if mine:
+        return True, f"src is the work tree of task {mine[0]} ({ported_commits(ctx.src)} commit(s) on top of {version})"
+    if trees:
+        t, w = trees[0]
+        return False, (f"src is {ctx.src} ({ported_commits(ctx.src) or 0} commit(s) on top of the pristine release) but "
+                       f"task {t} carries the {version} port in {w}")
+    return True, f"no harness task carries a {version} port: building {ctx.src} as given"
+
+
 def _c_must_keep_tree(ctx):
     keep = must_keep(ctx.root)
     if not keep:
@@ -408,6 +425,14 @@ CHECKS = [
           "sccache vanished from a rewritten mozconfig and eight builds recompiled from scratch.",
           origin="Linux, 2026-10-15 (owner: the build is tuned to run natively on the Sony VAIO); Windows sccache check",
           linux="the owner's build and recreate.sh share this mozconfig: native for whichever machine compiles it"),
+    Check("source-is-the-port", "The build uses the port's work tree", BLOCKER, _c_source_is_the_port,
+          "Set firefox.src in fieldkit.local.json to the task's work tree (fieldkit build-harness migrate sitrep TASK "
+          "names it), or pass --var src=<work tree> for one run.",
+          "The pipeline's first default was the PRISTINE copy under Build.Work; the 158 port lives in the migration "
+          "task's work tree. A build from the pristine copy is plain Firefox under the Gorilla name: no GPU unlock "
+          "(D-158-06), no fonts, the AI back, and installing it replaces the owner's browser. Sessions passed --var src= "
+          "by hand, from memory; nothing recorded it.",
+          origin="Linux, 2026-10-15 (owner: 'turn everything into deterministic tools')"),
     Check("recreate-current", "recreate.sh builds the same release", WARN, _c_recreate_current,
           "Point recreate.sh at the stable tag the patch set was ported to (it must clone that tag, never Nightly).",
           "recreate.sh is how other people compile Gorilla themselves (\"recreate the success\"). On 2026-10-15 it still "

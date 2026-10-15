@@ -571,8 +571,9 @@ def _visual_row(t, target, say=print):
 
 def _ui_rows(t, target, say=print):
     """Readable, working menus and Gorilla Settings controls (fieldkit buildh/uicheck.py; born 2026-10-04)."""
-    from . import uicheck, tabborders
-    return uicheck.rows(t["workdir"], target, say=say) + tabborders.rows(target, say=say)
+    from . import uicheck, tabborders, clipcheck
+    # 2026-10-15: every page dialog's text was cut (a 0.01 ms transition during SubDialog's one measurement)
+    return uicheck.rows(t["workdir"], target, say=say) + tabborders.rows(target, say=say) + clipcheck.rows(target, say=say)
 
 
 def _stamp_rows(task_id, target, say=print, carried=None):
