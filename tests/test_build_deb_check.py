@@ -17,7 +17,7 @@ GOOD = "Gorilla Unleashed 158"
 FIELDS = (f"X-GNOME-FullName={GOOD}\nComment={GOOD} web browser\nKeywords=Gorilla;Unleashed;158;Internet;\n")
 
 
-def _deb(tmp_path, name="Gorilla Unleashed 154", extra="", postinst="gtk-update-icon-cache -f\n", bad_icon=None, exec_ok=True):
+def _deb(tmp_path, name="Gorilla Unleashed 154", extra="", remoting="gorilla-unleashed", postinst="gtk-update-icon-cache -f\n", bad_icon=None, exec_ok=True):
     st = tmp_path / "stage"
     (st / "DEBIAN").mkdir(parents=True)
     (st / "DEBIAN" / "control").write_text("Package: gorilla-unleashed\nVersion: 158.0-1\nArchitecture: amd64\n"
@@ -28,10 +28,13 @@ def _deb(tmp_path, name="Gorilla Unleashed 154", extra="", postinst="gtk-update-
     app.mkdir(parents=True)
     if exec_ok:
         (app / "firefox").write_text("#!/bin/sh\n")
+        (app / "gorilla-unleashed").write_text("#!/bin/sh\n")
+    (app / "application.ini").write_text(f"[App]\nRemotingName={remoting}\n")
     apps = st / "usr" / "share" / "applications"
     apps.mkdir(parents=True)
     (apps / "gorilla-unleashed.desktop").write_text(
-        f"[Desktop Entry]\nName={name}\n{extra}Exec=env X=1 /usr/lib/gorilla-unleashed/firefox %u\nIcon=gorilla-unleashed\n"
+        f"[Desktop Entry]\nName={name}\n{extra}Exec=env X=1 /usr/lib/gorilla-unleashed/gorilla-unleashed %u\n"
+        "Icon=gorilla-unleashed\nStartupWMClass=gorilla-unleashed\n"
         "\n[Desktop Action new-window]\nName=Open a New Window\nExec=/usr/lib/gorilla-unleashed/firefox\n")
     for sz in deb_check.SIZES:
         d = st / "usr" / "share" / "icons" / "hicolor" / f"{sz}x{sz}" / "apps"
@@ -120,3 +123,11 @@ def test_install_reinstalls_a_repackaged_same_version(tmp_path):
         vars = {"release": str(tmp_path)}
     deb_install.stage_install(C, run=run)
     assert "--reinstall" in calls[-1]
+
+
+def test_firefox_default_identity_is_refused(tmp_path):
+    deb, br = _deb(tmp_path, name=GOOD, extra=FIELDS, remoting="firefox-default",
+                   postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
+    probs = deb_check.check(deb, br)["problems"]
+    assert probs == ["identity: application.ini RemotingName=firefox-default, the entry's StartupWMClass="
+                     "gorilla-unleashed: a plain launch shows under the wrong name"]

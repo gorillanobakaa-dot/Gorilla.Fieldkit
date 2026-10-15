@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-10-05
+# Version: 1.2.0 · updated 26-10-15-11-31
 """What a Gorilla .deb gives the person who installs it: the menu entry, the launcher, crisp icons, the refresh.
 
     verify of the firefox-linux pipeline package stage (fieldkit.build.firefox_linux:verify_deb)
@@ -16,6 +16,9 @@ Each finding is deterministic, read from the package itself (dpkg-deb), never fr
   icons     the Icon= name exists under hicolor/NxN/apps for the sizes desktops ask for, and each PNG's real pixel
             size (read from its IHDR header) is exactly NxN: a stretched or non-square icon renders blurred or small
   refresh   postinst runs gtk-update-icon-cache and update-desktop-database
+  identity  RemotingName in application.ini equals the entry's StartupWMClass (else a window started without --name
+            shows as "firefox-default" with a generic icon: 2026-10-15), and the program gorilla-unleashed is in the
+            package and is what the entry starts (the task manager shows the file name)
 """
 import re
 import struct
@@ -116,6 +119,20 @@ def check(deb, branding):
             if real != (sz, sz):
                 problems.append(f"icons: {p} is {real[0]}x{real[1] if real else '?'} pixels, not {sz}x{sz}"
                                 if real else f"icons: {p} is not a PNG")
+    ini = read("/usr/lib/gorilla-unleashed/application.ini")
+    remoting = re.search(r"^RemotingName=(.*)$", ini.decode("utf-8", "replace"), re.M) if ini else None
+    for d in desktops:
+        main = read(d).decode("utf-8", "replace").split("\n[", 1)[0]
+        wm = re.search(r"^StartupWMClass=(.*)$", main, re.M)
+        if wm and (not remoting or remoting.group(1).strip() != wm.group(1).strip()):
+            problems.append(f"identity: application.ini RemotingName={remoting.group(1) if remoting else '(none)'}, "
+                            f"the entry's StartupWMClass={wm.group(1)}: a plain launch shows under the wrong name")
+        ex = re.search(r"^Exec=(.*)$", main, re.M)
+        if ex and "/usr/lib/gorilla-unleashed/gorilla-unleashed" not in ex.group(1):
+            problems.append(f"identity: {d} does not start /usr/lib/gorilla-unleashed/gorilla-unleashed "
+                            "(the task manager would show 'firefox')")
+    if "/usr/lib/gorilla-unleashed/gorilla-unleashed" not in files:
+        problems.append("identity: no /usr/lib/gorilla-unleashed/gorilla-unleashed program in the package")
     post = _control(deb, "postinst")
     for tool in ("gtk-update-icon-cache", "update-desktop-database"):
         if tool not in post:
