@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-03-33
+# Version: 1.0.0 · updated 26-10-15-09-41
 # Firefox on Linux (Debian), from the public gorilla-firefox folder: the untouched source from the
 # vault, the tuned mozconfig, the patch set, mach bootstrap, the build under the guard, a .deb.
 #
@@ -77,7 +77,16 @@ stages:
 
   - id: package
     platforms: [linux]
+    source_tree: "{harness}"       # a change in build_deb.sh, the deb template or the branding means a new package
     run: {python: "fieldkit.build.firefox_linux:stage_package"}
     verify:
       - {python: {target: "fieldkit.build.firefox_linux:verify_package"}}
+      - {python: {target: "fieldkit.build.firefox_linux:verify_deb"}}
     triage: debian-packaging
+
+  - id: install
+    platforms: [linux]
+    source_tree: "{harness}"       # a new package means a new install
+    run: {python: "fieldkit.build.deb_install:stage_install"}
+    verify:
+      - {python: {target: "fieldkit.build.deb_install:verify_install"}}

@@ -1,0 +1,90 @@
+# Version: 1.0.0 · updated 26-10-15-09-50
+"""deb-check and the install stage: the 2026-10-15 "Gorilla Unleashed 154" package, rebuilt in miniature."""
+import struct
+import subprocess
+import zlib
+
+from fieldkit.build import deb_check, deb_install
+
+
+def _png(w, h):
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IEND", b"")
+
+
+def _deb(tmp_path, name="Gorilla Unleashed 154", postinst="gtk-update-icon-cache -f\n", bad_icon=None, exec_ok=True):
+    st = tmp_path / "stage"
+    (st / "DEBIAN").mkdir(parents=True)
+    (st / "DEBIAN" / "control").write_text("Package: gorilla-unleashed\nVersion: 158.0-1\nArchitecture: amd64\n"
+                                           "Maintainer: t <t@t>\nDescription: t\n")
+    (st / "DEBIAN" / "postinst").write_text("#!/bin/sh\n" + postinst)
+    (st / "DEBIAN" / "postinst").chmod(0o755)
+    app = st / "usr" / "lib" / "gorilla-unleashed"
+    app.mkdir(parents=True)
+    if exec_ok:
+        (app / "firefox").write_text("#!/bin/sh\n")
+    apps = st / "usr" / "share" / "applications"
+    apps.mkdir(parents=True)
+    (apps / "gorilla-unleashed.desktop").write_text(
+        f"[Desktop Entry]\nName={name}\nExec=env X=1 /usr/lib/gorilla-unleashed/firefox %u\nIcon=gorilla-unleashed\n"
+        "\n[Desktop Action new-window]\nName=Open a New Window\nExec=/usr/lib/gorilla-unleashed/firefox\n")
+    for sz in deb_check.SIZES:
+        d = st / "usr" / "share" / "icons" / "hicolor" / f"{sz}x{sz}" / "apps"
+        d.mkdir(parents=True)
+        w, h = (2598, 2626) if sz == bad_icon else (sz, sz)
+        (d / "gorilla-unleashed.png").write_bytes(_png(w, h))
+    deb = tmp_path / "gorilla-unleashed_158.0-1_amd64.deb"
+    subprocess.run(["dpkg-deb", "--root-owner-group", "-Zxz", "-b", str(st), str(deb)], check=True, capture_output=True)
+    br = tmp_path / "branding"
+    br.mkdir()
+    (br / "configure.sh").write_text('MOZ_APP_DISPLAYNAME="Gorilla Unleashed"\n')
+    return deb, br
+
+
+def test_png_size_reads_the_header():
+    assert deb_check.png_size(_png(48, 48)) == (48, 48)
+    assert deb_check.png_size(b"not a png at all, long enough") is None
+
+
+def test_the_158_package_as_first_built_is_refused(tmp_path):
+    deb, br = _deb(tmp_path)
+    r = deb_check.check(deb, br)
+    assert not r["ok"]
+    assert any("Name=Gorilla Unleashed 154" in p for p in r["problems"])
+    assert any("update-desktop-database" in p for p in r["problems"])
+    assert not any(p.startswith("icons") for p in r["problems"])        # the icons were already right
+
+
+def test_a_raw_non_square_master_in_a_size_folder_is_caught(tmp_path):
+    deb, br = _deb(tmp_path, name="Gorilla Unleashed", bad_icon=1024,
+                   postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
+    r = deb_check.check(deb, br)
+    assert [p for p in r["problems"]] == [
+        "icons: /usr/share/icons/hicolor/1024x1024/apps/gorilla-unleashed.png is 2598x2626 pixels, not 1024x1024"]
+
+
+def test_a_launcher_missing_from_the_package_is_caught(tmp_path):
+    deb, br = _deb(tmp_path, name="Gorilla Unleashed", exec_ok=False,
+                   postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
+    assert any(p.startswith("exec:") for p in deb_check.check(deb, br)["problems"])
+
+
+def test_the_fixed_package_passes(tmp_path):
+    deb, br = _deb(tmp_path, name="Gorilla Unleashed", postinst="gtk-update-icon-cache\nupdate-desktop-database\n")
+    assert deb_check.check(deb, br)["ok"]
+
+
+def test_install_never_asks_for_a_password(tmp_path):
+    (tmp_path / "gorilla-unleashed_158.0-1_amd64.deb").write_bytes(b"x")
+    calls = []
+
+    def run(cmd, timeout=None):
+        calls.append(cmd)
+        return (1, "a password is required") if cmd[:2] == ["sudo", "-n"] else (0, "")
+
+    class C:
+        vars = {"release": str(tmp_path)}
+    r = deb_install.stage_install(C, run=run)
+    assert not r["ok"] and "a person runs: sudo /usr/bin/apt-get install" in r["detail"]
+    assert len(calls) == 1                                               # nothing ran after sudo -n said no

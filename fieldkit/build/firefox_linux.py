@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-03-33
+# Version: 1.0.0 · updated 26-10-15-09-41
 """Firefox on Linux (Debian): the pieces, as tested functions, plus pipeline stages
 (build/pipelines/firefox-linux.yaml).
 
@@ -256,3 +256,15 @@ def verify_package(ctx, run=_run):
     (release / (deb.name + ".sha256")).write_text(f"{sha}  {deb.name}\n", encoding="utf-8")
     return {"ok": rc == 0 and said.startswith(version), "deb": str(deb), "version": said, "sha256": sha,
             "detail": f"{deb.name}: Version {said or '(unreadable)'}"}
+
+
+def verify_deb(ctx, run=_run):
+    """The newest .deb gives a person the right menu name, a launcher that exists, crisp icons and a refreshed menu
+    (fieldkit.build.deb_check). Added 2026-10-15: 158 packaged as "Gorilla Unleashed 154"."""
+    from . import deb_check
+    release = Path(_v(ctx, "release"))
+    debs = sorted(release.glob("*.deb"), key=lambda p: p.stat().st_mtime)
+    if not debs:
+        return {"ok": False, "detail": f"no .deb in {release}"}
+    r = deb_check.check(debs[-1], Path(_v(ctx, "src")) / "browser" / "branding" / "gorilla")
+    return {"ok": r["ok"], "detail": " | ".join(deb_check.lines(r))}
