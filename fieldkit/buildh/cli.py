@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-01-43
+# Version: 1.0.0 · updated 26-10-15-02-12
 """fieldkit build-harness - the Firefox & kernel build harness, from the command line and over MCP.
 
     fieldkit build-harness latest firefox|kernel
@@ -583,6 +583,19 @@ def run(a, emit):
             raise task.Refused("withdraw TASK STEP --note \"why\"")
         r = task.withdraw(tid, a.args[1], a.note.strip(), who=_os.environ.get("USER") or _os.environ.get("USERNAME") or "owner")
         return emit(r, lambda r: print(f"withdrawn {r['withdrawn']}: {r['reason']}")) or 0
+    if act == "api-drift":
+        # api-drift TASK [--apply]: upstream API changes (build/api-drift/firefox.yaml) in the ported C/C++ files
+        from ..build import apidrift
+        t = task.load(tid)
+        r = apidrift.scan(t["workdir"])
+        if getattr(a, "apply", False) and r["found"]:
+            r["applied"] = apidrift.apply(t["workdir"], r["found"])
+        def show(r):
+            print("\n".join(apidrift.lines(r)))
+            if r.get("applied"):
+                print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
+        emit(r, show)
+        return 0 if r["ok"] or r.get("applied") else 3
     if act == "companions":
         # companions TASK [LOG] [--apply]: a compile error naming a missing declaration -> its other half, from the
         # archived patch sets, dry-run with git before anything is applied

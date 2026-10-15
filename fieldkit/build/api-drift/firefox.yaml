@@ -1,0 +1,22 @@
+# Version: 1.0.0 · updated 26-10-15-02-15
+# Upstream Firefox API changes that break ported Gorilla code, one row each, applied by
+#   ~/.local/bin/fieldkit build-harness api-drift TASK [--apply]
+# and checked before every Linux build by the preflight row `api-drift`.
+#
+# A row: id; since (the release that changed it); applies_when (a file in the tree and a regex it must contain:
+# the new API, so a row never rewrites code for a release that still has only the old one); pattern (Python regex,
+# matched across lines, named groups); replace (re.sub template); evidence (what the compiler said, when, where).
+# Add a row the day a build fails on a rename: the next version, and Windows, then catch it before compiling.
+
+rules:
+- id: findinreadable-comparator
+  since: "158.0"
+  applies_when:
+    file: xpcom/string/nsReadableUtils.h
+    has: 'inline bool CaseInsensitiveFindInReadable\(const nsACString& aPattern,\s*const nsACString& aSource\)'
+  pattern: '\bFindInReadable\(\s*(?P<pattern>[^,()]+?)\s*,\s*(?P<source>[^,()]+?(?:\(\))?)\s*,\s*nsCaseInsensitiveCStringComparator\s*\)'
+  replace: 'CaseInsensitiveFindInReadable(\g<pattern>, \g<source>)'
+  evidence: >-
+    2026-10-15, second Linux 158 build, 17 min in: dom/media/DecoderTraits.cpp:70 "no matching function for call to
+    'FindInReadable'" (6 errors). 158 removed FindInReadable(pattern, source, comparator); the hardware-only codec
+    filter (01.MEDIA) used it six times. CaseInsensitiveFindInReadable(pattern, source) is the same search.
