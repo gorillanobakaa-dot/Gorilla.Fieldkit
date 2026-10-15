@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-16-03
+# Version: 1.1.0 · updated 26-10-15-16-38
 """Clipped text in the browser's own dialogs: measured, repeated, compared with stock, and traced to its cause.
 
 Born 2026-10-15. The owner sent a screenshot of web.whatsapp.com's "Leave page?" dialog in Gorilla 158: the message
@@ -289,3 +289,21 @@ def run(install, workdir=None, repeats=3, stock_dir=None, swaps=None, prefs=None
                  "CLIP-CHECK NOT OK: dialog text is cut in this build (see OURS / CLIPS rows)")
     return {"ok": ok, "rows": rows, "tests": tests, "detail": "\n".join(lines)}
 
+
+
+def rows(install, say=print, probe_run=None):
+    """Post-install proof rows (group "ui"): one clipped-text run on a copy of the installed build, one row per
+    dialog. A failure names the cause in words; `clip-check <task>` then repeats it against stock to confirm."""
+    p = run_once(install, probe_run=probe_run)
+    out = []
+    for name, bad in sorted(clipped(p).items()):
+        s = p["surfaces"][name]
+        why = explain(s)
+        worst = [f"{x['element']} needs {x['need']} px, gets {x['got']}" for x in s["texts"]][:1]
+        out.append({"check": f"UI dialog text fits: {name}", "ok": not bad,
+                    "evidence": ("; ".join(worst + why[:3]) + "; confirm with: fieldkit build-harness clip-check <task>")
+                    if bad else f"frame {s['size']}, {s['measured']} text element(s), nothing cut"})
+    if not out:
+        out.append({"check": "UI dialog text fits", "ok": False,
+                    "evidence": "the clipped-text probe measured no dialog: " + "; ".join(p["errors"][:2])})
+    return out

@@ -584,3 +584,43 @@ TECHNIQUES.append({
     "verify": ["probe build-stamp: the About window's version line ends 'build N, built ...' and #gorilla-buildid "
                "reads 'Build ID <BuildID>'", "decision D-157-38 checks"],
 })
+
+# 2026-10-15: the owner's screenshot of web.whatsapp.com's "Leave page?" dialog, its message cut to a sliver.
+TECHNIQUES.append({
+    "id": "T-158-10-A",
+    "title": "Embedded dialogs measure their final layout: no transitions inside :root[subdialog]",
+    "decision": "D-158-10",
+    "found": "2026-10-15, Gorilla 158 installed: every tab-modal dialog (alert, confirm, prompt, Leave page?) cut",
+    "problem": (
+        "Gorilla's 'animation annihilation' rule (master-redirect.css, `*, ::before, ::after { transition-duration: "
+        "0.01ms }`) shortens transitions but still STARTS one for every style change. A tab-modal dialog's padding "
+        "arrives as such a change (0 -> 16 px when :root[subdialog] is set), exactly when SubDialog.resizeVertically "
+        "measures the document ONCE and fixes the frame height. While a transition runs, layout uses the starting "
+        "value, so the frame came out 32 px short (124 px instead of stock's 156) and the message, 40 px tall, was "
+        "squeezed to 8 px."),
+    "concept": (
+        "Inside an embedded dialog nothing may transition: `transition-property: none` starts no transition, so "
+        "the measurement sees the final layout. Kept narrow on purpose: the browser window keeps the 0.01 ms rule, "
+        "whose transitionend/animationend events Firefox code waits on; `none` there could leave panels waiting."),
+    "apply": [
+        "In browser/themes/shared/master-redirect.css, right after the animation-annihilation block: "
+        "`:root[subdialog], :root[subdialog] *, :root[subdialog] *::before, :root[subdialog] *::after "
+        "{ transition-property: none !important; }` with a `GORILLA` comment naming D-158-10.",
+        "Any other document that measures itself once on load and is cut the same way gets the same rule, "
+        "scoped to that document's root.",
+    ],
+    "verify": [
+        "fieldkit build-harness clip-check <task>: every dialog CLEAN; the 'why' lines name any transition "
+        "running when the height was measured, and the rule (sheet:line) behind it",
+        "before a build: clip-check <task> try=browser/chrome/browser/skin/classic/browser/master-redirect.css=<tree file>",
+    ],
+    "signals": [
+        {"name": "subdialog-no-transitions", "kind": "must_have", "path": "browser/themes/shared/master-redirect.css",
+         "text": ":root[subdialog], :root[subdialog] *, :root[subdialog] *::before, :root[subdialog] *::after {"},
+        # a NEW near-zero transition rule (the shape that starts a transition yet looks like 'off') must be looked at
+        # for documents that measure themselves once: guarded by a GORILLA comment naming T-158-10-A within 12 lines
+        {"name": "near-zero-transitions", "kind": "watch",
+         "pathspec": ["browser/themes", "toolkit/themes", ":!**/test/**", ":!**/tests/**"],
+         "regex": r"transition-duration:\s*0?\.0+[1-9]\d*m?s", "guard_lines": 12, "allow": {}},
+    ],
+})

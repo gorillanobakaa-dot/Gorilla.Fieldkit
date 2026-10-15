@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-16-03
+# Version: 1.0.0 · updated 26-10-15-16-38
 """clip-check: cut dialog text is measured, repeated, compared with stock, and a swap convicts only against a control."""
 import subprocess
 
@@ -145,3 +145,12 @@ def test_try_a_candidate_fix_against_the_shipped_file(tmp_path):
     r = cc.run(tmp_path / "inst", repeats=2, stock_dir=None, tries={"skin/m.css": str(fix)}, out=lambda *a: None,
                probe_run=probe_run)
     assert r["tests"][0]["confirmed"] is True and "try skin/m.css" in r["tests"][0]["test"]
+
+
+def test_post_install_rows_name_the_cause_or_say_nothing_is_cut():
+    rows = cc.rows("/inst", probe_run=_fake([REAL_OURS + ["CLIP|surface|alert|406x156|2"]]))
+    bad = next(r for r in rows if r["check"].endswith("leave-page"))
+    good = next(r for r in rows if r["check"].endswith("alert"))
+    assert not bad["ok"] and "needs 40 px, gets 8" in bad["evidence"] and "clip-check" in bad["evidence"]
+    assert good["ok"] and "nothing cut" in good["evidence"]
+    assert cc.rows("/inst", probe_run=_fake([["CLIP|error|alert|no dialog opened"]]))[0]["ok"] is False

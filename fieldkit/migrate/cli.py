@@ -85,6 +85,10 @@ def brief_lines(state_root=None, harness_root=None):
             out += [f"  AUTHOR'S INSTRUCTION in {p}: {n}" for p, n in fwd[:5]]
             if len(fwd) > 5:
                 out.append(f"  ... and {len(fwd) - 5} more author instruction(s) in patch headers")
+    # every session meets the symptom router before it guesses (owner 2026-10-15: "more blind steps, trial and error")
+    if out:                                                   # silent when no Firefox work is under way
+        out.append(f"A visible problem (screenshot, cut text, wrong icon or name, stutter, build error)? FIRST: "
+                   f"{settings.self_cmd()} build-harness symptom \"<what you see>\": it names the tool already built for it")
     return out
 
 
