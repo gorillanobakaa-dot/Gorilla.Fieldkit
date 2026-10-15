@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-15-01-43
 # Firefox build failures on Debian (mach / clang-21 / lld / Fluent / Wayland runtime).
 # Imported 2026-10-14 from FIrefox.154.Work/patches/Compile.errors.fixed.so.far..txt: 18 errors
 # solved by hand on the 154 build (sessions 2026-07-15 and 2026-07-15b), each with the cause and the
@@ -81,3 +82,17 @@ signatures:
     The hardware-only codec policy blocks anything that is not H.264, and SupportsMimeType() applied it
     to audio types too, so AAC and Opus failed to initialise.
   fix: Guard the policy with a video-only check in PDMFactory::SupportsMimeType (ERROR 12c).
+
+- id: ported-half-without-declaration
+  pattern: "out-of-line definition of '\\w+' does not match any declaration|unknown type name '\\w+'|use of undeclared identifier '\\w+'"
+  check: null
+  cause: >-
+    A Gorilla change was ported in halves: the .cpp that defines or uses something reached the tree, the header or
+    call site that declares it did not, because the current patch set never carried it. First seen 2026-10-15 on the
+    first Linux 158 build, 53 minutes in: PDMFactory.cpp (01.MEDIA, WebCodecs software VP8) without PDMFactory.h and
+    DecoderAgent.cpp, both only in patchset-155.0b4/16.SNAPSHOT.DELTA.2026-08-12. Every port step passed; only the
+    compiler sees a definition with no declaration.
+  fix: >-
+    ~/.local/bin/fieldkit build-harness companions TASK finds the missing half in every archived patch set
+    and dry-runs it with git; add --apply to apply what checks cleanly and checkpoint, then rerun only the build and
+    package stages (sccache keeps the finished objects). If nothing fits, a person writes the declaration.
