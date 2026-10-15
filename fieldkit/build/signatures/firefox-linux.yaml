@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-01-43
+# Version: 1.0.0 · updated 26-10-15-02-12
 # Firefox build failures on Debian (mach / clang-21 / lld / Fluent / Wayland runtime).
 # Imported 2026-10-14 from FIrefox.154.Work/patches/Compile.errors.fixed.so.far..txt: 18 errors
 # solved by hand on the 154 build (sessions 2026-07-15 and 2026-07-15b), each with the cause and the
@@ -96,3 +96,15 @@ signatures:
     ~/.local/bin/fieldkit build-harness companions TASK finds the missing half in every archived patch set
     and dry-runs it with git; add --apply to apply what checks cleanly and checkpoint, then rerun only the build and
     package stages (sccache keeps the finished objects). If nothing fits, a person writes the declaration.
+
+- id: upstream-api-removed
+  pattern: "no matching function for call to '\\w+'|too few arguments to function call|too many arguments to function call"
+  check: api-drift
+  cause: >-
+    Ported code calls a function form the new release removed or changed. First seen 2026-10-15 on the second Linux
+    158 build, 17 minutes in: six FindInReadable(pattern, source, nsCaseInsensitiveCStringComparator) calls in
+    dom/media/DecoderTraits.cpp (01.MEDIA hardware-only codec filter); 158 has CaseInsensitiveFindInReadable instead.
+  fix: >-
+    ~/.local/bin/fieldkit build-harness api-drift TASK --apply rewrites every known change (table
+    build/api-drift/firefox.yaml). A change not in the table yet: read the new signature in the tree, fix it, and add
+    a row with the pattern, the replacement and the evidence, so the preflight row api-drift catches it next time.

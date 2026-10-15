@@ -1,4 +1,4 @@
-# Version: 0.1.0 · updated 26-10-14-19-40
+# Version: 0.1.0 · updated 26-10-15-02-12
 """Firefox preflight checks for Linux: the accumulated list of things that have broken a build, checked before
 mach runs, each with the fix and the incident that made it a check.
 
@@ -260,6 +260,16 @@ def _c_deb_packaging(ctx):
     return not missing, "packaging pieces present" if not missing else "missing: " + ", ".join(missing)
 
 
+
+def _c_api_drift(ctx):
+    from . import apidrift
+    r = apidrift.scan(ctx.src)
+    if r.get("error"):
+        return True, "not a ported work tree (no pristine root commit): nothing to compare"
+    if r["ok"]:
+        return True, f"{r['rules']} known API change(s) apply, none left in {r['files']} ported C/C++ file(s)"
+    return False, "; ".join(f"{x['file']} uses {x['rule']} x{x['count']}" for x in r["found"])
+
 CHECKS = [
     Check("source", "Source tree", BLOCKER, _c_source, "Restore the working copy from the vault.",
           "Obvious, but worth failing fast rather than inside mach."),
@@ -290,6 +300,11 @@ CHECKS = [
           "2026-09-09 (Windows), and ERROR 4 of the Linux 154 build (2026-07-15): mozbuild forces quiet mode when "
           "CLAUDECODE/CODEX_SANDBOX/GEMINI_CLI/OPENCODE are set, so a failing build printed only '*** Fix above "
           "errors'."),
+    Check("api-drift", "Upstream API changes in ported code", BLOCKER, _c_api_drift,
+          "~/.local/bin/fieldkit build-harness api-drift TASK --apply rewrites them (table: build/api-drift/firefox.yaml).",
+          "2026-10-15 (Linux 158): the second build ran 17 minutes and stopped on FindInReadable(pattern, source, "
+          "comparator), an overload 158 removed. Every known rename is now caught before the compiler starts.",
+          linux="Born on Linux; the table is plain data so the Windows harness can read the same rows."),
     Check("disk", "Disk space for the objdir", BLOCKER, _c_disk, "Free space where the objdir lives.",
           "A build that runs out of disk dies late, after an hour of compiling.",
           linux="Measured where the objdir is (or the source tree before the first build); the floor is "
