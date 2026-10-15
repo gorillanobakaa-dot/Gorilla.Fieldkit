@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-15-11-43
+# Version: 1.1.0 · updated 26-10-15-12-21
 """Does the installed browser decode video on the GPU's video engine? Measured, not assumed.
 
     fieldkit build-harness decode-test TASK [--seconds N]
@@ -41,11 +41,11 @@ APP = Path("/usr/lib/gorilla-unleashed/firefox")
 CLK = os.sysconf("SC_CLK_TCK")
 
 
-def make_clip(path, seconds=60):
+def make_clip(path, seconds=60, fps=30):
     if Path(path).is_file():
         return True, "clip exists"
     r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                        f"testsrc2=size=1920x1080:rate=30:duration={seconds}", "-c:v", "libx264", "-profile:v",
+                        f"testsrc2=size=1920x1080:rate={fps}:duration={seconds}", "-c:v", "libx264", "-profile:v",
                         "high", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-b:v", "8M", "-movflags",
                         "+faststart", str(path)], capture_output=True, text=True, timeout=900)
     return r.returncode == 0, r.stderr.strip()[-300:]
@@ -111,11 +111,13 @@ def verdict(video_avg, cpu_pct):
     return "SOFTWARE"
 
 
-def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, out=print):
+def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, out=print, fps=30, moz_log=None):
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
-    clip = work / "h264-1080p30.mp4"
-    ok, why = make_clip(clip)
+    # 60 fps added 2026-10-15: YouTube 1080p60 dropped a steady 14% (9797 of 69833) on the owner's VAIO while the
+    # video engine sat near 1%; the same question asked of a clip whose frames the test can count
+    clip = work / f"h264-1080p{fps}.mp4"
+    ok, why = make_clip(clip, fps=fps)
     if not ok:
         return {"ok": False, "detail": f"ffmpeg could not make the clip: {why}"}
     page = work / "play.html"
@@ -157,17 +159,33 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, ou
                                      encoding="utf-8")
     if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
         return {"ok": False, "detail": "intel_gpu_top needs root and sudo asks for a password: a person runs this"}
-    closed, noise = [], []
-    if isolate:
-        from . import isolation
-        still = isolation.wait_own(out=out)
-        if still:
-            return {"ok": False, "verdict": "INCONCLUSIVE", "noise": still,
-                    "detail": "INCONCLUSIVE: the harness's own work is still running: " + "; ".join(still)}
-        isolation.warn("the video decoding test of the installed browser", out=out)
+    if not isolate:
+        return _measure(work, clip, page, profile, reports, srv, url, seconds, warmup, app, moz_log, [], [], fps)
+    from . import isolation
+    still = isolation.wait_own(out=out)
+    if still:
+        srv.shutdown()
+        return {"ok": False, "verdict": "INCONCLUSIVE", "noise": still,
+                "detail": "INCONCLUSIVE: the harness's own work is still running: " + "; ".join(still)}
+    isolation.warn("the video decoding test of the installed browser", out=out)
+    closed = []
+    try:
+        # 2026-10-15: a bug in this test raised after the owner's browser had been closed, and nothing reopened it.
+        # Whatever happens from here on, what was closed is reopened.
         closed = isolation.quiet(isolation.browsers() + isolation.heavy_apps(), out=out)
         noise = isolation.noisy(isolation.survey())
+        return _measure(work, clip, page, profile, reports, srv, url, seconds, warmup, app, moz_log, noise, closed, fps)
+    finally:
+        isolation.restore(closed, out=out)
+        isolation.finished("the video decoding test", out=out)
+
+
+def _measure(work, clip, page, profile, reports, srv, url, seconds, warmup, app, moz_log, noise, closed, fps):
     blog = open(work / "browser.log", "w", encoding="utf-8")
+    env = dict(os.environ)
+    if moz_log:                                    # e.g. "PlatformDecoderModule:5,FFmpegVideo:5,Dmabuf:5"
+        (work / "moz.log").unlink(missing_ok=True)
+        env.update(MOZ_LOG=moz_log, MOZ_LOG_FILE=str(work / "moz.log"))
     # The engines block is the whole GPU; per-client figures are not trustworthy on Ivy Bridge (2026-10-15: one idle
     # program "used" 2259% of the video engine). So the video engine is measured BEFORE the browser starts: anything
     # else decoding (the person's own YouTube, 2026-10-15) makes the run INCONCLUSIVE instead of a false pass.
@@ -176,7 +194,7 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, ou
     pv = [x[k] for x in parse_gpu_top(pre.stdout) for k in x if k.lower().split("/")[0] == "video"]
     before = round(sum(pv) / len(pv), 2) if pv else None
     br = subprocess.Popen([str(app), "--name", "gorilla-unleashed", "--no-remote", "--profile", str(profile), url],
-                          stdout=blog, stderr=subprocess.STDOUT, start_new_session=True)
+                          stdout=blog, stderr=subprocess.STDOUT, start_new_session=True, env=env)
     try:
         time.sleep(warmup)
         if br.poll() is not None:
@@ -212,10 +230,6 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, ou
     played = bool(last and first and (last["shown"] > first["shown"] or last["t"] != first["t"]))
     shown = int(last["shown"]) if last else 0
     dropped = int(last["dropped"]) if last else 0
-    if isolate:
-        from . import isolation
-        isolation.restore(closed, out=out)
-        isolation.finished("the video decoding test", out=out)
     v = verdict(video, cpu) if played else "NOT-PLAYING"
     during = len(reports) - mark
     if before is not None and before >= 0.3:
@@ -230,7 +244,7 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, ou
               if re.search(r"crash|abort|channel error|segfault|assert|IPC|RDD|VA-API|vaapi|libva", l, re.I)][:12]
     return {"ok": v == "HARDWARE", "verdict": v, "noise": noise, "closed": [b["name"] for b in closed], "video_engine_before_pct": before, "reports_while_measuring": during, "video_engine_pct": video, "render_pct": render,
             "browser_cpu_pct_of_one_core": cpu, "cores": cores, "samples": len(samples), "seconds": seconds,
-            "clip": "1920x1080 30 fps H.264 High, 8 Mb/s (ffmpeg testsrc2)", "processes": len(pids),
+            "clip": f"1920x1080 {fps} fps H.264 High, 8 Mb/s (ffmpeg testsrc2)", "fps": fps, "processes": len(pids),
             "process_names": names, "process_names_start": names_start, "counter_resets": resets,
             "frames_series": series, "browser_log": errors, "rdd": any(n.startswith("RDD") for n in names),
             "frames_shown": shown, "frames_dropped": dropped, "media_error": int(last["err"]) if last else None,
@@ -243,3 +257,32 @@ def run(work, seconds=20, warmup=12, app=APP, extra_prefs=None, isolate=True, ou
                           if before is not None and before >= 0.3 else "")
                        + (f"; the page reported only {during} of {seconds} s: window hidden or covered?"
                           if played and during < 0.8 * seconds else ""))}
+
+
+def run_batch(work, configs, out=print):
+    """Several measurements inside ONE isolation: quiet once, run each config, reopen once. 2026-10-15: two runs in a
+    row each closed and reopened the person's browser, and the second run tried to close it while it was still
+    starting (left open, run INCONCLUSIVE). configs: [dict of run() keyword arguments], each may carry a "label"."""
+    from . import isolation
+    still = isolation.wait_own(out=out)
+    if still:
+        return [{"ok": False, "verdict": "INCONCLUSIVE", "detail": "the harness's own work is still running: "
+                 + "; ".join(still)}]
+    isolation.warn(f"{len(configs)} video decoding measurements of the installed browser", out=out)
+    closed, results = [], []
+    try:
+        closed = isolation.quiet(isolation.browsers() + isolation.heavy_apps(), out=out)
+        for c in configs:
+            c = dict(c)
+            label = c.pop("label", "")
+            r = run(work, isolate=False, out=out, **c)
+            noise = isolation.noisy(isolation.survey())
+            if noise and r.get("verdict") == "HARDWARE":
+                r["verdict"], r["ok"] = "INCONCLUSIVE", False
+            r["noise_after"], r["label"] = noise, label
+            results.append(r)
+            out(f"  {label}: {r['detail']}" + (f" | noise: {'; '.join(noise)}" if noise else ""))
+    finally:
+        isolation.restore(closed, out=out)
+        isolation.finished("the video decoding measurements", out=out)
+    return results
