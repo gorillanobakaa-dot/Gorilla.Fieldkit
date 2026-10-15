@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-09-45
+# Version: 1.0.0 · updated 26-10-15-09-53
 """Install the newest Gorilla .deb on this machine and prove what the person will see.
 
 Pipeline stage `install` of firefox-linux (after `package`). The only Firefox stage that needs root, kept out of
@@ -40,7 +40,9 @@ def stage_install(ctx, run=_run):
     deb = newest_deb(ctx.vars["release"])
     if deb is None:
         return {"ok": False, "detail": f"no {PKG} .deb in {ctx.vars['release']}: run the package stage"}
-    cmd = ["/usr/bin/apt-get", "install", "-y", "--allow-downgrades", str(deb)]
+    # --reinstall: a repackaged .deb keeps its version (158.0-1); without it apt reports "0 upgraded, 0 newly
+    # installed" and leaves the old files (2026-10-15: the D-158-05 name stayed "Gorilla Unleashed" until this).
+    cmd = ["/usr/bin/apt-get", "install", "-y", "--reinstall", "--allow-downgrades", str(deb)]
     if run(["sudo", "-n", "true"], timeout=10)[0] != 0:
         return {"ok": False, "detail": "sudo needs a password here; a person runs: sudo " + " ".join(cmd)}
     rc, out = run(["sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", *cmd])
@@ -59,15 +61,14 @@ def verify_install(ctx, run=_run):
     rc, out = run([str(APP), "--version"], timeout=60)
     if rc != 0 or release not in out:
         problems.append(f"binary: {APP} --version said {out.strip()[:80]!r}, expected {release}")
-    from .deb_check import display_name
-    name = display_name(Path(ctx.vars["src"]) / "browser" / "branding" / "gorilla")
+    from .deb_check import expected_name, name_problems
+    name = expected_name(Path(ctx.vars["src"]) / "browser" / "branding" / "gorilla", have.strip())
     text = DESKTOP.read_text(encoding="utf-8") if DESKTOP.is_file() else ""
     main = text.split("\n[", 1)[0]
-    got = re.search(r"^Name=(.*)$", main, re.M)
     if not text:
         problems.append(f"menu: {DESKTOP} is missing")
-    elif name and (not got or got.group(1).strip() != name):
-        problems.append(f"menu: installed Name={got.group(1) if got else '(none)'}, the branding says {name}")
+    elif name:
+        problems += name_problems(text, name, "installed")
     icon = re.search(r"^Icon=(.*)$", main, re.M)
     for sz in (48, 256):
         if icon and not (HICOLOR / f"{sz}x{sz}" / "apps" / f"{icon.group(1).strip()}.png").is_file():

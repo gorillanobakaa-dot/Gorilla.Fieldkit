@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-04-20
+# Version: 1.1.0 · updated 26-10-15-10-05
 """What a Gorilla .deb gives the person who installs it: the menu entry, the launcher, crisp icons, the refresh.
 
     verify of the firefox-linux pipeline package stage (fieldkit.build.firefox_linux:verify_deb)
@@ -8,7 +8,10 @@ never stamped; 155 shipped the same), and the post-install script refreshed the 
 Owner: "denumirea de firefox, crearea iconitelor crisp, instalarea si impachetarea" must not be forgotten.
 
 Each finding is deterministic, read from the package itself (dpkg-deb), never from the template it was made from:
-  name      the .desktop Name= equals the branding's MOZ_APP_DISPLAYNAME, so no version number can go stale
+  name      D-158-05 (owner 2026-10-15): "Gorilla Unleashed followed by the version" wherever a desktop shows or
+            searches the browser. expected_name() = the branding's MOZ_APP_DISPLAYNAME + the package's major version;
+            Name=, X-GNOME-FullName= equal it, Comment= (the hover tooltip on many docks) contains it, Keywords= has
+            every word of it
   exec      every Exec= program path is a file inside the package
   icons     the Icon= name exists under hicolor/NxN/apps for the sizes desktops ask for, and each PNG's real pixel
             size (read from its IHDR header) is exactly NxN: a stretched or non-square icon renders blurred or small
@@ -31,6 +34,30 @@ def display_name(branding):
         return None
     m = re.search(r'^MOZ_APP_DISPLAYNAME="?([^"\n]+)"?', f.read_text(encoding="utf-8"), re.M)
     return m.group(1).strip() if m else None
+
+
+def expected_name(branding, version):
+    """D-158-05: "<MOZ_APP_DISPLAYNAME> <major version>", e.g. "Gorilla Unleashed 158". None when either is unknown."""
+    base = display_name(branding)
+    major = re.match(r"(\d+)", version or "")
+    return f"{base} {major.group(1)}" if base and major else None
+
+
+def name_problems(desktop_text, want, where):
+    """Every name field of the [Desktop Entry] group checked against D-158-05. -> [problem, ...]"""
+    main = desktop_text.split("\n[", 1)[0]
+    field = lambda k: (re.search(rf"^{k}=(.*)$", main, re.M) or [None, None])[1]
+    out = []
+    for key in ("Name", "X-GNOME-FullName"):
+        if (field(key) or "").strip() != want:
+            out.append(f"name: {where} {key}={field(key)} , D-158-05 wants {want}")
+    if want not in (field("Comment") or ""):
+        out.append(f"name: {where} Comment={field('Comment')} does not name {want} (the hover tooltip)")
+    kws = [k for k in (field("Keywords") or "").split(";") if k]
+    missing = [w for w in want.split() if w not in kws]
+    if missing:
+        out.append(f"name: {where} Keywords= lacks {', '.join(missing)} (desktop search)")
+    return out
 
 
 def png_size(data):
@@ -62,16 +89,16 @@ def check(deb, branding):
     desktops = [p for p in files if p.startswith("/usr/share/applications/") and p.endswith(".desktop")]
     if not desktops:
         problems.append("name: no .desktop file under /usr/share/applications: the browser has no menu entry")
-    want = display_name(branding)
+    version = subprocess.run(["dpkg-deb", "-f", str(deb), "Version"], capture_output=True, text=True).stdout.strip()
+    want = expected_name(branding, version)
     icon = None
     for d in desktops:
         text = read(d).decode("utf-8", "replace")
         main = text.split("\n[", 1)[0]                       # the [Desktop Entry] group, not the actions
-        name = re.search(r"^Name=(.*)$", main, re.M)
         if want is None:
-            notes.append("name: branding has no MOZ_APP_DISPLAYNAME; Name= not compared")
-        elif not name or name.group(1).strip() != want:
-            problems.append(f"name: {d} says Name={name.group(1) if name else '(none)'}, the branding says {want}")
+            problems.append("name: cannot form the D-158-05 name (branding MOZ_APP_DISPLAYNAME or package version)")
+        else:
+            problems += name_problems(text, want, d)
         for ex in re.findall(r"^Exec=(.*)$", text, re.M):
             prog = next((w for w in ex.split() if w.startswith("/")), None)
             if prog and prog not in files:
