@@ -125,6 +125,7 @@ groups:
       - buildh/satellite.py
       - buildh/window.py
       - buildh/herald.py
+      - buildh/lossaudit.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py
