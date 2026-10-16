@@ -43,6 +43,13 @@ sources:
   tests:
     - [python, -m, pytest, -q, -p, no:cacheprovider, tests]
 
+- name: gorilla-size
+  github: gorillanobakaa-dot/gorilla-size
+  what: Gorilla Size Calculation - how big folders are, where the space went, what to do about it (Rust, every core, no network, never a permanent delete)
+  include: ["src/**", "tests/**", "scripts/**", "vendor/**", ".cargo/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "DEPENDENCIES.md"]
+  tests:
+    - [cargo, test, --release, --offline, --locked]
+
 - name: model-eval
   github: gorillanobakaa-dot/model-eval
   what: Rank language models by honesty under pressure, graded from tool-call traces

@@ -138,6 +138,42 @@ def test_the_hook_checks_a_new_repository_from_the_empty_tree_first_commit_inclu
     assert out.read_text().split()[-1] == f"{empty}..{tip}", out.read_text()
 
 
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs sh (Git for Windows ships it; every Linux has it)")
+def test_a_tag_on_an_already_pushed_commit_checks_nothing_and_a_new_branch_only_its_new_commits(tmp_path):
+    # 2026-10-16: pushing tag v0.2.0 of gorilla-size re-checked the whole history, because a new ref had no base
+    remote = tmp_path / "remote.git"
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True)
+    g("config", "user.name", "t")
+    g("config", "user.email", "t@example.com")
+    (repo / "a.txt").write_text("one\n")
+    g("add", "-A")
+    g("commit", "-qm", "one")
+    g("remote", "add", "origin", str(remote))
+    g("push", "-q", "--no-verify", "origin", "HEAD:refs/heads/main")
+    g("fetch", "-q", "origin")
+    pushed = g("rev-parse", "HEAD").stdout.strip()
+    fake = tmp_path / "fk" / "fieldkit"
+    fake.parent.mkdir()
+    out = tmp_path / "args.txt"
+    fake.write_text(f'#!/bin/sh\necho "$@" >> "{out.as_posix()}"\nexit 0\n', newline="\n")
+    fake.chmod(0o755)
+    hook = privacy.install_hook(repo, str(fake))
+    run = lambda line: subprocess.run(["sh", hook.as_posix(), "origin", "x"], cwd=repo, input=line.encode(),
+                                      capture_output=True)
+    r = run(f"refs/tags/v1 {pushed} refs/tags/v1 {'0' * 40}\n")
+    assert r.returncode == 0 and not out.exists(), "a tag on a pushed commit must check nothing"
+    (repo / "b.txt").write_text("two\n")
+    g("add", "-A")
+    g("commit", "-qm", "two")
+    new = g("rev-parse", "HEAD").stdout.strip()
+    r = run(f"refs/heads/feature {new} refs/heads/feature {'0' * 40}\n")
+    assert r.returncode == 0, (r.stdout + r.stderr).decode(errors="replace")
+    assert out.read_text().split()[-1] == f"{pushed}..{new}", out.read_text()
+
+
 def test_vendored_crate_author_emails_pass_but_nothing_else_does(tmp_path):
     # 2026-10-16 (gorilla-size): crate manifests in vendor/ name their authors; only those emails, only in a folder
     # PROVEN vendored by .cargo-checksum.json, are let through. Secrets and user paths there still fail.

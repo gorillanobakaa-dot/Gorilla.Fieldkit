@@ -546,9 +546,12 @@ z=0000000000000000000000000000000000000000
 while read lref lsha rref rsha; do
   [ "$lsha" = "$z" ] && continue
   if [ "$rsha" = "$z" ]; then
-    # a new branch: from where it left the remote's default branch; in a new repository from the EMPTY TREE, so the
-    # first commit is checked too (2026-10-16: root..tip left the root commit's 753 files out of the check)
-    base=$(git merge-base "$lsha" refs/remotes/origin/HEAD 2>/dev/null || git hash-object -t tree /dev/null)
+    # a new branch or tag: only the commits the remote does not have yet. Nothing new (a tag on a pushed commit):
+    # nothing to check. A new history: from the EMPTY TREE, so the first commit is checked too (2026-10-16:
+    # root..tip left the root commit's 753 files out; a tag on an already-pushed commit re-checked all history)
+    [ -z "$(git rev-list "$lsha" --not --remotes | head -n 1)" ] && continue
+    base=$(git rev-list --boundary "$lsha" --not --remotes | sed -n 's/^-//p' | head -n 1)
+    [ -z "$base" ] && base=$(git hash-object -t tree /dev/null)
     rng="$base..$lsha"
   else
     rng="$rsha..$lsha"
