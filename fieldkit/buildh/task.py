@@ -460,14 +460,48 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
     if changed_files(t):
         raise Refused("the work tree has uncommitted changes; submit or revert the current step first")
     pristine = _git(t, "rev-list", "--max-parents=0", "HEAD").split()[0]
+    in_pristine = lambda f: subprocess.run(["git", "-C", t["workdir"], "cat-file", "-e", f"{pristine}:{f}"],
+                                           capture_output=True).returncode == 0
+    # A file the release does not have (created by an earlier group, e.g. 08.Look's branding prefs) has no pristine
+    # version: only the dropped patches' own hunks are taken back out of it (2026-10-16, Windows 158: dropping
+    # 098 failed with "pathspec browser/branding/gorilla/pref/firefox-branding.js did not match").
+    # Every file first tries to lose ONLY the dropped patches' hunks (git apply -R): other groups' changes to the same
+    # file stay (2026-10-16: aboutDialog.js carries 23.REBASE.158's work too; going back to pristine would erase it).
+    # Back to pristine only when the reverse does not fit (hunks half ported) AND no other patch in the set writes
+    # that file. Otherwise refused, with nothing touched.
+    def reverses(f):
+        return all(subprocess.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
+                                   "--check", str(root / p)], capture_output=True).returncode == 0 for p in patches)
+    others_write = set()
+    for pf in root.rglob("*.patch"):
+        rel = pf.relative_to(root).as_posix()
+        if rel not in set(patches) and rel not in set(keep):     # a kept patch is applied again below
+            try:
+                others_write |= {x["file"] for x in firefox.parse_patch(pf.read_text(encoding="utf-8", errors="replace"))}
+            except (OSError, ValueError):
+                pass
+    plan = {}
     for f in sorted(files):
-        _git(t, "checkout", pristine, "--", f)
+        if reverses(f):
+            plan[f] = "reverse"
+        elif in_pristine(f) and f not in others_write:
+            plan[f] = "pristine"
+        else:
+            raise Refused(f"{f}: the dropped change cannot be taken back cleanly and other patches write this file; "
+                          f"nothing was touched")
+    for f, how in plan.items():
+        if how == "reverse":
+            for p in patches:
+                subprocess.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
+                                str(root / p)], capture_output=True, text=True, check=True)
+        else:
+            _git(t, "checkout", pristine, "--", f)
     reapplied = []
     for p in keep:
         # --binary: the work tree holds upstream's LF bytes (cloned with core.autocrlf=false). Without it the Windows
         # GNU patch 2.5.9 (Strawberry, GnuWin32) reads an LF-only patch in text mode and aborts with the assertion
         # "Expression: hunk" (CI, 2026-10-15). On Linux --binary changes nothing.
-        r = subprocess.run(["patch", "-p1", "--fuzz=0", "--binary", "--no-backup-if-mismatch", "-i", str(root / p)],
+        r = subprocess.run([firefox._patch_exe(), "-p1", "--fuzz=0", "--binary", "--no-backup-if-mismatch", "-i", str(root / p)],
                            cwd=t["workdir"], capture_output=True, text=True)
         if r.returncode != 0:
             revert_to_checkpoint(t)

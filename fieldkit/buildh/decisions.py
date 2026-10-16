@@ -127,8 +127,17 @@ class Unreadable(Exception):
     pass
 
 
+def register_file(owner_root):
+    """The register to read for an owner repo: the shared patch set's (gorilla-patchset/decisions/...) when the owner
+    repo carries it, else the owner's own. Paths inside stay relative to the owner (owner_path). 2026-10-16: Windows
+    read Gorilla.firefox/decisions/ (67 KB, last written 2026-10-09) while every decision since lived in the shared
+    set's (110 KB): D-157-28's new checks and D-158-15/16's platforms were never judged."""
+    shared = Path(owner_root) / PATCHSET / REGISTER
+    return shared if shared.is_file() else Path(owner_root) / REGISTER
+
+
 def load(owner_root):
-    p = Path(owner_root) / REGISTER
+    p = register_file(owner_root)
     if not p.is_file():
         raise FileNotFoundError(f"no decision register at {p}")
     raw = p.read_bytes()
@@ -156,8 +165,63 @@ def load(owner_root):
             arg = next(iter(c.values()))
             if isinstance(arg, dict) and arg.get("platform") and arg["platform"] not in PLATFORMS:
                 problems.append(f"{i}: unknown platform {arg['platform']!r} on a check (platforms: {', '.join(PLATFORMS)})")
+    problems += platform_problems(owner_root, entries)
     return {"path": str(p), "sha256": hashlib.sha256(raw).hexdigest(), "release": data.get("release"),
             "entries": entries, "problems": problems}
+
+
+_WRITERS = {}
+
+
+def writers(owner_root):
+    """{file: {platforms on which some patch of the set writes it}}, from the policy (platforms, exclude_on, exclude),
+    cached by the policy's mtime. {} when there is no policy beside the register."""
+    from . import firefox
+    pol = Path(owner_root) / "config" / "patch_policy.json"
+    if not pol.is_file():
+        return {}
+    key = (str(pol), pol.stat().st_mtime_ns)
+    if key in _WRITERS:
+        return _WRITERS[key]
+    out = {}
+    for plat in PLATFORMS:
+        try:
+            pset, groups = firefox._policy(owner_root, plat)
+        except (KeyError, ValueError, OSError):
+            return {}                  # a policy without groups (a test world, a half-written file): nothing to judge
+        for g, spec in groups.items():
+            if spec.get("status") != "enabled":
+                continue
+            ex = set(spec.get("exclude", []))
+            for pf in (pset / g).rglob("*.patch"):
+                if pf.name in ex:
+                    continue
+                for f in firefox.parse_patch(pf.read_text(encoding="utf-8", errors="replace")):
+                    out.setdefault(f["file"], set()).add(plat)
+    _WRITERS.clear()
+    _WRITERS[key] = out
+    return out
+
+
+def platform_problems(owner_root, entries):
+    """A decision with no `platforms` whose tree checks read only files that the set writes on SOME platforms must say
+    so: it cannot hold elsewhere. 2026-10-16: D-158-15 and D-158-16 (01.MEDIA, Linux-only) were "Linux only" in the
+    prose and failed on the first Windows tree. -> [problem]"""
+    w = writers(owner_root)
+    if not w:
+        return []
+    out = []
+    for e in entries:
+        if e.get("platforms") or e.get("status") == "retired":
+            continue
+        paths = [arg["path"] for c in e.get("verify") or [] for k, arg in c.items()
+                 if k == "tree_contains" and isinstance(arg, dict) and arg.get("path") and not arg.get("platform")]
+        plats = [w.get(pth) for pth in paths]
+        if paths and all(plats) and len(set().union(*plats)) < len(PLATFORMS):
+            only = sorted(set().union(*plats))
+            out.append(f"{e.get('id')}: its tree checks read {paths[:2]}, which the set writes only on {only}; "
+                       f"declare platforms: {only} (or make it hold everywhere)")
+    return out
 
 
 def _zip_names(install_dir):

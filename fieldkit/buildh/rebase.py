@@ -337,8 +337,30 @@ def report(rows, major):
     return "\n".join(out) + "\n"
 
 
+def written_on(owner_root, major):
+    """The platform that generated the shared rebase group (its README's first line), or None."""
+    pset, _ = firefox._policy(owner_root)
+    readme = pset / group_name(major) / "README.md"
+    if not readme.is_file():
+        return None
+    m = re.search(r"rebase-set` on (\w+)", readme.read_text(encoding="utf-8", errors="replace"))
+    return m.group(1) if m else None
+
+
 def run(owner_root, workdir, major, write=False, say=print):
     """-> {"ok", "patches", "deleted", "superseded", "replay"}"""
+    origin = written_on(owner_root, major)
+    here = firefox.this_platform()
+    if write and origin and origin != here:
+        # 2026-10-16, the first Windows check-change: computed from the Windows tree (which rightly lacks the
+        # Linux-only parts), rebase-set deleted 260 shared 23.REBASE.158 patches and 34 of 21/22.158 and wrote 278 new
+        # ones. A second platform may write only its own remainder (23.REBASE.<major>.<platform>), never the shared set.
+        from .task import Refused
+        raise Refused(
+            f"rebase-set: {group_name(major)} was generated on {origin}; on {here} it would be recomputed from a tree "
+            f"that lacks the {origin}-only parts and rewrite the shared groups. Refused, nothing written. The {here} "
+            f"remainder belongs in {group_name(major)}.{here}; until rebase-set writes only that, keep {here}-only "
+            f"edits recorded in the task (handedit) and export them when it does")
     excl, r = superseded(owner_root, workdir, major, say=say)
     out = write_group(owner_root, workdir, major, r["replayed"], excl, say=say, dry=not write)
     rows = carried(owner_root, workdir, excl, major)

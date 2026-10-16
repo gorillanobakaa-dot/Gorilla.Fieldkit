@@ -337,6 +337,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_size(a):
+    from .desk import size
+    return size.main(a.args)
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -1033,6 +1038,11 @@ def build_parser():
                              "(fieldkit icons --help)")
     ic.add_argument("args", nargs=argparse.REMAINDER)
     ic.set_defaults(fn=cmd_icons)
+    sz = sub.add_parser("size", add_help=False,
+                        help="how big folders are, where the space went, what can go (gorilla-size: every core, "
+                             "read-only; doctor --install builds it; fieldkit size --help)")
+    sz.add_argument("args", nargs=argparse.REMAINDER)
+    sz.set_defaults(fn=cmd_size)
 
     for name, (_, text) in METHODS.items():
         mp = sub.add_parser(name, add_help=False, help=text)
@@ -1407,8 +1417,8 @@ def build_parser():
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
-                                       "probe-compare", "stats", "leakgate-status", "leakgate-context",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check"])
+                                       "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
@@ -2010,6 +2020,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["size"]:                          # gorilla-size has its own parser: every argument goes to it
+        from .desk import size as size_cli
+        return size_cli.main(args[1:])
     if args[:1] == ["academic"]:                      # so is the academic module
         from .academic import cli as academic_cli
         return academic_cli.main(args[1:])

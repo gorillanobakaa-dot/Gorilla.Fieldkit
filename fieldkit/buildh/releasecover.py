@@ -71,7 +71,8 @@ def check(page_text, register, previous_body, since):
 def run(owner, page, previous=None, run_cmd=subprocess.run):
     """-> rows; `previous` is a tag (read from GitHub) or a path to the previous page's text."""
     owner = Path(owner)
-    register = owner / "decisions" / "PRODUCT-DECISIONS.yaml"
+    from .decisions import register_file
+    register = register_file(owner)                  # the shared set's register when the owner repo carries it
     if not page or not Path(page).is_file():
         return [{"check": "release page: found", "ok": False, "evidence": f"no release page at {page}"}]
     if not register.is_file():

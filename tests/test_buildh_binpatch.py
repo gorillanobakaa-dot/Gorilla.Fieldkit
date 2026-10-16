@@ -58,7 +58,8 @@ def test_exempt_is_shown_with_its_reason_not_silently_passed(tmp_path):
     old, new = os.urandom(3000), os.urandom(5000)
     sets = _set(tmp_path, _binary_patch(tmp_path, old, new))
     tree = _tree(tmp_path, old)
-    r = binpatch.audit(tree, sets, {"binary_exempt": {"branding/logo.png": "Windows only"}})
+    r = binpatch.audit(tree, sets, {"binary_exempt": {"branding/logo.png": "Windows only"}},
+                     platform="linux")   # an unscoped exemption is the Linux build's (binpatch.exemptions)
     assert r["ok"] and r["rows"][0]["state"] == "exempt"
     assert "Windows only" in "\n".join(binpatch.lines(r))
 
