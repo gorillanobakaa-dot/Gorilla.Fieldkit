@@ -1,8 +1,11 @@
 # Version: 1.0.0 · updated 26-10-16-00-20
 """Browser profile data never reaches a public repository (owner 2026-10-16: "make sure you don't upload my
 personal data like my bookmarks and history ... those are mine, private"). Fake data only."""
+import shutil
 import subprocess
 import sys
+
+import pytest
 
 from fieldkit.core import privacy
 
@@ -65,3 +68,23 @@ def test_the_hook_is_installed_in_the_repository_and_never_overwrites_a_foreign_
         assert False, "overwrote a foreign hook"
     except ValueError:
         pass
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs sh (Git for Windows ships it; every Linux has it)")
+def test_the_installed_hook_really_runs_the_check_from_a_windows_path_with_a_space(tmp_path):
+    # 2026-10-16: on Windows the hook held C:\Users\...\fieldkit.EXE unquoted; Git's sh read it as C:Users... and
+    # refused every push with "command not found". The fake fieldkit records what the hook passed it.
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    fake = tmp_path / "fake fk" / "fieldkit"
+    fake.parent.mkdir()
+    out = tmp_path / "args.txt"
+    fake.write_text(f'#!/bin/sh\necho "$@" > "{out.as_posix()}"\nexit 0\n', newline="\n")
+    fake.chmod(0o755)
+    hook = privacy.install_hook(repo, str(fake))           # backslashes on Windows, a space everywhere
+    a, b = "1" * 40, "2" * 40
+    # bytes: Git hands the hook LF lines; text mode on Windows would send CRLF and put a CR into the range
+    r = subprocess.run(["sh", hook.as_posix(), "origin", "x"], cwd=repo,
+                       input=f"refs/heads/m {b} refs/heads/m {a}\n".encode(), capture_output=True)
+    assert r.returncode == 0, (r.stdout + r.stderr).decode(errors="replace")
+    assert out.read_text().split() == ["privacy", "push-check", ".", "--range", f"{a}..{b}"]

@@ -505,6 +505,11 @@ def install_hook(repo, fieldkit_cmd):
     p = hooks / "pre-push"
     if p.exists() and "fieldkit privacy" not in p.read_text(encoding="utf-8", errors="replace"):
         raise ValueError(f"{p} exists and is not ours: merge it by hand")
-    p.write_text(PRE_PUSH.replace("{fieldkit}", fieldkit_cmd), encoding="utf-8", newline="\n")
+    # 2026-10-16, Windows: the hook is run by Git's sh, which reads C:\Users\... as C:Users... ("command not found"),
+    # so every push was refused. Forward slashes work for Git for Windows' sh and for Windows itself; quoting keeps a
+    # path with spaces one word.
+    import shlex
+    p.write_text(PRE_PUSH.replace("{fieldkit}", shlex.quote(str(fieldkit_cmd).replace("\\", "/"))),
+                 encoding="utf-8", newline="\n")
     p.chmod(0o755)
     return p

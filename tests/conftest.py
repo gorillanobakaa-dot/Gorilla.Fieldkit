@@ -11,6 +11,22 @@ windows_only = pytest.mark.skipif(not host()["is_windows"], reason="Windows-only
 linux_only = pytest.mark.skipif(not host()["is_linux"], reason="Linux-only behaviour")
 
 
+def _can_symlink():
+    import tempfile
+    d = Path(tempfile.mkdtemp(prefix="fieldkit-symlink-probe-"))
+    try:
+        (d / "l").symlink_to(d / "t")
+        return True
+    except OSError:
+        return False
+
+
+# Windows lets an account make symbolic links only as administrator or with Developer Mode on (WinError 1314).
+# The GitHub runner is an administrator, so these tests pass there and failed only in this laptop's commit hook.
+needs_symlinks = pytest.mark.skipif(not _can_symlink(), reason="this account cannot create symbolic links "
+                                    "(Windows: administrator or Developer Mode, WinError 1314)")
+
+
 # Tests never write into the real MCP flight recorder (subprocesses inherit this too).
 import os as _os
 import tempfile as _tempfile
@@ -21,7 +37,11 @@ import tempfile as _tempfile
 for _k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX", "GIT_OBJECT_DIRECTORY",
            "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
            "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
-           "GIT_COMMITTER_DATE"):
+           "GIT_COMMITTER_DATE", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"):
+    _os.environ.pop(_k, None)
+# `git -c user.name=... commit` hands the hook its -c values in GIT_CONFIG_PARAMETERS (and git config --env style in
+# GIT_CONFIG_KEY_n/VALUE_n): the tests then saw an identity and the no-identity rule failed only in the hook (2026-10-16).
+for _k in [k for k in _os.environ if k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))]:
     _os.environ.pop(_k, None)
 # Tests run with NO git identity, as on the GitHub runners (owner 2026-10-16: "can't this be a deterministic tool?").
 # Three times code that commits or tags worked here, where the owner's ~/.gitconfig names him, and failed or went
@@ -112,6 +132,13 @@ _VOICE_TESTS = "FIELDKIT_VOICE_TESTS"
 
 def _voice_tests_on():
     return _os.environ.get(_VOICE_TESTS, "").strip() not in ("", "0", "false", "no")
+
+
+# No single test makes a sound either (2026-10-16: on Windows a test reached System.Speech and told the owner "the
+# laptop is offline" while it was online). Silent still resolves the voice and returns "spoken", so the tests check
+# the same path. A test that pops it to fake the runner is fine: it restores it.
+if not _voice_tests_on():
+    _os.environ["FIELDKIT_VOICE_SILENT"] = "1"
 
 
 def _announce(text):

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import needs_symlinks
 from fieldkit.desk import adopt
 
 
@@ -117,6 +118,7 @@ def test_a_copy_that_fails_part_way_leaves_no_destination_and_a_retry_succeeds(w
     assert r["ok"], r
 
 
+@needs_symlinks
 def test_a_dangling_symlink_inside_the_tool_is_copied_as_a_link(world):
     link = world["scripts"] / "Tool" / "symlink-broken"
     link.symlink_to("does-not-exist")

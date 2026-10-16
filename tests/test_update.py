@@ -5,6 +5,7 @@ matters here is a test of that, because the failure it prevents is silent.
 """
 import pytest
 
+from conftest import needs_symlinks
 from fieldkit import update as U
 
 
@@ -161,6 +162,7 @@ def test_security_updates_are_counted_separately(monkeypatch):
 
 
 # -------------------------------------------------------------- native
+@needs_symlinks
 def test_a_fetched_update_that_never_took_effect_is_caught(tmp_path, monkeypatch):
     """The recorded failure: `claude update` printed success and left the old
     directory in place. The new tree is on disk, the launcher still points at
@@ -180,6 +182,7 @@ def test_a_fetched_update_that_never_took_effect_is_caught(tmp_path, monkeypatch
     assert row["verify_with"].endswith("--version")
 
 
+@needs_symlinks
 def test_a_launcher_on_the_newest_tree_is_ok_and_says_what_it_did_not_check(tmp_path):
     root = tmp_path / "versions"
     (root / "2.1.296").mkdir(parents=True)
