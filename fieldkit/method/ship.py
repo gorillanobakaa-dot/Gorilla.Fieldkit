@@ -5,6 +5,7 @@
     fieldkit ship push   [--base main]     sync if needed, then push with retries on network errors
     fieldkit ship audit  [--offline]       is the work on main, is the checkout on main, is main released (shiprelease.py)
     fieldkit ship release vX.Y.Z [--scaffold]   tag and publish, only when main, CI, version and notes all agree
+    fieldkit ship prune  [--archive-unproven]   delete remote branches git or GitHub prove merged; one source of truth
 
 The one hard case it handles: a branch whose pull request was SQUASH-merged. The remote branch still holds the old
 commits; the base holds the same tree as one new commit; the local branch was restarted from the base. A plain
@@ -111,19 +112,23 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep):
 
 def main(argv=None, prog="fieldkit ship"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["status", "sync", "push", "audit", "release"])
+    ap.add_argument("action", choices=["status", "sync", "push", "audit", "release", "prune"])
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
     ap.add_argument("--offline", action="store_true", help="audit: git only, no network")
+    ap.add_argument("--archive-unproven", action="store_true",
+                    help="prune: save a branch whose work is not proven on the base as tag archive/<branch>, then delete it")
     ap.add_argument("--scaffold", action="store_true", help="release: write the missing note files and stop")
     ap.add_argument("--wait", type=int, default=900, help="release: seconds to wait for the published release")
     ap.add_argument("--base", default="main")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    if a.action in ("audit", "release"):
+    if a.action in ("audit", "release", "prune"):
         from . import shiprelease as sr
         if a.action == "audit":
             r = sr.audit(a.repo, a.base, offline=a.offline)
+        elif a.action == "prune":
+            r = sr.prune(a.repo, a.base, archive_unproven=a.archive_unproven)
         elif not a.tag:
             ap.error("release needs a tag: fieldkit ship release vX.Y.Z")
         else:

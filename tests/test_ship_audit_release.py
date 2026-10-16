@@ -87,3 +87,26 @@ def test_release_waits_while_ci_is_still_running(tmp_path):
         return "[]", ""
     r = sr.release("v0.2.0", w, gh=gh, wait=600, sleep=lambda s: seen.append(s))
     assert seen == [30, 30] and [x["check"] for x in r["rows"]][:2] == ["checkout", "ci"] and r["rows"][1]["state"] == "OK"
+
+
+def test_prune_deletes_only_what_is_proven_merged_and_archives_the_rest_on_request(tmp_path):
+    w = _origin_and_clone(tmp_path)
+    for name, merge in (("done", True), ("open-work", False)):
+        _g(w, "checkout", "-q", "-b", name, "main")
+        (w / f"{name}.txt").write_text(name)
+        _g(w, "add", "-A")
+        _g(w, "commit", "-qm", name)
+        _g(w, "push", "-q", "origin", name)
+        _g(w, "checkout", "-q", "main")
+        if merge:
+            _g(w, "merge", "-q", "--no-ff", name, "-m", "merge done")
+            _g(w, "push", "-q", "origin", "main")
+    gh = lambda args, timeout=60: ("", "")
+    rows = {x["check"]: x for x in sr.audit(w, gh=gh, max_commits=99)["rows"]}
+    assert rows["merged-branches"]["state"] == "DO"
+    r = sr.prune(w, gh=gh)
+    assert r["deleted"] == ["done"] and r["kept"] == ["open-work"] and "done" in r["local"]
+    r = sr.prune(w, gh=gh, archive_unproven=True)
+    assert r["archived"] == ["open-work"] and r["ok"]
+    remote = _g(w, "ls-remote", "origin")
+    assert "refs/heads/open-work" not in remote and "refs/tags/archive/open-work" in remote
