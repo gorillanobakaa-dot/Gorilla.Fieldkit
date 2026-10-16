@@ -87,7 +87,7 @@ def profile_findings(rel, data):
     if head.startswith(b"mozLz40\x00"):
         out.append({"kind": "browser-profile-data", "line": 0, "excerpt": "mozLz40 (session or backup)"})
     text = _as_text(data) if isinstance(data, (bytes, bytearray)) else str(data)
-    if "NETSCAPE-Bookmark-file-1" in text[:4096]:
+    if text.lstrip("\ufeff \r\n\t")[:40].upper().startswith("<!DOCTYPE NETSCAPE-BOOKMARK-FILE-1>"):   # how an export STARTS
         out.append({"kind": "bookmarks-export", "line": 1, "excerpt": "NETSCAPE-Bookmark-file-1"})
     if rel.endswith((".patch", ".diff")):
         for n, line in enumerate(text.splitlines(), 1):
