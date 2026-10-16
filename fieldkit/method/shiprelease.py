@@ -223,8 +223,17 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
                f"{base} through a pull request first)"):
         return {"ok": False, "rows": rows}
     slug = repo_slug(repo)
-    out, err = gh(["api", f"repos/{slug}/commits/{head}/check-runs", "--paginate", "-q", ".check_runs[] | [.name, .status, .conclusion] | @tsv"])
-    runs = [l.split("\t") for l in (out or "").splitlines() if l.strip()]
+    # CI starts again on the merge commit: wait while checks run and none has failed (2026-10-16: v0.4.0 was refused
+    # twice for 'in_progress' right after the release PR merged)
+    deadline = time.time() + wait
+    while True:
+        out, err = gh(["api", f"repos/{slug}/commits/{head}/check-runs", "--paginate", "-q",
+                       ".check_runs[] | [.name, .status, .conclusion] | @tsv"])
+        runs = [(l.split("\t") + ["", ""])[:3] for l in (out or "").splitlines() if l.strip()]
+        failed = any(r[1] == "completed" and r[2] not in ("success", "skipped", "neutral") for r in runs)
+        if failed or (runs and all(r[1] == "completed" for r in runs)) or time.time() >= deadline:
+            break
+        sleep(30)
     green = bool(runs) and all(r[1] == "completed" and r[2] == "success" for r in runs)
     if not row("ci", green, f"{len(runs)} check run(s) on {head[:10]}: " + (", ".join(f"{r[0]} {r[2] or r[1]}" for r in runs)
                or err[:120] or "none")):
