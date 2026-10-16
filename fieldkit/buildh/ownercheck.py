@@ -60,7 +60,9 @@ def _owner_root(t):
     hr = t.get("meta", {}).get("harness_root")
     if not hr:
         return None
-    cands = [Path(hr)]
+    # the shared patch set sits INSIDE the owner's repo (Gorilla.firefox/gorilla-patchset): its parent holds the
+    # Windows build script (2026-10-16, the 158 port with --harness ...\gorilla-patchset)
+    cands = [Path(hr), Path(hr).parent]
     pol = Path(hr) / "config" / "patch_policy.json"
     try:
         snap = json.loads(pol.read_text(encoding="utf-8")).get("_snapshot") or {}
@@ -81,14 +83,14 @@ def patchset_owner(t):
     Windows script), so check-change said "decisions and patch export cannot run" and export-hand could not
     start; the 158 port's changes reached no patch. Only patch export and the change check use this; the
     Windows build, preflight and leak gate keep _owner_root."""
-    root = _owner_root(t)
-    if root:
-        return root
+    # a harness root that carries the policy AND the decision register is the patch set, whatever else is found:
+    # 2026-10-16, once _owner_root also looked one folder up, the 158 port would otherwise have gone back to the
+    # owner repo's OLD 157 policy (no 21/22/23 groups for 158) for export, rebase-set, replay and check-change
     hr = t.get("meta", {}).get("harness_root")
     if hr and (Path(hr) / "config" / "patch_policy.json").is_file() and \
             (Path(hr) / "decisions" / "PRODUCT-DECISIONS.yaml").is_file():
         return Path(hr)
-    return None
+    return _owner_root(t)
 
 
 def step_owner_preflight(t, owner_root=None, **kw):

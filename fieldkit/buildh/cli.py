@@ -533,12 +533,16 @@ def run(a, emit):
         if a.args[0] != "firefox":
             raise SystemExit("start: firefox (the kernel workflow comes next)")
         t = start_firefox(a.task, a.pin, a.source, a.budget, a.workdir, harness_root=a.harness)
+        # a local name: `settings` is imported further down in run(), which makes it local to the whole function
+        # (2026-10-16: start created the task, then crashed printing this with "cannot access free variable")
+        from ..core import settings as _set
+        fk = _set.self_cmd()
         return emit({"task": t["id"], "steps": [s["id"] for s in t["steps"]], "workdir": t["workdir"]},
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
-                                    f"NEXT: the owner reads the plan and runs: {settings.self_cmd()} build-harness approve {r['task']}\n"
-                                    f"      or let the harness open the window for them: {settings.self_cmd()} terminal ask -- "
-                                    f"{settings.self_cmd()} build-harness approve {r['task']}")) or 0
+                                    f"NEXT: the owner reads the plan and runs: {fk} build-harness approve {r['task']}\n"
+                                    f"      or let the harness open the window for them: {fk} terminal ask -- "
+                                    f"{fk} build-harness approve {r['task']}")) or 0
     if act == "herald":
         # herald --say "words" | herald [name=..] [pid=..] [log=..] [every=..]: the spoken herald (herald.py), from any
         # folder (2026-10-10: `python -m fieldkit.buildh.herald` was given to the owner and depends on where it runs)
