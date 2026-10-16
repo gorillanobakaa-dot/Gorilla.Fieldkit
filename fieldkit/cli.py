@@ -337,6 +337,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_size(a):
+    from .desk import size
+    return size.main(a.args)
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -1033,6 +1038,11 @@ def build_parser():
                              "(fieldkit icons --help)")
     ic.add_argument("args", nargs=argparse.REMAINDER)
     ic.set_defaults(fn=cmd_icons)
+    sz = sub.add_parser("size", add_help=False,
+                        help="how big folders are, where the space went, what can go (gorilla-size: every core, "
+                             "read-only; doctor --install builds it; fieldkit size --help)")
+    sz.add_argument("args", nargs=argparse.REMAINDER)
+    sz.set_defaults(fn=cmd_size)
 
     for name, (_, text) in METHODS.items():
         mp = sub.add_parser(name, add_help=False, help=text)
@@ -2010,6 +2020,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["size"]:                          # gorilla-size has its own parser: every argument goes to it
+        from .desk import size as size_cli
+        return size_cli.main(args[1:])
     if args[:1] == ["academic"]:                      # so is the academic module
         from .academic import cli as academic_cli
         return academic_cli.main(args[1:])
