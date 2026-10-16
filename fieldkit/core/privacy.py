@@ -557,6 +557,13 @@ while read lref lsha rref rsha; do
     rng="$rsha..$lsha"
   fi
   {fieldkit} privacy push-check . --range "$rng" || { echo "pre-push: refused, see the findings above"; exit 1; }
+  # a patch-set repository: every platform's selection must apply to pristine upstream before the set is published
+  # (2026-10-16: the shared 158 set had been proven on Linux only; on Windows 008 and 098 became hand jobs)
+  if [ -f config/patch_policy.json ] && [ -d patches ] && \
+     [ -n "$(git diff --name-only "$rng" -- patches config/patch_policy.json 2>/dev/null | head -n 1)" ]; then
+    {fieldkit} build-harness set-proof patchset=. platform=all || {
+      echo "pre-push: refused, the patch set does not apply on every platform (set-proof above)"; exit 1; }
+  fi
 done
 exit 0
 """

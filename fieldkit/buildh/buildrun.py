@@ -708,6 +708,50 @@ def thermal_sensor(say, retry=True):
     return name, fn, surface
 
 
+def refresh_lists(task_id, t, say=print, refresh=None, judge_rows=None, record=None):
+    """D-157-42, at every build and by itself (2026-10-16: it was a runbook step a person had to remember, and the
+    port meanwhile tried to carry the 157 lists onto 158): the security lists are taken fresh from Mozilla's
+    repository (timebombs.refresh, pure data and later than the tree's, or nothing), recorded like any change, and
+    the build goes on. When the fetch cannot be made (offline), the build goes on only if no list in the tree switches
+    off within the six-week margin; otherwise it is refused. -> {"ok", "why", "written"}"""
+    from . import timebombs as tb
+    refresh = refresh or tb.refresh
+    judge_rows = judge_rows or tb.rows
+    try:
+        res = refresh(t["workdir"], write=True)
+    except Exception as e:  # noqa: BLE001 - offline, upstream unreachable: judged on the tree's own dates
+        bad = [r for r in judge_rows(t["workdir"]) if not r["ok"]]
+        if bad:
+            return {"ok": False, "written": [], "why": f"lists-refresh could not fetch ({e}) and a list in the tree "
+                                                       f"switches off within the margin: {bad[0]['evidence']}"}
+        say(f"  [WARN] lists-refresh could not fetch ({e}); the tree's lists stay valid beyond the margin")
+        return {"ok": True, "written": [], "why": ""}
+    if not all(r["ok"] for r in res["rows"]):
+        bad = next(r for r in res["rows"] if not r["ok"])
+        return {"ok": False, "written": [], "why": f"lists-refresh refused the upstream lists: {bad['evidence']}"}
+    if res["written"]:
+        if record is None:
+            from . import handedit
+            record = lambda files, note: handedit.record(task_id, files, note, kind="privacy")
+        record(res["written"], f"D-157-42: security lists refreshed before the build from {res['source']}")
+        say(f"  [ok] lists-refresh: {', '.join(res['written'])} refreshed from {res['source']} and recorded")
+    else:
+        say(f"  [ok] lists-refresh: the tree's lists are already the freshest ({res['source']})")
+    return {"ok": True, "written": res["written"], "why": ""}
+
+
+def binary_gate(t):
+    """binpatch.audit of the task's tree against its patch set. No patch set found = refused (fail closed), not a crash."""
+    from . import binpatch
+    from .ownercheck import patchset_owner
+    ps = patchset_owner(t)
+    pol_file = Path(ps) / "config" / "patch_policy.json" if ps else None
+    if not pol_file or not pol_file.is_file():
+        return {"ok": False, "rows": [], "why": "no patch set with config/patch_policy.json beside this task"}
+    pol = json.loads(pol_file.read_text(encoding="utf-8"))
+    return binpatch.audit(t["workdir"], Path(ps) / pol.get("patchset_root", "patches"), pol)
+
+
 def run(task_id, force=False, say=print, stages=("build", "package")):
     """-> {"ok", "stops": [...], "log"}. `force` only allows build-dependent owner blockers through; a hard one stops."""
     from . import compile as cg
@@ -721,6 +765,20 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
     from . import power
     pw = power.row()
     say(f"  [{'WARN' if pw.get('on_battery') else 'ok'}] {pw['check']}: {pw['evidence']}")
+    lr = refresh_lists(task_id, t, say)
+    if not lr["ok"]:
+        return {"ok": False, "why": lr["why"], "stops": stops}
+    # every picture of the set in the tree, on EVERY platform (2026-10-16: binary-patches was a Linux preflight row;
+    # the Windows build never asked it, and 28 pictures were missing from the 158 tree)
+    bp = binary_gate(t)
+    if not bp["ok"]:
+        if bp.get("why"):
+            return {"ok": False, "stops": stops, "why": bp["why"]}
+        missing = [r["path"] for r in bp["rows"] if r["state"] in ("not-applied", "should-be-deleted")]
+        return {"ok": False, "stops": stops,
+                "why": f"{len(missing)} picture(s) of the set are not in the tree (first: {missing[:3]}); "
+                       f"fieldkit build-harness binary-patches {task_id} --apply"}
+    say(f"  [ok] binary-patches: every picture of the set is in the tree")
     rows = cg.gate(task_id, harness_root=None, write=True)
     bad = [r for r in rows if not r["ok"]]
     stale = lambda r: r["check"].startswith("final checks passed") or (r["check"] == "every step is done" and "final-checks" in r["evidence"])

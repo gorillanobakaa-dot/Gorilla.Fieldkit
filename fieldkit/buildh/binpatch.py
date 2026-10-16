@@ -109,10 +109,23 @@ def _end(lines):
     return len(lines)
 
 
-def audit(tree, patchset, policy=None):
-    """`policy["binary_exempt"]` {path: reason}: a section a person decided this platform does without (recorded, shown,
-    never silently passed: its state is `exempt` with the reason)."""
-    exempt = (policy or {}).get("binary_exempt", {})
+def exemptions(policy, platform=None):
+    """{path: reason} for THIS platform: `binary_exempt_on` {platform: {path: reason}}, plus the older unscoped
+    `binary_exempt` read as Linux-only (2026-10-16: the three NSIS installer bitmaps were exempted for Linux, "on
+    Windows this exemption does not apply", and the unscoped key let them pass on Windows too)."""
+    from .firefox import this_platform
+    platform = platform or this_platform()
+    policy = policy or {}
+    out = dict((policy.get("binary_exempt_on") or {}).get(platform, {}))
+    if platform == "linux":
+        out.update(policy.get("binary_exempt", {}))
+    return out
+
+
+def audit(tree, patchset, policy=None, platform=None):
+    """`binary_exempt_on` {platform: {path: reason}}: a section a person decided THIS platform does without (recorded,
+    shown, never silently passed: its state is `exempt` with the reason)."""
+    exempt = exemptions(policy, platform)
     rows = []
     for path, s in sorted(sections(patchset, policy).items()):
         st = state(tree, path, s)

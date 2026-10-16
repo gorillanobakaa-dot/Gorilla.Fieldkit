@@ -1042,6 +1042,46 @@ def run(a, emit):
             print(f"    can: {n} ({why})")
         print("LEAK-GATE SCOPE: " + r["verdict"])
         return 0
+    if act == "set-proof":
+        # set-proof [TASK] [patchset=DIR] [version=158.0] [platform=windows|linux|all]: pristine + each platform's
+        # selection must apply; excluded dependencies and refreshed lists named (setproof.py, 2026-10-16)
+        from . import setproof, vault as _vault
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        if opts.get("patchset"):
+            pset_root = Path(opts["patchset"]).resolve()
+        else:
+            from .ownercheck import patchset_owner
+            pset_root = Path(patchset_owner(task.load(tid)))
+        versions = sorted((r["version"] for r in _vault.listing() if r["product"] == "firefox"),
+                          key=lambda v: [int(x) if x.isdigit() else 0 for x in v.split(".")])
+        version = opts.get("version") or (versions[-1] if versions else None)
+        if not version:
+            raise task.Refused("set-proof: no Firefox in the vault; fetch it first (build-harness vault fetch firefox)")
+        pristine = _vault.root() / "firefox" / version
+        plats = setproof.PLATFORMS if opts.get("platform", "all") == "all" else (opts["platform"],)
+        ok = True
+        out = []
+        for p in plats:
+            r = setproof.prove(pset_root, pristine, p, say=lambda m: None)
+            ok &= r["ok"]
+            out.append(r)
+        if a.json:
+            print(json.dumps(out, indent=1))
+        else:
+            for r in out:
+                print("\n".join(setproof.lines(r)))
+        return 0 if ok else 3
+    if act == "profile-keep":
+        # profile-keep [TASK] [install=DIR]: which profile holds the saved logins and which install folder opens it;
+        # FAIL when DIR (default: the Gorilla install) would open another, empty profile (profilekeep.py, D-157-28)
+        from . import profilekeep, install as _inst
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        target = Path(opts["install"]) if opts.get("install") else _inst.find_install()
+        if not target:
+            raise task.Refused("profile-keep: no single Gorilla install found; name it with install=DIR")
+        r = profilekeep.check(target, _inst.profiles_dir())
+        print(json.dumps(r, indent=1) if a.json else "\n".join(profilekeep.lines(r)))
+        return 0 if r["ok"] else 3
     if act == "leakgate-runs":
         # leakgate-runs TASK: every gate run with its verdict, build, size and every file that cites it; only an
         # uncited run is free to remove (fieldkit/leakgate/runs.py; 2026-10-16: runs chosen by date were evidence)

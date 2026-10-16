@@ -138,8 +138,10 @@ groups:
       - buildh/preflight.py
       - buildh/profilecheck.py
       - buildh/profilefresh.py
+      - buildh/profilekeep.py
       - buildh/recorder.py
       - buildh/repair.py
+      - buildh/setproof.py
       - buildh/stats.py
       - buildh/symbols.py
       - buildh/truthbound.py

@@ -493,6 +493,15 @@ def run(task_id, do_backup=True, say=print, install_dir=None, use_installer=Fals
     target = Path(install_dir) if install_dir else find_install()
     if not target:
         return no_target()
+    # D-157-28: a different folder opens a different, empty profile and every saved login looks erased (2026-10-16:
+    # 155 in Program Files, 157 in the user folder). Refused before anything is touched.
+    from . import profilekeep
+    pk = profilekeep.check(target, profiles_dir())
+    for l in profilekeep.lines(pk):
+        say(l)
+    if not pk["ok"]:
+        task.journal(t, "install-refused", target=str(target), why=pk["evidence"])
+        return {"ok": False, "why": pk["evidence"], "rows": [pk]}
     before = installed(target)
     say(f"  installed now: {before} at {target}")
     bdir = None

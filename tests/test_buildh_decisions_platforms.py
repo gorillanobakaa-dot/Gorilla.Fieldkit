@@ -139,3 +139,15 @@ def test_citations_quote_the_decisions_that_cover_a_step(tmp_path, monkeypatch):
     assert dec.citations(t, ["missing.txt"]) == []           # win-only entry: not cited on linux
     assert dec.citations(t, ["browser/other.js"]) == []
     assert dec.citations({"meta": {}}, ["a.txt"]) == []     # no register: nothing, never a crash
+
+
+def test_the_shared_sets_register_wins_over_a_stale_owner_copy(tmp_path):
+    """2026-10-16: Windows read Gorilla.firefox/decisions/ (last written 10-09), not the shared set's register."""
+    from fieldkit.buildh import decisions
+    (tmp_path / "decisions").mkdir()
+    (tmp_path / "decisions" / "PRODUCT-DECISIONS.yaml").write_text("decisions: []\n")
+    assert decisions.register_file(tmp_path) == tmp_path / "decisions" / "PRODUCT-DECISIONS.yaml"
+    shared = tmp_path / "gorilla-patchset" / "decisions"
+    shared.mkdir(parents=True)
+    (shared / "PRODUCT-DECISIONS.yaml").write_text("decisions: []\n")
+    assert decisions.register_file(tmp_path) == shared / "PRODUCT-DECISIONS.yaml"

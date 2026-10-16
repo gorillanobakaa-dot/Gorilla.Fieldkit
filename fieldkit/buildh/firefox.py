@@ -295,25 +295,75 @@ def step_apply_group(t, harness_root, group, **kw):
     base = subprocess.run(["git", "-C", str(w), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     t["meta"].setdefault("group_base", {})[group] = base
     new_steps, applied, skipped, upstreamed = [], 0, [], []
+    from . import setproof
+    platform = this_platform()
+    raw_groups = json.loads((Path(harness_root) / "config" / "patch_policy.json").read_text(encoding="utf-8"))["groups"]
+    plus = None                                      # the excluded patches' added lines, read on the first failure
+    refreshed, dependent = [], []
     for pf in sorted((pset / group).rglob("*.patch")):
         if pf.name in excluded:
             skipped.append(pf.name)
             continue
-        with open(pf, "rb") as fh:
-            # --fuzz=0: with fuzz 3 GNU patch dropped the three context lines of FOG.cpp's hunk and put the owner's
-            # `return NS_OK;` block before the function signature (live run 16, stop 8). A hunk whose context does not
-            # match is a REJECT for the tiers, which anchor on content; a guess by line number is never a port.
-            r = subprocess.run([_patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0",
-                                "-d", str(w)], stdin=fh, capture_output=True, timeout=600)
+        rel = pf.relative_to(pset).as_posix()
+        # D-157-42: the security lists are data that lists-refresh takes fresh at every build; their sections are
+        # never applied or ported (2026-10-16: 098's 157 lists became 167 hunk jobs on 158)
+        body, removed = setproof.strip_refreshed(pf.read_text(encoding="utf-8", errors="replace"))
+        if removed:
+            refreshed.append(f"{rel} ({', '.join(removed)})")
+            if not setproof.has_hunks(body):
+                continue
+        # --fuzz=0: with fuzz 3 GNU patch dropped the three context lines of FOG.cpp's hunk and put the owner's
+        # `return NS_OK;` block before the function signature (live run 16, stop 8). A hunk whose context does not
+        # match is a REJECT for the tiers, which anchor on content; a guess by line number is never a port.
+        if "GIT binary patch" in body:
+            # GNU patch does not read git binary hunks and still exits 0: on 158 every picture of the set was lost,
+            # on Linux (2026-10-15, binpatch.py repaired it afterwards) and again on Windows (2026-10-16). Pictures go
+            # through git apply, as in replay; a file only an earlier group's NEW_FILES put there gives way to the
+            # final version (23.REBASE.158's logos over 08.Look's).
+            def _gapply(check):
+                return subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(w), "apply", "--whitespace=nowarn"]
+                                      + (["--check"] if check else []), input=body.encode("utf-8"),
+                                      capture_output=True)
+            g = _gapply(True)
+            gout = (g.stdout + g.stderr).decode("utf-8", "replace")
+            if g.returncode != 0:
+                for m in re.finditer(r"error: (\S+): already exists in working directory", gout):
+                    tracked = subprocess.run(["git", "-C", str(w), "ls-files", "--error-unmatch", m.group(1)],
+                                             capture_output=True).returncode == 0
+                    if not tracked or subprocess.run(["git", "-C", str(w), "cat-file", "-e",
+                                                      f"{base}:{m.group(1)}"], capture_output=True).returncode != 0:
+                        (w / m.group(1)).unlink(missing_ok=True)
+                g = _gapply(True)
+            if g.returncode == 0 and _gapply(False).returncode == 0:
+                applied += 1
+            else:
+                new_steps.append({"id": f"owner-{group}-{pf.stem}", "kind": "owner",
+                                  "title": f"{rel}: its picture does not apply ({(g.stdout + g.stderr).decode('utf-8', 'replace').strip()[:160]}); "
+                                           "re-export it from the tree it was made in, or drop it with a reason"})
+            continue
+        cmd = [_patch_exe(), "-p1", "--forward", "--no-backup-if-mismatch", "--fuzz=0", "--binary", "-d", str(w)]
+        # a dry run first: a patch that only repairs code a group excluded on THIS platform brings in has nothing to
+        # repair here and is never applied (2026-10-16: 21.PORT.FIXES.158/008 fixes 01.MEDIA's code, Linux-only)
+        dry = subprocess.run(cmd + ["--dry-run"], input=body.encode("utf-8"), capture_output=True, timeout=600)
+        dry_out = dry.stdout.decode("utf-8", "replace") + dry.stderr.decode("utf-8", "replace")
+        if failures_from_output(dry_out)["failed"]:
+            plus = setproof._plus_lines(pset, raw_groups, platform) if plus is None else plus
+            dep = next((d for _f, h in setproof._hunks_of(body) for d in [setproof.dependency(h, plus)] if d), None)
+            if dep:
+                dependent.append(f"{rel} depends on {dep}, left out on {platform}")
+                from . import task as _taskmod
+                _taskmod.journal(t, "excluded-dependency", patch=rel, depends_on=dep, platform=platform,
+                                 propose=f"exclude_on.{platform} += {pf.name} in group {group}")
+                continue
+        r = subprocess.run(cmd, input=body.encode("utf-8"), capture_output=True, timeout=600)
         out = r.stdout.decode("utf-8", "replace") + r.stderr.decode("utf-8", "replace")
         res = failures_from_output(out)
-        rel = pf.relative_to(pset).as_posix()
         if "previously applied" in out:              # GNU patch: this Firefox already has the change
             upstreamed.append(f"{rel} (the whole patch is already in this Firefox)")
             continue
         if r.returncode == 0:
             applied += 1
-        parsed = {f["file"]: f["hunks"] for f in parse_patch(pf.read_text(encoding="utf-8", errors="replace"))}
+        parsed = {f["file"]: f["hunks"] for f in parse_patch(body)}
         for fname, n in res["failed"]:
             hunks = parsed.get(fname) or []
             if n - 1 >= len(hunks):
@@ -349,9 +399,11 @@ def step_apply_group(t, harness_root, group, **kw):
         rej.unlink()
     # the export step for this group comes after its port steps
     return {"ok": True, "add_steps": new_steps,
-            "upstreamed": upstreamed,
+            "upstreamed": upstreamed, "refreshed": refreshed, "excluded_dependencies": dependent,
             "summary": f"{group}: {applied} patch(es) applied clean, {len(new_steps)} hunk job(s), "
-                       f"{len(upstreamed)} hunk(s) already upstream, {len(skipped)} excluded"}
+                       f"{len(upstreamed)} hunk(s) already upstream, {len(skipped)} excluded"
+                       + (f", {len(refreshed)} with refreshed lists left to lists-refresh" if refreshed else "")
+                       + (f", {len(dependent)} excluded dependenc(ies): {'; '.join(dependent)}" if dependent else "")}
 
 
 def leftovers(w):
