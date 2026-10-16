@@ -433,12 +433,37 @@ def scan_path(path, terms=None, git_only=False, examined=None, **kw):
         # names inside the path count too - but only the part inside the scanned
         # folder: the folder's own location (C:\Users\<login>) is not published
         rel = str(f.relative_to(path)) if path.is_dir() else f.name
+        if path.is_dir():
+            hits = drop_upstream_emails(hits, Path(rel).as_posix(), lambda p: (path / p).is_file())
         for t in terms:
             if term_pattern(t).search(rel.lower()):
                 hits.append({"kind": "private-term-in-filename", "line": 0, "excerpt": _mask(t)})
         if hits:
             report[str(f)] = hits
     return report
+
+
+VENDOR_DIR = re.compile(r"^(?:.*/)?vendor/([^/]+)/")
+
+
+def vendored_crate(rel, exists):
+    """The crate folder when `rel` ('/' separated) lies in a cargo-vendored crate, else None. Proven, not guessed:
+    the folder must hold .cargo-checksum.json (`exists(path)` answers for the working tree or the pushed commit)."""
+    m = VENDOR_DIR.match(str(rel).replace("\\", "/"))
+    if not m:
+        return None
+    crate = str(rel).replace("\\", "/")[:m.end()]
+    return crate if exists(crate + ".cargo-checksum.json") else None
+
+
+def drop_upstream_emails(hits, rel, exists):
+    """2026-10-16 (gorilla-size): a vendored crate's manifest names its authors' public addresses. They cannot be
+    edited (cargo checks every file's hash) and they are upstream's, published on crates.io already; refusing them
+    made every push of a vendored Rust repository impossible. Only EMAIL findings are dropped, only inside a proven
+    vendored crate; secrets, user paths, private terms and profile data still fail there."""
+    if not hits or vendored_crate(rel, exists) is None:
+        return hits
+    return [h for h in hits if h.get("kind") != "email"]
 
 
 def push_files(repo, rng):
@@ -468,10 +493,49 @@ def push_check(repo, rng, terms=None):
         data = r.stdout
         hits = profile_findings(rel, data)
         hits += scan_text(_as_text(data), terms) if len(data) <= LARGE_LIMIT else [not_scanned("over the size limit")]
+        in_tip = lambda p: subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{tip}:{p}"],
+                                          capture_output=True).returncode == 0
+        hits = drop_upstream_emails(hits, rel, in_tip)
         if hits:
             report[rel] = hits
+    report.update(push_history(repo, rng, terms, seen=report))
     profile = [p for p, h in report.items() if any(x["kind"] in PROFILE_KINDS for x in h)]
     return {"files": len(files), "report": report, "profile": profile}
+
+
+def push_history(repo, rng, terms, seen=None):
+    """Findings in what EACH commit of the push adds, not only in the last one: a push publishes every commit, so a
+    line added in one commit and removed in the next is still public. 2026-10-16: a fake user path added and then
+    removed in gorilla-size's history passed the old check, which read only the tip. Keys: '<commit>:<path>'.
+    Text lines only (git prints 'Binary files differ' for binaries; the tip check reads binaries)."""
+    import subprocess
+    base, _, tip = rng.partition("..")
+    tip = tip or "HEAD"
+    kind = subprocess.run(["git", "-C", str(repo), "cat-file", "-t", base], capture_output=True, text=True).stdout.strip()
+    revs = [tip] if kind == "tree" or not base else [rng]
+    r = subprocess.run(["git", "-C", str(repo), "rev-list", *revs], capture_output=True, text=True)
+    if r.returncode != 0:
+        return {f"history {rng}": [not_scanned("the commits of the push could not be listed")]}
+    seen_keys = {(p, h["kind"], h.get("excerpt")) for p, hs in (seen or {}).items() for h in hs}
+    out = {}
+    for c in r.stdout.split():
+        d = subprocess.run(["git", "-C", str(repo), "show", "--format=", "--no-renames", "-p", "--unified=0", c],
+                           capture_output=True)
+        added, cur = {}, None
+        for line in d.stdout.decode("utf-8", "replace").splitlines():
+            if line.startswith("+++ "):
+                cur = line[6:] if line.startswith("+++ b/") else None
+            elif cur and line.startswith("+") and not line.startswith("+++"):
+                added.setdefault(cur, []).append(line[1:])
+        exists = lambda p, c=c: subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{c}:{p}"],
+                                               capture_output=True).returncode == 0
+        for rel, lines in added.items():
+            hits = profile_findings(rel, b"") + scan_text("\n".join(lines), terms)
+            hits = drop_upstream_emails(hits, rel, exists)
+            hits = [h for h in hits if (rel, h["kind"], h.get("excerpt")) not in seen_keys]
+            if hits:
+                out[f"{c[:9]}:{rel}"] = hits
+    return out
 
 
 PRE_PUSH = """#!/bin/sh
@@ -482,7 +546,9 @@ z=0000000000000000000000000000000000000000
 while read lref lsha rref rsha; do
   [ "$lsha" = "$z" ] && continue
   if [ "$rsha" = "$z" ]; then
-    base=$(git merge-base "$lsha" refs/remotes/origin/HEAD 2>/dev/null || git rev-list --max-parents=0 "$lsha" | tail -n 1)
+    # a new branch: from where it left the remote's default branch; in a new repository from the EMPTY TREE, so the
+    # first commit is checked too (2026-10-16: root..tip left the root commit's 753 files out of the check)
+    base=$(git merge-base "$lsha" refs/remotes/origin/HEAD 2>/dev/null || git hash-object -t tree /dev/null)
     rng="$base..$lsha"
   else
     rng="$rsha..$lsha"
