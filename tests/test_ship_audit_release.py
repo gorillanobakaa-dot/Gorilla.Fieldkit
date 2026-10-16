@@ -38,10 +38,13 @@ def test_audit_says_a_release_is_due_and_which_branch_never_reached_main(tmp_pat
     _g(w, "commit", "-qm", "never merged")
     _g(w, "push", "-q", "origin", "lost")
     _g(w, "checkout", "-q", "main")
-    r = sr.audit(w, offline=True, max_commits=2)
+    gh = lambda args, timeout=60: ("", "") if args[:2] == ["pr", "list"] and "merged" in args else ("[]", "")
+    _g(w, "remote", "set-url", "origin", str(tmp_path / "origin.git"))
+    r = sr.audit(w, max_commits=2, gh=gh)
     rows = {x["check"]: x for x in r["rows"]}
     assert rows["checkout"]["state"] == "OK"
     assert rows["branches"]["state"] == "DO" and "lost (1)" in rows["branches"]["say"]
+    assert "branches" not in {x["check"] for x in sr.audit(w, offline=True)["rows"]}   # offline: never a false alarm
     assert rows["release"]["state"] == "DO" and "3 commit(s)" in rows["release"]["say"] and "v0.1.0" in rows["release"]["say"]
     assert sr.audit(w, offline=True, max_commits=5)["rows"][-1]["state"] == "OK"
 

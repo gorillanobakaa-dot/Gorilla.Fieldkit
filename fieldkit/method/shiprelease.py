@@ -70,6 +70,23 @@ def release_gap(repo, base="main"):
     return {"tag": tag, "commits": n, "days": days}
 
 
+def content_on_base(repo, ref, base="main"):
+    """True when every change `ref` makes since it left the base is already in origin/<base>: its diff applies in
+    REVERSE to the base's tree (a temporary index, no checkout). A squash-merged branch passes; real new work fails."""
+    import os
+    import tempfile
+    mb = git(repo, "merge-base", f"origin/{base}", ref).stdout.strip()
+    diff = git(repo, "diff", "--binary", mb, ref).stdout
+    if not diff.strip():
+        return True
+    with tempfile.TemporaryDirectory() as d:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(d) / "index")}
+        subprocess.run(["git", "-C", str(repo), "read-tree", f"origin/{base}"], env=env, capture_output=True)
+        r = subprocess.run(["git", "-C", str(repo), "apply", "--cached", "--check", "-R", "-"], input=diff, env=env,
+                           capture_output=True, text=True)
+    return r.returncode == 0
+
+
 def audit(repo=".", base="main", offline=False, max_commits=MAX_COMMITS, max_days=MAX_DAYS, gh=_gh):
     """-> {"ok", "rows": [{check, state OK|DO, say, run}]}"""
     rows = []
@@ -91,23 +108,39 @@ def audit(repo=".", base="main", offline=False, max_commits=MAX_COMMITS, max_day
             f"git merge --ff-only origin/{base}" if behind else "never push to the base: open a pull request")
     else:
         row("checkout", True, f"on {base}, clean, equal to origin/{base}")
-    unmerged = []
+    unmerged, stale = [], []
+    slug = None if offline else repo_slug(repo)
     for line in git(repo, "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin").stdout.split():
         name = line.split("/", 1)[-1]
         if name in (base, "HEAD") or line == "origin":
             continue
         n = git(repo, "rev-list", "--count", "--no-merges", f"origin/{base}..{line}").stdout.strip()
-        if n and int(n) > 0:
-            # a squash-merged branch has commits the base lacks but the same tree in a base commit: not lost
-            tree = git(repo, "rev-parse", f"{line}^{{tree}}").stdout.strip()
-            if tree not in git(repo, "log", "--format=%T", "--max-count=300", f"origin/{base}").stdout.split():
-                unmerged.append((name, int(n)))
-    row("branches", not unmerged,
-        "every remote branch's work is on " + base if not unmerged else
-        f"{len(unmerged)} remote branch(es) carry work {base} lacks: " + ", ".join(f"{b} ({n})" for b, n in unmerged[:6]),
-        "" if not unmerged else "open or finish a pull request for each, or say why it stays out")
+        if not n or int(n) == 0:
+            continue
+        # a squash-merged branch keeps commits the base never got by name; only GitHub knows its pull request merged
+        # (2026-10-16: two branches squash-merged in #15 and changed since looked like lost work to git alone)
+        merged = None
+        if slug:
+            out, _ = gh(["pr", "list", "-R", slug, "--state", "all", "--head", name, "--json", "number,state",
+                         "-q", '.[] | "\\(.number) \\(.state)"'])
+            prs = [l.split() for l in (out or "").splitlines() if l.strip()]
+            if any(s == "OPEN" for _, s in prs):
+                continue                                    # in a pull request now: the pulls row reports it
+            merged = [p for p, s in prs if s == "MERGED"] or None
+        if not merged and content_on_base(repo, line, base):
+            merged = ["content"]                            # every change it makes is already in the base
+        (stale if merged else unmerged).append((name, int(n), merged))
     if not offline:
-        slug = repo_slug(repo)
+        row("branches", not unmerged,
+            "every remote branch's work is on " + base if not unmerged else
+            f"{len(unmerged)} remote branch(es) carry work {base} lacks, with no merged pull request: "
+            + ", ".join(f"{b} ({n})" for b, n, _ in unmerged[:6]),
+            "" if not unmerged else "open or finish a pull request for each, or say why it stays out")
+        if stale:
+            row("stale-branches", True, "merged long ago, safe to delete on GitHub when the owner says so: "
+                + ", ".join(f"{b} ({'#' + m[0] if m[0] != 'content' else 'its changes are on ' + base})"
+                            for b, _, m in stale[:8]))
+    if not offline:
         out, err = gh(["pr", "list", "-R", slug, "--state", "open", "--json", "number,title,headRefName,statusCheckRollup"]) \
             if slug else (None, "no GitHub remote")
         if out is None:
