@@ -47,13 +47,14 @@ def check(t, static_only=False, install_dir=None, say=print, allow=None, only=()
     """Both layers for a loaded task. -> {"ok", "static", "runtime" (None with static_only)}. `change`: omni members,
     files or substitutions applied to the runtime COPY (runtime.run); such a run is a preview, never OK."""
     from . import allow as allowmod, runtime, static
+    from ..buildh import layout
     allow = allow if allow is not None else allowmod.load()
     tree, branding, owner, commit = task_context(t)
     say(f"  static: {tree} (branding {branding}, upstream {str(commit)[:12]})")
     st = static.check(tree, branding, owner, commit, allow)
     rt = None
     if not static_only:
-        if not install_dir or not (Path(install_dir) / "firefox.exe").is_file():
+        if not install_dir or not layout.exe(install_dir).is_file():   # 2026-10-15: was firefox.exe only, so FAIL on every Linux run
             rt = allowmod.summarise([{"layer": "runtime", "rule": "RT-RUN", "item": "setup", "verdict": "FAIL",
                                       "evidence": f"no installed build at {install_dir}"}], allow, "runtime")
         else:

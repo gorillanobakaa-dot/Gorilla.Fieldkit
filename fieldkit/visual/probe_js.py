@@ -42,7 +42,9 @@ CFG_JS = r"""// gvisual.cfg - fieldkit visual runtime probe; written only into a
     conv.close();
     tmp.moveTo(null, f.leafName);
   }
-  function stamp(name, text) { try { write(DIR + "\\" + name, text); } catch (e) {} }
+  // PathUtils.join, never "\\": on Linux the backslash made a file NAMED "out\\started.txt" and every run read as
+  // "autoconfig DID NOT RUN" (2026-10-15)
+  function stamp(name, text) { try { write(PathUtils.join(DIR, name), text); } catch (e) {} }
   stamp("started.txt", "autoconfig ran " + new Date().toISOString());
 
   const res = { schema: 1, dpr_wanted: DPR, started: Date.now(), complete: false, list_source: null,

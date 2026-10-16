@@ -152,3 +152,54 @@ def lines(r):
         for p in f["lost_prefs"][:8]:
             out.append(f"               pref missing: {p[:140]}")
     return out
+
+
+WHOLE = ("NEW_FILES", "REPLACE_FILES")
+
+
+def whole_files(patchset, tree, policy=None):
+    """The patch set's WHOLE files (each group's NEW_FILES/ and REPLACE_FILES/), held against the tree byte for byte.
+
+    Born 2026-10-15: the .patch audit above never looked at them, and the installed 158 showed it: 15 whole files
+    missing from the tree (13 of them 08.Look branding pictures, the 1000 px double-size about-logo among them, so every
+    page drew a 500 px gorilla stretched and blurred), all invisible to every check that read only .patch files.
+
+    For each path the LAST enabled group in patch order that ships it is the owner (a later REPLACE_FILES wins over an
+    earlier NEW_FILES). `policy` is config/patch_policy.json: its disabled groups are skipped, and its
+    `whole_files_exempt` {path: reason} names a file a person decided the tree does not carry.
+    -> {"same": n, "missing": [{path, group}], "differs": [{path, group}], "exempt": [{path, reason}]}"""
+    patchset, tree = Path(patchset), Path(tree)
+    groups = (policy or {}).get("groups", {})
+    exempt = (policy or {}).get("whole_files_exempt", {})
+    owner = {}
+    for grp in sorted(p for p in patchset.iterdir() if p.is_dir()):
+        if groups.get(grp.name, {}).get("status", "enabled") != "enabled":
+            continue
+        for kind in WHOLE:
+            base = grp / kind
+            for f in sorted(base.rglob("*")) if base.is_dir() else []:
+                if f.is_file():
+                    owner[f.relative_to(base).as_posix()] = (grp.name, f)
+    out = {"same": 0, "missing": [], "differs": [], "exempt": []}
+    for rel, (grp, src) in sorted(owner.items()):
+        if rel in exempt:
+            out["exempt"].append({"path": rel, "reason": exempt[rel]})
+            continue
+        t = tree / rel
+        if not t.is_file():
+            out["missing"].append({"path": rel, "group": grp})
+        elif t.read_bytes() != src.read_bytes():
+            out["differs"].append({"path": rel, "group": grp})
+        else:
+            out["same"] += 1
+    return out
+
+
+def whole_lines(r):
+    out = [f"  MISSING {x['group']}: {x['path']}" for x in r["missing"]]
+    out += [f"  DIFFERS {x['group']}: {x['path']}" for x in r["differs"]]
+    out += [f"  exempt: {x['path']} ({x['reason']})" for x in r["exempt"]]
+    bad = len(r["missing"]) + len(r["differs"])
+    out.append(f"WHOLE FILES {'OK' if not bad else 'LOST'}: {r['same']} in the tree as shipped, {len(r['missing'])} missing, "
+               f"{len(r['differs'])} different, {len(r['exempt'])} exempt by the patch policy")
+    return out

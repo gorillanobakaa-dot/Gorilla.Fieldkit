@@ -131,8 +131,9 @@ def copy_build(install_dir, root):
     src, dest = Path(install_dir).resolve(), Path(root) / "browser"
     if not ours(root):
         raise Refused(f"{root} is not a throwaway root this module made")
-    if not (src / "firefox.exe").is_file():
-        raise Refused(f"no firefox.exe in {src}")
+    from ..buildh import layout
+    if not layout.exe(src).is_file():
+        raise Refused(f"no {layout.exe(src).name} in {src}")
     if _inside(src, root) or _inside(root, src):
         raise Refused("the install and the throwaway copy overlap")
     shutil.copytree(src, dest, ignore=shutil.ignore_patterns("gvisual*", "mozilla.cfg"))
@@ -210,7 +211,8 @@ def make_profile(root, dpr):
 def launch(copy, prof, dpr, timeout_s, popen=subprocess.Popen, kill=None, clock=time.monotonic, sleep=time.sleep):
     """Start the copy headless, wait for it to quit by itself; past the timeout stop exactly the process started
     here (with its children). -> {rc, seconds, timed_out, pid}."""
-    exe = Path(copy) / "firefox.exe"
+    from ..buildh import layout
+    exe = layout.exe(copy)
     env = dict(os.environ, MOZ_HEADLESS="1", MOZ_HEADLESS_WIDTH=str(1280 * dpr), MOZ_HEADLESS_HEIGHT=str(900 * dpr),
                MOZ_CRASHREPORTER_DISABLE="1")
     for k in ("MOZ_LOG", "MOZ_LOG_FILE"):
@@ -224,8 +226,7 @@ def launch(copy, prof, dpr, timeout_s, popen=subprocess.Popen, kill=None, clock=
     except subprocess.TimeoutExpired:
         timed_out, rc = True, None
     if kill is None:
-        def kill(pid):
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        from ..buildh.probe import stop_tree as kill          # taskkill /T on Windows, the process tree elsewhere
     if timed_out:
         kill(proc.pid)            # still alive, so the PID is still ours; never after exit (the PID may be reused)
     sleep(1)
@@ -237,8 +238,26 @@ def stop_leftovers(copy):
     """Stop processes still running FROM the throwaway copy (content processes outliving their parent). The copy is
     a unique folder this module made, so a process whose executable lives in it was started by this run: nothing
     else is ever matched. -> the PIDs stopped."""
+    if os.name != "nt":
+        # 2026-10-15: Windows only until now; on Linux the copy's content processes were simply left running
+        if not ours(Path(copy).resolve().parent):
+            return []
+        root, pids = str(Path(copy).resolve()) + os.sep, []
+        for d in Path("/proc").iterdir():
+            if d.name.isdigit():
+                try:
+                    if os.readlink(d / "exe").startswith(root):
+                        pids.append(int(d.name))
+                except OSError:
+                    continue
+        for pid in pids:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+        return pids
     copy = str(Path(copy).resolve()).lower()
-    if os.name != "nt" or not ours(Path(copy).parent):
+    if not ours(Path(copy).parent):
         return []
     ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | "
           "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }")

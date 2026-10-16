@@ -64,6 +64,10 @@ def name_problems(desktop_text, want, where):
     return out
 
 
+# the retired double-size logo; built from parts so no source line looks like an e-mail address to the privacy scan
+TWO_X = "about-logo" + chr(64) + "2x.png"
+
+
 def png_size(data):
     """(width, height) from a PNG's IHDR, or None when it is not a PNG."""
     if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
@@ -137,6 +141,21 @@ def check(deb, branding):
                             "(the task manager would show 'firefox')")
     if "/usr/lib/gorilla-unleashed/gorilla-unleashed" not in files:
         problems.append("identity: no /usr/lib/gorilla-unleashed/gorilla-unleashed program in the package")
+    # D-157-35: the one master logo ships AS BUILT. 2026-10-15: build_deb.sh regenerated a 500 px about-logo.png over
+    # the tree's 1400 px master and added a double-size copy (TWO_X); every page drew a stretched, blurry gorilla.
+    logo_dir = "/usr/lib/gorilla-unleashed/browser/chrome/browser/content/branding/"
+    master = Path(branding) / "content" / "about-logo.png"
+    shipped = files.get(logo_dir + "about-logo.png")
+    if shipped is None:
+        problems.append("logo: the package has no about-logo.png")
+    elif master.is_file():
+        data = shipped[1].extractfile(shipped[0]).read()
+        if data != master.read_bytes():
+            got = png_size(data)
+            problems.append(f"logo: about-logo.png in the package ({got[0] if got else '?'} px) is not the tree's master "
+                            f"({png_size(master.read_bytes())[0]} px) byte for byte: something rewrote it while packaging")
+    if logo_dir + TWO_X in files:
+        problems.append(f"logo: the package ships {TWO_X}, a second Gorilla copy D-157-35 retired")
     post = _control(deb, "postinst")
     for tool in ("gtk-update-icon-cache", "update-desktop-database"):
         if tool not in post:

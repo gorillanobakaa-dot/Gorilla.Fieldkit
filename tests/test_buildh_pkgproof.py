@@ -101,6 +101,9 @@ def test_post_install_carries_package_groups_and_runs_the_rest(tmp_path, monkeyp
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
     monkeypatch.setattr(task, "journal", lambda t, ev, **kw: None)
+    from fieldkit.buildh import profilecheck          # the profile group starts a real probe: tested on its own
+    monkeypatch.setattr(profilecheck, "rows", lambda *a, **k: [])
+    monkeypatch.setattr(profilecheck, "paint_probe", lambda *a, **k: None)
     said = []
     r = inst.post_install("t1", install_dir=target, only=inst.PROOF_CHECKS, say=said.append)
     names = [x["name"] for x in r["results"]]

@@ -1449,7 +1449,8 @@ def run(task_id, install_dir=None, report_path=None, strict=False, write=True):
     """The command: the task's tree and record, the owner repo, the installed build."""
     from . import buildrun, task
     t = task.load(task_id)
-    owner = buildrun._owner_root(t)
+    from .decisions import register_root
+    owner = buildrun._owner_root(t) or register_root(t)
     if not owner:
         raise task.Refused("no owner repository beside this task: no patch set, no claims")
     version = (t.get("meta", {}).get("upstream") or {}).get("version")
@@ -1471,7 +1472,8 @@ def proof_row(t, install_dir, strict=False):
     """The post-install row (read-only: the register and the report are not written)."""
     from . import buildrun, task
     name = "claims: what the public repository claims is proven by this tree and this build"
-    owner = buildrun._owner_root(t) if t.get("meta", {}).get("harness_root") else None
+    from .decisions import register_root                  # 2026-10-15: the Windows-only lookup left Linux unchecked
+    owner = (buildrun._owner_root(t) or register_root(t)) if t.get("meta", {}).get("harness_root") else None
     if not owner:
         return {"check": name, "ok": False, "evidence": "no owner repository known for this task: unchecked is not passed"}
     try:
