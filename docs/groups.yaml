@@ -114,6 +114,7 @@ groups:
       - buildh/weigh.py
       - buildh/aboutpages.py
       - buildh/aboutregistry.py
+      - buildh/binpatch.py
       - buildh/hiddendocs.py
       - buildh/releasecover.py
       - buildh/removedpages.py
@@ -130,10 +131,13 @@ groups:
       - buildh/satellite.py
       - buildh/window.py
       - buildh/herald.py
+      - buildh/layout.py
       - buildh/lossaudit.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
       - buildh/preflight.py
+      - buildh/profilecheck.py
+      - buildh/profilefresh.py
       - buildh/recorder.py
       - buildh/repair.py
       - buildh/stats.py

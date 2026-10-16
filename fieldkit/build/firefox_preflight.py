@@ -18,6 +18,8 @@ import os
 import re
 import shutil
 from dataclasses import dataclass, field
+import sys
+import subprocess
 from pathlib import Path
 
 BLOCKER, WARN = "BLOCKER", "WARN"
@@ -300,6 +302,56 @@ def _c_api_drift(ctx):
     return False, "; ".join(f"{x['file']} uses {x['rule']} x{x['count']}" for x in r["found"])
 
 
+# The Linux theme and text gates written 2026-08-27 for the 155 port (MARK-001 tuned watermarks, THEME-001..003,
+# ICON-002 true downsamples, CSS-004 size clamps, L10N-001 blank rows, PREF-001, JS-011, ASSET-009). They live in the
+# owner's skill, not in Fieldkit, and when the work moved to Fieldkit nothing called them: the 158 build went ahead
+# with three of them failing (the about:addons gorilla back at 650px over a 450px decision, 7 blank menu rows).
+# Called, never copied: one source of the gates.
+AUGUST_GATES = Path.home() / ".agents" / "skills" / "browser-release-pipeline" / "scripts" / "release_pipeline.py"
+
+
+def august_gates(src, phase="preflight", script=AUGUST_GATES, run=subprocess.run):
+    """-> (ok, failed gate ids, the failing lines). A script that is missing or ran no gate is a failure."""
+    if not Path(script).is_file():
+        return False, ["MISSING"], [f"{script} is gone: the theme and text gates cannot run"]
+    r = run([sys.executable, str(script), "--tree", str(src), "--phase", phase], capture_output=True, text=True,
+            errors="replace", timeout=900)
+    out = r.stdout + r.stderr
+    ran = re.search(r"^\s*ran\s*:\s*(.+)$", out, re.M)
+    failed = re.search(r"^\s*FAILED\s*:\s*(.+)$", out, re.M)
+    ids = [x.strip() for x in failed.group(1).split(",")] if failed and failed.group(1).strip() != "none" else []
+    if not ran or ran.group(1).strip() in ("", "none"):
+        return False, ["NOTHING-RAN"], [l for l in out.splitlines() if l.strip()][-5:]
+    lines, keep = [], False
+    for l in out.splitlines():
+        if re.match(r"^\s*FAIL\s", l):
+            keep = True
+        elif re.match(r"^\s*(PASS|NOTE|==>)", l) or not l.strip():
+            keep = False
+        if keep:
+            lines.append(l.strip())
+    return not ids, ids, lines
+
+
+def _c_august_gates(ctx):
+    ok, ids, lines = august_gates(ctx.src)
+    return ok, "every theme and text gate passes" if ok else f"failed {', '.join(ids)}: " + " | ".join(lines[:8])
+
+
+def _c_binary_patches(ctx):
+    import json as _json
+    from ..buildh import binpatch
+    pol_path = Path(ctx.root) / "config" / "patch_policy.json"
+    pol = _json.loads(pol_path.read_text(encoding="utf-8")) if pol_path.is_file() else {}
+    if not (Path(ctx.root) / "patches").is_dir():
+        return False, f"no patches/ folder in {ctx.root}: the pictures the set carries cannot be checked"
+    r = binpatch.audit(ctx.src, Path(ctx.root) / "patches", pol)
+    n = sum(x["state"] == "applied" for x in r["rows"])
+    if r["ok"]:
+        return True, f"{n} picture(s) the set carries are in the tree byte for byte"
+    return False, f"{len(r['bad'])} not in the tree: " + ", ".join(x["path"] for x in r["bad"][:6])
+
+
 def must_keep(root, platform="linux"):
     """config/patch_policy.json must_keep.files that apply to this platform -> [{file, platform, decision, why}]."""
     import json
@@ -431,6 +483,19 @@ CHECKS = [
           "Export the work tree into the shared set (S9) so every must-keep file has its patch again.",
           "Same incident: a promise in the policy's prose ('on Linux widget/gtk/GfxInfo.cpp is included') with no "
           "check behind it. A warning before a build; the export must make it pass."),
+    Check("theme-text-gates", "The August theme and text gates (release_pipeline.py)", BLOCKER, _c_august_gates,
+          "Run ~/.agents/skills/browser-release-pipeline/scripts/release_pipeline.py --tree <work tree> --phase preflight "
+          "and restore each lost value from the reason it prints (never re-derive a tuned value).",
+          "2026-10-15: the installed 158 showed the about:addons gorilla too big, blank menu rows and theme drift. These "
+          "gates, built 2026-08-27 for exactly that, were never called once the work moved to Fieldkit; on the 158 tree "
+          "they fail MARK-001, THEME-001 and L10N-001.",
+          origin="Linux, 2026-08-27 (155 port) and 2026-10-15 (owner: 'the harness was supposed to catch these')"),
+    Check("binary-patches", "Pictures the patch set carries are in the tree", BLOCKER, _c_binary_patches,
+          "~/.local/bin/fieldkit build-harness binary-patches TASK --apply restores them, each verified by its git hash.",
+          "2026-10-15: 0 of the 31 GIT binary patch sections reached the 158 tree (the 1400 px gorilla master, the icon "
+          "ladder, the private-window logos). The mechanical apply carried text only and every check read text, so the "
+          "installed build drew a stretched 500 px gorilla on every page and nothing failed.",
+          origin="Linux, 2026-10-15 (owner: 'the harness has ignored all our patches and settings')"),
     Check("api-drift", "Upstream API changes in ported code", BLOCKER, _c_api_drift,
           "~/.local/bin/fieldkit build-harness api-drift TASK --apply rewrites them (table: build/api-drift/firefox.yaml).",
           "2026-10-15 (Linux 158): the second build ran 17 minutes and stopped on FindInReadable(pattern, source, "

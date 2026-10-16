@@ -619,6 +619,79 @@ def run(a, emit):
                 print("APPLIED and checkpointed: " + "; ".join(r["applied"]))
         emit(r, show)
         return 0 if r["ok"] or r.get("applied") else 3
+    if act == "profile-check":
+        # profile-check TASK [profile=<intended>] [paint=1]: every profile on the machine and which version last ran
+        # it, every launcher of the install and the profile it names, the desktop's menu cache, and (paint=1) the new
+        # tab's pixels on a COPY of the intended profile (fieldkit/buildh/profilecheck.py; born 2026-10-15)
+        from . import profilecheck as pc, install as _inst
+        opts = dict(x.split("=", 1) for x in list(getattr(a, "args", None) or [])[1:] if "=" in x)
+        inst = a.install_dir or _inst.find_install()
+        want = opts.get("profile") or pc.intended()
+        paint = pc.paint_probe(inst, say=lambda m: None) if opts.get("paint", "0") not in ("0", "") else None
+        found = pc.profiles()
+        rows = pc.rows(inst, want, found=found, paint=paint)
+        def show(r):
+            import time as _t
+            for p in r["profiles"]:
+                print(f"  {_t.strftime('%Y-%m-%d %H:%M', _t.localtime(p['when']))}  {p['last_version'] or '?':10} "
+                      f"{p['path']}  (last run by {p['last_install'] or '?'})")
+            for row in r["rows"]:
+                print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+            print("PROFILE-CHECK " + ("OK" if all(x["ok"] for x in r["rows"]) else "NOT OK"))
+        emit({"profiles": found, "rows": rows, "intended": want}, show)
+        return 0 if all(x["ok"] for x in rows) else 3
+    if act == "profile-fresh":
+        # profile-fresh TASK from=<old profile> to=<new profile> [machine=<pref>=<value>:<reason> ...] [--apply]: the
+        # person's data into a fresh profile, none of the old version's settings; lists user.js settings the build does
+        # not carry (fieldkit/buildh/profilefresh.py; born 2026-10-15 from the 154-era profile under Gorilla 158)
+        from . import profilefresh, proof, install as _inst
+        kv = dict(x.split("=", 1) for x in (list(getattr(a, "args", None) or [])) if "=" in x and not x.startswith("machine="))
+        machine = {}
+        for x in (list(getattr(a, "args", None) or [])):
+            if x.startswith("machine="):
+                name, _, rest = x[len("machine="):].partition("=")
+                val, _, why = rest.partition(":")
+                machine[name] = (val, why or "this machine only")
+        src, dst = kv.get("from"), kv.get("to")
+        if not src or not dst:
+            print("profile-fresh needs from=<old profile> to=<new profile>")
+            return 2
+        target = getattr(a, "install_dir", None) or _inst.find_install()
+        r = {"plan": profilefresh.plan(src, dst),
+             "stranded": profilefresh.stranded(Path(src) / "user.js", proof.shipped_prefs(target) if target else {})}
+        if getattr(a, "apply", False):
+            r["applied"] = profilefresh.apply(src, dst, machine)
+            r["check"] = profilefresh.check(dst)
+        def show(r):
+            print(f"copy: {', '.join(r['plan']['copy'])}")
+            print(f"never: {', '.join(r['plan']['never'])}")
+            for n, v, b in r["stranded"]:
+                print(f"  STRANDED {n} = {v} (build: {b if b is not None else 'not set'}): move it into the build or "
+                      "into machine=, or decide it is not needed, before retiring the old profile")
+            if r.get("check"):
+                print("PROFILE-FRESH " + ("OK" if r["check"]["ok"] else "NOT OK: " + "; ".join(r["check"]["problems"])))
+        emit(r, show)
+        return 0 if not r.get("check") or r["check"]["ok"] else 3
+    if act in ("binary-patches", "whole-files"):
+        # binary-patches TASK [--apply]: every GIT binary patch of the shared set (pictures, icons) in the tree, by git hash;
+        # --apply restores the missing ones, each verified (fieldkit/buildh/binpatch.py; born 2026-10-15: 0 of 31 applied).
+        # whole-files TASK: every NEW_FILES/REPLACE_FILES file of the set against the tree (report; lossaudit.whole_files)
+        import json as _json
+        from . import binpatch, lossaudit
+        t = task.load(tid)
+        root = Path(t["meta"]["harness_root"])
+        pol = _json.loads((root / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        sets = root / "patches"
+        if act == "whole-files":
+            r = lossaudit.whole_files(sets, t["workdir"], pol)
+            emit(r, lambda r: print("\n".join(lossaudit.whole_lines(r))))
+            return 0 if not (r["missing"] or r["differs"]) else 3
+        if getattr(a, "apply", False):
+            got = binpatch.restore(t["workdir"], sets, pol)
+            print("\n".join([f"  restored {x}" for x in got["restored"]] + [f"  FAILED {x}" for x in got["failed"]]))
+        r = binpatch.audit(t["workdir"], sets, pol)
+        emit(r, lambda r: print("\n".join(binpatch.lines(r))))
+        return 0 if r["ok"] else 3
     if act == "clip-check":
         # clip-check TASK [repeats=3] [stock=0] [swap=<build>=<tree> ...] [try=<build>=<file> ...] [pref=<n>=<v> ...]: is dialog
         # text cut in the installed build? repeated, against stock of the same version, a cause convicted only against
@@ -898,7 +971,11 @@ def run(a, emit):
         if not inst:
             raise task.Refused("no installed build found: give --install-dir")
         opts, change, _notes = _change_args(a.args[1:], tid, inst, "gprobe_tree_", say=lambda m: print(m, flush=True))
+        # visible=1: a normal window instead of headless (2026-10-15: the new tab drew in every headless snapshot and
+        # was black on the owner's screen; only a real window goes through the GPU path a person sees)
+        _visible = opts.get("visible", "0") not in ("0", "no", "false", "")
         r = pb.run(inst, opts["js"], url=opts.get("url", "about:blank"), wait=float(opts.get("wait", 15)),
+                   headless=not _visible, profile=opts.get("profile"),
                    omni=change.get("omni"), timeout=float(opts.get("timeout", 90)), say=lambda m: print(m, flush=True),
                    files=change.get("files"), added=change.get("added"), subs=change.get("subs"))
         for l in r["timeline"]:                  # the probe's lines and its local pages' requests, in time order

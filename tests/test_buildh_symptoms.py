@@ -8,7 +8,9 @@ from fieldkit.buildh import symptoms as sy
 
 def _actions():
     src = open("fieldkit/cli.py", encoding="utf-8").read()
-    return set(re.findall(r'"([a-z][a-z-]+)"', src[src.index('"latest", "vault"'):src.index('"symptom"]') + 12]))
+    start = src.index('"latest", "vault"')
+    end = src.index("])", src.index('"symptom"', start))          # the list's real end, whatever comes last
+    return set(re.findall(r'"([a-z][a-z-]+)"', src[start:end]))
 
 
 def test_every_entry_is_complete_and_matches_its_own_example():

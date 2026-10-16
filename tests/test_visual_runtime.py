@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from fieldkit.visual import allow as allowmod, probe_js, runtime
+from fieldkit.buildh import layout
 
 
 def clean_metrics(**over):
@@ -255,7 +256,7 @@ def test_the_measuring_script_carries_the_clip_ink_and_text_range_rules():
 def fake_install(tmp_path):
     inst = tmp_path / "Gorilla Unleashed"
     (inst / "defaults" / "pref").mkdir(parents=True)
-    (inst / "firefox.exe").write_bytes(b"MZ fake")
+    layout.exe(inst).write_bytes(b"MZ fake")
     (inst / "omni.ja").write_bytes(b"PK")
     (inst / "defaults" / "pref" / "channel-prefs.js").write_text('pref("app.update.channel", "default");\n')
     return inst
@@ -357,7 +358,7 @@ def test_a_whole_run_with_a_fake_browser_keeps_evidence_and_deletes_the_copy(tmp
     assert (tmp_path / "evidence" / "results-dpr1.json").is_file() and (tmp_path / "evidence" / "results-dpr2.json").is_file()
     assert (tmp_path / "evidence" / "runtime-report.json").is_file()
     [root] = seen["roots"]
-    assert not root.exists() and inst.joinpath("firefox.exe").is_file()
+    assert not root.exists() and layout.exe(inst).is_file()
     # a partial run (some pages only) is never a proof
     res = runtime.run(inst, only=("about:robots",), say=lambda m: None, keep_dir=tmp_path / "e2", allow=a)
     assert not res["ok"] and "partial run" in res["problems"][0]

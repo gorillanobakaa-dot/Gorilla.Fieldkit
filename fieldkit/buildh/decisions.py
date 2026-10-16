@@ -161,12 +161,14 @@ def load(owner_root):
 
 
 def _zip_names(install_dir):
+    """Member names of both jars, packed or UNPACKED (layout.members). 2026-10-15: zip-only, so on the unpacked Linux
+    build (D-158-11) every omni_absent decision (D-157-03, -04, -35, -40) read UNCHECKABLE."""
+    from . import layout
     names = []
     for ja in ("omni.ja", "browser/omni.ja"):
         try:
-            with zipfile.ZipFile(Path(install_dir) / ja) as z:
-                names += z.namelist()
-        except OSError as e:
+            names += layout.members(install_dir, ja)
+        except (OSError, zipfile.BadZipFile) as e:
             raise Unreadable(f"{ja}: {e}")
     return names
 

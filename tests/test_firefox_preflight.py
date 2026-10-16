@@ -20,6 +20,14 @@ def _no_machine_tasks(monkeypatch):
     # source-is-the-port reads this machine's harness tasks; the fixture trees here belong to no task
     from fieldkit.build import firefox_linux
     monkeypatch.setattr(firefox_linux, "task_work_trees", lambda version, state=None: [])
+    # the theme/text gates and the binary-patch audit read a real port (pristine root commit, the shared set's patches);
+    # the fixture trees here are neither, and each has its own test (test_build_august_gates, test_buildh_binpatch)
+    from fieldkit.build import firefox_preflight as fp
+    stub = {"theme-text-gates": lambda ctx: (True, "fixture: not a port"),
+            "binary-patches": lambda ctx: (True, "fixture: no shared set")}
+    for c in fp.CHECKS:
+        if c.cid in stub:
+            monkeypatch.setattr(c, "fn", stub[c.cid])
 
 def _tree(tmp_path, branding=True, fonts=()):
     root, src = tmp_path / "harness", tmp_path / "src"

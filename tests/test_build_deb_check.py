@@ -24,7 +24,8 @@ GOOD = "Gorilla Unleashed 158"
 FIELDS = (f"X-GNOME-FullName={GOOD}\nComment={GOOD} web browser\nKeywords=Gorilla;Unleashed;158;Internet;\n")
 
 
-def _deb(tmp_path, name="Gorilla Unleashed 154", extra="", remoting="gorilla-unleashed", postinst="gtk-update-icon-cache -f\n", bad_icon=None, exec_ok=True):
+def _deb(tmp_path, name="Gorilla Unleashed 154", extra="", remoting="gorilla-unleashed", postinst="gtk-update-icon-cache -f\n", bad_icon=None, exec_ok=True,
+         logo=None, logo2x=False):
     st = tmp_path / "stage"
     (st / "DEBIAN").mkdir(parents=True)
     (st / "DEBIAN" / "control").write_text("Package: gorilla-unleashed\nVersion: 158.0-1\nArchitecture: amd64\n"
@@ -37,6 +38,12 @@ def _deb(tmp_path, name="Gorilla Unleashed 154", extra="", remoting="gorilla-unl
         (app / "firefox").write_text("#!/bin/sh\n")
         (app / "gorilla-unleashed").write_text("#!/bin/sh\n")
     (app / "application.ini").write_text(f"[App]\nRemotingName={remoting}\n")
+    master = _png(1400, 1400)
+    br_logo = app / "browser" / "chrome" / "browser" / "content" / "branding"
+    br_logo.mkdir(parents=True)
+    (br_logo / "about-logo.png").write_bytes(master if logo is None else logo)
+    if logo2x:
+        (br_logo / deb_check.TWO_X).write_bytes(_png(1000, 1000))
     apps = st / "usr" / "share" / "applications"
     apps.mkdir(parents=True)
     (apps / "gorilla-unleashed.desktop").write_text(
@@ -53,6 +60,8 @@ def _deb(tmp_path, name="Gorilla Unleashed 154", extra="", remoting="gorilla-unl
     br = tmp_path / "branding"
     br.mkdir()
     (br / "configure.sh").write_text('MOZ_APP_DISPLAYNAME="Gorilla Unleashed"\n')
+    (br / "content").mkdir()
+    (br / "content" / "about-logo.png").write_bytes(master)
     return deb, br
 
 
@@ -151,3 +160,13 @@ def test_firefox_default_identity_is_refused(tmp_path):
     probs = deb_check.check(deb, br)["problems"]
     assert probs == ["identity: application.ini RemotingName=firefox-default, the entry's StartupWMClass="
                      "gorilla-unleashed: a plain launch shows under the wrong name"]
+
+
+@LINUX_DEB
+def test_a_logo_rewritten_while_packaging_is_caught(tmp_path):
+    """D-157-35, 2026-10-15: build_deb.sh wrote a 500 px logo over the 1400 px master and added an @2x copy."""
+    deb, br = _deb(tmp_path, name=GOOD, extra=FIELDS, postinst="gtk-update-icon-cache\nupdate-desktop-database\n",
+                   logo=_png(500, 500), logo2x=True)
+    probs = [p for p in deb_check.check(deb, br)["problems"] if p.startswith("logo")]
+    assert any("500 px" in p and "1400 px" in p for p in probs)
+    assert any(deb_check.TWO_X in p for p in probs)

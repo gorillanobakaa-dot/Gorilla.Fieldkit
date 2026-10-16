@@ -91,12 +91,13 @@ def measure(install_dir, seconds=45):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     from . import throwaway
     prof = throwaway.profile("gleaks_")
-    proc = subprocess.Popen([str(Path(install_dir) / "firefox.exe"), "-headless", "-no-remote", "-profile", str(prof), f"http://127.0.0.1:{port}/"],
+    from . import layout                                  # 2026-10-15: firefox.exe + taskkill only until now
+    proc = layout.start([layout.exe(install_dir), "-headless", "-no-remote", "-profile", str(prof), f"http://127.0.0.1:{port}/"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     t0 = time.time()
     while _Handler.result is None and time.time() - t0 < seconds:
         time.sleep(0.5)
-    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    layout.stop(proc)
     srv.shutdown()
     throwaway.discard(prof)
     return _Handler.result
