@@ -17,7 +17,9 @@ def test_profile_files_are_found_by_name_and_by_content():
     assert "browser-profile-data" in kinds("Default/Login Data")
     assert "sqlite-database" in kinds("notes.bin", b"SQLite format 3\x00rest")
     assert "browser-profile-data" in kinds("blob", b"mozLz40\x00rest")
-    assert "bookmarks-export" in kinds("export.html", b"<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL>")
+    head = b"<!DOCTYPE NETSCAPE-" + b"Bookmark-file-1>"          # split: the scanner reads this file too
+    assert "bookmarks-export" in kinds("export.html", head + b"\n<DL>")
+    assert "bookmarks-export" not in kinds("notes.py", b"x = 1\n# mentions " + head + b" in passing")
     assert not kinds("browser/base/content/browser-places.js", b"// code that handles places")
     assert not kinds("toolkit/components/places/Database.cpp")
 
