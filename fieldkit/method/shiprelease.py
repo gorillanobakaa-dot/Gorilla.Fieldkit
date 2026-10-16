@@ -46,6 +46,14 @@ def _gh(args, timeout=60):
     return (r.stdout if r.returncode == 0 else None), (r.stderr or "").strip()
 
 
+def _ident(repo):
+    """git -c arguments for an annotated tag when no identity is configured (a CI runner has none: the archive tag
+    failed there on 2026-10-16, the same class as the silent-commit fix of 2026-10-15). A configured one is kept."""
+    if git(repo, "config", "user.email").stdout.strip():
+        return []
+    return ["-c", "user.name=fieldkit", "-c", "user.email=fieldkit@localhost"]
+
+
 def repo_slug(repo):
     url = git(repo, "remote", "get-url", "origin").stdout.strip()
     m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(\.git)?/?$", url)   # names may hold dots: Gorilla.Fieldkit
@@ -205,7 +213,7 @@ def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
             kept.append(b)
             continue
         tag = f"archive/{b}"
-        if git(repo, "tag", "-a", tag, "-m", f"archived by fieldkit ship prune: work not proven on {base}",
+        if git(repo, *_ident(repo), "tag", "-a", tag, "-m", f"archived by fieldkit ship prune: work not proven on {base}",
                f"origin/{b}").returncode == 0 and git(repo, "push", "--quiet", "origin", f"refs/tags/{tag}").returncode == 0 \
                 and git(repo, "push", "--quiet", "origin", "--delete", b).returncode == 0:
             archived.append(b)
@@ -321,7 +329,7 @@ def release(tag, repo=".", base="main", scaffold_notes=False, wait=900, gh=_gh, 
         return {"ok": False, "rows": rows}
     if not row("tag-free", not _rev(repo, f"refs/tags/{tag}"), f"{tag} {'already exists' if _rev(repo, f'refs/tags/{tag}') else 'is free'}"):
         return {"ok": False, "rows": rows}
-    git(repo, "tag", "-a", tag, "-m", f"Release {tag}", head, check=True)
+    git(repo, *_ident(repo), "tag", "-a", tag, "-m", f"Release {tag}", head, check=True)
     r = git(repo, "push", "origin", f"refs/tags/{tag}")
     if not row("push-tag", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:] or f"{tag} pushed"):
         return {"ok": False, "rows": rows}
