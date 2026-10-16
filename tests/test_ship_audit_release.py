@@ -74,3 +74,16 @@ def test_slug_keeps_dots_in_the_repository_name(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     _g(tmp_path, "remote", "add", "origin", "https://github.com/someone/Gorilla.Fieldkit.git")
     assert sr.repo_slug(tmp_path) == "someone/Gorilla.Fieldkit"
+
+
+def test_release_waits_while_ci_is_still_running(tmp_path):
+    w = _origin_and_clone(tmp_path)
+    states = iter(["in_progress\t", "in_progress\t", "completed\tsuccess"])
+    seen = []
+
+    def gh(args, timeout=60):
+        if args[0] == "api":
+            return f"test\t{next(states)}\n", ""
+        return "[]", ""
+    r = sr.release("v0.2.0", w, gh=gh, wait=600, sleep=lambda s: seen.append(s))
+    assert seen == [30, 30] and [x["check"] for x in r["rows"]][:2] == ["checkout", "ci"] and r["rows"][1]["state"] == "OK"
