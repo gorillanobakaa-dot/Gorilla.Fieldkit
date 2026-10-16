@@ -23,6 +23,16 @@ for _k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX", "GIT_OBJE
            "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
            "GIT_COMMITTER_DATE"):
     _os.environ.pop(_k, None)
+# Tests run with NO git identity, as on the GitHub runners (owner 2026-10-16: "can't this be a deterministic tool?").
+# Three times code that commits or tags worked here, where the owner's ~/.gitconfig names him, and failed or went
+# silent on CI: apidrift/companions commits (2026-10-15), the archive tag of ship prune (2026-10-16). With the global
+# and system config hidden, such code fails in the pre-commit hook on this machine, before anything is pushed.
+# Code that needs an identity must bring one (task.checkpoint's IDENT, shiprelease._ident) or say none is set.
+_os.environ["GIT_CONFIG_GLOBAL"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-gitconfig-"), "empty")
+open(_os.environ["GIT_CONFIG_GLOBAL"], "w").close()
+_os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+for _k in ("EMAIL", "GIT_EDITOR"):
+    _os.environ.pop(_k, None)
 _os.environ["FIELDKIT_RECORDER"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-recorder-"), "mcp.jsonl")
 _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test-office-backups-")
 
