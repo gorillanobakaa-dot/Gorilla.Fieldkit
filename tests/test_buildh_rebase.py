@@ -4,6 +4,7 @@ tree becomes 23.REBASE.<major>, and replay then gives exactly the built tree (20
 import json
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -83,6 +84,8 @@ def test_the_policy_chooses_the_patches_of_the_platform_it_runs_on():
     assert firefox.this_platform() in ("linux", "windows")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the case is a Linux-only group: on Windows for_platform leaves it "
+                    "out by design and the rebase group is .windows (that choice is tested on its own)")
 def test_a_file_a_linux_only_group_touches_gets_a_linux_only_rebase_patch(tmp_path):
     w, o = _repo(tmp_path), _owner(tmp_path)
     pol = json.loads((o / "config" / "patch_policy.json").read_text())
