@@ -1038,6 +1038,21 @@ def run(a, emit):
             print(f"    can: {n} ({why})")
         print("LEAK-GATE SCOPE: " + r["verdict"])
         return 0
+    if act == "leakgate-runs":
+        # leakgate-runs TASK: every gate run with its verdict, build, size and every file that cites it; only an
+        # uncited run is free to remove (fieldkit/leakgate/runs.py; 2026-10-16: runs chosen by date were evidence)
+        from ..leakgate import runs as lruns
+        from ..core import settings as _st
+        from .ownercheck import _owner_root
+        tdir = _st.ROOT / "state" / "build-harness" / "leakgate" / tid
+        owner = _owner_root(task.load(tid))
+        rows = lruns.runs(tdir, owner, extra_roots=[_st.ROOT / "state" / "build-harness" / tid])
+        if a.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            human = lambda b: f"{b / (1 << 30):.2f} GiB" if b >= 1 << 30 else f"{b / (1 << 20):.1f} MiB"
+            print("\n".join(lruns.lines(rows, human)))
+        return 0
     if act == "leakgate-summary":
         # leakgate-summary TASK [log=<launcher log>] [out=<file.md>]: the gate's run scene by scene, in plain words,
         # for the release page (leakgate/summary.py); default: the newest launcher run of this task

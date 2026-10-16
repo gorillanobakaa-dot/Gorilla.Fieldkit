@@ -126,5 +126,6 @@ def test_every_skill_has_frontmatter_and_names_real_commands():
     for md in (ROOT / "skills").glob("*/SKILL.md"):
         text = md.read_text(encoding="utf-8")
         assert text.startswith("---\nname: ") and "\ndescription: " in text, md
-        used = set(re.findall(r"`fieldkit (\w+)", text)) | set(re.findall(r"^fieldkit (\w+)", text, re.M))
+        # hyphenated commands are whole words (2026-10-16: `fieldkit build-harness` was read as "build")
+        used = set(re.findall(r"`fieldkit (\w[\w-]*)", text)) | set(re.findall(r"^fieldkit (\w[\w-]*)", text, re.M))
         assert used and used <= cli_cmds, (md, used - cli_cmds)

@@ -35,6 +35,18 @@ same trees in 0.4 to 11.5 seconds with the same totals.
 - **unreadable N**: entries that could not be read; `--list-errors` names them. Say so in the answer when N > 0.
 - Units are KiB/MiB/GiB (1024). Do not relabel them as decimal GB.
 
+## Before removing anything: what cites it, never its date
+
+2026-10-16: 139 GiB of leak-gate runs were cleaned up "keeping the latest". Chosen by date, the batch held the run the
+leak-gate baseline came from, the only PASS (cited by the release notes), runs cited by the claims audit and
+allow.json, and the capture behind the Widevine exception, which was deleted for good. Three were put back from
+the bin in time.
+- Leak-gate runs: `fieldkit build-harness leakgate-runs TASK` lists every run, what cites it, and which are FREE.
+  Remove only those.
+- Anything else: search what names it (stamps, paths) in the owner repo, the decision register, release notes,
+  claims and the task's journal before proposing it for removal; show the citations, not just the size.
+- Empty the bin only after that check: `gorilla-trash empty` deletes for good.
+
 ## Rules
 
 - It is read-only. Removal stays with the person (move to the Recycle Bin; they empty it).

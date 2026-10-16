@@ -277,6 +277,18 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/toolbox/pfind/tests"]
 
+- id: leakgate-runs
+  title: Every leak-gate run - verdict, build, size and every file that cites it; only uncited runs are free to remove
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-runs]
+  path: ${FIELDKIT}/fieldkit/leakgate/runs.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task, e.g. firefox-157.0-truth"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_leakgate_runs.py"]
+
 # --- Gorilla Size Calculation (fieldkit size): sizes, never an improvised du/robocopy line (2026-10-16) ---------
 - id: gorilla-size
   title: How big folders are and where the space went, biggest first (every core, read-only, links never followed)
