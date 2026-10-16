@@ -333,3 +333,27 @@ def test_accept_passes_the_whole_reason_so_late_keeps_lines_count(job2, monkeypa
     monkeypatch.setattr(task, "submit", spy)
     task.accept("t2", who="sam")
     assert seen["note"].endswith("keeps: the line that must stay")
+
+
+def test_build_logs_in_the_tree_are_not_changes_and_never_committed(tmp_path):
+    # 2026-10-15: record refused a two-file edit because of five build_logs/*.log, and checkpoint's add -A would
+    # have committed them into the Firefox tree (and from there into the exported patches)
+    import subprocess as sp
+    from fieldkit.buildh import task as tk
+    w = tmp_path / "src"
+    w.mkdir()
+    g = lambda *a: sp.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True,
+                          capture_output=True, text=True).stdout
+    (w / "a.js").write_text("one\n")
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-qm", "root")
+    (w / "build_logs").mkdir()
+    (w / "build_logs" / "build_1.log").write_text("log\n")
+    (w / "a.js").write_text("two\n")
+    t = {"workdir": str(w)}
+    assert tk.changed_files(t) == ["a.js"]
+    tk.checkpoint(t, "x")
+    assert "build_logs" not in g("show", "--stat", "--format=", "HEAD")
+    tk.exclude_build_output(w)                     # once: a second call adds nothing
+    assert (w / ".git/info/exclude").read_text().count("/build_logs/") == 1

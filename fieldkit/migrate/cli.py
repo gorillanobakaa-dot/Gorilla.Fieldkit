@@ -75,7 +75,15 @@ def brief_lines(state_root=None, harness_root=None):
         cur = task.current(task.load(tid))
         if cur is not None:
             out.append("  NOW: " + task.describe_step(task.load(tid), cur))
-        n_lessons = len(task.lessons(tid))
+        try:                                                # what this OS still needs (platformsteps.py)
+            from ..buildh import platformsteps
+            acts = platformsteps.lines(task.load(tid), self_cmd=settings.self_cmd(), only_actions=True)
+            out += acts + ([f"  all steps for this system: {settings.self_cmd()} build-harness platform-steps {tid}"]
+                           if acts else [])
+        except Exception as e:                              # a broken check is news, not silence
+            out.append(f"  platform-steps failed ({type(e).__name__}: {e})")
+        from ..buildh import lessonrules
+        n_lessons = len(lessonrules.split(task.lessons(tid))[0])     # only lessons no harness rule covers yet
         if n_lessons:
             out.append(f"  {n_lessons} PORT-AND-TEACH lesson(s) wait to become harness rules: "
                        f"{settings.self_cmd()} build-harness lessons {tid}")

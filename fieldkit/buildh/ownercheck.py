@@ -74,6 +74,23 @@ def _owner_root(t):
     return None
 
 
+def patchset_owner(t):
+    """The repo that holds the patch set and the decision register, on every platform: the owner's Windows harness
+    root (_owner_root), or else the task's harness root when it carries config/patch_policy.json and
+    decisions/PRODUCT-DECISIONS.yaml. 2026-10-15: gorilla-firefox on Linux has no harness/gorilla_build.py (a
+    Windows script), so check-change said "decisions and patch export cannot run" and export-hand could not
+    start; the 158 port's changes reached no patch. Only patch export and the change check use this; the
+    Windows build, preflight and leak gate keep _owner_root."""
+    root = _owner_root(t)
+    if root:
+        return root
+    hr = t.get("meta", {}).get("harness_root")
+    if hr and (Path(hr) / "config" / "patch_policy.json").is_file() and \
+            (Path(hr) / "decisions" / "PRODUCT-DECISIONS.yaml").is_file():
+        return Path(hr)
+    return None
+
+
 def step_owner_preflight(t, owner_root=None, **kw):
     """Harness step: the owner's preflight; every BLOCKER becomes an owner step after this one."""
     root = owner_root or _owner_root(t)

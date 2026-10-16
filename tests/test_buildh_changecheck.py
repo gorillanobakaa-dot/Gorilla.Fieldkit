@@ -71,6 +71,8 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(uicheck, "gate_rows", lambda w: [("UI rule", True, "fine")])
     monkeypatch.setattr(techniques, "gate_rows", lambda w: [("technique", True, "holds")])
     monkeypatch.setattr(buildrun, "_owner_root", lambda t: str(tmp_path))
+    from fieldkit.buildh import ownercheck
+    monkeypatch.setattr(ownercheck, "patchset_owner", lambda t: str(tmp_path))      # check-change asks this (2026-10-15)
     verdict = {"v": "ENFORCED"}
     monkeypatch.setattr(decisions, "check", lambda owner, workdir=None, source_prefs=False: {"problems": [], "rows": [
         {"id": "D-1", "verdict": verdict["v"], "evidence": ["FAIL pref: network.preconnect = true (want false locked)"]},

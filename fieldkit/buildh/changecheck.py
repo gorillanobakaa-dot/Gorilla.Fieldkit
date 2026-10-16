@@ -62,7 +62,8 @@ def run(task_id, say=print, note=None):
     from . import buildrun, decisions, firefox, techniques, uicheck
     t = task.load(task_id)
     wd = Path(t["workdir"])
-    owner = buildrun._owner_root(t)
+    from .ownercheck import patchset_owner
+    owner = patchset_owner(t)          # Linux too (no Windows harness script there)
     rows, after_install = [], []
 
     def row(name, ok, evidence):

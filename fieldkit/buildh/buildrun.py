@@ -883,10 +883,18 @@ def capture_patches(t, task_id, say=print, note=None):
     release gate was the first place a missing patch would show. Fail closed: a set that does not reproduce the
     compiled tree makes the build NOT OK."""
     from . import export as ex, replay as rp
-    owner = Path(_owner_root(t))
+    from .ownercheck import patchset_owner
+    owner = Path(patchset_owner(t))          # the patch-set repo, Linux included (2026-10-15)
     pol = json.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
     say("  patches: export-hand (hand steps -> public patch set)")
-    ex.export(task_id, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=say)
+    major = t["meta"]["upstream"]["version"].split(".")[0]
+    ex.export(task_id, owner / pol["patchset_root"], major, say=say)
+    # the set is carried onto THIS release every time (2026-10-15: the 158 port left 77 patches that no longer
+    # applied to pristine 158; the next machine would have redone them by hand): rebase.py supersedes them and
+    # writes 23.REBASE.<major>, so pristine + the set = the tree, on any machine
+    from . import rebase as _rb
+    say("  patches: rebase-set (patches that no longer apply are superseded; 23.REBASE." + major + " written)")
+    _rb.run(owner, t["workdir"], major, write=True, say=say)
     say("  patches: replay (pristine + public patch set = compiled tree)")
     r = rp.run(task_id, say=say)
     if r["ok"]:

@@ -154,6 +154,58 @@ SYMPTOMS = [
         "last_fix": "",
         "then": "quote the decision id; never re-argue a settled decision",
     },
+    {
+        "id": "addon-or-theme-refused",
+        "seen": "Installing an extension, a theme, a language pack or a dictionary fails ('could not be installed', "
+                "'not compatible with Gorilla Unleashed', 'Blocked on purpose').",
+        "example": "the theme could not be installed because it is not compatible with Gorilla Unleashed 158.0",
+        "words": [r"extension|add-?on|theme|tem[aă]|extensi|language pack|dictionar|xpi|could not be installed", r"not compatible|incompatib|blocked on purpose|nu se instaleaz|refuz|nu merge"],
+        "action": "decisions",
+        "run": "build-harness decisions <task>",
+        "proves": "NOT A BUG: decision D-157-05 (uBlock Origin only), D-157-04 (one theme), D-157-03 (English only). The "
+                  "refusal IS the hardening (owner 2026-10-15: 'We are the cause ... do NOT mess around with them'). "
+                  "The command shows every lock ENFORCED or which one a change removed",
+        "look": ["decisions/PRODUCT-DECISIONS.yaml D-157-05 not_a_bug and verify",
+                 "toolkit/mozapps/extensions (XPIInstall, XPIDatabase, XPIProvider, AddonManager PHYSICAL LOCKs)",
+                 "browser/base/content/browser-addons.js (the refusal message, gorilla-addon-install-refused)"],
+        "last_fix": "2026-10-15: only the WORDING may change (it says why); never loosen a lock",
+        "then": "if a lock shows VIOLATED, put it back from the patch set (22.EGRESS.LOCKDOWN.*), never the other way",
+    },
+    {
+        "id": "patches-do-not-apply-to-new-release",
+        "seen": "The patch set does not apply to a new Firefox release, or replay says the patches do not give the "
+                "built tree (FAILED patches, differing paths), or another machine must redo a port by hand.",
+        "example": "replay failed: 77 patches do not apply to pristine 158 and 40 paths differ",
+        "words": [r"patch|replay|rebase", r"not apply|do not apply|nu se aplic|fail|differ|drift|cascade|superseded|nu merg"],
+        "action": "rebase-set",
+        "run": "build-harness rebase-set <task> write=1",
+        "proves": "supersedes the patches that no longer apply (recorded per release in the policy), writes the rest of "
+                  "the way as 23.REBASE.<major> (+ .<platform>), proves pristine + set = built tree with replay, and "
+                  "lists per old patch whether its logic is in the tree (SUPERSEDED.md: CARRIED / PARTLY / MISSING)",
+        "look": ["patches/23.REBASE.<major>/SUPERSEDED.md (read every MISSING and PARTLY with missing ADDED lines)",
+                 "config/patch_policy.json superseded_<major>, platforms, exclude_on",
+                 "build-harness export-hand <task> (direct commits are exported too since 2026-10-15)"],
+        "last_fix": "2026-10-15, 158: 107 superseded, 2 functional losses found and ported (DNS negative cache 3 s, "
+                    "SessionStore Smart Window calls); replay OK with 675 patches",
+        "then": "port each LOST item with build-harness record, then rebase-set again; check-change does it after every edit",
+    },
+    {
+        "id": "private-data-before-publishing",
+        "seen": "Before a push or a release: could personal data reach GitHub (bookmarks, history, cookies, passwords, "
+                "a home path, a name, an email, a key)?",
+        "example": "make sure my bookmarks and history are not uploaded to github",
+        "words": [r"bookmark|history|istoric|cookie|password|parol|personal|private|privat|secret|email|home path", r"upload|github|push|publish|urc|public"],
+        "action": "privacy",
+        "run": "fieldkit privacy push-check <repo> --range <remote>..HEAD",
+        "proves": "scans every file the push sends, as it is in the pushed commit: secrets, personal paths and names, "
+                  "emails, and browser profile data by name, by content (SQLite, mozLz4, bookmark export) and inside "
+                  "patches; profile data can never be allowed",
+        "look": ["fieldkit privacy install-hook <repo> (pre-push hook: every push is checked)",
+                 "fieldkit privacy scan <folder> --git (everything git would publish)",
+                 "fieldkit.local.json privacy.terms (the private word list, never committed)"],
+        "last_fix": "2026-10-16: detector for browser profile data added; the 158 push was clean (306 files)",
+        "then": "remove the file from the commits and add it to .gitignore; never publish, then delete",
+    },
 ]
 
 

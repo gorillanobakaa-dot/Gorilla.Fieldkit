@@ -554,6 +554,30 @@ def cmd_triage(a):
 
 def cmd_privacy(a):
     from .core import privacy
+    if a.action == "install-hook":
+        # privacy install-hook REPO...: every push of that repository is scanned as pushed (pre-push hook)
+        from .core import settings as _st
+        for p in a.paths:
+            print(f"installed: {privacy.install_hook(p, _st.self_cmd())}")
+        return 0
+    if a.action == "push-check":
+        # privacy push-check REPO --range A..B: exactly what a push publishes; browser profile data always fails
+        if not a.range:
+            print("push-check needs --range A..B (the pre-push hook passes it)")
+            return 2
+        r = privacy.push_check(a.paths[0], a.range)
+        for f, hits in r["report"].items():
+            print(f)
+            for h in hits[:20]:
+                print(f"   line {h['line']:<5} {h['kind']:<30} {h['excerpt']}")
+        if r["profile"]:
+            print(f"BROWSER PROFILE DATA in {len(r['profile'])} file(s): bookmarks, history, cookies, passwords or "
+                  "sessions are never published. Remove them from the commits (and add them to .gitignore).")
+        print(f"PUSH-CHECK {'REFUSED' if r['report'] else 'CLEAN'}: {sum(len(h) for h in r['report'].values())} "
+              f"finding(s) in {len(r['report'])} of {r['files']} pushed file(s), range {a.range}")
+        if not r["files"]:
+            print("  (the range publishes no file: only deletions or nothing)")
+        return 3 if r["report"] else 0
     rep = {}
     # count what was EXAMINED, not only what was flagged. "0 findings in 0
     # files" reads as "nothing was scanned", which is the one thing a privacy
@@ -1088,7 +1112,8 @@ def build_parser():
     tr.set_defaults(fn=cmd_triage)
 
     pr = sub.add_parser("privacy", parents=[common])
-    pr.add_argument("action", choices=["scan"])
+    pr.add_argument("action", choices=["scan", "push-check", "install-hook"])
+    pr.add_argument("--range", help="push-check: the commits a push publishes, A..B")
     pr.add_argument("paths", nargs="+")
     pr.add_argument("--allow-paths", action="store_true")
     pr.add_argument("--allow-emails", action="store_true")
@@ -1381,7 +1406,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context",
                                        "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")

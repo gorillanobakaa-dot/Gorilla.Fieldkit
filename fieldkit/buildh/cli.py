@@ -804,9 +804,19 @@ def run(a, emit):
             raise task.Refused(f"no step {sid!r}" if sid else "no current step")
         return emit({"step": s["id"], "words": task.describe_step(t, s)}, lambda r: print(r["words"])) or 0
     if act == "lessons":
+        # lessons TASK [--all]: the lessons no harness rule covers yet (lessonrules.py); --all adds the ruled ones
+        from . import lessonrules as _lr
         rows = task.lessons(tid)
-        return emit(rows, lambda rows: print("\n".join([f"{len(rows)} lesson(s) waiting to become harness rules:"] +
-                                                       [f"  {r['t']}  {r['step'][:60]}\n      {r['lesson']}" for r in rows]))) or 0
+        waiting, ruled = _lr.split(rows)
+
+        def _show(_):
+            out = [f"{len(waiting)} lesson(s) waiting to become harness rules ({len(ruled)} already are):"]
+            out += [f"  {r['t']}  {r['step'][:60]}\n      {r['lesson']}" for r in waiting]
+            if getattr(a, "all", False):
+                out += ["ruled (lesson -> the tool that does it now):"]
+                out += [f"  {r['lesson'][:90]}\n      -> {rule['tool']}" for r, rule in ruled]
+            print("\n".join(out))
+        return emit(waiting, _show) or 0
     if act == "drop":
         # drop TASK --note "reason" PATCH... [keep=PATCH]
         pats = [x for x in a.args[1:] if not x.startswith("keep=")]
@@ -899,10 +909,48 @@ def run(a, emit):
         emit(r, lambda r: print("INSTALL " + ("OK" if r.get("ok") else "NOT OK: " + str(r.get("why") or r.get("rc")))
                                 + (f"\n{r['next']}" if r.get("next") else "")))
         return 0 if r.get("ok") else 3
+    if act == "release-roundtrip":
+        # release-roundtrip TASK tag=<tag> [repo=owner/name] [asset=x.deb] [keep=1]: remove the installed browser,
+        # download the published .deb, check it against SHA256SUMS, install it, verify (build/release_roundtrip.py)
+        from ..build import release_roundtrip as _rr
+        import tempfile as _tf
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        if not opts.get("tag"):
+            raise task.Refused("release-roundtrip TASK tag=<release tag> [repo=owner/name] [asset=<file.deb>] [keep=1]")
+        t = task.load(tid)
+        r = _rr.run(opts["tag"], _tf.mkdtemp(prefix="groundtrip_"), t["workdir"], repo=opts.get("repo", _rr.DEFAULT_REPO),
+                    asset=opts.get("asset"), keep=opts.get("keep", "0") not in ("0", "no", "false", ""),
+                    say=lambda m: print(m, flush=True))
+        task.journal(t, "release-roundtrip", ok=r["ok"], tag=opts["tag"], failed=[x["check"] for x in r["rows"] if not x["ok"]])
+        print(f"RELEASE-ROUNDTRIP {'OK' if r['ok'] else 'FAILED'}: {sum(x['ok'] for x in r['rows'])}/{len(r['rows'])} rows")
+        return 0 if r["ok"] else 3
+    if act == "platform-steps":
+        # platform-steps TASK: what to do on THIS operating system, computed from the machine (platformsteps.py)
+        from . import platformsteps as _ps
+        from ..core import settings as _st
+        print("\n".join(_ps.lines(task.load(tid), self_cmd=_st.self_cmd())))
+        return 0
+    if act == "rebase-set":
+        # rebase-set TASK [write=1]: pristine upstream + the patch set = the built tree, by superseding the patches
+        # that no longer apply and generating 23.REBASE.<major> (rebase.py). Dry unless write=1.
+        from . import rebase as _rb
+        from .ownercheck import patchset_owner
+        t = task.load(tid)
+        owner = patchset_owner(t)
+        if not owner:
+            raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        r = _rb.run(owner, t["workdir"], t["meta"]["upstream"]["version"].split(".")[0],
+                    write=opts.get("write", "0") not in ("0", "no", "false", ""), say=lambda m: print(m, flush=True))
+        task.journal(t, "rebase-set", **{k: v for k, v in r.items() if k != "replay"}, replay=str(r["replay"])[:300])
+        return 0 if r["ok"] else 3
     if act == "export-hand":
         from . import export as ex, buildrun
         t = task.load(tid)
-        owner = Path(buildrun._owner_root(t))
+        from .ownercheck import patchset_owner
+        owner = patchset_owner(t)               # the patch-set repo on Linux as well (2026-10-15)
+        if not owner:
+            raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
         import json as _js
         pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
         r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True))

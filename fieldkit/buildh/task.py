@@ -159,12 +159,38 @@ def _git(t, *args, check=True):
     return r.stdout
 
 
+#: folders the build writes INSIDE the source tree that are output, never a change: the pipeline's logs
+#: (gorilla-firefox/scripts/run_build_and_capture.sh writes <tree>/build_logs). 2026-10-15: `record` refused a real
+#: two-file edit because five build logs were "other files changed too", and checkpoint's `git add -A` would have
+#: committed them into the tree and from there into the exported patches.
+BUILD_OUTPUT = ("build_logs/",)
+
+
+def exclude_build_output(workdir):
+    """Write BUILD_OUTPUT into the tree's .git/info/exclude (local to this clone, never committed), once."""
+    r = subprocess.run(["git", "-C", str(workdir), "rev-parse", "--git-path", "info/exclude"], capture_output=True,
+                       text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return
+    p = Path(r.stdout.strip())
+    if not p.is_absolute():
+        p = Path(workdir) / p
+    have = p.read_text(encoding="utf-8", errors="replace").splitlines() if p.is_file() else []
+    missing = ["/" + x for x in BUILD_OUTPUT if "/" + x not in have]
+    if missing:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as fh:
+            fh.write(("" if not have or have[-1] == "" else "\n") + "\n".join(missing) + "\n")
+
+
 def changed_files(t):
+    exclude_build_output(t["workdir"])
     out = _git(t, "status", "--porcelain", "--untracked-files=all")
     return sorted(line[3:].strip().strip('"') for line in out.splitlines() if line.strip())
 
 
 def checkpoint(t, label):
+    exclude_build_output(t["workdir"])
     _git(t, "add", "-A")
     if changed_files(t):
         # The identity is forced through the environment, not `-c`: a git hook (or anyone) can export

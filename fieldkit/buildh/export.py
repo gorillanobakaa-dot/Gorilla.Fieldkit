@@ -42,15 +42,34 @@ def hand_commits(t):
             continue
         if e.get("event") == "hand-edit":
             notes.append(e)
-    log = _git(w, "log", "--reverse", "--format=%H\t%ad\t%s", "--date=iso").splitlines()
-    commits = [l.split("\t", 2) for l in log if "\tcheckpoint: hand edit" in l]
+    roots = _git(w, "rev-list", "--max-parents=0", "HEAD").split()      # the pristine release: never a change
+    log = _git(w, "log", "--reverse", "--format=%H\t%ad\t%s", "--date=iso", "HEAD", *[f"^{r}" for r in roots]).splitlines()
+    commits = [l.split("\t", 2) for l in log if len(l.split("\t", 2)) == 3 and is_hand_change(l.split("\t", 2)[2])]
     out = []
     for c, when, subj in commits:
         files = _git(w, "show", "--name-only", "--format=", c).split()
-        note = next((n for n in notes if set(n.get("files") or []) == set(files)), None)
-        why = " / ".join(note.get("why") or []) if note else subj
-        out.append((c, files, why, when, (note or {}).get("kind")))
+        if subj.startswith("checkpoint: hand edit"):
+            note = next((n for n in notes if set(n.get("files") or []) == set(files)), None)
+            why = " / ".join(note.get("why") or []) if note else subj
+            out.append((c, files, why, when, (note or {}).get("kind")))
+        else:
+            # committed straight into the tree instead of through `record` (2026-10-15: 23 commits of the Linux 158
+            # port, D-158-08, D-158-13, T-158-10-A and the build fixes among them, were in no patch). The subject is
+            # the reason; a "Kind: privacy|port" trailer is the recorded kind.
+            body = _git(w, "show", "-s", "--format=%b", c)
+            m = re.search(r"^Kind:\s*(privacy|port)\s*$", body, re.M | re.I)
+            out.append((c, files, subj, when, m.group(1).lower() if m else None))
     return out
+
+
+#: commit subjects the harness writes for work that is NOT a Gorilla change of its own: a group's patches applied
+#: (the patch set already carries them), a checksum recomputed (derived, D-158-02), pictures restored from the set
+HARNESS_SUBJECTS = re.compile(r"^(checkpoint: (?!hand edit)|binary-patches: )")
+
+
+def is_hand_change(subject):
+    """True for a commit that is a change of the port's own: a recorded hand edit, or a commit made directly."""
+    return not HARNESS_SUBJECTS.match(subject or "")
 
 
 def kind_of(why, files, recorded, privacy_files):
