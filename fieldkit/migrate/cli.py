@@ -54,6 +54,14 @@ def brief_lines(state_root=None, harness_root=None):
     from ..core import settings
     root = Path(state_root) if state_root else task.STATE
     out = []
+    try:                                                    # is Fieldkit's own work on main and released? (2026-10-16)
+        from ..method import shiprelease
+        if state_root is None:
+            rep = shiprelease.audit(settings.ROOT, offline=True)
+            out += [f"FIELDKIT {x['check'].upper()}: {x['say']}" + (f". RUN: {x['run']}" if x["run"] else "")
+                    for x in rep["rows"] if x["state"] != "OK"]
+    except Exception as e:                                  # a broken check is news, not silence
+        out.append(f"FIELDKIT ship audit failed ({type(e).__name__}: {e})")
     for pj in sorted(root.glob("*/migrate/plan.json")):
         tid = pj.parent.parent.name
         try:
