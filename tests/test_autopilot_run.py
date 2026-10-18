@@ -87,7 +87,7 @@ def test_quiet_spares_its_own_tree_and_matches_names():
         def children(s, recursive=True):
             return [x for x in PROCS if x._parent is s]
     app = P(1, "Claude.exe"); helper = P(2, "msedgewebview2.exe", app); me = P(3, "python.exe", app)
-    other = P(4, "msedgewebview2.exe"); tg = P(5, "Telegram.exe")
+    tg = P(5, "Telegram.exe"); other = P(40, "msedgewebview2.exe", tg)   # WebView2 judged by its HOST (2026-10-18)
     PROCS = [app, helper, me, other, tg]
 
     class FakePsutil:
@@ -106,7 +106,7 @@ def test_quiet_spares_its_own_tree_and_matches_names():
     real = _os.getpid
     try:
         _os.getpid = lambda: 3
-        rows = quiet.noisy(FakePsutil, wanted=["telegram", "msedgewebview2"])
+        rows = quiet.noisy(FakePsutil, wanted=["telegram"])
     finally:
         _os.getpid = real
-    assert sorted(r["pid"] for r in rows) == [4, 5]          # the agent's own WebView2 (2) is spared, the other is not
+    assert sorted(r["pid"] for r in rows) == [5, 40]         # the agent's own WebView2 (2) is spared, Telegram's is not

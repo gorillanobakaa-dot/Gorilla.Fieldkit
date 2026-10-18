@@ -359,3 +359,20 @@ def test_a_failing_pre_build_about_pages_run_stops_the_build_before_the_compile(
     monkeypatch.setattr(buildrun, "owner_preflight_ok", lambda root, say: (_ for _ in ()).throw(AssertionError("went on")))
     r = buildrun.run("t", say=lambda m: None)
     assert r["why"] == "pre-build about: pages" and not r["ok"]
+
+
+def test_the_second_platform_skips_rebase_set_and_replay_is_the_proof(monkeypatch, tmp_path):
+    # 2026-10-18: build-run exited 3 after a green Windows build because rebase-set refuses there by design
+    from fieldkit.buildh import buildrun, export, rebase, replay, firefox, changecheck, ownercheck
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "patch_policy.json").write_text('{"patchset_root": "patches"}')
+    monkeypatch.setattr(ownercheck, "patchset_owner", lambda t: tmp_path)
+    monkeypatch.setattr(export, "export", lambda *a, **k: None)
+    monkeypatch.setattr(rebase, "written_on", lambda owner, major: "linux")
+    monkeypatch.setattr(firefox, "this_platform", lambda: "windows")
+    monkeypatch.setattr(rebase, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")))
+    monkeypatch.setattr(replay, "run", lambda tid, say=None: {"ok": True, "failures": [], "differ": []})
+    monkeypatch.setattr(changecheck, "commit_patches", lambda owner, note, say: (True, "committed"))
+    said = []
+    r = buildrun.capture_patches({"meta": {"upstream": {"version": "158.0"}}, "workdir": "w"}, "t", say=said.append)
+    assert r["replay"] == "OK" and any("rebase-set skipped" in s for s in said)

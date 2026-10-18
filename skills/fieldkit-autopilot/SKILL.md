@@ -30,7 +30,13 @@ approval prompts.** An AI is for delegating; a run that needs a person every 25 
 - A hard-line DENY is final: report it in the inbox; never look for another route (2026-10-18: a blocked
   `git push` was followed by `gh release create` - that is exactly what the hard lines and the missing credential
   now stop).
-- Measuring runs (leak gate): `fieldkit autopilot quiet --apply --hold PID` first.
+- Measuring runs: the leak gate quiets the machine by itself for its whole run (quiet.log in its run folder).
+  By hand: `fieldkit autopilot quiet` lists, `--apply --hold PID` or `--apply --minutes N` keeps it quiet.
+  Every app outside Windows that holds an internet socket is stopped by PID (the netstat -ano + kill the owner
+  asked for), plus the quiet list (fieldkit.local.json autopilot.quiet); NEW processes are judged every 2 s, so a
+  respawned app dies within about 2 s, and all of them every 30 s. WebView2 is judged by its HOST only (WhatsApp's
+  dies, Windows Search's and the agent's are spared; an unreadable host is spared). Windows, the gate, the browser
+  under test and this Claude session are never stopped. The STOP file ends it.
 - Time estimates come from `fieldkit eta`, never from a guess.
 - The verdict is the line the tool printed; a PASS you did not see printed is not a PASS.
 

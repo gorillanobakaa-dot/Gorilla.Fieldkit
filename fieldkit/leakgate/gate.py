@@ -595,6 +595,22 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
         if release and not packets:
             packets, _ = se.ensure_packet_sensor(work, say=say)
         dns_prev = se.dnsclient_enable() if se.is_admin() else None
+    # quiet machine for the WHOLE run, Windows and Linux (owner 2026-10-18: "half a billion of them constantly pinging
+    # all the UDP ports"): every user app that holds a network socket, or is on the quiet list, is stopped by PID now;
+    # a holder judges every new process every 2 s and all of them every 30 s until this gate process ends. The
+    # system, the gate, its browser and the watching agent are spared; a system daemon that talks is named, not
+    # stopped. Logged in the run folder (quiet-start.json, quiet.log).
+    try:
+        from ..autopilot import quiet as _quiet
+        talking = []
+        stopped = _quiet.stop(_quiet.noisy(also=(os.getpid(),), talking_system=talking), say=say)
+        holder = _quiet.start_holder(os.getpid(), work / "quiet.log")
+        (work / "quiet-start.json").write_text(json.dumps({"stopped": stopped, "system_talking": talking,
+                                                           "holder_pid": holder}, indent=1), encoding="utf-8")
+        say(f"  quiet machine: {len(stopped)} app(s) stopped by PID; holder {holder} re-checks every 2 s; "
+            f"{len(talking)} system process(es) talking, named in quiet-start.json")
+    except Exception as e:  # noqa: BLE001 - a gate that cannot quiet the machine says so, it does not guess
+        raise RuntimeError(f"leakgate: the machine could not be quieted ({e}); refusing to measure a noisy machine")
     zp = work / "build.zip"
     shutil.copyfile(zip_path, zp)
     if linux:

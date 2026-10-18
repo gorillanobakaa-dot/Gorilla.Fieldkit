@@ -1022,9 +1022,21 @@ def capture_patches(t, task_id, say=print, note=None):
     # the set is carried onto THIS release every time (2026-10-15: the 158 port left 77 patches that no longer
     # applied to pristine 158; the next machine would have redone them by hand): rebase.py supersedes them and
     # writes 23.REBASE.<major>, so pristine + the set = the tree, on any machine
-    from . import rebase as _rb
-    say("  patches: rebase-set (patches that no longer apply are superseded; 23.REBASE." + major + " written)")
-    _rb.run(owner, t["workdir"], major, write=True, say=say)
+    from . import rebase as _rb, firefox as _ff
+    try:
+        origin = _rb.written_on(owner, major)
+    except (KeyError, OSError, ValueError):     # no readable origin: rebase-set decides for itself, as before
+        origin = None
+    here = _ff.this_platform()
+    if origin and origin != here:
+        # 2026-10-18: on the second platform rebase-set refuses by design (the shared group is the first platform's);
+        # build-run exited 3 AFTER a green build because of that refusal. Skipped with its reason; replay below is
+        # the proof: a set that does not reproduce the compiled tree still makes the build NOT OK.
+        say(f"  patches: rebase-set skipped: 23.REBASE.{major} was written on {origin}; {here} changes go to "
+            f"24.FINAL.{major} (export-hand above); replay proves the set")
+    else:
+        say("  patches: rebase-set (patches that no longer apply are superseded; 23.REBASE." + major + " written)")
+        _rb.run(owner, t["workdir"], major, write=True, say=say)
     say("  patches: replay (pristine + public patch set = compiled tree)")
     r = rp.run(task_id, say=say)
     if r["ok"]:

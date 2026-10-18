@@ -806,16 +806,24 @@ def cmd_autopilot(a):
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
         r = run.claude(" ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns)
+    elif a.action == "quiet" and getattr(a, "restore", False):
+        print("started again: " + (", ".join(quiet.restore_units()) or "nothing was recorded"))
+        return 0
     elif a.action == "quiet":
-        rows = quiet.noisy()
+        rows = quiet.noisy(also=(int(a.hold),) if a.hold else ())
         for x in rows:
-            print(f"  {x['name']:<32} PID {x['pid']:<7} sockets {x['net']:<3} {x['exe']}")
+            print(f"  {x['name']:<32} PID {x['pid']:<7} sockets {x['net']:<3} {x.get('why', ''):<22} {x['exe']}")
+        talking = []
+        quiet.noisy(also=(int(a.hold),) if a.hold else (), talking_system=talking)
+        for x in talking:
+            print(f"  (system, not stopped) {x['name']:<20} PID {x['pid']:<7} sockets {x['net']:<3} {x['exe']}")
         if not a.apply:
             print(f"QUIET: {len(rows)} process(es) would be stopped (add --apply; --hold PID keeps them stopped)")
             return 0
         quiet.stop(rows)
-        if a.hold:
-            quiet.hold(a.hold)
+        if a.hold or getattr(a, "minutes", None):
+            from .autopilot.hardlines import STOP_FILE as _stop
+            quiet.hold(a.hold, minutes=getattr(a, "minutes", None), stop_file=_stop)
         return 0
     else:
         r = run.status()
@@ -1302,6 +1310,8 @@ def build_parser():
     apl.add_argument("--cwd", help="claude: the folder the run works in")
     apl.add_argument("--max-turns", type=int, default=40)
     apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
+    apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")
+    apl.add_argument("--restore", action="store_true", help="quiet (Linux): start again the system services a run stopped")
     apl.add_argument("--apply", action="store_true", help="quiet: stop them (without it: list only)")
     apl.set_defaults(fn=cmd_autopilot)
 

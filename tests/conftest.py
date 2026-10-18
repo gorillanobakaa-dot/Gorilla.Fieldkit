@@ -228,3 +228,21 @@ def _no_real_elevation(monkeypatch):
         return real_start(self, *a, **k)
     monkeypatch.setattr(sensors.ElevatedPktmon, "start", start)
     yield
+
+
+# Tests never stop a real process (2026-10-18: the leak gate quiets the machine at start; its tests run the real
+# gate): the stop and the holder are no-ops unless a test hands quiet its own fake psutil.
+@pytest.fixture(autouse=True)
+def _no_real_quiet(monkeypatch):
+    from fieldkit.autopilot import quiet
+    real_stop = quiet.stop
+
+    def stop(rows, psutil=None, say=print):
+        return real_stop(rows, psutil, say) if psutil is not None else []
+    monkeypatch.setattr(quiet, "stop", stop)
+    monkeypatch.setattr(quiet, "noisy", lambda *a, **k: [] if not k.get("psutil") and not a else _real_noisy(*a, **k))
+    monkeypatch.setattr(quiet, "start_holder", lambda pid, log: 0)
+    yield
+
+
+from fieldkit.autopilot.quiet import noisy as _real_noisy  # noqa: E402

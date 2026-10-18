@@ -41,6 +41,8 @@ tools:
     - {name: cwd, flag: --cwd, type: str, required: false, help: "claude: the folder the run works in"}
     - {name: max_turns, flag: --max-turns, type: int, required: false, help: "claude: turn limit (40)"}
     - {name: hold, flag: --hold, type: int, required: false, help: "quiet: keep the apps stopped until this PID exits"}
+    - {name: minutes, flag: --minutes, type: float, required: false, help: "quiet: keep the apps stopped this many minutes (or until the STOP file)"}
+    - {name: restore, flag: --restore, type: bool, required: false, help: "quiet (Linux): start again the system services a run stopped"}
     - {name: apply, flag: --apply, type: bool, required: false, help: "quiet: stop them (without it: list only)"}
   platforms: [windows, linux]
   changes: true
