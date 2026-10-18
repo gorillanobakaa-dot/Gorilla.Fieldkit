@@ -88,6 +88,42 @@ def test_a_binary_built_from_an_older_source_is_stale_not_ok(tmp_path, monkeypat
     assert size.doctor(out=lines.append) == 0 and lines[0].startswith("OK")
 
 
+def test_a_local_checkout_without_provenance_is_judged_by_its_git_head(tmp_path, monkeypatch):
+    # 2026-10-18: FIELDKIT_GORILLA_SIZE_SRC named a local checkout (no PROVENANCE.json); doctor called 0.2 OK
+    bindir, src = tmp_path / "bin", tmp_path / "src"
+    bindir.mkdir()
+    src.mkdir()
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t")
+    git = lambda *a: subprocess.run(["git", "-C", str(src), *a], capture_output=True, text=True, env=env, check=True)
+    git("init", "-q")
+    (src / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+    git("add", "Cargo.toml")
+    git("commit", "-q", "-m", "one")
+    head = git("rev-parse", "--short=7", "HEAD").stdout.strip()
+    fake = _fake(tmp_path)
+    exe = bindir / size.EXE
+    if os.name == "nt":
+        monkeypatch.setattr(size, "EXE", fake.name)
+        exe = bindir / fake.name
+    exe.write_bytes(fake.read_bytes())
+    if os.name != "nt":
+        exe.chmod(0o755)
+    monkeypatch.delenv("FIELDKIT_GORILLA_SIZE", raising=False)
+    monkeypatch.setenv("FIELDKIT_GORILLA_SIZE_SRC", str(src))
+    monkeypatch.setattr(size, "bin_dir", lambda: bindir)
+    assert size.source_commit() == head
+    (bindir / "gorilla-size.source").write_text("9021533", encoding="utf-8")
+    lines = []
+    assert size.doctor(out=lines.append) == 1 and lines[0].startswith("STALE") and head in lines[0]
+    (bindir / "gorilla-size.source").write_text(head, encoding="utf-8")
+    lines = []
+    assert size.doctor(out=lines.append) == 0 and lines[0].startswith("OK")
+    (src / "Cargo.toml").write_text("[package]\nname = 'changed'\n", encoding="utf-8")   # edited, not committed
+    assert size.source_commit() == head + "-dirty"
+    assert size.doctor(out=[].append) == 1
+
+
 REAL = size.locate()
 real = pytest.mark.skipif(REAL is None or size.version(REAL)[0] is None,
                           reason="gorilla-size is not built on this machine (fieldkit size doctor --install)")

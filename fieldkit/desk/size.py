@@ -56,12 +56,27 @@ def version(exe):
 
 
 def source_commit():
-    """The commit the gathered source came from (toolbox PROVENANCE.json), or None."""
+    """The commit the source is at: the gathered source's PROVENANCE.json, else (a local checkout named by
+    FIELDKIT_GORILLA_SIZE_SRC) its git HEAD, short like PROVENANCE's, with "-dirty" when tracked files have changes so
+    that it never matches a stamp. None when neither can be read.
+    2026-10-18: a local checkout has no PROVENANCE.json, so doctor called a 0.2 binary OK against 0.3.0 source."""
     import json
     try:
         return json.loads((source_dir() / "PROVENANCE.json").read_text(encoding="utf-8")).get("commit")
     except (OSError, ValueError):
+        pass
+    if not (source_dir() / ".git").exists():
         return None
+    try:
+        head = subprocess.run(["git", "-C", str(source_dir()), "rev-parse", "--short=7", "HEAD"], capture_output=True,
+                              text=True, timeout=30)
+        dirty = subprocess.run(["git", "-C", str(source_dir()), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if head.returncode != 0 or not head.stdout.strip():
+        return None
+    return head.stdout.strip() + ("-dirty" if dirty.stdout.strip() else "")
 
 
 def stamp():
