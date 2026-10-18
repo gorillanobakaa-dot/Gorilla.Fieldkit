@@ -112,6 +112,9 @@ def _lines(d):
 
 def main(argv=None, prog="fieldkit mutate"):
     argv = list(argv or [])
+    # --help needs no command after --: `fieldkit cards check` asks every tool for its help (2026-10-18: refused)
+    if "--" not in argv and any(x in ("-h", "--help") for x in argv):
+        argv = argv + ["--"]
     if "--" not in argv:
         print("REFUSED: give the test command after --, e.g. fieldkit mutate F --swap A B -- pytest -q")
         return 2

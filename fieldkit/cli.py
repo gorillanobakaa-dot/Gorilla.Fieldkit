@@ -1129,6 +1129,7 @@ METHODS = {
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push; never forces"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
+    "flaky": ("flaky", "a test that fails sometimes: failure rate over fresh runs, the swallowed thread error, shared OS names (repeat TEST | log | scan)"),
 }
 
 
@@ -1674,6 +1675,8 @@ def build_parser():
     bh.add_argument("--restore", help="install: put a backup directory back instead of installing")
     bh.add_argument("--install-dir", dest="install_dir", help="install: the directory to install into (default: the registered install)")
     bh.add_argument("--build", action="store_true", help="preflight: also check what a compile needs (disk, fan control)")
+    bh.add_argument("--fast", action="store_true", help="release-check: skip the post-install rows (read as \"--fast\" in the arguments, never declared, so it was refused until 2026-10-18)")
+    bh.add_argument("--truth-task", dest="truth_task", help="truthbound: the task whose tree is the truth (default firefox-155.0.1)")
     bh.add_argument("--model", action="store_true", help="preflight: also check that the model server answers")
     bh.add_argument("--technical", action="store_true", help="brief: the full technical brief instead of the plain-words one")
     bh.add_argument("--do", help="brief: the exact sentence the brief told you to type, to carry out the safe fix")

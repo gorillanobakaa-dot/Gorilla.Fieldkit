@@ -2298,6 +2298,7 @@ tools:
   safety: read-only
   platforms: [linux]
   changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_net_route.py"]
 
 - id: terminal
   title: "Open a terminal window in front of a person with a command ready: ask waits for their Enter, run runs at once"
@@ -2355,6 +2356,7 @@ tools:
   safety: read-only
   platforms: [linux, darwin, windows, freebsd]
   changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_explain.py"]
 
 - id: wifi-channels
   title: Which 2.4 GHz channel is actually free, with the argument for the choice
@@ -2449,3 +2451,1880 @@ tools:
   safety: read-only
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]
+
+# -------------------------------------------------------------------------------------------------------------------
+# fieldkit build-harness <action> (bh-*) and the methods as tools: carded 2026-10-18 from the source; every flag
+# is declared on the shared build-harness parser. Exit codes common to every bh- card: 0 ok, 2 REFUSED, 1 settings or
+# file error; `exits` lists the answer codes only. TASK is the first positional word; left out, the current task.
+# Under migration control record/repair/build-run/decide need a work item of the current stage, or --park.
+# -------------------------------------------------------------------------------------------------------------------
+
+- id: bh-start
+  title: Plan a Firefox port task for the latest stable release (or a pinned one) and make it the current task
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, start]
+  path: ${FIELDKIT}/fieldkit/buildh/cli.py
+  inputs:
+    - {name: product, flag: null, type: str, required: true, choices: [firefox], help: "only firefox (anything else: SystemExit 'the kernel workflow comes next')"}
+    - {name: task, flag: --task, type: str, required: false, help: "task id (default firefox-<version>)"}
+    - {name: pin, flag: --pin, type: str, required: false, help: "a stable version instead of the latest, e.g. 155.0.1"}
+    - {name: source, flag: --source, type: str, required: false, help: "repository URL or local git path holding the release tag"}
+    - {name: budget, flag: --budget, type: int, required: false, help: "the model's context window in tokens (100000)"}
+    - {name: workdir, flag: --workdir, type: str, required: false, help: "working copy (default <vault root>/../Build.Work/firefox/<version>)"}
+    - {name: harness, flag: --harness, type: str, required: false, help: "the Gorilla.firefox folder to read patches from (default firefox.root)"}
+  effects: [network, writes-files, git]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_cli_fixes.py", -k, "start"]
+  notes: "Contacts Mozilla's product-details version list and the release tag on github.com/mozilla-firefox/firefox (upstream.py). Writes state/build-harness/<task>/ and CURRENT. task.start is tested in test_buildh_task.py; the start_firefox CLI wrapper is not (it crashed on 2026-10-16 printing its result, per the code comment)."
+
+- id: bh-approve
+  title: The owner approves the planned steps of a task (nothing runs before this)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, approve]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, approves]
+  notes: "Owner action by convention only: task.approve has NO owner_terminal() check (unlike unblock skip, decide, leakgate approvals). An agent shell can run it. Never offered over MCP."
+
+- id: bh-status
+  title: A task's step counts, checkpoints and current step
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, status]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py"]
+
+- id: bh-next
+  title: The next job packet of a task (runs the script steps before it, then hands out one model step)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, next]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files, writes-files, git]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, script_steps_run]
+  notes: "Not a pure read: task.packet runs pending script steps (port automation in the working copy, checkpointed in git) before it returns a model packet."
+
+- id: bh-submit
+  title: Check the current step's change in the working copy; pass = checkpoint, fail = change put back
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, submit]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: note, flag: --note, type: str, required: false, help: "a note for the log"}
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "run the check only; no attempt spent, nothing changed"}
+    - {name: hand, flag: --hand, type: flag, required: false, help: "a PERSON ported this hunk; judged by meaning"}
+    - {name: adapted, flag: --adapted, type: str, required: false, help: "the model declares an adapted port, with its reason; saved as a proposal, no attempt spent"}
+  effects: [writes-files, git]
+  safety: reversible
+  exits: {3: findings}
+  modes:
+    preview: ["+", --dry-run]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", "${FIELDKIT}/tests/test_buildh_firefox.py", -k, "trial or harness_checks or pass_makes or adapted"]
+
+- id: bh-proposals
+  title: The adapted ports waiting for the owner, with why each was adapted
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, proposals]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, adapted_port]
+
+- id: bh-accept
+  title: The owner accepts waiting adapted ports in one go (applied, judged by meaning, checkpointed)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, accept]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: steps, flag: null, type: list, required: false, help: "step ids to accept (after TASK); none = every waiting proposal"}
+    - {name: all, flag: --all, type: flag, required: false, help: "every waiting proposal"}
+  effects: [writes-files, git]
+  safety: reversible
+  exits: {3: findings}
+  modes:
+    preview: [python, -m, fieldkit, build-harness, proposals]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, "accept"]
+  notes: "Owner action by convention: task.accept has no owner_terminal() check. Exit 3 when a proposal no longer applies (that step goes back to failed). Undo of an accepted step: bh-rewind."
+
+- id: bh-withdraw
+  title: Take back one waiting proposal with a reason (moved to proposals/withdrawn, step ends obsolete)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, withdraw]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: step, flag: null, type: str, required: true, help: "the step id"}
+    - {name: note, flag: --note, type: str, required: true, help: "why"}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, withdrawn]
+  notes: "The proposal file is moved, never deleted; no undo command (move it back by hand)."
+
+- id: bh-drop
+  title: Drop whole patches from a running port as their author said, files back to pristine, kept patches re-applied
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, drop]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: patches, flag: null, type: list, required: true, help: "patch files to drop"}
+    - {name: keep, flag: null, type: str, required: false, help: "keep=PATCH: a patch sharing those files, applied again"}
+    - {name: note, flag: --note, type: str, required: true, help: "why (quote the author)"}
+  effects: [writes-files, git]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_firefox.py", -k, drop]
+  notes: "Refused with uncommitted work or when another patch's step already changed one of the files. Work tree is git-checkpointed; no undo command (bh-rewind to the checkpoint before)."
+
+- id: bh-unblock
+  title: The owner unblocks a step - retry (fresh attempts), hand (a person ports it) or skip (owner at a real terminal)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, unblock]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: step, flag: null, type: str, required: true, help: "the step id"}
+    - {name: how, flag: null, type: str, required: true, choices: [retry, hand, skip], help: "skip needs a terminal on stdin and is refused for check steps"}
+  effects: [writes-files, git]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, "skip or blocked"]
+  notes: "Usage line in the module docstring says retry|skip; the code also takes hand. retry and hand have no terminal check."
+
+- id: bh-rewind
+  title: Undo a step that passed but is wrong - working copy reset to the checkpoint before it, later steps pending
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, rewind]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: step, flag: null, type: str, required: true, help: "the step id to rewind to"}
+  effects: [writes-files, deletes-files, git]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, rewind]
+  notes: "git reset --hard + git clean -fd in the working copy: uncommitted files are deleted. Checkpoint commits survive in the reflog only. No owner_terminal() check."
+
+- id: bh-describe
+  title: One step of a task in full words (the current step by default), for messages and window titles
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, describe]
+  path: ${FIELDKIT}/fieldkit/buildh/task.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: step, flag: null, type: str, required: false, help: "step id (default: the current step)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_cli_fixes.py", -k, "describe"]
+
+- id: bh-lessons
+  title: Lessons recorded with hand ports that no harness rule covers yet (--all adds the ruled ones)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, lessons]
+  path: ${FIELDKIT}/fieldkit/buildh/lessonrules.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: all, flag: --all, type: flag, required: false, help: "also the lessons a rule already covers"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_lessonrules.py", "${FIELDKIT}/tests/test_buildh_task.py", -k, "lesson"]
+
+- id: bh-log
+  title: The last 40 journal events of a task
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, log]
+  path: ${FIELDKIT}/fieldkit/buildh/cli.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_cli_fixes.py", -k, "log_prints"]
+  notes: "--json is ignored: always plain lines."
+
+- id: bh-stats
+  title: The task journal counted - builds, attempts, stops, hand edits, automation, installs, heat
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, stats]
+  path: ${FIELDKIT}/fieldkit/buildh/stats.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: since, flag: --since, type: str, required: false, help: "only events from this date or time on"}
+    - {name: until, flag: --until, type: str, required: false, help: "only events up to this date (whole day) or time"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_stats.py"]
+
+- id: bh-drive
+  title: Drive a task with a local model - one fresh Gorilla OpenCode run per job, until done or blocked
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, drive]
+  path: ${FIELDKIT}/fieldkit/buildh/cli.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: agent, flag: --agent, type: str, required: false, help: "the agent command (default gorilla-opencode)"}
+    - {name: max_jobs, flag: --max-jobs, type: int, required: false, help: "stop after this many jobs (200)"}
+    - {name: job_timeout, flag: --job-timeout, type: str, required: false, help: "time limit per job, e.g. 45m"}
+    - {name: tools, flag: --tools, type: flag, required: false, help: "let the model edit with tools; refused unless FIELDKIT_ALLOW_MODEL_TOOLS=1"}
+    - {name: line_ops, flag: --line-ops, type: flag, required: false, help: "line operations instead of REMOVE/KEEP questions"}
+  effects: [processes, network, writes-files, git]
+  safety: reversible
+  exits: {3: findings, 4: "two jobs in a row crashed", 5: "preflight failed, nothing started"}
+  modes:
+    preview: [python, -m, fieldkit, build-harness, preflight, --model]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_drive.py"]
+  notes: "Runs preflight with the model check (an HTTP request to the configured model server), syncs the record with the tree (may reopen steps), then one job at a time. --tools gives the model write access anywhere the user can write. Every attempt is checkpointed or reverted in git."
+
+- id: bh-compare
+  title: Hold a task's result against a person-made result folder (the answer key), file by file
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, compare]
+  path: ${FIELDKIT}/fieldkit/buildh/compare.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: reference, flag: --reference, type: str, required: true, help: "the person-made result folder"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_compare.py"]
+  notes: "Writes only state/build-harness/<task>/compare.diff."
+
+- id: bh-watch
+  title: Live recorder - every incident of the model session and the task journal as it appears (Ctrl+C to stop)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, watch]
+  path: ${FIELDKIT}/fieldkit/buildh/recorder.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: session, flag: --session, type: str, required: false, help: "a Gorilla OpenCode session id (default: the newest)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_recorder.py"]
+  notes: "Never returns by itself (loops every 5 s): not for an unattended agent call."
+
+- id: bh-report
+  title: Recorder report of a whole model run - incidents from the session, journal and MCP logs
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, report]
+  path: ${FIELDKIT}/fieldkit/buildh/recorder.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: session, flag: --session, type: str, required: false, help: "a Gorilla OpenCode session id (default: the newest)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_recorder.py", "${FIELDKIT}/tests/test_buildh_failure_injection.py"]
+  notes: "Writes only state/build-harness/<task>/recorder-report.json. Exit 3 when an incident is found."
+
+- id: bh-audit
+  title: Audit the supervisor from the evidence - vault intact, owner settings untouched, journal hash chain, no answer keys
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, audit]
+  path: ${FIELDKIT}/fieldkit/buildh/audit.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task, or the word baseline"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_audit.py"]
+  notes: "`audit baseline` WRITES the known-good snapshot (audit.BASE) and must only be run while everything is known good; it then counts as writes-files. Plain `audit` only reads."
+
+- id: bh-briefs
+  title: Every open decision of a task as a full brief (decisions, deferred steps, owner edits, dispositions, claims)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, briefs]
+  path: ${FIELDKIT}/fieldkit/briefs/producers.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: technical, flag: --technical, type: flag, required: false, help: "the full technical brief instead of the plain-words one"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_briefs.py"]
+  notes: "Exit 3 while any brief or producer problem exists. The claims/patch producers run the claims audit (minutes)."
+
+- id: bh-brief
+  title: "One brief in full (brief show ID), or an owner-file-edit brief for a repo file (brief REPO PATH [--do SENTENCE])"
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, brief]
+  path: ${FIELDKIT}/fieldkit/buildh/cli.py
+  inputs:
+    - {name: what, flag: null, type: list, required: true, help: "show [TASK] ID  |  REPO PATH"}
+    - {name: task, flag: --task, type: str, required: false, help: "show: the task (default: the current one)"}
+    - {name: technical, flag: --technical, type: flag, required: false, help: "the technical brief"}
+    - {name: do, flag: --do, type: str, required: false, help: "REPO PATH form: the exact sentence the brief told you to type, to revert the edit"}
+  effects: [reads-files, writes-files]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_briefs.py", "${FIELDKIT}/tests/test_buildh_decision.py"]
+  notes: "`brief show` records that the brief was shown (record.mark_shown). The REPO PATH form with --do reverts the owner's uncommitted edit to PATH (decision.apply 'revert', owner_terminal() required; a copy goes under <Fieldkit>/_private per decision.py - not verified here). Without --do it only reads."
+
+- id: bh-decide
+  title: The maintainer records the answer to a brief, in their own words (real terminal only)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, decide]
+  path: ${FIELDKIT}/fieldkit/briefs/record.py
+  inputs:
+    - {name: brief, flag: null, type: str, required: true, help: "the brief id"}
+    - {name: option, flag: null, type: str, required: true, help: "the chosen option"}
+    - {name: words, flag: --words, type: str, required: true, help: "what the maintainer decided, in their own words"}
+    - {name: task, flag: --task, type: str, required: false, help: "the task (default: the current one)"}
+  effects: [writes-files]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_briefs.py", -k, "recording or decide"]
+  notes: "OWNER ONLY: refused without a terminal on stdin. Appends to the decision register / allowlist / dispositions; never exposed over MCP."
+
+- id: bh-deferred
+  title: Steps parked because what they change is gone upstream - list, explain one, or (owner) drop it
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, deferred]
+  path: ${FIELDKIT}/fieldkit/buildh/deferred.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: step, flag: null, type: str, required: false, help: "a parked step to explain"}
+    - {name: technical, flag: --technical, type: flag, required: false, help: "the technical explanation"}
+    - {name: do, flag: --do, type: str, required: false, help: "the exact sentence the explanation told you to type, to drop the step"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_deferred.py"]
+  notes: "Read-only without --do. --do needs the owner at a real terminal and records a briefed drop."
+
+- id: bh-decisions
+  title: The maintainer's product decision register checked against the tree and the installed build
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, decisions]
+  path: ${FIELDKIT}/fieldkit/buildh/decisions.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: strict, flag: --strict, type: flag, required: false, help: "a pending decision counts as not done"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install to check (default: the registered Gorilla install)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_decisions.py", "${FIELDKIT}/tests/test_buildh_decisions_platforms.py"]
+  notes: "Exit 3 also when no register is found (nothing checked). Whether a verify kind unpacks packaged files to a temp folder was not traced."
+
+- id: bh-claims
+  title: What the public patch set claims, held against the tree and the installed build (writes the audit report)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, claims]
+  path: ${FIELDKIT}/fieldkit/buildh/claims.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: retire_stale, flag: null, type: str, required: false, choices: [retire-stale], help: "word retire-stale: STALE entries move to retired: first"}
+    - {name: strict, flag: --strict, type: flag, required: false, help: "every claim PROVEN, every patch IMPLEMENTED or explained"}
+    - {name: report, flag: --report, type: str, required: false, help: "where to write the public audit report (default <owner>/claims/AUDIT-<major>.md)"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files, writes-files, deletes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_claims.py"]
+  notes: "Writes the report into the owner repo (tracked file); retire-stale rewrites the claims register. claims.py has one unlink (not traced). retire-stale itself has no test."
+
+- id: bh-preflight
+  title: What must be true before a job starts - stale git locks, disk, fan control, model server (PASS/FAIL rows)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, preflight]
+  path: ${FIELDKIT}/fieldkit/buildh/preflight.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: build, flag: --build, type: flag, required: false, help: "also what a compile needs (disk, fan control)"}
+    - {name: model, flag: --model, type: flag, required: false, help: "also that the model server answers"}
+    - {name: fix_locks, flag: --fix-locks, type: flag, required: false, help: "remove stale git locks (only when no git process runs)"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  modes:
+    apply: ["+", --fix-locks]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_preflight.py"]
+  notes: "Lists processes by image name (tasklist / pgrep) to look, never to stop. --model makes an HTTP request to the configured model server (network). --fix-locks deletes .lock files in the working copy (deletes-files)."
+
+- id: bh-verify
+  title: The verifier - what the tree really holds per hunk, false completions, stray edits, missing new files
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, verify]
+  path: ${FIELDKIT}/fieldkit/buildh/verify.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: reopen, flag: --reopen, type: flag, required: false, help: "put every false completion back to pending (task record only)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  modes:
+    apply: ["+", --reopen]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_verify.py", "${FIELDKIT}/tests/test_buildh_verify_158.py", "${FIELDKIT}/tests/test_buildh_verify_superseded.py"]
+  notes: "--reopen writes the task record (never a tree file)."
+
+- id: bh-creep
+  title: Excision creep - upstream files with new references to symbols Gorilla excised
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, creep]
+  path: ${FIELDKIT}/fieldkit/buildh/verify.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_creep.py"]
+  notes: "Always exit 0 (a report)."
+
+- id: bh-repair
+  title: Repair known port failures in the tree (dangling excision, moved member), each proven with node --check
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, repair]
+  path: ${FIELDKIT}/fieldkit/buildh/repair.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: park, flag: --park, type: str, required: false, help: "under migration control: park as a ticket instead of running"}
+  effects: [writes-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_repair.py"]
+  notes: "Rewrites JS files in the working copy; a file node still refuses is restored. Needs node. No preview: it applies at once. Whether it commits a checkpoint was not traced."
+
+- id: bh-record
+  title: Record a person's edit as a task step (kind=privacy|port), then check and export it at once (check-change)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, record]
+  path: ${FIELDKIT}/fieldkit/buildh/handedit.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: kind, flag: null, type: str, required: false, choices: [privacy, port], help: "kind=privacy|port: the patch-set group on export (one per record)"}
+    - {name: files, flag: null, type: list, required: false, help: "the edited files (relative to the working copy)"}
+    - {name: note, flag: --note, type: str, required: true, help: "the reason (title of the step)"}
+    - {name: park, flag: --park, type: str, required: false, help: "under migration control: park as a ticket instead of running"}
+  effects: [writes-files, deletes-files, git]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_handedit.py", "${FIELDKIT}/tests/test_buildh_security_review.py", -k, "record or hand"]
+  notes: "Commits a checkpoint in the working copy, then runs check-change, which runs export-hand (writes and removes patch files in the owner's patch-set repo) and replay. The --note requirement is from handedit (an empty note may be refused - not traced)."
+
+- id: bh-check-change
+  title: The check after every source change - recorded, journal chain, UI rules, decisions, export-hand, replay
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, check-change]
+  path: ${FIELDKIT}/fieldkit/buildh/changecheck.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: note, flag: --note, type: str, required: false, help: "a note for the export"}
+  effects: [reads-files, writes-files, deletes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_changecheck.py"]
+  notes: "Not read-only: step 5 is export-hand (writes/removes patch files in the owner's patch-set repo)."
+
+- id: bh-export-hand
+  title: Hand-edit checkpoints of a task become patches in the owner's patch set (21.PORT.FIXES / 22.EGRESS.LOCKDOWN)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, export-hand]
+  path: ${FIELDKIT}/fieldkit/buildh/export.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "say what would be written; write nothing"}
+  effects: [writes-files, deletes-files]
+  safety: reversible
+  modes:
+    preview: ["+", --dry-run]
+    verify: [python, -m, fieldkit, build-harness, replay]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_export_owners.py", "${FIELDKIT}/tests/test_buildh_export_stale.py", "${FIELDKIT}/tests/test_buildh_deletions.py"]
+  notes: "Writes into a tracked repo (the patch set): undo is git in that repo. Always exit 0."
+
+- id: bh-carry
+  title: Record that a hand step is already carried by named patches of the set (export-hand then skips it)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, carry]
+  path: ${FIELDKIT}/fieldkit/buildh/export.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: commit, flag: null, type: str, required: true, help: "the hand step's commit in the work tree"}
+    - {name: patches, flag: null, type: list, required: true, help: "the patch files that carry it"}
+    - {name: note, flag: --note, type: str, required: true, help: "why the set already carries it"}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_cli_fixes.py", -k, "carry"]
+  notes: "Writes a carry record under the patch-set root (export.carry, not traced further)."
+
+- id: bh-replay
+  title: The replay proof - the public patch set on pristine upstream must give exactly the compiled tree
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, replay]
+  path: ${FIELDKIT}/fieldkit/buildh/replay.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_replay.py"]
+  notes: "Works in a scratch copy it removes afterwards; records its result in the task state. Needs GNU patch >= 2.7 and git."
+
+- id: bh-rebase-set
+  title: Bring the patch set onto the new release - failing patches superseded, 23.REBASE.<major> generated (dry unless write=1)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, rebase-set]
+  path: ${FIELDKIT}/fieldkit/buildh/rebase.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: write, flag: null, type: str, required: false, help: "write=1: write the group and the policy, then prove it with replay"}
+  effects: [reads-files, writes-files, deletes-files]
+  safety: reversible
+  exits: {3: findings}
+  modes:
+    preview: [python, -m, fieldkit, build-harness, rebase-set]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_rebase.py"]
+  notes: "write=1 writes and removes files in the owner's patch-set repo (tracked; undo is git there). The preview mode needs TASK appended."
+
+- id: bh-set-proof
+  title: Pristine upstream + each platform's selection of the patch set must apply; excluded dependencies named
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, set-proof]
+  path: ${FIELDKIT}/fieldkit/buildh/setproof.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: patchset, flag: null, type: str, required: false, help: "patchset=DIR (default: the task's patch-set repo)"}
+    - {name: version, flag: null, type: str, required: false, help: "version=158.0 (default: the newest Firefox in the vault)"}
+    - {name: platform, flag: null, type: str, required: false, choices: [windows, linux, all], help: "platform=windows|linux|all (default all)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_setproof.py"]
+  notes: "Works in a scratch folder removed afterwards. The first word is taken as TASK even when it is a key=value word; without patchset= that word must be a real task."
+
+- id: bh-techniques
+  title: The ideas behind Gorilla's fixes - does each still hold in this tree?
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, techniques]
+  path: ${FIELDKIT}/fieldkit/buildh/techniques.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_techniques.py", "${FIELDKIT}/tests/test_buildh_techniques_one_logo.py"]
+
+- id: bh-truthbound
+  title: Is every change the port made explained by the owner's 155 truth tree or a recorded step?
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, truthbound]
+  path: ${FIELDKIT}/fieldkit/buildh/truthbound.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: truth_task, flag: --truth-task, type: str, required: false, help: "the task whose tree is the truth (default firefox-155.0.1)"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_truthbound.py"]
+  notes: "Loads the truth task (default firefox-155.0.1; --truth-task since 2026-10-18) for its root commit; on a machine without it it fails (Refused/FileNotFound). Reads 1,500+ files via git show."
+
+- id: bh-snapshot
+  title: Capture the truth of a built tree against the pristine vault copy as a complete patch set (optional --prove)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, snapshot]
+  path: ${FIELDKIT}/fieldkit/buildh/snapshot.py
+  inputs:
+    - {name: version, flag: --version, type: str, required: true, help: "the live tree's version, e.g. 155.0.1 (or as the first positional word)"}
+    - {name: out, flag: --out, type: str, required: false, help: "where to write the set (default Build.Work/snapshot-<version>)"}
+    - {name: prove, flag: --prove, type: flag, required: false, help: "rebuild a pristine copy from the set and compare it with the live tree"}
+    - {name: harness, flag: --harness, type: str, required: false, help: "the Gorilla.firefox folder (default firefox.root)"}
+  effects: [reads-files, writes-files, deletes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_snapshot.py", "${FIELDKIT}/tests/test_snapshot_security.py"]
+  notes: "Deletes only inside its own --out folder (an older set there is replaced). Given only --version (no positional word), a current task must exist although snapshot does not use it (current_id runs first)."
+
+- id: bh-fluent-check
+  title: Fluent (.ftl) strings of the ported tree checked - syntax, orphans, moved and missing messages
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, fluent-check]
+  path: ${FIELDKIT}/fieldkit/buildh/fluentcheck.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_fluentcheck.py"]
+  notes: "What fluentcheck covers exactly was not read in detail; title from its callers and test names."
+
+- id: bh-companions
+  title: A compile error naming a missing declaration -> its other half from the archived patch sets (dry-run with git)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, companions]
+  path: ${FIELDKIT}/fieldkit/buildh/companions.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: log, flag: null, type: str, required: false, help: "the build log (default <workdir>/build_logs/latest_build.log)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "apply what checks cleanly and checkpoint the work tree"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  modes:
+    apply: ["+", --apply]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_companions.py"]
+  notes: "With --apply: writes-files + git (checkpoint); undo is bh-rewind."
+
+- id: bh-archive-gap
+  title: Files the last archived (Linux-built) patch set changed that this port never touched
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, archive-gap]
+  path: ${FIELDKIT}/fieldkit/buildh/companions.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: archive, flag: null, type: str, required: false, help: "the archived set (default <harness_root>/patchset-155.0b4)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_companions.py", -k, archive]
+  notes: "Always exit 0 (a report). Default archive path is hard-coded to patchset-155.0b4."
+
+- id: bh-api-drift
+  title: Upstream API changes (build/api-drift/firefox.yaml) found in the ported C/C++ files; --apply fixes them
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, api-drift]
+  path: ${FIELDKIT}/fieldkit/build/apidrift.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "apply and checkpoint the work tree"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  modes:
+    apply: ["+", --apply]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_build_apidrift.py"]
+  notes: "With --apply: writes-files + git (checkpoint); undo is bh-rewind."
+
+- id: bh-loss-audit
+  title: Every line every Gorilla patch ever added (git history + patchset-* folders), counted in the ported tree
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, loss-audit]
+  path: ${FIELDKIT}/fieldkit/buildh/lossaudit.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: folders, flag: null, type: list, required: false, help: "extra patch folders to count"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_lossaudit.py"]
+  notes: "Always exit 0 (a report)."
+
+- id: bh-binary-patches
+  title: Every git binary patch of the set (pictures, icons) in the tree by hash; --apply restores the missing ones
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, binary-patches]
+  path: ${FIELDKIT}/fieldkit/buildh/binpatch.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "restore the missing ones, each verified"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  modes:
+    apply: ["+", --apply]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_binpatch.py"]
+  notes: "With --apply: writes-files (and deletes a failed restore's file) in the working copy, not checkpointed by this action (record it)."
+
+- id: bh-whole-files
+  title: Every NEW_FILES/REPLACE_FILES file of the patch set against the tree - missing or differing
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, whole-files]
+  path: ${FIELDKIT}/fieldkit/buildh/lossaudit.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_cli_fixes.py", -k, whole_files]
+
+- id: bh-search-strip
+  title: D-158-13 leftovers (other search engines' icons and wordmarks) in the source; --apply removes them
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, search-strip]
+  path: ${FIELDKIT}/fieldkit/buildh/searchstrip.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "remove them from the working copy"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  modes:
+    apply: ["+", --apply]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_searchstrip.py"]
+  notes: "With --apply: deletes-files and writes-files in the working copy, not checkpointed by this action."
+
+- id: bh-timebombs
+  title: Every date compiled into the tree that switches a protection off, judged against a date plus a margin (D-157-42)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, timebombs]
+  path: ${FIELDKIT}/fieldkit/buildh/timebombs.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: margin, flag: null, type: int, required: false, help: "margin=DAYS (default timebombs.MARGIN_DAYS, 42 per the code comment)"}
+    - {name: at, flag: null, type: str, required: false, help: "at=YYYY-MM-DD (default today)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_timebombs.py"]
+
+- id: bh-lists-refresh
+  title: HSTS preload, key-pin and CT log lists from the upstream repository, taken only when pure data and fresher
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, lists-refresh]
+  path: ${FIELDKIT}/fieldkit/buildh/timebombs.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: ref, flag: null, type: str, required: false, help: "ref=BRANCH (default main)"}
+    - {name: write, flag: null, type: str, required: false, help: "write=1: write the lists into the tree"}
+  effects: [network, reads-files]
+  safety: read-only
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_timebombs.py", -k, refresh]
+  notes: "Always fetches (git fetch --depth 1 into state/build-harness/lists-cache) from the upstream Firefox repository: the vendor sees one fetch from this machine. write=1 also writes-files in the working copy; record them afterwards (build-harness record)."
+
+- id: bh-platform-steps
+  title: What to do on THIS operating system for the task, computed from the machine
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, platform-steps]
+  path: ${FIELDKIT}/fieldkit/buildh/platformsteps.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_platformsteps.py"]
+  notes: "Runs read-only git commands (hook check). --json ignored."
+
+- id: bh-migrate
+  title: Migration control - stages S0-S9, gates, SITREP, intents, intake, consistency, park/unpark tickets
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, migrate]
+  path: ${FIELDKIT}/fieldkit/migrate/cli.py
+  inputs:
+    - {name: sub, flag: null, type: str, required: true, choices: [brief, plan, sitrep, seed, check, gate, init, advance, work, park, unpark, intents, intake, consistency], help: "what to do"}
+    - {name: task, flag: null, type: str, required: false, help: "the task (default --task or the current one)"}
+    - {name: rest, flag: null, type: list, required: false, help: "gate: STAGE; work: ITEM; park: why; unpark: P-001 resolution; init: from=PREV at=S6"}
+    - {name: only, flag: --only, type: str, required: false, help: "check: comma list of stages (S0,S4)"}
+    - {name: task_opt, flag: --task, type: str, required: false, help: "the task"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  exits: {3: findings}
+  modes:
+    preview: [python, -m, fieldkit, build-harness, migrate, sitrep]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_migrate_control.py", "${FIELDKIT}/tests/test_migrate_ledger.py", "${FIELDKIT}/tests/test_migrate_intake_consistency.py"]
+  notes: "Read-only: brief, plan, sitrep, gate, intents, intake. Writing: seed (intents/INTENTS.yaml), check (measurement cache; S4 verify takes minutes), init/advance (plan state; the drift guard turns on), work/park/unpark (tickets). One card for 14 subcommands: split at merge if the registry wants one card per subcommand."
+
+- id: bh-latest
+  title: The latest STABLE Firefox or kernel release and exactly where its source comes from
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, latest]
+  path: ${FIELDKIT}/fieldkit/buildh/upstream.py
+  inputs:
+    - {name: product, flag: null, type: str, required: true, choices: [firefox, kernel], help: "which upstream"}
+  effects: [network]
+  safety: read-only
+  output: third-party
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_vault.py", -k, latest]
+  notes: "Contacts Mozilla's product-details list and github.com/mozilla-firefox/firefox (git ls-remote), or kernel.org releases.json. Needs no task."
+
+- id: bh-vault
+  title: The upstream vault - measure, fetch, verify, restore, restore-files, list untouched release sources
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, vault]
+  path: ${FIELDKIT}/fieldkit/buildh/vault.py
+  inputs:
+    - {name: sub, flag: null, type: str, required: true, choices: [measure, fetch, verify, restore, restore-files, list], help: "what to do"}
+    - {name: product, flag: null, type: str, required: false, choices: [firefox, kernel], help: "measure/fetch/verify/restore: which source (measure and restore-files: firefox only)"}
+    - {name: workdir, flag: null, type: str, required: false, help: "restore, restore-files: the working copy"}
+    - {name: paths, flag: null, type: list, required: false, help: "restore-files: files or folders to put back"}
+    - {name: version, flag: --version, type: str, required: false, help: "verify/restore: a version other than the newest"}
+  effects: [network, reads-files, writes-files]
+  safety: reversible
+  exits: {3: findings}
+  modes:
+    preview: [python, -m, fieldkit, build-harness, vault, measure, firefox]
+    verify: [python, -m, fieldkit, build-harness, vault, verify, firefox]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_vault.py", "${FIELDKIT}/tests/test_buildh_vault_restore_files.py", "${FIELDKIT}/tests/test_buildh_cli_fixes.py"]
+  notes: "fetch downloads the release (git shallow clone / kernel.org tarball + sha256sums.asc) - several GB. restore-files moves the current versions to Agents.Work.Trash first and never deletes files the release lacks. A missing or unknown sub is refused (exit 2; it exited 0 silently until 2026-10-18). Does not need a task."
+
+- id: bh-build-gate
+  title: Before the compile - every step done, final checks passed, no hand edits/skips/answer keys; records the tree
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, build-gate]
+  path: ${FIELDKIT}/fieldkit/buildh/compile.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: harness, flag: --harness, type: str, required: false, help: "the Gorilla.firefox folder (default firefox.root)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_compile.py", -k, gate]
+  notes: "On success writes the build record (which tree and mozconfig) and prints the owner's Windows compile commands (gorilla_build.py)."
+
+- id: bh-build-run
+  title: The build loop on Windows - gate, owner's preflight, owner's build stage under watch, known stops fixed, package
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, build-run]
+  path: ${FIELDKIT}/fieldkit/buildh/buildrun.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: force, flag: --force, type: flag, required: false, help: "pass --force to the owner's build stage when ONLY build-dependent blockers fail"}
+    - {name: park, flag: --park, type: str, required: false, help: "under migration control: park as a ticket instead of running"}
+  effects: [processes, power, writes-files, deletes-files, git]
+  safety: irreversible
+  exits: {3: findings}
+  modes:
+    preview: [python, -m, fieldkit, build-harness, build-gate]
+    verify: [python, -m, fieldkit, build-harness, build-verify]
+  platforms: [windows]
+  platforms_why: "drives the Windows build script harness/gorilla_build.py of the Gorilla.firefox repository and powercfg; a Linux build is `fieldkit pipeline run firefox-linux` (platformsteps.py)"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_buildrun.py", "${FIELDKIT}/tests/test_buildrun_sweep.py"]
+  notes: "HOURS. Run it through bh-window. The owner's stage switches the power scheme; this puts it back if the stage leaves another (powercfg /setactive). Kills only its own build process tree by PID (taskkill /T). Deletes stale objdir objects, toolchain folders and dist paths per its STOPS fixes. Machine-heavy: never while a leak gate or another build runs."
+
+- id: bh-build-verify
+  title: After the compile - tree unchanged since the gate, fresh real artifacts, pinned version, BuildID, about pages
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, build-verify]
+  path: ${FIELDKIT}/fieldkit/buildh/compile.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_compile.py", -k, "artifact or verify or binary"]
+  notes: "Writes build-result.json (hashes, BuildID). Starts the built browser from dist/bin (version, buildstamp, about pages) - throwaway runs."
+
+- id: bh-repro
+  title: The binary reproduced - plan (reads only), --run a second build in another folder, --compare packages byte for byte
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, repro]
+  path: ${FIELDKIT}/fieldkit/buildh/reprobuild.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: run, flag: --run, type: flag, required: false, help: "make the second build, then compare (hours)"}
+    - {name: compare, flag: --compare, type: flag, required: false, help: "only compare a second build already made"}
+  effects: [reads-files]
+  safety: read-only
+  exits: {3: findings}
+  modes:
+    apply: ["+", --run]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_reprobuild.py", "${FIELDKIT}/tests/test_buildh_cli_fixes.py"]
+  notes: "The text plan crashed with UnboundLocalError when OK until 2026-10-18 (fixed, tested). --run: processes, writes-files, deletes-files (its own <objdir>-repro), git worktree; hours, run via bh-window."
+
+- id: bh-install
+  title: Install a verified build - backup of install and profiles, install, verify, startup caches cleared, icon cache rebuilt
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, install]
+  path: ${FIELDKIT}/fieldkit/buildh/install.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the directory to install into (default: the ONE Gorilla uninstall entry)"}
+    - {name: no_backup, flag: --no-backup, type: flag, required: false, help: "skip the backup (never the default)"}
+    - {name: restore, flag: --restore, type: str, required: false, help: "put this backup directory back instead of installing"}
+  effects: [reads-files, writes-files, deletes-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  modes:
+    undo: [python, -m, fieldkit, build-harness, install, --restore, "{backup}"]
+    verify: [python, -m, fieldkit, build-harness, post-install]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_install.py"]
+  notes: "Backup to ~/Documents/Gorilla.Firefox.Backups/<version>-<stamp>/. Replaces the install directory (rmtree), clears profile startup caches, and on Windows runs IconKit cache --apply: Explorer RESTARTS after a countdown (announce in chat first). Refused while Firefox runs from the target (never stops it). Reads the Uninstall registry key (read only). --restore also moves the current profiles folder aside. Undo is reversible only while the backup exists and --no-backup was not given."
+
+- id: bh-post-install
+  title: The proof rows of the installed build - profile, prefs, excised, startup, egress, adblock, leaks, decisions, UI ...
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, post-install]
+  path: ${FIELDKIT}/fieldkit/buildh/install.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+    - {name: only, flag: --only, type: str, required: false, help: "comma list of check names (a partial run is never OK)"}
+    - {name: drive, flag: --drive, type: flag, required: false, help: "allow the checks that take the keyboard (announced, 20 s countdown)"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_install.py", -k, post_install]
+  notes: "Starts copies of the installed build headless; the egress row loads a real page (anthropic.com legal archive) and the adblock row theguardian.com (proof.py) - real network. Runs the owner's scripts from Gorilla.firefox 'working scripts'. --drive: verify_address_bar takes keyboard and foreground (gui-automation) after a 20 s countdown - announce in chat first. Refused while Firefox runs from the target."
+
+- id: bh-release-check
+  title: Is this build releasable? techniques, decisions --strict, replay, claims, post-install, leak gate, release docs
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, release-check]
+  path: ${FIELDKIT}/fieldkit/buildh/releasecheck.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: build, flag: --build, type: flag, required: false, help: "skip the post-install proof rows"}
+    - {name: fast, flag: --fast, type: flag, required: false, help: "same as --build: skip the post-install proof rows"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_release_docs_manifest.py", "${FIELDKIT}/tests/test_buildh_cli_fixes.py"]
+  notes: "Runs the other actions as subprocesses (2 h timeout each), so it inherits their effects: replay scratch, claims report, post-install browser copies and real-page loads. --fast was read but never declared (refused) until 2026-10-18; now declared and tested. Docstring says it 'changes nothing'."
+
+- id: bh-probe
+  title: Ask a throwaway copy of the installed build a question, or try a JS/CSS fix in it, without a build
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, probe]
+  path: ${FIELDKIT}/fieldkit/buildh/probe.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: js, flag: null, type: str, required: true, help: "js=<probe.js or name in buildh/probes>"}
+    - {name: url, flag: null, type: str, required: false, help: "url=... (default about:blank)"}
+    - {name: wait, flag: null, type: float, required: false, help: "wait=S (15)"}
+    - {name: timeout, flag: null, type: float, required: false, help: "timeout=S (90)"}
+    - {name: visible, flag: null, type: str, required: false, help: "visible=1: a normal window instead of headless"}
+    - {name: profile, flag: null, type: str, required: false, help: "profile=DIR"}
+    - {name: change, flag: null, type: list, required: false, help: "omni=<jar>:<member>=<file> | file=<path>=<file> | add=<path>=<file> | sub=<old>=><new> | tree-since=<commit|build> tree-until=<commit>"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the build (an unpacked dist/bin for the fast loop)"}
+  effects: [reads-files, processes]
+  safety: reversible
+  exits: {3: "timed out"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_probe.py", "${FIELDKIT}/tests/test_buildh_probe_cleanup.py"]
+  notes: "Writes only temp copies; stops only its own process tree by PID. visible=1 opens a window (foreground; announce)."
+
+- id: bh-probe-compare
+  title: Two saved probe outputs (TOK|... lines) compared - LOST, changed, now-set
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, probe-compare]
+  path: ${FIELDKIT}/fieldkit/buildh/probe_compare.py
+  inputs:
+    - {name: a, flag: null, type: str, required: true, help: "before: a file holding a probe's output"}
+    - {name: b, flag: null, type: str, required: true, help: "after"}
+    - {name: prefix, flag: null, type: str, required: false, help: "prefix=TOK"}
+    - {name: keys, flag: null, type: int, required: false, help: "keys=2"}
+    - {name: value, flag: null, type: str, required: false, choices: [last, all], help: "value=last|all"}
+    - {name: limit, flag: null, type: int, required: false, help: "limit=200"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_probe_compare.py"]
+  notes: "Needs no task."
+
+- id: bh-visual
+  title: Crisp icons and aligned pages - static rules on the tree, then a headless throwaway copy of the install
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, visual]
+  path: ${FIELDKIT}/fieldkit/visual/__init__.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: static, flag: --static, type: flag, required: false, help: "only the static layer (no browser)"}
+    - {name: only, flag: --only, type: str, required: false, help: "comma list of about: pages (a partial run is never OK)"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+    - {name: change, flag: null, type: list, required: false, help: "omni=/file=/add=/sub=/tree-since= a candidate fix in the copy (not with --static)"}
+  effects: [reads-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  modes:
+    preview: ["+", --static]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_visual_runtime.py", "${FIELDKIT}/tests/test_visual_static.py"]
+  notes: "Path is the visual package entry; check() location inside it not traced."
+
+- id: bh-images
+  title: Every picture packaged in the installed build - count, bytes, exact duplicates
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, images]
+  path: ${FIELDKIT}/fieldkit/buildh/images.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_images.py"]
+  notes: "Always exit 0."
+
+- id: bh-weigh
+  title: RAM and CPU per page - the installed build against the same build with a change (or another install)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, weigh]
+  path: ${FIELDKIT}/fieldkit/buildh/weigh.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: pages, flag: null, type: str, required: false, help: "pages=a,b (default weigh.DEFAULT_PAGES)"}
+    - {name: reps, flag: null, type: int, required: false, help: "reps=N (3)"}
+    - {name: clean, flag: null, type: str, required: false, help: "clean=0: leave running, measure settle seconds after opening"}
+    - {name: settle, flag: null, type: int, required: false, help: "settle=S (6 clean, 75 not)"}
+    - {name: before, flag: null, type: str, required: false, help: "before=DIR another installed build as the before side"}
+    - {name: change, flag: null, type: list, required: true, help: "one of tree-since=/tree-until=, sub=A=>B, omni=..., or before= (refused without a change)"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_weigh.py"]
+  notes: "Saves its result (wg.save) under Fieldkit state. Always exit 0."
+
+- id: bh-about-pages
+  title: "Every about: page of a copy of the installed build opened, read and judged; compared with the last other build"
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, about-pages]
+  path: ${FIELDKIT}/fieldkit/buildh/aboutpages.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: only, flag: null, type: str, required: false, help: "only=a,b pages"}
+    - {name: walk, flag: null, type: str, required: false, help: "walk=1: a VISIBLE window walks every link of about:about"}
+    - {name: dwell, flag: null, type: float, required: false, help: "dwell=S per page (walk: 6)"}
+    - {name: countdown, flag: null, type: int, required: false, help: "countdown=S before a visible walk (15)"}
+    - {name: visible, flag: null, type: str, required: false, help: "visible=0: the walk headless"}
+    - {name: timeout, flag: null, type: float, required: false, help: "timeout=S (900; walk 1800)"}
+    - {name: shots, flag: null, type: str, required: false, help: "shots=... (passed to aboutpages.run; meaning not traced)"}
+    - {name: change, flag: null, type: list, required: false, help: "omni=/file=/add=/sub=/tree-since= a change in the copy"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_aboutpages.py", "${FIELDKIT}/tests/test_buildh_about_register.py"]
+  notes: "Keeps the result JSON under state (about-pages-*.json). walk=1 takes the foreground after a countdown (gui), behind a dead proxy; announce in chat."
+
+- id: bh-about-registry
+  title: "Every about: page the source can register (tree and pristine), what the newest build registered, the owner's verdict"
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, about-registry]
+  path: ${FIELDKIT}/fieldkit/buildh/aboutregistry.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_aboutregistry.py"]
+  notes: "Always exit 0. Reads kept about-pages runs; runs read-only git."
+
+- id: bh-satellite
+  title: Satellite mode judged on a copy - identity and scripts per level and per kind of site, call sites included
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, satellite]
+  path: ${FIELDKIT}/fieldkit/buildh/satellite.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: need_list, flag: null, type: str, required: false, help: "need-list=0: skip the call-site list"}
+    - {name: change, flag: null, type: list, required: false, help: "omni=/file=/add=/sub=/tree-since= a change in the copy"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_satellite.py"]
+
+- id: bh-calibrate
+  title: Every check passes the known-good package and fails a copy broken the way it guards against
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, calibrate]
+  path: ${FIELDKIT}/fieldkit/buildh/calibrate.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: only, flag: null, type: str, required: false, help: "only=<fault id>,..."}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_calibrate.py"]
+  notes: "Unpacks the package into temp folders (removed). Prints only the first row; the verdict covers all."
+
+- id: bh-clip-check
+  title: Is dialog text cut in the installed build? repeated, against stock Firefox of the same version
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, clip-check]
+  path: ${FIELDKIT}/fieldkit/buildh/clipcheck.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: repeats, flag: null, type: int, required: false, help: "repeats=3"}
+    - {name: stock, flag: null, type: str, required: false, help: "stock=0: no stock control"}
+    - {name: version, flag: null, type: str, required: false, help: "version=X.Y for the stock control (default: the install's application.ini)"}
+    - {name: surface, flag: null, type: str, required: false, help: "surface=leave-page (default)"}
+    - {name: swap, flag: null, type: list, required: false, help: "swap=<build>=<tree> ..."}
+    - {name: try, flag: null, type: list, required: false, help: "try=<build>=<file> ..."}
+    - {name: pref, flag: null, type: list, required: false, help: "pref=<name>=<value> ..."}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: "the stock control (default) is Mozilla's linux-x86_64 tarball (build/decode_test.stock_firefox); stock=0 might run on Windows but that is unverified"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_clipcheck.py"]
+  notes: "Downloads stock Firefox once from archive.mozilla.org into state/stock-firefox/<version> (checked against SHA256SUMS): the vendor sees the download."
+
+- id: bh-profile-diff
+  title: The same probe on a fresh profile and on a copy of the real profile; exit 3 when they differ
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, profile-diff]
+  path: ${FIELDKIT}/fieldkit/buildh/profilediff.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: probe, flag: null, type: str, required: true, help: "probe=<name>"}
+    - {name: profile, flag: null, type: str, required: true, help: "profile=<profile dir> (copied, never used in place)"}
+    - {name: install, flag: null, type: str, required: false, help: "install=<dir>"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files, processes]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_profilediff.py"]
+  notes: "Copies the real profile (logins, cookies) to a temp folder: personal data on disk until removed - cleanup not traced."
+
+- id: bh-profile-check
+  title: Every profile and which version last ran it, every launcher and the profile it names, the menu cache
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, profile-check]
+  path: ${FIELDKIT}/fieldkit/buildh/profilecheck.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: profile, flag: null, type: str, required: false, help: "profile=<intended> (default: the one profile-fresh recorded)"}
+    - {name: paint, flag: null, type: str, required: false, help: "paint=1: the new tab's pixels on a COPY of the intended profile"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: "reads ~/.mozilla, ~/.config/mozilla, .desktop launchers and ~/.local/bin (profilecheck.ROOTS); no Windows profile or shortcut reader"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_profilecheck.py"]
+  notes: "paint=1 starts a throwaway copy (processes)."
+
+- id: bh-profile-fresh
+  title: The person's data into a fresh profile, none of the old version's settings; lists user.js settings the build lacks
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, profile-fresh]
+  path: ${FIELDKIT}/fieldkit/buildh/profilefresh.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: from, flag: null, type: str, required: true, help: "from=<old profile>"}
+    - {name: to, flag: null, type: str, required: true, help: "to=<new profile>"}
+    - {name: machine, flag: null, type: list, required: false, help: "machine=<pref>=<value>:<reason> (this machine only)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "copy the data and check the result"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install whose shipped prefs are compared"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "from=/to= missing", 3: findings}
+  modes:
+    apply: ["+", --apply]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_profilefresh.py"]
+  notes: "With --apply: writes-files into the to= folder (logins, bookmarks ... - personal data) and records it as the intended profile; the old profile is only read. Born on Linux; Windows use not proven."
+
+- id: bh-profile-keep
+  title: Which profile holds the saved logins and which install opens it; FAIL when the install would open an empty one
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, profile-keep]
+  path: ${FIELDKIT}/fieldkit/buildh/profilekeep.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: install, flag: null, type: str, required: false, help: "install=DIR (default: the Gorilla install)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_profilekeep.py"]
+
+- id: bh-leakgate
+  title: Run the leak gate on the task's built package - quiet machine, mitm, DNS and packet sensors, judged by policy
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate]
+  path: ${FIELDKIT}/fieldkit/leakgate/gate.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: release, flag: --release, type: flag, required: false, help: "release run: full durations, 3 repetitions, packets required (UAC on Windows)"}
+    - {name: repeat, flag: --repeat, type: int, required: false, help: "repetitions per scenario (1; release >= 3)"}
+    - {name: soak, flag: --soak, type: int, required: false, help: "startup-idle duration in seconds (1800 or 3600)"}
+    - {name: firewall, flag: --firewall, type: flag, required: false, help: "(elevated) outbound block rule for the direct build copy, removed at the end"}
+    - {name: only, flag: --only, type: str, required: false, help: "comma list of scenarios"}
+  effects: [processes, network, admin, writes-files, deletes-files]
+  safety: irreversible
+  exits: {3: findings}
+  modes:
+    preview: [python, -m, fieldkit, build-harness, leakgate-scope]
+    verify: [python, -m, fieldkit, build-harness, leakgate-status]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate.py", "${FIELDKIT}/tests/test_leakgate_actions_run.py", "${FIELDKIT}/tests/test_leakgate_sensors.py"]
+  notes: "DANGEROUS TO THE OWNER'S SESSION: 'quiet machine' stops every user app that holds a network socket or is on the quiet list, by PID, and a holder re-checks every 2 s until the gate ends (autopilot/quiet.py) - unsaved work in those apps is lost. Starts mitmdump and browser copies (stops its own by PID). Lets the build copies reach the real network (that is the measurement). Windows: --release asks UAC for the elevated pktmon helper; with admin it enables the DNS-Client event log (restored afterwards per dnsclient_restore - not traced); --firewall adds and removes an outbound rule. Linux: needs root (network namespace, nftables). Writes the run folder and <owner>/state/leakgate_result.json (the publish gate reads it). Hours for a release run: use bh-window."
+
+- id: bh-leakgate-selftest
+  title: Can the leak gate run on this Linux machine (root, ip, nft, ...)? Changes nothing; needs no task
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-selftest]
+  path: ${FIELDKIT}/fieldkit/leakgate/linux.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: "checks the Linux runner's needs (root, network namespaces, nftables); the Windows gate has no selftest"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_next_lines.py", "${FIELDKIT}/tests/test_buildh_cli_fixes.py"]
+  notes: "The text output on a READY machine crashed with UnboundLocalError until 2026-10-18 (fixed, tested). On Windows it runs and reports NOT READY (not refused as not-this-platform)."
+
+- id: bh-leakgate-scope
+  title: What changed since the last passed gate, and whether any of it can reach the network (report only)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-scope]
+  path: ${FIELDKIT}/fieldkit/leakgate/scope.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: from, flag: null, type: str, required: false, help: "from=<tree commit> instead of the last passed gate's"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_scope.py"]
+  notes: "Always exit 0; the verdict is in the last line."
+
+- id: bh-leakgate-status
+  title: A (running) leak gate - runs started of expected, alive, result, CPU since start; safe while it runs
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-status]
+  path: ${FIELDKIT}/fieldkit/leakgate/status.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: run, flag: null, type: str, required: false, help: "run=STAMP (default the newest)"}
+    - {name: thermal, flag: null, type: str, required: false, help: "thermal=LOG (default <owner>/state/thermal_watch.log)"}
+    - {name: hot, flag: null, type: float, required: false, help: "hot=70 (C)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_status.py"]
+
+- id: bh-leakgate-context
+  title: Each host in the install's omni.ja with path:line and context, as disposition evidence
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-context]
+  path: ${FIELDKIT}/fieldkit/leakgate/audit.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: hosts, flag: null, type: list, required: false, help: "HOST ... or hosts=FILE.json (default: the hosts the newest run still needs a decision for)"}
+    - {name: run, flag: null, type: str, required: false, help: "run=STAMP"}
+    - {name: width, flag: null, type: int, required: false, help: "width=160"}
+    - {name: per, flag: null, type: int, required: false, help: "per=8 occurrences per member"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install, or a run's build-direct copy"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_context.py"]
+
+- id: bh-leakgate-summary
+  title: A gate run scene by scene in plain words, for the release page
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-summary]
+  path: ${FIELDKIT}/fieldkit/leakgate/summary.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: log, flag: null, type: str, required: false, help: "log=<launcher log> (default the newest of this task)"}
+    - {name: out, flag: null, type: str, required: false, help: "out=<file.md> (default: printed)"}
+    - {name: build, flag: null, type: str, required: false, help: "build=<id> (passed to summary.run)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_summary.py"]
+  notes: "out= writes that file (writes-files). Reads state/leakgate-launcher/<task>-*.log (the launcher's logs, not the gate's own run folder)."
+
+- id: bh-leakgate-propose
+  title: Propose allowlist entries from the newest gate run's events (nothing is approved)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-propose]
+  path: ${FIELDKIT}/fieldkit/leakgate/allow.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_actions.py", -k, propose]
+  notes: "Writes proposed (unapproved) entries into the owner's allowlist file. Allowlist changes are on the autopilot hard-line list: owner review."
+
+- id: bh-leakgate-approve
+  title: The owner approves proposed allowlist entries (by id, default every *proposed*) - real terminal only
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-approve]
+  path: ${FIELDKIT}/fieldkit/leakgate/allow.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: ids, flag: null, type: list, required: false, help: "entry ids (default *proposed*)"}
+  effects: [writes-files]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate.py", -k, approv]
+  notes: "OWNER ONLY (allow.approve refuses without a terminal on stdin). Relaxes the leak gate: never by an agent."
+
+- id: bh-leakgate-proposal
+  title: Reviewers' result rows -> proposed-dispositions-<label>.json (approval null) plus the owner's review document
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-proposal]
+  path: ${FIELDKIT}/fieldkit/leakgate/dispositions.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: results, flag: null, type: list, required: true, help: "RESULT.json ... reviewers' rows"}
+    - {name: override, flag: null, type: list, required: false, help: "override=FILE.json ..."}
+    - {name: label, flag: null, type: str, required: false, help: "label=NAME"}
+    - {name: notes, flag: null, type: str, required: false, help: "notes=FILE.md"}
+    - {name: run, flag: null, type: str, required: false, help: "run=STAMP"}
+    - {name: review, flag: null, type: str, required: false, help: "review=FILE.md"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_proposal.py"]
+  notes: "A proposal only; nothing here can approve."
+
+- id: bh-leakgate-dispositions
+  title: The owner approves the newest proposed dispositions (blanket for approvable ones; KEY names an owner-decision one)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-dispositions]
+  path: ${FIELDKIT}/fieldkit/leakgate/dispositions.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: keys, flag: null, type: list, required: false, help: "OWNER-DECISION entry keys to approve too"}
+  effects: [writes-files]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_dispositions_approve.py"]
+  notes: "OWNER ONLY (refused without a terminal on stdin). Writes <owner>/leakgate/dispositions.json."
+
+- id: bh-leakgate-rejudge
+  title: The same gate evidence judged again by the current judge and allowlist; updates the owner's result if it is that run
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-rejudge]
+  path: ${FIELDKIT}/fieldkit/leakgate/gate.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: run, flag: null, type: str, required: false, help: "run folder name (default the newest)"}
+    - {name: note, flag: --note, type: str, required: false, help: "why it is re-judged"}
+  effects: [reads-files, writes-files]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: null
+  notes: "No owner_terminal() check. Rewrites the run's verdict and, when it is the run of record, <owner>/state/leakgate_result.json (FINAL_RESULT read by the publish gate). Re-judging is on the owner-review list (memory: leak-gate relaxations need owner review). Exit always 0."
+
+- id: bh-leakgate-baseline
+  title: The owner saves the leak-gate baseline from a release PASS (or the first one), with decisions enforced and claims clean
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, leakgate-baseline]
+  path: ${FIELDKIT}/fieldkit/leakgate/gate.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [reads-files, writes-files]
+  safety: irreversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_leakgate_bootstrap.py", "${FIELDKIT}/tests/test_buildh_claims.py", -k, "baseline or bootstrap"]
+  notes: "OWNER ONLY (real terminal). Runs decisions --strict and claims first (minutes)."
+
+- id: bh-capture
+  title: Network forensics of the built package on Windows - decrypted requests (mitm), DNS names, packets (admin)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, capture]
+  path: ${FIELDKIT}/fieldkit/buildh/capture.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: packets_only, flag: --packets-only, type: flag, required: false, help: "only the frame-level pktmon pass (needs an admin shell)"}
+  effects: [processes, network, writes-files, admin]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [windows]
+  platforms_why: "firefox.exe copies, pktmon and taskkill; the Linux evidence path is the leak gate's namespace runner"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_capture.py"]
+  notes: "Copies the zip to state/<task>/capture-<stamp>/ and runs throwaway copies against real pages (the page scenario). Stops only its own processes by PID. Packets need an elevated shell (pktmon captures every frame on the machine). Tests cover only judge() and SNI parsing."
+
+- id: bh-netbench
+  title: Network benches B1-B5 against local servers through an emulated link (headless throwaway copy); or compare two results
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, netbench]
+  path: ${FIELDKIT}/fieldkit/netbench/cli.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the task, or the word compare (then A B)"}
+    - {name: compare, flag: null, type: list, required: false, help: "compare A B: before/after deltas of two results"}
+    - {name: bench, flag: --bench, type: str, required: false, help: "comma list of B1,B2,B3,B4,B5 (default all)"}
+    - {name: profile, flag: --profile, type: str, required: false, choices: [normal, satellite, slow, satellite-emulated, slow-emulated, upstream-buffers, upstream-memcache, upstream-both], help: "browser mode level or RAM variant (normal)"}
+    - {name: links, flag: --links, type: str, required: false, help: "comma list of broadband,starlink,geo,austere"}
+    - {name: label, flag: --label, type: str, required: false, help: "the name of this result"}
+    - {name: repeat, flag: --repeat, type: int, required: false, help: "repetitions per bench (3)"}
+    - {name: out, flag: --out, type: str, required: false, help: "the results folder (default <firefox.root>/bench)"}
+    - {name: moz_log, flag: --moz-log, type: str, required: false, help: "MOZ_LOG modules written per visit beside the result"}
+    - {name: keep_profile, flag: --keep-profile, type: flag, required: false, help: "keep a copy of every profile beside the result"}
+    - {name: no_images, flag: --no-images, type: flag, required: false, help: "the profiles load no images"}
+    - {name: install_dir, flag: --install-dir, type: str, required: false, help: "the install (default: the registered one)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  exits: {3: "a bench UNMEASURED"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_netbench.py", "${FIELDKIT}/tests/test_netbench_evidence.py", "${FIELDKIT}/tests/test_netbench_lab.py"]
+  notes: "Everything on 127.0.0.1 (origin, HTTP/3, link-emulating relay); no outside host. Stops only its own processes by PID. Writes results (and with --keep-profile, profile copies) into the results folder. Needs no task (a missing one is tolerated)."
+
+- id: bh-decode-test
+  title: Does the installed browser decode video on the GPU's video engine (D-158-06)? measured, not assumed
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, decode-test]
+  path: ${FIELDKIT}/fieldkit/build/decode_test.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (resolved, not used)"}
+  effects: [processes, admin, writes-files, gui-automation]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: "intel_gpu_top (sudo -n), /proc CPU times and ss; the isolation step is POSIX (SIGTERM)"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_build_decode_test.py"]
+  notes: "DANGEROUS TO THE SESSION: build/isolation.py CLOSES the person's other browsers and background-heavy apps (messengers, launchers, torrent/sync clients) with SIGTERM, selected by name from its lists, then reopens them from their saved command lines; speaks a warning and counts down first. Opens a visible test window. --seconds appears in the module docstring but is NOT a build-harness option (unrecognized)."
+
+- id: bh-pref-bisect
+  title: Which of our graphics pref changes costs dropped frames, by halving (isolated, measured)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, pref-bisect]
+  path: ${FIELDKIT}/fieldkit/build/prefbisect.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+  effects: [processes, admin, writes-files, gui-automation]
+  safety: reversible
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: "built on decode-test (intel_gpu_top, /proc) and the POSIX isolation step"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_build_prefbisect.py"]
+  notes: "Same isolation as decode-test: closes other browsers and heavy apps (SIGTERM) and reopens them."
+
+- id: bh-release-roundtrip
+  title: Remove the installed browser, download the published .deb from GitHub, check, install and verify it
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, release-roundtrip]
+  path: ${FIELDKIT}/fieldkit/build/release_roundtrip.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: tag, flag: null, type: str, required: true, help: "tag=<release tag>"}
+    - {name: repo, flag: null, type: str, required: false, help: "repo=owner/name (default release_roundtrip.DEFAULT_REPO)"}
+    - {name: asset, flag: null, type: str, required: false, help: "asset=<file.deb>"}
+    - {name: keep, flag: null, type: str, required: false, help: "keep=1: keep the download"}
+  effects: [network, admin, deletes-files, writes-files]
+  safety: irreversible
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: "a .deb, dpkg and apt-get; on Windows the row says so"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_build_release_roundtrip.py"]
+  notes: "sudo -n apt-get remove of the installed package (profile in ~/.mozilla untouched), then installs the downloaded file. Contacts api.github.com and the release download host. A checksum mismatch stops before anything is removed. Undo: install a previous .deb."
+
+- id: bh-window
+  title: Run a build-harness command in its own visible window that outlives this session (screen-like), logged
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, window]
+  path: ${FIELDKIT}/fieldkit/buildh/window.py
+  inputs:
+    - {name: command, flag: null, type: list, required: true, help: "the build-harness command and all its options, exactly as typed"}
+  effects: [processes, power, writes-files]
+  safety: unknown
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_window.py", -k, "window or launch or linux_window"]
+  notes: "Safety is that of the command it runs. Windows: a new PowerShell window via WMI Win32_Process.Create (-NoExit), SetThreadExecutionState keep-awake while it runs (no setting changed), herald on the log. Linux: setsid detached session, systemd-inhibit. Log in state/windows/<stamp>-<command>.log ending 'exit <code>'. Exit 0 once started."
+
+- id: bh-awake
+  title: Keep the machine from idle-sleeping until a given process exits
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, awake]
+  path: ${FIELDKIT}/fieldkit/buildh/window.py
+  inputs:
+    - {name: pid, flag: null, type: int, required: true, help: "the process to stay awake for"}
+  effects: [processes, power]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_window.py", -k, awake]
+  notes: "Starts a holder process; the request ends when that PID exits. A closed lid or chosen Sleep still sleeps. Linux needs systemd-inhibit."
+
+- id: bh-follow
+  title: A window log's milestones as they are written; exits with the run's own exit code (124 at the timeout)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, follow]
+  path: ${FIELDKIT}/fieldkit/buildh/window.py
+  inputs:
+    - {name: log, flag: null, type: str, required: false, help: "a window log, or latest (default)"}
+    - {name: cmd, flag: null, type: str, required: false, help: "cmd=build-run: the newest log of that command"}
+    - {name: every, flag: null, type: str, required: false, help: "every=1: every line, not only milestones"}
+    - {name: timeout, flag: null, type: float, required: false, help: "timeout=S"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {124: "timed out"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_window.py", -k, follow]
+  notes: "Exit code is the followed run's own; needs no task."
+
+- id: bh-herald
+  title: The spoken herald - say one sentence, or speak up while a run goes on (battery warnings, run finished)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, herald]
+  path: ${FIELDKIT}/fieldkit/buildh/herald.py
+  inputs:
+    - {name: words, flag: null, type: list, required: false, help: "a sentence to say once (or say=...)"}
+    - {name: name, flag: null, type: str, required: false, help: "name=<the run>"}
+    - {name: pid, flag: null, type: int, required: false, help: "pid=<process to watch>"}
+    - {name: log, flag: null, type: str, required: false, help: "log=<window log>"}
+    - {name: every, flag: null, type: int, required: false, help: "every=60 seconds"}
+  effects: [processes]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_herald.py"]
+  notes: "Offline voice (Windows System.Speech via PowerShell; Linux espeak-ng/espeak/spd-say); prints HERALD: lines when none. The watch form blocks until the watched PID or log ends. Needs no task."
+
+- id: bh-symptom
+  title: The tool already built and proven for a visible problem - the first command for a screenshot or complaint
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, symptom]
+  path: ${FIELDKIT}/fieldkit/buildh/symptoms.py
+  inputs:
+    - {name: words, flag: null, type: list, required: false, help: "what you see, in words"}
+    - {name: all, flag: --all, type: flag, required: false, help: "every recorded symptom"}
+  effects: []
+  safety: read-only
+  output: own
+  exits: {3: "no recorded symptom matches"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_symptoms.py"]
+  notes: "Needs no task."
+
+- id: bh-stops
+  title: Every window run that did not pass, classified - the browser, the check or the machine - and false alarms per check
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, stops]
+  path: ${FIELDKIT}/fieldkit/buildh/stops.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: since, flag: null, type: str, required: false, help: "since=YYYY-MM-DD (default 7 days ago)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_stops.py"]
+  notes: "Always exit 0. Runs read-only git."
+
+- id: bh-runbook
+  title: Run or show a runbook's steps under the build harness (so `window runbook run FILE` gets a window and keep-awake)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, runbook]
+  path: ${FIELDKIT}/fieldkit/autopilot/runbook.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [run, status, start], help: "run the steps, show them, or start them in their own window"}
+    - {name: file, flag: null, type: str, required: true, help: "the runbook .md"}
+  effects: [processes, writes-files]
+  safety: unknown
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_runbook.py"]
+  notes: "Same engine as the `runbook` card (fieldkit runbook). Effects are the runbook's steps; a failed step may call a model (runbook_main fix=True). Usage: build-harness runbook run|status|start FILE.md; FILE required (refused with usage otherwise; fixed 2026-10-18 by the orchestrator session, tested in test_autopilot_runbook.py)."
+
+- id: bh-hidden-pages-doc
+  title: "The hidden about: pages explained page by page (English public, Romanian private), rendered and checked"
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, hidden-pages-doc]
+  path: ${FIELDKIT}/fieldkit/buildh/hiddendocs.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: write, flag: null, type: str, required: false, help: "write=1: write the documents into the owner repo"}
+    - {name: release, flag: null, type: str, required: false, help: "release=FILE: write the release-page edition there"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  modes:
+    apply: ["+", "write=1"]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_hiddendocs.py"]
+  notes: "Read-only check by default. write=1 writes (and removes stale) files in the owner repo, one Romanian private; release=FILE writes that file. Keep-identity-off-GitHub rule applies to what is written."
+
+- id: bh-release-cover
+  title: The release page names every decision made since the last release and fits GitHub's 125000-character limit
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, release-cover]
+  path: ${FIELDKIT}/fieldkit/buildh/releasecover.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: page, flag: null, type: str, required: true, help: "page=<release page .md>"}
+    - {name: previous, flag: null, type: str, required: false, help: "previous=<tag or file>"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_releasecover.py"]
+  notes: "Runs read-only git."
+
+# NEEDS A TEST (test: null above) - 1:
+#   bh-leakgate-rejudge  gate.rejudge (rewrites the publish gate's FINAL_RESULT); the orchestrator session owns
+#                        leakgate/ and closes its owner-only gap in autopilot/hardlines.py
+
+- id: wait
+  title: Wait on a condition, never on a clock - poll a command (exit code or regex) or a file, with a deadline
+  harness: method
+  entry: [python, -m, fieldkit, wait]
+  path: ${FIELDKIT}/fieldkit/method/wait.py
+  inputs:
+    - {name: until, flag: --until, type: str, required: false, help: "the command to check, as one string (this or --until-file)"}
+    - {name: until_file, flag: --until-file, type: str, required: false, help: "wait until this path exists"}
+    - {name: matches, flag: --matches, type: str, required: false, help: "regex the command's output must match (instead of its exit code)"}
+    - {name: expect_exit, flag: --exit, type: int, required: false, help: "the exit code that means done (0)"}
+    - {name: timeout, flag: --timeout, type: float, required: false, help: "deadline in seconds (600)"}
+    - {name: every, flag: --every, type: float, required: false, help: "seconds between checks (5)"}
+  effects: [processes]
+  safety: unknown
+  output: own
+  exits: {3: "deadline reached"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, wait]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Read-only itself; runs the --until command every --every seconds, so its safety is that command's. --until-file only reads. Exit 2 bad input."
+
+- id: mutate
+  title: Prove a test can fail - break a rule on purpose, run the test, put the file back byte for byte
+  harness: method
+  entry: [python, -m, fieldkit, mutate]
+  path: ${FIELDKIT}/fieldkit/method/mutate.py
+  inputs:
+    - {name: file, flag: null, type: str, required: false, help: "the file to mutate (or --plan)"}
+    - {name: swap, flag: --swap, type: list, required: false, help: "OLD NEW: the text to swap (must occur exactly --count times)"}
+    - {name: count, flag: --count, type: int, required: false, help: "expected occurrences (1)"}
+    - {name: plan, flag: --plan, type: str, required: false, help: "YAML list of {file, swap: [OLD, NEW], why}"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "folder to run the test in"}
+    - {name: timeout, flag: --timeout, type: float, required: false, help: "test timeout in seconds (1800)"}
+    - {name: test, flag: null, type: list, required: true, help: "after --: the test command"}
+  effects: [writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {3: "a mutation SURVIVED"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, mutat]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "The file is changed for the length of one test run and restored also on Ctrl+C or a crash (a hard kill of the process would leave it mutated). Exit 2 also when the test fails on the untouched file. Runs the given test command."
+
+- id: regress
+  title: Compare test failures by name before and after a change (record LABEL -- CMD; compare A B; show)
+  harness: method
+  entry: [python, -m, fieldkit, regress]
+  path: ${FIELDKIT}/fieldkit/method/regress.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [record, compare, show], help: "record runs the command and keeps the names"}
+    - {name: labels, flag: null, type: list, required: true, help: "record/show: LABEL; compare: A B"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "record: folder to run the command in"}
+    - {name: command, flag: null, type: list, required: false, help: "record, after --: the test command"}
+  effects: [writes-files, processes]
+  safety: unknown
+  output: own
+  exits: {3: "new failures"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, regress]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "compare and show only read state/regress/*.json. record writes state/regress/<label>.json and runs the given command (its safety)."
+
+- id: drift
+  title: Does a committed generated file still match its generator? reports where they differ, never rewrites
+  harness: method
+  entry: [python, -m, fieldkit, drift]
+  path: ${FIELDKIT}/fieldkit/method/drift.py
+  inputs:
+    - {name: file, flag: null, type: str, required: true, help: "the committed generated file"}
+    - {name: gen, flag: --gen, type: str, required: true, help: "the generator command, as one string; it prints the file"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "folder to run the generator in"}
+  effects: [reads-files, processes]
+  safety: unknown
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, drift]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Never writes the file; runs the --gen command (its safety). Exit 2 when the generator fails or the file is missing."
+
+- id: mcp-probe
+  title: Speak MCP to a server as a client does - handshake, tool list and its size, optionally one call
+  harness: method
+  entry: [python, -m, fieldkit, mcp-probe]
+  path: ${FIELDKIT}/fieldkit/method/mcp_probe.py
+  inputs:
+    - {name: call, flag: --call, type: str, required: false, help: "a tool to call once"}
+    - {name: args, flag: --args, type: str, required: false, help: "the call's arguments as JSON ({})"}
+    - {name: protocol, flag: --protocol, type: str, required: false, help: "protocol version to ask for (2024-11-05)"}
+    - {name: timeout, flag: --timeout, type: float, required: false, help: "deadline per step in seconds (30)"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "folder to start the server in"}
+    - {name: server, flag: null, type: list, required: true, help: "after --: the server command (stdio)"}
+  effects: [processes]
+  safety: unknown
+  output: third-party
+  exits: {3: "the server does not speak the protocol"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, probe]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Starts the server process and stops it. Without --call only initialize and tools/list are sent; --call runs that tool, whose effects are the server's. Exit 2 bad input."
+
+- id: i18n
+  title: Translation tables checked - complete, unique per language, every used string covered; disjoint word lists
+  harness: method
+  entry: [python, -m, fieldkit, i18n]
+  path: ${FIELDKIT}/fieldkit/method/i18n.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [check], help: "check"}
+    - {name: file, flag: null, type: str, required: true, help: "the YAML/JSON file holding the table"}
+    - {name: table, flag: --table, type: str, required: false, help: "the key holding {source: translations} (this or --disjoint)"}
+    - {name: disjoint, flag: --disjoint, type: str, required: false, help: "the per-language field whose words must not be shared"}
+    - {name: langs, flag: --langs, type: str, required: false, help: "comma-separated languages / list positions"}
+    - {name: keys_from, flag: --keys-from, type: str, required: false, help: "a command printing every source string in use, one per line"}
+  effects: [reads-files, processes]
+  safety: unknown
+  output: own
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, i18n]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Read-only without --keys-from; --keys-from runs that command (its safety). Exit 2 bad input."
+
+- id: ship
+  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), push, audit, release, prune; never forces
+  harness: method
+  entry: [python, -m, fieldkit, ship]
+  path: ${FIELDKIT}/fieldkit/method/ship.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [status, sync, push, audit, release, prune], help: "status and audit read; sync, push, release, prune change the repo or the remote"}
+    - {name: tag, flag: null, type: str, required: false, help: "release: vX.Y.Z"}
+    - {name: offline, flag: --offline, type: flag, required: false, help: "audit: git only, no network"}
+    - {name: archive_unproven, flag: --archive-unproven, type: flag, required: false, help: "prune: save an unproven branch as tag archive/<branch>, then delete it"}
+    - {name: scaffold, flag: --scaffold, type: flag, required: false, help: "release: write the missing note files and stop"}
+    - {name: wait, flag: --wait, type: int, required: false, help: "release: seconds to wait for the published release (900)"}
+    - {name: base, flag: --base, type: str, required: false, help: "the base branch (main)"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "the repository folder (.)"}
+  effects: [git, network, writes-files]
+  safety: irreversible
+  output: own
+  exits: {3: "refused, with the reason and the next step"}
+  modes:
+    preview: [python, -m, fieldkit, ship, status]
+    verify: [python, -m, fieldkit, ship, audit]
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", "${FIELDKIT}/tests/test_ship_audit_release.py", -k, "ship or audit or release or prune"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune DELETES remote branches git or GitHub prove merged (with --archive-unproven, tags first). audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."
+
+- id: handover
+  title: Fixes to someone else's tool as a handover - before/after, why, test, proof; checked to apply on their copy
+  harness: method
+  entry: [python, -m, fieldkit, handover]
+  path: ${FIELDKIT}/fieldkit/method/handover.py
+  inputs:
+    - {name: fixes, flag: null, type: str, required: true, help: "FIXES.yaml (title, to, regress labels, fixes)"}
+    - {name: target, flag: --target, type: str, required: false, help: "the recipient's copy: every 'before' must occur there exactly once"}
+    - {name: out, flag: --out, type: str, required: false, help: "write the handover markdown here (default: printed)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {3: "a 'before' text is not in the target exactly once"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, handover]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Writes only the --out file; never edits the target. Reads state/regress records named in FIXES.yaml. Exit 2 bad input."
+
+- id: survey
+  title: Facts about a repository before reading it - languages, build systems, tests, licence, big files, privacy, git
+  harness: method
+  entry: [python, -m, fieldkit, survey]
+  path: ${FIELDKIT}/fieldkit/method/survey.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "one or more repository folders"}
+    - {name: no_privacy, flag: --no-privacy, type: flag, required: false, help: "skip the privacy scan"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, survey]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Runs read-only git commands (remote, branch, last commit). The privacy scan uses the owner's private word list (fieldkit privacy): its findings may quote private words - keep the output out of public places. Exit 0; 2 when a path is missing."
+
+- id: flaky
+  title: A flaky test measured and explained - failure rate over fresh runs, swallowed thread exceptions, OS-wide name collisions
+  harness: method
+  entry: [python, -m, fieldkit, flaky]
+  path: ${FIELDKIT}/fieldkit/method/flaky.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [repeat, log, scan], help: "repeat TEST...; log: re-measure state/flaky-tests.log; scan [PATH...]"}
+    - {name: targets, flag: null, type: list, required: false, help: "repeat: pytest node ids or files; scan: paths"}
+    - {name: n, flag: -n, type: int, required: false, help: "runs per test (repeat 10, log 5)"}
+  effects: [reads-files, processes, writes-files]
+  safety: unknown
+  output: own
+  exits: {3: "a test is REAL or FLAKY"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_flaky.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Wired into METHODS 2026-10-18; before that: `flaky` is not in fieldkit/cli.py METHODS, so this entry fails today (fieldkit's own parser rejects it) and `cards check` will flag it until the wiring lands; until then `python -m fieldkit.method.flaky ...` works (it has a __main__ guard). Note main() takes no prog argument, while the METHODS dispatcher calls mod.main(args, prog=...): the wiring needs main(argv=None, prog=...) or a TypeError follows. repeat/log run pytest n times in fresh processes with their own --basetemp (temp files); the tests' own effects apply. scan only reads (exit 0 always)."

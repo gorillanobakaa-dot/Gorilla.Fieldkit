@@ -508,7 +508,11 @@ def run(a, emit):
         emit(r, lambda r: print("\n".join(pc.lines(r, limit=int(opts.get("limit", 200))))))
         return 3 if r["LOST"] else 0
     if act == "vault":
-        sub, rest = a.args[0], a.args[1:]
+        # an unknown or missing sub-command used to exit 0 and print nothing (found 2026-10-18)
+        sub, rest = (a.args[0], a.args[1:]) if a.args else ("", [])
+        if sub not in ("measure", "fetch", "verify", "restore", "restore-files", "list"):
+            raise task.Refused(f"vault: say what to do: measure | fetch firefox|kernel | verify WHAT | restore WHAT DIR | "
+                               f"restore-files firefox WORKDIR PATH... | list (got {sub or 'nothing'!r})")
         if sub == "measure":
             m = vault.measure_firefox()
             return emit(m, lambda m: print(f"Firefox {m['version']}: {m['bytes'] / 1e6:,.0f} MB to download ({m['archive']})")) or 0
@@ -531,8 +535,8 @@ def run(a, emit):
         if sub == "list":
             return emit(vault.listing(), lambda rows: [print(f"{r['product']:8} {r['version']:10} {r['fetched']}  {r['path']}") for r in rows]) or 0
     if act == "start":
-        if a.args[0] != "firefox":
-            raise SystemExit("start: firefox (the kernel workflow comes next)")
+        if not a.args or a.args[0] != "firefox":            # `start` alone was an IndexError (2026-10-18)
+            raise task.Refused("start firefox: the only workflow so far (the kernel workflow comes next)")
         t = start_firefox(a.task, a.pin, a.source, a.budget, a.workdir, harness_root=a.harness)
         # a local name: `settings` is imported further down in run(), which makes it local to the whole function
         # (2026-10-16: start created the task, then crashed printing this with "cannot access free variable")
@@ -571,7 +575,7 @@ def run(a, emit):
             print(f"  {'ok  ' if r['root'] else 'MISS'} root")
             print("READY" if r["ok"] else f"NOT READY: missing {r['missing_required'] or []}"
                   + ("" if r["root"] else "; the leak gate needs root (network namespace, nftables)"))
-            print("NEXT: " + (f"{settings.self_cmd()} build-harness leakgate TASK" if r["ok"] else
+            print("NEXT: " + (f"{_settings.self_cmd()} build-harness leakgate TASK" if r["ok"] else
                               "fieldkit doctor --for leakgate (it gives the install lines); run as root; then "
                               "fieldkit build-harness leakgate-selftest"))
         return 0 if r["ok"] else 3
@@ -980,7 +984,7 @@ def run(a, emit):
         return 0
     if act == "release-check":
         from . import releasecheck as rc_
-        rows = rc_.run(tid, say=lambda m: print(m, flush=True), skip_post_install="--fast" in a.args or getattr(a, "build", False))
+        rows = rc_.run(tid, say=lambda m: print(m, flush=True), skip_post_install=bool(getattr(a, "fast", False)) or getattr(a, "build", False))
         return 0 if all(r["ok"] for r in rows) else 3
     if act == "probe":
         # probe TASK js=<file|name> [url=...] [wait=S] [omni=<jar>:<member>=<file> ...] [file=..] [add=..]: a question to (or a JS fix
@@ -1421,7 +1425,7 @@ def run(a, emit):
                     say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
                 if r["ok"]:
                     say(f"second source folder: {r['work2']}\nsecond objdir:        {r['obj2']}")
-                    say(f"NEXT: {settings.self_cmd()} build-harness window repro {tid} --run   (a full build, like the first)")
+                    say(f"NEXT: {_settings.self_cmd()} build-harness window repro {tid} --run   (a full build, like the first)")
                 else:
                     say("REPRO CANNOT RUN YET: fix the FAIL rows above")
             return 0 if r["ok"] else 3
@@ -1651,7 +1655,8 @@ def run(a, emit):
     if act == "truthbound":
         from . import truthbound, verify as vf
         t = task.load(tid)
-        repo155 = task.load("firefox-155.0.1")["workdir"]
+        # the truth tree's task was fixed in the code as firefox-155.0.1; --truth-task names another (default unchanged)
+        repo155 = task.load(getattr(a, "truth_task", None) or "firefox-155.0.1")["workdir"]
         truth155 = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"])
         r = truthbound.run(tid, repo155, truth155, say=lambda m: print(m, flush=True))
         emit(r, lambda r: print(f"TRUTHBOUND {'OK' if r['ok'] else 'NOT OK'}: {r['changed']} changed files, {len(r['unexplained'])} unexplained"))
