@@ -87,3 +87,13 @@ def test_a_failed_step_with_fix_calls_the_model_once_then_tries_again(tmp_path):
 def test_a_bad_runbook_is_refused(tmp_path):
     with pytest.raises(ValueError):
         runbook.load(book(tmp_path, [{"id": "a", "run": "x", "needs": ["z"]}]))
+
+
+def test_build_harness_runbook_reads_action_and_file_and_refuses_without_a_file(tmp_path, capsys):
+    # 2026-10-18 (tool-harness review): "build-harness runbook status FILE" ran the word "status" as the file
+    from fieldkit import cli
+    rb = tmp_path / "x.md"
+    rb.write_text("```runbook\nsteps:\n  - id: a\n    run: echo hi\n```\n", encoding="utf-8")
+    assert cli.main(["build-harness", "runbook", "status", str(rb)]) == 0
+    assert "RUNBOOK x.md" in capsys.readouterr().out
+    assert cli.main(["build-harness", "runbook", "status"]) != 0

@@ -75,6 +75,9 @@ OWNER_ONLY = [
     (r"record_decisions\.py", "re-recording the owner's pref decisions"),
     (r"gorilla_owner_approved", "the owner's own signature on a harness change"),
     (r"build-harness\s+accept\b", "accepting a hand port (the owner's call)"),
+    # 2026-10-18 (found by the tool-harness review session): the other owner-only build-harness actions
+    (r"build-harness\s+(approve|rewind|drop|withdraw|unblock|leakgate-rejudge)\b",
+     "approving, rewinding, dropping, withdrawing, unblocking or re-judging (the owner's call)"),
 ]
 CREDENTIAL = re.compile(
     r"(^|[/\\\s\"'])(\.env(\.[a-z]+)?|id_rsa|id_ed25519|[^/\\\s\"']+\.(pem|pfx|p12|key)|hosts\.yml|"

@@ -1114,8 +1114,14 @@ def run(a, emit):
     if act == "runbook":
         # runbook run|status FILE: the harness runs the steps (fieldkit/autopilot/runbook.py); here so that
         # `build-harness window runbook run FILE` gives it the detached window, the log and the keep-awake
+        # 2026-10-18 (found by the tool-harness review session): the first word was taken as the task id, so
+        # `runbook status FILE` ran "status" as a file. ACTION and FILE are read from the words; no FILE: refused
         from ..cli import runbook_main
-        return runbook_main(a.args[0] if a.args else "status", a.args[1] if len(a.args) > 1 else tid)
+        words = [w for w in a.args if w in ("run", "status", "start")] or ["status"]
+        files = [w for w in a.args if w.lower().endswith(".md")]
+        if not files:
+            raise task.Refused("usage: build-harness runbook run|status|start FILE.md (the runbook file is required)")
+        return runbook_main(words[0], files[0])
     if act == "pref-conflicts":
         # pref-conflicts TASK: two definitions the patch set adds for one pref, with different values under
         # conditions that can both hold (prefconflicts.py; 2026-10-16: Inter vs Segoe UI, 8 more). Exit 3 on any.

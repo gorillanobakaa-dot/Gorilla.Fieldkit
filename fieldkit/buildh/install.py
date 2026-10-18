@@ -541,6 +541,12 @@ DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
 
 
+def unplanned_groups(want, planned, platform=None):
+    """The asked-for proof groups that the post-install plan does not run. "profile" is Linux only by design."""
+    skip = {"profile"} if (platform or sys.platform) == "win32" else set()
+    return set(want) - set(planned) - skip
+
+
 STARTUP_ERROR = re.compile(r"JavaScript error:.*(SyntaxError|No such JSWindowActor|ReferenceError|is not defined)")
 
 
@@ -688,9 +694,17 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
                 "about": lambda: _about_rows(t, target, say), "satellite": lambda: _satellite_rows(target, say),
                 "search": lambda: _search_rows(target, say),
                 "stamp": lambda: _stamp_rows(task_id, target, say, carried=carry.get("stamp"))}
-        for g in pkgproof.PACKAGE_GROUPS:
+        # every group post-install knows, not only the package groups build-run carries (2026-10-18: "search" was
+        # in runs and PROOF_CHECKS but never planned, so D-158-13 on the real-profile copy never ran)
+        for g in list(pkgproof.PACKAGE_GROUPS) + [k for k in runs if k not in pkgproof.PACKAGE_GROUPS]:
             if g in want:
                 plan.append((g, (lambda g=g: carry[g]) if g in carry and g != "stamp" else runs[g]))
+        # fail closed: a group that is asked for but never planned is a FAIL row, never silence (2026-10-18:
+        # "search" was declared and never ran, so D-158-13 on the real profile looked proven)
+        unplanned = sorted(unplanned_groups(want, [n for n, _ in plan], platform=sys.platform))
+        if unplanned:
+            plan.append(("unplanned", lambda u=unplanned: [{"check": "post-install: every asked-for check group ran",
+                                                             "ok": False, "evidence": f"declared but never planned: {u}"}]))
         seconds = {}
         for name, fn in plan:
             t0 = time.time()

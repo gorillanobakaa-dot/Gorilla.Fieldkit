@@ -71,6 +71,13 @@ def test_protections_are_never_changed_by_a_model(tool, args, nostop):
     "python harness/record_decisions.py --write",
     "$env:GORILLA_OWNER_APPROVED=1; git commit -m x",
     "python -c \"from fieldkit.leakgate import dispositions; dispositions.approve_from('x')\"",
+    "python -m fieldkit build-harness accept firefox-158.0 027",
+    "python -m fieldkit build-harness approve firefox-158.0",
+    "python -m fieldkit build-harness rewind firefox-158.0 12",
+    "python -m fieldkit build-harness drop firefox-158.0 B-1",
+    "python -m fieldkit build-harness withdraw firefox-158.0 P-2",
+    "python -m fieldkit build-harness unblock firefox-158.0",
+    "python -m fieldkit build-harness leakgate-rejudge firefox-158.0",
 ])
 def test_owner_approvals_stay_the_owners(cmd, nostop):
     assert d("Bash", {"command": cmd}, nostop) == "deny"
