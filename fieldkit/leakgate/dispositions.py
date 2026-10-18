@@ -119,6 +119,7 @@ def approve_from(disp_path, proposed_path, named=(), say=print):
     when its key is named on the command line. Every entry is printed before anything is written.
     -> {"approved": [keys], "left": [(key, why)]}"""
     import collections
+    import fnmatch
     import json
     import time
     from ..buildh import task
@@ -132,7 +133,10 @@ def approve_from(disp_path, proposed_path, named=(), say=print):
         d = e.get("disposition")
         if d == "OPEN" or (e.get("proposal") or {}).get("needs_fix"):
             left.append((k, "OPEN / needs a fix: never approved, it gets cut"))
-        elif d == "OWNER-DECISION" and k not in named:
+        # family approval (owner 2026-10-17: "not 500 clicks"), but a pattern must name a family: at least three
+        # literal characters; a bare * or ? would approve every owner decision at once (review 2026-10-18)
+        elif d == "OWNER-DECISION" and not any(fnmatch.fnmatch(k, pat) for pat in named
+                                               if len(pat.replace("*", "").replace("?", "")) >= 3):
             left.append((k, "an owner decision: approved only when named on the command line"))
         else:
             take[k] = e

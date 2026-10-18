@@ -17,6 +17,7 @@ automatically, and for every stop write a deterministic tool and add it to the h
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -66,7 +67,7 @@ def thermal_verdict(csv_path):
     return None
 
 
-def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None):
+def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None, eta=None):
     """Run `cmd`, append its output to log_path, print a heartbeat, watch the owner's telemetry CSV and kill the
     process tree on a thermal verdict (2026-10-02: a stuck sensor and a flag nobody acted on cooked the laptop).
     -> (rc, lines)."""
@@ -94,6 +95,11 @@ def _stream(cmd, cwd, log_path, say, watch_thermal=True, governor=None, env=None
                     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
             if now - last_beat >= HEARTBEAT_S:
                 say(f"  ... {int((now - started) // 60)} min, {len(lines)} lines, last: {line.strip()[:110]}")
+                if eta is not None:                  # owner 2026-10-18: an ETA from measurements, every heartbeat
+                    try:
+                        say("      " + eta(now - started))
+                    except Exception:  # noqa: BLE001 - an estimate never stops a build
+                        pass
                 last_beat = now
         rc = proc.wait()
         if governor is not None:
@@ -765,7 +771,26 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
     from . import power
     pw = power.row()
     say(f"  [{'WARN' if pw.get('on_battery') else 'ok'}] {pw['check']}: {pw['evidence']}")
-    lr = refresh_lists(task_id, t, say)
+    # the machine stays awake for as long as THIS process runs, wherever it was started (2026-10-17: the hold lived in
+    # `window`; the window died at 01:01, packaging with it, and the laptop slept at 01:41 with nothing running)
+    try:
+        from .window import hold_awake
+        say(f"  [ok] stay awake: held until this run (PID {os.getpid()}) exits (holder {hold_awake(os.getpid())['pid']}); "
+            "a closed lid or Sleep still sleeps")
+    except Exception as e:  # noqa: BLE001 - said, not hidden: the run goes on, the owner knows it is not held
+        say(f"  [WARN] stay awake: could not hold the machine awake ({e}); keep it awake by hand")
+    # the gate approved one tree: refreshing the lists afterwards changes it (2026-10-17: the restart after the dead
+    # window fetched newer lists, recompiled and relinked, and the tree no longer matched the gate's). Refresh only
+    # when no passed gate exists for the tree as it is now; the gate's run is the one that refreshes.
+    from . import compile as _cg
+    rec = _cg._record_path(task_id)
+    gated = rec.is_file() and json.loads(rec.read_text(encoding="utf-8")).get("tree") == \
+        subprocess.run(["git", "-C", t["workdir"], "rev-parse", "HEAD^{tree}"], capture_output=True, text=True).stdout.strip()
+    if gated:
+        say("  [ok] lists-refresh: skipped, the gate passed this exact tree (a refresh now would change what it approved)")
+        lr = {"ok": True, "written": [], "why": ""}
+    else:
+        lr = refresh_lists(task_id, t, say)
     if not lr["ok"]:
         return {"ok": False, "why": lr["why"], "stops": stops}
     # every picture of the set in the tree, on EVERY platform (2026-10-16: binary-patches was a Linux preflight row;
@@ -779,47 +804,56 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
                 "why": f"{len(missing)} picture(s) of the set are not in the tree (first: {missing[:3]}); "
                        f"fieldkit build-harness binary-patches {task_id} --apply"}
     say(f"  [ok] binary-patches: every picture of the set is in the tree")
-    rows = cg.gate(task_id, harness_root=None, write=True)
-    bad = [r for r in rows if not r["ok"]]
-    stale = lambda r: r["check"].startswith("final checks passed") or (r["check"] == "every step is done" and "final-checks" in r["evidence"])
-    if bad and all(stale(r) for r in bad):
-        # the only thing missing is a final re-check after the last change: run it (a script step, no model)
-        say("gate: final checks are stale - re-running them")
-        task.unblock(task_id, "final-checks", "retry")
-        task.advance(task_id)
+    if gated:
+        # owner 2026-10-17: "when I built by hand everything was done in 90 minutes". The gate (which includes the
+        # owner's preflight, compile.owner_rows) already passed for this exact tree (same git tree hash): a restart
+        # does not repeat it (2026-10-17 morning: each restart re-ran 10-40 minutes of checks on an unchanged tree).
+        say("  [ok] gate and owner preflight: already passed for this exact tree - not repeated")
+        may, needs_force, blockers = True, True, []
+    else:
         rows = cg.gate(task_id, harness_root=None, write=True)
         bad = [r for r in rows if not r["ok"]]
-    repairable = lambda r: "JS file parses" in r["check"] or "UPPER_CASE member" in r["check"]
-    if bad and all(repairable(r) for r in bad):
-        # the two port failures of 02 Oct have a deterministic repair: run it once, then judge the gate again
-        from . import repair
-        say("gate: a JS module does not parse or reads a moved member - running repair")
-        rep = repair.run(task_id, say=say)
-        task.journal(task.load(task_id), "gate-repair", repaired=rep["repaired"][:10], refused=rep["refused"][:10])
-        rows = cg.gate(task_id, harness_root=None, write=True)
-        bad = [r for r in rows if not r["ok"]]
-    if bad:
-        say("BUILD GATE FAILED: " + "; ".join(f"{r['check']}: {r['evidence']}" for r in bad[:3]))
-        return {"ok": False, "why": "build gate", "rows": rows}
-    say("build gate passed")
-    # before the compile, the browser as it will be (owner 2026-10-08: checks "to be run before or after the build ...
-    # preferably both so we can catch the mistakes"): every about: page of a copy of the installed browser with the
-    # tree's JS/CSS/Fluent changes since the last build; build-verify reads the built one after the compile
-    from . import aboutpages
-    pre = aboutpages.prebuild(t, task_id, say=lambda m: None)
-    if pre is not None:
-        for n in pre["notes"]:
-            say("  pre-build: " + n)
-        for r in pre["rows"]:
-            say(f"  pre-build [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:200]}")
-        if not pre["ok"]:
-            task.journal(t, "build-refused", why=["pre-build about: pages failed"])
-            return {"ok": False, "why": "pre-build about: pages", "rows": pre["rows"]}
-    may, needs_force, blockers = owner_preflight_ok(root, say)
-    if not may:
-        return {"ok": False, "why": "the owner's preflight reports a blocker a build cannot resolve", "blockers": blockers}
-    if needs_force and not force:
-        return {"ok": False, "why": "only build-dependent owner blockers remain; run again with --force to pass them on", "blockers": blockers}
+        stale = lambda r: r["check"].startswith("final checks passed") or (r["check"] == "every step is done" and "final-checks" in r["evidence"])
+        if bad and all(stale(r) for r in bad):
+            # the only thing missing is a final re-check after the last change: run it (a script step, no model)
+            say("gate: final checks are stale - re-running them")
+            task.unblock(task_id, "final-checks", "retry")
+            task.advance(task_id)
+            rows = cg.gate(task_id, harness_root=None, write=True)
+            bad = [r for r in rows if not r["ok"]]
+        repairable = lambda r: "JS file parses" in r["check"] or "UPPER_CASE member" in r["check"]
+        if bad and all(repairable(r) for r in bad):
+            # the two port failures of 02 Oct have a deterministic repair: run it once, then judge the gate again
+            from . import repair
+            say("gate: a JS module does not parse or reads a moved member - running repair")
+            rep = repair.run(task_id, say=say)
+            task.journal(task.load(task_id), "gate-repair", repaired=rep["repaired"][:10], refused=rep["refused"][:10])
+            rows = cg.gate(task_id, harness_root=None, write=True)
+            bad = [r for r in rows if not r["ok"]]
+        if bad:
+            say("BUILD GATE FAILED: " + "; ".join(f"{r['check']}: {r['evidence']}" for r in bad[:3]))
+            return {"ok": False, "why": "build gate", "rows": rows}
+        say("build gate passed")
+        # before the compile, the browser as it will be (owner 2026-10-08: checks "to be run before or after the build ...
+        # preferably both so we can catch the mistakes"): every about: page of a copy of the installed browser with the
+        # tree's JS/CSS/Fluent changes since the last build; build-verify reads the built one after the compile
+        from . import aboutpages
+        pre = aboutpages.prebuild(t, task_id, say=lambda m: None)
+        if pre is not None:
+            for n in pre["notes"]:
+                say("  pre-build: " + n)
+            for r in pre["rows"]:
+                say(f"  pre-build [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:200]}")
+            if not pre["ok"]:
+                task.journal(t, "build-refused", why=["pre-build about: pages failed"])
+                return {"ok": False, "why": "pre-build about: pages", "rows": pre["rows"]}
+        may, needs_force, blockers = owner_preflight_ok(root, say)
+        if not may:
+            return {"ok": False, "why": "the owner's preflight reports a blocker a build cannot resolve", "blockers": blockers}
+        if needs_force and not force:
+            # owner 2026-10-17: checks that need a finished build are build-verify's; they pass on by themselves
+            # (each --force restart cost a full re-check)
+            say("  owner preflight: only checks that need a finished build remain - passed on to build-verify")
     # 2026-10-13: no build while the fan control is not cooling (not running, not updating, BIOS/Smart/Manual mode)
     from ..thermal import buildguard
     fan_ok, fan_msg = buildguard.fan_check()
@@ -842,7 +876,35 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         return {"ok": False, "why": "interrupted from the console", "stops": stops, "log": str(log_path)}
 
 
+def sccache_size(root, say=print, run=subprocess.run):
+    """The cache size the mozconfig asks for, on the server that will serve the build. 2026-10-17: the mozconfig says
+    SCCACHE_CACHE_SIZE="30G", but the server had started earlier at the 10 GiB default and a running server keeps its
+    size. A server smaller than configured is stopped; the build starts it again with the mozconfig's size."""
+    import re as _re
+    from .compile import mozconfig_path
+    moz = mozconfig_path(root)
+    m = _re.search(r'SCCACHE_CACHE_SIZE\s*=\s*"?(\d+)\s*G', Path(moz).read_text(encoding="utf-8", errors="replace")) \
+        if moz and Path(moz).is_file() else None
+    exe = shutil.which("sccache") or str(Path.home() / ".mozbuild" / "sccache" / ("sccache.exe" if os.name == "nt" else "sccache"))
+    if not m or not Path(exe).is_file():
+        return None
+    want = int(m.group(1))
+    r = run([exe, "--show-stats"], capture_output=True, text=True)
+    got = _re.search(r"Max cache size\s+([\d.]+)\s*GiB", r.stdout or "")
+    if got and float(got.group(1)) + 0.5 < want:
+        run([exe, "--stop-server"], capture_output=True, text=True)
+        say(f"  sccache: server ran at {got.group(1)} GiB, the mozconfig asks {want} GiB - stopped; the build restarts it")
+        return want
+    say(f"  sccache: {got.group(1) if got else 'no server running'} GiB (mozconfig {want} GiB)")
+    return want
+
+
 def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface, stops, log_path, say):
+    if "build" in stages:
+        try:
+            sccache_size(root, say)
+        except Exception as e:  # noqa: BLE001 - never a reason to stop a build
+            say(f"  sccache: size not checked ({e})")
     from . import compile as cg
     try:                                                   # icons are baked into firefox.exe by the .res
         from .compile import mozconfig_path as _mp, objdir as _od
@@ -887,7 +949,17 @@ def _stages(t, task_id, root, stages, needs_force, sensor_name, sensor, surface,
             gov = gv.Governor(sensor, target_c=gv.build_target(), interval=3.0, kill=lambda why: None, on_event=say,
                               csv_path=task.STATE / task_id / f"thermal-{stage}-{time.strftime('%Y%m%d-%H%M%S')}.csv",
                               max_cap=SURFACE_CAP if surface else None, dead_check=not surface)
-            rc, lines = _stream(cmd, root, log_path, say, governor=gov, watch_thermal=not surface)
+            from ..core import eta as _eta
+            from .compile import mozconfig_path as _mp2, objdir as _od2
+            _objdir_now = _od2(_mp2(root))
+            _kind = _eta.build_kind(_objdir_now) if stage == "build" else None
+            _step = f"firefox build {_kind}" if stage == "build" else f"firefox {stage}"
+            _t0 = time.time()
+            say("  " + _eta.human(_eta.from_history(_step)))
+            rc, lines = _stream(cmd, root, log_path, say, governor=gov, watch_thermal=not surface,
+                                eta=lambda el, _s=_step: _eta.human(_eta.from_history(_s, el)))
+            if rc == 0:
+                _eta.record(_step, time.time() - _t0)
             if gov.verdict:
                 lines.append(f"FIELDKIT THERMAL GOVERNOR: {gov.verdict}")
                 task.journal(t, "thermal-kill", stage=stage, attempt=attempt, why=[gov.verdict], peak=gov.peak)

@@ -13,6 +13,8 @@ Each entry: id, title, decided (date), by (always the maintainer), provenance (w
     mozconfig_has:   {file, text}            a line in a build configuration
     tree_contains:   {path, text}            text in the ported source tree (the task workdir)
     tree_lacks:      {path, text}            text that must NOT be in the ported tree
+    tree_pref_all:   {name, value}           EVERY definition the set adds to the tree's pref files says value
+    cargo_checksums: [crate dirs]            every file hash in a vendored crate's .cargo-checksum.json equals the file
     pref:            {name, value, locked}   what the INSTALLED browser ships (firefox.js wins over greprefs.js);
                                              value null = the pref must not be set; locked true/false is checked
     tree_absent:     [relative paths]        files the ported tree must NOT hold (a deletion the patch set makes)
@@ -33,7 +35,9 @@ not run: no install, unreadable file). Fail closed: VIOLATED and UNCHECKABLE alw
 --strict, which the regression baseline and a release use. An enforced entry without checks is VIOLATED.
 """
 import hashlib
+import json
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -44,7 +48,7 @@ import yaml
 REGISTER = Path("decisions") / "PRODUCT-DECISIONS.yaml"
 STATUSES = ("enforced", "pending", "trade-off", "retired")
 KINDS = ("mozconfig_has", "tree_contains", "tree_lacks", "pref", "installed_absent", "omni_absent", "fieldkit_test",
-         "image_sharp", "tree_absent", "tree_present", "installed_present", "about_register")
+         "image_sharp", "tree_absent", "tree_present", "installed_present", "about_register", "tree_pref_all", "cargo_checksums")
 FIELDKIT = Path(__file__).resolve().parents[2]
 
 
@@ -285,6 +289,14 @@ def _check(kind, arg, ctx):
         if "locked" in arg:
             ok = ok and (("locked" in (got[1] or "")) == bool(arg["locked"]))
         return ok, f"{arg['name']} = {got[0]}{' locked' if 'locked' in (got[1] or '') else ''} (want {want}{' locked' if arg.get('locked') else ''})"
+    if kind == "cargo_checksums":
+        if not workdir:
+            raise Unreadable("no ported tree")
+        return cargo_checksums(workdir, arg)
+    if kind == "tree_pref_all":
+        if not workdir:
+            raise Unreadable("no ported tree")
+        return tree_pref_all(workdir, arg["name"], arg["value"])
     if kind == "installed_absent":
         if not install:
             raise Unreadable("no installed browser")
@@ -331,6 +343,66 @@ def _check(kind, arg, ctx):
         tail = (r.stdout.strip().splitlines() or ["no output"])[-1]
         return r.returncode == 0, f"{arg}: {tail}"
     raise Unreadable(f"unknown check {kind}")
+
+
+def cargo_checksums(workdir, crates):
+    """-> (ok, evidence): each listed crate's .cargo-checksum.json names the SHA-256 of every file it lists, and the
+    files on disk have exactly those hashes (what Cargo itself checks; 2026-10-18 D-158-02 had only a 'file exists'
+    check). A crate the tree lacks is unreadable, not passed."""
+    import hashlib
+    bad, n = [], 0
+    for c in crates:
+        d = Path(workdir) / c
+        cj = d / ".cargo-checksum.json"
+        if not cj.is_file():
+            raise Unreadable(f"{c}: no .cargo-checksum.json")
+        files = json.loads(cj.read_text(encoding="utf-8")).get("files") or {}
+        for rel, want in files.items():
+            f = d / rel
+            n += 1
+            got = hashlib.sha256(f.read_bytes()).hexdigest() if f.is_file() else "missing"
+            if got != want:
+                bad.append(f"{c}/{rel}")
+    return not bad, (f"{n} file hash(es) in {len(crates)} crate(s) match" if not bad else
+                     f"{len(bad)} of {n} do not match, e.g. {bad[:3]}")
+
+
+PREF_FILES = ("modules/libpref/init/all.js", "browser/app/profile/firefox.js",
+              "browser/branding/gorilla/pref/firefox-branding.js")
+
+
+def tree_pref_all(workdir, name, value):
+    """-> (ok, evidence): EVERY definition of pref `name` the patch set added to the tree's pref files (any #if, any
+    file) says `value`. 2026-10-16: D-158-12 is Segoe UI and firefox.js said so, so the shipped value held; but
+    05.PREFS still wrote "Inter" into all.js, the owner's preflight flagged the clash, and the font question was
+    reopened again. One decision, one value, everywhere. Upstream's own lines (present in pristine) are not judged."""
+    w = Path(workdir)
+    r = subprocess.run(["git", "-C", str(w), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True)
+    root = (r.stdout.split() or [None])[0]
+    rx = re.compile(r'^\s*(?:pref|lockPref|sticky_pref)\(\s*"' + re.escape(name) + r'"\s*,\s*(.+?)\s*(?:,\s*(?:locked|sticky)\s*)?\)\s*;')
+    want = value if isinstance(value, bool) else str(value)
+    found, bad = 0, []
+    for rel in PREF_FILES:
+        p = w / rel
+        if not p.is_file():
+            continue
+        up = set()
+        if root:
+            up = set(subprocess.run(["git", "-C", str(w), "show", f"{root}:{rel}"], capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace").stdout.splitlines())
+        for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            m = rx.match(line)
+            if not m or line in up:
+                continue
+            found += 1
+            got = m.group(1).strip().strip('"')
+            ok = got.lower() == str(want).lower() if isinstance(want, bool) else got == want
+            if not ok:
+                bad.append(f"{rel}:{n} says {m.group(1).strip()}")
+    if not found:
+        return False, f"{name}: the set defines it nowhere (want {want!r})"
+    return not bad, (f"{name}: {found} definition(s), all {want!r}" if not bad
+                     else f"{name}: want {want!r} everywhere; " + "; ".join(bad[:4]))
 
 
 def about_register(path, workdir):

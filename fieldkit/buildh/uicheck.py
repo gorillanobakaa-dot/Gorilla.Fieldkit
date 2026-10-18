@@ -101,7 +101,7 @@ def gate_rows(workdir):
 
 def parse(lines):
     """Probe ui-contrast output -> {"items": [...], "errors": [...], "surfaces": [...]}."""
-    res = {"items": [], "errors": [], "surfaces": []}
+    res = {"items": [], "errors": [], "surfaces": [], "popups": []}
     for raw in lines:
         m = LINE.match(raw.strip())
         if not m:
@@ -114,6 +114,15 @@ def parse(lines):
                 continue
             res["items"].append({"surface": f"{kind} {rest[0]}", "label": rest[1], "contrast": ratio,
                                  "text": rest[3], "background": rest[4]})
+        elif kind == "popup" and len(rest) >= 7:
+            # 2026-10-18: every popup a person opens (themecheck.judge_popups holds them to THEME.yaml)
+            try:
+                from .themecheck import _rgb
+                res["popups"].append({"surface": rest[0], "label": rest[1], "contrast": float(rest[2]),
+                                      "text": _rgb(rest[3]), "background": _rgb(rest[4]), "hover": _rgb(rest[5]),
+                                      "clipped": rest[6].strip() == "1"})
+            except ValueError:
+                continue
         elif kind == "error" and len(rest) >= 2:
             res["errors"].append({"surface": rest[0], "message": "|".join(rest[1:])})
         elif kind == "surface" and len(rest) >= 3:
@@ -157,7 +166,14 @@ def probe_rows(install_dir, say=print):
     if not r["done"]:
         return [{"check": "UI: the ui-contrast probe ran", "ok": False,
                  "evidence": "the probe did not finish: " + "; ".join(r["lines"][-3:])[:200]}]
-    return judge(parse(r["lines"]))
+    res = parse(r["lines"])
+    out = judge(res)
+    from . import themecheck
+    try:
+        out += themecheck.judge_popups(res["popups"], themecheck.load())
+    except FileNotFoundError as e:
+        out.append({"check": "theme spec present", "ok": False, "evidence": str(e)})
+    return out
 
 
 def rows(workdir, install_dir, say=print):

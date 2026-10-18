@@ -18,6 +18,9 @@
 #   test: tests/test_gdocs.py, skill: skills/gorilla-documentation-ibm-style/SKILL.md
 
 groups:
+  - name: autopilot
+    title: Unattended work - the hard lines no session crosses, the runbook runner, the owner's inbox and one-command publish
+    sources: [autopilot/*.py]
   - name: terminal
     title: A terminal window opened in front of a person, with the command ready
     sources: [terminal/*.py]
@@ -135,9 +138,13 @@ groups:
       - buildh/lossaudit.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
+      - buildh/prefconflicts.py
+      - buildh/searchstrip.py
+      - buildh/themecheck.py
       - buildh/preflight.py
       - buildh/profilecheck.py
       - buildh/profilefresh.py
+      - buildh/profilediff.py
       - buildh/profilekeep.py
       - buildh/recorder.py
       - buildh/repair.py

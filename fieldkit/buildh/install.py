@@ -535,7 +535,7 @@ POST_INSTALL = (
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
 PROOF_CHECKS = frozenset({"profile", "prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui",
-                          "about", "stamp", "satellite"})
+                          "about", "stamp", "satellite", "search"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
@@ -613,6 +613,15 @@ def _stamp_rows(task_id, target, say=print, carried=None):
     return buildstamp.about_rows(target, recorded=recorded, say=say)
 
 
+def _search_rows(target, say=print):
+    """D-158-13 on the browser as people run it: Google is the only engine on a fresh profile AND on a copy of the
+    profile this install opens (2026-10-18: a profile carried over from 157 still offered Perplexity, and every
+    earlier check had used a fresh profile only)."""
+    from . import profilekeep, searchstrip
+    k = profilekeep.keeper(profilekeep.profiles(profiles_dir()))
+    return searchstrip.offered_rows(target, [k["path"]] if k else [])
+
+
 def _satellite_rows(target, say=print):
     """Satellite mode on a copy of the install: identity and scripts per level and per kind of site (satellite.py)."""
     from . import satellite
@@ -677,6 +686,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
             plan.append(("claims", lambda: _claims_row(t, target)))
         runs = {"visual": lambda: _visual_row(t, target, say), "ui": lambda: _ui_rows(t, target, say),
                 "about": lambda: _about_rows(t, target, say), "satellite": lambda: _satellite_rows(target, say),
+                "search": lambda: _search_rows(target, say),
                 "stamp": lambda: _stamp_rows(task_id, target, say, carried=carry.get("stamp"))}
         for g in pkgproof.PACKAGE_GROUPS:
             if g in want:

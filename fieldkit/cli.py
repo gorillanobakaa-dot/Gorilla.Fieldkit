@@ -28,6 +28,7 @@
     fieldkit cards list [--level L] | show ID    the contract of every tool, with its trust level
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
+    fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
@@ -783,6 +784,124 @@ def cmd_readiness(a):
     return 0
 
 
+def cmd_autopilot(a):
+    from .autopilot import run, quiet
+    if a.action in ("on", "off"):
+        r = run.switch(a.action == "on", " ".join(a.rest))
+    elif a.action == "stop":
+        r = run.stop(" ".join(a.rest) or "the owner said stop")
+    elif a.action == "resume":
+        r = run.resume()
+    elif a.action == "workspace":
+        r = {"settings": str(run.workspace(a.rest[0] if a.rest else None))}
+    elif a.action == "antigravity":
+        r = run.antigravity()
+    elif a.action == "login":
+        if "--check" in a.rest or "check" in a.rest:
+            r = {"logged_in": run.logged_in(), "command": run.paste_command()}
+        else:
+            r = run.login()
+    elif a.action == "claude":
+        if not a.rest:
+            print("autopilot claude PROMPT [--cwd DIR]")
+            return 2
+        r = run.claude(" ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns)
+    elif a.action == "quiet":
+        rows = quiet.noisy()
+        for x in rows:
+            print(f"  {x['name']:<32} PID {x['pid']:<7} sockets {x['net']:<3} {x['exe']}")
+        if not a.apply:
+            print(f"QUIET: {len(rows)} process(es) would be stopped (add --apply; --hold PID keeps them stopped)")
+            return 0
+        quiet.stop(rows)
+        if a.hold:
+            quiet.hold(a.hold)
+        return 0
+    else:
+        r = run.status()
+    print(json.dumps(r, indent=1, ensure_ascii=False))
+    return 0 if r.get("ok", True) else 3
+
+
+def cmd_inbox(a):
+    from .autopilot import inbox
+    if a.action == "add":
+        if len(a.rest) < 2:
+            print("inbox add TITLE WHY [COMMAND]")
+            return 2
+        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else ""), indent=1))
+        return 0
+    if a.action == "done":
+        print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
+        return 0
+    its = inbox.items(None if a.all else "open")
+    if a.action == "show" and a.rest:
+        its = [i for i in its if i["n"] == int(a.rest[0])]
+        print(json.dumps(its, indent=1, ensure_ascii=False))
+        return 0
+    print("\n".join(inbox.lines(its)))
+    return 0
+
+
+def cmd_publish(a):
+    from .autopilot import inbox
+    return inbox.publish(a.repo, a.release, a.notes, a.asset, dry_run=a.dry_run)
+
+
+def cmd_eta(a):
+    from .core import eta
+    x = a.args
+    if a.action == "record":
+        eta.record(x[0], float(x[1]))
+        return 0
+    if a.action == "history":
+        eta.import_build_logs()
+        steps = [x[0]] if x else sorted({json.loads(l)["step"] for l in eta.HISTORY.read_text(encoding="utf-8").splitlines() if l.strip()}) if eta.HISTORY.is_file() else []
+        for s in steps:
+            print(f"  {s}: {[round(d / 60, 1) for d in eta.durations(s)]} min")
+        return 0
+    if a.action == "leakgate":
+        if not x:
+            print("usage: fieldkit eta leakgate <run folder> (the gate's run folder, printed when it starts)")
+            return 2
+        r = eta.leakgate(x[0])
+    elif a.action == "build":
+        r = eta.build(x[0] if x else "build", objdir=x[1] if len(x) > 1 else None)
+    elif a.action == "delete":
+        r = eta.delete(x[0])
+    else:
+        r = eta.copy(x[0], x[1])
+    print(json.dumps(r, indent=1) if a.json else eta.human(r))
+    return 0 if r["remaining_s"] is not None else 3
+
+
+def cmd_runbook(a):
+    return runbook_main(a.action, a.file, fix=not a.no_fix)
+
+
+def runbook_main(action, file, fix=True):
+    from .autopilot import runbook, run as aprun
+    if action == "status":
+        print("\n".join(runbook.lines(file)))
+        return 0
+    if action == "start":
+        from .buildh import window
+        r = window.launch(["runbook", "run", str(Path(file).resolve())])
+        print(f"started in its own window (PID {r.get('pid')}); log {r.get('log')}")
+        return 0
+    claude = (lambda prompt, cwd=None: aprun.claude(prompt, cwd=cwd, max_turns=30)) if fix else None
+    r = runbook.run(file, claude=claude)
+    print(json.dumps(r, indent=1))
+    return 0 if r["ok"] else 3
+
+
+def cmd_sync(a):
+    from .core import sync
+    rows = sync.run(do_apply=a.apply, extra=a.repo, fetch=not a.no_fetch)
+    print(json.dumps(rows, indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
+    return 0 if all(r["ok"] for r in rows) else 3
+
+
 def cmd_sweep(a):
     from .desk import sweep, registry
     rows = sweep.scan()
@@ -1177,6 +1296,47 @@ def build_parser():
     sw.add_argument("--run-tests", action="store_true", help="also run the tests of the registered tools under the sweep roots")
     sw.set_defaults(fn=cmd_sweep)
 
+    apl = sub.add_parser("autopilot", parents=[common])
+    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet", "antigravity", "login"])
+    apl.add_argument("rest", nargs="*", help="stop: the reason; claude: the prompt; workspace: the folder")
+    apl.add_argument("--cwd", help="claude: the folder the run works in")
+    apl.add_argument("--max-turns", type=int, default=40)
+    apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
+    apl.add_argument("--apply", action="store_true", help="quiet: stop them (without it: list only)")
+    apl.set_defaults(fn=cmd_autopilot)
+
+    ib = sub.add_parser("inbox", parents=[common])
+    ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
+    ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
+    ib.add_argument("--all", action="store_true", help="list: done items too")
+    ib.set_defaults(fn=cmd_inbox)
+
+    pb = sub.add_parser("publish", parents=[common])
+    pb.add_argument("--repo", default=".")
+    pb.add_argument("--release")
+    pb.add_argument("--notes")
+    pb.add_argument("--asset", action="append", default=[])
+    pb.add_argument("--dry-run", action="store_true")
+    pb.set_defaults(fn=cmd_publish)
+
+    et = sub.add_parser("eta", parents=[common])
+    et.add_argument("action", choices=["leakgate", "build", "history", "delete", "copy", "record"])
+    et.add_argument("args", nargs="*", help="leakgate RUN_DIR; build [build|package] [OBJDIR]; history [STEP]; "
+                                             "delete PATH; copy SRC DEST_DIR; record STEP SECONDS")
+    et.set_defaults(fn=cmd_eta)
+
+    rb = sub.add_parser("runbook", parents=[common])
+    rb.add_argument("action", choices=["run", "status", "start"])
+    rb.add_argument("file")
+    rb.add_argument("--no-fix", action="store_true", help="never call a model on a failed step")
+    rb.set_defaults(fn=cmd_runbook)
+
+    sy = sub.add_parser("sync", parents=[common])
+    sy.add_argument("--apply", action="store_true", help="fast-forward to upstream commits CI proved on Windows and Linux")
+    sy.add_argument("--repo", action="append", default=[], help="another repository to sync (also: sync.repos in fieldkit.local.json)")
+    sy.add_argument("--no-fetch", action="store_true", help="judge what was fetched before; no network")
+    sy.set_defaults(fn=cmd_sync)
+
     gd = sub.add_parser("guard", parents=[common],
                         help="run any compile job (cargo build, go build, make ...) with the fan check and the build governor")
     gd.add_argument("cmd", nargs=argparse.REMAINDER, help="-- then the command")
@@ -1418,7 +1578,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep"])
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")

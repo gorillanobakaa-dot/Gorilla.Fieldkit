@@ -49,7 +49,7 @@ function systemColour(name, w) {
 }
 function behind(el, w) {
   const chain = [];
-  for (let n = el; n && n.nodeType == 1; n = n.parentNode || n.host) {
+  for (let n = el; n && n.nodeType == 1; n = n.assignedSlot || n.parentNode || n.host) {
     chain.push(n);
     if (n.localName == "menupopup" || n.localName == "panel") { break; }
   }
@@ -127,4 +127,104 @@ for (const c of controls) {
 say(`UI|surface|settings|${controls.filter(c => c.label).length}|0`);
 for (const e of errors.slice(before)) { say(`UI|error|settings|${e}`); }
 win.gBrowser.removeTab(tab);
+
+// 3. (2026-10-18) every popup a person opens from the toolbar and the address bar, not only toolbar-button menus:
+// the search-mode list next to the address bar shipped white with cyan text (about 1.25:1) and the app menu cut
+// "Gorilla Extensions and Gorilla The..." short; section 1 never opened either. For every visible item: text and
+// background as painted, the HOVER background (forced: _moz-menuactive on menu items, an InspectorUtils :hover lock
+// on panel buttons), and whether its label is clipped (needs more width than it has).
+//   UI|popup|<surface>|<label>|<contrast>|<text rgb>|<background rgb>|<hover rgb>|<clipped 0/1>
+const IU = win.InspectorUtils;
+function painter(it) {
+  return (it.localName == "panel-item" && it.shadowRoot && it.shadowRoot.querySelector("button")) || it;
+}
+function hoverBg(it) {
+  let c = null;
+  it = painter(it);
+  try {
+    if (it.localName == "menuitem" || it.localName == "menu") {
+      it.setAttribute("_moz-menuactive", "true");
+      c = behind(it, win);
+      it.removeAttribute("_moz-menuactive");
+    } else if (IU) {
+      IU.addPseudoClassLock(it, ":hover");
+      c = behind(it, win);
+      IU.removePseudoClassLock(it, ":hover");
+    }
+  } catch (x) {}
+  return c;
+}
+function labelOf(it) {
+  return it.querySelector(".menu-text, .menu-iconic-text, .toolbarbutton-text, label") ||
+         (it.shadowRoot && it.shadowRoot.querySelector("label, .toolbarbutton-text"));
+}
+function measure(surface, items) {
+  let visible = 0;
+  for (const it of items) {
+    if (it.hidden || win.getComputedStyle(it).display == "none" || !it.getBoundingClientRect().width) { continue; }
+    visible++;
+    const lab = labelOf(it) || it;
+    const text = rgba(win.getComputedStyle(lab).color) || rgba(win.getComputedStyle(it).color);
+    const bg = behind(painter(it), win);
+    const hv = hoverBg(it) || bg;
+    const clipped = lab.scrollWidth > lab.clientWidth + 1 ? 1 : 0;
+    const name = (it.getAttribute("label") || lab.textContent || it.id || "").trim().slice(0, 60);
+    say(`UI|popup|${surface}|${name}|${contrast(text, bg).toFixed(2)}|${hex(text)}|${hex(bg)}|${hex(hv)}|${clipped}`);
+  }
+  say(`UI|surface|${surface}|${visible}|0`);
+}
+async function openPopup(popup, opener) {
+  if (!popup) { return false; }
+  const shown = new Promise(r => popup.addEventListener("popupshown", r, { once: true }));
+  try { opener(); } catch (x) { return false; }
+  await Promise.race([shown, sleep(3000)]);
+  return popup.state == "open" || popup.state == "showing";
+}
+const before3 = errors.length;
+// 3a. the search-mode list beside the address bar (158: a XUL panel ".searchmode-switcher-panel" wrapping
+// panel-item elements, built on the first click of the ".searchmode-switcher" button in the address bar)
+try {
+  const btn = doc.querySelector("#urlbar .searchmode-switcher") || doc.querySelector(".searchmode-switcher");
+  if (btn) {
+    btn.click();
+    let sm = null;
+    for (let i = 0; i < 20 && !(sm = doc.querySelector(".searchmode-switcher-panel")); i++) { await sleep(150); }
+    for (let i = 0; i < 20 && sm && sm.state != "open"; i++) { await sleep(150); }
+    if (sm && sm.state == "open") {
+      await sleep(300);
+      measure("search-mode list", sm.querySelectorAll("panel-item"));
+      sm.hidePopup();
+      await sleep(300);
+    } else {
+      say("UI|error|search-mode list|did not open after a click on .searchmode-switcher");
+    }
+  } else {
+    say("UI|error|search-mode list|no .searchmode-switcher button in the address bar");
+  }
+} catch (x) { say(`UI|error|search-mode list|${x}`); }
+// 3b. the app menu (the hamburger) and its main view
+try {
+  const panel = doc.getElementById("appMenu-popup");
+  if (await openPopup(panel, () => win.PanelUI.show())) {
+    await sleep(500);
+    measure("app menu", doc.querySelectorAll("#appMenu-mainView toolbarbutton.subviewbutton"));
+    panel.hidePopup();
+    await sleep(300);
+  } else {
+    say("UI|error|app menu|could not be opened");
+  }
+} catch (x) { say(`UI|error|app menu|${x}`); }
+// 3c. right-click menus a person meets everywhere: on a tab, on the toolbar
+for (const [id, label] of [["tabContextMenu", "tab right-click menu"], ["toolbar-context-menu", "toolbar right-click menu"]]) {
+  const cm = doc.getElementById(id);
+  const target = id == "tabContextMenu" ? win.gBrowser.selectedTab : doc.getElementById("nav-bar");
+  if (await openPopup(cm, () => cm.openPopup(target, "after_start", 0, 0, true, false))) {
+    measure(label, cm.querySelectorAll("menuitem, menu"));
+    cm.hidePopup();
+    await sleep(300);
+  } else {
+    say(`UI|error|${label}|could not be opened (${id})`);
+  }
+}
+for (const e of errors.slice(before3)) { say(`UI|error|popups|${e}`); }
 Services.console.unregisterListener(listener);

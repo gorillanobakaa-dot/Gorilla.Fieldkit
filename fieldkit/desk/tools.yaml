@@ -21,6 +21,101 @@ tools:
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_office.py"]
 
+- id: sync
+  title: Keep this machine's harness level with GitHub; take only fast-forwards CI proved on Windows and Linux
+  harness: core
+  entry: [python, -m, fieldkit, sync]
+  path: ${FIELDKIT}/fieldkit/core/sync.py
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sync_and_platforms.py"]
+
+- id: autopilot
+  title: Unattended agent runs (Claude Code, Antigravity) with no approval prompts, held by hard lines and no credential
+  harness: core
+  entry: [python, -m, fieldkit, autopilot]
+  path: ${FIELDKIT}/fieldkit/autopilot/run.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [on, off, status, stop, resume, claude, workspace, quiet, antigravity, login], help: "status first; claude PROMPT runs one headless run"}
+    - {name: rest, flag: null, type: str, required: false, help: "stop: the reason; claude: the prompt; workspace: the folder"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "claude: the folder the run works in"}
+    - {name: max_turns, flag: --max-turns, type: int, required: false, help: "claude: turn limit (40)"}
+    - {name: hold, flag: --hold, type: int, required: false, help: "quiet: keep the apps stopped until this PID exits"}
+    - {name: apply, flag: --apply, type: bool, required: false, help: "quiet: stop them (without it: list only)"}
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py", "${FIELDKIT}/tests/test_autopilot_hardlines.py"]
+
+- id: runbook
+  title: The harness runs a runbook's steps (logs, ETA, retries, STOP, inbox for owner steps); a model only fixes a failed step
+  harness: core
+  entry: [python, -m, fieldkit, runbook]
+  path: ${FIELDKIT}/fieldkit/autopilot/runbook.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [run, status, start], help: "start = run in its own detached window"}
+    - {name: file, flag: null, type: str, required: true, help: "the runbook .md with a runbook block"}
+    - {name: no_fix, flag: --no-fix, type: bool, required: false, help: "never call a model on a failed step"}
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_runbook.py"]
+
+- id: eta
+  title: How long will it take - from a plan, past runs, live progress or a timed trial on the same disk; never a guess
+  harness: core
+  entry: [python, -m, fieldkit, eta]
+  path: ${FIELDKIT}/fieldkit/core/eta.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [leakgate, build, history, delete, copy, record], help: "what to estimate"}
+    - {name: args, flag: null, type: str, required: false, help: "leakgate RUN_DIR; build [build|package] [OBJDIR]; history [STEP]; delete PATH; copy SRC DEST_DIR; record STEP SECONDS"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  notes: 'delete and copy time a trial on scratch files they create and remove in a .fieldkit-eta-trial folder on the measured disk; nothing else is touched'
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py"]
+
+- id: inbox
+  title: The owner inbox - every approval an unattended run needs, collected for one sitting
+  harness: core
+  entry: [python, -m, fieldkit, inbox]
+  path: ${FIELDKIT}/fieldkit/autopilot/inbox.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [list, show, add, done], help: "list (default)"}
+    - {name: rest, flag: null, type: str, required: false, help: "show/done: N [note]; add: TITLE WHY [COMMAND]"}
+    - {name: all, flag: --all, type: bool, required: false, help: "list: done items too"}
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py"]
+
+- id: publish
+  title: Push and release only after the privacy checks and the owner's typed yes; never inside autopilot
+  harness: core
+  entry: [python, -m, fieldkit, publish]
+  path: ${FIELDKIT}/fieldkit/autopilot/inbox.py
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py"]
+
+- id: pref-conflicts
+  title: One pref, one value - no two definitions the Firefox patch set adds may disagree (also in set-proof and the build gate)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, pref-conflicts]
+  path: ${FIELDKIT}/fieldkit/buildh/prefconflicts.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task, e.g. firefox-158.0"}
+  effects: [reads-files]
+  safety: read-only
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_prefconflicts.py"]
+
+- id: platform-check
+  title: Hold every tool card's platforms to its tests; a new single-system card needs a port or a reason
+  harness: desk
+  entry: [python, -m, fieldkit.desk.platformcheck]
+  path: ${FIELDKIT}/fieldkit/desk/platformcheck.py
+  platforms: [windows, linux]
+  changes: false
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sync_and_platforms.py"]
+
 # Full agent cards: every field the agent interface uses, reviewed by hand.
 
 - id: office-read

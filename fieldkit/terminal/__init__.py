@@ -146,20 +146,35 @@ def bash_script(command, mode, log, title=None, say=False):
 
 def powershell_script(command, mode, log, title=None):
     cmd = " ".join(command) if not isinstance(command, str) else command
-    ps = [f"$host.UI.RawUI.WindowTitle = '{(title or 'Fieldkit').replace(chr(39), chr(39) * 2)}'",
-          f"Write-Host ''; Write-Host '  The command:'; Write-Host ''; Write-Host ('    ' + '{cmd.replace(chr(39), chr(39) * 2)}'); Write-Host ''"]
-    logq = str(log).replace(chr(39), chr(39) * 2)
-    ps.insert(1, f"Add-Content -Path '{logq}' -Value ('window opened at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' mode={mode}')")
+    logq = str(log).replace("'", "''")
+    titleq = (title or "Fieldkit").replace("'", "''")
+    cmdq = cmd.replace("'", "''")
+    ps = [
+        f"$host.UI.RawUI.WindowTitle = '{titleq}'",
+        "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
+        "$env:PYTHONUNBUFFERED = '1'",
+        "$env:PYTHONUTF8 = '1'",
+        f"Set-Location '{str(settings.ROOT).replace(chr(39), chr(39) * 2)}'",
+        f"Add-Content -Path '{logq}' -Value ('window opened at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' mode={mode} command: {cmdq}') -Encoding UTF8",
+        "Write-Host ''",
+        "Write-Host '  The command:'",
+        "Write-Host ''",
+        f"Write-Host '    {cmdq}'",
+        "Write-Host ''",
+    ]
     if mode == "ask":
         ps.append("Read-Host '  Press Enter to run it. Close this window to refuse' | Out-Null")
-        ps.append(f"Add-Content -Path '{logq}' -Value ('run allowed by the person at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))")
-    ps += [f"& {{ {cmd} }} 2>&1 | Tee-Object -FilePath '{str(log).replace(chr(39), chr(39) * 2)}' -Append",
-           "$code = $LASTEXITCODE",
-           f"Add-Content -Path '{str(log).replace(chr(39), chr(39) * 2)}' -Value (\"exit \" + $code)",
-           "Write-Host ''; Write-Host ('  Finished (exit ' + $code + ').')",
-           "Read-Host '  Press Enter to close this window' | Out-Null",
-           f"Add-Content -Path '{logq}' -Value ('closed by the person at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))"]
-    return "; ".join(ps)
+        ps.append(f"Add-Content -Path '{logq}' -Value ('run allowed by the person at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')) -Encoding UTF8")
+    ps += [
+        f"& {{ {cmd} }} 2>&1 | ForEach-Object {{ $s = \"$_\"; Add-Content -Path '{logq}' -Value $s -Encoding UTF8; $s }}",
+        "$code = $LASTEXITCODE",
+        f"Add-Content -Path '{logq}' -Value ('exit ' + $code) -Encoding UTF8",
+        "Write-Host ''",
+        "Write-Host ('  Finished (exit ' + $code + ').')",
+        "Read-Host '  Press Enter to close this window' | Out-Null",
+        f"Add-Content -Path '{logq}' -Value ('closed by the person at ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')) -Encoding UTF8",
+    ]
+    return "\n".join(ps)
 
 
 def open_window(command, mode="ask", title=None, popen=subprocess.Popen, which=None, env=None, platform=None, now=None, say=False):
@@ -176,10 +191,27 @@ def open_window(command, mode="ask", title=None, popen=subprocess.Popen, which=N
     log = log_path(now)
     title = title or "Fieldkit: " + (" ".join(command) if not isinstance(command, str) else command)[:60]
     if platform.startswith("win"):
-        argv = ["cmd", "/c", "start", "", "powershell", "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                "-Command", powershell_script(command, mode, log, title)]
-        p = popen(argv)
-        return {"ok": True, "terminal": "powershell (start)", "log": str(log), "pid": getattr(p, "pid", None)}
+        import base64
+        enc = base64.b64encode(powershell_script(command, mode, log, title).encode("utf-16-le")).decode("ascii")
+        if popen is not subprocess.Popen:
+            argv = ["cmd", "/c", "start", "", "powershell", "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-EncodedCommand", enc]
+            p = popen(argv)
+            return {"ok": True, "terminal": "powershell (start)", "log": str(log), "pid": getattr(p, "pid", None)}
+        cl = f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {enc}"
+        clq = "'" + cl.replace("'", "''") + "'"
+        cwdq = "'" + str(settings.ROOT).replace("'", "''") + "'"
+        ps_wmi = (f"$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+                  f"-Arguments @{{CommandLine={clq}; CurrentDirectory={cwdq}}}; "
+                  f"Write-Output ($r.ReturnValue.ToString() + ' ' + $r.ProcessId)")
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps_wmi],
+                             capture_output=True, text=True, timeout=60).stdout.strip().split()
+        pid = int(out[1]) if len(out) == 2 and out[0] == "0" else None
+        # 2026-10-18 (review): a window that did not start is not "ok" (WMI ReturnValue other than 0, or no PID)
+        if pid is None:
+            return {"ok": False, "terminal": "powershell (start)", "log": str(log), "pid": None,
+                    "why": f"Windows did not start the window (WMI Create answered {' '.join(out) or 'nothing'})"}
+        return {"ok": True, "terminal": "powershell (start)", "log": str(log), "pid": pid}
     if platform == "darwin":
         script = bash_script(command, mode, log, title, say=say)
         path = log.with_suffix(".sh"); path.write_text(script, encoding="utf-8"); os.chmod(path, 0o700)

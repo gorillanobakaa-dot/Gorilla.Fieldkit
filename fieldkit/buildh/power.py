@@ -71,6 +71,14 @@ def row(st=None):
     elif st["mains"]:
         ev = f"on mains, {charge}; {LID}"
     else:
-        ev = (f"ON BATTERY, {charge}: the run goes on; the herald says so aloud at 20, 10 and 5 per cent "
+        ev = (f"on battery, {charge}: the run goes on; the herald says so aloud at 20, 10 and 5 per cent "
               f"(2026-10-09 13:19: a package step died at 18 %); {LID}")
-    return {"check": "power", "ok": True, "evidence": ev, "on_battery": st["mains"] is False}
+    # a warning only where it matters (owner 2026-10-17: "only around 20%, not at 60, 70 or 80"): battery at or below
+    # LOW, or a battery whose level is unknown. Never a refusal either way.
+    low = st["mains"] is False and (st.get("percent") is None or st["percent"] <= LOW)
+    if low:
+        ev = ev.replace("on battery,", "ON BATTERY,", 1)
+    return {"check": "power", "ok": True, "evidence": ev, "on_battery": low}
+
+
+LOW = 20

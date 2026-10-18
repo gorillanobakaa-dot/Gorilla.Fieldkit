@@ -26,10 +26,24 @@ SPECIFIC = 25       # a removed line this long, still present, proves the hunk i
 
 
 
+_DIFF_CACHE = {}
+
+
+def _refreshed():
+    """The security lists lists-refresh replaces at every build (D-157-42): data judged by timebombs, not hunk by
+    hunk (2026-10-17: thousands of recorded hunks of nsSTSPreloadList.inc held the gate for over half an hour)."""
+    from .setproof import refreshed_files
+    return refreshed_files()
+
+
 def _commit_diff_lines(w, commit, rel):
-    """The +/- lines a checkpoint commit made to `rel` (headers left out)."""
-    out = _git(w, "show", "--format=", "--no-color", commit, "--", rel).splitlines()
-    return [l for l in out if l[:1] in "+-" and not l.startswith(("+++ ", "--- "))]
+    """The +/- lines a checkpoint commit made to `rel` (headers left out). Cached: 2026-10-17 the refreshed HSTS list
+    (several MB, thousands of hand-step hunks) was read once per step and held the gate for over half an hour."""
+    key = (str(w), commit, rel)
+    if key not in _DIFF_CACHE:
+        out = _git(w, "show", "--format=", "--no-color", commit, "--", rel).splitlines()
+        _DIFF_CACHE[key] = [l for l in out if l[:1] in "+-" and not l.startswith(("+++ ", "--- "))]
+    return _DIFF_CACHE[key]
 
 
 def superseded_by_hand(steps, step, now, w=None, checkpoints=None):
@@ -483,7 +497,7 @@ def verify(task_id):
         # `dropped_by` is what task.drop writes (2026-10-16: the 167 steps of a dropped 098 still read as 106 false
         # completions because only `dropped_by_owner` was skipped)
         if s["status"] not in ("done", "obsolete") or s.get("skipped_by_owner") or s.get("dropped_by_owner") \
-                or s.get("dropped_by"):
+                or s.get("dropped_by") or (s.get("args") or {}).get("file") in _refreshed():
             continue
         v, d = scores.get(key, (None, None))
         if (s.get("done_by") == "hand" or s.get("hand_port")) and firefox.deletes_whole_file((s.get("args") or {}).get("hunk")):
@@ -605,7 +619,8 @@ def verify(task_id):
     # 6b. changed build files that do not parse (a merge left `GeneratedFile(` dangling: configure stopped, live run 16)
     rep["syntax"] = firefox.syntax_problems(w, changed) if root else []
     from . import symbols
-    rep["symbols"] = symbols.problems(w, changed) if root else []
+    rep["symbols"] = symbols.problems(w, changed, pristine=lambda rel: _git(w, "show", f"{root[0]}:{rel}") or None) \
+        if root else []
     # 6c. excision creep is NOT computed here: two tree-wide greps over hundreds of symbols held the build gate for
     #     three hours (2026-10-02). It is its own command, `fieldkit build-harness creep TASK`, run on purpose.
     rep["creep"] = []

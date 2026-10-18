@@ -13,21 +13,21 @@ def _app(tmp_path, bid):
 
 
 def test_stamp_reads_the_build_id_as_year_to_second():
-    assert bs.stamp("20261008103725") == "built 26:10:08:10:37:25"
+    assert bs.stamp("20261008103725") == "built 2026-10-08-1037hrs"
     assert bs.stamp("2026100810372") is None and bs.stamp(None) is None
 
 
 def test_the_about_line_must_end_with_this_folders_stamp(monkeypatch, tmp_path):
     app = _app(tmp_path, "20261008103725")
-    lines = ["STAMP|buildid|20261008103725", "STAMP|expected|built 26:10:08:10:37:25", "STAMP|number|28",
-             "STAMP|shown|157.0 (64-bit) build 28, built 26:10:08:10:37:25", "STAMP|idline|Build ID 20261008103725",
+    lines = ["STAMP|buildid|20261008103725", "STAMP|expected|built 2026-10-08-1037hrs", "STAMP|number|28",
+             "STAMP|shown|157.0 (64-bit) build 28, built 2026-10-08-1037hrs", "STAMP|idline|Build ID 20261008103725",
              "STAMP|verdict|ok|the version line carries this build's stamp"]
     monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": lines})
     rows = bs.about_rows(app, recorded="20261008103725")
     assert [r["ok"] for r in rows] == [True, True, True]
     rows = bs.about_rows(app, recorded="20261007110752")              # the install is not the build that was checked
     assert rows[0]["check"].startswith("stamp: this is the build") and not rows[0]["ok"]
-    old = ["STAMP|buildid|20261008103725", "STAMP|shown|157.0 (64-bit)", "STAMP|verdict|FAIL|expected the line to end with 'built 26:10:08:10:37:25'"]
+    old = ["STAMP|buildid|20261008103725", "STAMP|shown|157.0 (64-bit)", "STAMP|verdict|FAIL|expected the line to end with 'built 2026-10-08-1037hrs'"]
     monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": old})
     r = bs.about_rows(app)
     assert len(r) == 2 and not r[0]["ok"] and not r[1]["ok"] and "157.0 (64-bit)" in r[0]["evidence"]
@@ -80,7 +80,7 @@ def test_about_rows_need_the_build_number_and_the_build_id_line(monkeypatch, tmp
     'build 29, built ...' and 'Build ID <14 digits>' under it, and both are checked."""
     app = _app(tmp_path, "20261009125107")
     good = ["STAMP|buildid|20261009125107", "STAMP|number|29",
-            "STAMP|shown|157.0 (64-bit) build 29, built 26:10:09:12:51:07", "STAMP|idline|Build ID 20261009125107",
+            "STAMP|shown|157.0 (64-bit) build 29, built 2026-10-09-1251hrs", "STAMP|idline|Build ID 20261009125107",
             "STAMP|verdict|ok|fine"]
     monkeypatch.setattr("fieldkit.buildh.probe.run", lambda *a, **k: {"lines": good})
     rows = bs.about_rows(app)

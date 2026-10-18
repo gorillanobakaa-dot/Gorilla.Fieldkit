@@ -12,6 +12,8 @@ def _on_mains(monkeypatch):
     # lists-refresh fetches from Mozilla; it has its own tests (test_buildh_setproof.py)
     monkeypatch.setattr(buildrun, "refresh_lists", lambda *a, **k: {"ok": True, "written": [], "why": ""})
     monkeypatch.setattr(buildrun, "binary_gate", lambda t: {"ok": True, "rows": []})   # test_buildh_binpatch.py
+    from fieldkit.buildh import window
+    monkeypatch.setattr(window, "hold_awake", lambda pid: {"pid": 0})            # no real holder from a test run
 
 
 

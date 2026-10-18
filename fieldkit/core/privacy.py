@@ -564,6 +564,13 @@ while read lref lsha rref rsha; do
     {fieldkit} build-harness set-proof patchset=. platform=all || {
       echo "pre-push: refused, the patch set does not apply on every platform (set-proof above)"; exit 1; }
   fi
+  # the owner's recorded pref decisions (written by record_decisions.py, the OWNER): an agent changing them to make
+  # a check pass is what the record exists to stop (2026-09-26). Same rule as the owner repo's pre-commit hook.
+  if [ -n "$(git diff --name-only "$rng" -- decisions/gorilla_decisions.json 2>/dev/null | head -n 1)" ] && \
+     [ "$GORILLA_OWNER_APPROVED" != "1" ]; then
+    echo "pre-push: refused, decisions/gorilla_decisions.json changed: the owner's record; push with GORILLA_OWNER_APPROVED=1"
+    exit 1
+  fi
 done
 exit 0
 """

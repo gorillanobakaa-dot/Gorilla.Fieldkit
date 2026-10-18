@@ -948,6 +948,22 @@ def run(a, emit):
                     write=opts.get("write", "0") not in ("0", "no", "false", ""), say=lambda m: print(m, flush=True))
         task.journal(t, "rebase-set", **{k: v for k, v in r.items() if k != "replay"}, replay=str(r["replay"])[:300])
         return 0 if r["ok"] else 3
+    if act == "carry":
+        # build-harness carry TASK COMMIT PATCH... --note WHY: the hand step is already in these patches of the set
+        from . import export as ex
+        from .ownercheck import patchset_owner
+        import json as _js
+        if len(a.args) < 3 or not a.note:
+            raise task.Refused("usage: build-harness carry TASK COMMIT PATCH-FILE... --note \"why the set already carries it\"")
+        t = task.load(tid)
+        owner = patchset_owner(t)
+        pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        full = ex._git(t["workdir"], "rev-parse", "--verify", a.args[1] + "^{commit}").strip()
+        if not full:
+            raise task.Refused(f"no commit {a.args[1]} in the work tree")
+        ex.carry(tid, full, a.args[2:], a.note, owner / pol["patchset_root"])
+        print(f"recorded: {full[:12]} is carried by {', '.join(a.args[2:])}; export-hand skips it, replay proves it")
+        return 0
     if act == "export-hand":
         from . import export as ex, buildrun
         t = task.load(tid)
@@ -957,7 +973,8 @@ def run(a, emit):
             raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
         import json as _js
         pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
-        r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True))
+        r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True),
+                      dry=bool(getattr(a, "dry_run", False)))
         print("register new groups in config/patch_policy.json if they are not there; then prove the set: build-harness replay " + tid)
         return 0
     if act == "release-check":
@@ -1071,6 +1088,40 @@ def run(a, emit):
             for r in out:
                 print("\n".join(setproof.lines(r)))
         return 0 if ok else 3
+    if act == "profile-diff":
+        # profile-diff TASK probe=<name> profile=<dir> [install=<dir>]: the probe on a fresh profile and on a copy of
+        # the real one; exit 3 when they differ (profilediff.py; born 2026-10-18, Perplexity only on the real profile)
+        from . import profilediff, install as _inst
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        if not opts.get("probe") or not opts.get("profile"):
+            raise task.Refused("usage: build-harness profile-diff TASK probe=<name> profile=<profile dir> [install=<dir>]")
+        inst = opts.get("install") or getattr(a, "install_dir", None) or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed Gorilla found; name it: install=<dir>")
+        r = profilediff.diff(inst, opts["probe"], opts["profile"])
+        print(json.dumps(r, indent=1) if a.json else "\n".join(profilediff.lines(r, opts["probe"], opts["profile"])))
+        return 0 if r["ok"] else 3
+    if act == "search-strip":
+        # search-strip TASK [--apply]: D-158-13's leftovers (other engines' icons, wordmarks) out of the source
+        from . import searchstrip
+        w = task.load(tid)["workdir"]
+        r = searchstrip.apply(w) if a.apply else searchstrip.check(w)
+        print(json.dumps(r if a.apply else r, indent=1) if a.json else
+              ("removed: " + ", ".join(f"{k} {len(v)}" for k, v in r.items()) if a.apply else
+               ("SEARCH-STRIP: Google only" if r["ok"] else f"SEARCH-STRIP: {len(r['left'])} left, e.g. {r['left'][:5]}")))
+        return 0 if a.apply or r["ok"] else 3
+    if act == "runbook":
+        # runbook run|status FILE: the harness runs the steps (fieldkit/autopilot/runbook.py); here so that
+        # `build-harness window runbook run FILE` gives it the detached window, the log and the keep-awake
+        from ..cli import runbook_main
+        return runbook_main(a.args[0] if a.args else "status", a.args[1] if len(a.args) > 1 else tid)
+    if act == "pref-conflicts":
+        # pref-conflicts TASK: two definitions the patch set adds for one pref, with different values under
+        # conditions that can both hold (prefconflicts.py; 2026-10-16: Inter vs Segoe UI, 8 more). Exit 3 on any.
+        from . import prefconflicts
+        found = prefconflicts.scan(task.load(tid)["workdir"])
+        print(json.dumps(found, indent=1) if a.json else "\n".join(prefconflicts.lines(found)))
+        return 3 if found else 0
     if act == "profile-keep":
         # profile-keep [TASK] [install=DIR]: which profile holds the saved logins and which install folder opens it;
         # FAIL when DIR (default: the Gorilla install) would open another, empty profile (profilekeep.py, D-157-28)
@@ -1512,7 +1563,7 @@ def run(a, emit):
         result, events, st, bi = lg.run(res["artifacts"]["zip"]["file"], owner, t["workdir"], t["meta"]["upstream"],
                                         workroot, repeat=int(getattr(a, "repeat", None) or 1), quick=not getattr(a, "release", False),
                                         only=only, release=getattr(a, "release", False), previous_zip=prev,
-                                        n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,
+                                        n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,   # 2026-10-18: no older-upstream stand-in; the owner's release N-1 or a stated "no baseline"
                                         soak=getattr(a, "soak", None), firewall=getattr(a, "firewall", False))
         for p in lg.POLICIES:
             print(f"  {p:24s} {result[p]}" + (f"  - {result['WHY'][p][0][:220]}" if p in result.get("WHY", {}) else ""))

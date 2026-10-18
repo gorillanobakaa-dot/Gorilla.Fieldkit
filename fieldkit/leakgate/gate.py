@@ -236,8 +236,28 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             lists[listname].append(item)
 
     copy_prefixes = [str(Path(c)).lower() for c in copy_dirs]
+
+    def socket_in_build(e):
+        if e.get("sensor") != "sockets":
+            return True
+        if e.get("in_build") is False:
+            return False
+        exe = (e.get("exe") or "").lower()
+        if exe and copy_prefixes and not any(exe.startswith(p) for p in copy_prefixes):
+            return False
+        chain = e.get("parent_chain") or []
+        if chain and copy_prefixes:
+            paths = [c.get("path", "").lower() for c in chain if c.get("path")]
+            if paths and not any(any(p.startswith(cp) for cp in copy_prefixes) for p in paths):
+                return False
+        return True
+
     for e in events:
         k, v, scen = e["kind"], e["value"], e["scenario"]
+        if not socket_in_build(e):
+            lists["OTHER_PROGRAMS"].append(f"[{scen}/{e['mode']}/sockets] {k} {v}" + (f":{e['port']}" if e.get("port") else "")
+                                           + f" ({e.get('detail', 'outside browser process tree')})")
+            continue
         if k in ("dest", "sni", "dns", "dns-wire"):
             host = v.lower()
             if k == "dns-wire" and host not in names_by_scenario.get(scen, set()):
@@ -524,6 +544,29 @@ def planned_runs(repeat=1, quick=True, only=None):
             for rep in range(repeat) for mode in modes_for(name, quick)]
 
 
+def previous_cargo_lock(n_minus_1_tree, workdir_tree=None):
+    """Return the previous release's Cargo.lock text from n_minus_1_tree (git root commit if .git exists, else
+    Cargo.lock on disk), falling back to a sibling release directory if n_minus_1_tree is not provided."""
+    candidates = [Path(n_minus_1_tree)] if n_minus_1_tree else []
+    if workdir_tree:
+        candidates.append(Path(workdir_tree).parent / "155.0.1")
+    for p in candidates:
+        if not p or not p.is_dir():
+            continue
+        if (p / ".git").exists():
+            r = subprocess.run(["git", "-C", str(p), "rev-list", "--max-parents=0", "HEAD"],
+                               capture_output=True, text=True, timeout=30)
+            root = r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
+            if root:
+                r2 = subprocess.run(["git", "-C", str(p), "show", f"{root}:Cargo.lock"],
+                                    capture_output=True, text=True, timeout=30)
+                if r2.returncode == 0 and r2.stdout:
+                    return r2.stdout
+        if (p / "Cargo.lock").is_file():
+            return (p / "Cargo.lock").read_text(encoding="utf-8")
+    return None
+
+
 def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
         previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
     owner_root = Path(owner_root)
@@ -538,12 +581,20 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
         st0 = lx.selftest()
         if not st0["ok"]:
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
-    packets = True if linux else se.is_admin()
-    dns_prev = se.dnsclient_enable() if packets and not linux else None   # the DNS witness, put back afterwards
     if release:
         repeat, quick = max(repeat, 3), False
     work = Path(workroot) / time.strftime("%Y%m%d-%H%M%S")
     work.mkdir(parents=True)
+    if linux:
+        packets, dns_prev = True, None
+    else:
+        # the elevated helper (one UAC click) only for a release run, which requires the packet sensor; a quick run
+        # captures packets only when the shell is already elevated (2026-10-18: the overnight edit asked for UAC on
+        # every run, the test suite included)
+        packets = se.is_admin()
+        if release and not packets:
+            packets, _ = se.ensure_packet_sensor(work, say=say)
+        dns_prev = se.dnsclient_enable() if se.is_admin() else None
     zp = work / "build.zip"
     shutil.copyfile(zip_path, zp)
     if linux:
@@ -616,6 +667,11 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
             for rep in range(repeat):
                 for mode, bdir in modes:
                     say(f"  {name} [{mode}] run {rep + 1}/{repeat}: {secs} s + {watch} s after shutdown")
+                    try:                       # owner 2026-10-18: the ETA from the plan and this run's measured overhead
+                        from ..core import eta as _eta
+                        say("    " + _eta.human(_eta.leakgate(work, repeat, quick)))
+                    except Exception:  # noqa: BLE001 - an estimate never stops a gate
+                        pass
                     if linux:
                         allowed = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") for v in e.get("values", [])] + list(hosts)
                         ev, art = lx.run_one(bdir, server.url(target), secs, args, work / "runs",
@@ -633,6 +689,7 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
                                        "detail": "the page itself never reached mitmproxy"})
     finally:
         if packets and not linux:
+            se.close_packet_sensor()
             se.dnsclient_restore(dns_prev)
         server.close()
         doh.close()
@@ -732,15 +789,7 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
         fail["BINARY_POLICY"].append(f"{len(ex['unapproved_new'])} executable/DLL(s) new since release N-1 without an approved disposition: {ex['unapproved_new'][:6]}")
     if ex["unexpected_network_imports"]:
         fail["BINARY_POLICY"].append(f"binaries importing network libraries they should not: {dict(list(ex['unexpected_network_imports'].items())[:4])}")
-    prev_lock = None
-    if n_minus_1_tree:
-        try:
-            import subprocess as _sp
-            repo = Path(workdir_tree).parent / "155.0.1"
-            root = _sp.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
-            prev_lock = _sp.run(["git", "-C", str(repo), "show", f"{root}:Cargo.lock"], capture_output=True, text=True, encoding="utf-8").stdout
-        except Exception:
-            prev_lock = None
+    prev_lock = previous_cargo_lock(n_minus_1_tree, workdir_tree)
     dep = audit.dependency_audit(workdir_tree, prev_lock, dispositions)
     if not prev_lock:
         fail["DEPENDENCY_POLICY"].append("no previous Cargo.lock to compare with")

@@ -154,3 +154,39 @@ def test_the_binary_gate_refuses_when_no_patch_set_is_found(monkeypatch):
     monkeypatch.setattr(ownercheck, "patchset_owner", lambda t: None)
     r = buildrun.binary_gate({"workdir": "W"})
     assert not r["ok"] and "patch_policy.json" in r["why"]
+
+
+def test_paths_only_one_system_builds_are_classified():
+    assert setproof.platform_of("widget/gtk/nsWindow.cpp") == "linux"
+    assert setproof.platform_of("widget/windows/nsWindow.cpp") == "windows"
+    assert setproof.platform_of("browser/branding/gorilla/branding.nsi") == "windows"
+    assert setproof.platform_of("browser/branding/gorilla/msix/Assets/StoreLogo.scale-200.png") == "windows"
+    assert setproof.platform_of("browser/branding/gorilla/firefox.icns") == "mac"
+    assert setproof.platform_of("browser/app/profile/firefox.js") is None
+    assert setproof.foreign_only({"widget/gtk/a.cpp"}, "windows") == "linux"
+    assert setproof.foreign_only({"widget/gtk/a.cpp", "dom/b.cpp"}, "windows") is None      # one shared file: judged
+    assert setproof.foreign_only({"widget/cocoa/a.mm"}, "windows") is None                    # macOS is not built
+    assert setproof.foreign_only({"widget/windows/a.cpp"}, "windows") is None
+
+
+def test_an_undeclared_other_platform_patch_fails_the_proof_until_rebase_set_declares_it(world):
+    ps, pristine = world
+    pol = json.loads((ps / "config" / "patch_policy.json").read_text())
+    pol["groups"]["21.FIX"]["exclude_on"] = {"windows": ["008-fix.patch"]}
+    (ps / "patches" / "21.FIX" / "010-gtk.patch").write_text(
+        "diff --git a/widget/gtk/w.cpp b/widget/gtk/w.cpp\nnew file mode 100644\n--- /dev/null\n+++ b/widget/gtk/w.cpp\n"
+        "@@ -0,0 +1 @@\n+int gtk = 1;\n", newline="\n")
+    (ps / "config" / "patch_policy.json").write_text(json.dumps(pol))
+    win = setproof.prove(ps, pristine, "windows", say=lambda m: None)
+    assert not win["ok"] and win["failures"][0]["foreign"] == "linux"
+    assert any("OTHER PLATFORM 21.FIX/010-gtk.patch" in l for l in setproof.lines(win))
+    assert setproof.declare_foreign(pol["groups"]["21.FIX"], ps / "patches" / "21.FIX") == {"windows": ["010-gtk.patch"]}
+    assert pol["groups"]["21.FIX"]["exclude_on"]["windows"] == ["008-fix.patch", "010-gtk.patch"]
+    (ps / "config" / "patch_policy.json").write_text(json.dumps(pol))
+    assert setproof.prove(ps, pristine, "windows", say=lambda m: None)["ok"]
+    assert setproof.prove(ps, pristine, "linux", say=lambda m: None)["ok"]
+
+def test_the_pre_push_hook_guards_the_owners_decision_record(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    text = privacy.install_hook(tmp_path, "/opt/fk").read_text()
+    assert "decisions/gorilla_decisions.json" in text and 'GORILLA_OWNER_APPROVED" != "1"' in text

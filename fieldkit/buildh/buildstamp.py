@@ -31,10 +31,12 @@ def build_id(app_dir):
 
 
 def stamp(bid):
-    """BuildID -> the text Help > About ends with: "built YY:MM:DD:HH:MM:SS" (None when it is not 14 digits)."""
+    """BuildID -> the text Help > About ends with: "built YYYY-MM-DD-HHMMhrs" (None when it is not 14 digits).
+    Owner 2026-10-15 (21.PORT.FIXES.158/027): "2026-10-15-2050hrs", not "26:10:15:20:50:14" (hard to read); seconds
+    left out. The probe kept the old form and failed the first 158 build-verify (2026-10-17)."""
     if not bid or len(bid) != 14 or not bid.isdigit():
         return None
-    return "built " + ":".join((bid[2:4], bid[4:6], bid[6:8], bid[8:10], bid[10:12], bid[12:14]))
+    return f"built {bid[0:4]}-{bid[4:6]}-{bid[6:8]}-{bid[8:10]}{bid[10:12]}hrs"
 
 
 def when(bid):

@@ -162,7 +162,8 @@ def test_export_honours_the_recorded_kind_and_prints_it(tmp_path, monkeypatch):
     ]
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "workdir": str(tmp_path)})
     monkeypatch.setattr(export, "hand_commits", lambda t: commits)
-    monkeypatch.setattr(export, "_git", lambda w, *a: "diff --git a/x b/x\n+x\n")
+    # a distinct change per commit: identical ones are written once since 2026-10-18
+    monkeypatch.setattr(export, "_git", lambda w, *a: "" if "--name-only" in a else f"diff --git a/x b/x\n+{a[-1]}\n")
     said = []
     out = export.export("t1", tmp_path / "patchset", "157", say=said.append)
     kinds = {n.split("-", 1)[0]: (k, how) for n, k, how in out["kinds"]}

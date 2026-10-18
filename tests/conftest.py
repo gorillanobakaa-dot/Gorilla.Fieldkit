@@ -211,3 +211,20 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     line = (_random.choice(_SOME_FAILED).format(f=failed, t=total) if failed
             else _random.choice(_ALL_PASSED).format(p=passed))
     _announce(line)
+
+
+# Tests never put a UAC prompt or an admin window on the owner's screen (2026-10-18: three leak-gate tests started
+# the real elevated packet helper twice; six "Administrator: Windows PowerShell" windows were left open). A test that
+# injects its own runner still exercises the helper.
+@pytest.fixture(autouse=True)
+def _no_real_elevation(monkeypatch):
+    import subprocess
+    from fieldkit.leakgate import sensors
+    real_start = sensors.ElevatedPktmon.start
+
+    def start(self, *a, **k):
+        if self.runner is subprocess.run:
+            raise RuntimeError("tests never elevate: inject a runner")
+        return real_start(self, *a, **k)
+    monkeypatch.setattr(sensors.ElevatedPktmon, "start", start)
+    yield
