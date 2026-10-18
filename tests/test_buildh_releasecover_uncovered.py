@@ -32,3 +32,22 @@ def test_a_placeholder_left_on_the_page_fails(tmp_path):
     assert rows["release page: no placeholder left (TO BE FILLED)"] is False
     rows = {r["check"]: r["ok"] for r in rc.check(lsum.HEADING + "\nPASS\n", reg, "", "2026-01-01")}
     assert rows["release page: no placeholder left (TO BE FILLED)"] is True
+
+
+def test_release_cover_refuses_github_while_a_leak_gate_runs(monkeypatch):
+    # 2026-10-19: release-cover called gh twice while a release leak gate was measuring the machine
+    import subprocess
+    import pytest
+    from fieldkit.leakgate import status
+    monkeypatch.setattr(status, "gate_running", lambda: [4242])
+    with pytest.raises(RuntimeError, match="leak gate is running"):
+        rc.previous_release(run=subprocess.run)
+
+
+def test_gate_running_finds_the_gate_process_only():
+    from types import SimpleNamespace as NS
+    from fieldkit.leakgate import status
+    procs = [NS(info={"pid": 1, "cmdline": ["python", "-m", "fieldkit", "build-harness", "leakgate", "firefox-158.0", "--release"]}),
+             NS(info={"pid": 2, "cmdline": ["python", "-m", "fieldkit", "build-harness", "leakgate-summary", "t"]}),
+             NS(info={"pid": 3, "cmdline": ["python", "-m", "pytest"]})]
+    assert status.gate_running(NS(process_iter=lambda attrs: procs)) == [1]

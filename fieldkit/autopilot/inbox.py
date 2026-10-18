@@ -135,6 +135,11 @@ def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=No
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1":
         say("REFUSED: publish never runs inside an autopilot run (no credential there by design)")
         return 3
+    if run is subprocess.run:
+        from ..leakgate import status as _st
+        if _st.gate_running():
+            say("REFUSED: a leak gate is running; publishing goes to the network, so it waits until the gate has finished")
+            return 3
     plan = publish_plan(repo, release, notes, assets)
     for l in plan["lines"]:
         say(l)

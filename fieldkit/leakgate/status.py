@@ -99,6 +99,22 @@ def alive(pid, started):
         return guard._alive(pid)
 
 
+def gate_running(psutil=None):
+    """-> [pid] of every leak gate running on this machine (a `fieldkit build-harness leakgate` process). A tool that
+    goes to the network refuses while this is non-empty (2026-10-19: release-cover's gh calls ran mid-gate)."""
+    if psutil is None:
+        try:
+            import psutil
+        except ImportError:
+            return []
+    out = []
+    for p in psutil.process_iter(["pid", "cmdline"]):
+        cmd = " ".join(p.info.get("cmdline") or [])
+        if "fieldkit" in cmd and re.search(r"build-harness\s+leakgate(\s|$)", cmd) and "leakgate-" not in cmd:
+            out.append(p.info["pid"])
+    return out
+
+
 def writer_pid(task_id):
     """The task's writer lock, when the writer holding it is the leak gate."""
     from ..migrate import plan as mplan
