@@ -212,10 +212,12 @@ TECHNIQUES.append({
                 "(master-redirect.css 'PANEL STYLING RESTORED': menupopup {appearance:auto; background-color:Menu; "
                 "color:MenuText}). A menu owned by a toolbar button inherits the toolbar's cyan text, so it ends up "
                 "cyan on the system's light grey."),
-    "concept": ("Never theme menus globally. Give each menu Gorilla adds its own rule, scoped by the owner's id "
-                "('#owner > menupopup'), with !important on appearance:none, the background, the text colour "
-                "(var(--toolbar-text-color), the theme's cyan), the hover and the separators, so it beats the theme's "
-                "global rule."),
+    "concept": ("Give each menu Gorilla adds its own rule, scoped by the owner's id ('#owner > menupopup'), with "
+                "!important on appearance:none, the background, the text colour (var(--toolbar-text-color), the "
+                "theme's cyan), the hover #65568C and the separators. Since 2026-10-18 (D-158-19, owner: the same "
+                "background everywhere) the theme also draws EVERY menu black/cyan with a cyan border instead of the "
+                "system colours, so the scoped rule and the global one say the same; the scoped one stays so a Gorilla "
+                "menu keeps its colours if the global rule is ever narrowed."),
     "apply": ["For a new Gorilla menu, copy the '#gorilla-satellite-button > menupopup' block in toolbarbuttons.css "
               "under the new owner's id.",
               "Prove it with fieldkit build-harness ui-check (contrast of every item against what is painted)."],
@@ -223,8 +225,10 @@ TECHNIQUES.append({
     "signals": [
         {"name": "scoped-menu-rule", "kind": "must_have", "path": "browser/themes/shared/toolbarbuttons.css",
          "text": "background-color: #000000 !important;"},
-        {"name": "theme-forces-system-menus", "kind": "must_have", "path": "browser/themes/shared/master-redirect.css",
-         "text": "background-color: Menu !important;"},
+        {"name": "scoped-menu-hover-is-the-highlight", "kind": "must_have", "path": "browser/themes/shared/toolbarbuttons.css",
+         "text": "background-color: #65568C !important;"},
+        {"name": "theme-draws-every-menu-black", "kind": "must_have", "path": "browser/themes/shared/master-redirect.css",
+         "text": "--panel-background-color: #000000 !important;"},
         {"name": "gorilla-menus", "kind": "watch", "pathspec": ["browser/modules", ":!**/test/**", ":!**/tests/**"],
          "regex": r"createXULElement\([[:space:]]*.menupopup", "guard_lines": 3,
          "allow": {"browser/modules/webrtcUI.sys.mjs": "upstream camera/microphone sharing menu: system text on the "

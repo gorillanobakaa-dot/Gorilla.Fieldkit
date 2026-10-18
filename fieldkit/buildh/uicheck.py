@@ -119,7 +119,7 @@ def parse(lines):
             try:
                 from .themecheck import _rgb
                 res["popups"].append({"surface": rest[0], "label": rest[1], "contrast": float(rest[2]),
-                                      "text": _rgb(rest[3]), "background": _rgb(rest[4]), "hover": _rgb(rest[5]),
+                                      "text": _rgb(rest[3]), "background": _rgb(rest[4]), "hover": None if len(rest) > 7 and rest[7].strip() == "1" else _rgb(rest[5]),
                                       "clipped": rest[6].strip() == "1"})
             except ValueError:
                 continue

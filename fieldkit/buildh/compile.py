@@ -93,6 +93,11 @@ def owner_rows(t, run_preflight=None, check=None, local=None):
     from . import searchstrip
     sr = searchstrip.row(t["workdir"])
     out.append((sr["check"], sr["ok"], sr["evidence"]))
+    # the fast loop: a chrome change runs on the last build's unpacked dist/bin before an hour of compiling (2026-10-18:
+    # build 2's theme had never run in a browser and build-verify spent the build to find it)
+    from . import fastloop
+    for fr in fastloop.rows(t.get("id"), t):
+        out.append((fr["check"], fr["ok"], fr["evidence"]))
     from . import prefconflicts
     pcs = prefconflicts.scan(t["workdir"])
     out.append(("one pref, one value: no two definitions the set adds disagree (prefconflicts)", not pcs,

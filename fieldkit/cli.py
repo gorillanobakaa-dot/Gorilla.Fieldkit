@@ -2202,7 +2202,15 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(f".method.{METHODS[args[0]][0]}", __package__)
         return mod.main(args[1:], prog=f"fieldkit {args[0]}")
-    a = build_parser().parse_args(argv)
+    # key=value arguments are accepted after --flags too (2026-10-18: `probe ... --install-dir D file=a=b` was
+    # refused as "unrecognized arguments", and the fast CSS loop looked broken); anything else unknown still fails
+    _p = build_parser()
+    a, extra = _p.parse_known_args(argv)
+    kv = [x for x in extra if "=" in x and not x.startswith("-")]
+    if len(kv) != len(extra) or (kv and not isinstance(getattr(a, "args", None), list)):
+        _p.error("unrecognized arguments: " + " ".join(x for x in extra if x not in kv or not isinstance(getattr(a, "args", None), list)))
+    if kv:
+        a.args = list(a.args) + kv
     if a.cmd == "pipeline" and a.action != "list" and not a.name:
         raise SystemExit("pipeline: name required")
     try:

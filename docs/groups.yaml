@@ -131,6 +131,7 @@ groups:
       - buildh/clipcheck.py
       - buildh/symptoms.py
       - buildh/companions.py
+      - buildh/fastloop.py
       - buildh/satellite.py
       - buildh/window.py
       - buildh/herald.py

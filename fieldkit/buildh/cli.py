@@ -437,7 +437,8 @@ def _change_args(args, tid, inst, tmp_prefix, say=print):
         if since == "build":
             since = json.loads(_cg._record_path(tid).read_text(encoding="utf-8"))["head"]
         got, skipped = pb.tree_since(task.load(tid)["workdir"], since, inst, _tf.mkdtemp(prefix=tmp_prefix), until)
-        change["omni"].update({k: str(v) for k, v in got.items()})
+        change["omni"].update({k: str(v) for k, v in got.items() if not k.startswith("@")})
+        change["files"].update({k[1:]: str(v) for k, v in got.items() if k.startswith("@")})   # an unpacked build
         notes.append(f"tree-since {since[:10]}: {len(got)} member(s) replaced; {len(skipped)} change(s) not applied:")
         notes += [f"  {path}: {why}" for path, why in skipped]
     for n in notes:
