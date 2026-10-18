@@ -22,7 +22,7 @@ LINES = [
     "ABOUT-ERR|neterror|ReferenceError: RPMGetBoolPref is not defined|chrome://global/content/aboutNetErrorHelpers.mjs",
     "ABOUT-ERR|support|AbortError: Actor 'ShieldFrame' destroyed before query 'Shield:GetStudiesEnabled' was resolved|",
     "ABOUT-NET|about|https://ublockorigin.pages.dev/filters/badware.min.txt|extension " + ap.UBLOCK_ID,
-    "ABOUT-NET|glean|https://incoming.telemetry.mozilla.org/submit|browser",
+    "ABOUT-NET|glean|https://incoming.telemetry.mozilla.org/submit|browser",  # telemetry-ok: test fixture
     "ABOUT-SUMMARY|6|2|2|2|2",
 ]
 
@@ -37,7 +37,7 @@ def test_parse_reads_pages_pictures_errors_requests_and_glean():
     assert p["pages"]["robots"]["pics"] == [{"url": "chrome://branding/content/about-logo.png", "w": 32, "h": 32}]
     assert p["pages"]["neterror"]["errors"][0]["msg"].startswith("ReferenceError")
     assert p["orphan_errors"]["support"][0]["msg"].startswith("AbortError")      # about:support was never listed here
-    assert p["net"][1] == {"page": "glean", "url": "https://incoming.telemetry.mozilla.org/submit", "who": "browser"}
+    assert p["net"][1] == {"page": "glean", "url": "https://incoming.telemetry.mozilla.org/submit", "who": "browser"}  # telemetry-ok: test fixture
     assert p["glean"]["submit"]["requests"] == 0 and p["summary"]["pages"] == 6
 
 
@@ -135,7 +135,7 @@ def test_live_lines_say_what_matters():
     assert ap.live("ABOUT-NOW|studies") == "\n>> about:studies"
     assert "Mozilla artwork" in ap.live("ABOUT-PIC|telemetry|chrome://global/skin/illustrations/security-error.svg|131x129")
     assert ap.live("ABOUT-PIC|addons|chrome://global/skin/icons/settings.svg|16x16") is None        # plain icons: quiet
-    assert "OPENED, NOT ALLOWED" in ap.live("ABOUT-NET|glean|https://incoming.telemetry.mozilla.org/x|browser")
+    assert "OPENED, NOT ALLOWED" in ap.live("ABOUT-NET|glean|https://incoming.telemetry.mozilla.org/x|browser")  # telemetry-ok: test fixture
     assert "allowed" in ap.live("ABOUT-NET|about|https://ublockorigin.github.io/x|extension " + ap.UBLOCK_ID)
     assert ap.live("ABOUT-ERR|certerror|ReferenceError: RPMGetBoolPref is not defined|x.mjs").startswith("   error (known:")
     assert "MISSING TEXT" in ap.live("ABOUT-L10N|preferences|x-id|moz-button")

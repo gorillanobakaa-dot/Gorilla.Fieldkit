@@ -85,7 +85,48 @@ def publish_plan(repo, release=None, notes=None, assets=()):
                 blockers.append(f"asset missing: {a}")
         if notes and not Path(notes).is_file():
             blockers.append(f"release notes missing: {notes}")
+        blockers += sums_blockers(assets)
     return {"lines": lines_, "blockers": blockers, "branch": br, "ahead": ahead}
+
+
+def _sha256(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def write_sums(assets, out):
+    """SHA256SUMS.txt for the release's files, from their bytes now (sha256sum format)."""
+    lines = [f"{_sha256(a)}  {Path(a).name}" for a in assets if not Path(a).name.upper().startswith("SHA256SUMS")]
+    Path(out).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return lines
+
+
+def sums_blockers(assets):
+    """A release ships a checksum file that matches what it ships (2026-10-18: the SHA256SUMS.txt beside build 2's
+    files was build 1's; the page told users to check against it). No sums file, a file missing from it, a line
+    for a file not uploaded, or a wrong hash: each one blocks."""
+    sums = [a for a in assets if Path(a).name.upper().startswith("SHA256SUMS")]
+    files = {Path(a).name: a for a in assets if a not in sums}
+    if not files:
+        return []
+    if not sums:
+        return ["no SHA256SUMS.txt among the assets (fieldkit publish --sums OUT writes it from the assets)"]
+    out, listed = [], {}
+    for line in Path(sums[0]).read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            listed[parts[-1].lstrip("*")] = parts[0].lower()
+    for name, path in files.items():
+        if name not in listed:
+            out.append(f"{Path(sums[0]).name} does not list {name}")
+        elif listed[name] != _sha256(path):
+            out.append(f"{Path(sums[0]).name} has the wrong hash for {name} (a file from another build?)")
+    out += [f"{Path(sums[0]).name} lists {n}, which is not uploaded" for n in listed if n not in files]
+    return out
 
 
 def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=None, run=subprocess.run, say=print):

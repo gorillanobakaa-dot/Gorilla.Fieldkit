@@ -121,6 +121,15 @@ The owner runs Fieldkit on a Windows laptop and a Linux machine, each with its o
   the diff, not the model's own account of what it did.
 - **Measure.** `fieldkit exam` shows whether the kit really helps a given model.
 
+## Telemetry and the tool router (owner, 2026-10-18)
+
+- Telemetry is off and cut out in every project, without asking: `fieldkit telemetry scan <project>` exits 0 (SDKs,
+  endpoints and collectors excised, not disabled; a deliberate line says `telemetry-ok: <why>`). The machine:
+  `fieldkit telemetry machine`, every row closed; the build gate fails while one is open.
+- The tool router (`fieldkit/autopilot/toolrouter.py`, a Claude Code PreToolUse hook and Antigravity's guard) refuses
+  hand-rolled recursive searches and size scans and names the tool to use (`fieldkit size find`, `fieldkit size`).
+  A new tool that replaces a hand-rolled habit gets a row in its ROUTES table, with a test.
+
 ## Rules this code enforces, and that you should keep to
 
 0. **The explanation is the product.** Every release page carries the plain-language

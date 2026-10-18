@@ -324,7 +324,7 @@ def watch_after_kill(build_dir, seconds, killed_at=None):
 
 # ------------------------------------------------------------------------------------------- DNS witness
 # Windows' own DNS-client log: every query with the process that made it (event 3006, logged inside the caller).
-# 2026-10-04: one lookup of incoming.telemetry.mozilla.org per 4-hour run, seen only on the wire, never by the
+# 2026-10-04: one lookup of incoming.telemetry.mozilla.org per 4-hour run, seen only on the wire, never by the  telemetry-ok: describes a refused lookup
 # browser's logs; nothing could say which program asked. With this witness the gate names it.
 DNS_CLIENT_LOG = "Microsoft-Windows-DNS-Client/Operational"
 

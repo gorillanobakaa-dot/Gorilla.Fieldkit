@@ -151,8 +151,8 @@ def test_vendor_domain_suffix_matching():
 
 def test_embedded_hosts_still_reports_xul_hosts_and_the_new_scheme_map(tmp_path):
     inst = _install(tmp_path)
-    (inst / "xul.dll").write_bytes(b"\x00https://crash-reports.mozilla.com/submit\x00")
+    (inst / "xul.dll").write_bytes(b"\x00https://crash-reports.mozilla.com/submit\x00")  # telemetry-ok: test fixture
     schemes = {}
     hosts = audit.embedded_hosts(lambda rel: (inst / rel).read_bytes(), schemes=schemes)
-    assert "crash-reports.mozilla.com" in hosts and "crash-reports.mozilla.com" not in schemes   # xul.dll: diff only
+    assert "crash-reports.mozilla.com" in hosts and "crash-reports.mozilla.com" not in schemes   # xul.dll: diff only  # telemetry-ok: test fixture
     assert schemes["push.services.mozilla.com"] == {"wss"} and schemes["plain.mozilla.org"] == {"http"}

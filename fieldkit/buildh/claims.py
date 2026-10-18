@@ -814,13 +814,44 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
                 replaced[a["group"]] = firefox._policy(a["harness_root"])[0] / a["group"] / "REPLACE_FILES"
             except (OSError, ValueError, KeyError):
                 pass
+    # 2026-10-18: a file a group adds (or deletes) that a LATER group of the set changes again, with a patch that is
+    # itself in place, or deletes by its manifest, is explained by the set, as SUPERSEDED is for hunks (44 08.Look
+    # branding files: the 16-128 px icons rebuilt by 21.PORT.FIXES.157/038 and 23.REBASE.158, the macOS art deleted
+    # by 22.EGRESS.LOCKDOWN.157's manifest; the audit judged each only against the group that first added it)
+    order = [g for g, _ in sc["groups"]]
+    later_patch, later_delete = {}, {}
+    for item in out:
+        if item.get("fail") or item.get("verdict") == "DROPPED-BY-MAINTAINER":
+            continue
+        try:
+            text = (sc["pset"] / item["patch"]).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for f in re.findall(r"^diff --git a/(\S+) b/", text, re.M):
+            later_patch.setdefault(f, []).append((order.index(item["group"]) if item["group"] in order else -1, item["patch"]))
+    for i, g in enumerate(order):
+        m = sc["pset"] / g / "DELETED_FILES.manifest.txt"
+        if m.is_file():
+            for l in m.read_text(encoding="utf-8").splitlines():
+                if l.strip():
+                    later_delete.setdefault(l.strip(), []).append((i, g))
+
+    def after(table, rel, g):
+        i = order.index(g) if g in order else -1
+        return next((who for j, who in sorted(table.get(rel, [])) if j > i), None)
+
     nf = []
     for g, spec in sc["groups"]:
         for src, rel in firefox.new_files(sc["pset"], g):
             raw = tree.raw(rel)
             rf = replaced.get(g)
+            by_patch, by_manifest = after(later_patch, rel, g), after(later_delete, rel, g)
             if raw is None and rel in deleted_by_hand:
                 v = "DELETED-BY-HAND-STEP"       # a later recorded step deletes it on purpose (replay: added, then deleted)
+            elif raw is None and by_manifest:
+                v = f"DELETED-BY-LATER-GROUP {by_manifest}"
+            elif raw is not None and raw != src.read_bytes() and by_patch:
+                v = f"CHANGED-BY-LATER-PATCH {by_patch}"
             elif raw is None:
                 v = "MISSING"
             elif raw == src.read_bytes():
@@ -838,7 +869,10 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
         if m.is_file():
             for l in m.read_text(encoding="utf-8").splitlines():
                 if l.strip():
-                    deleted.append({"group": g, "file": l.strip(), "present": (tree.w / l.strip()).exists()})
+                    present = (tree.w / l.strip()).exists()
+                    again = after(later_patch, l.strip(), g) if present else None    # a later group creates it again
+                    deleted.append({"group": g, "file": l.strip(), "present": present and not again,
+                                    **({"recreated_by": again} if again else {})})
     return {"patches": out, "new_files": nf, "deleted": deleted, "excluded": sc["excluded"], "disabled": sc["disabled"]}
 
 

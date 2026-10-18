@@ -144,3 +144,35 @@ def test_a_linux_service_is_stopped_only_from_the_allowlist_and_started_again(tm
     calls.clear()
     assert quiet.restore_units(run=run, say=lambda m: None, units_file=uf) == ["avahi-daemon"]
     assert ["systemctl", "start", "avahi-daemon.service"] in calls and not uf.exists()
+
+
+def test_stop_itself_never_kills_the_agent_this_process_or_its_parent():
+    # owner 2026-10-18: "don't kill yourself ... that netstat is tricky": even a PID handed to stop() directly, past
+    # every filter, survives when it is Claude, this process or an ancestor; an ordinary app is still stopped
+    me = os.getpid()
+    exes = {500: r"D:\work\u\AppData\Roaming\Claude\claude-code\2.1\claude.exe", 501: r"C:\Program Files\Zoom\Zoom.exe",
+            me: r"C:\py\python.exe", 900: r"C:\term\WindowsTerminal.exe"}
+    killed = []
+
+    class P:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def parents(self):
+            return [P(900)] if self.pid == me else []
+
+        def exe(self):
+            return exes.get(self.pid, "")
+
+        def name(self):
+            return exes.get(self.pid, "").rsplit("\\", 1)[-1]
+
+        def kill(self):
+            killed.append(self.pid)
+
+    ps = NS(Process=P, Error=Exception, NoSuchProcess=LookupError)
+    said = []
+    rows = [{"pid": p, "name": exes[p].rsplit("\\", 1)[-1], "exe": exes[p], "net": 1} for p in (500, 501, me, 900)]
+    quiet.stop(rows, ps, say=said.append)
+    assert killed == [501]
+    assert sum("REFUSED" in s for s in said) == 3

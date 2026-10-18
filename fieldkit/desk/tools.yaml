@@ -61,6 +61,34 @@ tools:
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_runbook.py"]
 
+- id: telemetry
+  title: Telemetry off and cut out - a project's source scanned for telemetry SDKs, endpoints and collectors; this machine's toolchain opt-outs and firewall blocks checked
+  harness: core
+  entry: [python, -m, fieldkit, telemetry]
+  path: ${FIELDKIT}/fieldkit/core/telemetry.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [scan, machine], help: "scan a project folder, or check this machine"}
+    - {name: path, flag: null, type: str, required: false, help: "scan: the project folder (default .)"}
+    - {name: fix, flag: --fix, type: str, required: false, help: "machine: write the script the owner runs elevated to close every open row"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  notes: 'owner rule 2026-10-18: telemetry is excised from every project and blocked on the machine without asking; the build gate fails while a machine row is open; --fix only writes a script, the owner runs it (one UAC click)'
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_telemetry.py"]
+
+- id: toolrouter
+  title: Tool router - a command that does by hand what a harness tool does (recursive file search, folder sizes, text search over a tree) is refused with the tool's command, for Claude Code and Antigravity
+  harness: core
+  entry: [python, -m, fieldkit.autopilot.toolrouter]
+  path: ${FIELDKIT}/fieldkit/autopilot/toolrouter.py
+  inputs:
+    - {name: command, flag: null, type: str, required: false, help: "a command to judge; --hook reads a Claude Code PreToolUse call on stdin"}
+  effects: [reads-files]
+  safety: read-only
+  notes: 'wired as a PreToolUse hook in ~/.claude/settings.json and in ~/.gemini/config/hooks/guard.py 1.5.0; an override needs "# toolrouter-ok: <why>" in the command'
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_toolrouter.py"]
+
 - id: eta
   title: How long will it take - from a plan, past runs, live progress or a timed trial on the same disk; never a guess
   harness: core

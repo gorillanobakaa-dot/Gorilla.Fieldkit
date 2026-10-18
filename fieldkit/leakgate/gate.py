@@ -23,8 +23,8 @@ from pathlib import Path
 from . import allow as al, audit, scenarios as sc, sensors as se
 from ..buildh.proof import VENDOR_HOST, AD_HOSTS
 
-TELEMETRY_HOSTS = ("incoming.telemetry.mozilla.org", "*.telemetry.mozilla.org", "telemetry*.mozilla.org", "*glean*",
-                   "crash-reports.mozilla.com", "crash-stats.mozilla.org", "*.crash-reports.mozilla.com")
+TELEMETRY_HOSTS = ("incoming.telemetry.mozilla.org", "*.telemetry.mozilla.org", "telemetry*.mozilla.org", "*glean*",  # telemetry-ok: block list: hosts the leak gate fails on
+                   "crash-reports.mozilla.com", "crash-stats.mozilla.org", "*.crash-reports.mozilla.com")  # telemetry-ok: block list: hosts the leak gate fails on
 EXPERIMENT_HOSTS = ("normandy*.mozilla.org", "normandy.cdn.mozilla.net", "*experimenter*", "*nimbus*")
 REMOTE_SETTINGS_HOSTS = ("firefox.settings.services.mozilla.com", "firefox-settings-attachments.cdn.mozilla.net",
                          "content-signature-2.cdn.mozilla.net", "*.settings.services.mozilla.com")

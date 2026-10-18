@@ -50,7 +50,11 @@ def test_run_reads_the_previous_release_with_gh_and_fails_closed(tmp_path):
     class R:
         returncode, stderr = 0, ""
         stdout = json.dumps({"tagName": "v157.0-win64", "publishedAt": "2026-10-04T22:48:03Z", "body": "D-157-33"})
-    rows = rc.run(owner, page, run_cmd=lambda *a, **k: R())
+
+    class L:                 # gh release list (2026-10-18: every page of the platform is read, not only the last)
+        returncode, stderr = 0, ""
+        stdout = json.dumps([{"tagName": "v157.0-win64", "publishedAt": "2026-10-04T22:48:03Z"}])
+    rows = rc.run(owner, page, run_cmd=lambda argv, **k: L() if argv[:3] == ["gh", "release", "list"] else R())
     assert all(r["ok"] for r in rows) and "v157.0-win64 (2026-10-04)" in rows[0]["evidence"]
     assert not rc.run(owner, tmp_path / "missing.md")[0]["ok"]
 

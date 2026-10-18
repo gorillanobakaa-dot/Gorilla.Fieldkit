@@ -853,7 +853,44 @@ def cmd_inbox(a):
 
 def cmd_publish(a):
     from .autopilot import inbox
+    if getattr(a, "sums", None):
+        for l in inbox.write_sums(a.asset, a.sums):
+            print("  " + l)
+        print(f"written: {a.sums} (add it with --asset; publish checks it against every file)")
+        return 0
     return inbox.publish(a.repo, a.release, a.notes, a.asset, dry_run=a.dry_run)
+
+
+def cmd_telemetry(a):
+    """fieldkit telemetry scan PATH | machine [--fix OUT.ps1] (fieldkit/core/telemetry.py; owner rule 2026-10-18)."""
+    from .core import telemetry as tm
+    if a.action == "scan":
+        r = tm.scan(a.path)
+        if a.json:
+            print(json.dumps(r, indent=1))
+        else:
+            for f in r["findings"]:
+                print(f"  TELEMETRY {f['kind']:<9} {f['file']}:{f['line']}  {f['match']}  | {f['text'][:90]}")
+            for f in r["marked"]:
+                print(f"  marked    {f['kind']:<9} {f['file']}:{f['line']}  {f['match']}  (telemetry-ok on the line)")
+            print(f"TELEMETRY SCAN: {len(r['findings'])} finding(s) in {r['files']} file(s); {len(r['marked'])} marked")
+        bad = len(r["findings"])
+        for exe in a.artifact:
+            ar = tm.scan_artifact(exe)
+            for f in ar["findings"]:
+                print(f"  TELEMETRY {f['kind']:<9} {exe}: {f['match']} x{f['count']}")
+            print(f"TELEMETRY ARTIFACT: {len(ar['findings'])} finding(s) in {exe} ({ar['bytes']} bytes)")
+            bad += len(ar["findings"])
+        return 3 if bad else 0
+    rows = tm.machine_rows()
+    for r in rows:
+        print(f"  [{'ok' if r['ok'] else 'OPEN'}] {r['check']}: {r['evidence']}")
+    open_ = [r for r in rows if not r["ok"]]
+    print(f"TELEMETRY MACHINE: {len(rows) - len(open_)} of {len(rows)} closed")
+    if a.fix:
+        Path(a.fix).write_text(tm.fix_script(rows), encoding="utf-8")
+        print(f"fix script written: {a.fix} (run it elevated; it backs up, checks itself and ends with a verdict line)")
+    return 3 if open_ else 0
 
 
 def cmd_eta(a):
@@ -1325,9 +1362,19 @@ def build_parser():
     pb.add_argument("--repo", default=".")
     pb.add_argument("--release")
     pb.add_argument("--notes")
+    pb.add_argument("--sums", metavar="OUT", help="write OUT (SHA256SUMS.txt) from the --asset files, then stop")
     pb.add_argument("--asset", action="append", default=[])
     pb.add_argument("--dry-run", action="store_true")
     pb.set_defaults(fn=cmd_publish)
+
+    tm = sub.add_parser("telemetry", parents=[common],
+                        help="telemetry off and cut out: scan a project's source, or check this machine's toolchains")
+    tm.add_argument("action", choices=["scan", "machine"])
+    tm.add_argument("path", nargs="?", default=".", help="scan: the project folder")
+    tm.add_argument("--fix", metavar="OUT.ps1", help="machine: write the one script the owner runs elevated")
+    tm.add_argument("--artifact", metavar="FILE", action="append", default=[],
+                    help="scan: also a built program (exe, dll, asar): the telemetry module paths its bytes carry")
+    tm.set_defaults(fn=cmd_telemetry)
 
     et = sub.add_parser("eta", parents=[common])
     et.add_argument("action", choices=["leakgate", "build", "history", "delete", "copy", "record"])
@@ -1588,7 +1635,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff"])
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")

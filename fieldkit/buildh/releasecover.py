@@ -34,6 +34,53 @@ def previous_release(repo="gorillanobakaa-dot/gorilla-firefox", tag=None, run=su
     return {"tag": d["tagName"], "published": d["publishedAt"][:10], "body": d["body"]}
 
 
+def platform_pages(repo="gorillanobakaa-dot/gorilla-firefox", suffix="-win64", run=subprocess.run, limit=12):
+    """-> [{"tag", "published", "body"}] of the platform's published releases (tag ends with `suffix`), newest first."""
+    r = run(["gh", "release", "list", "-R", repo, "--limit", "40", "--json", "tagName,publishedAt"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(f"gh release list failed: {(r.stderr or r.stdout).strip()[:200]}")
+    # suffix None: every tag that is not a Windows one (Linux tags carry the package revision, v158.0-1)
+    tags = [d for d in json.loads(r.stdout)
+            if (d["tagName"].endswith(suffix) if suffix else not d["tagName"].endswith("-win64"))]
+    tags.sort(key=lambda d: d["publishedAt"], reverse=True)
+    return [previous_release(repo, tag=d["tagName"], run=run) for d in tags[:limit]]
+
+
+def uncovered(register, pages, since):
+    """Decisions decided on or after `since` that NO page of the platform published on or after the decision names
+    -> [(id, title)]. 2026-10-18: the previous page (158.0-win64 build 1, written overnight without release-cover)
+    named 6 of the 158 decisions; judged only by its date, the other 158 decisions counted as told and would never
+    have reached a Windows page."""
+    out = []
+    for e in (yaml.safe_load(Path(register).read_text(encoding="utf-8")) or {}).get("decisions") or []:
+        d = str(e.get("decided", ""))
+        if e.get("status") == "retired" or d < since:
+            continue
+        if not any(p["published"] >= d and e["id"] in set(DECISION.findall(p["body"] or "")) for p in pages):
+            out.append((e["id"], e.get("title", "")))
+    return sorted(out)
+
+
+def due_text(register, ids):
+    """The register's own words for each due decision, in FULL: title, decided, status, platforms, why, cost fields.
+    2026-10-18: a hand-made list cut each `why` at 900 characters and dropped `platforms`; the page then lost three
+    costs (D-157-36, -39, -41) and called a Linux-only decision general (D-158-05). The writer works from this."""
+    data = {e["id"]: e for e in (yaml.safe_load(Path(register).read_text(encoding="utf-8")) or {}).get("decisions") or []}
+    out = ["# Decisions the release page must name, in the register's own words (release-cover)", ""]
+    for i in ids:
+        e = data.get(i, {})
+        out.append(f"## {i}: {e.get('title', '')}")
+        out.append(f"- decided {e.get('decided')}, status {e.get('status')}, platforms {e.get('platforms') or 'all'}")
+        for k, v in e.items():                       # every descriptive field, whole (costs live in why/audit/...)
+            if k in ("id", "title", "decided", "by", "provenance", "status", "platforms", "verify", "covers", "models"):
+                continue
+            if v:
+                out.append(f"- {k}: {' '.join(str(v).split())}")
+        out.append("")
+    return "\n".join(out)
+
+
 def due(register, previous_body, since):
     """Decisions the new page must name -> [(id, title)]: decided on or after `since` (YYYY-MM-DD) and not named on
     the previous page."""
@@ -45,15 +92,19 @@ def due(register, previous_body, since):
     return sorted(out)
 
 
-def check(page_text, register, previous_body, since):
-    """-> rows [{"check", "ok", "evidence"}]."""
+def check(page_text, register, previous_body, since, want=None):
+    """-> rows [{"check", "ok", "evidence"}]. `want`: the decisions due, when computed from every platform page."""
     rows = []
-    want = due(register, previous_body, since)
+    want = want if want is not None else due(register, previous_body, since)
     have = set(DECISION.findall(page_text))
     missing = [(i, t) for i, t in want if i not in have]
     rows.append({"check": "release page: every decision since the last release is on it", "ok": not missing,
                  "evidence": ("missing: " + "; ".join(f"{i} ({t[:60]})" for i, t in missing)) if missing else
                              f"{len(want)} decision(s) since {since}, all named: {', '.join(i for i, _ in want) or 'none'}"})
+    # 2026-10-18: a placeholder heading passed the leak-test row; nothing marked TO BE FILLED may reach a release
+    holes = [l.strip()[:80] for l in page_text.splitlines() if re.search(r"TO[ -]BE[ -]FILLED", l, re.I)]
+    rows.append({"check": "release page: no placeholder left (TO BE FILLED)", "ok": not holes,
+                 "evidence": "none" if not holes else f"{len(holes)} left, e.g. {holes[:2]}"})
     rows.append({"check": "release page: fits GitHub's limit", "ok": len(page_text) <= LIMIT,
                  "evidence": f"{len(page_text)} of {LIMIT} characters"})
     # every release page tells how long and how hard the leak test was, scene by scene (owner 2026-10-10)
@@ -86,7 +137,19 @@ def run(owner, page, previous=None, run_cmd=subprocess.run):
             prev = previous_release(tag=previous, run=run_cmd)
         except (RuntimeError, OSError, ValueError, KeyError) as e:
             return [{"check": "release page: previous release read", "ok": False, "evidence": str(e)[:200]}]
-    rows = check(Path(page).read_text(encoding="utf-8"), register, prev["body"], prev["published"])
+    # every decision a page of this platform never told, since the platform's first release (2026-10-18), plus the
+    # previous page's own due list; given a previous page as a file (tests, offline), only that page is judged
+    want = None
+    if not (previous and Path(previous).is_file()):
+        import sys as _sys
+        try:
+            pages = platform_pages(suffix="-win64" if _sys.platform == "win32" else None, run=run_cmd)
+            if pages:
+                since = min(p["published"] for p in pages)
+                want = sorted(set(uncovered(register, pages, since)) | set(due(register, prev["body"], prev["published"])))
+        except (RuntimeError, OSError, ValueError, KeyError) as e:
+            return [{"check": "release page: earlier release pages read", "ok": False, "evidence": str(e)[:200]}]
+    rows = check(Path(page).read_text(encoding="utf-8"), register, prev["body"], prev["published"], want=want)
     rows.insert(0, {"check": "release page: previous release read", "ok": True,
                     "evidence": f"{prev['tag']} ({prev['published']}), {len(prev['body'])} characters"})
     return rows

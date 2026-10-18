@@ -184,11 +184,39 @@ def noisy(psutil=None, wanted=None, also=(), only=None, platform=None, talking_s
     return out
 
 
+def never_stop(psutil, pid, me=None):
+    """-> the reason this PID must never be stopped, or None. The last guard, whatever list the PID came from (owner
+    2026-10-18: "don't kill yourself ... that netstat is tricky": the agent running the sweep holds internet sockets
+    too). This process and its ancestors, an agent process (AGENT_EXES), Windows' own processes."""
+    me = me or os.getpid()
+    if pid == me:
+        return "this process"
+    try:
+        if pid in {a.pid for a in psutil.Process(me).parents()}:
+            return "an ancestor of this process"
+    except psutil.Error:
+        pass
+    try:
+        p = psutil.Process(pid)
+        exe, name = (p.exe() or "").lower(), (p.name() or "")
+    except (psutil.Error, AttributeError):
+        return None
+    if any(m in exe for m in AGENT_EXES):
+        return "an agent (Claude)"
+    if is_system(name, exe, None, "win32" if exe[1:3] == ":\\" else None) and exe.startswith(WINDOWS):
+        return "Windows itself"
+    return None
+
+
 def stop(rows, psutil=None, say=print):
     if psutil is None:
         import psutil
     done = []
     for r in rows:
+        why = never_stop(psutil, r["pid"])
+        if why:
+            say(f"  REFUSED to stop {r['name']} PID {r['pid']}: {why} (never stopped, whatever list it came from)")
+            continue
         try:
             psutil.Process(r["pid"]).kill()
             done.append(r)

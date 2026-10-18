@@ -1033,12 +1033,37 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("HIDDEN-PAGES DOC " + ("OK" if all(r["ok"] for r in rows) else "NOT OK"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "release-page":
+        # release-page TASK dir=<releases-draft/<release>>: RELEASE-BODY.md from <dir>/PAGE.parts, then release-cover on
+        # it (releasepage.py; 2026-10-19: the page had been assembled by a script nobody kept)
+        from . import releasepage, releasecover, ownercheck
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        if not opts.get("dir"):
+            raise task.Refused("usage: build-harness release-page TASK dir=<releases-draft/<release>>")
+        page, n = releasepage.write(opts["dir"])
+        print(f"written: {page} ({n} characters)")
+        rows = releasecover.run(ownercheck._owner_root(task.load(tid)), str(page), opts.get("previous"))
+        for row in rows:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
+        return 0 if all(r["ok"] for r in rows) else 3
     if act == "release-cover":
         # release-cover TASK page=<release page .md> [previous=<tag or file>]: the release page names every decision
         # made since the last release and fits GitHub's limit (releasecover.py)
         from . import releasecover, ownercheck
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
         owner = ownercheck._owner_root(task.load(tid))
+        if opts.get("due"):
+            # due=<file>: the decisions this page must name, in the register's own words, whole (2026-10-18)
+            import sys as _s
+            from .decisions import register_file
+            reg = register_file(Path(owner))
+            pages = releasecover.platform_pages(suffix="-win64" if _s.platform == "win32" else None)
+            ids = [i for i, _ in releasecover.uncovered(reg, pages, min(p["published"] for p in pages))]
+            Path(opts["due"]).write_text(releasecover.due_text(reg, ids), encoding="utf-8")
+            print(f"due: {len(ids)} decision(s) written in full to {opts['due']}")
+            if not opts.get("page"):
+                return 0
         rows = releasecover.run(owner, opts.get("page"), opts.get("previous"))
         for row in rows:
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")

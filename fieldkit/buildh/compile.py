@@ -95,6 +95,18 @@ def owner_rows(t, run_preflight=None, check=None, local=None):
     out.append((sr["check"], sr["ok"], sr["evidence"]))
     # the fast loop: a chrome change runs on the last build's unpacked dist/bin before an hour of compiling (2026-10-18:
     # build 2's theme had never run in a browser and build-verify spent the build to find it)
+    # telemetry off on the build machine too (owner rule 2026-10-18): a toolchain that phones home while it builds
+    # is an open door in the build itself; an open row fails the gate and names the one script that closes it
+    from ..core import telemetry as _tm
+    try:
+        trows = _tm.machine_rows()
+        open_ = [r["check"] for r in trows if not r["ok"]]
+        out.append(("telemetry off on this build machine (fieldkit telemetry machine)", not open_,
+                    f"{len(trows)} closed" if not open_ else
+                    f"{len(open_)} open, e.g. {open_[:2]}; close them: fieldkit telemetry machine --fix OUT.ps1, "
+                    "then run OUT.ps1 elevated (one UAC click)"))
+    except Exception as e:  # noqa: BLE001 - unchecked is not closed
+        out.append(("telemetry off on this build machine (fieldkit telemetry machine)", False, f"could not check: {e}"))
     from . import fastloop
     for fr in fastloop.rows(t.get("id"), t):
         out.append((fr["check"], fr["ok"], fr["evidence"]))

@@ -58,7 +58,7 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 
 
 # Tests never look a name up on the real network (2026-10-06: during the build 27 release leak test the commit hook's
-# test run resolved incoming.telemetry.mozilla.org, www.anthropic.com and ublockorigin.github.io, and the gate's DNS
+# test run resolved incoming.telemetry.mozilla.org, www.anthropic.com and ublockorigin.github.io, and the gate's DNS  telemetry-ok: test fixture
 # witness had to work out that it was not the browser). Loopback names and IP literals still resolve.
 import ipaddress as _ip
 import socket as _socket

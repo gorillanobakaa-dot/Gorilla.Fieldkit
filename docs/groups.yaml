@@ -148,6 +148,7 @@ groups:
       - buildh/profilediff.py
       - buildh/profilekeep.py
       - buildh/recorder.py
+      - buildh/releasepage.py
       - buildh/repair.py
       - buildh/setproof.py
       - buildh/stats.py

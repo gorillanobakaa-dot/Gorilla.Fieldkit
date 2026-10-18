@@ -77,7 +77,7 @@ REPORTING = ("certerror-toplevel", "download-exe", "lan-probe", "drm-request", "
 SERVED = {"download-exe": ("/tiny.exe",), "early-hints": ("/early-hints",)}
 # the 103 reply of the early-hints scene: neither host may ever be contacted
 EARLY_HINTS_PRECONNECT = "https://gorilla-leakgate-early-hints.example"
-EARLY_HINTS_PRELOAD = "https://www.googletagmanager.com/gtm.js?id=GTM-GORILLALEAKGATE"
+EARLY_HINTS_PRELOAD = "https://www.googletagmanager.com/gtm.js?id=GTM-GORILLALEAKGATE"  # telemetry-ok: test URL the leak gate must see refused
 EARLY_HINTS_PAGE = """<!doctype html><meta charset=utf-8><title>early hints</title><body>early hints
 <script>setTimeout(() => fetch("/result", {method: "POST", body: JSON.stringify({scenario: "early-hints", loaded: true})}), 3000);</script>
 </body>"""
