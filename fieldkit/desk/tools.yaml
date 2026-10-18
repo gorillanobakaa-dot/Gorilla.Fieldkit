@@ -4394,13 +4394,47 @@ tools:
     - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
     - {name: page, flag: null, type: str, required: true, help: "page=<release page .md>"}
     - {name: previous, flag: null, type: str, required: false, help: "previous=<tag or file>"}
-  effects: [reads-files]
+  effects: [reads-files, network]
   safety: read-only
   output: own
   exits: {3: findings}
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_releasecover.py"]
-  notes: "Runs read-only git."
+  notes: "Runs read-only git. Reads the previous release page from GitHub (gh release view / list: api.github.com) unless previous=<file> is given; the card said read-only with no network until 2026-10-19."
+
+- id: bh-ui-check
+  title: Prove what a user sees is readable and works - theme and UI rules, contrast, script errors, empty menus
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, ui-check]
+  path: ${FIELDKIT}/fieldkit/buildh/uicheck.py
+  inputs:
+    - {name: task, flag: null, type: str, required: false, help: "the build-harness task (default: the current one)"}
+    - {name: static, flag: --static, type: flag, required: false, help: "only the static layer (the ported tree; no browser is started)"}
+  effects: [reads-files, processes]
+  safety: reversible
+  modes:
+    preview: ["+", --static]
+  exits: {3: findings}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_uicheck.py"]
+  notes: "Public twin of the owner's local ui-check card (2026-10-19), so the every-action-has-a-card test holds where local/ is absent (CI). Without --static it starts a throwaway copy of the installed build. Read Gorilla.firefox/docs/GORILLA-THEME-AND-UI.md before any UI change."
+
+- id: bh-release-page
+  title: Assemble RELEASE-BODY.md from a draft folder's PAGE.parts, then hold it to release-cover (every decision named, under GitHub's limit)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, release-page]
+  path: ${FIELDKIT}/fieldkit/buildh/releasepage.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: dir, flag: null, type: str, required: true, help: "dir=<releases-draft/<release>> holding PAGE.parts"}
+    - {name: previous, flag: null, type: str, required: false, help: "previous=<tag or file> for the release-cover check"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {3: "the page does not cover everything (a release-cover row failed)"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_releasepage.py", "${FIELDKIT}/tests/test_releasepage.py"]
+  notes: "Writes <dir>/RELEASE-BODY.md (overwrites the assembled page; its parts are the source). The release-cover step reads the previous page from GitHub (gh) unless previous=<file>."
 
 # NEEDS A TEST (test: null above) - 1:
 #   bh-leakgate-rejudge  gate.rejudge (rewrites the publish gate's FINAL_RESULT); the orchestrator session owns

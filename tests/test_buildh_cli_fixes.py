@@ -109,3 +109,19 @@ def test_whole_files_exits_3_when_a_whole_file_is_missing(monkeypatch, tmp_path,
     assert "MISSING 08.Look: logo.png" in capsys.readouterr().out and seen["sets"] == tmp_path / "patches"
     monkeypatch.setattr(lossaudit, "whole_files", lambda s, t, p: fake(s, t, p, []))
     assert cli.main(["build-harness", "whole-files", "t1"]) == 0
+
+
+def test_every_build_harness_action_has_a_card():
+    # 2026-10-18: 3 of 97 actions had a card, so an agent could not discover the rest through `fieldkit agent`/MCP
+    import re
+    from pathlib import Path
+    import yaml
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "fieldkit" / "cli.py").read_text(encoding="utf-8")
+    start = src.index('bh.add_argument("action", choices=[') + len('bh.add_argument("action", choices=[')
+    actions = re.findall(r'"([a-z0-9-]+)"', src[start:src.index("]", start)])
+    ids = {c["id"] for c in yaml.safe_load((root / "fieldkit" / "desk" / "tools.yaml").read_text(encoding="utf-8"))["tools"]}
+    # public cards only: the answer must be the same on CI, where the owner's local/ does not exist
+    assert len(actions) > 90
+    missing = [a for a in actions if f"bh-{a}" not in ids and a not in ids]
+    assert not missing, f"build-harness actions without a card (add bh-<action> to fieldkit/desk/tools.yaml): {missing}"
