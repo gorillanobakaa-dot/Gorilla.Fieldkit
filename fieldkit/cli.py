@@ -595,7 +595,13 @@ def cmd_privacy(a):
     # message was added, by reading its own output on this release's notes).
     counted = []
     for p in a.paths:
-        rep.update(privacy.scan_path(p, git_only=a.git, examined=counted,
+        # a git checkout is scanned as git would publish it unless --all says otherwise (2026-10-19: `privacy scan .`
+        # in Fieldkit walked the ignored state/ folder - leak-gate build copies and packet captures - for three hours
+        # at a full core; survey.py already scanned repositories this way)
+        git_only = a.git or (Path(p).is_dir() and (Path(p) / ".git").exists() and not getattr(a, "all", False))
+        if git_only and not a.git and not a.json:
+            print(f"  {p}: a git checkout - scanning what git would publish (--all scans every file, ignored ones too)")
+        rep.update(privacy.scan_path(p, git_only=git_only, examined=counted,
                                      allow_paths=a.allow_paths, allow_emails=a.allow_emails))
     examined = sum(counted)
 
@@ -1306,6 +1312,8 @@ def build_parser():
     pr.add_argument("--allow-paths", action="store_true")
     pr.add_argument("--allow-emails", action="store_true")
     pr.add_argument("--git", action="store_true", help="scan only what git would publish (respects .gitignore)")
+    pr.add_argument("--all", action="store_true", help="in a git checkout, scan every file, ignored ones too "
+                    "(default there: what git would publish)")
     pr.set_defaults(fn=cmd_privacy)
 
     g = sub.add_parser("gather", parents=[common])
