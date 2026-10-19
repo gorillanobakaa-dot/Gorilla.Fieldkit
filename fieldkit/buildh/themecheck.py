@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18-22-00
+# Version: 1.1.0 · updated 26-10-19
 """The Gorilla theme held to its one spec (gorilla-patchset/decisions/THEME.yaml), before and after the build.
 
 Owner, 2026-10-18, after user feedback (the search-mode list next to the address bar: white with cyan text, "heavy
@@ -46,8 +46,11 @@ def load(path=None):
     cols = {k: _rgb(v) for k, v in data["colours"].items()}
     pairs = [(cols[t], cols[b]) for t, b in data["pairs"]]
     floor = min(contrast(t, b) for t, b in pairs) if data.get("contrast_floor_from_pairs", True) else 4.5
+    # colours the spec allows for text only: one of them on a background property is the wrong role (white popups)
+    text_only = [cols[n] for n in data.get("text_only") or []]
     return {"path": str(p), "colours": cols, "names": {v: k for k, v in cols.items()}, "pairs": pairs,
-            "hover": cols[data["hover"]], "floor": round(floor - 0.05, 2), "tol": int(data.get("tolerance", 6))}
+            "hover": cols[data["hover"]], "floor": round(floor - 0.05, 2), "tol": int(data.get("tolerance", 6)),
+            "text_only": text_only}
 
 
 def _rgb(s):
@@ -158,14 +161,38 @@ def static(tree, spec=None, files_glob=("*.css",)):
             body = line[1:].split("/*")[0]
             if not COLOUR_PROPS.search(body):
                 continue
-            for m in list(HEX.finditer(body)) + list(RGB.finditer(body)):
-                try:
-                    c = _rgb(m.group(0))
-                except ValueError:
-                    continue
-                if not name(spec, c):
-                    found.append((cur, n, _hex(c), body.strip()[:120]))
+            for decl in re.split(r"[;{}]", body):
+                prop = decl.split(":", 1)[0] if ":" in decl else ""
+                is_bg = bool(prop) and bool(BACKGROUND_PROP.search(prop))
+                for m in list(HEX.finditer(decl)) + list(RGB.finditer(decl)):
+                    try:
+                        c = _rgb(m.group(0))
+                    except ValueError:
+                        continue
+                    if not name(spec, c):
+                        found.append((cur, n, _hex(c), body.strip()[:120]))
+                    elif is_bg and not _translucent(m) and any(near(c, t, spec["tol"])
+                                                                for t in spec.get("text_only", [])):
+                        # a spec colour in the wrong role: white is a text colour, never a popup's background
+                        # (2026-10-19: the worker's canary planted menupopup{background-color:#FFFFFF} and this
+                        # check passed it, because it only asked "is the colour in the spec"). A translucent tint
+                        # paints a blend over the surface below; the rendered check judges that.
+                        found.append((cur, n, _hex(c), body.strip()[:120]))
     return {"ok": not found, "found": found}
+
+
+#: a property that paints a surface (a text-only colour on it is the wrong role)
+BACKGROUND_PROP = re.compile(r"background|-bg\b|bgcolor", re.I)
+ALPHA = re.compile(r"rgba?\([^)]*?[,/]\s*([\d.]+)(%?)\s*\)", re.I)
+
+
+def _translucent(m):
+    """True for an rgba()/rgb(... / a) whose alpha is below 1 (a tint, not a surface)."""
+    a = ALPHA.match(m.string, m.start())
+    if not a:
+        return False
+    v = float(a.group(1)) / (100 if a.group(2) else 1)
+    return v < 1
 
 
 def static_row(tree, spec=None):

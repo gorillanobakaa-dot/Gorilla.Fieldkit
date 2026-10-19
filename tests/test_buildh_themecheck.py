@@ -15,6 +15,8 @@ colours:
   highlight: "#65568C"
   pink: "#FFC0CB"
   teal_dark: "#1A4D4D"
+  white: "#FFFFFF"
+text_only: [white]
 pairs:
   - [cyan, black]
   - [cyan, highlight]
@@ -47,7 +49,7 @@ def test_the_white_search_list_fails_and_the_black_app_menu_passes(spec):
     black = item("app menu", (0, 255, 255), (0, 0, 0), (101, 86, 140))
     rows = {r["check"]: r for r in tc.judge_popups([white, black], spec)}
     pair = next(r for k, r in rows.items() if "colour pair" in k)
-    assert not pair["ok"] and "search-mode list" in pair["evidence"] and "(not in the theme)" in pair["evidence"]
+    assert not pair["ok"] and "search-mode list" in pair["evidence"] and "on #FFFFFF" in pair["evidence"]
     hover = next(r for k, r in rows.items() if "hover" in k)
     assert not hover["ok"] and "search-mode list" in hover["evidence"]
     assert tc.judge_popups([black], spec)[0]["ok"]
@@ -83,3 +85,19 @@ def test_static_judges_only_gorilla_lines_and_apply_maps_roles(tmp_path, spec):
     assert plan["#2B2B2E"] == ("#1A4D4D", "teal_dark") and plan["#0080FF"] == ("#00FFFF", "cyan")   # focus is cyan
     assert tc.static(tmp_path / "t", spec)["ok"]
     assert "#123456" in css.read_text()                                   # upstream untouched
+
+
+def test_static_catches_a_text_only_colour_painted_as_a_background(tmp_path, spec):
+    # 2026-10-19, the worker's canary: white is in the palette (as text), so a white popup background passed
+    t = tmp_path / "t"
+    t.mkdir()
+    css = t / "x.css"
+    css.write_text("a { color: #00FFFF; }\n", newline="\n")
+    git(t, "init", "-q")
+    git(t, "add", "-A")
+    git(t, "commit", "-qm", "pristine")
+    css.write_text("a { color: #00FFFF; }\nmenupopup { background-color: #FFFFFF; }\n.q { color: #FFFFFF; }\n"
+                   ".tint { --button-background-color-hover: rgba(255, 255, 255, 0.1); }\n"
+                   ".find:focus { background-color: #00FFFF; color: #000000; }\n", newline="\n")
+    r = tc.static(t, spec)
+    assert not r["ok"] and [(n, c) for _, n, c, _ in r["found"]] == [(2, "#FFFFFF")]   # text, tint, inversion pass
