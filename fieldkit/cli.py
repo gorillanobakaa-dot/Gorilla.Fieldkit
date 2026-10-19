@@ -752,6 +752,17 @@ def cmd_cards(a):
         return 0 if r["ok"] else 3
     all_c = cards.all_cards()
     results = cards.test_results()
+    if a.action == "export":
+        # 2026-10-19: Gorilla OpenCode embeds this so it can match a person's request against Fieldkit's tools in
+        # milliseconds, with no server start, and put the fitting names in front of a small model (Gemma answered
+        # "no such tool" without searching). Reviewed or tested tools only: a draft is never suggested.
+        out = cards.catalogue(all_c, results)
+        if a.id:
+            Path(a.id).write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+            print(f"wrote {a.id}: {len(out['tools'])} tool(s) from Fieldkit {out['fieldkit_commit']}")
+        else:
+            print(json.dumps(out, indent=1, ensure_ascii=False))
+        return 0
     if a.action == "show":
         hit = [c for c in all_c if c["id"] == a.id]
         if not hit:
@@ -1330,8 +1341,9 @@ def build_parser():
     sub.add_parser("mcp", help="serve the agent interface over MCP (stdio)").set_defaults(fn=cmd_mcp, json=False)
 
     cd = sub.add_parser("cards", parents=[common])
-    cd.add_argument("action", choices=["list", "show", "check", "draft"],
-                    help="check: every reviewed card against its command; draft FILE.py: a card to review")
+    cd.add_argument("action", choices=["list", "show", "check", "draft", "export"],
+                    help="check: every reviewed card against its command; draft FILE.py: a card to review; "
+                         "export [FILE]: the catalogue Gorilla OpenCode embeds (carded or better)")
     cd.add_argument("id", nargs="?")
     cd.add_argument("--level", choices=["gathered", "carded", "tested", "verified"])
     cd.set_defaults(fn=cmd_cards)

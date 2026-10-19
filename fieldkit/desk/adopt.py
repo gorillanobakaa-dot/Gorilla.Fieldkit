@@ -355,22 +355,15 @@ def apply(p, run_tests=True, log=print):
                 bad = [r.get("id") for r in res if r.get("test_ok") is False]
                 if bad:
                     return undo(f"tests failed after the move: {', '.join(bad)}")
-        running = p["running"]                                # 5. the old copy: to the Recycle Bin, or marked
-        kept = []
+        # 5. the old copy STAYS, marked. Only --finish recycles it, and only when nothing runs from it and no code
+        # still names it. 2026-10-19: apply recycled Documents\Scripts\Elevate at once; the leak gate's public code
+        # still named that path, so the gate could not have started its packet sensor until the next commit.
         for a, b in moves:
-            recycled = False
-            if not running:
-                # never rmtree/unlink (2026-10-19: four loose files were deleted outright here, their verified
-                # copies in local/kits the only trace): the bin, verified, journalled - or kept and marked
-                recycled, why = _recycle(a)
-                if not recycled:
-                    kept.append(f"{a}: {why}")
-            if not recycled and a.is_dir():
-                (a / MARKER).write_text(f"adopted {stamp} into {b}\nremove with: fieldkit adopt --finish --apply\n",
-                                        encoding="utf-8")
+            _mark(a, b, stamp)
         (backup / "PLAN.json").write_text(json.dumps(p, indent=1, default=str), encoding="utf-8")
-        return {"ok": True, "moved": p["moves"], "edited": [e for e, _ in edited], "backup": str(backup),
-                "old_copy_kept_while_running": [pid for pid, _ in running], "old_copy_kept_not_recycled": kept}
+        return {"ok": True, "copied": p["moves"], "edited": [e for e, _ in edited], "backup": str(backup),
+                "old_copy_marked": [str(a) for a, _ in moves], "running": [pid for pid, _ in p["running"]],
+                "still_named_by_code": p["public"]}
     except Exception as e:                                    # anything unexpected: put everything back
         return undo(f"{type(e).__name__}: {e}")
 
@@ -396,23 +389,46 @@ def _recycle(path):
                                                                                   if d.get("journal") else "")
 
 
+def _mark(old, new, stamp):
+    """The marker that says an old copy was adopted: inside a folder, or beside a loose file (NAME.adopted)."""
+    text = f"adopted {stamp} into {new}\nremove with: fieldkit adopt --finish --apply\n"
+    marker = (Path(old) / MARKER) if Path(old).is_dir() else Path(old).with_name(Path(old).name + MARKER)
+    marker.write_text(text, encoding="utf-8")
+
+
+def _marked():
+    """-> [(old copy, its marker)] for every adopted folder and loose file under the Scripts root."""
+    root = scripts_root()
+    out = [(m.parent, m) for m in sorted(root.glob(f"*/{MARKER}"))]
+    for m in sorted(root.glob(f"*{MARKER}")):
+        old = m.with_name(m.name[: -len(MARKER)])
+        if m.is_file() and old.is_file():
+            out.append((old, m))
+    return out
+
+
 def finish(do_apply=False):
-    """Old copies marked .adopted whose processes have ended: listed, and sent to the Recycle Bin with --apply."""
+    """Old copies marked adopted: listed, and with --apply sent to the Recycle Bin, only when nothing runs from them
+    and no code (this repository, or another working tree under Scripts) still names them."""
     out = []
-    for m in sorted(scripts_root().glob(f"*/{MARKER}")):
-        d = m.parent
-        busy = running_from([str(d)])
-        out.append({"folder": str(d), "running": [pid for pid, _ in busy], "removed": False})
-        if do_apply and not busy:
-            ok, why = _recycle(d)
-            out[-1].update(removed=ok and not d.exists(), why=why)
+    for old, marker in _marked():
+        busy = running_from([str(old)])
+        named = public_hits([old.name]) + repo_hits([old.name])
+        row = {"folder": str(old), "running": [pid for pid, _ in busy], "still_named_by": named, "removed": False}
+        out.append(row)
+        if do_apply and not busy and not named:
+            loose = old.is_file()                # asked before the recycle moves it away
+            ok, why = _recycle(old)
+            if ok and loose and marker.exists():
+                _recycle(marker)
+            row.update(removed=ok and not old.exists(), why=why)
     return out
 
 
 def lines(p):
     if not p.get("ok"):
         return [f"REFUSED: {p.get('error')}"]
-    out = [f"move  {a}\n   -> {b}" for a, b in p["moves"]]
+    out = [f"copy  {a}\n   -> {b}   (the old copy stays, marked, until --finish)" for a, b in p["moves"]]
     out.append(f"cards repointed in local/tools.yaml: {p['cards']}")
     out += [f"text  {f} ({n})" for f, n in sorted(p["text"].items())]
     out += [f"lnk   {s['lnk']} [{s['field']}]" for s in p["shortcuts"]]

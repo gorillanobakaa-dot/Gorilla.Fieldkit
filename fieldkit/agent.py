@@ -69,11 +69,26 @@ def _cards():
     return cardmod.all_cards()
 
 
+def _norm_id(tool_id):
+    """'Thermal_Profile', 'thermal profile' -> 'thermal-profile'. 2026-10-19: Gemma got 'thermal-profile' from discover,
+    asked describe for 'thermal_profile', was told there is no such tool, and gave up."""
+    return re.sub(r"[\s_]+", "-", str(tool_id).strip().lower())
+
+
 def _find_card(tool_id, cards=None):
-    for c in cards or _cards():
+    cards = cards or _cards()
+    for c in cards:
         if c["id"] == tool_id:
             return c
-    raise Refused(f"no tool '{tool_id}'. NEXT: call discover with what you want to do.")
+    want = _norm_id(tool_id)
+    same = [c for c in cards if _norm_id(c["id"]) == want]
+    if len(same) == 1:                     # one card only: an unambiguous spelling of its name
+        return same[0]
+    import difflib
+    near = difflib.get_close_matches(want, [c["id"] for c in cards], n=3, cutoff=0.6)
+    hint = f" Did you mean {', '.join(repr(n) for n in near)}? NEXT: use that exact name." if near else \
+        " NEXT: call discover with what you want to do."
+    raise Refused(f"no tool '{tool_id}'.{hint}")
 
 
 # -- discover / describe ---------------------------------------------------------------

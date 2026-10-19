@@ -121,6 +121,27 @@ def test_discover_keeps_two_letter_words_like_tv():
     assert agent.discover("the and of", cards=cs) == []                    # stop words still match nothing
 
 
+def test_a_tool_name_spelled_with_underscores_or_case_is_found():
+    # 2026-10-19: Gemma asked for 'thermal_profile' after discover said 'thermal-profile', and gave up
+    cs = [_card(id="thermal-profile", title="cooling"), _card(id="hdmi-diag", title="TV")]
+    assert agent._find_card("thermal_profile", cs)["id"] == "thermal-profile"
+    assert agent._find_card("Thermal Profile", cs)["id"] == "thermal-profile"
+    with pytest.raises(agent.Refused) as e:
+        agent._find_card("thermal-profil", cs)              # not the same name: refused, with the nearest one named
+    assert "Did you mean 'thermal-profile'" in str(e.value)
+    with pytest.raises(agent.Refused) as e:
+        agent._find_card("quantum-flux", cs)
+    assert "NEXT: call discover" in str(e.value)
+
+
+def test_discover_description_says_the_catalogue_is_behind_it():
+    from fieldkit import mcp
+    d = next(t for t in mcp.TOOLS if t["name"] == "discover")["description"]
+    assert d.startswith("START HERE") and "NOT" in d and "BEFORE you ever say Fieldkit cannot" in d
+    for words in ("HDMI", "cooling", "Word"):
+        assert words in d
+
+
 def test_mcp_marks_only_reading_tools_read_only():
     from fieldkit import mcp
     marks = {t["name"]: t["annotations"]["readOnlyHint"] for t in mcp.TOOLS}

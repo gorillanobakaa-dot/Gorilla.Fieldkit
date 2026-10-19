@@ -35,12 +35,22 @@ from .desk import readiness
 PROTOCOL = "2024-11-05"
 
 TOOLS = [
-    {"name": "discover", "description": "Find tools for a goal, in plain words. Returns up to 8 tools, "
-                                        "most trusted first, with their inputs (a trailing ? means optional).",
+    # 2026-10-19, Gemma 4 E2B through Gorilla OpenCode: asked about the TV, an Office file and the cooling profile,
+    # it read these ten names, decided Fieldkit "is focused on build harnesses" and answered "no such tool" three
+    # times without searching. The catalogue is behind discover; the description must say so, first.
+    {"name": "discover", "description": "START HERE. Fieldkit has hundreds of tools on this computer that are NOT "
+                                        "listed as separate tools: the TV and HDMI, fans and cooling profiles, Word, "
+                                        "Excel and PDF files, privacy checks, disk sizes, Wi-Fi and the network, "
+                                        "backups, icons, builds and more. Search them here with the person's own "
+                                        "words BEFORE you ever say Fieldkit cannot do something. Returns up to 8 "
+                                        "tools, most trusted first, with their exact names and inputs (a trailing ? "
+                                        "means optional).",
      "inputSchema": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]}},
-    {"name": "describe", "description": "Show a tool's card: inputs with types, safety, how it is verified.",
+    {"name": "describe", "description": "Show a tool's card (use the exact name discover gave): inputs with types, "
+                                        "safety, how it is verified.",
      "inputSchema": {"type": "object", "properties": {"tool": {"type": "string"}}, "required": ["tool"]}},
-    {"name": "run", "description": "Run a tool with named inputs. Tools that change things: use mode=preview "
+    {"name": "run", "description": "Run a tool found with discover, by its exact name, with named inputs. Tools that "
+                                   "change things: use mode=preview "
                                    "first (nothing changes), then mode=apply. Irreversible tools need the owner. "
                                    "Tools that go online need network=true.",
      "inputSchema": {"type": "object", "properties": {

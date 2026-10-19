@@ -362,3 +362,35 @@ def _build_cards():
                 continue
             drafts.append(draft_card(dict(e, path=str(path))))
     return curated + drafts
+
+
+CATALOGUE_LEVELS = ("carded", "tested", "verified")
+
+
+def catalogue(cards=None, results=None, public_only=True):
+    """The tool catalogue Gorilla OpenCode embeds: every non-retired card at carded level or better, with what a model
+    needs to pick one (id, title, trust, safety, inputs). Drafts and gathered scripts are left out: a model is never
+    pointed at a tool nobody reviewed. Stamped with the Fieldkit commit it came from, so it is never a typed fact."""
+    import subprocess
+    cards = cards if cards is not None else all_cards()
+    results = results if results is not None else test_results()
+    public = None
+    if public_only:
+        from . import registry
+        public = {t["id"] for t in settings.read_file(registry.REGISTRY)["tools"]}
+    tools = []
+    for c in cards:
+        if c.get("retired") or (public is not None and c["id"] not in public):
+            continue
+        level, _ = trust(c, results)
+        if level not in CATALOGUE_LEVELS:
+            continue
+        tools.append({"id": c["id"], "title": c.get("title", ""), "trust": level, "safety": c.get("safety"),
+                      "inputs": [{"name": i["name"], "required": bool(i.get("required"))} for i in c.get("inputs") or []]})
+    tools.sort(key=lambda t: t["id"])
+    try:
+        commit = subprocess.run(["git", "-C", str(settings.ROOT), "rev-parse", "--short", "HEAD"], capture_output=True,
+                                text=True, timeout=20).stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        commit = "unknown"
+    return {"schema": 1, "fieldkit_commit": commit, "tools": tools}

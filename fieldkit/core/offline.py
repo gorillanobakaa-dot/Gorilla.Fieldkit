@@ -2,7 +2,7 @@
 """No name lookups on the real network: the guard the test suite has used since 2026-10-06, for processes that are not
 pytest.
 
-2026-10-19, found by the leak gate's DNS witness: `fieldkit canary run` planted incoming.telemetry.mozilla.org for the
+2026-10-19, found by the leak gate's DNS witness: `fieldkit canary run` planted incoming.telemetry.mozilla.org for the  (telemetry-ok: names the host it stopped)
 leak-gate judge, which resolved every name it saw, so every canary, mutation and witness run made a real DNS query
 for Mozilla's telemetry host. Tests were offline (tests/conftest.py); the canary runner was not.
 
