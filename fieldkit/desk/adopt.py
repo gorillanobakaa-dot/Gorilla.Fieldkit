@@ -60,28 +60,61 @@ def lnk_roots():
 
 
 # -- path forms ------------------------------------------------------------------------------------------
-def forms(name, dest=None):
-    """(regex, replacement) pairs turning every spelling of Scripts/NAME into local/kits/DEST (DEST defaults to NAME;
-    a loose file adopted into a group folder has DEST = GROUP/NAME). The card form comes first so cards get
-    ${FIELDKIT}; any other spelling keeps its own prefix and separator."""
+def _documents():
+    return Path(settings.expand("${DOCUMENTS}"))
+
+
+def _rel_to_documents(root):
+    """'Gorilla.Opencode/scripts/model-tests' for a sweep root under Documents; None for one elsewhere."""
+    try:
+        return Path(root).resolve().relative_to(_documents().resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def forms(name, dest=None, root=None):
+    """(regex, replacement) pairs turning every spelling of ROOT/NAME into local/kits/DEST (DEST defaults to NAME;
+    a loose file adopted into a group folder has DEST = GROUP/NAME). ROOT defaults to Documents/Scripts. The card form
+    comes first so cards get ${FIELDKIT}; any other spelling keeps its own separator."""
     dest = dest or name
     n = re.escape(name)
     end = r"""(?=$|[\\/"'\s,;)\]}])"""                   # NAME ends here: a separator, a quote or the end
     back = dest.replace("/", "\\")
-    quoted = " / ".join(f'"{x}"' for x in ["Fieldkit", "local", "kits"] + dest.split("/"))
-    return [
-        (re.compile(r"\$\{DOCUMENTS\}/Scripts/" + n + end), lambda m: "${FIELDKIT}/local/kits/" + dest),
-        (re.compile(r"Scripts\\" + n + end), lambda m: "Scripts\\Fieldkit\\local\\kits\\" + back),
-        (re.compile(r"Scripts/" + n + end), lambda m: "Scripts/Fieldkit/local/kits/" + dest),
-        (re.compile(r'"Scripts" / "' + n + '"'), lambda m: '"Scripts" / ' + quoted),
-    ]
+    rel = _rel_to_documents(root) if root is not None else "Scripts"
+    if rel in (None, "Scripts"):
+        quoted = " / ".join(f'"{x}"' for x in ["Fieldkit", "local", "kits"] + dest.split("/"))
+        return [
+            (re.compile(r"\$\{DOCUMENTS\}/Scripts/" + n + end), lambda m: "${FIELDKIT}/local/kits/" + dest),
+            (re.compile(r"Scripts\\" + n + end), lambda m: "Scripts\\Fieldkit\\local\\kits\\" + back),
+            (re.compile(r"Scripts/" + n + end), lambda m: "Scripts/Fieldkit/local/kits/" + dest),
+            (re.compile(r'"Scripts" / "' + n + '"'), lambda m: '"Scripts" / ' + quoted),
+        ]
+    # 2026-10-19: another sweep root (Gorilla OpenCode's scripts/model-tests). Its tools are named by the card form,
+    # by Documents\...\NAME, and by the repository-relative scripts/model-tests/NAME a note or a memory uses.
+    parts = rel.split("/")
+    sep = r"[\\/]"
+
+    def joined(ps):
+        return sep.join(re.escape(p) for p in ps)
+
+    def to_kits(m):
+        if "\\" in m.group(0):
+            return "Documents\\Scripts\\Fieldkit\\local\\kits\\" + back
+        return "Documents/Scripts/Fieldkit/local/kits/" + dest
+    out = [(re.compile(r"\$\{DOCUMENTS\}/" + "/".join(re.escape(p) for p in parts) + "/" + n + end),
+            lambda m: "${FIELDKIT}/local/kits/" + dest),
+           (re.compile(r"Documents" + sep + joined(parts) + sep + n + end), to_kits)]
+    # shorter tails, longest first, never in the middle of a longer path word
+    for i in range(0, len(parts) - 1):
+        out.append((re.compile(r"(?<![\w.\\/-])" + joined(parts[i:]) + sep + n + end), to_kits))
+    return out
 
 
-def rewrite(text, names, dests=None):
+def rewrite(text, names, dests=None, root=None):
     """Rewrite every old spelling of each name; dests maps a name to its place under local/kits."""
     count = 0
     for name in names:
-        for rx, rep in forms(name, (dests or {}).get(name)):
+        for rx, rep in forms(name, (dests or {}).get(name), root):
             text, k = rx.subn(rep, text)
             count += k
     return text, count
@@ -106,7 +139,7 @@ def _text_files(root, skip):
                 yield p
 
 
-def text_hits(names, skip=()):
+def text_hits(names, skip=(), root=None):
     """Files outside the moved tools that name them. Fieldkit itself is never walked from the Scripts root (its
     public code is listed by public_hits for a reviewed commit, local/tools.yaml is handled as the cards, state/ is
     derived); local/kits and local/skills are roots of their own."""
@@ -124,7 +157,7 @@ def text_hits(names, skip=()):
                 text = raw.decode("utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            _, k = rewrite(text, names)
+            _, k = rewrite(text, names, root=root)
             if k:
                 hits[str(p)] = k
     return hits
@@ -188,7 +221,7 @@ def running_from(paths):
             if any(l in (r.get("CommandLine") or "").lower() for l in low) and r["ProcessId"] != os.getpid()]
 
 
-def repo_hits(names):
+def repo_hits(names, root=None):
     """Tracked files in OTHER git working trees under the Scripts root (worktrees, clones) that name an old Scripts
     path: listed for a reviewed commit there, never edited by adopt."""
     hits = []
@@ -204,14 +237,14 @@ def repo_hits(names):
             if p.suffix.lower() not in TEXT_EXT or not p.is_file():
                 continue
             try:
-                if rewrite(p.read_text(encoding="utf-8"), names)[1]:
+                if rewrite(p.read_text(encoding="utf-8"), names, root=root)[1]:
                     hits.append(str(p))
             except (OSError, UnicodeDecodeError):
                 continue
     return hits
 
 
-def public_hits(names):
+def public_hits(names, root=None):
     """Tracked files of the public repository that name an old Scripts path: listed, never edited here."""
     r = subprocess.run(["git", "-C", str(settings.ROOT), "ls-files"], capture_output=True, text=True)
     hits = []
@@ -223,18 +256,38 @@ def public_hits(names):
             text = p.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if rewrite(text, names)[1]:
+        if rewrite(text, names, root=root)[1]:
             hits.append(rel)
     return hits
 
 
 # -- plan / apply ----------------------------------------------------------------------------------------
+def source_root(names):
+    """-> (root, None) holding every NAME: Documents/Scripts first, then every other sweep root; (None, why) when a
+    name is in none of them or the names are spread over several (2026-10-19: OpenCode's model-test tools were
+    carded and tested in scripts/model-tests, and adopt only knew Documents/Scripts)."""
+    from . import sweep
+    roots = [scripts_root()] + [Path(r) for r in sweep.roots() if Path(r).resolve() != scripts_root().resolve()]
+    found = {}
+    for n in names:
+        hit = next((r for r in roots if (Path(r) / n).exists()), None)
+        if hit is None:
+            return None, f"{n} is in none of the sweep roots ({', '.join(str(r) for r in roots)})"
+        found[n] = Path(hit)
+    if len({str(r) for r in found.values()}) > 1:
+        return None, "the names are in different folders: adopt them one folder at a time"
+    root = next(iter(found.values()))
+    if root.resolve() != scripts_root().resolve() and _rel_to_documents(root) is None:
+        return None, f"{root} is not under Documents: its paths cannot be repointed"
+    return root, None
+
+
 def plan(names, into=None):
-    src = scripts_root()
+    src, why = source_root(names)
+    if src is None:
+        return {"ok": False, "error": why}
     sources = [src / n for n in names]
-    missing = [str(s) for s in sources if not s.exists()]
-    if missing:
-        return {"ok": False, "error": f"not in {src}: {', '.join(missing)}"}
+    other = None if src.resolve() == scripts_root().resolve() else src
     if into is None and any(s.is_file() for s in sources):
         return {"ok": False, "error": "loose files need --into GROUP (the folder they share in local/kits)"}
     dest = kits_root() / into if into else None
@@ -250,10 +303,11 @@ def plan(names, into=None):
         rename = {}
     olds = [str(s) for s in sources]
     tools_yaml = settings.ROOT / "local" / "tools.yaml"
-    cards = rewrite(tools_yaml.read_text(encoding="utf-8"), keys)[1] if tools_yaml.is_file() else 0
+    cards = rewrite(tools_yaml.read_text(encoding="utf-8"), keys, root=other)[1] if tools_yaml.is_file() else 0
     return {"ok": True, "moves": [(str(a), str(b)) for a, b in moves], "keys": keys, "group": into, "rename": rename,
-            "cards": cards, "text": text_hits(keys, skip=sources), "shortcuts": shortcut_hits(olds),
-            "running": running_from(olds), "public": public_hits(keys) + repo_hits(keys)}
+            "cards": cards, "text": text_hits(keys, skip=sources, root=other), "shortcuts": shortcut_hits(olds),
+            "running": running_from(olds), "public": public_hits(keys, other) + repo_hits(keys, other),
+            "root": str(other) if other else None}
 
 
 def _same_tree(a, b):
@@ -328,7 +382,7 @@ def apply(p, run_tests=True, log=print):
                 continue
             raw = f.read_bytes()
             text = raw.decode("utf-8")
-            new, n = rewrite(text, keys, p['rename'])
+            new, n = rewrite(text, keys, p['rename'], p.get("root"))
             if n:
                 keep(f)
                 crlf = b"\r\n" in raw
@@ -339,7 +393,7 @@ def apply(p, run_tests=True, log=print):
                 text = raw.decode("utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            new, n = rewrite(text, keys, p["rename"])
+            new, n = rewrite(text, keys, p["rename"], p.get("root"))
             if n:
                 crlf = b"\r\n" in raw
                 Path(f).write_bytes((new.replace("\r\n", "\n").replace("\n", "\r\n") if crlf else new).encode("utf-8"))
@@ -396,14 +450,22 @@ def _mark(old, new, stamp):
     marker.write_text(text, encoding="utf-8")
 
 
-def _marked():
-    """-> [(old copy, its marker)] for every adopted folder and loose file under the Scripts root."""
-    root = scripts_root()
-    out = [(m.parent, m) for m in sorted(root.glob(f"*/{MARKER}"))]
-    for m in sorted(root.glob(f"*{MARKER}")):
-        old = m.with_name(m.name[: -len(MARKER)])
-        if m.is_file() and old.is_file():
-            out.append((old, m))
+def _marked(roots=None):
+    """-> [(old copy, its marker)] for every adopted folder and loose file under the Scripts root and every other
+    sweep root (2026-10-19: a script captured from Gorilla OpenCode's scripts/model-tests was never finished)."""
+    if roots is None:
+        from . import sweep
+        roots = [scripts_root()] + [r for r in sweep.roots() if Path(r).resolve() != scripts_root().resolve()]
+    out = []
+    for root in roots:
+        root = Path(root)
+        if not root.is_dir():
+            continue
+        out += [(m.parent, m) for m in sorted(root.glob(f"*/{MARKER}"))]
+        for m in sorted(root.glob(f"*{MARKER}")):
+            old = m.with_name(m.name[: -len(MARKER)])
+            if m.is_file() and old.is_file():
+                out.append((old, m))
     return out
 
 
@@ -413,7 +475,8 @@ def finish(do_apply=False):
     out = []
     for old, marker in _marked():
         busy = running_from([str(old)])
-        named = public_hits([old.name]) + repo_hits([old.name])
+        src = None if old.parent.resolve() == scripts_root().resolve() else old.parent
+        named = public_hits([old.name], src) + repo_hits([old.name], src)
         row = {"folder": str(old), "running": [pid for pid, _ in busy], "still_named_by": named, "removed": False}
         out.append(row)
         if do_apply and not busy and not named:

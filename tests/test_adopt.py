@@ -13,7 +13,7 @@ from fieldkit.desk import adopt
 def test_every_spelling_of_the_old_place_is_repointed():
     text = "\n".join([
         'entry: [python, "${DOCUMENTS}/Scripts/NetTriage/nettriage.py"]',
-        r"C:\Users\x\Documents\Scripts\NetTriage\nettriage.py",  # privacy-scan: allow (deliberate fixture)
+        r"C:\Users\you\Documents\Scripts\NetTriage\nettriage.py",  # privacy-scan: allow (deliberate fixture)
         "~/Documents/Scripts/NetTriage",
         'p = Path.home() / "Documents" / "Scripts" / "NetTriage" / "a.py"',
         "Scripts/NetTriageX/not-this-one",
@@ -22,7 +22,7 @@ def test_every_spelling_of_the_old_place_is_repointed():
     lines = out.splitlines()
     assert n == 4
     assert lines[0] == 'entry: [python, "${FIELDKIT}/local/kits/NetTriage/nettriage.py"]'
-    assert lines[1] == r"C:\Users\x\Documents\Scripts\Fieldkit\local\kits\NetTriage\nettriage.py"  # privacy-scan: allow
+    assert lines[1] == r"C:\Users\you\Documents\Scripts\Fieldkit\local\kits\NetTriage\nettriage.py"  # privacy-scan: allow
     assert lines[2] == "~/Documents/Scripts/Fieldkit/local/kits/NetTriage"
     assert lines[3] == 'p = Path.home() / "Documents" / "Scripts" / "Fieldkit" / "local" / "kits" / "NetTriage" / "a.py"'
     assert lines[4] == "Scripts/NetTriageX/not-this-one"
@@ -48,11 +48,16 @@ def world(tmp_path, monkeypatch):
     skill.parent.mkdir(parents=True)
     skill.write_bytes(b"Run Documents\\Scripts\\Tool\\tool.py\r\n")       # CRLF must survive
     monkeypatch.setattr(adopt, "scripts_root", lambda: scripts)
+    # every sweep root too: finish looks under all of them, and must never reach the real Documents\Scripts
+    from fieldkit.desk import sweep as sweepmod
+    model_tests = tmp_path / "model-tests"
+    model_tests.mkdir()
+    monkeypatch.setattr(sweepmod, "roots", lambda local=None: [scripts, model_tests])
     monkeypatch.setattr(adopt, "kits_root", lambda: fk / "local" / "kits")
     monkeypatch.setattr(adopt, "text_roots", lambda: [skill.parent.parent])
     monkeypatch.setattr(adopt, "shortcut_hits", lambda olds: [])
     monkeypatch.setattr(adopt, "running_from", lambda paths: [])
-    monkeypatch.setattr(adopt, "public_hits", lambda names: [])
+    monkeypatch.setattr(adopt, "public_hits", lambda names, root=None: [])
     monkeypatch.setattr(adopt.settings, "ROOT", fk)
     # a stand-in Recycle Bin: tests never send anything to the real one
     fake_bin = tmp_path / "bin"
@@ -63,7 +68,7 @@ def world(tmp_path, monkeypatch):
         sh.move(str(path), str(fake_bin / Path(path).name))
         return True, "found in the bin's own records (test bin)"
     monkeypatch.setattr(adopt, "_recycle", recycle)
-    return {"scripts": scripts, "fk": fk, "skill": skill, "bin": fake_bin}
+    return {"scripts": scripts, "fk": fk, "skill": skill, "bin": fake_bin, "model_tests": model_tests}
 
 
 def test_plan_then_apply_moves_and_repoints(world):
@@ -159,7 +164,7 @@ def test_another_git_working_tree_under_scripts_is_listed_never_edited(world, mo
     g("add", "-A")
     g("commit", "-qm", "x")
     monkeypatch.setattr(adopt, "text_roots", lambda: [world["skill"].parent.parent, world["scripts"]])
-    monkeypatch.setattr(adopt, "public_hits", lambda names: [])
+    monkeypatch.setattr(adopt, "public_hits", lambda names, root=None: [])
     p = adopt.plan(["Tool"])
     assert p["ok"], p
     assert not any("Fieldkit-wave0" in t for t in p["text"]), p["text"]
@@ -183,7 +188,7 @@ def test_apply_only_copies_and_finish_recycles_never_deletes(world, monkeypatch)
 
 def test_finish_keeps_an_old_copy_that_code_still_names(world, monkeypatch):
     adopt.apply(adopt.plan(["Tool"]), run_tests=False, log=lambda m: None)
-    monkeypatch.setattr(adopt, "public_hits", lambda names: ["fieldkit/leakgate/sensors.py"])
+    monkeypatch.setattr(adopt, "public_hits", lambda names, root=None: ["fieldkit/leakgate/sensors.py"])
     out = adopt.finish(do_apply=True)
     assert not out[0]["removed"] and out[0]["still_named_by"] == ["fieldkit/leakgate/sensors.py"], out
     assert (world["scripts"] / "Tool" / "tool.py").is_file()
@@ -209,6 +214,16 @@ def test_a_loose_file_is_marked_beside_itself_and_finish_takes_both(world):
     assert [o["removed"] for o in out] == [True], out
     assert not loose.exists() and not (world["scripts"] / ("loose.py" + adopt.MARKER)).exists()
 
+def test_finish_also_takes_a_copy_marked_under_another_sweep_root(world):
+    # 2026-10-19: a script captured as a recipe from Gorilla OpenCode's scripts/model-tests sat there for ever
+    old = world["model_tests"] / "probe_0148.py"
+    old.write_text("print(1)\n", encoding="utf-8")
+    (world["model_tests"] / ("probe_0148.py" + adopt.MARKER)).write_text("adopted\n", encoding="utf-8")
+    out = adopt.finish(do_apply=True)
+    assert [(o["folder"], o["removed"]) for o in out] == [(str(old), True)], out
+    assert not old.exists() and (world["bin"] / "probe_0148.py").is_file()
+
+
 def test_without_gorilla_size_nothing_is_removed(monkeypatch, tmp_path):
     from fieldkit.desk import size
     monkeypatch.setattr(size, "locate", lambda: None)
@@ -217,3 +232,49 @@ def test_without_gorilla_size_nothing_is_removed(monkeypatch, tmp_path):
     real = adopt.__dict__.get("_recycle")
     ok, why = real(d) if real.__module__ == adopt.__name__ else (False, "")
     assert not ok and "nothing removed" in why and d.is_dir()
+
+
+def test_every_spelling_under_another_sweep_root_is_repointed(monkeypatch, tmp_path):
+    # 2026-10-19: Gorilla OpenCode's model-test tools, carded as ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/X
+    monkeypatch.setattr(adopt, "_documents", lambda: tmp_path)
+    root = tmp_path / "Gorilla.Opencode" / "scripts" / "model-tests"
+    root.mkdir(parents=True)
+    text = ("path: ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/tui_drive.py\n"
+            "run C:\\Users\\you\\Documents\\Gorilla.Opencode\\scripts\\model-tests\\tui_drive.py now\n"
+            "see scripts/model-tests/tui_drive.py and Gorilla.Opencode/scripts/model-tests/tui_drive.py\n"
+            "not this: other/scripts/model-tests/tui_drive.pyc nor scripts/model-tests/tui_drive_old.py\n")
+    new, n = adopt.rewrite(text, ["tui_drive.py"], {"tui_drive.py": "OpenCodeModelTests/tui_drive.py"}, root)
+    assert n == 4, new
+    assert "path: ${FIELDKIT}/local/kits/OpenCodeModelTests/tui_drive.py" in new
+    assert "C:\\Users\\you\\Documents\\Scripts\\Fieldkit\\local\\kits\\OpenCodeModelTests\\tui_drive.py now" in new
+    assert "see Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/tui_drive.py and " \
+           "Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/tui_drive.py" in new
+    assert "tui_drive_old.py" in new and "other/scripts/model-tests/tui_drive.pyc" in new
+
+
+def test_a_tool_under_another_sweep_root_is_adopted_with_its_card(world, monkeypatch):
+    docs = world["fk"].parent
+    monkeypatch.setattr(adopt, "_documents", lambda: docs)
+    root = docs / "Gorilla.Opencode" / "scripts" / "model-tests"
+    root.mkdir(parents=True)
+    (root / "tui_drive.py").write_text("print('drive')\n", encoding="utf-8")
+    from fieldkit.desk import sweep as sweepmod
+    monkeypatch.setattr(sweepmod, "roots", lambda local=None: [world["scripts"], root])
+    (world["fk"] / "local" / "tools.yaml").write_text(
+        "tools:\n- id: tui-drive\n  path: ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/tui_drive.py\n",
+        encoding="utf-8")
+    p = adopt.plan(["tui_drive.py"], into="OpenCodeModelTests")
+    assert p["ok"] and p["root"] == str(root) and p["cards"] == 1, p
+    r = adopt.apply(p, run_tests=False, log=lambda m: None)
+    assert r["ok"], r
+    card = (world["fk"] / "local" / "tools.yaml").read_text(encoding="utf-8")
+    assert "${FIELDKIT}/local/kits/OpenCodeModelTests/tui_drive.py" in card
+    assert (world["fk"] / "local" / "kits" / "OpenCodeModelTests" / "tui_drive.py").is_file()
+    assert (root / ("tui_drive.py" + adopt.MARKER)).is_file()
+
+
+def test_names_spread_over_two_roots_are_refused(world):
+    (world["model_tests"] / "b.py").write_text("x\n", encoding="utf-8")
+    (world["scripts"] / "a.py").write_text("x\n", encoding="utf-8")
+    p = adopt.plan(["a.py", "b.py"], into="G")
+    assert not p["ok"] and "different folders" in p["error"]

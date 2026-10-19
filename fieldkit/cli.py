@@ -1465,8 +1465,10 @@ def build_parser():
     gd.set_defaults(fn=cmd_guard)
 
     ad = sub.add_parser("adopt", parents=[common],
-                        help="move a tool out of Documents/Scripts into local/kits and repoint everything (plan first)")
-    ad.add_argument("names", nargs="*", help="folders (or loose files, with --into) under Documents/Scripts")
+                        help="move a tool out of Documents/Scripts (or another sweep root) into local/kits and repoint "
+                             "everything (plan first)")
+    ad.add_argument("names", nargs="*", help="folders (or loose files, with --into) under Documents/Scripts or another "
+                                             "sweep root (all names in one folder)")
     ad.add_argument("--into", help="the local/kits folder that loose files share")
     ad.add_argument("--apply", action="store_true", help="do it (backed up, tested, rolled back on any failure)")
     ad.add_argument("--finish", action="store_true", help="remove old copies of adopted tools that nothing runs from")
