@@ -50,7 +50,8 @@ def test_mozconfig_lacks_holds_only_while_the_option_is_not_set(tmp_path):
                                                                 "text": "ac_add_options --without-wasm-sandboxed-libraries"}}])])
     (o / "mozconfig").write_text("ac_add_options --disable-updater\n# ac_add_options --without-wasm-sandboxed-libraries\n",
                                  encoding="utf-8")
-    assert dec.check(o)["rows"][0]["verdict"] == "ENFORCED"
+    r = dec.check(o)
+    assert r["ok"] and r["rows"][0]["verdict"] == "ENFORCED", r      # ok: the kind is known to the register lint too
     (o / "mozconfig").write_text("ac_add_options --without-wasm-sandboxed-libraries\n", encoding="utf-8")
     assert dec.check(o)["rows"][0]["verdict"] == "VIOLATED"
 

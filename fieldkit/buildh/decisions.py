@@ -47,7 +47,7 @@ import yaml
 
 REGISTER = Path("decisions") / "PRODUCT-DECISIONS.yaml"
 STATUSES = ("enforced", "pending", "trade-off", "retired")
-KINDS = ("mozconfig_has", "tree_contains", "tree_lacks", "pref", "installed_absent", "omni_absent", "fieldkit_test",
+KINDS = ("mozconfig_has", "mozconfig_lacks", "tree_contains", "tree_lacks", "pref", "installed_absent", "omni_absent", "fieldkit_test",
          "image_sharp", "tree_absent", "tree_present", "installed_present", "about_register", "tree_pref_all", "cargo_checksums")
 FIELDKIT = Path(__file__).resolve().parents[2]
 
@@ -244,12 +244,15 @@ def _zip_names(install_dir):
 def _check(kind, arg, ctx):
     """-> (ok, evidence). Raises Unreadable when the check cannot run."""
     owner, workdir, install = ctx["owner"], ctx["workdir"], ctx["install"]
-    if kind == "mozconfig_has":
+    if kind in ("mozconfig_has", "mozconfig_lacks"):
+        # mozconfig_lacks: an option this platform deliberately does NOT set (2026-10-19: Windows keeps RLBox while
+        # Linux turns it off; a commented-out line is not a set option)
         p = owner_path(owner, arg["file"])
         if not p.is_file():
             raise Unreadable(f"{arg['file']} not found")
         lines = [l.split("#")[0].strip() for l in p.read_text(encoding="utf-8", errors="replace").splitlines()]
-        return arg["text"] in lines, f"{arg['file']}: {arg['text']}"
+        has = arg["text"] in lines
+        return (has if kind == "mozconfig_has" else not has), f"{arg['file']}: {arg['text']}"
     if kind in ("tree_contains", "tree_lacks"):
         if not workdir:
             raise Unreadable("no ported tree")
