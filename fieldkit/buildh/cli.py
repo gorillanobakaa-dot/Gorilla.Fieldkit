@@ -1513,10 +1513,17 @@ def run(a, emit):
             return 0
         workroot = task.STATE / "leakgate" / tid
         if act == "leakgate-rejudge":
-            # `leakgate-rejudge TASK [RUN]`: the same evidence judged again by the current judge and allowlist
+            # `leakgate-rejudge TASK [RUN] [dep=REF]`: the same evidence judged again by the current judge and allowlist;
+            # dep=REF compares the crates with that git ref's Cargo.lock in the ported tree (owner 2026-10-19, D)
+            if not task.owner_terminal():                   # 2026-10-19: re-judging is the owner's, at a real terminal
+                raise task.Refused("re-judging a leak gate is the owner's, at a real terminal: " + task.agent_shell())
+            rest = a.args[1:]
+            dep = next((x.split("=", 1)[1] for x in rest if x.startswith("dep=")), None)
+            rest = [x for x in rest if not x.startswith("dep=")]
             runs = sorted(p for p in workroot.iterdir() if (p / "events.jsonl").is_file())
-            run_dir = workroot / a.args[1] if len(a.args) > 1 else runs[-1]
-            new, changes = lg.rejudge(run_dir, owner, why=a.note or "")
+            run_dir = workroot / rest[0] if rest else runs[-1]
+            new, changes = lg.rejudge(run_dir, owner, why=a.note or "",
+                                      dependency_baseline=(t["workdir"], dep) if dep else None)
             for pol, c in changes.items():
                 print(f"  {pol}: {c['before']} -> {c['after']}  (removed {len(c['removed'])}, added {len(c['added'])})")
                 for x in c["added"][:10]:

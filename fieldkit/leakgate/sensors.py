@@ -28,6 +28,33 @@ NECKO = "nsHttp:3,nsHostResolver:5,nsSocketTransport:4,timestamp"
 URL_RX = re.compile(r"(?:uri=|URI |spec=|BeginConnect )\[?(https?|wss?)://([^/\s\]]+)([^\s\]]*)")
 RES_RX = re.compile(r"(?:Resolving host|host \[|NameLookup|resolving) \[?([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\]?", re.I)
 SOCK_RX = re.compile(r"nsSocketTransport::Init.*?host=([^:\s\]]+):(\d+)")
+#: the build's own resolver result (owner 2026-10-19, leak-gate proposal A): the name -> address pair the browser USED,
+#: also when no answer crossed the wire (Windows' DNS cache, HTTPS-record address hints)
+LOOKUP_RX = re.compile(r"CompleteLookup: ([a-z0-9][a-z0-9.-]*\.[a-z]{2,}) has ([0-9a-fA-F:.]+[0-9a-fA-F])", re.I)
+
+
+def necko_lookups(text, base):
+    """-> dns-a events (sensor necko-dns) for every `nsHostResolver CompleteLookup: NAME has ADDRESS` line."""
+    seen, out = set(), []
+    for m in LOOKUP_RX.finditer(text or ""):
+        key = (m.group(1).lower(), m.group(2).lower())
+        if key not in seen:
+            seen.add(key)
+            out.append({**base, "sensor": "necko-dns", "kind": "dns-a", "value": key[0], "ip": key[1]})
+    return out
+
+
+def machine_addresses(base):
+    """-> machine-ip events: this machine's own interface addresses now (owner 2026-10-19, proposal B: Windows
+    rotates temporary IPv6 addresses, and DNS may leave from a link-local address, so the DNS source is not enough)."""
+    try:
+        import psutil
+        addrs = {a.address.split("%")[0] for nic in psutil.net_if_addrs().values() for a in nic
+                 if a.family in (socket.AF_INET, socket.AF_INET6)}
+    except Exception:
+        return []
+    return [{**base, "sensor": "machine", "kind": "machine-ip", "value": a} for a in sorted(addrs)
+            if a not in ("127.0.0.1", "::1", "0.0.0.0", "::")]
 HOSTNAME = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$")
 
 MITM_ADDON = r'''
@@ -793,6 +820,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                 ev.append({**base, "sensor": "necko-http", "kind": "dest", "value": host, "detail": f"{m.group(1)}://{host}{m.group(3)[:120]}"})
         for m in RES_RX.finditer(text):
             ev.append({**base, "sensor": "necko-dns", "kind": "dns", "value": m.group(1).lower()})
+        ev += necko_lookups(text, base)
         for m in SOCK_RX.finditer(text):
             h = m.group(1).lower()
             if HOSTNAME.match(h):
@@ -804,6 +832,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                 if c in line and "127.0.0.1" not in line and "localhost" not in line and ("uri=" in line or "host" in line):
                     ev.append({**base, "sensor": "necko-http", "kind": "canary", "value": cname, "detail": line.strip()[:200]})
                     break
+    ev += machine_addresses(base)
     if mode in ("proxied", "poisoned") and mitm_out.is_file():
         for l in mitm_out.read_text(encoding="utf-8").splitlines():
             r = json.loads(l)

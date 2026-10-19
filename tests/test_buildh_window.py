@@ -18,7 +18,9 @@ def test_the_window_script_runs_the_command_logs_it_and_records_the_exit_code(tm
     assert "Tee-Object" not in s and "System.IO.StreamWriter(" in s and "UTF8Encoding($false)" in s
     assert "$log.AutoFlush = $true" in s and s.index("$log.WriteLine('exit '") < s.index("$log.Close()")
     cl = window.command_line(["build-run", "o'brien"], log, python="p")
-    assert cl.startswith("powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -EncodedCommand ")
+    assert cl.startswith("powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ")
+    assert "-NoExit" not in cl                                        # a finished window closes itself (2026-10-19)
+    assert s.rstrip().endswith("exit $code") and f"Start-Sleep -Seconds {window.CLOSE_AFTER}" in s
     decoded = base64.b64decode(cl.rsplit(" ", 1)[1]).decode("utf-16-le")
     assert "'o''brien'" in decoded                                   # quotes cannot break out
 

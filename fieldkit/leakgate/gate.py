@@ -220,6 +220,16 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             m = re.search(r"from (\S+):\d+$", e.get("detail", ""))
             if m and se.lan_address(m.group(1)):
                 machine_ips.add(m.group(1))
+    # owner 2026-10-19 (proposal B): DNS may leave from a link-local address while sockets use a rotating temporary
+    # IPv6 address. Also this machine's: its interface addresses (machine-ip, recorded per window), and the local
+    # address of any socket a sampled process bound (no process can bind an address its machine does not own)
+    for e in events:
+        if e["kind"] == "machine-ip":
+            machine_ips.add(str(e["value"]))
+        elif e["kind"] in ("udp", "listener") and e.get("sensor") == "sockets":
+            ip = str(e["value"]).rsplit(":", 1)[0].strip("[]")
+            if ip not in ("0.0.0.0", "::", "127.0.0.1", "::1", "*") and not ip.startswith("127."):
+                machine_ips.add(ip)
 
     lists = {k: [] for k in ("UNEXPECTED_DESTINATIONS", "UNEXPECTED_DNS", "UNEXPECTED_PROCESSES", "UNEXPECTED_EXECUTABLES",
                              "UNEXPECTED_FILES", "UNEXPECTED_SOCKETS", "UNEXPECTED_TELEMETRY", "UNEXPECTED_EXPERIMENTS",
@@ -849,7 +859,27 @@ JUDGED = ("NETWORK_POLICY", "TELEMETRY_POLICY", "DNS_POLICY", "PROCESS_POLICY", 
 _JUDGE_ITEM = re.compile(r"^\[[^\]/]+/[^\]/]+/[^\]]+\] ")
 
 
-def rejudge(run_dir, owner_root, why=""):
+NECKO_LOG = re.compile(r"^necko-(?P<scen>.+)-r(?P<rep>\d+)-(?P<mode>direct)\.log")
+
+
+def recorded_lookups(run_dir, events):
+    """The build's own resolver results (proposal A) read from the necko logs a run RECORDED in runs/, for a run made
+    before the sensors emitted them: the same evidence, read again, nothing re-measured. [] when the events have them."""
+    if any(e.get("kind") == "dns-a" and e.get("sensor") == "necko-dns" for e in events):
+        return []
+    texts = {}
+    for f in sorted((Path(run_dir) / "runs").glob("necko-*-direct.log*")):
+        m = NECKO_LOG.match(f.name)
+        if m:
+            key = (m["scen"], m["mode"], int(m["rep"]))
+            texts[key] = texts.get(key, "") + f.read_text(encoding="utf-8", errors="replace")
+    out = []
+    for (scen, mode, rep), text in texts.items():
+        out += se.necko_lookups(text, {"scenario": scen, "mode": mode, "rep": rep})
+    return out
+
+
+def rejudge(run_dir, owner_root, why="", dependency_baseline=None):
     """Judge a finished run again with the current judge and allowlist: the SAME evidence (events.jsonl, the page
     results), nothing re-measured. Items judge() produces are replaced; every other item (action checks, audits,
     regression, reproducibility) is carried over unchanged, so a re-judge can only remove judging errors. The original
@@ -862,6 +892,7 @@ def rejudge(run_dir, owner_root, why=""):
     if not orig.is_file():
         orig.write_text(json.dumps(old, indent=1), encoding="utf-8")
     events = [json.loads(l) for l in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    events += recorded_lookups(run_dir, events)
     allow = al.load(al.path_for(owner_root))
     scen_hosts = {name: hosts for name, _t, _s, _a, hosts, _w in sc.SCENARIOS}
     pr = run_dir / "page-results.json"
@@ -871,9 +902,28 @@ def rejudge(run_dir, owner_root, why=""):
     fail, lists = judge(events, allow, scen_hosts, copies, results, repeat=len(reps), packets=True, quick=False)
     new, changes = dict(old), {}
     why_old = old.get("WHY", {})
+    dep_items = None
+    if dependency_baseline:
+        # owner 2026-10-19 (proposal D): the crates are compared with a NAMED earlier build's Cargo.lock (a git ref in
+        # the ported tree), the run's own evidence otherwise unchanged
+        tree, ref = dependency_baseline
+        r = subprocess.run(["git", "-C", str(tree), "show", f"{ref}:Cargo.lock"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
+        if r.returncode != 0 or not r.stdout:
+            raise ValueError(f"no Cargo.lock at {ref} in {tree}: {r.stderr.strip()[:200]}")
+        disp_path = owner_root / "leakgate" / "dispositions.json"
+        dispositions = json.loads(disp_path.read_text(encoding="utf-8")) if disp_path.is_file() else {}
+        dep = audit.dependency_audit(tree, r.stdout, dispositions)
+        items = ([f"{len(dep['unapproved_new'])} Rust crate(s) new since {ref} without an approved disposition"
+                  + (f"; network-capable: {dep['network_capable_new']}" if dep["network_capable_new"] else "")
+                  + f": {dep['unapproved_new'][:8]}"] if dep["unapproved_new"] else [])
+        dep_items = items
+        (run_dir / f"dependencies.vs-{ref}.json").write_text(json.dumps(dep, indent=1), encoding="utf-8")
     for pol in POLICIES:
         if pol in JUDGED:
             items = fail[pol] + [x for x in why_old.get(pol, []) if not _JUDGE_ITEM.match(x)]
+        elif pol == "DEPENDENCY_POLICY" and dep_items is not None:
+            items = dep_items
         elif pol == "ALLOWLIST_POLICY":
             items = al.problems(allow) + al.scope_problems(allow) + ([] if allow.get("entries") else ["no allowlist"])
         else:
