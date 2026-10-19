@@ -119,3 +119,8 @@ def test_repeated_edits_of_one_file_are_one_line(_room_dir):
     assert room.write(call("s1", "Edit", file_path=path), now=1000)
     assert room.write(call("s1", "Edit", file_path=path), now=1010) is None
     assert room.write(call("s2", "Edit", file_path=path), now=1011)          # another session: its own line
+
+
+def test_a_powershell_here_string_body_is_data():
+    cmd = "$code=@'\nimport re, sys\nfrom pip import x\ngh = 1\n'@; python -c $code"
+    assert room.write(call("s1", "PowerShell", command=cmd)) is None

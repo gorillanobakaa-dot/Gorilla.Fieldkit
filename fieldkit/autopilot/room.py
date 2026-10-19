@@ -122,6 +122,8 @@ def classify(call):
     if tool in SHELL_TOOLS:
         cmd = ti.get("command") or ""
         body = re.sub(r"<<-?\s*'?(\w+)'?[^\n]*\n.*?^\s*\1\s*$", "<<heredoc", cmd, flags=re.S | re.M)   # bodies are data
+        # PowerShell here-strings too (2026-10-19: Python inside @'...'@ was logged as "net" for its import lines)
+        body = re.sub(r"@(['\"])\s*\n.*?\n\1@", "@here-string@", body, flags=re.S)
         for verb, rx in SHELL_VERBS:
             if rx.search(body):
                 if verb == "stop":

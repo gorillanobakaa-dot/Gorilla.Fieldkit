@@ -138,7 +138,7 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
         if e["kind"] in ("dest", "dns", "sni"):
             names_by_scenario.setdefault(e["scenario"], set()).add(e["value"])
     # 2026-10-19: no live lookup at judging time. Resolving every observed name here sent real DNS queries (the
-    # canary's planted incoming.telemetry.mozilla.org, eight times during the 158 build 2 gate) and made the verdict
+    # canary's planted incoming.telemetry.mozilla.org, eight times during the 158 build 2 gate) and made the verdict  telemetry-ok: names it to explain a rule
     # depend on what the network answered later. Addresses come only from the run's own evidence: the wire's DNS
     # answers and the build's resolver log (dns-a events, below).
 

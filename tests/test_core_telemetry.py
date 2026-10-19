@@ -59,3 +59,22 @@ def test_a_built_program_is_scanned_for_the_module_paths_it_carries(tmp_path):
     clean = tmp_path / "clean.exe"
     clean.write_bytes(b"\x00MZ hello world\x00")
     assert tm.scan_artifact(clean)["findings"] == []
+
+
+def test_go_sum_hashes_are_not_linkage_but_go_mod_requires_are(tmp_path):
+    # 2026-10-19: go mod tidy keeps go.opentelemetry.io hashes for grpc's own tests; nothing is linked  telemetry-ok: names it to explain a rule
+    (tmp_path / "go.sum").write_text("go.opentelemetry.io/otel v1.0.0 h1:abc=\n", encoding="utf-8")  # telemetry-ok: test fixture
+    assert tm.scan(tmp_path)["findings"] == []
+    (tmp_path / "go.mod").write_text("require go.opentelemetry.io/otel v1.0.0\n", encoding="utf-8")  # telemetry-ok: test fixture
+    assert [f["file"] for f in tm.scan(tmp_path)["findings"]] == ["go.mod"]
+
+
+def test_a_library_that_phones_home_by_default_is_flagged_until_the_file_turns_it_off(tmp_path):
+    # 2026-10-19: OpenCode's pfind.py opened chromadb with its defaults (PostHog telemetry); no line said posthog  telemetry-ok: names it to explain a rule
+    f = tmp_path / "brain.py"
+    f.write_text("import chromadb\nc = chromadb.PersistentClient(path='x')\n", encoding="utf-8")
+    got = tm.scan(tmp_path)["findings"]
+    assert len(got) == 1 and got[0]["line"] == 1 and "by default" in got[0]["text"]
+    f.write_text("import chromadb\nfrom chromadb.config import Settings\n"
+                 "c = chromadb.PersistentClient(path='x', settings=Settings(anonymized_telemetry=False))\n", encoding="utf-8")
+    assert tm.scan(tmp_path)["findings"] == []

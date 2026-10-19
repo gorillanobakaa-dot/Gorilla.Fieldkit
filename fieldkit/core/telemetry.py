@@ -55,6 +55,17 @@ SOURCE_EXT = {".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".rs", ".go",
 #: (2026-10-18 sweep: about 120 of Fieldkit's 157 findings were state/ evidence and *.prep/*.filled copies)
 SKIP_DATA_DIRS = {"state", "_staging"}
 SKIP_DATA_SUFFIX = (".prep.json", ".filled.json", "_layman.json", "_developer.json", "_audit.json")
+#: integrity hashes of the whole module graph, test-only dependencies included, not what is linked (2026-10-19:
+#: go mod tidy keeps go.opentelemetry.io hashes for grpc's own tests; `go list -deps` and the built program have  telemetry-ok: names it to explain a rule
+#: none). go.mod requires and .go imports are still read; the artifact scan judges the program itself.
+SKIP_FILES = {"go.sum"}
+#: a library that phones home by DEFAULT, flagged in a file that uses it unless the same file turns it off
+#: (2026-10-19: OpenCode's pfind.py opened chromadb with its defaults - PostHog telemetry and a model download;  telemetry-ok: names it to explain a rule
+#: no line of it named posthog, so the line patterns could not see it)  telemetry-ok: the scanner's own table
+DEFAULT_ON = [
+    ("sdk", re.compile(r"^\s*(import\s+chromadb|from\s+chromadb\b)", re.M),
+     re.compile(r"anonymized_telemetry\s*=\s*False|ANONYMIZED_TELEMETRY['\"]?\s*[:=]\s*['\"]?(False|0)", re.I)),
+]
 SKIP_DIRS = {".git", "node_modules", "target", "dist", "build", "__pycache__", ".venv", "venv", "obj", "objdir",
              ".mozbuild", "_build", "site-packages"}
 
@@ -68,7 +79,7 @@ def scan(root, max_bytes=2_000_000):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and d not in SKIP_DATA_DIRS]
         for fn in filenames:
             p = Path(dirpath) / fn
-            if p.suffix.lower() not in SOURCE_EXT or fn.lower().endswith(SKIP_DATA_SUFFIX):
+            if p.suffix.lower() not in SOURCE_EXT or fn.lower().endswith(SKIP_DATA_SUFFIX) or fn in SKIP_FILES:
                 continue
             try:
                 if p.stat().st_size > max_bytes:
@@ -77,6 +88,14 @@ def scan(root, max_bytes=2_000_000):
             except OSError:
                 continue
             n += 1
+            for kind, uses, cure in DEFAULT_ON:
+                m = uses.search(text)
+                if m and not cure.search(text):
+                    i = text.count("\n", 0, m.start()) + 1
+                    line = text.splitlines()[i - 1]
+                    row = {"file": p.relative_to(root).as_posix(), "line": i, "kind": kind, "match": m.group(0).strip(),
+                           "text": line.strip()[:160] + "  (telemetry on by default, not turned off in this file)"}
+                    (marked if OK_MARK.search(line) else found).append(row)
             for i, line in enumerate(text.splitlines(), 1):
                 for kind, pat in SOURCE_PATTERNS:
                     m = pat.search(line)

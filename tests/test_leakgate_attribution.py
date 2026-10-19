@@ -118,7 +118,7 @@ def test_the_judge_makes_no_live_lookup(monkeypatch):
     import socket
     asked = []
     monkeypatch.setattr(socket, "getaddrinfo", lambda h, *a, **k: asked.append(h) or [])
-    _judge([_ev(kind="dest", value="incoming.telemetry.mozilla.org")])
+    _judge([_ev(kind="dest", value="incoming.telemetry.mozilla.org")])  # telemetry-ok: test fixture
     assert asked == []
 
 
