@@ -788,8 +788,59 @@ def owner_terminal():
 
     Only stdin is judged (2026-10-14): the terminal opener (`fieldkit terminal ask`) shows a command in a window, the
     owner presses Enter, and the window copies the output into its log, so stdout is a pipe. Requiring a terminal on
-    stdout as well refused the owner's own skip in the window built for exactly that."""
+    stdout as well refused the owner's own skip in the window built for exactly that.
+
+    2026-10-19: a terminal on stdin is NOT enough. Claude Code's Bash tool gives its shell a terminal, and the
+    orchestrator session ran an owner-only allowlist approval script that this check let through (the change was
+    restored from git at once). So: refuse when the process carries an AI agent's environment marker, or when any
+    ancestor process is an AI agent."""
+    if agent_shell():
+        return False
     return sys.stdin.isatty()
+
+
+#: environment variables an AI agent's shell carries (Claude Code, the Agent SDK, Antigravity/Gemini, Codex)
+AGENT_ENV = ("CLAUDECODE", "AI_AGENT", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_AGENT_SDK_VERSION",
+             "ANTIGRAVITY_AGENT", "GEMINI_CLI", "CODEX_SANDBOX", "CODEX_HOME")
+#: ancestor process names that are AI agents
+AGENT_PROCS = re.compile(r"^(claude|antigravity|gemini|codex)(\.exe)?$|claude-code|@anthropic-ai", re.I)
+#: what may stand between a person's desktop and this process: terminals, shells, Python
+PERSON_CHAIN = re.compile(r"^(windowsterminal|openconsole|conhost|wt|powershell|pwsh|cmd|python\d*(\.\d+)?|py|pythonw)"
+                          r"(\.exe)?$", re.I)
+DESKTOPS = re.compile(r"^(explorer(\.exe)?|plasmashell|gnome-shell|kwin\w*|xfce4-session|lxsession|"
+                      r"sshd|login|systemd)$", re.I)
+
+
+def agent_shell(env=None, ancestors=None):
+    """-> the reason this process may NOT be a person's own terminal, or "" when it positively is one.
+
+    A person's terminal: no agent environment marker, and the parent chain reaches the desktop (explorer.exe, or a
+    Linux session) through terminals, shells and Python only. Anything else is refused, a broken chain included
+    (2026-10-19: Git Bash's env.exe cut the chain before claude.exe, so "no agent seen" proved nothing)."""
+    env = os.environ if env is None else env
+    hit = next((k for k in AGENT_ENV if env.get(k)), None)
+    if hit:
+        return f"agent environment ({hit})"
+    if ancestors is None:
+        ancestors = []
+        try:
+            import psutil
+            for a in psutil.Process().parents():
+                try:
+                    ancestors.append((a.name(), " ".join(a.cmdline())[:300]))
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    ancestors.append(("?", ""))
+        except Exception:                                   # fail closed: an unreadable ancestry is not a person
+            return "process ancestry unreadable"
+    for name, cmd in ancestors:
+        if AGENT_PROCS.search(name or "") or AGENT_PROCS.search(cmd or ""):
+            return f"agent ancestor ({name})"
+    for name, _cmd in ancestors:
+        if DESKTOPS.match(name or ""):
+            return ""
+        if not PERSON_CHAIN.match(name or ""):
+            return f"not a person's terminal: {name} stands between this process and the desktop"
+    return "no path to the desktop (the parent chain is broken or detached)"
 
 
 def unblock(task_id, step_id, how):
