@@ -5,6 +5,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Every child `python -m fieldkit` a test starts imports the Fieldkit UNDER TEST too, not whichever checkout pip
+# installed (2026-10-19: in a second working tree the installed main checkout answered, and a test failed for a
+# reason that was not the code's). Children inherit the environment.
+import os as _os_root  # noqa: E402
+_os_root.environ["PYTHONPATH"] = _os_root.pathsep.join(
+    p for p in (str(Path(__file__).resolve().parents[1]), _os_root.environ.get("PYTHONPATH", "")) if p)
+
 from fieldkit.core.host import host  # noqa: E402
 
 windows_only = pytest.mark.skipif(not host()["is_windows"], reason="Windows-only behaviour")
