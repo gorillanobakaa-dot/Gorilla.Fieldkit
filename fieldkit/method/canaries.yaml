@@ -86,6 +86,17 @@ canaries:
     control: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static, control]}
     flagged: {exit: [3]}
     passed: {exit: [0]}
+    unavailable: {exit: [4]}
+
+  - id: themecheck-static-white-popup
+    check: bh-ui-check
+    why: "the static theme check names white (a text-only colour) used as a popup background (blind until themecheck 1.1.0)"
+    run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static-white-popup]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static-white-popup, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static-white-popup, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+    unavailable: {exit: [4]}
 
   - id: themecheck-rendered
     check: bh-ui-check
@@ -95,6 +106,7 @@ canaries:
     control: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-rendered, control]}
     flagged: {exit: [3]}
     passed: {exit: [0]}
+    unavailable: {exit: [4]}
 
   - id: claims-new-file
     check: bh-claims

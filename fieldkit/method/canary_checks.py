@@ -22,23 +22,46 @@ def _git(w, *a):
                    capture_output=True)
 
 
-def themecheck_static(side, d):
-    """A colour outside the theme spec, added on top of the tree's root commit: the static check must name it.
+UNAVAILABLE = 4     # the check needs the owner's theme spec (gorilla-patchset/decisions/THEME.yaml) and it is not here
 
-    Not a white popup background: #FFFFFF is IN the spec (as a text colour), and the static check knows colours, not
-    which role a line gives them, so a white popup background passes it (found 2026-10-19 by this canary; the rendered
-    contrast check below is the one that sees that failure)."""
+
+def _theme_spec():
     from ..buildh import themecheck
+    try:
+        return themecheck.load()
+    except FileNotFoundError as e:
+        print(f"unavailable: {e}")
+        return None
+
+
+def _static(side, d, plant):
+    """`plant` added in a SECOND commit on top of a pristine root: static() judges only lines added after the root
+    (the root is the upstream release), so a plant in the root would pass for the wrong reason."""
+    from ..buildh import themecheck
+    spec = _theme_spec()
+    if spec is None:
+        return UNAVAILABLE
     w = d / "tree"
     w.mkdir()
     (w / "a.css").write_text("x{color:#00FFFF}\n", encoding="utf-8")
     _git(w, "init", "-q")
     _git(w, "add", "-A")
     _git(w, "commit", "-qm", "root")
-    added = "menupopup{background-color:#123456}\n" if side == "canary" else "menupopup{background-color:#000000}\n"
+    added = plant if side == "canary" else "menupopup{background-color:#000000}\n"
     (w / "a.css").write_text("x{color:#00FFFF}\n" + added, encoding="utf-8")
     _git(w, "commit", "-qam", "second")
-    return PASSED if themecheck.static_row(w)["ok"] else FLAGGED
+    return PASSED if themecheck.static_row(w, spec)["ok"] else FLAGGED
+
+
+def themecheck_static(side, d):
+    """A colour outside the theme spec: the static check must name it."""
+    return _static(side, d, "menupopup{background-color:#123456}\n")
+
+
+def themecheck_static_white_popup(side, d):
+    """White (a text-only colour) as a popup background: the static check must name it. Blind until themecheck 1.1.0
+    (2026-10-19: found by the canary above, which then had to plant an off-palette colour instead)."""
+    return _static(side, d, "menupopup{background-color:#FFFFFF}\n")
 
 
 def themecheck_rendered(side, d):
@@ -47,7 +70,9 @@ def themecheck_rendered(side, d):
     if side == "canary":
         item = {"surface": "canary", "label": "x", "contrast": 1.25, "text": (0, 255, 255),
                 "background": (255, 255, 255), "hover": (255, 255, 255), "clipped": False}
-    spec = themecheck.load()
+    spec = _theme_spec()
+    if spec is None:
+        return UNAVAILABLE
     if side == "control":
         # the spec's own first pair and hover, well above the floor: what a correct popup looks like
         text, background = spec["pairs"][0]
@@ -147,7 +172,7 @@ def leakgate_telemetry(side, d):
     return FLAGGED if lists.get("UNEXPECTED_TELEMETRY") else PASSED
 
 
-CHECKS = {"themecheck-static": themecheck_static, "themecheck-rendered": themecheck_rendered,
+CHECKS = {"themecheck-static": themecheck_static, "themecheck-static-white-popup": themecheck_static_white_popup, "themecheck-rendered": themecheck_rendered,
           "claims-new-file": claims_new_file, "claims-hunk": claims_hunk,
           "decisions-tree-contains": decisions_tree_contains,
           "leakgate-canary": leakgate_canary, "leakgate-telemetry": leakgate_telemetry}
@@ -160,7 +185,7 @@ def main(argv=None):
         return 2
     with tempfile.TemporaryDirectory(prefix="fkcanarycheck-") as d:
         rc = CHECKS[argv[0]](argv[1], Path(d))
-    print("flagged" if rc == FLAGGED else "passed")
+    print({FLAGGED: "flagged", PASSED: "passed"}.get(rc, "unavailable"))
     return rc
 
 

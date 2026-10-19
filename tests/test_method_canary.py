@@ -85,10 +85,24 @@ def test_duplicate_ids_are_refused(tmp_path):
 
 def test_the_shipped_registry_proves_every_check():
     # the real checks on their real canaries: offline, a few seconds; gorilla-size rows need the program built
+    # theme canaries need the owner's theme spec (gorilla-patchset); where it is absent (CI) they must say UNAVAILABLE
+    from fieldkit.buildh import themecheck
     from fieldkit.desk import size
     reg_ = canary.load([canary.REGISTRY])
-    assert len(reg_["canaries"]) >= 8
+    assert len(reg_["canaries"]) >= 16
     rows = [canary.run_one(x) for x in reg_["canaries"]
             if size.locate() or not x["id"].startswith("size-")]
-    bad = [(r["id"], r["verdict"]) for r in rows if r["verdict"] != "OK"]
+    no_spec = themecheck.find_spec() is None
+    bad = [(r["id"], r["verdict"]) for r in rows
+           if r["verdict"] != "OK" and not (no_spec and r["id"].startswith("themecheck-") and r["verdict"] == "UNAVAILABLE")]
     assert not bad, bad
+
+
+def test_a_stale_gorilla_size_is_caught_blind(tmp_path, monkeypatch):
+    # 2026-10-19: a worktree still held gorilla-size 0.2, which exits 0 when it finds duplicates; the size-dupes canary
+    # called it BLIND. A stand-in program that always exits 0 must be caught the same way.
+    stub = tmp_path / "stub.py"
+    stub.write_text("import sys; sys.exit(0)\n", encoding="utf-8")
+    dupes = next(c for c in canary.load([canary.REGISTRY])["canaries"] if c["id"] == "size-dupes")
+    dupes = dict(dupes, run=["{python}", str(stub), "{dir}"])
+    assert canary.run_one(dupes)["verdict"] == "BLIND"
