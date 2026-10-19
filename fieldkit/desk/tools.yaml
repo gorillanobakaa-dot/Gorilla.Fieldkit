@@ -16,6 +16,7 @@ tools:
   title: Read, create, check and scrub Word/Excel/PowerPoint/PDF offline
   harness: office
   entry: [python, -m, fieldkit, office]
+  effects: [reads-files, writes-files]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/office
   platforms: [windows, linux]
   changes: true
@@ -214,6 +215,7 @@ tools:
   title: Staged, resumable pipelines (Firefox on Windows, Debian kernel, Gorilla OpenCode and any Go app)
   harness: build
   entry: [python, -m, fieldkit, pipeline]
+  effects: [reads-files, writes-files, processes, network]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/core/pipeline.py
   inputs: []                        # running one is the owner's: agents read the plan, and `next` says the step
   platforms: [windows, linux]
@@ -326,7 +328,7 @@ tools:
   inputs:
     - {name: spec, flag: null, type: str, required: true, help: "lifecycle spec (YAML): watch, install, upgrade, uninstall"}
     - {name: approve, flag: --approve, type: flag, required: true, help: "the owner's go-ahead"}
-  effects: [installs-software, writes-files, deletes-files, admin]
+  effects: [writes-files, admin, processes, deletes-files]   # installs software
   safety: irreversible
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle.py"]
@@ -733,6 +735,7 @@ tools:
   title: Kernel patches, audited config change-set, patch tooling, self-test (data for the debian-kernel pipeline)
   harness: build
   path: ${FIELDKIT}/toolbox/debian-kernel
+  effects: [reads-files]   # from the title and path (2026-10-19); confirm on adoption
   repo: gorillanobakaa-dot/debian-kernel
   platforms: [linux]
   changes: true
@@ -742,11 +745,28 @@ tools:
   title: Terminal dashboard of every readable hardware sensor (Linux)
   harness: desk
   path: ${FIELDKIT}/toolbox/sensors-gorilla/sensors.gorilla
+  effects: [reads-files, hardware, admin]   # sudo smartctl -A and sudo cat of root-only sensor files (sensors.gorilla:123,175); systemctl is-active is a status query only
   repo: gorillanobakaa-dot/sensors-gorilla
   platforms: [linux]
-  changes: false
+  platforms_why: "reads Linux sysfs, hwmon and smartctl; the Sony VAIO SVE14A3AJ dashboard"
+  safety: reversible   # it changes nothing, but it asks for sudo (admin) to read root-only sensors, so not read-only
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sensors_gorilla.py"]
 
+- id: thermal-profile-daemon
+  title: Step the Sony VAIO's firmware fan profile (silent, balanced, performance, forced) with the temperature (Linux)
+  harness: desk
+  entry: [python3, "${FIELDKIT}/toolbox/sensors-gorilla/thermal-profile-daemon"]
+  path: ${FIELDKIT}/toolbox/sensors-gorilla/thermal-profile-daemon
+  repo: gorillanobakaa-dot/sensors-gorilla
+  effects: [hardware, writes-files, deletes-files, services, admin, processes]   # writes the fan profile in sysfs; install: sudo, a systemd unit enabled --now; uninstall: sudo rm -f and disable
+  safety: reversible
+  modes:
+    preview: [python3, "${FIELDKIT}/toolbox/sensors-gorilla/thermal-profile-daemon", check]
+    undo: [python3, "${FIELDKIT}/toolbox/sensors-gorilla/thermal-profile-daemon", uninstall]
+  platforms: [linux]
+  platforms_why: "drives Sony's embedded-controller fan profiles through Linux sysfs and runs as a systemd service"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sensors_gorilla.py"]
+  notes: "Commands: run | check | install | uninstall | status (default) | watch; no --help (an unknown word prints the doc, exit 2), so the card is not probed on Windows. Carded 2026-10-19 (it had none; its effects had leaked into the sensors-gorilla card). On exit it restores balanced and releases the fan (tested). Built for the owner's Sony VAIO SVE14A3AJ."
 - id: fieldkit-audio
   title: Linux sound chain - every stage the sound passes through, what is done twice, and the fix (read-only)
   harness: fieldkit
@@ -763,6 +783,7 @@ tools:
   title: Check a CV against fixed rules and the questions to ask; write UK CVs in English and Romanian
   harness: fieldkit
   entry: [python, -m, fieldkit, cv]
+  effects: [reads-files, writes-files]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/career
   platforms: [windows, linux]
   changes: true
@@ -772,6 +793,7 @@ tools:
   title: UK job hunt - official APIs, scoring, application packs, tracking (never submits)
   harness: fieldkit
   entry: [python, -m, fieldkit, jobs]
+  effects: [reads-files, writes-files, network]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/career
   platforms: [windows, linux]
   changes: true
@@ -821,7 +843,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/laptop/cpu.py
   inputs:
     - {name: action, flag: null, type: str, required: false, help: "check (default), guard, status", choices: [check, guard, status]}
-  effects: [reads-files, writes-files, processes, system]
+  effects: [reads-files, writes-files, processes, power]
   safety: reversible
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, speed or guard or linux or logon]
@@ -846,7 +868,7 @@ tools:
   inputs:
     - {name: action, flag: null, type: str, required: false, help: "diagnose (default), fix, undo, drivers", choices: [diagnose, fix, undo, drivers]}
     - {name: apply, flag: --apply, type: flag, required: false, help: "fix: do it (without: the plan)"}
-  effects: [reads-files, writes-files, system, network]
+  effects: [reads-files, writes-files, registry, services, network]
   safety: reversible
   platforms: [windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, sound or fix or catalog or diagnosis]
@@ -858,7 +880,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/laptop/sound.py
   inputs:
     - {name: set, flag: --set, type: int, required: false, help: "the volume to set, in percent"}
-  effects: [system]
+  effects: [hardware]
   safety: reversible
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, volume]
@@ -870,7 +892,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/laptop/desktop.py
   inputs:
     - {name: apply, flag: --apply, type: flag, required: false, help: "install it (without: only look)"}
-  effects: [processes, network, system]
+  effects: [processes, network, admin]
   safety: reversible
   platforms: [windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, nvidia]
@@ -903,6 +925,7 @@ tools:
   title: Sharp desktop icons - the icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons
   harness: fieldkit
   entry: [python, -m, fieldkit, icons]
+  effects: [reads-files, writes-files, registry, processes]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/icons/iconkit.py
   inputs: []                        # many subcommands: the agent reaches them through the cards below
   platforms: [windows, linux]
@@ -2398,7 +2421,7 @@ tools:
   path: ${FIELDKIT}/kits/photokit/photokit.py
   inputs:
     - {name: command, flag: null, type: str, required: true, help: "doctor [--install] | sheet SRC OUT | dupes SRC [--window 1 --sheet OUT] | compare SRC OUT A:B... | check SRC MAP | sort SRC MAP OUT | fetch LIST OUT | serve ROOT"}
-  effects: [reads-files, writes-files, network-on-fetch, installs-on-doctor-install]
+  effects: [reads-files, writes-files, network]   # network only for fetch; installs only with doctor --install
   safety: reversible
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_photokit.py", -p, "no:cacheprovider"]
@@ -2411,7 +2434,7 @@ tools:
   path: ${FIELDKIT}/kits/videokit/videokit.py
   inputs:
     - {name: command, flag: null, type: str, required: true, help: "doctor [--install] [--video V] | probe V | analyse V | events V | draft V PLAN | frames V OUT [--at-events] | measure V OUT.csv | shake V | shakecompare SRC PLAN OUT... [--strict] | flow V [--strict] | lock V OUT | render V PLAN OUT.mp4"}
-  effects: [reads-files, writes-files, installs-on-doctor-install]
+  effects: [reads-files, writes-files, network]   # installs only with doctor --install
   safety: reversible
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_videokit.py", -p, "no:cacheprovider"]
@@ -2422,17 +2445,18 @@ tools:
   entry: [python, -I, "${FIELDKIT}/kits/catchup/catchup.py"]
   path: ${FIELDKIT}/kits/catchup/catchup.py
   inputs:
-    - {name: command, flag: null, type: str, required: true, help: "doctor [--dest D] | repos ROOT... [--since DATE] [--fetch] [--json] | collect --out DIR [--config F] [--since DATE] | check DIR | public-check PATH... [--no-terms] [--history] [--github ACCOUNT] | pack DIR DEST"}
-  effects: [reads-files, writes-files, network-on-fetch]
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--dest D] | repos ROOT... [--since DATE] [--fetch] [--json] | collect --out DIR [--config F] [--since DATE] | check DIR | public-check PATH... [--no-terms] [--history] [--github ACCOUNT] | pack DIR DEST | verify ZIP|DIR | ask TEXT [--to M] | answer ID TEXT | questions [--all]"}
+  effects: [reads-files, writes-files, network]   # network only for fetch
   safety: reversible
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_catchup.py", -p, "no:cacheprovider"]
-  notes: "collect writes only into a NEW folder; pack writes DEST/<name>.zip via .part and never overwrites. The config (which folders to carry) is private: local/catchup.json. The bundle is internal documentation: hand-carried, never uploaded. Procedure: skill fieldkit-machine-catchup."
+  notes: "collect writes only into a NEW folder; pack writes DEST/<name>.zip via .part and never overwrites. The config (which folders to carry) is private: local/catchup.json. The bundle is internal documentation: hand-carried, never uploaded. verify is the receiver's check (zip vs .sha256, files vs MANIFEST.json; exit 3); ask/answer/questions keep the question ledger (local/catchup-questions.json), whose open questions ride in every bundle as QUESTIONS-OPEN.md. Procedure: skill fieldkit-machine-catchup."
 
 - id: voice
   title: A voice worth listening to on Linux (Windows is untouched)
   harness: voice
   entry: [python, -m, fieldkit, voice]
+  effects: [writes-files, processes, hardware, network]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/voice
   platforms: [linux]
   changes: true
@@ -2469,7 +2493,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/voice/doctor.py
   inputs:
     - {name: text, flag: null, type: str, required: true, help: "the sentence to speak"}
-  effects: [plays-audio]
+  effects: [hardware]   # plays sound
   safety: read-only
   platforms: [linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_voice.py"]
@@ -2490,6 +2514,7 @@ tools:
   title: Keep this laptop online, or say so out loud when it cannot
   harness: watchdog
   entry: [python, -m, fieldkit, watchdog]
+  effects: [network, processes, hardware]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/watchdog
   platforms: [windows, linux]
   changes: true
@@ -2512,7 +2537,7 @@ tools:
   entry: [python, -m, fieldkit, watchdog, test]
   path: ${FIELDKIT}/fieldkit/watchdog/__init__.py
   inputs: []
-  effects: [plays-audio]
+  effects: [hardware]   # plays sound
   safety: read-only
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_watchdog.py"]
@@ -2545,6 +2570,7 @@ tools:
   title: Why the wifi is slow, answered from the hardware rather than from guesses
   harness: wifi
   entry: [python, -m, fieldkit, wifi]
+  effects: [reads-files, hardware, network]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/wifi
   platforms: [linux]
   changes: false
@@ -2585,7 +2611,7 @@ tools:
   inputs:
     - {name: action, flag: null, type: str, required: true, help: "doctor | ask | run"}
     - {name: command, flag: null, type: str, required: false, help: "after --: the command, with the program's full path"}
-  effects: [starts-process, writes-files]
+  effects: [processes, writes-files]
   safety: reversible
   platforms: [linux, darwin, windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_terminal.py"]
@@ -2700,6 +2726,7 @@ tools:
   title: Read numbers off a screenshot, and reason about what they mean
   harness: shot
   entry: [python, -m, fieldkit, shot]
+  effects: [reads-files]   # from the title and path (2026-10-19); confirm on adoption
   path: ${FIELDKIT}/fieldkit/shot
   platforms: [windows, linux]
   changes: false
@@ -4638,6 +4665,24 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_flaky.py"]
   skill: skills/fieldkit-methods/SKILL.md
+
+- id: version-sync
+  title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program
+  harness: method
+  entry: [python, -m, fieldkit, version-sync]
+  path: ${FIELDKIT}/fieldkit/method/versionsync.py
+  inputs:
+    - {name: path, flag: null, type: str, required: false, help: "the project folder (default .)"}
+    - {name: expect, flag: --expect, type: str, required: false, help: "the version every place must state"}
+    - {name: binary, flag: --binary, type: str, required: false, help: "also ask the built program: EXE --version"}
+  effects: [reads-files, processes]   # processes only with --binary (runs EXE --version)
+  safety: reversible
+  output: own
+  exits: {3: "places disagree, one cannot be read, or none states a version"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_versionsync.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Read-only on the project; with --binary it starts that program once. Born 2026-10-19 (TPFanControl installer gorilla.3 vs program gorilla.4)."
 
 - id: canary
   title: Prove a CHECK can fail - each check on a planted input it must flag and a clean control it must pass; a second witness reads the artifact

@@ -95,7 +95,10 @@ def _text_files(root, skip):
     if not root.is_dir():
         return
     for dp, dns, fns in os.walk(root):
+        # another git working tree (a Fieldkit worktree, a clone) is code that changes by a reviewed commit, never
+        # here (2026-10-19: --apply rewrote the fixture inside a worktree's tests/test_adopt.py); repo_hits lists it
         dns[:] = [d for d in dns if d not in {".git", "__pycache__", "node_modules", ".venv", "venv", "results"}
+                  and not (Path(dp, d) / ".git").exists()
                   and not any(Path(dp, d) == s or s in Path(dp, d).parents for s in skip)]
         for f in fns:
             p = Path(dp, f)
@@ -185,6 +188,29 @@ def running_from(paths):
             if any(l in (r.get("CommandLine") or "").lower() for l in low) and r["ProcessId"] != os.getpid()]
 
 
+def repo_hits(names):
+    """Tracked files in OTHER git working trees under the Scripts root (worktrees, clones) that name an old Scripts
+    path: listed for a reviewed commit there, never edited by adopt."""
+    hits = []
+    root = scripts_root()
+    if not root.is_dir():
+        return hits
+    for d in sorted(p for p in root.iterdir() if p.is_dir() and (p / ".git").exists()):
+        if d.resolve() == Path(settings.ROOT).resolve():
+            continue                                   # the public repository itself: public_hits
+        r = subprocess.run(["git", "-C", str(d), "ls-files"], capture_output=True, text=True)
+        for rel in r.stdout.splitlines():
+            p = d / rel
+            if p.suffix.lower() not in TEXT_EXT or not p.is_file():
+                continue
+            try:
+                if rewrite(p.read_text(encoding="utf-8"), names)[1]:
+                    hits.append(str(p))
+            except (OSError, UnicodeDecodeError):
+                continue
+    return hits
+
+
 def public_hits(names):
     """Tracked files of the public repository that name an old Scripts path: listed, never edited here."""
     r = subprocess.run(["git", "-C", str(settings.ROOT), "ls-files"], capture_output=True, text=True)
@@ -227,7 +253,7 @@ def plan(names, into=None):
     cards = rewrite(tools_yaml.read_text(encoding="utf-8"), keys)[1] if tools_yaml.is_file() else 0
     return {"ok": True, "moves": [(str(a), str(b)) for a, b in moves], "keys": keys, "group": into, "rename": rename,
             "cards": cards, "text": text_hits(keys, skip=sources), "shortcuts": shortcut_hits(olds),
-            "running": running_from(olds), "public": public_hits(keys)}
+            "running": running_from(olds), "public": public_hits(keys) + repo_hits(keys)}
 
 
 def _same_tree(a, b):
@@ -329,32 +355,57 @@ def apply(p, run_tests=True, log=print):
                 bad = [r.get("id") for r in res if r.get("test_ok") is False]
                 if bad:
                     return undo(f"tests failed after the move: {', '.join(bad)}")
-        running = p["running"]                                # 5. the old copy: removed, or marked
+        running = p["running"]                                # 5. the old copy: to the Recycle Bin, or marked
+        kept = []
         for a, b in moves:
-            if running:
-                marker = (a if a.is_dir() else a.parent) / MARKER
-                if a.is_dir():
-                    marker.write_text(f"adopted {stamp} into {b}\nremove with: fieldkit adopt --finish --apply\n",
-                                      encoding="utf-8")
-            else:
-                shutil.rmtree(a) if a.is_dir() else a.unlink()
+            recycled = False
+            if not running:
+                # never rmtree/unlink (2026-10-19: four loose files were deleted outright here, their verified
+                # copies in local/kits the only trace): the bin, verified, journalled - or kept and marked
+                recycled, why = _recycle(a)
+                if not recycled:
+                    kept.append(f"{a}: {why}")
+            if not recycled and a.is_dir():
+                (a / MARKER).write_text(f"adopted {stamp} into {b}\nremove with: fieldkit adopt --finish --apply\n",
+                                        encoding="utf-8")
         (backup / "PLAN.json").write_text(json.dumps(p, indent=1, default=str), encoding="utf-8")
         return {"ok": True, "moved": p["moves"], "edited": [e for e, _ in edited], "backup": str(backup),
-                "old_copy_kept_while_running": [pid for pid, _ in running]}
+                "old_copy_kept_while_running": [pid for pid, _ in running], "old_copy_kept_not_recycled": kept}
     except Exception as e:                                    # anything unexpected: put everything back
         return undo(f"{type(e).__name__}: {e}")
 
 
+def _recycle(path):
+    """-> (ok, why): the folder to the Recycle Bin / trash through gorilla-size, verified in the bin's own records,
+    journalled for undo. Never a permanent delete: without gorilla-size nothing is removed (fail closed).
+    2026-10-19: finish used shutil.rmtree, against the owner's rule after the 157.0-clean loss."""
+    from . import size
+    exe = size.locate()
+    if not exe:
+        return False, "gorilla-size is not built here (fieldkit size doctor --install): nothing removed"
+    # the adopt plan was the review, so the size tool's own plan threshold does not hold this one back
+    r = subprocess.run([str(exe), "recycle", str(path), "--plan-files", "100000000", "--plan-bytes", "100T", "--json"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    try:
+        d = json.loads(r.stdout)
+    except ValueError:
+        return False, (r.stderr or r.stdout).strip()[:200] or f"exit {r.returncode}"
+    acts = d.get("actions") or []
+    ok = r.returncode == 0 and acts and all(a.get("ok") for a in acts)
+    return bool(ok), (acts[0].get("why", "") if acts else d.get("error", "")) + (f"; journal {d.get('journal')}"
+                                                                                  if d.get("journal") else "")
+
+
 def finish(do_apply=False):
-    """Old copies marked .adopted whose processes have ended: listed, and removed with --apply."""
+    """Old copies marked .adopted whose processes have ended: listed, and sent to the Recycle Bin with --apply."""
     out = []
     for m in sorted(scripts_root().glob(f"*/{MARKER}")):
         d = m.parent
         busy = running_from([str(d)])
         out.append({"folder": str(d), "running": [pid for pid, _ in busy], "removed": False})
         if do_apply and not busy:
-            shutil.rmtree(d)
-            out[-1]["removed"] = True
+            ok, why = _recycle(d)
+            out[-1].update(removed=ok and not d.exists(), why=why)
     return out
 
 

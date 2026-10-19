@@ -222,3 +222,73 @@ def test_public_check_two_words_needed_without_letters(tmp_path):
     f.write_text("Acum este gata.\n", encoding="utf-8")  # privacy-scan: allow
     code, out = run("public-check", "--no-terms", f)
     assert code == 3, out
+
+
+# -- verify and the question ledger (2026-10-19) ------------------------------------------------------------------
+def _bundle(tmp_path):
+    """A packed bundle without git: a folder with README-FIRST.txt, two files and MANIFEST.json, then `pack`."""
+    b = tmp_path / "bundle-x"
+    (b / "memory").mkdir(parents=True)
+    (b / "README-FIRST.txt").write_text("readme\n", encoding="utf-8")
+    (b / "memory" / "MEMORY.md").write_text("- a note\n", encoding="utf-8")
+    assert run("manifest", b)[0] == 0
+    dest = tmp_path / "stick"
+    rc, out = run("pack", b, dest)
+    assert rc == 0, out
+    return b, dest / "bundle-x.zip"
+
+
+def test_verify_passes_a_good_copy_and_names_what_is_wrong(tmp_path):
+    folder, z = _bundle(tmp_path)
+    rc, out = run("verify", z)
+    assert rc == 0 and "VERIFY OK" in out, out
+    assert run("verify", folder)[0] == 0
+    # a changed file, a missing one and one the manifest does not list, in the unpacked folder
+    (folder / "memory" / "MEMORY.md").write_text("- changed\n", encoding="utf-8")
+    (folder / "extra.txt").write_text("x\n", encoding="utf-8")
+    (folder / "README-FIRST.txt").unlink()
+    rc, out = run("verify", folder)
+    assert rc == 3 and "differs: memory/MEMORY.md" in out and "missing: README-FIRST.txt" in out \
+        and "not in the manifest: extra.txt" in out, out
+
+
+def test_verify_refuses_a_zip_whose_sha256_file_disagrees_or_is_missing(tmp_path):
+    _, z = _bundle(tmp_path)
+    side = z.with_name(z.name + ".sha256")
+    side.write_bytes(b"0" * 64 + b"  bundle-x.zip\n")
+    rc, out = run("verify", z)
+    assert rc == 3 and "a partial or changed copy" in out, out
+    side.unlink()
+    rc, out = run("verify", z)
+    assert rc == 3 and "no bundle-x.zip.sha256 beside the zip" in out, out
+
+
+def test_questions_are_carried_until_answered(tmp_path):
+    ledger = tmp_path / "q.json"
+    rc, out = run("ask", "Did the Linux leak gate selftest pass?", "--ledger", ledger)
+    assert rc == 0 and "Q-" in out, out
+    qid = out.split()[0]
+    rc, out = run("ask", "Which kernel booted?", "--to", "linux", "--ledger", ledger)
+    rc, out = run("questions", "--ledger", ledger)
+    assert "2 open" in out, out
+    assert run("answer", qid, "yes, READY", "--ledger", ledger)[0] == 0
+    rc, out = run("questions", "--ledger", ledger)
+    assert "1 open" in out and qid not in out, out
+    rc, out = run("questions", "--all", "--ledger", ledger)
+    assert "yes, READY" in out
+    assert run("answer", qid, "again", "--ledger", ledger)[0] != 0          # an answered question stays answered
+    rows = json.loads(ledger.read_text(encoding="utf-8"))
+    assert [r["status"] for r in rows] == ["answered", "open"]
+
+
+def test_collect_puts_the_open_questions_in_the_bundle(world, tmp_path):
+    ledger = tmp_path / "q.json"
+    run("ask", "Is the VAIO still on kernel 7.2.9?", "--ledger", ledger)
+    out_dir = tmp_path / "out"
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"roots": [str(world["roots"])], "sets": {}}), encoding="utf-8")
+    rc, out = run("collect", "--out", out_dir, "--config", cfg, "--ledger", ledger)
+    assert rc == 0, out
+    page = (out_dir / "QUESTIONS-OPEN.md").read_text(encoding="utf-8")
+    assert "Is the VAIO still on kernel 7.2.9?" in page and "day(s) open" in page
+    assert "QUESTIONS-OPEN.md" in [r["path"] for r in json.loads((out_dir / "MANIFEST.json").read_text(encoding="utf-8"))]

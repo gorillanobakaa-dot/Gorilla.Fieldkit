@@ -54,7 +54,16 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(adopt, "running_from", lambda paths: [])
     monkeypatch.setattr(adopt, "public_hits", lambda names: [])
     monkeypatch.setattr(adopt.settings, "ROOT", fk)
-    return {"scripts": scripts, "fk": fk, "skill": skill}
+    # a stand-in Recycle Bin: tests never send anything to the real one
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+
+    def recycle(path):
+        import shutil as sh
+        sh.move(str(path), str(fake_bin / Path(path).name))
+        return True, "found in the bin's own records (test bin)"
+    monkeypatch.setattr(adopt, "_recycle", recycle)
+    return {"scripts": scripts, "fk": fk, "skill": skill, "bin": fake_bin}
 
 
 def test_plan_then_apply_moves_and_repoints(world):
@@ -133,3 +142,64 @@ def test_refusals(world):
     (world["scripts"] / "loose.py").write_text("x = 1\n", encoding="utf-8")
     assert "--into" in adopt.plan(["loose.py"])["error"]
     assert adopt.plan(["loose.py"], into="Loose")["ok"]
+
+
+def test_another_git_working_tree_under_scripts_is_listed_never_edited(world, monkeypatch):
+    # 2026-10-19: a Fieldkit worktree under Documents\Scripts was walked as plain text and --apply rewrote the fixture
+    # in its tests/test_adopt.py; code in any repository changes by a reviewed commit, so it is listed, not edited
+    import subprocess
+    wt = world["scripts"] / "Fieldkit-wave0"
+    wt.mkdir()
+    fixture = wt / "test_x.py"
+    fixture.write_text('OLD = "${DOCUMENTS}/Scripts/Tool/tool.py"\n', encoding="utf-8")
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t"}
+    import os
+    g = lambda *a: subprocess.run(["git", "-C", str(wt), *a], check=True, capture_output=True, env={**os.environ, **env})
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-qm", "x")
+    monkeypatch.setattr(adopt, "text_roots", lambda: [world["skill"].parent.parent, world["scripts"]])
+    monkeypatch.setattr(adopt, "public_hits", lambda names: [])
+    p = adopt.plan(["Tool"])
+    assert p["ok"], p
+    assert not any("Fieldkit-wave0" in t for t in p["text"]), p["text"]
+    assert any(str(fixture) == h for h in p["public"]), p["public"]
+    assert adopt.apply(p, run_tests=False, log=lambda m: None)["ok"]
+    assert fixture.read_text(encoding="utf-8") == 'OLD = "${DOCUMENTS}/Scripts/Tool/tool.py"\n'
+
+
+def test_the_old_copy_goes_to_the_bin_never_deleted_outright(world, monkeypatch):
+    # 2026-10-19: apply removed old copies with shutil.rmtree / unlink, a permanent delete against the owner's rule
+    import shutil as sh
+    monkeypatch.setattr(sh, "rmtree", lambda *a, **k: (_ for _ in ()).throw(AssertionError("rmtree called")))
+    p = adopt.plan(["Tool"])
+    r = adopt.apply(p, run_tests=False, log=lambda m: None)
+    assert r["ok"], r
+    assert not (world["scripts"] / "Tool").exists() and (world["bin"] / "Tool" / "tool.py").is_file()
+
+
+def test_a_recycle_that_fails_keeps_and_marks_the_old_copy(world, monkeypatch):
+    monkeypatch.setattr(adopt, "_recycle", lambda path: (False, "no bin here"))
+    r = adopt.apply(adopt.plan(["Tool"]), run_tests=False, log=lambda m: None)
+    assert r["ok"] and r["old_copy_kept_not_recycled"], r
+    assert (world["scripts"] / "Tool" / adopt.MARKER).is_file()       # kept, and --finish can take it later
+
+
+def test_finish_recycles_marked_copies(world, monkeypatch):
+    monkeypatch.setattr(adopt, "running_from", lambda paths: [(1, "busy")])
+    adopt.apply(adopt.plan(["Tool"]), run_tests=False, log=lambda m: None)   # in use: kept and marked
+    assert (world["scripts"] / "Tool" / adopt.MARKER).is_file()
+    monkeypatch.setattr(adopt, "running_from", lambda paths: [])
+    out = adopt.finish(do_apply=True)
+    assert out and out[0]["removed"], out
+    assert (world["bin"] / "Tool").is_dir() and not (world["scripts"] / "Tool").exists()
+
+
+def test_without_gorilla_size_nothing_is_removed(monkeypatch, tmp_path):
+    from fieldkit.desk import size
+    monkeypatch.setattr(size, "locate", lambda: None)
+    d = tmp_path / "old"
+    d.mkdir()
+    real = adopt.__dict__.get("_recycle")
+    ok, why = real(d) if real.__module__ == adopt.__name__ else (False, "")
+    assert not ok and "nothing removed" in why and d.is_dir()

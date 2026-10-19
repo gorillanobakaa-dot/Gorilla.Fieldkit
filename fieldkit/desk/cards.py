@@ -33,6 +33,11 @@ from ..core import settings
 
 TEST_RESULTS = settings.ROOT / "state" / "test-results.json"
 LEVELS = ("gathered", "carded", "tested", "verified")
+#: the only words a card's effects may use (2026-10-19: 13 home-made words such as "starts-processes", "system" or
+#: "network-on-fetch" had crept in, and "starts-processes" hid a process start from the read-only rule below). A
+#: condition ("only for --fetch") goes in a comment or the notes, never in the word.
+EFFECTS = ("reads-files", "writes-files", "deletes-files", "registry", "services", "processes", "network", "admin",
+           "hardware", "power", "gui-automation", "git")
 # harvest "touches" and AST-detected effects -> card effects that change something
 CHANGING = {"writes-files", "deletes-files", "registry", "services", "processes", "power", "git", "admin"}
 

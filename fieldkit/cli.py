@@ -1131,6 +1131,7 @@ METHODS = {
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
     "flaky": ("flaky", "a test that fails sometimes: failure rate over fresh runs, the swallowed thread error, shared OS names (repeat TEST | log | scan)"),
     "canary": ("canary", "prove a CHECK can fail: a planted input it must flag, a clean control it must pass; a second witness reads the artifact (run | witness | list)"),
+    "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
 }
 
 

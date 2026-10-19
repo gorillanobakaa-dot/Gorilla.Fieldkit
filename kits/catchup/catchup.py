@@ -29,6 +29,10 @@ internal documentation never goes to GitHub.
   catchup.py patch REPO --out DIR [--message FILE]   staged (uncommitted) work as a binary-safe patch + its base
         commit + how to apply; PROVED by applying it to the base in a scratch worktree (no match: nothing kept).
   catchup.py manifest DIR                             refresh MANIFEST.json after adding something by hand.
+  catchup.py verify ZIP|DIR [--json]                  the receiver's check: the zip against its .sha256, every
+        file against MANIFEST.json (missing, different, or not listed); exit 3 on any. Stdlib only.
+  catchup.py ask "QUESTION" [--to linux] | answer ID "ANSWER" | questions [--all]   the question ledger:
+        open questions ride in every bundle (QUESTIONS-OPEN.md) until answered, oldest first, with their age.
   catchup.py pack DIR DEST [--replace]                           DIR -> DEST/<DIR name>.zip (+ .sha256 + README-FIRST.txt
         beside it), written as .part, renamed when complete, read back: SHA-256 and every member's CRC
         must check. Nothing already at DEST is overwritten (a different file of the same name gets _2).
@@ -319,6 +323,9 @@ def cmd_collect(a):
                 sk.append(f"- NOT on GitHub (in unpushed-work/{safe_name(s['path'])}): " + "; ".join(work[s["path"]]))
             sk += ["- what changed: TODO", "- state now: TODO", "- open items / traps: TODO", ""]
     (out / "HANDOFF-SKELETON.md").write_text("\n".join(sk) + "\n", encoding="utf-8")
+    # every open question to the other machine rides in every bundle until it is answered (2026-10-19)
+    questions = [r for r in load_ledger(ledger_path(getattr(a, "ledger", ""))) if r["status"] == "open"]
+    (out / "QUESTIONS-OPEN.md").write_text(open_questions_md(questions), encoding="utf-8")
     readme = ["README FIRST - machine catch-up handover", "",
               f"Made {dt.datetime.now():%Y-%m-%d %H:%M} by catchup (Fieldkit kits/catchup). Period {since} to {dt.date.today()}.",
               "PRIVATE: internal documentation. Never commit or upload any of it. Hand-carried only.", "",
@@ -329,7 +336,10 @@ def cmd_collect(a):
               "  4. instructions/         CLAUDE.md / GEMINI.md / AGENTS.md as they are on the other machine",
               "  5. unpushed-work/        work GitHub does not have: diffs, patches, untracked files",
               "  6. the other folders     private tools, local registry, notes, earlier handovers", "",
-              "Check the copy: every file's SHA-256 is in MANIFEST.json.", "",
+              "  7. QUESTIONS-OPEN.md     questions this machine is waiting on: answer each in your report", "",
+              "Check the copy before reading: python3 catchup.py verify <the .zip>   (or <the unpacked folder>):",
+              "the zip's SHA-256 against its .sha256 file, and every file against MANIFEST.json.", "",
+              f"Open questions in this bundle: {len(questions)}",
               "Copied: " + ", ".join(f"{k} {v} file(s)" for k, v in counts.items()),
               f"Repositories: {len(states)}; with work not on GitHub: {len(work)}"]
     (out / "README-FIRST.txt").write_text("\n".join(readme) + "\n", encoding="utf-8")
@@ -612,6 +622,184 @@ def cmd_pack(a):
     return 0
 
 
+# -- verify (the receiver's side) -------------------------------------------------------------
+def _members(zf):
+    """zip member name -> path relative to the bundle folder (the zip holds <bundle>/<path>)."""
+    out = {}
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        parts = info.filename.split("/", 1)
+        out[parts[1] if len(parts) == 2 else parts[0]] = info
+    return out
+
+
+def verify(target):
+    """-> {"ok", "problems": [...], "checked": n} for a packed bundle (ZIP, with ZIP.sha256 beside it) or an unpacked
+    bundle folder. Every MANIFEST.json entry must be there with its SHA-256; a file the manifest does not list is
+    reported too (something added after packing). Stdlib only: it runs on the receiving machine as it is.
+    2026-10-19: the receiver was told to paste an inline Python heredoc to do this (HANDOFF-261012 step 4)."""
+    target = pathlib.Path(target)
+    problems, checked = [], 0
+    if target.is_file() and target.suffix == ".zip":
+        side = target.with_name(target.name + ".sha256")
+        if not side.is_file():
+            problems.append(f"no {side.name} beside the zip: the bundle cannot be checked against what was packed")
+        else:
+            want = side.read_text(encoding="utf-8").split()[0].lower()
+            got = sha256(target)
+            if want != got:
+                problems.append(f"{target.name}: SHA-256 {got[:16]}... but {side.name} says {want[:16]}... "
+                                "(a partial or changed copy)")
+        try:
+            zf = zipfile.ZipFile(target)
+        except zipfile.BadZipFile as e:
+            return {"ok": False, "problems": problems + [f"not a readable zip: {e}"], "checked": 0}
+        with zf:
+            bad = zf.testzip()
+            if bad:
+                problems.append(f"zip member {bad} is damaged (CRC)")
+            members = _members(zf)
+            if "MANIFEST.json" not in members:
+                return {"ok": False, "problems": problems + ["no MANIFEST.json in the bundle"], "checked": 0}
+            rows = json.loads(zf.read(members["MANIFEST.json"]).decode("utf-8"))
+            for r in rows:
+                info = members.get(r["path"])
+                if info is None:
+                    problems.append(f"missing: {r['path']}")
+                    continue
+                data = zf.read(info)
+                checked += 1
+                if hashlib.sha256(data).hexdigest() != r["sha256"]:
+                    problems.append(f"differs: {r['path']}")
+            listed = {r["path"] for r in rows} | {"MANIFEST.json"}
+            problems += [f"not in the manifest: {p}" for p in sorted(set(members) - listed)]
+    elif target.is_dir():
+        mf = target / "MANIFEST.json"
+        if not mf.is_file():
+            return {"ok": False, "problems": ["no MANIFEST.json in the folder"], "checked": 0}
+        rows = json.loads(mf.read_text(encoding="utf-8"))
+        for r in rows:
+            p = target / r["path"]
+            if not p.is_file():
+                problems.append(f"missing: {r['path']}")
+                continue
+            checked += 1
+            if sha256(p) != r["sha256"]:
+                problems.append(f"differs: {r['path']}")
+        listed = {r["path"] for r in rows} | {"MANIFEST.json"}
+        present = {p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file()}
+        problems += [f"not in the manifest: {p}" for p in sorted(present - listed)]
+    else:
+        return {"ok": False, "problems": [f"{target}: neither a .zip nor a bundle folder"], "checked": 0}
+    return {"ok": not problems, "problems": problems, "checked": checked}
+
+
+def cmd_verify(a):
+    r = verify(a.target)
+    if a.json:
+        print(json.dumps(r, indent=1))
+    else:
+        for p in r["problems"]:
+            print("  " + p)
+        print(f"VERIFY {'OK' if r['ok'] else 'FAILED'}: {r['checked']} file(s) checked against MANIFEST.json"
+              + ("" if r["ok"] else f", {len(r['problems'])} problem(s): do not use this copy"))
+    return 0 if r["ok"] else 3
+
+
+# -- the question ledger -----------------------------------------------------------------------
+def ledger_path(given=""):
+    """The ledger of questions to the other machine: --ledger, CATCHUP_LEDGER, else Fieldkit's local/ (private,
+    git-ignored) when this kit sits inside Fieldkit, else ~/.catchup-questions.json."""
+    if given:
+        return pathlib.Path(given)
+    if os.environ.get("CATCHUP_LEDGER"):
+        return pathlib.Path(os.environ["CATCHUP_LEDGER"])
+    fk = pathlib.Path(__file__).resolve().parents[2]
+    if (fk / "fieldkit").is_dir():
+        return fk / "local" / "catchup-questions.json"
+    return pathlib.Path.home() / ".catchup-questions.json"
+
+
+def load_ledger(path):
+    try:
+        return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+
+
+def save_ledger(path, rows):
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(rows, indent=1, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def ask(path, text, to, today=None):
+    """Add a question; -> its id (Q-YYYYMMDD-N). 2026-10-19: questions to the Linux machine were repeated by hand
+    from handover to handover ("may still be unanswered") and never closed."""
+    rows = load_ledger(path)
+    day = (today or dt.date.today()).strftime("%Y%m%d")
+    n = 1 + sum(1 for r in rows if r["id"].startswith(f"Q-{day}-"))
+    qid = f"Q-{day}-{n}"
+    rows.append({"id": qid, "asked": (today or dt.date.today()).isoformat(), "to": to, "question": text,
+                 "status": "open", "answer": None, "answered": None})
+    save_ledger(path, rows)
+    return qid
+
+
+def answer(path, qid, text, today=None):
+    rows = load_ledger(path)
+    for r in rows:
+        if r["id"] == qid:
+            if r["status"] == "answered":
+                raise SystemExit(f"{qid} is already answered ({r['answered']}): {r['answer']}")
+            r.update(status="answered", answer=text, answered=(today or dt.date.today()).isoformat())
+            save_ledger(path, rows)
+            return r
+    raise SystemExit(f"no question {qid} in {path}")
+
+
+def open_questions_md(rows, today=None):
+    """The open questions as a page carried in every bundle until each is answered, oldest first."""
+    today = today or dt.date.today()
+    rows = sorted((r for r in rows if r["status"] == "open"), key=lambda r: r["asked"])
+    if not rows:
+        return "# Open questions\n\nNone.\n"
+    out = ["# Open questions (answer each; the sender closes them with `catchup.py answer ID TEXT`)", ""]
+    for r in rows:
+        age = (today - dt.date.fromisoformat(r["asked"])).days
+        out.append(f"- **{r['id']}** (to {r['to']}, asked {r['asked']}, {age} day(s) open): {r['question']}")
+    return "\n".join(out) + "\n"
+
+
+def cmd_ask(a):
+    qid = ask(ledger_path(a.ledger), a.text, a.to)
+    print(f"{qid} recorded; it goes into every bundle (QUESTIONS-OPEN.md) until it is answered")
+    return 0
+
+
+def cmd_answer(a):
+    r = answer(ledger_path(a.ledger), a.id, a.text)
+    print(f"{r['id']} answered {r['answered']}")
+    return 0
+
+
+def cmd_questions(a):
+    rows = load_ledger(ledger_path(a.ledger))
+    if not a.all:
+        rows = [r for r in rows if r["status"] == "open"]
+    if a.json:
+        print(json.dumps(rows, indent=1, ensure_ascii=False))
+    else:
+        for r in rows:
+            print(f"{r['id']}  {r['status']:<8} to {r['to']:<8} {r['asked']}  {r['question'][:90]}"
+                  + (f"\n    -> {r['answer']}" if r["answer"] else ""))
+        print(f"{sum(1 for r in rows if r['status'] == 'open')} open")
+    return 0
+
+
 # -- doctor ------------------------------------------------------------------------------
 def cmd_doctor(a):
     ok = True
@@ -654,6 +842,7 @@ def main(argv=None):
     p.add_argument("--config", default="")
     p.add_argument("--since", default="")
     p.add_argument("--fetch", action="store_true")
+    p.add_argument("--ledger", default="", help="the question ledger whose open questions go into the bundle")
     p.set_defaults(fn=cmd_collect)
     p = sub.add_parser("check")
     p.add_argument("dir")
@@ -681,6 +870,23 @@ def main(argv=None):
     p = sub.add_parser("manifest")
     p.add_argument("dir")
     p.set_defaults(fn=cmd_manifest)
+    p = sub.add_parser("verify", help="the receiver's check: zip SHA-256 vs its .sha256, every file vs MANIFEST.json")
+    p.add_argument("target", help="the bundle .zip (its .sha256 beside it) or the unpacked bundle folder")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_verify)
+    for name, fn in (("ask", cmd_ask), ("answer", cmd_answer), ("questions", cmd_questions)):
+        p = sub.add_parser(name)
+        p.add_argument("--ledger", default="", help="the question ledger (default: Fieldkit local/catchup-questions.json)")
+        if name == "ask":
+            p.add_argument("text")
+            p.add_argument("--to", default="linux", help="which machine is asked (default linux)")
+        elif name == "answer":
+            p.add_argument("id")
+            p.add_argument("text")
+        else:
+            p.add_argument("--all", action="store_true", help="answered ones too")
+            p.add_argument("--json", action="store_true")
+        p.set_defaults(fn=fn)
     a = ap.parse_args(argv)
     return a.fn(a)
 
