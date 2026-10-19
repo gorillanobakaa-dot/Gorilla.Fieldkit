@@ -263,14 +263,20 @@ def test_a_tool_under_another_sweep_root_is_adopted_with_its_card(world, monkeyp
     (world["fk"] / "local" / "tools.yaml").write_text(
         "tools:\n- id: tui-drive\n  path: ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/tui_drive.py\n",
         encoding="utf-8")
+    # a note (skill, memory) that names the tool by its repository-relative path: found and repointed too
+    # (2026-10-19: text_hits shadowed the source root with its own loop variable and found no note at all)
+    world["skill"].write_text("Run `scripts/model-tests/tui_drive.py <exe>`\n", encoding="utf-8")
     p = adopt.plan(["tui_drive.py"], into="OpenCodeModelTests")
     assert p["ok"] and p["root"] == str(root) and p["cards"] == 1, p
+    assert str(world["skill"]) in p["text"], p["text"]
     r = adopt.apply(p, run_tests=False, log=lambda m: None)
     assert r["ok"], r
     card = (world["fk"] / "local" / "tools.yaml").read_text(encoding="utf-8")
     assert "${FIELDKIT}/local/kits/OpenCodeModelTests/tui_drive.py" in card
     assert (world["fk"] / "local" / "kits" / "OpenCodeModelTests" / "tui_drive.py").is_file()
     assert (root / ("tui_drive.py" + adopt.MARKER)).is_file()
+    assert "Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/tui_drive.py" in \
+        world["skill"].read_text(encoding="utf-8")
 
 
 def test_names_spread_over_two_roots_are_refused(world):

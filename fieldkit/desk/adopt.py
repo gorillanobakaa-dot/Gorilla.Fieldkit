@@ -145,11 +145,11 @@ def text_hits(names, skip=(), root=None):
     derived); local/kits and local/skills are roots of their own."""
     hits = {}
     tools_yaml = (settings.ROOT / "local" / "tools.yaml").resolve()
-    for root in text_roots():
-        root = Path(root)
+    for where in text_roots():                  # not "root": that is the tools' source root (2026-10-19, shadowed)
+        where = Path(where)
         exclude = [Path(s) for s in skip] + [settings.ROOT] + [scripts_root() / n for n in _sweep_ignored()]
-        exclude = [s for s in exclude if not (root == s or s in root.parents)]
-        for p in _text_files(root, exclude):
+        exclude = [s for s in exclude if not (where == s or s in where.parents)]
+        for p in _text_files(where, exclude):
             if p.resolve() == tools_yaml:
                 continue
             try:
