@@ -1,0 +1,75 @@
+gorilla-size - Gorilla Size Calculation: how big folders are, where the space went, what to do about it.
+Never follows a junction or symlink (each is listed). Never deletes permanently. Never uses the network.
+
+MEASURE
+  gorilla-size [OPTIONS] [PATH ...]        biggest first, as a tree (PATH defaults to .)
+  gorilla-size types [PATH ...]            bytes and files by extension
+  gorilla-size newest|oldest [PATH ...]    files by age (-n N)
+  gorilla-size watch PATH --every SECS     re-measure, print the growth (--count N to stop); --alert-growth 1G:
+                                           ALERT and exit 3 when one interval grows more than that; honors
+                                           --exclude, --gitignore, --no-hidden like a measurement
+  gorilla-size free                        every drive: kind, size, free
+  gorilla-size compare OLD.json NEW.json   what grew, shrank, appeared or went (--tree: in the shape of the
+                                           folders, honoring --ascii; with --json a nested tree)
+
+FIND AND READ
+  gorilla-size find [FILTERS] [PATH ...]   every file/folder/link that matches, with its size
+  gorilla-size hash PATH ...               SHA-256 of files (folders: every file under them); the CPU's SHA
+                                           instructions when it has them (--json: sha256_impl sha-ni|portable)
+  gorilla-size dupes [--min-size S] PATH ...   the same bytes in more than one place
+  gorilla-size empty PATH                  empty folders and zero-byte files
+  gorilla-size reparse PATH                every link: kind, target, broken or not
+
+ACT (verified, journalled, undoable; never a permanent delete)
+  gorilla-size copy SRC ... --to DIR       every byte compared after the copy; an existing target is refused,
+                                           or with --overwrite moved aside first (<name>.gorilla-bak-<time>)
+  gorilla-size move SRC ... --to DIR       same drive: rename; other drive: verified copy + recycle
+  gorilla-size recycle PATH ...            to the Recycle Bin / trash; refused when Windows would destroy instead;
+                                           verified in the bin's own records
+  gorilla-size undo JOURNAL                reverse what a journal records
+  gorilla-size trash [list]                what is in the Recycle Bin / trash: original place, size, date
+  gorilla-size trash restore NAME|PATH ... put items back (by original path, or by name when it is unique)
+  gorilla-size apply PLAN                  carry out a plan written for a large operation
+  find ... --copy-to DIR | --move-to DIR | --recycle    the same, on what find matched
+
+MACHINE
+  gorilla-size bench A B [--rounds N] -- ARGS   two programs, same ARGS, alternating; a verdict only when the
+                                           middle halves of the runs do not overlap, else INCONCLUSIVE
+  gorilla-size bench --profile [PATH] [-j N] [--rounds N]   the calibrated thread count (or -j N) against every
+                                           core, walking PATH, alternating; median, middle half, min-max, verdict
+                                           (both benches: 10 rounds unless --rounds; never fewer than 3)
+  gorilla-size profile                     this machine, its SHA-256 path, the calibrated thread count per disk
+  gorilla-size profile --recalibrate [SAMPLE] [--rounds N]   measure 1..N threads on SAMPLE, keep the fastest
+
+REPORT OPTIONS
+  -d, --depth N        levels shown (default 1)            -n, --number N   entries per level (default 20)
+  -f, --files N        also the N largest files anywhere   --types          bytes by extension as well
+  --disk               size on disk instead of apparent    --links          Windows: hard links counted once
+  --gitignore          skip what .gitignore files ignore   --exclude PAT    skip (gitignore syntax; repeatable)
+  --no-hidden          skip hidden entries                 --cross-filesystems  (Unix) enter other mounts
+  --reverse            smallest first                      --flat           one list of paths at --depth
+  --long               attributes/permissions, date, owner --progress       live count on stderr
+  --list-links  --list-errors  --strict (exit 3 when anything was unreadable)
+  --mft                (Windows, administrator) read the NTFS master file table: a whole drive in seconds
+  -j, --threads N      worker threads (default: the calibrated count for that disk, else every core)
+  --json               machine-readable                    --ascii          plain characters
+
+FIND FILTERS AND OUTPUT
+  --name GLOB  --regex RE  --ext a,b  --min-size S  --max-size S  --newer AGE  --older AGE  --type f|d|l
+  --sort size|name|age   -n N   -i/--ignore-case  -s/--case-sensitive
+  --paths  -0/--print0  --jsonl  --format '{path}\t{bytes}\t{size}\t{kind}\t{date}\t{name}\t{sha256}'
+  --head N  --tail N  --lines A:B   (show those lines of each matched text file)   --max-bytes N (default 16384:
+                the most shown per file AND the most of one line held in memory; longer: truncated at N bytes)
+  --grep TEXT   keep only text files with a line containing TEXT, and show those lines (-i folds case)
+  --grep-re RE  the same with a regular expression (one of --grep, --grep-re)   --max-hits N (default 20 per file)
+  --hash        SHA-256 of every file listed, after all filters (grep included) and -n
+  binary files: size, kind (PE/MZ ELF PNG JPEG GIF ZIP GZIP PDF SQLite) and the first 16 bytes, never dumped
+
+LARGE OPERATIONS
+  above --plan-files N (default 1000) or --plan-bytes S (default 10G) a move or recycle writes a PLAN and stops
+  (exit 4); review it, then `gorilla-size apply PLAN`. --plan always writes the plan. copy is never held.
+
+SIZES 500M 2G 1.5T (binary)   AGES 90s 30m 12h 7d 2w 1y
+EXIT 0 done (nothing found), 2 bad usage, 3 found (dupes: duplicates, empty: empties, reparse: a broken link,
+     watch: --alert-growth) or something failed or was unreadable (--strict), 4 held for a plan.
+     With --json an error is {"error": "...", "exit": N} on stdout.

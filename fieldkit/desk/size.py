@@ -136,8 +136,42 @@ def main(argv, prog="fieldkit size"):
         exe = locate()
         print(exe if exe else "not built: fieldkit size doctor --install")
         return 0 if exe else 1
+    if argv[:1] == ["record-help"]:
+        return record_help()
     exe = locate()
     if not exe:
+        if "--help" in argv or "-h" in argv:
+            # a fresh download has no binary yet, but its options are still known (2026-10-19: every size card failed
+            # the card check on GitHub CI and for a stranger, because --help needed the program)
+            sub = next((a for a in argv if not a.startswith("-")), "")
+            h = HELP_DIR / f"{sub or '_main'}.txt"
+            if h.is_file():
+                print(h.read_text(encoding="utf-8").rstrip())
+                print(f"\n(gorilla-size is not built here yet: fieldkit size doctor --install. This help was recorded "
+                      f"from the built program.)")
+                return 0
         print(f"{prog}: gorilla-size is not built here. Run: fieldkit size doctor --install", file=sys.stderr)
         return 2
     return subprocess.run([str(exe), *argv]).returncode
+
+
+HELP_DIR = Path(__file__).resolve().parent / "size_help"
+#: the subcommands whose --help is recorded ("" is the program itself)
+HELP_SUBS = ("", "find", "types", "newest", "watch", "free", "compare", "hash", "dupes", "empty", "reparse", "copy",
+             "move", "recycle", "undo", "trash", "apply", "bench", "profile")
+
+
+def record_help():
+    """Write each subcommand's --help from the built program into size_help/ (run after a gorilla-size upgrade; the
+    drift test in tests/ fails when a recorded help no longer matches the program)."""
+    exe = locate()
+    if not exe:
+        print("record-help needs the built program: fieldkit size doctor --install", file=sys.stderr)
+        return 2
+    HELP_DIR.mkdir(exist_ok=True)
+    for sub in HELP_SUBS:
+        r = subprocess.run([str(exe), *([sub] if sub else []), "--help"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        (HELP_DIR / f"{sub or '_main'}.txt").write_bytes(r.stdout.replace("\r\n", "\n").encode("utf-8"))
+    print(f"recorded {len(HELP_SUBS)} help text(s) in {HELP_DIR}")
+    return 0

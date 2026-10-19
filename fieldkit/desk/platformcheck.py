@@ -103,6 +103,13 @@ def check(all_cards=None, frozen=None):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if "--help" in argv or "-h" in argv:
+        # 2026-10-19: it ran the check on --help and exited 1 on a card's platform problem, so `cards check` reported
+        # "--help fails" instead of naming the card that has no platforms_why
+        print("usage: python -m fieldkit.desk.platformcheck [--json]\n"
+              "Every card's platforms: a single-system card needs platforms_why (a reason, or a port planned).\n"
+              "Exit 1 names each card with a problem.")
+        return 0
     r = check()
     if "--json" in argv:
         print(json.dumps(r, indent=1))

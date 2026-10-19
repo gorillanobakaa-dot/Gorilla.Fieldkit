@@ -4,6 +4,7 @@ The test video is made by ffmpeg itself: 2 s of a moving test pattern, 3 s froze
 dark, with a tone - so every command has something real to measure, cut and correct.
 """
 import csv
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -14,7 +15,10 @@ import pytest
 
 TOOL = Path(__file__).resolve().parents[1] / "kits" / "videokit" / "videokit.py"
 pytestmark = [pytest.mark.skipif(not TOOL.is_file(), reason="kits/videokit missing"),
-              pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed (videokit doctor)")]
+              pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed (videokit doctor)"),
+              # 2026-10-19 stranger test: ffmpeg present, OpenCV not, and 17 tests failed instead of saying why
+              pytest.mark.skipif(importlib.util.find_spec("cv2") is None,
+                                 reason="opencv-python not installed (python kits/videokit/videokit.py doctor --install)")]
 
 
 def run(*args, cwd=None):
