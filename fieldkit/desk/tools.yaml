@@ -974,6 +974,7 @@ tools:
     - {name: value, flag: null, type: str, required: false, help: "the profile", choices: [quiet, balanced, performance, "off"]}
   effects: [writes-files]
   safety: reversible
+  headline: "The cooling profile is {profile}."
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, profile or danger or hwinfo]
 
@@ -1812,7 +1813,7 @@ tools:
 
 # HDMI Harness, through fieldkit hdmi (fieldkit/hdmi/run.py says why it needs a launcher)
 - id: hdmi-status
-  title: "Is the TV on the cable and active: the signal, the background helper and the confirmed mode (Windows)"
+  title: "Is the TV connected over HDMI right now: on the cable, active as a screen, the helper and the mode (Windows, offline, quick)"
   harness: desk
   entry: [python, -m, fieldkit, hdmi, status]
   path: ${FIELDKIT}/fieldkit/hdmi/run.py
@@ -1821,6 +1822,7 @@ tools:
   effects: [reads-files]
   safety: read-only
   output: third-party
+  headline: "TV on the HDMI cable: {tv_on_cable}. TV active as a screen: {tv_active}."
   platforms: [windows]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hdmi.py"]
 

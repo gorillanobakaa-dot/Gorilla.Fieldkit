@@ -16,7 +16,7 @@ def test_the_catalogue_holds_only_public_reviewed_tools():
     ids = [t["id"] for t in c["tools"]]
     assert ids == sorted(ids) and len(ids) == len(set(ids))
     one = c["tools"][0]
-    assert set(one) == {"id", "title", "trust", "safety", "inputs"}
+    assert set(one) == {"id", "title", "trust", "safety", "online", "inputs"}
 
 
 def test_the_export_command_writes_the_file(tmp_path):

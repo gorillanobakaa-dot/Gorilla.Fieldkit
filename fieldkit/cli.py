@@ -758,7 +758,7 @@ def cmd_cards(a):
         # "no such tool" without searching). Reviewed or tested tools only: a draft is never suggested.
         out = cards.catalogue(all_c, results)
         if a.id:
-            Path(a.id).write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+            Path(a.id).write_bytes((json.dumps(out, indent=1, ensure_ascii=False) + "\n").encode("utf-8"))  # LF on Windows too
             print(f"wrote {a.id}: {len(out['tools'])} tool(s) from Fieldkit {out['fieldkit_commit']}")
         else:
             print(json.dumps(out, indent=1, ensure_ascii=False))

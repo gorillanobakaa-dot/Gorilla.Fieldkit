@@ -97,26 +97,46 @@ def _find_card(tool_id, cards=None):
 # question).
 STOP_WORDS = {"a", "an", "the", "to", "of", "in", "on", "at", "is", "it", "my", "me", "do", "be", "by", "or", "and",
               "for", "can", "how", "what", "with", "from", "this", "that", "you", "your", "i", "we", "up", "as", "if",
-              "so", "no", "not", "all", "any"}
+              "so", "no", "not", "all", "any", "use", "tool", "tools", "fieldkit", "check", "right", "now",
+              "please", "which", "where", "when", "who", "why", "does", "are", "was", "current", "currently",
+              "there", "about", "tell", "show"}
 
 
 def discover(goal, limit=5, include_drafts=False, cards=None):
+    """The same ranking as Gorilla OpenCode's in-process matcher (internal/fieldkit/match.go), so a model sees one
+    order whichever it asks (2026-10-19: the hint put privacy-scan first, discover put office-check first, and Gemma
+    took office-check). A rare word weighs more than a common one (log N/df); a tool that goes online ranks after an
+    offline one of the same fit (hdmi-diag was picked, refused for the network, and the model gave up; hdmi-status
+    answers offline)."""
+    import math
     q = [w for w in WORD.findall(goal.lower()) if len(w) > 1 and w not in STOP_WORDS]
     results = cardmod.test_results()
-    scored = []
+    pool = []
     for c in cards or _cards():
         if c.get("retired"):
             continue
         level, why = cardmod.trust(c, results)
         if level == "gathered" and not include_drafts:
             continue
+        pool.append((c, level))
+    df = {}
+    for c, _ in pool:
+        for w in set(WORD.findall(((c.get("title") or "") + " " + c["id"]).lower())):
+            df[w] = df.get(w, 0) + 1
+    n = max(len(pool), 1)
+    scored = []
+    for c, level in pool:
         hay = {"title": set(WORD.findall((c.get("title") or "").lower())),
                "id": set(WORD.findall(c["id"].lower())),
                "inputs": set(WORD.findall(" ".join(f"{i['name']} {i.get('help', '')}" for i in c.get("inputs") or [])
                                           .lower()))}
-        score = sum(3 * (w in hay["title"]) + 2 * (w in hay["id"]) + (w in hay["inputs"]) for w in q)
+        score = 0.0
+        for w in q:
+            weight = math.log(n / df[w]) + 0.1 if df.get(w) else 1.0
+            score += weight * (3 * (w in hay["title"]) + 2 * (w in hay["id"]) + (w in hay["inputs"]))
         if score:
-            scored.append((score + ORDER[level], c, level))
+            online = "network" in (c.get("effects") or [])
+            scored.append((score * (0.9 if online else 1.0) + 0.01 * ORDER[level], c, level))
     scored.sort(key=lambda x: (-x[0], x[1]["id"]))
     return [{"tool": c["id"], "title": c.get("title", ""), "trust": lvl, "safety": c.get("safety"),
              "inputs": [i["name"] + ("" if i.get("required") else "?") for i in c.get("inputs") or []]}
@@ -407,7 +427,8 @@ def run(tool_id, inputs=None, mode="apply", approve=False, cards=None, timeout=6
             needs_owner = safety != "reversible" or bool(set(card.get("effects") or []) & SYSTEM_EFFECTS)
             return _journal(rec, "PREVIEW (nothing changed)",
                             ["NEXT: show this preview to the owner; only the owner can approve applying it."
-                             if needs_owner else "NEXT: if this is what should happen, run again with mode=apply."])
+                             if needs_owner else "NEXT: if this is what should happen, run again with mode=apply."],
+                            card)
         system = sorted(set(card.get("effects") or []) & SYSTEM_EFFECTS)
         if (safety != "reversible" or system) and not approve:
             reason = f"is {safety}" if safety != "reversible" else f"changes the system ({', '.join(system)})"
@@ -437,11 +458,11 @@ def run(tool_id, inputs=None, mode="apply", approve=False, cards=None, timeout=6
             restored = _restore(saved) if saved else []
             rec["restored"] = restored
             return _journal(rec, "FAILED - " + ("files restored from backup" if restored else "nothing to restore"),
-                            ["NEXT: report the failure and the verify lines above; do not retry blindly."])
+                            ["NEXT: report the failure and the verify lines above; do not retry blindly."], card)
         return _journal(rec, "DONE" + (" and verified" if vok else " (not verified)"),
                         [f"  changed: {x}" for x in changed] +
                         ([] if changed or not saved else ["  changed: none of the files in scope"]) +
-                        [f"NEXT: if the owner wants it undone: undo run_id={run_id}"])
+                        [f"NEXT: if the owner wants it undone: undo run_id={run_id}"], card)
 
     r = runner.run(build_argv(card, ins), name=f"run-{tool_id}", timeout=timeout)
     out = r.stdout + r.stderr
@@ -472,9 +493,33 @@ def _journal(rec, status, next_lines, card=None):
     (RUNS / f"{rec['run_id']}.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
     keep = (card or {}).get("answer_lines") or 15
     tail = (rec.get("output") or "").strip().splitlines()[-keep:]
-    rec["answer"] = [f"{status}: {rec['tool']} (run {rec['run_id']})"] + [f"  {l[:200]}" for l in tail] + \
+    head = headline((card or {}).get("headline"), rec.get("output") or "")
+    rec["answer"] = ([f"ANSWER: {head}"] if head else []) + \
+        [f"{status}: {rec['tool']} (run {rec['run_id']})"] + [f"  {l[:200]}" for l in tail] + \
         [f"  {v}" for v in rec.get("verify", [])] + next_lines
     return rec
+
+
+# "profile: balanced", "TV on cable : NO" (keys may hold spaces; a template names them as tv_on_cable)
+_FIELD = re.compile(r"^\s*([A-Za-z_][\w -]*?)\s*[:=]\s*(.+?)\s*$")
+
+
+def headline(template, output):
+    """A card's headline filled from the tool's own output, or "" when the output lacks a field it names.
+    Small models copy the first line of an answer; the fact has to be there, not on line 3 after the status."""
+    if not template:
+        return ""
+    fields = {}
+    for line in output.splitlines():
+        m = _FIELD.match(line)
+        if m:
+            key = re.sub(r"[\s-]+", "_", m.group(1).strip().lower())
+            # a column padded with 2+ spaces starts the next field ("False   topology: internal")
+            fields.setdefault(key, re.split(r"\s{2,}", m.group(2))[0])
+    try:
+        return template.format(**fields)
+    except (KeyError, IndexError, ValueError):
+        return ""
 
 
 def undo(run_id, cards=None, approve=False, timeout=600):

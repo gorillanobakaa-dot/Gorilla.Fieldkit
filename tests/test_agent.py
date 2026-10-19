@@ -134,6 +134,23 @@ def test_a_tool_name_spelled_with_underscores_or_case_is_found():
     assert "NEXT: call discover" in str(e.value)
 
 
+def test_a_cards_headline_is_the_first_line_of_the_answer():
+    # 2026-10-19: Gemma ran thermal-profile, read past "profile: balanced" on line 3, and said the tool needs a choice
+    out = "ok: True\nprofile: balanced\nprofiles: {...}\n"
+    card = {"headline": "The cooling profile is {profile}.", "answer_lines": 15}
+    rec = agent._journal({"tool": "thermal-profile", "run_id": "20261019-080817-1c487d", "output": out},
+                         "DONE", ["NEXT: x"], card)
+    assert rec["answer"][0] == "ANSWER: The cooling profile is balanced."
+    assert rec["answer"][1].startswith("DONE: thermal-profile")
+    # a field the output does not carry: no headline at all, never a half-filled sentence
+    assert agent.headline("The TV is {tv_state}.", out) == ""
+    assert agent.headline(None, out) == ""
+    # keys with spaces, as hdmi-status prints them ("TV on cable : NO")
+    hdmi = "TV on cable : NO\nTV active   : False   topology: internal\n"
+    assert agent.headline("TV on the HDMI cable: {tv_on_cable}. TV active as a screen: {tv_active}.", hdmi) == \
+        "TV on the HDMI cable: NO. TV active as a screen: False."
+
+
 def test_discover_description_says_the_catalogue_is_behind_it():
     from fieldkit import mcp
     d = next(t for t in mcp.TOOLS if t["name"] == "discover")["description"]

@@ -228,7 +228,10 @@ def curated_card(tool):
             "output": tool.get("output") or "third-party",
             # exit codes that are answers, not failures: {2: question, 3: findings}
             "exits": {int(k): v for k, v in (tool.get("exits") or {}).items()},
-            "answer_lines": int(tool.get("answer_lines") or 15)}
+            "answer_lines": int(tool.get("answer_lines") or 15),
+            # one sentence put FIRST in the answer, filled from the tool's own "key: value" lines (2026-10-19: Gemma
+            # read past "profile: balanced" on line 3 and said the tool needs a choice). None: no headline.
+            "headline": tool.get("headline")}
     if card["safety"] is None:                        # tools.yaml "changes" is the reviewed judgement
         card["safety"] = "read-only" if tool.get("changes") is False else "unknown"
     p = card["path"]
@@ -386,6 +389,7 @@ def catalogue(cards=None, results=None, public_only=True):
         if level not in CATALOGUE_LEVELS:
             continue
         tools.append({"id": c["id"], "title": c.get("title", ""), "trust": level, "safety": c.get("safety"),
+                      "online": "network" in (c.get("effects") or []),
                       "inputs": [{"name": i["name"], "required": bool(i.get("required"))} for i in c.get("inputs") or []]})
     tools.sort(key=lambda t: t["id"])
     try:
