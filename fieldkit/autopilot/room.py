@@ -47,7 +47,11 @@ SHELL_VERBS = [
     ("ff", re.compile(r"\bgit\b[^|;\n]*\bmerge\b[^|;\n]*--ff-only|\bgit\b[^|;\n]*\b(reset\s+--hard|pull)\b", re.I)),
     ("rebase", re.compile(r"\bgit\b[^|;\n]*\b(rebase|merge|reset|checkout\s+-[bB]|switch|branch\s+-[dDfm]|tag|stash|"
                           r"restore|worktree)\b", re.I)),
-    ("net", re.compile(r"\bgit\b[^|;\n]*\b(push|fetch|clone)\b|\b(pip|npm|pnpm|yarn|winget|scoop|choco|gh)\b|"
+    # package managers only as the command itself (2026-10-19: "scoop" inside $HOME\scoop\apps\python312 paths
+    # tagged every python call as net)
+    ("net", re.compile(r"\bgit\b[^|;\n]*\b(push|fetch|clone)\b|"
+                       r"(^|[;&|]\s*|&\s*\"?)(pip3?|npm|pnpm|yarn|winget|scoop|choco|gh)(\.exe)?\"?\s|"
+                       r"\bpython[0-9.]*(\.exe)?\"?\s+-m\s+pip\b|"
                        r"\bcargo\s+(fetch|update|install)\b|\bgo\s+(get|mod)\b", re.I)),
     ("stop", re.compile(r"\b(Stop-Process|taskkill|pkill|killall)\b|(^|[;&|]\s*)kill\s", re.I)),
     ("start", re.compile(r"\b(Start-Process|nohup|setsid)\b|Invoke-CimMethod[^|;\n]*Create", re.I)),

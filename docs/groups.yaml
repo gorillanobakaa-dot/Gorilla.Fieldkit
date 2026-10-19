@@ -149,6 +149,9 @@ groups:
       - buildh/profilekeep.py
       - buildh/recorder.py
       - buildh/releasepage.py
+      - buildh/installertest.py
+      - buildh/releasepublish.py
+      - buildh/nightpack.py
       - buildh/repair.py
       - buildh/setproof.py
       - buildh/stats.py

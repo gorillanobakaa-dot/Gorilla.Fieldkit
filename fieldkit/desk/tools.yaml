@@ -90,6 +90,49 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_toolrouter.py"]
 
+- id: night-pack
+  title: The night pack - every owner-only step the night may need (release send, leak-gate re-judge), pre-approved once at the owner's terminal, run by a Windows scheduled task when its conditions hold, disarmed at the first surprise, with a spoken and written morning report
+  harness: core
+  entry: [python, -m, fieldkit, build-harness, night-pack]
+  path: ${FIELDKIT}/fieldkit/buildh/nightpack.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "build-harness task id"}
+    - {name: action, flag: null, type: str, required: true, help: "prepare | arm (owner terminal, one yes) | run (the scheduler) | status | disarm"}
+  effects: [network, git, writes-files, processes]
+  safety: reversible
+  notes: 'arm stores the pack SHA-256 and registers the scheduled task "Gorilla night pack" (every 10 min, no elevation, expiry); run refuses an agent, a changed pack or an expired arming, runs each action once, removes the task at the end or at the first failure. Never in a pack: allowlist, dispositions, decision register, harness/hooks, telemetry. Owner 2026-10-19.'
+  platforms: [windows]
+  platforms_why: 'the scheduler half uses Windows Task Scheduler; a Linux port would use a systemd timer'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_nightpack.py"]
+
+- id: release-publish
+  title: One-step release - the harness proves everything first (hashes, SHA256SUMS, privacy push-check, set-proof, tag new), then the owner's one action pushes with visible output, creates the titled release, checks GitHub's digests and only then marks the old release superseded
+  harness: core
+  entry: [python, -m, fieldkit, build-harness, release-publish]
+  path: ${FIELDKIT}/fieldkit/buildh/releasepublish.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "build-harness task id"}
+    - {name: action, flag: null, type: str, required: true, help: "prepare (anyone, sends nothing) | send (owner terminal only, asks yes once)"}
+  effects: [network, git, writes-files, processes]
+  safety: reversible
+  notes: 'prepare writes state/publish/<tag>.plan.json; send refuses an agent shell, a missing plan or changed assets, sets GORILLA_OWNER_APPROVED for its own push only, stops at the first failure, speaks the result. Born 2026-10-19 (owner: "I should NOT have to do this"). push= several refspecs (Gorilla OpenCode: windows-port, windows-port:main); ci= workflows to read after.'
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_releasepublish.py"]
+
+- id: installer-test
+  title: The shipped Windows installer installed and uninstalled for real - silent, no shortcuts, every file checked against the proved zip, the machine left as it was
+  harness: core
+  entry: [python, -m, fieldkit, build-harness, installer-test]
+  path: ${FIELDKIT}/fieldkit/buildh/installertest.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "build-harness task id, e.g. firefox-158.0"}
+  effects: [writes-files, deletes-files, processes, registry]
+  safety: reversible
+  notes: 'installs into a session temp folder with an INI (no desktop/start/taskbar shortcuts, no maintenance service, no default-browser agent), uninstalls with uninstall\helper.exe /S, compares HKCU Uninstall + StartMenuInternet + Firefox* classes and the shortcut folders before/after, recycles the folder (never a permanent delete). Born 2026-10-19 (158.0 build 2): the installer had never run.'
+  platforms: [windows]
+  platforms_why: 'the NSIS .exe installer exists only for the Windows release; the Linux release ships a tarball, .deb and .rpm with their own install checks'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_installertest.py"]
+
 - id: room
   title: The shared room - every AI session on this machine sees what the others did on shared ground (commits, history changes, shared-file edits, process starts and stops, network and heavy steps, messages and owner approvals), written by a hook, not by memory
   harness: core

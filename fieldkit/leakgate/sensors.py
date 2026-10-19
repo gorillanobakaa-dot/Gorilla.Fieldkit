@@ -30,14 +30,21 @@ RES_RX = re.compile(r"(?:Resolving host|host \[|NameLookup|resolving) \[?([a-z0-
 SOCK_RX = re.compile(r"nsSocketTransport::Init.*?host=([^:\s\]]+):(\d+)")
 #: the build's own resolver result (owner 2026-10-19, leak-gate proposal A): the name -> address pair the browser USED,
 #: also when no answer crossed the wire (Windows' DNS cache, HTTPS-record address hints)
-LOOKUP_RX = re.compile(r"CompleteLookup: ([a-z0-9][a-z0-9.-]*\.[a-z]{2,}) has ([0-9a-fA-F:.]+[0-9a-fA-F])", re.I)
+LOOKUP_RX = re.compile(r"CompleteLookup: ([a-z0-9][a-z0-9.-]*\.[a-z]{2,}) has (\S+)", re.I)
 
 
 def necko_lookups(text, base):
-    """-> dns-a events (sensor necko-dns) for every `nsHostResolver CompleteLookup: NAME has ADDRESS` line."""
+    """-> dns-a events (sensor necko-dns) for every `nsHostResolver CompleteLookup: NAME has ADDRESS` line. The
+    address is validated whole (2026-10-19: an IPv6 address ending in "::" was cut short by a hex-digit pattern, so
+    uBlock's and Widevine's Google-hosted addresses never matched)."""
+    import ipaddress
     seen, out = set(), []
     for m in LOOKUP_RX.finditer(text or ""):
-        key = (m.group(1).lower(), m.group(2).lower())
+        try:
+            ip = str(ipaddress.ip_address(m.group(2).rstrip(",;)")))
+        except ValueError:
+            continue
+        key = (m.group(1).lower(), ip)
         if key not in seen:
             seen.add(key)
             out.append({**base, "sensor": "necko-dns", "kind": "dns-a", "value": key[0], "ip": key[1]})
@@ -457,7 +464,20 @@ def fs_diff(before, after):
 # ------------------------------------------------------------------------------------------- packets
 _WATCHDOG = None
 _ELEVATED_PKTMON = None
-ELEVATE_PY = Path.home() / "Documents" / "Scripts" / "Elevate" / "elevate.py"
+# Elevate was adopted into the owner's kits on 2026-10-19 (Documents\Scripts is a scratchpad, emptied by each sweep).
+# The adopted copy wins; a machine where it was never adopted keeps the old place, so the gate does not lose its
+# packet sensor there.
+ELEVATE_ADOPTED = Path(__file__).resolve().parents[2] / "local" / "kits" / "Elevate" / "elevate.py"
+ELEVATE_LEGACY = Path.home() / "Documents" / "Scripts" / "Elevate" / "elevate.py"
+
+
+def find_elevate_py(adopted=None, legacy=None):
+    """The elevate.py to start the packet sensor with: the adopted kit copy when present, else the old place."""
+    adopted, legacy = Path(adopted or ELEVATE_ADOPTED), Path(legacy or ELEVATE_LEGACY)
+    return adopted if adopted.is_file() else legacy
+
+
+ELEVATE_PY = find_elevate_py()
 
 _PKTMON_WORKER_PS1 = r"""
 param([string]$ControlDir, [int]$GatePid)
@@ -505,7 +525,7 @@ try {
 
 
 class ElevatedPktmon:
-    """Starts the packet sensor worker once per gate run through Documents\\Scripts\\Elevate\\elevate.py (one UAC click)."""
+    """Starts the packet sensor worker once per gate run through elevate.py (ELEVATE_PY; one UAC click)."""
 
     def __init__(self, workdir, elevate_py=None, runner=subprocess.run, timeout_min=15):
         self.dir = Path(workdir) / "pktmon-elevated"
@@ -566,7 +586,7 @@ class ElevatedPktmon:
 
 
 def ensure_packet_sensor(workdir, say=print, elevate_py=None, runner=subprocess.run):
-    """Ensure the packet sensor can run: directly when already elevated, or via Documents\\Scripts\\Elevate\\elevate.py."""
+    """Ensure the packet sensor can run: directly when already elevated, or via elevate.py (ELEVATE_PY)."""
     global _ELEVATED_PKTMON
     if is_admin():
         return True, None

@@ -71,15 +71,16 @@ def scenes(text):
     return out
 
 
-def render(sc, result=None, build=None):
+def render(sc, result=None, build=None, verdict=None):
     """-> (markdown, missing): the release page section; `missing` names scenes without a plain-words line."""
     missing = [n for n in sc if n not in PLAIN]
     total = sum(v["seconds"] for v in sc.values())
     runs = sum(v["runs"] for v in sc.values())
     hours, mins = divmod(round(total / 60), 60)
-    verdict = ""
+    tr, verdict = verdict, ""
     if result:
-        ok = result.get("exit_code") == 0
+        # the run's own test-results decide (a re-judge changes them; the launcher's exit code is the first verdict)
+        ok = (tr.get("FINAL_RESULT") == "PASS") if tr else result.get("exit_code") == 0
         verdict = (f"\n**Result on this build{f' ({build})' if build else ''}: {'PASS' if ok else 'FAIL'}**"
                    f" (the whole run took {result.get('minutes', '?')} minutes, "
                    f"{str(result.get('started', '')).replace('T', ' ')[:16]} to "
@@ -100,14 +101,23 @@ def render(sc, result=None, build=None):
                      f"{round(v['seconds'] / 60, 1)} |")
     lines.append(f"| **Total** | | | **{runs}** | **{round(total / 60)}** ({hours} h {mins} min) |")
     lines.append(verdict)
+    rj = (tr or {}).get("REJUDGED")
+    if rj:
+        # a re-judge is on the page in plain words: what changed and on what evidence (owner 2026-10-19)
+        ch = rj.get("changes") or {}
+        lines.append(f"The first verdict was **{'FAIL' if ch else 'unchanged'}**; the maintainer re-judged the same "
+                     f"recorded evidence on {str(rj.get('at', ''))[:16].replace('T', ' ')} ({rj.get('why') or 'no note'}). "
+                     + ("Policies that changed: " + ", ".join(f"{k} {v['before']} to {v['after']}" for k, v in ch.items())
+                        + ". " if ch else "")
+                     + f"Evidence: {rj.get('evidence', '')}.")
     return "\n".join(lines).rstrip() + "\n", missing
 
 
-def run(log, result_file=None, build=None):
+def run(log, result_file=None, build=None, verdict=None):
     """-> {"markdown", "missing", "scenes"}."""
     sc = scenes(read(log))
     res = None
     if result_file and Path(result_file).is_file():
         res = json.loads(Path(result_file).read_text(encoding="utf-8-sig"))
-    md, missing = render(sc, res, build)
+    md, missing = render(sc, res, build, verdict)
     return {"markdown": md, "missing": missing, "scenes": sc}

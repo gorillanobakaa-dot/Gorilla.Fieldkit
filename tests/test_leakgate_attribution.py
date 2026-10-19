@@ -33,7 +33,7 @@ def _ev(**kw):
 
 
 ALL_SENSORS = [_ev(sensor=s, kind="file", value="prefs.js") for s in
-               ("necko-http", "necko-dns", "mitm", "sockets", "process-tree", "filesystem")]
+               ("necko-http", "necko-dns", "mitm", "sockets", "process-tree", "filesystem", "pktmon")]
 ALLOW = {"entries": [_entry(), _entry(id="d", kind="dest", values=["cdn.jsdelivr.net"]),
                      _entry(id="f", kind="file", values=["*"]),
                      _entry(id="u", kind="udp", values=["<this-machine>:*"])]}
@@ -44,6 +44,14 @@ LOG = (f"2026-10-18 22:44:38.132000 UTC - [Parent 8512: DNS Resolver #1]: D/nsHo
 def _judge(events):
     fail, lists = gate.judge(ALL_SENSORS + events, ALLOW, {}, ["C:/build"], [], 1, True, False)
     return fail
+
+
+def test_an_ipv6_address_ending_in_a_double_colon_is_read_whole():
+    # 2026-10-19: "2600:1900:4110:86f::" (Widevine) and "2600:1901:0:7b8a::" (uBlock) were cut short
+    text = ("CompleteLookup: edgedl.me.gvt1.com has 2600:1900:4110:86f::" + chr(10)
+            + "CompleteLookup: x.example has 10.0.0.1" + chr(10))
+    got = se.necko_lookups(text, {"scenario": "s", "mode": "direct", "rep": 0})
+    assert [e["ip"] for e in got] == ["2600:1900:4110:86f::", "10.0.0.1"]
 
 
 def test_necko_lookups_reads_the_build_resolver():
@@ -88,7 +96,8 @@ def test_recorded_lookups_rereads_a_runs_necko_logs(tmp_path):
     (tmp_path / "runs" / "necko-h264-call-r2-direct.log.moz_log").write_text(LOG, encoding="utf-8")
     got = gate.recorded_lookups(tmp_path, [])
     assert got and got[0]["scenario"] == "h264-call" and got[0]["rep"] == 2 and got[0]["ip"] == V6_LIST
-    assert gate.recorded_lookups(tmp_path, got) == []               # a run that already has them is left alone
+    stale = [{**got[0], "ip": "2600:1"}]                             # a cut address stored by the first reader
+    assert gate.with_recorded_lookups(tmp_path, stale) == got         # the log is the source: re-derived, not kept
 
 
 def test_rejudge_compares_crates_with_a_named_build(tmp_path, monkeypatch):
@@ -162,3 +171,18 @@ def test_a_rerun_of_another_build_or_not_release_or_unscoped_is_refused(tmp_path
                               ("all", {"release": True, "only": None}, "B2")):
         with pytest.raises(ValueError):
             gate._fold_rerun(full, _run(tmp_path, name, plan, build, []), {p: [] for p in gate.POLICIES}, {}, ALLOW, {})
+
+
+def test_f_a_dns_controlled_connection_to_an_allowed_names_address_passes():
+    # 2026-10-19 newtab re-run: the controlled resolver's log is kept under "(dns-controlled)"; the browser's own
+    # resolver (direct mode, same run) tied the address to the allowed name
+    sock = _ev(scenario="webrtc", mode="dns-controlled", sensor="sockets", kind="dest-ip", value=V6_LIST, port=443,
+               detail="tcp Established pid 1 firefox.exe")
+    doh = _ev(scenario="(dns-controlled)", mode="dns-controlled", sensor="doh-server", kind="dns", value="cdn.jsdelivr.net")
+    lookup = se.necko_lookups(LOG, {"scenario": "webrtc", "mode": "direct", "rep": 0})
+    assert _judge([sock])["NETWORK_POLICY"]                                     # nothing ties it: fails, as before
+    assert not _judge([doh, *lookup, sock])["NETWORK_POLICY"]                    # F: tied to the allowed name
+    other = _ev(scenario="(dns-controlled)", mode="dns-controlled", sensor="doh-server", kind="dns", value="tracker.example")
+    stray = se.necko_lookups(f"CompleteLookup: tracker.example has {V6_ELSE}\n", {"scenario": "webrtc", "mode": "direct", "rep": 0})
+    bad = _ev(scenario="webrtc", mode="dns-controlled", sensor="sockets", kind="dest-ip", value=V6_ELSE, port=443)
+    assert _judge([other, *stray, bad])["NETWORK_POLICY"]                        # an unallowed name's address still fails

@@ -122,8 +122,20 @@ def test_socket_records_process_name_path_and_parent_chain_and_judges_only_brows
     assert any("2606:4700::6811:cf05:443" in x and "firefox.exe" in x and "pid 200" in x for x in fail2["NETWORK_POLICY"])
 
 
+def test_elevate_py_is_the_adopted_kit_copy_else_the_old_place(tmp_path):
+    # 2026-10-19: Elevate moved into local/kits/Elevate; a machine without the adopted copy keeps the old place
+    from fieldkit.leakgate import sensors
+    adopted, legacy = tmp_path / "kits" / "elevate.py", tmp_path / "Scripts" / "elevate.py"
+    assert sensors.find_elevate_py(adopted, legacy) == legacy            # not adopted here: the old place
+    adopted.parent.mkdir(parents=True)
+    adopted.write_text("# stub\n", encoding="utf-8")
+    assert sensors.find_elevate_py(adopted, legacy) == adopted           # adopted: the kit copy wins
+    assert sensors.ELEVATE_ADOPTED.parts[-4:] == ("local", "kits", "Elevate", "elevate.py")
+
+
 def test_packet_sensor_starts_through_elevate_py(tmp_path, monkeypatch):
-    """2026-10-17 (owner): the packet sensor needs admin; the gate starts it through Documents\\Scripts\\Elevate\\elevate.py."""
+    """2026-10-17 (owner): the packet sensor needs admin; the gate starts it through elevate.py (local/kits/Elevate
+    since 2026-10-19, Documents\\Scripts\\Elevate before)."""
     import json
     import threading
     from fieldkit.leakgate import sensors

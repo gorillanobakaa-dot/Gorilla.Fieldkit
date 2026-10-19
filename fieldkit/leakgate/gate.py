@@ -204,8 +204,15 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for e in events:
         if e["kind"] == "dns-attribution":
             (asked_by_build if e.get("in_build") else asked_by_other).setdefault(window(e), set()).add(e["value"].rstrip("."))
-        elif e["kind"] in ("dest", "dns", "sni") and e.get("sensor") != "pktmon":
+        elif e["kind"] in ("dest", "dns", "sni") and e.get("sensor") not in ("pktmon", "doh-server"):
             asked_by_build.setdefault(window(e), set()).add(str(e["value"]).rstrip("."))
+    # owner 2026-10-19 (proposal F): the controlled resolver serves only the build copies, so every name it was asked
+    # was asked BY THE BUILD in each dns-controlled window of the run (its log is kept under "(dns-controlled)", not
+    # under the scenario; 2026-10-19 newtab re-run: uBlock's malware-filter.gitlab.io list failed NETWORK and IPV6)
+    doh_names = {str(e["value"]).rstrip(".") for e in events if e.get("sensor") == "doh-server" and e["kind"] == "dns"}
+    if doh_names:
+        for w in {window(e) for e in events if e.get("mode") == "dns-controlled" and not str(e["scenario"]).startswith("(")}:
+            asked_by_build.setdefault(w, set()).update(doh_names)
     for (scen, _mode, _rep), names in asked_by_build.items():
         for n in names:
             if n in answers and allowed_here(n, scen):
@@ -726,6 +733,9 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     for q in doh.queries:
         events.append({"scenario": "(dns-controlled)", "mode": "dns-controlled", "sensor": "doh-server", "kind": "dns", "value": q["name"],
                        "detail": f"type {q['type']} {'answered' if q['answered'] else 'NXDOMAIN'}", "rep": 0})
+        for ip in q.get("ips", []):                   # proposal F: the address the controlled resolver answered with
+            events.append({"scenario": "(dns-controlled)", "mode": "dns-controlled", "sensor": "doh-server", "kind": "dns-a",
+                           "value": q["name"], "ip": ip, "rep": 0})
     fail, lists = judge(events, allow, scen_hosts, [direct, proxied, dnsctl], server.results, repeat, packets, quick)
     afail, alists = action_checks(set(scen_hosts), events, server.results, server.requests, packets, linux)
     for pol, items in afail.items():
@@ -860,10 +870,10 @@ NECKO_LOG = re.compile(r"^necko-(?P<scen>.+)-r(?P<rep>\d+)-(?P<mode>direct)\.log
 
 
 def recorded_lookups(run_dir, events):
-    """The build's own resolver results (proposal A) read from the necko logs a run RECORDED in runs/, for a run made
-    before the sensors emitted them: the same evidence, read again, nothing re-measured. [] when the events have them."""
-    if any(e.get("kind") == "dns-a" and e.get("sensor") == "necko-dns" for e in events):
-        return []
+    """The build's own resolver results (proposal A) read from the necko logs a run RECORDED in runs/: the same
+    evidence, read again, nothing re-measured. The logs are the source; the derived necko-dns dns-a events in
+    events.jsonl are replaced by this (strip them first: with_recorded_lookups), so a reader fix reaches old runs
+    (2026-10-19: the first reader cut IPv6 addresses ending in "::" and the newtab re-run stored them cut)."""
     texts = {}
     for f in sorted((Path(run_dir) / "runs").glob("necko-*-direct.log*")):
         m = NECKO_LOG.match(f.name)
@@ -874,6 +884,14 @@ def recorded_lookups(run_dir, events):
     for (scen, mode, rep), text in texts.items():
         out += se.necko_lookups(text, {"scenario": scen, "mode": mode, "rep": rep})
     return out
+
+
+def with_recorded_lookups(run_dir, events):
+    """events with the necko-dns dns-a rows re-derived from the run's own logs (kept as they were when it has none)."""
+    fresh = recorded_lookups(run_dir, events)
+    if not fresh:
+        return events
+    return [e for e in events if not (e.get("kind") == "dns-a" and e.get("sensor") == "necko-dns")] + fresh
 
 
 def rejudge(run_dir, owner_root, why="", dependency_baseline=None, rerun=None):
@@ -889,7 +907,7 @@ def rejudge(run_dir, owner_root, why="", dependency_baseline=None, rerun=None):
     if not orig.is_file():
         orig.write_text(json.dumps(old, indent=1), encoding="utf-8")
     events = [json.loads(l) for l in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
-    events += recorded_lookups(run_dir, events)
+    events = with_recorded_lookups(run_dir, events)
     allow = al.load(al.path_for(owner_root))
     scen_hosts = {name: hosts for name, _t, _s, _a, hosts, _w in sc.SCENARIOS}
     pr = run_dir / "page-results.json"
@@ -959,7 +977,7 @@ def _fold_rerun(run_dir, rerun_dir, fail, lists, allow, scen_hosts):
     if str(re_res.get("BUILD")) != str(full_res.get("BUILD")):
         raise ValueError(f"{rerun_dir.name} measured build {re_res.get('BUILD')}, not {full_res.get('BUILD')}")
     ev = [json.loads(l) for l in (rerun_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
-    ev += recorded_lookups(rerun_dir, ev)
+    ev = with_recorded_lookups(rerun_dir, ev)
     pr = rerun_dir / "page-results.json"
     results = json.loads(pr.read_text(encoding="utf-8")) if pr.is_file() else []
     copies = [rerun_dir / "build-direct", rerun_dir / "build-proxied", rerun_dir / "build-dns"]

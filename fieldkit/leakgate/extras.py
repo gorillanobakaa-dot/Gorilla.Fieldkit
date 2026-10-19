@@ -132,7 +132,8 @@ class DohServer:
             for qd in q.qd:
                 name = qd.name.lower()
                 ok = any(name == a or name.endswith("." + a) for a in outer.allowed)
-                outer.queries.append({"t": time.time(), "name": name, "type": qd.type, "answered": ok})
+                rec = {"t": time.time(), "name": name, "type": qd.type, "answered": ok, "ips": []}
+                outer.queries.append(rec)
                 if not ok:
                     r.rcode = dpkt.dns.DNS_RCODE_NXDOMAIN
                     continue
@@ -144,6 +145,7 @@ class DohServer:
                         rr = dpkt.dns.DNS.RR(name=qd.name, type=qd.type, cls=dpkt.dns.DNS_IN, ttl=60)
                         rr.rdata = socket.inet_pton(fam, ai)
                         r.an.append(rr)
+                        rec["ips"].append(ai)      # the answer it GAVE (owner 2026-10-19, proposal F)
                 except OSError:
                     r.rcode = dpkt.dns.DNS_RCODE_NXDOMAIN
             return bytes(r)

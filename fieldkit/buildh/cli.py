@@ -1191,11 +1191,23 @@ def run(a, emit):
         from ..core import settings as _st
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
         logs = sorted((_st.ROOT / "state" / "leakgate-launcher").glob(f"{tid}-*.log"))
+        # 2026-10-19: the page describes the RELEASE run behind state/leakgate_result.json, with its (re-judged) verdict;
+        # the newest log was a newtab-only re-run, and the page said "1 scenes ... FAIL"
+        from . import buildrun as _br
+        verdict = None
+        if not opts.get("log"):
+            try:
+                st = json.loads((Path(_br._owner_root(task.load(tid))) / "state" / "leakgate_result.json").read_text(encoding="utf-8"))
+                art = Path(st["artifacts"])
+                verdict = json.loads((art / "test-results.json").read_text(encoding="utf-8"))
+                logs = [l for l in logs if art.name in lsum.read(l)] or logs
+            except (OSError, ValueError, KeyError):
+                verdict = None
         log = Path(opts["log"]) if opts.get("log") else (logs[-1] if logs else None)
         if not log or not log.is_file():
             raise task.Refused("leakgate-summary: no leak-gate launcher log for this task")
         res = log.with_suffix(".result.json")
-        r = lsum.run(log, res if res.is_file() else None, opts.get("build"))
+        r = lsum.run(log, res if res.is_file() else None, opts.get("build"), verdict=verdict)
         if opts.get("out"):
             Path(opts["out"]).write_text(r["markdown"], encoding="utf-8", newline="\n")
             print(f"  written: {opts['out']}")
@@ -1206,6 +1218,53 @@ def run(a, emit):
             return 3
         print(f"LEAK-GATE SUMMARY OK: {len(r['scenes'])} scenes from {log.name}")
         return 0
+    if act == "night-pack":
+        # night-pack TASK prepare [release=TAG] [rejudge=RUN dep=REF rerun=RUN] [gate=0] | arm [hours=12] | run |
+        #                 status | disarm      (owner 2026-10-19: pre-approve once, go to sleep)
+        from . import nightpack as npk
+        sub = a.args[1] if len(a.args) > 1 else "status"
+        o = dict(x.split("=", 1) for x in a.args[2:] if "=" in x)
+        say = lambda m: print(m, flush=True)
+        if sub == "prepare":
+            npk.prepare(tid, release=o.get("release"), rejudge=o.get("rejudge"), dep=o.get("dep"), rerun=o.get("rerun"),
+                        gate=o.get("gate", "1") != "0", say=say)
+            return 0
+        if sub == "arm":
+            return npk.arm(tid, hours=float(o.get("hours", 12)), say=say)
+        if sub == "run":
+            return npk.run(tid, say=say)
+        if sub == "disarm":
+            return npk.disarm(tid, say=say)
+        print(json.dumps(npk.status(tid), indent=1))
+        return 0
+    if act == "release-publish":
+        # release-publish TASK prepare repo=DIR gh=OWNER/REPO tag=T title="..." notes=FILE asset=F [asset=F ...]
+        #                               [push=REF ...] [ci=WORKFLOW ...] [supersede=OLDTAG supersede_title="..."
+        #                               supersede_notes=FILE]
+        # release-publish TASK send tag=T     the owner's one action (owner terminal only; asks yes once)
+        from . import releasepublish as rp
+        sub = a.args[1] if len(a.args) > 1 else ""
+        kv = [x.split("=", 1) for x in a.args[2:] if "=" in x]
+        one = {k: v for k, v in kv}
+        many = lambda k: [v for kk, v in kv if kk == k]
+        say = lambda m: print(m, flush=True)
+        if sub == "prepare":
+            r = rp.prepare(tid, one["repo"], one["tag"], one["title"], one["notes"], many("asset"),
+                           supersede=one.get("supersede"), supersede_title=one.get("supersede_title"),
+                           supersede_notes=one.get("supersede_notes"), gh_repo=one.get("gh"),
+                           pushes=many("push") or None, ci=many("ci") or None, say=say)
+            print("RELEASE PREPARED: the owner runs `send`" if r["ok"] else "RELEASE NOT PREPARED (rows above)")
+            return 0 if r["ok"] else 3
+        if sub == "send":
+            return rp.send(one["tag"], say=say)
+        raise task.Refused("release-publish TASK prepare|send ...")
+    if act == "installer-test":
+        # installer-test TASK: the shipped installer installed silently into a temp folder (no shortcuts, no service),
+        # checked file by file against the proved zip, uninstalled by its own uninstaller, machine as before (2026-10-19)
+        from . import installertest
+        r = installertest.run(tid, say=lambda m: print(m, flush=True))
+        print("INSTALLER TEST " + ("OK" if r["ok"] else "NOT OK: " + "; ".join(x["check"] for x in r["rows"] if not x["ok"])))
+        return 0 if r["ok"] else 3
     if act == "stops":
         # stops TASK [since=YYYY-MM-DD]: every window run that did not pass, classified - the browser, the check or the
         # machine - and each check's false alarms (stops.py)
