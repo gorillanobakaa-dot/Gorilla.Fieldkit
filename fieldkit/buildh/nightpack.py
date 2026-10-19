@@ -61,9 +61,13 @@ def prepare(task_id, release=None, rejudge=None, dep=None, rerun=None, gate=True
         plan = DIR.parent / "publish" / f"{release}.plan.json"
         if not plan.is_file():
             raise task.Refused(f"no release-publish plan for {release}: run release-publish prepare first")
+        checks = _load(plan, {}).get("checks") or []
+        cond = ("leak gate release PASS on the installed build; " if gate else "no leak gate for this project; ") + \
+               (f"{len(checks)} check(s) re-run right before the push and all exit 0; " if checks else
+                "no extra checks in the plan; ") + \
+               "plan assets unchanged; the old release superseded only after GitHub's digests match"
         actions.append({"kind": "release", "tag": release, "plan_sha256": _sha(plan), "gate": bool(gate),
-                        "condition": "leak gate release PASS on the installed build; plan assets unchanged; "
-                                     "the old release superseded only after GitHub's digests match"})
+                        "condition": cond})
     if not actions:
         raise task.Refused("an empty night pack: give release=TAG and/or rejudge=RUN")
     pack = {"task": task_id, "prepared": time.strftime("%Y-%m-%dT%H:%M:%S"), "actions": actions,

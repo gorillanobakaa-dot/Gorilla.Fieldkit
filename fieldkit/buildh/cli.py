@@ -1252,7 +1252,7 @@ def run(a, emit):
             r = rp.prepare(tid, one["repo"], one["tag"], one["title"], one["notes"], many("asset"),
                            supersede=one.get("supersede"), supersede_title=one.get("supersede_title"),
                            supersede_notes=one.get("supersede_notes"), gh_repo=one.get("gh"),
-                           pushes=many("push") or None, ci=many("ci") or None, say=say)
+                           pushes=many("push") or None, ci=many("ci") or None, checks=many("check") or None, say=say)
             print("RELEASE PREPARED: the owner runs `send`" if r["ok"] else "RELEASE NOT PREPARED (rows above)")
             return 0 if r["ok"] else 3
         if sub == "send":

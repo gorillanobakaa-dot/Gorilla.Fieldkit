@@ -86,3 +86,10 @@ def test_a_release_without_a_leak_gate_does_not_wait_for_one(env):
     sent = []
     rc, *_ = _run(gate_ok=lambda t: False, send=lambda tag, **k: sent.append(tag) or 0)
     assert rc == 0 and sent == ["v2"]
+
+
+def test_the_condition_says_what_is_really_checked(env):
+    # 2026-10-19 (worker): with gate=0 the pack still promised a leak-gate PASS
+    p = np.prepare("t", release="v2", gate=False, say=lambda m: None)
+    assert "no leak gate" in p["actions"][0]["condition"] and "leak gate release PASS" not in p["actions"][0]["condition"]
+    assert "leak gate release PASS" in np.prepare("t", release="v2", say=lambda m: None)["actions"][0]["condition"]
