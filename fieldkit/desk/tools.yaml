@@ -966,12 +966,13 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, rule]
 
 - id: thermal-profile
-  title: "Everyday cooling on Windows: show or choose quiet, balanced, performance or off (the monitor follows it)"
+  title: "Which cooling profile the laptop is on now (run it with no value), or switch to quiet, balanced, performance or off (Windows)"
   harness: thermal
   entry: [python, -m, fieldkit, thermal, profile]
   path: ${FIELDKIT}/fieldkit/thermal/profiles.py
   inputs:
-    - {name: value, flag: null, type: str, required: false, help: "the profile", choices: [quiet, balanced, performance, "off"]}
+    # 2026-10-19: Gemma read "the profile" as a required choice and passed "show"; the help says what empty does
+    - {name: value, flag: null, type: str, required: false, help: "LEAVE EMPTY to see the current profile (changes nothing). To switch: quiet, balanced, performance or off", choices: [quiet, balanced, performance, "off"]}
   effects: [writes-files]
   safety: reversible
   headline: "The cooling profile is {profile}."
