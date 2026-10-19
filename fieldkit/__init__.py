@@ -12,3 +12,9 @@ Shared:
     fieldkit.core    host detection, settings, processes, privacy scan, pipeline engine
 """
 __version__ = "0.4.0"
+
+import os as _os
+
+if _os.environ.get("FIELDKIT_OFFLINE") == "1":   # a caller that must not touch the network (fieldkit/core/offline.py)
+    from .core import offline as _offline
+    _offline.install()

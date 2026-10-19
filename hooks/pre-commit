@@ -21,6 +21,10 @@ if [ -z "$PY" ]; then
   echo "  this is NOT a test failure: nothing was verified. Activate the venv or install pytest."
   exit 1
 fi
+# 2026-10-19: no name lookups on the real network from the hook or anything it starts (fieldkit/core/offline.py):
+# the suite's canary children resolved incoming.telemetry.mozilla.org on every commit and the leak gate's DNS witness
+# saw it. Any process that imports fieldkit installs the guard; tests/conftest.py extends it to every Python child.
+export FIELDKIT_OFFLINE=1
 # own temporary folder: a pytest-current link once made by an elevated run cannot be replaced by a normal account,
 # and pytest then exits non-zero with every test passed (2026-10-07: every commit refused for that alone)
 BT="$(mktemp -d 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-hook-$$")"

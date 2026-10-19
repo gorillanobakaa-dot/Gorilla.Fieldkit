@@ -84,6 +84,13 @@ def _offline_gethostbyaddr(addr):
 _socket.getaddrinfo = _offline_getaddrinfo
 _socket.gethostbyaddr = _offline_gethostbyaddr
 
+# 2026-10-19: the guard above covers this process only; the canary registry test's CHILDREN resolved
+# incoming.telemetry.mozilla.org on every run. Every child a test starts inherits this environment and is offline too  telemetry-ok: test fixture
+# (a fieldkit child on import, any other Python child through fieldkit/core/offline_site/sitecustomize.py).
+from fieldkit.core import offline as _offline
+
+_os.environ.update(_offline.child_env())
+
 
 # Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
 # no-op for every test, except tests marked `real_build_guard`, which test the guard itself on fake status files.

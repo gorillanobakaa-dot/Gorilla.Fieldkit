@@ -51,7 +51,7 @@ groups:
 
   - name: core
     title: The core engine (pipelines, next, privacy, settings, snapshots)
-    sources: ["core/*.py"]
+    sources: ["core/*.py", "core/offline_site/*.py"]
 
   - name: tool-collection
     title: The tool desk (registry, cards, readiness, gather, harvest)

@@ -31,6 +31,10 @@ Exit 0 only when every canary run is OK; 3 otherwise; 2 for bad input.
 
 A witness runs two commands that must agree on clean / not clean: the source reading and the artifact reading.
 DISAGREE is a finding (exit 3), never averaged away.
+
+Every check runs OFFLINE (fieldkit/core/offline.py): no name is looked up on the real network, and each name a check
+tried is listed in its row as `lookups_refused`. 2026-10-19: before this, the leak-gate canaries made a real DNS query
+for Mozilla's telemetry host on every run, and the gate's DNS witness saw it.
 """
 import argparse
 import json
@@ -43,7 +47,7 @@ from pathlib import Path
 
 import yaml
 
-from ..core import settings
+from ..core import offline, settings
 
 HERE = Path(__file__).resolve().parent
 REGISTRY = HERE / "canaries.yaml"
@@ -98,14 +102,24 @@ def _matches(rule, rc, out):
     return True
 
 
+LAST_REFUSED = []   # the names the last _run's check tried to look up (refused by the offline guard)
+
+
 def _run(argv, cwd=None, timeout=600):
-    try:
-        r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
-                           timeout=timeout)
-    except FileNotFoundError as e:
-        return None, f"not found: {e}"
-    except subprocess.TimeoutExpired:
-        return None, "timed out"
+    """Run a check offline. -> (exit code or None, output); the names it tried to look up land in LAST_REFUSED."""
+    LAST_REFUSED.clear()
+    with tempfile.TemporaryDirectory(prefix="fkoffline-") as d:
+        log = Path(d) / "refused.txt"
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+                               timeout=timeout, env=offline.child_env(log))
+        except FileNotFoundError as e:
+            return None, f"not found: {e}"
+        except subprocess.TimeoutExpired:
+            return None, "timed out"
+        finally:
+            if log.is_file():
+                LAST_REFUSED.extend(sorted(set(log.read_text(encoding="utf-8").split())))
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
@@ -134,6 +148,8 @@ def run_one(c, timeout=600):
             # a side may carry its own command line (a check that judges a command, not files: the tool router)
             rc, out = _run(_argv(spec.get("run", c["run"]), folder), timeout=timeout)
             sides[side] = {"exit": rc, "answer": judge(c, side, rc, out), "tail": out[-400:]}
+            if LAST_REFUSED:
+                sides[side]["lookups_refused"] = list(LAST_REFUSED)
     row.update(sides)
     a, b = sides["canary"]["answer"], sides["control"]["answer"]
     if "unavailable" in (a, b):
@@ -162,6 +178,8 @@ def witness_one(w, timeout=1800):
             rc, out = _run([a.replace("{empty}", empty).replace("{python}", sys.executable) for a in spec["run"]],
                            timeout=timeout)
         row[side] = {"exit": rc, "answer": judge(spec, side, rc, out), "tail": out[-400:]}
+        if LAST_REFUSED:
+            row[side]["lookups_refused"] = list(LAST_REFUSED)
     a, b = row["source"]["answer"], row["artifact"]["answer"]
     if "unavailable" in (a, b) or "error" in (a, b):
         row["verdict"] = "UNAVAILABLE" if "unavailable" in (a, b) else "ERROR"

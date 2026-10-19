@@ -98,6 +98,58 @@ def test_the_shipped_registry_proves_every_check():
     assert not bad, bad
 
 
+# a stand-in check that asks for a name: when the guard is missing it does NOT look up (exit 0, never a real query)
+LOOKUP = ("import socket, sys; f = socket.getaddrinfo\n"
+          "if not getattr(f, '__fieldkit_offline__', False): sys.exit(0)\n"
+          "try: f('fieldkit-canary-probe.invalid', 443)\n"
+          "except socket.gaierror: sys.exit(3)\n"
+          "sys.exit(0)")
+
+
+def test_every_check_runs_offline_and_its_row_names_what_it_tried(tmp_path):
+    # 2026-10-19: the leak-gate canaries made a real DNS query for Mozilla's telemetry host on every run
+    row = canary.run_one(c("asks", ["{python}", "-c", LOOKUP, "{dir}"], control_text="fine\n"))
+    assert row["canary"]["answer"] == "flagged", row
+    assert row["canary"]["lookups_refused"] == ["fieldkit-canary-probe.invalid"]
+    w = canary.witness_one({"id": "w", "source": {"run": ["{python}", "-c", LOOKUP], "flagged": {"exit": [3]},
+                                                  "passed": {"exit": [0]}},
+                            "artifact": {"run": ["{python}", "-c", LOOKUP], "flagged": {"exit": [3]},
+                                         "passed": {"exit": [0]}}})
+    assert w["source"]["answer"] == "flagged" and w["source"]["lookups_refused"] == ["fieldkit-canary-probe.invalid"]
+
+
+def test_the_guard_never_reaches_the_real_resolver_for_a_name(monkeypatch, tmp_path):
+    import socket
+    from fieldkit.core import offline
+    asked = []
+    fake = lambda host, *a, **k: asked.append(host) or [("ok",)]
+    for n in ("getaddrinfo", "gethostbyname", "gethostbyaddr"):
+        monkeypatch.setattr(socket, n, fake)
+    monkeypatch.setenv("FIELDKIT_OFFLINE_LOG", str(tmp_path / "log"))
+    offline.install()
+    with pytest.raises(socket.gaierror):
+        socket.getaddrinfo("fieldkit-canary-probe.invalid", 443)
+    with pytest.raises(socket.gaierror):
+        socket.gethostbyname("fieldkit-canary-probe.invalid")
+    with pytest.raises(socket.herror):
+        socket.gethostbyaddr("192.0.2.1")
+    assert socket.getaddrinfo("localhost", 443) == [("ok",)] and socket.getaddrinfo("127.0.0.1", 443) == [("ok",)]
+    assert asked == ["localhost", "127.0.0.1"]
+    assert (tmp_path / "log").read_text().split() == ["fieldkit-canary-probe.invalid"] * 2 + ["192.0.2.1"]
+
+
+def test_the_runner_offline_canary_goes_blind_without_the_guard(monkeypatch):
+    x = next(c for c in canary.load([canary.REGISTRY])["canaries"] if c["id"] == "canary-runner-offline")
+    assert canary.run_one(x)["verdict"] == "OK"
+    # without the guard: the environment as it was before tests/conftest.py made every child offline
+    import os
+    bare = {k: v for k, v in os.environ.items() if k != "FIELDKIT_OFFLINE"}
+    bare["PYTHONPATH"] = os.pathsep.join(p for p in bare.get("PYTHONPATH", "").split(os.pathsep)
+                                         if p and p != canary.offline.SITE)
+    monkeypatch.setattr(canary.offline, "child_env", lambda log=None: bare)
+    assert canary.run_one(x)["verdict"] == "BLIND"
+
+
 def test_a_stale_gorilla_size_is_caught_blind(tmp_path, monkeypatch):
     # 2026-10-19: a worktree still held gorilla-size 0.2, which exits 0 when it finds duplicates; the size-dupes canary
     # called it BLIND. A stand-in program that always exits 0 must be caught the same way.

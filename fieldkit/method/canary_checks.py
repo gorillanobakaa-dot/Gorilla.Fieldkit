@@ -172,7 +172,24 @@ def leakgate_telemetry(side, d):
     return FLAGGED if lists.get("UNEXPECTED_TELEMETRY") else PASSED
 
 
-CHECKS = {"themecheck-static": themecheck_static, "themecheck-static-white-popup": themecheck_static_white_popup, "themecheck-rendered": themecheck_rendered,
+def runner_offline(side, d):
+    """The canary runner's offline guard (fieldkit/core/offline.py). Without the guard this never tries a lookup: it
+    answers "passed" on both sides, so the runner shows BLIND and nothing leaves the machine. With it, a non-local
+    name is refused (flagged) and localhost still resolves (passed)."""
+    import socket
+    from ..core import offline
+    if not offline.installed():
+        return PASSED
+    name = "fieldkit-canary-probe.invalid" if side == "canary" else "localhost"
+    try:
+        socket.getaddrinfo(name, 443)
+    except socket.gaierror as e:
+        return FLAGGED if "offline" in str(e) else 1
+    return PASSED
+
+
+CHECKS = {"runner-offline": runner_offline,
+          "themecheck-static": themecheck_static, "themecheck-static-white-popup": themecheck_static_white_popup, "themecheck-rendered": themecheck_rendered,
           "claims-new-file": claims_new_file, "claims-hunk": claims_hunk,
           "decisions-tree-contains": decisions_tree_contains,
           "leakgate-canary": leakgate_canary, "leakgate-telemetry": leakgate_telemetry}

@@ -153,4 +153,15 @@ canaries:
     flagged: {exit: [3]}
     passed: {exit: [0]}
 
+  # the runner itself (2026-10-19: the leak-gate canaries made a real DNS query for Mozilla's telemetry host on every
+  # run): a check started by `fieldkit canary run` must find the offline guard in place and a non-local name refused
+  - id: canary-runner-offline
+    check: canary
+    why: "a check run by the canary runner cannot look a name up on the real network"
+    run: ["{python}", -m, fieldkit.method.canary_checks, runner-offline]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, runner-offline, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, runner-offline, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
 witnesses: []
