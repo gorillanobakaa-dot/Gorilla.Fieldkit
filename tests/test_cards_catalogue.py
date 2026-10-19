@@ -10,7 +10,9 @@ from fieldkit.desk import cards, registry
 def test_the_catalogue_holds_only_public_reviewed_tools():
     c = cards.catalogue()
     public = {t["id"] for t in settings.read_file(registry.REGISTRY)["tools"]}
-    assert c["schema"] == 1 and c["fieldkit_commit"] and c["tools"]
+    # schema 2 (2026-10-19): the published recipes ride along, title and problem only
+    assert c["schema"] == 2 and c["fieldkit_commit"] and c["tools"]
+    assert all(set(r) == {"id", "title", "problem", "tags", "platforms"} for r in c["recipes"])
     assert all(t["id"] in public for t in c["tools"]), "a local card would ship inside a public program"
     assert {t["trust"] for t in c["tools"]} <= set(cards.CATALOGUE_LEVELS), "a draft must never be suggested"
     ids = [t["id"] for t in c["tools"]]
@@ -23,4 +25,4 @@ def test_the_export_command_writes_the_file(tmp_path):
     out = tmp_path / "catalogue.json"
     assert cli.main(["cards", "export", str(out)]) == 0
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["tools"] and data["schema"] == 1
+    assert data["tools"] and data["schema"] == 2 and "recipes" in data

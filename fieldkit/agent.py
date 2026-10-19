@@ -50,6 +50,7 @@ from pathlib import Path
 from .core import settings
 from .core.proc import Runner
 from .desk import cards as cardmod
+from .desk import recipes as recipemod
 
 # Changes to these need the owner's approval even when the tool can undo them:
 # a model does not change system settings on its own.
@@ -102,7 +103,7 @@ STOP_WORDS = {"a", "an", "the", "to", "of", "in", "on", "at", "is", "it", "my", 
               "there", "about", "tell", "show"}
 
 
-def discover(goal, limit=5, include_drafts=False, cards=None):
+def discover(goal, limit=5, include_drafts=False, cards=None, recipes=None):
     """The same ranking as Gorilla OpenCode's in-process matcher (internal/fieldkit/match.go), so a model sees one
     order whichever it asks (2026-10-19: the hint put privacy-scan first, discover put office-check first, and Gemma
     took office-check). A rare word weighs more than a common one (log N/df); a tool that goes online ranks after an
@@ -119,6 +120,11 @@ def discover(goal, limit=5, include_drafts=False, cards=None):
         if level == "gathered" and not include_drafts:
             continue
         pool.append((c, level))
+    # Recipes (desk/recipes.py) are searched with the tools and labelled: what was done before is as findable as
+    # what can be run. Only when the caller gave no card list of its own (tests pass exactly the cards they mean).
+    if recipes is None:
+        recipes = recipemod.load() if cards is None else []
+    pool += [(r, "recipe") for r in recipes]
     df = {}
     for c, _ in pool:
         for w in set(WORD.findall(((c.get("title") or "") + " " + c["id"]).lower())):
@@ -126,24 +132,48 @@ def discover(goal, limit=5, include_drafts=False, cards=None):
     n = max(len(pool), 1)
     scored = []
     for c, level in pool:
+        if level == "recipe":
+            extra = " ".join([c.get("problem") or ""] + list(c.get("tags") or []))
+        else:
+            extra = " ".join(f"{i['name']} {i.get('help', '')}" for i in c.get("inputs") or [])
         hay = {"title": set(WORD.findall((c.get("title") or "").lower())),
                "id": set(WORD.findall(c["id"].lower())),
-               "inputs": set(WORD.findall(" ".join(f"{i['name']} {i.get('help', '')}" for i in c.get("inputs") or [])
-                                          .lower()))}
+               "inputs": set(WORD.findall(extra.lower()))}
         score = 0.0
         for w in q:
             weight = math.log(n / df[w]) + 0.1 if df.get(w) else 1.0
             score += weight * (3 * (w in hay["title"]) + 2 * (w in hay["id"]) + (w in hay["inputs"]))
         if score:
             online = "network" in (c.get("effects") or [])
-            scored.append((score * (0.9 if online else 1.0) + 0.01 * ORDER[level], c, level))
+            # a tool that answers ranks before a recipe that explains, at the same fit
+            factor = 0.85 if level == "recipe" else (0.9 if online else 1.0)
+            scored.append((score * factor + 0.01 * ORDER.get(level, 0), c, level))
     scored.sort(key=lambda x: (-x[0], x[1]["id"]))
-    return [{"tool": c["id"], "title": c.get("title", ""), "trust": lvl, "safety": c.get("safety"),
-             "inputs": [i["name"] + ("" if i.get("required") else "?") for i in c.get("inputs") or []]}
-            for _, c, lvl in scored[:limit]]
+    out = []
+    for _, c, lvl in scored[:limit]:
+        if lvl == "recipe":
+            out.append({"tool": c["id"], "kind": "recipe", "title": c.get("title", ""), "trust": "recipe",
+                        "read": "describe it and follow its steps; a recipe is never run"})
+        else:
+            out.append({"tool": c["id"], "kind": "tool", "title": c.get("title", ""), "trust": lvl,
+                        "safety": c.get("safety"),
+                        "inputs": [i["name"] + ("" if i.get("required") else "?") for i in c.get("inputs") or []]})
+    return out
+
+
+def _find_recipe(tool_id):
+    want = _norm_id(tool_id)
+    for r in recipemod.load():
+        if r["id"] == tool_id or _norm_id(r["id"]) == want:
+            return r
+    return None
 
 
 def describe(tool_id, cards=None):
+    if cards is None:
+        r = _find_recipe(tool_id)
+        if r is not None:
+            return dict(r, trust="recipe", how_to_use=recipemod.HOW_TO_USE, text=recipemod.text(r))
     c = dict(_find_card(tool_id, cards))
     c["trust"], c["trust_blockers"] = cardmod.trust(c)
     return c
@@ -403,6 +433,9 @@ def _restore(saved):
 
 # -- run ----------------------------------------------------------------------------------------------
 def run(tool_id, inputs=None, mode="apply", approve=False, cards=None, timeout=600):
+    if cards is None and _find_recipe(tool_id) is not None:
+        raise Refused(f"'{tool_id}' is a recipe: how this was done before, to read and adapt. A recipe is never run. "
+                      "NEXT: describe it and follow its steps, or call discover for a tool that does the job.")
     card = _find_card(tool_id, cards)
     level, why = cardmod.trust(card)
     if ORDER[level] < ORDER["carded"]:

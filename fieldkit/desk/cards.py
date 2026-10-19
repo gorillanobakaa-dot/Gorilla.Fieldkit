@@ -397,4 +397,10 @@ def catalogue(cards=None, results=None, public_only=True):
                                 text=True, timeout=20).stdout.strip() or "unknown"
     except (OSError, subprocess.SubprocessError):
         commit = "unknown"
-    return {"schema": 1, "fieldkit_commit": commit, "tools": tools}
+    # Recipes too (2026-10-19): published ones only, title and problem, so the in-process matcher can name them; the
+    # steps stay behind describe. Schema 2 adds this list; a reader of schema 1 ignores it.
+    from . import recipes as recipemod
+    recipes = sorted(({"id": r["id"], "title": r.get("title", ""), "problem": r.get("problem", ""),
+                       "tags": list(r.get("tags") or []), "platforms": list(r.get("platforms") or [])}
+                      for r in recipemod.load(public_only=public_only)), key=lambda r: r["id"])
+    return {"schema": 2, "fieldkit_commit": commit, "tools": tools, "recipes": recipes}

@@ -1,0 +1,96 @@
+# Recipes: how something was done before, kept so the next model does not have to work it out again.
+# Read and adapted, NEVER run. Contract and fields: fieldkit/desk/recipes.py. Check: fieldkit recipes check.
+# This file is PUBLISHED: nothing personal, no names, no private paths. The owner's own go in local/recipes.yaml.
+recipes:
+  - id: go-binary-for-macos-10-13
+    title: Build a Go program that runs on macOS 10.13 High Sierra (old Intel Macs)
+    problem: >-
+      A Go program built with the stock toolchain stops at once on macOS 10.13 with
+      "Symbol not found: _SecTrustEvaluateWithError", because crypto/x509 calls a Security.framework function that
+      only exists from 10.14.
+    technique:
+      - Use Go 1.24.x; Go 1.25 and later need macOS 12. Fetch it with GOTOOLCHAIN=go1.24.N (checked against Go's checksum database) and put its bin first on PATH; set GOTOOLCHAIN=local for the build so nothing switches toolchains behind your back.
+      - Copy GOROOT to a temporary folder and patch only the copy: in src/crypto/x509/internal/macos/security.go, reimplement SecTrustEvaluateWithError on top of the older SecTrustEvaluate binding (results 1 and 4 mean trusted); delete its cgo_import_dynamic line, its trampoline declaration, and the two-line TEXT/JMP stub in security.s.
+      - Build with CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 and that GOROOT.
+      - Check the output before shipping it - no _SecTrustEvaluateWithError string, no LC_DYLD_CHAINED_FIXUPS load command (macOS 12+) - and compare its imported symbols with a binary known to run on 10.13 (lief).
+    key_facts:
+      - CGO_ENABLED=0 keeps every other framework out; the binary links only libSystem, libresolv, CoreFoundation and Security.
+      - Go 1.24 stamps LC_BUILD_VERSION minos 11.0; 10.13's dyld ignores it. Do not hex-edit it, that breaks the ad-hoc code signature.
+      - Deleting three lines instead of two from security.s takes out the next function's TEXT header ("FuncPCABI0 expects an ABI0 function").
+      - On Windows, read and write Go's sources as UTF-8 with newline='' - the default cp1252 never matches the middle dot in the .s anchor.
+      - Certificate checks still go through the macOS keychain; only the error text on a failure becomes generic.
+    outcome: >-
+      2026-10-14: a patched build ran on a 2011 MacBook Air (10.13.6) and answered through an HTTPS provider.
+      2026-10-19: rebuilt with Go 1.24.13 on Windows; 138 imported symbols, the same set as the build proven on the Air.
+    pointer: null
+    platforms: [macos, windows, linux]
+    tags: [high sierra, old mac, golang, crypto, x509, security framework, legacy, cross compile]
+    learned: "2026-10-19"
+
+  - id: inline-tui-debris-after-narrowing
+    title: Stop leftover lines when a terminal window running an inline TUI is made narrower
+    problem: >-
+      A Bubble Tea program drawn inline (not in the alternate screen) leaves its old, wider lines on screen every time
+      the window is narrowed: a second status bar, two dividers.
+    technique:
+      - Understand the cause - the renderer erases its last frame by moving up as many LOGICAL lines as it drew, but a terminal that rewraps on resize has turned every old line wider than the new width into several rows, so the erase stops short.
+      - On each WindowSizeMsg, compute the extra rows from the last frame and the new width - for every line but the last, ceil(width / new width) - 1.
+      - Prefix the next frame's first line with ESC[nA (up n) and ESC[J (erase to the end of the screen). The renderer skips an unchanged first line, so the prefix is sent once; drop it as soon as the first line changes.
+      - Do it only on terminals that rewrap (macOS Terminal, iTerm2, Windows console and Windows Terminal, VTE, Konsole, kitty, tmux), with an environment override; on one that does not rewrap, moving up erases real lines.
+      - Also give every panel the new size on every resize, not only when it opens, and budget panel height for whatever is drawn under it.
+    key_facts:
+      - Measured with a hidden Windows console resized through SetConsoleWindowInfo and SetConsoleScreenBufferSize (shrink - window first; grow - buffer first).
+      - A frame's trailing newline is a row on screen too; tests that trim it pass while the real frame is one row too tall.
+      - Characters of ambiguous width (arrows) can draw two columns wide; use ASCII in measured lines.
+    outcome: >-
+      2026-10-19, Gorilla OpenCode: dragging between 169x43, 80x24, 60x18 and back left no debris; every panel kept
+      its title in all 84 frames read.
+    pointer: null
+    platforms: [windows, linux, macos]
+    tags: [bubbletea, terminal, resize, rewrap, reflow, sigwinch, status bar, tui]
+    learned: "2026-10-19"
+
+  - id: double-click-installer-for-mac
+    title: Make a double-click installer for a command-line program on macOS without a developer certificate
+    problem: >-
+      People who never open Terminal must install a command-line program on a Mac, safely, and be able to go back.
+    technique:
+      - Ship a folder with "Install NAME.command", "Undo NAME.command", the program in a .tar.gz and its SHA256SUMS; zip that folder with Unix execute modes (zipfile external_attr) so Archive Utility keeps them.
+      - Installer, in order - check the checksum (shasum -a 256 -c), unpack to a mktemp folder, TEST-RUN the new program, only then move the old one to the Trash, install into ~/.local/bin (no password), clear com.apple.quarantine (xattr -dr), add PATH once to ~/.bash_profile (and ~/.zprofile for zsh), copy an .app into ~/Applications and symlink it onto the Desktop.
+      - Trash with Finder (osascript 'tell application "Finder" to delete (POSIX file "p" as alias)') so Put Back works; fall back to a move into ~/.Trash with a date in the name.
+      - The .app is Contents/Info.plist, Contents/MacOS/launcher (exec open -a Terminal on a .command inside Resources) and an .icns made of PNG chunks (ic07..ic10 = 128..1024).
+      - Undo picks the newest trashed copy whose version differs from the one installed; reinstalling the same version replaces in place and trashes nothing.
+    key_facts:
+      - A .command copied from a USB stick carries no quarantine flag and runs on double-click; one downloaded with a browser needs right-click > Open once.
+      - An unsigned .pkg or .dmg is blocked by Gatekeeper on 10.13, and Apple's packaging tools only run on a Mac.
+      - Finder automation prompts start in 10.14; on 10.13 osascript to Finder needs no permission.
+      - Test it off the Mac with stand-ins - a fake program that prints its version, shims for shasum, xattr and osascript - including a damaged download and a program that will not start.
+    outcome: >-
+      2026-10-19, Gorilla OpenCode 0.1.149-dev for macOS 10.13: install, reinstall and undo both ways passed in a
+      throwaway home folder; a bad checksum and a non-starting program both stopped with nothing changed.
+    pointer: null
+    platforms: [macos]
+    tags: [installer, gatekeeper, quarantine, icns, app bundle, trash, put back, unsigned]
+    learned: "2026-10-19"
+
+  - id: claude-code-on-macos-10-13
+    title: Run Claude Code (the terminal version) on macOS 10.13, where the current release will not start
+    problem: >-
+      Claude Code 2.1.113 and later is a single native binary built for macOS 13.0 (Bun runtime, SDK 26.5); it cannot
+      start on 10.13.
+    technique:
+      - Use 2.1.112 (2026-04-16), the last release that is plain JavaScript - cli.js, Node 18 or later, no other dependency.
+      - Get Node 20 from MacPorts' prebuilt packages for darwin_17 (nodejs20 + icu + zlib + xz, about 46 MB); install with port -b (binary only) so it fails instead of compiling clang-20 for hours.
+      - npm install -g --prefix ~/.local --omit=optional @anthropic-ai/claude-code@2.1.112 (skip sharp; image pasting is lost).
+      - Set DISABLE_AUTOUPDATER=1 (otherwise it tries to update to the native binary), DISABLE_TELEMETRY=1, DISABLE_ERROR_REPORTING=1, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1.
+    key_facts:
+      - The bundled ripgrep needs macOS 10.12 (fine); the voice module needs 11.7 (voice fails quietly).
+      - MacPorts nodejs22 has failed on 10.13 since 2024; nodejs20 20.19.5 and nodejs18 build there.
+      - Not proven - whether the service still accepts a client that old; its model menu predates newer models (start it with --model).
+    outcome: >-
+      2026-10-19: measured from the packages only, not run on 10.13. Alternative proven on the same Mac: a Go agent
+      built with the go-binary-for-macos-10-13 recipe.
+    pointer: null
+    platforms: [macos]
+    tags: [claude, old mac, high sierra, node, macports, npm]
+    learned: "2026-10-19"

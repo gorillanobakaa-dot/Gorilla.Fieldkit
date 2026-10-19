@@ -44,10 +44,12 @@ TOOLS = [
                                         "backups, icons, builds and more. Search them here with the person's own "
                                         "words BEFORE you ever say Fieldkit cannot do something. Returns up to 8 "
                                         "tools, most trusted first, with their exact names and inputs (a trailing ? "
-                                        "means optional).",
+                                        "means optional), and RECIPES: how something was done on this computer "
+                                        "before, to read with describe and follow, never to run.",
      "inputSchema": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]}},
     {"name": "describe", "description": "Show a tool's card (use the exact name discover gave): inputs with types, "
-                                        "safety, how it is verified.",
+                                        "safety, how it is verified. For a recipe: the problem, the steps, the key "
+                                        "facts and what happened when it was done.",
      "inputSchema": {"type": "object", "properties": {"tool": {"type": "string"}}, "required": ["tool"]}},
     {"name": "run", "description": "Run a tool found with discover, by its exact name, with named inputs. Tools that "
                                    "change things: use mode=preview "
@@ -145,11 +147,19 @@ def call_tool(name, args):
             hits = agent.discover(args.get("goal", ""), limit=8)
             if not hits:
                 return "No reviewed tool fits that goal.\nNEXT: rephrase in plain words, or ask the owner.", False
-            return _text([f"- {h['tool']} [{h['trust']}, {h['safety']}] {h['title']}  inputs: "
-                          f"{', '.join(h['inputs']) or 'none'}" for h in hits] +
-                         ["NEXT: describe the best one, then run it."]), False
+            rows = []
+            for h in hits:
+                if h.get("kind") == "recipe":
+                    rows.append(f"- {h['tool']} [RECIPE: read it, never run it] {h['title']}")
+                else:
+                    rows.append(f"- {h['tool']} [{h['trust']}, {h['safety']}] {h['title']}  inputs: "
+                                f"{', '.join(h['inputs']) or 'none'}")
+            return _text(rows + ["NEXT: describe the best one, then run it (a recipe: describe it and follow "
+                                 "its steps)."]), False
         if name == "describe":
             c = agent.describe(args.get("tool", ""))
+            if c.get("trust") == "recipe":
+                return c["text"] + "\nNEXT: follow these steps yourself; a recipe is never run.", False
             ins = [f"  {i['name']} ({i.get('type', 'str')}{', required' if i.get('required') else ''})"
                    f"{' one of ' + str(i['choices']) if i.get('choices') else ''}: {i.get('help', '')}"
                    for i in c.get("inputs") or []]

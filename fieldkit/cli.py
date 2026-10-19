@@ -698,8 +698,12 @@ def cmd_agent(a):
     try:
         if a.action == "discover":
             res = agent.discover(" ".join(a.args), include_drafts=a.include_drafts)
-            _emit(res, a.json, lambda rs: [print(f"{r['trust']:<9} {str(r['safety']):<12} {r['tool']:<34} "
-                                                 f"{r['title'][:60]}  [{', '.join(r['inputs'])}]") for r in rs]
+            def row(r):
+                if r.get("kind") == "recipe":                  # read, never run: no safety, no inputs
+                    return f"{'recipe':<9} {'read only':<12} {r['tool']:<34} {r['title'][:60]}"
+                return (f"{r['trust']:<9} {str(r['safety']):<12} {r['tool']:<34} "
+                        f"{r['title'][:60]}  [{', '.join(r['inputs'])}]")
+            _emit(res, a.json, lambda rs: [print(row(r)) for r in rs]
                   or (None if rs else print("no reviewed tool fits; try other words or --include-drafts")))
             return 0 if res else 3
         if a.action == "describe":
@@ -798,6 +802,37 @@ def cmd_readiness(a):
     r = readiness.write_docs() if a.write_docs else readiness.report()
     out = {k: v for k, v in r.items() if k != "rows"}
     _emit(out, a.json, lambda o: print(chr(10).join(readiness.lines(r))))
+    return 0
+
+
+def cmd_recipes(a):
+    """Recipes: how something was done before, to read and adapt (fieldkit/desk/recipes.py)."""
+    from .desk import recipes
+    if a.action == "check":
+        problems = recipes.check()
+        _emit({"problems": problems, "ok": not problems}, a.json,
+              lambda o: print(chr(10).join(problems or [f"RECIPES OK: {len(recipes.load())} recipe(s) meet the contract"])))
+        return 3 if problems else 0
+    if a.action == "show":
+        if not a.rest:
+            print("fieldkit recipes show ID")
+            return 2
+        r = next((x for x in recipes.load() if x["id"] == a.rest[0]), None)
+        if r is None:
+            print(f"no recipe '{a.rest[0]}'. NEXT: fieldkit recipes list")
+            return 2
+        _emit(r, a.json, lambda o: print(recipes.text(r)))
+        return 0
+    if a.action == "capture":
+        if len(a.rest) != 2:
+            print("fieldkit recipes capture ID SOURCE")
+            return 2
+        recipes.capture(a.rest[0], a.rest[1])
+        return 0
+    rs = recipes.load()
+    _emit(rs, a.json, lambda o: print(chr(10).join(
+        [f"{r['id']:<34} {'published' if r['public'] else 'own':<9} {r.get('title', '')}" for r in rs]
+        or ["no recipes yet"])))
     return 0
 
 
@@ -1359,6 +1394,13 @@ def build_parser():
     rd = sub.add_parser("readiness", parents=[common])
     rd.add_argument("--write-docs", action="store_true", help="refresh local/READINESS.md (this machine's numbers, never published)")
     rd.set_defaults(fn=cmd_readiness)
+
+    rcp = sub.add_parser("recipes", parents=[common],
+                         help="how something was done before, to read and adapt, never run: list | show ID | check | "
+                              "capture ID SOURCE")
+    rcp.add_argument("action", nargs="?", default="list", choices=["list", "show", "check", "capture"])
+    rcp.add_argument("rest", nargs="*")
+    rcp.set_defaults(fn=cmd_recipes)
 
     sw = sub.add_parser("sweep", parents=[common])
     sw.add_argument("--run-tests", action="store_true", help="also run the tests of the registered tools under the sweep roots")
