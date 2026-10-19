@@ -137,13 +137,10 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for e in events:
         if e["kind"] in ("dest", "dns", "sni"):
             names_by_scenario.setdefault(e["scenario"], set()).add(e["value"])
-    for scen, names in names_by_scenario.items():
-        for n in names:
-            try:
-                for a in socket.getaddrinfo(n, 443):
-                    resolved.setdefault(scen, set()).add(a[4][0])
-            except OSError:
-                pass
+    # 2026-10-19: no live lookup at judging time. Resolving every observed name here sent real DNS queries (the
+    # canary's planted incoming.telemetry.mozilla.org, eight times during the 158 build 2 gate) and made the verdict
+    # depend on what the network answered later. Addresses come only from the run's own evidence: the wire's DNS
+    # answers and the build's resolver log (dns-a events, below).
 
     def allowed(kind, value, scen, port=None):
         # the scenario's own destinations hold for every witness, the packet capture's DNS too (2026-10-04: the
@@ -879,7 +876,7 @@ def recorded_lookups(run_dir, events):
     return out
 
 
-def rejudge(run_dir, owner_root, why="", dependency_baseline=None):
+def rejudge(run_dir, owner_root, why="", dependency_baseline=None, rerun=None):
     """Judge a finished run again with the current judge and allowlist: the SAME evidence (events.jsonl, the page
     results), nothing re-measured. Items judge() produces are replaced; every other item (action checks, audits,
     regression, reproducibility) is carried over unchanged, so a re-judge can only remove judging errors. The original
@@ -900,6 +897,9 @@ def rejudge(run_dir, owner_root, why="", dependency_baseline=None):
     copies = [run_dir / "build-direct", run_dir / "build-proxied", run_dir / "build-dns"]
     reps = {e.get("rep", 0) for e in events}
     fail, lists = judge(events, allow, scen_hosts, copies, results, repeat=len(reps), packets=True, quick=False)
+    rerun_note = None
+    if rerun:
+        fail, lists, rerun_note = _fold_rerun(run_dir, Path(rerun), fail, lists, allow, scen_hosts)
     new, changes = dict(old), {}
     why_old = old.get("WHY", {})
     dep_items = None
@@ -941,9 +941,41 @@ def rejudge(run_dir, owner_root, why="", dependency_baseline=None):
         new[k] = sorted(set(v))
     new["FINAL_RESULT"] = "PASS" if all(new[p] == "PASS" for p in POLICIES) else "FAIL"
     new["REJUDGED"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "why": why, "changes": changes,
-                       "original": orig.name, "evidence": "events.jsonl and page-results.json of this run, unchanged"}
+                       "original": orig.name, "evidence": "events.jsonl and page-results.json of this run, unchanged"
+                       + (f"; {rerun_note}" if rerun_note else "")}
     (run_dir / "test-results.json").write_text(json.dumps(new, indent=1), encoding="utf-8")
     return new, changes
+
+def _fold_rerun(run_dir, rerun_dir, fail, lists, allow, scen_hosts):
+    """Owner 2026-10-19 ("re-run newtab"): the judged items of the scenarios a partial RELEASE run of the SAME build
+    re-measured replace the full run's items for those scenarios only; everything else of the full run stands.
+    Refused unless the re-run is a release-mode run limited to named scenarios, of the same BUILD."""
+    plan = json.loads((rerun_dir / "gate-plan.json").read_text(encoding="utf-8"))
+    full_res = json.loads((run_dir / "test-results.json").read_text(encoding="utf-8"))
+    re_res = json.loads((rerun_dir / "test-results.json").read_text(encoding="utf-8"))
+    only = set(plan.get("only") or [])
+    if not plan.get("release") or not only:
+        raise ValueError(f"{rerun_dir.name} is not a release-mode run limited to named scenarios (only={plan.get('only')})")
+    if str(re_res.get("BUILD")) != str(full_res.get("BUILD")):
+        raise ValueError(f"{rerun_dir.name} measured build {re_res.get('BUILD')}, not {full_res.get('BUILD')}")
+    ev = [json.loads(l) for l in (rerun_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    ev += recorded_lookups(rerun_dir, ev)
+    pr = rerun_dir / "page-results.json"
+    results = json.loads(pr.read_text(encoding="utf-8")) if pr.is_file() else []
+    copies = [rerun_dir / "build-direct", rerun_dir / "build-proxied", rerun_dir / "build-dns"]
+    rfail, rlists = judge(ev, allow, scen_hosts, copies, results, repeat=len({e.get("rep", 0) for e in ev}),
+                          packets=True, quick=False)
+    tag = re.compile(r"^\[([^\]/]+)/")
+
+    def scen_of(item):
+        m = tag.match(item)
+        return m.group(1) if m else None
+    merged = {p: [x for x in fail[p] if scen_of(x) not in only] + [x for x in rfail[p] if scen_of(x) in only]
+              for p in fail}
+    mlists = {k: [x for x in v if scen_of(x) not in only] + [x for x in rlists.get(k, []) if scen_of(x) in only]
+              for k, v in lists.items()}
+    return merged, mlists, f"scenarios {sorted(only)} from re-run {rerun_dir.name} (same build, release mode)"
+
 
 NO_BASELINE = "no approved baseline (leakgate/baseline.json)"
 

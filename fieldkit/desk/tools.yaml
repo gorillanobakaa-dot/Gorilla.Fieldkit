@@ -90,6 +90,19 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_toolrouter.py"]
 
+- id: room
+  title: The shared room - every AI session on this machine sees what the others did on shared ground (commits, history changes, shared-file edits, process starts and stops, network and heavy steps, messages and owner approvals), written by a hook, not by memory
+  harness: core
+  entry: [python, -m, fieldkit.autopilot.room]
+  path: ${FIELDKIT}/fieldkit/autopilot/room.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, help: "tail [N] | name SESSION_ID NAME | doctor; --hook reads a Claude Code PostToolUse or UserPromptSubmit call on stdin"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  notes: 'state/coordination/ROOM.log (git-ignored), one locked line per action with a fixed verb (commit rebase ff edit start stop net heavy approve ask done); secrets, home paths and addresses redacted before writing; the reader shows at most 20 new lines from the OTHER sessions; never blocks a tool call. doctor checks ~/.claude/settings.json and prints the hook change, it never edits settings. Owner 2026-10-19.'
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_room.py"]
+
 - id: eta
   title: How long will it take - from a plan, past runs, live progress or a timed trial on the same disk; never a guess
   harness: core

@@ -1519,11 +1519,13 @@ def run(a, emit):
                 raise task.Refused("re-judging a leak gate is the owner's, at a real terminal: " + task.agent_shell())
             rest = a.args[1:]
             dep = next((x.split("=", 1)[1] for x in rest if x.startswith("dep=")), None)
-            rest = [x for x in rest if not x.startswith("dep=")]
+            rerun = next((x.split("=", 1)[1] for x in rest if x.startswith("rerun=")), None)   # owner 2026-10-19
+            rest = [x for x in rest if not x.startswith(("dep=", "rerun="))]
             runs = sorted(p for p in workroot.iterdir() if (p / "events.jsonl").is_file())
             run_dir = workroot / rest[0] if rest else runs[-1]
             new, changes = lg.rejudge(run_dir, owner, why=a.note or "",
-                                      dependency_baseline=(t["workdir"], dep) if dep else None)
+                                      dependency_baseline=(t["workdir"], dep) if dep else None,
+                                      rerun=workroot / rerun if rerun else None)
             for pol, c in changes.items():
                 print(f"  {pol}: {c['before']} -> {c['after']}  (removed {len(c['removed'])}, added {len(c['added'])})")
                 for x in c["added"][:10]:
@@ -1619,8 +1621,13 @@ def run(a, emit):
         except Exception:
             bid = None
         (owner / "state").mkdir(exist_ok=True)
-        (owner / "state" / "leakgate_result.json").write_text(_js.dumps({
-            "build_id": bid, "BUILD": result["BUILD"], "when": time.strftime("%Y-%m-%dT%H:%M:%S"), "release_run": bool(getattr(a, "release", False)),
+        # 2026-10-19: a run limited to some scenarios (--only) is never the release result. Recorded as release_run it
+        # would have let release-check pass the whole gate on one scenario; it goes to its own file instead, and only
+        # `leakgate-rejudge ... rerun=RUN` folds it into a full run's verdict.
+        partial = bool(only)
+        (owner / "state" / ("leakgate_result.partial.json" if partial else "leakgate_result.json")).write_text(_js.dumps({
+            "build_id": bid, "BUILD": result["BUILD"], "when": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "release_run": bool(getattr(a, "release", False)) and not partial, "only": sorted(only) if only else None,
             "FINAL_RESULT": result["FINAL_RESULT"], "policies": {p: result[p] for p in lg.POLICIES}, "artifacts": result["ARTIFACTS"]}, indent=1), encoding="utf-8")
         task.journal(t, "leakgate", final=result["FINAL_RESULT"], release=bool(getattr(a, "release", False)),
                      failed=[p for p in lg.POLICIES if result[p] != "PASS"], artifacts=result["ARTIFACTS"])

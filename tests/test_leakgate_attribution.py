@@ -10,6 +10,8 @@ D: a re-judge can compare the crates with a named earlier build's Cargo.lock.
 import json
 import subprocess
 
+import pytest
+
 from fieldkit.leakgate import allow as al, gate, sensors as se
 
 V6_LIST = "2606:4700::6811:cf05"
@@ -110,3 +112,53 @@ def test_rejudge_compares_crates_with_a_named_build(tmp_path, monkeypatch):
     new, changes = gate.rejudge(run, owner, why="test", dependency_baseline=(tree, "HEAD"))
     assert new["DEPENDENCY_POLICY"] == "PASS" and changes["DEPENDENCY_POLICY"]["before"] == "FAIL"
     assert (run / "dependencies.vs-HEAD.json").is_file()
+
+
+def test_the_judge_makes_no_live_lookup(monkeypatch):
+    import socket
+    asked = []
+    monkeypatch.setattr(socket, "getaddrinfo", lambda h, *a, **k: asked.append(h) or [])
+    _judge([_ev(kind="dest", value="incoming.telemetry.mozilla.org")])
+    assert asked == []
+
+
+def test_confirm_exit_tells_dying_from_surviving():
+    rows = [{"ProcessId": 1, "why": "still running 10 s after the browser was closed"},
+            {"ProcessId": 2, "why": "still running 10 s after the browser was closed"},
+            {"ProcessId": 3, "why": "still running 10 s after the browser was closed"},
+            {"ProcessId": 4, "why": "started after the browser was closed"}]
+    alive = {2: [False, True], 3: [False, False]}                      # per pid: exited by the 1st wait? the 2nd?
+    waiter = lambda pid, t: True if pid == 1 else alive[pid].pop(0)
+    got = {r["ProcessId"]: r.get("outcome") for r in se.confirm_exit(rows, kill=lambda pid: 0, waiter=waiter)}
+    assert got == {1: "exited-late", 2: "killed-again", 3: "survived", 4: None}
+
+
+def _run(tmp_path, name, plan, build, events):
+    d = tmp_path / name
+    d.mkdir()
+    (d / "gate-plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    (d / "test-results.json").write_text(json.dumps({"BUILD": build, "FINAL_RESULT": "FAIL", "SHUTDOWN_POLICY": "FAIL",
+                                                     "WHY": {}}), encoding="utf-8")
+    (d / "events.jsonl").write_text("\n".join(json.dumps(e) for e in ALL_SENSORS + events), encoding="utf-8")
+    return d
+
+
+def test_a_rerun_replaces_only_its_own_scenarios(tmp_path):
+    late = _ev(scenario="newtab", sensor="process-tree", kind="process-after-shutdown", value="firefox.exe")
+    other = _ev(scenario="crash", sensor="process-tree", kind="process-after-shutdown", value="firefox.exe")
+    full = _run(tmp_path, "full", {"release": True, "only": None}, "20261018195930", [late, other])
+    fail, lists = gate.judge(ALL_SENSORS + [late, other], ALLOW, {}, ["C:/build"], [], 1, True, False)
+    re_ok = _run(tmp_path, "re", {"release": True, "only": ["newtab"]}, "20261018195930", [])
+    merged, _l, note = gate._fold_rerun(full, re_ok, fail, lists, ALLOW, {})
+    assert [x for x in merged["SHUTDOWN_POLICY"] if "[newtab/" in x] == []          # newtab: the re-run's clean result
+    assert [x for x in merged["SHUTDOWN_POLICY"] if "[crash/" in x]                  # crash: the full run's, unchanged
+    assert "re-run re" in note
+
+
+def test_a_rerun_of_another_build_or_not_release_or_unscoped_is_refused(tmp_path):
+    full = _run(tmp_path, "full", {"release": True, "only": None}, "B2", [])
+    for name, plan, build in (("b1", {"release": True, "only": ["newtab"]}, "B1"),
+                              ("dev", {"release": False, "only": ["newtab"]}, "B2"),
+                              ("all", {"release": True, "only": None}, "B2")):
+        with pytest.raises(ValueError):
+            gate._fold_rerun(full, _run(tmp_path, name, plan, build, []), {p: [] for p in gate.POLICIES}, {}, ALLOW, {})

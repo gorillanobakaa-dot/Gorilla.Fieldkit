@@ -322,6 +322,38 @@ def build_pids(build_dir):
     return [r["ProcessId"] for r in snapshot_processes() if (r.get("ExecutablePath") or "").lower().startswith(bd)]
 
 
+def confirm_exit(rows, wait=30, kill=None, waiter=None):
+    """Owner 2026-10-19 (leak-gate proposal E): a process still listed when the watch window ends is waited on for its
+    REAL exit (up to `wait` s), then killed once more and waited on again. -> rows, each with "outcome":
+      exited-late       it was dying: gone within `wait` s (noted, not a failure)
+      killed-again      a second kill ended it (it survived the first: a failure)
+      survived          still running after both kills (a failure)
+    2026-10-19 build 2 run: pid 2132 was listed 10 s after `taskkill /T /F` while its log had stopped mid-line at the
+    kill; the gate could not tell "slow to vanish" from "refused to die"."""
+    def _wait(pid, t):
+        try:
+            import psutil
+            psutil.Process(int(pid)).wait(timeout=t)
+            return True
+        except Exception as e:                            # NoSuchProcess = already gone; TimeoutExpired = alive
+            return type(e).__name__ == "NoSuchProcess"
+    waiter = waiter or _wait
+    kill = kill or (lambda pid: subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
+                                               text=True).returncode)
+    out = []
+    for r in rows:
+        if not r.get("why", "").startswith("still running"):
+            out.append(r)
+            continue
+        pid = r.get("ProcessId")
+        if waiter(pid, wait):
+            out.append({**r, "outcome": "exited-late"})
+            continue
+        rc = kill(pid)
+        out.append({**r, "outcome": "killed-again" if waiter(pid, wait) else "survived", "second_kill_rc": rc})
+    return out
+
+
 def watch_after_kill(build_dir, seconds, killed_at=None):
     """-> processes from build_dir that outlive the browser: still running at the END of the `seconds` window, or
     started after the kill (a relaunch or a detached task). 2026-10-04 (build 26 gate): every process merely SEEN in the
@@ -760,7 +792,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     for pid in build_pids(build_dir):                 # a de-elevated browser is not in the launcher's tree
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
-    after_kill = watch_after_kill(build_dir, watch, killed_at=killed_at)
+    after_kill = confirm_exit(watch_after_kill(build_dir, watch, killed_at=killed_at))
     after = fs_snapshot(watch_dirs())
     if packets:
         pktmon_stop(etl, pcap)
@@ -782,8 +814,12 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                    "pid": r.get("ProcessId"), "parent_pid": r.get("ParentProcessId"),
                    "detail": r.get("ExecutablePath") or "", "cmd": (r.get("CommandLine") or "")[:300]})
     for r in after_kill:
-        ev.append({**base, "sensor": "process-tree", "kind": "process-after-shutdown", "value": (r.get("Name") or "?").lower(),
-                   "detail": f"{r.get('why', '')}: pid {r.get('ProcessId')} {(r.get('CommandLine') or r.get('ExecutablePath') or '')[:200]}"})
+        late = r.get("outcome") == "exited-late"                  # dying, not alive: noted, not judged (proposal E)
+        why = r.get("why", "") + (f" ({r['outcome']}" + (f", second kill rc {r['second_kill_rc']}" if "second_kill_rc" in r else "")
+                                  + ")" if r.get("outcome") else "")
+        ev.append({**base, "sensor": "process-tree", "kind": "process-exited-late" if late else "process-after-shutdown",
+                   "value": (r.get("Name") or "?").lower(),
+                   "detail": f"{why}: pid {r.get('ProcessId')} {(r.get('CommandLine') or r.get('ExecutablePath') or '')[:200]}"})
     local_ports = set()
     bd_prefix = str(Path(build_dir)).lower()
     for s in sampler.socks:
