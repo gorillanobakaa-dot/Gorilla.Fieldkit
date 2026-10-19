@@ -4638,4 +4638,22 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_flaky.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "Wired into METHODS 2026-10-18; before that: `flaky` is not in fieldkit/cli.py METHODS, so this entry fails today (fieldkit's own parser rejects it) and `cards check` will flag it until the wiring lands; until then `python -m fieldkit.method.flaky ...` works (it has a __main__ guard). Note main() takes no prog argument, while the METHODS dispatcher calls mod.main(args, prog=...): the wiring needs main(argv=None, prog=...) or a TypeError follows. repeat/log run pytest n times in fresh processes with their own --basetemp (temp files); the tests' own effects apply. scan only reads (exit 0 always)."
+
+- id: canary
+  title: Prove a CHECK can fail - each check on a planted input it must flag and a clean control it must pass; a second witness reads the artifact
+  harness: method
+  entry: [python, -m, fieldkit, canary]
+  path: ${FIELDKIT}/fieldkit/method/canary.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [list, run, witness], help: "run the canaries, run the witnesses, or list both"}
+    - {name: ids, flag: null, type: list, required: false, help: "canary or witness ids (default: all)"}
+    - {name: registry, flag: --registry, type: str, required: false, help: "a registry file instead of the default ones (repeatable)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {3: "a check is BLIND, FALSE-ALARM, UNAVAILABLE or ERROR, or a witness DISAGREEs"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_canary.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Plants files in temporary folders it removes, and runs each check's own command or public function (fieldkit/method/canary_checks.py) there; nothing else is touched and nothing goes to the network. Registry: fieldkit/method/canaries.yaml + local/canaries.yaml. Born 2026-10-18 from the telemetry scan that passed a program carrying a tracing library 1,036 times."
+  notes: "repeat/log run pytest n times in fresh processes, each with its own --basetemp; the tests' own effects apply. scan only reads (exit 0 always). Reachable as `fieldkit flaky` since 2026-10-18."

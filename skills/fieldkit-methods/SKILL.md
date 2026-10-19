@@ -24,6 +24,21 @@ fieldkit mutate --plan mutations.yaml -- TEST COMMAND          [{file, swap: [OL
 ```
 CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fails. The file is always restored.
 
+## A check (a scanner, a gate row, an audit): prove it can fail, and get a second witness
+```
+fieldkit canary run [ID ...]        each check on a planted input it must flag and a clean control it must pass
+fieldkit canary witness [ID ...]    the source reading against an independent reading of the shipped artifact
+fieldkit canary list
+```
+OK = it flags the plant and passes the control. BLIND = it passed the plant: it cannot see what it exists to see.
+FALSE-ALARM = it flagged the clean control. UNAVAILABLE = it did not run (never counted as OK). DISAGREE (witness) =
+source and artifact tell different stories: believe neither until you know why. A new check gets a canary in
+fieldkit/method/canaries.yaml (contents as a list of parts, so the registry does not trip the scanners it tests;
+machine paths in local/canaries.yaml). Release checks call `canary.gate(ids)`: a blind check cannot sign a release.
+Learned 2026-10-18/19: a telemetry scan that read only the source passed a program carrying a tracing library 1,036
+times; the static theme check cannot see a white popup background (white is a theme colour; only the rendered
+contrast check sees that failure).
+
 ## Waiting
 `fieldkit wait --until "CMD" --matches RE --timeout 600` - never a fixed sleep.
 
