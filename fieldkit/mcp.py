@@ -35,7 +35,7 @@ from .desk import readiness
 PROTOCOL = "2024-11-05"
 
 TOOLS = [
-    {"name": "discover", "description": "Find tools for a goal, in plain words. Returns up to 5 tools, "
+    {"name": "discover", "description": "Find tools for a goal, in plain words. Returns up to 8 tools, "
                                         "most trusted first, with their inputs (a trailing ? means optional).",
      "inputSchema": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]}},
     {"name": "describe", "description": "Show a tool's card: inputs with types, safety, how it is verified.",
@@ -68,6 +68,15 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}}},
 ]
 
+
+# Tools that only read Fieldkit's own registry and state: marked with the MCP standard's readOnlyHint, so a client
+# that trusts this server can answer them without asking the person each time (2026-10-19: the owner was asked to
+# approve every discover and describe while looking for one HDMI tool). run, undo, next and the build_harness jobs
+# that hand out or check work are NOT marked; fail closed: a tool missing here is treated as one that changes things.
+READ_ONLY = {"discover", "describe", "readiness", "build_harness_status", "build_harness_briefs"}
+for _t in TOOLS:
+    _t["annotations"] = {"readOnlyHint": _t["name"] in READ_ONLY, "destructiveHint": _t["name"] not in READ_ONLY,
+                         "openWorldHint": _t["name"] == "run"}
 
 RECORDER = None       # set by serve(): state/recorder/mcp-<date>.jsonl
 
@@ -123,7 +132,7 @@ def call_tool(name, args):
                 "person can be asked first."), False
     try:
         if name == "discover":
-            hits = agent.discover(args.get("goal", ""))
+            hits = agent.discover(args.get("goal", ""), limit=8)
             if not hits:
                 return "No reviewed tool fits that goal.\nNEXT: rephrase in plain words, or ask the owner.", False
             return _text([f"- {h['tool']} [{h['trust']}, {h['safety']}] {h['title']}  inputs: "

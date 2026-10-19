@@ -111,6 +111,26 @@ def test_discover_prefers_trusted_and_skips_drafts():
     assert len(agent.discover("remove names", cards=cs, include_drafts=True)) == 2
 
 
+def test_discover_keeps_two_letter_words_like_tv():
+    # 2026-10-19: "screen tv" lost "tv" (words under three letters were dropped) and found the wrong tools
+    cs = [_card(id="hdmi-diag", title="Check the laptop and the TV"),
+          _card(id="tui-attach", title="Talk to a window on the screen")]
+    assert [h["tool"] for h in agent.discover("tv", cards=cs)] == ["hdmi-diag"]
+    assert agent.discover("screen tv", cards=cs)[0]["tool"] == "hdmi-diag" or \
+        {h["tool"] for h in agent.discover("screen tv", cards=cs)} == {"hdmi-diag", "tui-attach"}
+    assert agent.discover("the and of", cards=cs) == []                    # stop words still match nothing
+
+
+def test_mcp_marks_only_reading_tools_read_only():
+    from fieldkit import mcp
+    marks = {t["name"]: t["annotations"]["readOnlyHint"] for t in mcp.TOOLS}
+    assert {n for n, ro in marks.items() if ro} == {"discover", "describe", "readiness", "build_harness_status",
+                                                    "build_harness_briefs"}
+    assert marks["run"] is False and marks["undo"] is False and marks["build_harness_submit"] is False
+    listed = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
+    assert all("annotations" in t for t in listed)
+
+
 def test_system_changes_need_the_owner_even_when_reversible(tmp_path):
     c = _card(safety="reversible", effects=["registry"], modes={"preview": ["+", "--dry"]},
               entry=[PY, "-c", "import sys; print('would set', sys.argv[1:])"])

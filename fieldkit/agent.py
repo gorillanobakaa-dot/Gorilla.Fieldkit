@@ -77,8 +77,16 @@ def _find_card(tool_id, cards=None):
 
 
 # -- discover / describe ---------------------------------------------------------------
+# Words that say nothing about a tool. Two-letter words used to be dropped wholesale, which threw away "tv", "pc",
+# "os", "ip" (2026-10-19: "screen tv" searched for "screen" only and offered the OpenCode window tools for an HDMI
+# question).
+STOP_WORDS = {"a", "an", "the", "to", "of", "in", "on", "at", "is", "it", "my", "me", "do", "be", "by", "or", "and",
+              "for", "can", "how", "what", "with", "from", "this", "that", "you", "your", "i", "we", "up", "as", "if",
+              "so", "no", "not", "all", "any"}
+
+
 def discover(goal, limit=5, include_drafts=False, cards=None):
-    q = [w for w in WORD.findall(goal.lower()) if len(w) > 2]
+    q = [w for w in WORD.findall(goal.lower()) if len(w) > 1 and w not in STOP_WORDS]
     results = cardmod.test_results()
     scored = []
     for c in cards or _cards():

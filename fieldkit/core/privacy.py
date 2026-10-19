@@ -35,6 +35,9 @@ SECRETS = [
     ("openai-key", r"(?<![\w.-])sk-(proj-)?[A-Za-z0-9_-]{20,}\b"),   # not glued to a word: imx53-sk-imx53-... is a file
     ("anthropic-key", r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
     ("google-api-key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    # Google OAuth client secret (2026-10-19: a room line held one and nothing redacted it). Installed-app secrets
+    # that a vendor ships publicly inside its own program still carry ALLOW_MARK with the reason on their line.
+    ("google-oauth-secret", r"\bGOCSPX-[A-Za-z0-9_-]{28}\b"),
     ("aws-access-key", r"\bAKIA[0-9A-Z]{16}\b"),
     ("private-key", r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     ("url-credentials", r"https?://[^/\s@\"']+@[^/\s]+"),   # user:pass@ or token@ in a URL
