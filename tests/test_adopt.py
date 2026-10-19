@@ -239,17 +239,19 @@ def test_every_spelling_under_another_sweep_root_is_repointed(monkeypatch, tmp_p
     monkeypatch.setattr(adopt, "_documents", lambda: tmp_path)
     root = tmp_path / "Gorilla.Opencode" / "scripts" / "model-tests"
     root.mkdir(parents=True)
-    text = ("path: ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/tui_drive.py\n"
-            "run C:\\Users\\you\\Documents\\Gorilla.Opencode\\scripts\\model-tests\\tui_drive.py now\n"
-            "see scripts/model-tests/tui_drive.py and Gorilla.Opencode/scripts/model-tests/tui_drive.py\n"
-            "not this: other/scripts/model-tests/tui_drive.pyc nor scripts/model-tests/tui_drive_old.py\n")
-    new, n = adopt.rewrite(text, ["tui_drive.py"], {"tui_drive.py": "OpenCodeModelTests/tui_drive.py"}, root)
-    assert n == 4, new
-    assert "path: ${FIELDKIT}/local/kits/OpenCodeModelTests/tui_drive.py" in new
-    assert "C:\\Users\\you\\Documents\\Scripts\\Fieldkit\\local\\kits\\OpenCodeModelTests\\tui_drive.py now" in new
-    assert "see Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/tui_drive.py and " \
-           "Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/tui_drive.py" in new
-    assert "tui_drive_old.py" in new and "other/scripts/model-tests/tui_drive.pyc" in new
+    text = ("path: ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/demo_probe.py\n"
+            "run C:\\Users\\you\\Documents\\Gorilla.Opencode\\scripts\\model-tests\\demo_probe.py now\n"
+            "see scripts/model-tests/demo_probe.py and Gorilla.Opencode/scripts/model-tests/demo_probe.py\n"
+            "not this: other/scripts/model-tests/demo_probe.pyc nor scripts/model-tests/demo_probe_old.py\n"
+            "- Runner: `Documents\\Gorilla.Opencode\\scripts\\model-tests\\demo_probe.py`\n")
+    new, n = adopt.rewrite(text, ["demo_probe.py"], {"demo_probe.py": "OpenCodeModelTests/demo_probe.py"}, root)
+    assert n == 5, new
+    assert "`Documents\\Scripts\\Fieldkit\\local\\kits\\OpenCodeModelTests\\demo_probe.py`" in new
+    assert "path: ${FIELDKIT}/local/kits/OpenCodeModelTests/demo_probe.py" in new
+    assert "C:\\Users\\you\\Documents\\Scripts\\Fieldkit\\local\\kits\\OpenCodeModelTests\\demo_probe.py now" in new
+    assert "see Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/demo_probe.py and " \
+           "Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/demo_probe.py" in new
+    assert "demo_probe_old.py" in new and "other/scripts/model-tests/demo_probe.pyc" in new
 
 
 def test_a_tool_under_another_sweep_root_is_adopted_with_its_card(world, monkeypatch):
@@ -257,25 +259,25 @@ def test_a_tool_under_another_sweep_root_is_adopted_with_its_card(world, monkeyp
     monkeypatch.setattr(adopt, "_documents", lambda: docs)
     root = docs / "Gorilla.Opencode" / "scripts" / "model-tests"
     root.mkdir(parents=True)
-    (root / "tui_drive.py").write_text("print('drive')\n", encoding="utf-8")
+    (root / "demo_probe.py").write_text("print('drive')\n", encoding="utf-8")
     from fieldkit.desk import sweep as sweepmod
     monkeypatch.setattr(sweepmod, "roots", lambda local=None: [world["scripts"], root])
     (world["fk"] / "local" / "tools.yaml").write_text(
-        "tools:\n- id: tui-drive\n  path: ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/tui_drive.py\n",
+        "tools:\n- id: tui-drive\n  path: ${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests/demo_probe.py\n",
         encoding="utf-8")
     # a note (skill, memory) that names the tool by its repository-relative path: found and repointed too
     # (2026-10-19: text_hits shadowed the source root with its own loop variable and found no note at all)
-    world["skill"].write_text("Run `scripts/model-tests/tui_drive.py <exe>`\n", encoding="utf-8")
-    p = adopt.plan(["tui_drive.py"], into="OpenCodeModelTests")
+    world["skill"].write_text("Run `scripts/model-tests/demo_probe.py <exe>`\n", encoding="utf-8")
+    p = adopt.plan(["demo_probe.py"], into="OpenCodeModelTests")
     assert p["ok"] and p["root"] == str(root) and p["cards"] == 1, p
     assert str(world["skill"]) in p["text"], p["text"]
     r = adopt.apply(p, run_tests=False, log=lambda m: None)
     assert r["ok"], r
     card = (world["fk"] / "local" / "tools.yaml").read_text(encoding="utf-8")
-    assert "${FIELDKIT}/local/kits/OpenCodeModelTests/tui_drive.py" in card
-    assert (world["fk"] / "local" / "kits" / "OpenCodeModelTests" / "tui_drive.py").is_file()
-    assert (root / ("tui_drive.py" + adopt.MARKER)).is_file()
-    assert "Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/tui_drive.py" in \
+    assert "${FIELDKIT}/local/kits/OpenCodeModelTests/demo_probe.py" in card
+    assert (world["fk"] / "local" / "kits" / "OpenCodeModelTests" / "demo_probe.py").is_file()
+    assert (root / ("demo_probe.py" + adopt.MARKER)).is_file()
+    assert "Documents/Scripts/Fieldkit/local/kits/OpenCodeModelTests/demo_probe.py" in \
         world["skill"].read_text(encoding="utf-8")
 
 

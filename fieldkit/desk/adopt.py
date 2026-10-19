@@ -78,7 +78,9 @@ def forms(name, dest=None, root=None):
     comes first so cards get ${FIELDKIT}; any other spelling keeps its own separator."""
     dest = dest or name
     n = re.escape(name)
-    end = r"""(?=$|[\\/"'\s,;)\]}])"""                   # NAME ends here: a separator, a quote or the end
+    # NAME ends here: a separator, a quote, a Markdown backtick (2026-10-20: `...\tool.py` in a note was missed) or
+    # the end
+    end = r"""(?=$|[\\/"'`\s,;)\]}])"""
     back = dest.replace("/", "\\")
     rel = _rel_to_documents(root) if root is not None else "Scripts"
     if rel in (None, "Scripts"):
