@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18
+# Version: 1.1.0 · updated 26-10-19
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -35,6 +35,59 @@ ROUTES = [
                 r"\bfindstr\s+[^|;\n]*/s\b", re.I),
      "the Grep tool (ripgrep), or fieldkit size find --grep TEXT for files matched by name, size or age",
      FK + " size find --ext py --grep vctip <folder>"),
+    # -- 2026-10-19: every hand-rolled habit a Fieldkit tool replaces (worker session, job 2). Each row has a test that
+    #    it fires and a test that its look-alike does not (tests/test_autopilot_toolrouter.py).
+    ("hash-by-hand",
+     re.compile(r"\bGet-FileHash\b|\bcertutil(\.exe)?\s+-hashfile\b|(^|[;&|]\s*)sha(1|256|512)sum\s+(?!-c\b|--check\b)",
+                re.I),
+     "fieldkit size hash (SHA-256 on the CPU's SHA instructions, files or whole folders, JSON per file)",
+     FK + r" size hash C:\gfobj\dist\firefox-158.0.en-US.win64.installer.exe --json"),
+    ("permanent-delete",
+     # a folder removed for good, outside the session's own scratch or temp folders (2026-10-16: a "recycle" that
+     # destroyed 157.0-clean; the owner's rule: never a permanent delete)
+     # the exemption looks at the whole line, wherever the path stands relative to the flag
+     re.compile(r"^(?![^\n]*(\\Temp\\|/tmp/|\$env:TEMP|\$TEMP\b|scratchpad|AppData\\Local\\Temp|pytest-tmp))"
+                r"[^\n]*?(Remove-Item|\bri\b|(?<!git\s)\brm\b|\bdel\b|\brmdir\b|\brd\b)[^|;\n]*(-Recurse\b|\s-rf?\b|\s-fr\b|/s\b)",
+                re.I | re.M),
+     "fieldkit size recycle (to the Recycle Bin, verified in the bin's records, undo with fieldkit size undo)",
+     FK + r" size recycle D:\Build.Work\old-tree --json"),
+    ("tree-copy-by-hand",
+     re.compile(r"\brobocopy\b(?![^|;\n]*/L\b)|\bxcopy\b[^|;\n]*/[sSeE]\b", re.I),
+     "fieldkit size copy / move (every byte compared after, journalled, undo; a plan above 1000 files or 10 GiB)",
+     FK + r" size copy C:\src\tree --to D:\backup --json"),
+    ("office-by-hand",
+     re.compile(r"\b(import\s+(docx|openpyxl|pptx|PyPDF2|pypdf|fitz)\b|from\s+(docx|openpyxl|pptx|pypdf|PyPDF2)\s+import)|"
+                r"\bpdftotext\b", re.I),
+     "fieldkit office read (Word, Excel, PowerPoint and PDF as text, offline; office check / scrub / render too)",
+     FK + r" office read C:\path\report.docx"),
+    ("network-diagnosis-by-hand",
+     re.compile(r"\bipconfig\s+/all\b|\bnetsh\s+(wlan|interface|int)\s+show\b|\bTest-NetConnection\b|\btracert\b|"
+                r"\bGet-NetRoute\b|\bnmcli\s+(dev|device|general)\b", re.I),
+     "the nettriage card first (which link carries the internet, the hub, the radio), then fieldkit net / wifi",
+     FK + " agent describe nettriage"),
+    ("icon-cache-by-hand",
+     re.compile(r"\bie4uinit(\.exe)?\s+-(show|ClearIconCache)\b|IconCache\.db|iconcache_\w*\.db", re.I),
+     "fieldkit icons cache (rebuilds the icon cache with a backup; the desktop button does the same)",
+     FK + " icons cache"),
+    ("kill-by-name",
+     # stop only the processes you started, by PID (2026-09: a name-based kill closed the owner's own programs)
+     re.compile(r"\btaskkill(\.exe)?\b[^|;\n]*/IM\b|\bStop-Process\b[^|;\n]*-Name\b|\b(pkill|killall)\b", re.I),
+     "Stop-Process -Id <PID> of a process this session started (find it with Get-CimInstance Win32_Process)",
+     "Stop-Process -Id 12345   # the PID your own Start-Process returned"),
+    ("download-by-hand",
+     re.compile(r"\b(Invoke-WebRequest|iwr|Start-BitsTransfer|bitsadmin)\b|\bwget\s+https?://|"
+                r"\bcurl(\.exe)?\s+[^|;\n]*(-[a-zA-Z]*[oO]\b|--output\b)", re.I),
+     "a fetcher that names its host and checks the hash: fieldkit evidence fetch (pages), build-harness vault fetch "
+     "(sources); every download is a door, say which and why",
+     FK + " evidence fetch https://example.org/page"),
+    ("registry-edit-by-hand",
+     re.compile(r"\breg(\.exe)?\s+(add|delete|import)\b|\b(Set|New|Remove)-ItemProperty\b[^|;\n]*HK(LM|CU)", re.I),
+     "a Windows 11 tweaks module (backup, preview, apply, undo): fieldkit win11 run MODULE preview|apply|undo",
+     FK + " win11 run copilot preview"),
+    ("sleep-to-wait",
+     re.compile(r"\bStart-Sleep\s+(-s(econds)?\s+)?([1-9]\d|\d{3,})\b|(^|[;&|]\s*)sleep\s+([1-9]\d|\d{3,})\b", re.I),
+     "fieldkit wait --until CMD --matches RE --timeout S (wait on the condition, never on a clock)",
+     FK + ' wait --until "git log -1 --format=%h" --matches c75f600 --timeout 600'),
 ]
 #: a refusal can be overridden only by saying why in the command itself, so the reason is on record
 OVERRIDE = re.compile(r"#\s*toolrouter-ok:\s*\S", re.I)
