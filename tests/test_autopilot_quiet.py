@@ -68,7 +68,7 @@ def test_any_app_talking_is_stopped_and_windows_the_gate_and_the_agent_are_spare
              conn(105, "127.0.0.1"), conn(106, None, "0.0.0.0", kind=2), conn(107, "5.5.5.5"),
              conn(108, "6.6.6.6")]
     ps = FakePs(procs, conns, {102: 900, 107: 101, 108: 100})
-    rows = quiet.noisy(ps, wanted=["Telegram"], also=(900,))
+    rows = quiet.noisy(ps, wanted=["Telegram"], also=(900,), platform="win32")   # a Windows scene, on any CI system
     assert sorted(r["pid"] for r in rows) == [100, 104, 106, 108]       # WebView2 judged by its host
     quiet.stop(rows, ps, say=lambda m: None)
     assert sorted(ps.killed) == [100, 104, 106, 108]

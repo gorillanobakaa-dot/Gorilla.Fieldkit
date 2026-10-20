@@ -2,7 +2,35 @@
 next compile, and judged by build-verify's own rows."""
 import subprocess
 
-from fieldkit.buildh import fastloop, probe
+import pytest
+
+from fieldkit.buildh import fastloop, probe, themecheck
+
+# the theme spec the gate judges by, as a fixture: the owner's real THEME.yaml lives in Gorilla.firefox, which a fresh
+# download (and GitHub CI) does not have (2026-10-20: both CI systems failed here; the laptop passed because it has it)
+SPEC = """version: 1
+colours:
+  black: "#000000"
+  cyan: "#00FFFF"
+  highlight: "#65568C"
+  pink: "#FFC0CB"
+  teal_dark: "#1A4D4D"
+pairs:
+  - [cyan, black]
+  - [cyan, highlight]
+  - [black, pink]
+hover: highlight
+focus: cyan
+contrast_floor_from_pairs: true
+tolerance: 6
+"""
+
+
+@pytest.fixture(autouse=True)
+def _spec(tmp_path, monkeypatch):
+    p = tmp_path / "THEME.yaml"
+    p.write_text(SPEC, encoding="utf-8")
+    monkeypatch.setattr(themecheck, "SPEC_PLACES", [str(p)])
 
 
 def _tree(tmp_path):
