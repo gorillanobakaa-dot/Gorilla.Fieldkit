@@ -966,7 +966,7 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, rule]
 
 - id: thermal-profile
-  title: "Which cooling profile the laptop is on now (run it with no value), or switch to quiet, balanced, performance or off (Windows)"
+  title: "Which cooling profile the laptop is on now (run it with no value), or switch to quiet, balanced, performance or off (Windows and Linux)"
   harness: thermal
   entry: [python, -m, fieldkit, thermal, profile]
   path: ${FIELDKIT}/fieldkit/thermal/profiles.py
@@ -978,6 +978,19 @@ tools:
   headline: "The cooling profile is {profile}."
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, profile or danger or hwinfo]
+
+- id: thermal-monitor
+  title: "Keep the processor cool while something heavy runs (a build): lowers the CPU cap when hot, speaks, puts it back (Windows and Linux)"
+  harness: thermal
+  entry: [python, -m, fieldkit, thermal, monitor]
+  path: ${FIELDKIT}/fieldkit/thermal/profiles.py
+  inputs:
+    - {name: until_pid, flag: --until-pid, type: int, required: false, help: "stop when this process ends (the build's process id); empty = run until `thermal monitor --stop`"}
+  effects: [hardware, writes-files, processes]   # moves the CPU cap (powercfg on Windows; intel_pstate/cpufreq on Linux, via sudo -n when root-only), writes state/thermal/monitor.json
+  safety: reversible                              # the cap goes back to 100% whenever it stops
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_platform_gate.py", -k, monitor or cap or coretemp or providers]
+  notes: "Linux half added 2026-10-20 (owner: 'fix the thermal monitor so it works on linux'); before it, the monitor started PowerShell on Linux and died. It reports at start which sensor and which cap it uses, and says CANNOT COOL when the cap is root-only and sudo wants a password."
 
 - id: fieldkit-icons
   title: Sharp desktop icons - the icon cache (Windows/GTK/KDE), .ico frames and checks, crisp recoloured icons

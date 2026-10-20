@@ -1,0 +1,2707 @@
+{
+ "academic accessed": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-accessed"
+  ]
+ },
+ "academic brief": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-brief"
+  ]
+ },
+ "academic build": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-build"
+  ]
+ },
+ "academic check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-check"
+  ]
+ },
+ "academic countries": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-countries"
+  ]
+ },
+ "academic dashes": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-dashes"
+  ]
+ },
+ "academic date": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-date"
+  ]
+ },
+ "academic extract": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-extract"
+  ]
+ },
+ "academic finish": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-finish"
+  ]
+ },
+ "academic init": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-init"
+  ]
+ },
+ "academic language": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-language"
+  ]
+ },
+ "academic local": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-local"
+  ]
+ },
+ "academic menu": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-menu"
+  ]
+ },
+ "academic next": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-next"
+  ]
+ },
+ "academic plagiarism": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-plagiarism"
+  ]
+ },
+ "academic portfolio": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-portfolio"
+  ]
+ },
+ "academic preflight": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-preflight"
+  ]
+ },
+ "academic record": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-record"
+  ]
+ },
+ "academic refs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-refs"
+  ]
+ },
+ "academic search": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-search"
+  ]
+ },
+ "academic setup": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-setup"
+  ]
+ },
+ "academic shortcut": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-shortcut"
+  ]
+ },
+ "academic structure": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-structure"
+  ]
+ },
+ "academic style": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-style"
+  ]
+ },
+ "academic template": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-template"
+  ]
+ },
+ "academic types": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-types"
+  ]
+ },
+ "academic words": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "academic-words"
+  ]
+ },
+ "audio": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-audio"
+  ]
+ },
+ "autopilot": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "autopilot"
+  ]
+ },
+ "backup": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-backup"
+  ]
+ },
+ "backup remind": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-backup-remind"
+  ]
+ },
+ "backup usb": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-backup-usb"
+  ]
+ },
+ "build-harness about-pages": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-about-pages"
+  ]
+ },
+ "build-harness about-registry": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-about-registry"
+  ]
+ },
+ "build-harness accept": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-accept"
+  ]
+ },
+ "build-harness api-drift": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-api-drift"
+  ]
+ },
+ "build-harness approve": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-approve"
+  ]
+ },
+ "build-harness archive-gap": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-archive-gap"
+  ]
+ },
+ "build-harness audit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-audit"
+  ]
+ },
+ "build-harness awake": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-awake"
+  ]
+ },
+ "build-harness binary-patches": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-binary-patches"
+  ]
+ },
+ "build-harness brief": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-brief"
+  ]
+ },
+ "build-harness briefs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-briefs"
+  ]
+ },
+ "build-harness build-gate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-build-gate"
+  ]
+ },
+ "build-harness build-run": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "drives the Windows build script harness/gorilla_build.py of the Gorilla.firefox repository and powercfg; a Linux build is `fieldkit pipeline run firefox-linux` (platformsteps.py)",
+  "ids": [
+   "bh-build-run"
+  ]
+ },
+ "build-harness build-verify": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-build-verify"
+  ]
+ },
+ "build-harness calibrate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-calibrate"
+  ]
+ },
+ "build-harness capture": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "firefox.exe copies, pktmon and taskkill; the Linux evidence path is the leak gate's namespace runner",
+  "ids": [
+   "bh-capture"
+  ]
+ },
+ "build-harness carry": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-carry"
+  ]
+ },
+ "build-harness check-change": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-check-change"
+  ]
+ },
+ "build-harness claims": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-claims"
+  ]
+ },
+ "build-harness clip-check": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "the stock control (default) is Mozilla's linux-x86_64 tarball (build/decode_test.stock_firefox); stock=0 might run on Windows but that is unverified",
+  "ids": [
+   "bh-clip-check"
+  ]
+ },
+ "build-harness companions": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-companions"
+  ]
+ },
+ "build-harness compare": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-compare"
+  ]
+ },
+ "build-harness creep": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-creep"
+  ]
+ },
+ "build-harness decide": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-decide"
+  ]
+ },
+ "build-harness decisions": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-decisions"
+  ]
+ },
+ "build-harness decode-test": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "intel_gpu_top (sudo -n), /proc CPU times and ss; the isolation step is POSIX (SIGTERM)",
+  "ids": [
+   "bh-decode-test"
+  ]
+ },
+ "build-harness deferred": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-deferred"
+  ]
+ },
+ "build-harness describe": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-describe"
+  ]
+ },
+ "build-harness drive": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-drive"
+  ]
+ },
+ "build-harness drop": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-drop"
+  ]
+ },
+ "build-harness export-hand": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-export-hand"
+  ]
+ },
+ "build-harness fluent-check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-fluent-check"
+  ]
+ },
+ "build-harness follow": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-follow"
+  ]
+ },
+ "build-harness herald": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-herald"
+  ]
+ },
+ "build-harness hidden-pages-doc": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-hidden-pages-doc"
+  ]
+ },
+ "build-harness images": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-images"
+  ]
+ },
+ "build-harness install": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-install"
+  ]
+ },
+ "build-harness installer-test": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "the NSIS .exe installer exists only for the Windows release; the Linux release ships a tarball, .deb and .rpm with their own install checks",
+  "ids": [
+   "installer-test"
+  ]
+ },
+ "build-harness latest": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-latest"
+  ]
+ },
+ "build-harness leakgate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate"
+  ]
+ },
+ "build-harness leakgate-approve": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-approve"
+  ]
+ },
+ "build-harness leakgate-baseline": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-baseline"
+  ]
+ },
+ "build-harness leakgate-context": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-context"
+  ]
+ },
+ "build-harness leakgate-dispositions": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-dispositions"
+  ]
+ },
+ "build-harness leakgate-proposal": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-proposal"
+  ]
+ },
+ "build-harness leakgate-propose": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-propose"
+  ]
+ },
+ "build-harness leakgate-rejudge": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-rejudge"
+  ]
+ },
+ "build-harness leakgate-runs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "leakgate-runs"
+  ]
+ },
+ "build-harness leakgate-scope": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-scope"
+  ]
+ },
+ "build-harness leakgate-selftest": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "checks the Linux runner's needs (root, network namespaces, nftables); the Windows gate has no selftest",
+  "ids": [
+   "bh-leakgate-selftest"
+  ]
+ },
+ "build-harness leakgate-status": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-status"
+  ]
+ },
+ "build-harness leakgate-summary": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-leakgate-summary"
+  ]
+ },
+ "build-harness lessons": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-lessons"
+  ]
+ },
+ "build-harness lists-refresh": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-lists-refresh"
+  ]
+ },
+ "build-harness log": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-log"
+  ]
+ },
+ "build-harness loss-audit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-loss-audit"
+  ]
+ },
+ "build-harness migrate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-migrate"
+  ]
+ },
+ "build-harness netbench": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-netbench"
+  ]
+ },
+ "build-harness next": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-next"
+  ]
+ },
+ "build-harness night-pack": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "the scheduler half uses Windows Task Scheduler; a Linux port would use a systemd timer",
+  "ids": [
+   "night-pack"
+  ]
+ },
+ "build-harness platform-steps": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-platform-steps"
+  ]
+ },
+ "build-harness post-install": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-post-install"
+  ]
+ },
+ "build-harness pref-bisect": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "built on decode-test (intel_gpu_top, /proc) and the POSIX isolation step",
+  "ids": [
+   "bh-pref-bisect"
+  ]
+ },
+ "build-harness pref-conflicts": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pref-conflicts"
+  ]
+ },
+ "build-harness preflight": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-preflight"
+  ]
+ },
+ "build-harness probe": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-probe"
+  ]
+ },
+ "build-harness probe-compare": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-probe-compare"
+  ]
+ },
+ "build-harness profile-check": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "reads ~/.mozilla, ~/.config/mozilla, .desktop launchers and ~/.local/bin (profilecheck.ROOTS); no Windows profile or shortcut reader",
+  "ids": [
+   "bh-profile-check"
+  ]
+ },
+ "build-harness profile-diff": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-profile-diff"
+  ]
+ },
+ "build-harness profile-fresh": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-profile-fresh"
+  ]
+ },
+ "build-harness profile-keep": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-profile-keep"
+  ]
+ },
+ "build-harness proposals": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-proposals"
+  ]
+ },
+ "build-harness rebase-set": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-rebase-set"
+  ]
+ },
+ "build-harness record": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-record"
+  ]
+ },
+ "build-harness release-check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-release-check"
+  ]
+ },
+ "build-harness release-cover": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-release-cover"
+  ]
+ },
+ "build-harness release-page": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-release-page"
+  ]
+ },
+ "build-harness release-publish": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-publish"
+  ]
+ },
+ "build-harness release-roundtrip": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "a .deb, dpkg and apt-get; on Windows the row says so",
+  "ids": [
+   "bh-release-roundtrip"
+  ]
+ },
+ "build-harness repair": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-repair"
+  ]
+ },
+ "build-harness replay": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-replay"
+  ]
+ },
+ "build-harness report": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-report"
+  ]
+ },
+ "build-harness repro": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-repro"
+  ]
+ },
+ "build-harness rewind": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-rewind"
+  ]
+ },
+ "build-harness runbook": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-runbook"
+  ]
+ },
+ "build-harness satellite": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-satellite"
+  ]
+ },
+ "build-harness search-strip": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-search-strip"
+  ]
+ },
+ "build-harness set-proof": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-set-proof"
+  ]
+ },
+ "build-harness snapshot": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-snapshot"
+  ]
+ },
+ "build-harness start": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-start"
+  ]
+ },
+ "build-harness stats": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-stats"
+  ]
+ },
+ "build-harness status": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-status"
+  ]
+ },
+ "build-harness stops": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-stops"
+  ]
+ },
+ "build-harness submit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-submit"
+  ]
+ },
+ "build-harness symptom": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-symptom"
+  ]
+ },
+ "build-harness techniques": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-techniques"
+  ]
+ },
+ "build-harness timebombs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-timebombs"
+  ]
+ },
+ "build-harness truthbound": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-truthbound"
+  ]
+ },
+ "build-harness ui-check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-ui-check"
+  ]
+ },
+ "build-harness unblock": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-unblock"
+  ]
+ },
+ "build-harness vault": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-vault"
+  ]
+ },
+ "build-harness verify": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-verify"
+  ]
+ },
+ "build-harness visual": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-visual"
+  ]
+ },
+ "build-harness watch": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-watch"
+  ]
+ },
+ "build-harness weigh": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-weigh"
+  ]
+ },
+ "build-harness whole-files": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-whole-files"
+  ]
+ },
+ "build-harness window": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-window"
+  ]
+ },
+ "build-harness withdraw": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-withdraw"
+  ]
+ },
+ "canary": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "canary"
+  ]
+ },
+ "cv": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-cv"
+  ]
+ },
+ "drift": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "drift"
+  ]
+ },
+ "eta": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "eta"
+  ]
+ },
+ "evidence check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-check"
+  ]
+ },
+ "evidence fetch": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-fetch"
+  ]
+ },
+ "evidence import": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-import"
+  ]
+ },
+ "evidence render": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-render"
+  ]
+ },
+ "evidence search": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-search"
+  ]
+ },
+ "evidence show": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-show"
+  ]
+ },
+ "evidence sources check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-sources-check"
+  ]
+ },
+ "evidence sources find": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-sources-find"
+  ]
+ },
+ "evidence sources probe": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-sources-probe"
+  ]
+ },
+ "explain": {
+  "platforms": [
+   "darwin",
+   "freebsd",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "explain"
+  ]
+ },
+ "flaky": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "flaky"
+  ]
+ },
+ "handover": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "handover"
+  ]
+ },
+ "harvest": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "harvest-find"
+  ]
+ },
+ "hdmi diag": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-diag"
+  ]
+ },
+ "hdmi doctor": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-doctor"
+  ]
+ },
+ "hdmi fix": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-fix"
+  ]
+ },
+ "hdmi profile-list": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-profile-list"
+  ]
+ },
+ "hdmi status": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-status"
+  ]
+ },
+ "hdmi test-quick": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-test-quick"
+  ]
+ },
+ "hdmi tv-info": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-tv-info"
+  ]
+ },
+ "hdmi tv-wifi-report": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hdmi-tv-wifi-report"
+  ]
+ },
+ "i18n": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "i18n"
+  ]
+ },
+ "icons": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-icons"
+  ]
+ },
+ "icons cache": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-icons-cache"
+  ]
+ },
+ "inbox": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "inbox"
+  ]
+ },
+ "jobs": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "fieldkit-jobs"
+  ]
+ },
+ "laptop alerts say": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "laptop-alerts-say"
+  ]
+ },
+ "laptop cpu": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "laptop-cpu"
+  ]
+ },
+ "laptop rules": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "laptop-rules"
+  ]
+ },
+ "laptop sound": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "laptop-sound"
+  ]
+ },
+ "laptop video": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "laptop-video"
+  ]
+ },
+ "laptop volume": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "laptop-volume"
+  ]
+ },
+ "lifecycle": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "lifecycle"
+  ]
+ },
+ "mcp-probe": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mcp-probe"
+  ]
+ },
+ "mutate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mutate"
+  ]
+ },
+ "net antenna": {
+  "platforms": [
+   "darwin",
+   "freebsd",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "net-antenna"
+  ]
+ },
+ "net route": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "net-route"
+  ]
+ },
+ "next": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "next-step"
+  ]
+ },
+ "office": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "office"
+  ]
+ },
+ "office check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "office-check"
+  ]
+ },
+ "office deliver": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "office-deliver"
+  ]
+ },
+ "office read": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "office-read"
+  ]
+ },
+ "office scrub": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "office-scrub"
+  ]
+ },
+ "peers list": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "peers-list"
+  ]
+ },
+ "peers send": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "peers-send"
+  ]
+ },
+ "peers wait": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "peers-wait"
+  ]
+ },
+ "pipeline": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pipeline"
+  ]
+ },
+ "pipeline plan": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pipeline-plan"
+  ]
+ },
+ "privacy scan": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "privacy-scan"
+  ]
+ },
+ "publish": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "publish"
+  ]
+ },
+ "refcheck": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "refcheck"
+  ]
+ },
+ "regress": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "regress"
+  ]
+ },
+ "release check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-check"
+  ]
+ },
+ "repro compare": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "repro-compare"
+  ]
+ },
+ "runbook": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "runbook"
+  ]
+ },
+ "ship": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship"
+  ]
+ },
+ "shot": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "shot"
+  ]
+ },
+ "shot speedtest": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "shot-speedtest"
+  ]
+ },
+ "shot verdict": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "shot-verdict"
+  ]
+ },
+ "sitrep": {
+  "platforms": [
+   "darwin",
+   "freebsd",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "sitrep"
+  ]
+ },
+ "size": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size"
+  ]
+ },
+ "size apply": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-apply"
+  ]
+ },
+ "size bench": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-bench"
+  ]
+ },
+ "size compare": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-compare"
+  ]
+ },
+ "size copy": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-copy"
+  ]
+ },
+ "size dupes": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-dupes"
+  ]
+ },
+ "size empty": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-empty"
+  ]
+ },
+ "size find": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-find"
+  ]
+ },
+ "size free": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-free"
+  ]
+ },
+ "size hash": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-hash"
+  ]
+ },
+ "size move": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-move"
+  ]
+ },
+ "size newest": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-age"
+  ]
+ },
+ "size profile": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-profile"
+  ]
+ },
+ "size recycle": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-recycle"
+  ]
+ },
+ "size reparse": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-reparse"
+  ]
+ },
+ "size trash": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-trash"
+  ]
+ },
+ "size types": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-types"
+  ]
+ },
+ "size undo": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-undo"
+  ]
+ },
+ "size watch": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-size-watch"
+  ]
+ },
+ "snapshot diff": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "snapshot-diff"
+  ]
+ },
+ "stranger": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "stranger"
+  ]
+ },
+ "survey": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "survey"
+  ]
+ },
+ "sync": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "sync"
+  ]
+ },
+ "teach": {
+  "platforms": [
+   "darwin",
+   "freebsd",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "teach"
+  ]
+ },
+ "telemetry": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "telemetry"
+  ]
+ },
+ "terminal": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "terminal"
+  ]
+ },
+ "thermal monitor": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "thermal-monitor"
+  ]
+ },
+ "thermal profile": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "thermal-profile"
+  ]
+ },
+ "triage": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "triage"
+  ]
+ },
+ "update": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "update-check"
+  ]
+ },
+ "version-sync": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "version-sync"
+  ]
+ },
+ "voice": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "voice"
+  ]
+ },
+ "voice clean": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "voice-clean"
+  ]
+ },
+ "voice doctor": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "voice-doctor"
+  ]
+ },
+ "voice install": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "voice-install"
+  ]
+ },
+ "voice say": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "voice-say"
+  ]
+ },
+ "wait": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "wait"
+  ]
+ },
+ "watchdog": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "watchdog"
+  ]
+ },
+ "watchdog install": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "watchdog-install"
+  ]
+ },
+ "watchdog pause": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "watchdog-pause"
+  ]
+ },
+ "watchdog status": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "watchdog-status"
+  ]
+ },
+ "watchdog test": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "watchdog-test"
+  ]
+ },
+ "wifi": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "wifi"
+  ]
+ },
+ "wifi card": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "wifi-card"
+  ]
+ },
+ "wifi channels": {
+  "platforms": [
+   "darwin",
+   "freebsd",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "wifi-channels"
+  ]
+ },
+ "wifi doctor": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "wifi-doctor"
+  ]
+ },
+ "wifi scan": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "wifi-scan"
+  ]
+ },
+ "wifi upgrade": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "",
+  "ids": [
+   "wifi-upgrade"
+  ]
+ },
+ "win11 fit": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-fit"
+  ]
+ },
+ "win11 modules": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-modules"
+  ]
+ },
+ "win11 oem": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-oem"
+  ]
+ },
+ "win11 run app-debloat apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-app-debloat"
+  ]
+ },
+ "win11 run app-debloat check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-app-debloat-check"
+  ]
+ },
+ "win11 run copilot apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-copilot"
+  ]
+ },
+ "win11 run copilot check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-copilot-check"
+  ]
+ },
+ "win11 run onedrive apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-onedrive"
+  ]
+ },
+ "win11 run onedrive check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-onedrive-check"
+  ]
+ },
+ "win11 run recommendations apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-recommendations"
+  ]
+ },
+ "win11 run recommendations check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-recommendations-check"
+  ]
+ },
+ "win11 run services apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-services"
+  ]
+ },
+ "win11 run services check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-services-check"
+  ]
+ },
+ "win11 run text-input-guard apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-text-input-guard"
+  ]
+ },
+ "win11 run text-input-guard check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-text-input-guard-check"
+  ]
+ },
+ "win11 run update-deferral apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-update-deferral"
+  ]
+ },
+ "win11 run update-deferral check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-update-deferral-check"
+  ]
+ },
+ "win11 run update-distribution apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-update-distribution"
+  ]
+ },
+ "win11 run update-distribution check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-update-distribution-check"
+  ]
+ },
+ "win11 run visual-effects apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-visual-effects"
+  ]
+ },
+ "win11 run visual-effects check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-visual-effects-check"
+  ]
+ },
+ "win11 run xbox-services apply": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-xbox-services"
+  ]
+ },
+ "win11 run xbox-services check": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "win11-xbox-services-check"
+  ]
+ }
+}

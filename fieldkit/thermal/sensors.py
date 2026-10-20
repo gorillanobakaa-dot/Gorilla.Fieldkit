@@ -12,6 +12,11 @@ Sources, best first:
   hwinfo        - HWiNFO's "reporting to Gadget" values in the registry (CPU Package), on any laptop running it.
   thermalzone   - the 'Thermal Zone Information' performance counter (chassis zones).
   msacpi        - MSAcpi_ThermalZoneTemperature (static on this ThinkPad).
+
+Linux (2026-10-20): the die sensor the kernel already exposes, no PowerShell anywhere. `providers()` gives each
+system only the sources that exist on it, so a Linux run never reaches a Windows reader:
+  coretemp      - /sys/class/hwmon, driver coretemp (Intel) "Package id 0", or k10temp/zenpower (AMD) "Tctl"/"Tdie".
+  x86_pkg_temp  - /sys/class/thermal zone of type x86_pkg_temp (Intel), when hwmon has no package label.
 """
 import csv
 import re
@@ -121,6 +126,8 @@ def tpfan_csv(path=None):
 
 
 def _ps(cmd, timeout=60):
+    if sys.platform != "win32":                  # PowerShell is a Windows reader; elsewhere there is no reading
+        return ""
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=timeout)
     return (r.stdout or "").strip()
@@ -190,6 +197,64 @@ def hwinfo():
 PROVIDERS = (("tpfan_status", tpfan_status), ("tpfan_window", tpfan_window), ("tpfan_csv", tpfan_csv),
              ("hwinfo", hwinfo), ("thermalzone", thermalzone), ("msacpi", msacpi))
 
+HWMON = Path("/sys/class/hwmon")
+THERMAL = Path("/sys/class/thermal")
+PACKAGE_LABELS = {"coretemp": ("Package id 0",), "k10temp": ("Tctl", "Tdie"), "zenpower": ("Tdie", "Tctl")}
+
+
+def _milli(path):
+    try:
+        return int(Path(path).read_text().strip()) / 1000.0
+    except (OSError, ValueError):
+        return None
+
+
+def coretemp(root=None):
+    """The CPU package temperature from hwmon (Linux): coretemp "Package id 0" (Intel), k10temp/zenpower (AMD)."""
+    root = Path(root or HWMON)
+    try:
+        chips = sorted(root.iterdir())
+    except OSError:
+        return None
+    for chip in chips:
+        try:
+            name = (chip / "name").read_text().strip()
+        except OSError:
+            continue
+        for want in PACKAGE_LABELS.get(name, ()):
+            for label in sorted(chip.glob("temp*_label")):
+                try:
+                    if label.read_text().strip() == want:
+                        return _milli(label.with_name(label.name.replace("_label", "_input")))
+                except OSError:
+                    continue
+    return None
+
+
+def x86_pkg_temp(root=None):
+    """The thermal zone of type x86_pkg_temp (Intel, Linux), for kernels whose hwmon carries no package label."""
+    root = Path(root or THERMAL)
+    for zone in sorted(root.glob("thermal_zone*")):
+        try:
+            if (zone / "type").read_text().strip() == "x86_pkg_temp":
+                return _milli(zone / "temp")
+        except OSError:
+            continue
+    return None
+
+
+LINUX_PROVIDERS = (("coretemp", coretemp), ("x86_pkg_temp", x86_pkg_temp))
+
+
+def providers(platform=None):
+    """The sources that exist on this system: Windows readers on Windows, the kernel's on Linux, none elsewhere."""
+    platform = platform or sys.platform
+    if platform == "win32":
+        return PROVIDERS
+    if platform.startswith("linux"):
+        return LINUX_PROVIDERS
+    return ()
+
 
 def perf_percent():
     try:
@@ -255,7 +320,7 @@ def prove_live(fn, settle=8, samples=6, interval=2.0, rise=2.0, threads=None, lo
 def best(prove=True, **kw):
     """The first provider that reads and (when `prove`) moves under load. -> (name, fn, detail) or (None, None, why)."""
     tried = []
-    for name, fn in PROVIDERS:
+    for name, fn in providers():
         if fn() is None:
             tried.append(f"{name}: no reading")
             continue
@@ -272,4 +337,4 @@ def best(prove=True, **kw):
         tried.append(f"{name}: {detail}")
         if ok:
             return name, fn, detail
-    return None, None, "; ".join(tried)
+    return None, None, "; ".join(tried) or f"no CPU temperature source is known on this system ({sys.platform})"

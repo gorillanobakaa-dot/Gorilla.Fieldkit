@@ -74,10 +74,17 @@ def find_tool(name, extra=None):
     return None
 
 
+def this_platform():
+    """'windows', 'linux' or 'macos': the word cards use in `platforms`."""
+    h = host()
+    return "windows" if h["is_windows"] else "linux" if h["is_linux"] else \
+        "macos" if h["system"] == "Darwin" else h["system"].lower()
+
+
 def platform_ok(platforms):
     """True if this host is in a stage/tool's platform list.
 
-    platforms: None/[] = anywhere; entries are 'windows', 'linux', 'debian'.
+    platforms: None/[] = anywhere; entries are 'windows', 'linux', 'debian', 'macos'.
     """
     if not platforms:
         return True
@@ -89,4 +96,21 @@ def platform_ok(platforms):
             return True
         if p == "debian" and is_debian_family():
             return True
+        if p == "macos" and h["system"] == "Darwin":
+            return True
     return False
+
+
+def platform_refusal(name, platforms, why=None):
+    """None when `name` runs on this system, else the sentence that says it does not, why, and what to do.
+
+    The one place the harness decides "this tool is not for this machine" (owner, 2026-10-20: "the harness queries
+    the os on which operating system is and never tries to run stuff that won't work on that operating system").
+    Used by the command line (cli.platform_gate), agent.run and agent.discover, so a person, a script and a model
+    all meet the same rule before anything starts."""
+    if platform_ok(platforms):
+        return None
+    because = f" ({why})" if why else ""
+    return (f"'{name}' runs on {', '.join(platforms)} only{because}; this machine is {this_platform()}. "
+            "Nothing was started. NEXT: use a tool made for this system (fieldkit agent discover), or run this one "
+            f"on a {' or '.join(platforms)} machine.")

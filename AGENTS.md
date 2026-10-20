@@ -107,6 +107,13 @@ The owner runs Fieldkit on a Windows laptop and a Linux machine, each with its o
   single-system card without one, and on a card that promises a system its test file is skipped on. The cards
   that were single-system on 2026-10-16 are the frozen backlog (`fieldkit/desk/single_platform_baseline.txt`):
   it only shrinks.
+- **A tool for the other system never starts (owner, 2026-10-20).** A card's `platforms` is enforced at every door,
+  through one rule (`core/host.py: platform_refusal`): the command line refuses it before any tool code runs (exit 2,
+  the card's `platforms_why` and what to use instead; `--help` always passes), `agent.run` refuses it, and
+  `agent.discover` never offers it. The command line reads `fieldkit/desk/platform_index.json`, generated from the
+  cards: after changing a card's `platforms` or entry, run `python -m fieldkit.core.platform_gate --write`
+  (`tests/test_platform_gate.py` fails until you do). Inside a tool, a reader or lever that exists on one system
+  only checks `sys.platform` itself and returns nothing elsewhere (the thermal sensors and cap are the example).
 - **A Firefox patch is applied only where it builds.** `build-harness set-proof` (run by the patch set's pre-push
   hook for both systems) fails on a patch whose files only the other system builds, unless the policy declares it.
   Declare it with `platforms` on the group or `exclude_on.<system>`. rebase-set writes these declarations for its
