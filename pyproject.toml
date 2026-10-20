@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fieldkit"
-version = "0.4.0"
+version = "0.5.0"
 description = "Deterministic tools, harnesses and orchestration for coding agents: office documents, staged build pipelines, build-log triage, privacy scanning. Windows 11 and Debian."
 requires-python = ">=3.11"
 license = {text = "AGPL-3.0-or-later"}
@@ -41,7 +41,7 @@ fieldkit = "fieldkit.cli:main"
 include = ["fieldkit*"]
 
 [tool.setuptools.package-data]
-fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "desk/size_help/*.txt"]
+fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "desk/platform_index.json", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "desk/size_help/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "local/tests"]

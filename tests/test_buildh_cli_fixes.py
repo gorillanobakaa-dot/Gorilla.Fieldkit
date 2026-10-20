@@ -12,6 +12,10 @@ def test_leakgate_selftest_text_output_does_not_crash_when_ready(monkeypatch, ca
     # success line raised UnboundLocalError before printing NEXT
     monkeypatch.setattr(linux, "selftest", lambda: {"tools": {"ip": "/usr/sbin/ip"}, "root": True, "ok": True,
                                                     "missing_required": []})
+    # this test is about the success line, not the system: the platform gate (linux-only card) is set aside here;
+    # tests/test_platform_gate.py holds the gate itself (2026-10-20)
+    from fieldkit.core import platform_gate
+    monkeypatch.setattr(platform_gate, "refusal", lambda args, index=None: None)
     assert cli.main(["build-harness", "leakgate-selftest"]) == 0
     assert "NEXT: " in capsys.readouterr().out
 

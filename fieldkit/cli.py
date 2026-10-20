@@ -1694,8 +1694,8 @@ def build_parser():
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
     th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
     th.add_argument("--interval", type=int, default=60, help="log (Linux): seconds between lines")
-    th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux): keep logging until this process ends "
-                                                                     "(a build's thermal record); --seconds is then ignored")
+    th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux), monitor (both systems): run until this "
+                                                                     "process ends (a build); log ignores --seconds then")
     th.set_defaults(fn=cmd_thermal)
 
     bh = sub.add_parser("build-harness", parents=[common],
@@ -2239,7 +2239,8 @@ def cmd_repro(a):
 
 def cmd_thermal(a):
     if sys.platform.startswith("linux") and a.action in ("status", "log"):
-        # the Sony VAIO, through the owner's sensors.gorilla (2026-10-15); the rest of this command is Windows
+        # the Sony VAIO, through the owner's sensors.gorilla (2026-10-15). profile, monitor, prove and watch run on
+        # both systems (2026-10-20): sensors.providers() and governor.set_cap pick this system's own sources and cap.
         from .thermal import vaio
         if a.action == "status":
             s = vaio.snapshot()
@@ -2267,10 +2268,10 @@ def cmd_thermal(a):
         if a.stop:
             _emit(profiles.stop_monitor(), a.json, _kv_lines)
             return 0
-        profiles.monitor()
+        profiles.monitor(until_pid=a.until_pid)
         return 0
     if a.action == "status":
-        for name, fn in sensors.PROVIDERS:
+        for name, fn in sensors.providers():
             print(f"  {name:14} {fn()}")
         print(f"  cap (PROCTHROTTLEMAX): {governor.read_cap()}%  perf: {sensors.perf_percent()}")
         return 0
@@ -2304,6 +2305,16 @@ def main(argv=None):
         except (AttributeError, ValueError):
             pass
     args = sys.argv[1:] if argv is None else list(argv)
+    # The platform gate (2026-10-20): a command whose card says it runs on another system stops here, before any
+    # parser or tool code runs, with the card's reason and what to use instead (core/platform_gate.py).
+    from .core import platform_gate
+    refused = platform_gate.refusal(args)
+    if refused:
+        if "--json" in args:
+            print(json.dumps({"ok": False, "refused": "platform", "why": refused}))
+        else:
+            print("REFUSED: " + refused, file=sys.stderr)
+        return 2
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")

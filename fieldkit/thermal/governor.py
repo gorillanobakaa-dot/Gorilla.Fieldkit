@@ -13,9 +13,15 @@ Rules (deterministic, hysteretic, logged to a CSV and through `on_event`):
   * DEAD identical readings while perf > BUSY (3 min) -> the sensor died: kill the build, stop
   * no reading for STALE_S      -> same
 The original cap is restored on stop, whatever happened.
+
+Linux (2026-10-20): the same cap is the kernel's intel_pstate max_perf_pct, or cpufreq scaling_max_freq where the
+driver is not intel_pstate. Written directly when the file is writable, else through `sudo -n tee` (never a password
+prompt). When neither works, set_cap returns False and the caller says so: the cap is never claimed when it was not
+set. read_cap/set_cap pick the system's own lever; no Windows command is started on Linux, nor the reverse.
 """
 import csv
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -47,7 +53,81 @@ def _powercfg(*args):
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
+PSTATE = Path("/sys/devices/system/cpu/intel_pstate/max_perf_pct")
+CPUFREQ = Path("/sys/devices/system/cpu")
+
+
+def _cpufreq_dirs(root=None):
+    return sorted(Path(root or CPUFREQ).glob("cpu[0-9]*/cpufreq"))
+
+
+def _linux_read_cap(pstate=None, cpufreq=None):
+    """The cap in percent on Linux: max_perf_pct, else the first CPU's scaling_max_freq / cpuinfo_max_freq."""
+    pstate = Path(pstate or PSTATE)
+    try:
+        return int(pstate.read_text().strip())
+    except (OSError, ValueError):
+        pass
+    for d in _cpufreq_dirs(cpufreq):
+        try:
+            return round(100 * int((d / "scaling_max_freq").read_text()) / int((d / "cpuinfo_max_freq").read_text()))
+        except (OSError, ValueError, ZeroDivisionError):
+            continue
+    return None
+
+
+def _write(path, value, run=subprocess.run):
+    """Write one sysfs value: directly when allowed, else `sudo -n tee` (fails at once instead of asking)."""
+    try:
+        Path(path).write_text(str(value))
+        return True
+    except OSError:
+        pass
+    try:
+        r = run(["sudo", "-n", "tee", str(path)], input=str(value), capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _linux_set_cap(pct, pstate=None, cpufreq=None, run=subprocess.run):
+    pct = max(1, min(100, int(pct)))
+    pstate = Path(pstate or PSTATE)
+    if pstate.exists():
+        return _write(pstate, pct, run)
+    dirs = _cpufreq_dirs(cpufreq)
+    ok = bool(dirs)
+    for d in dirs:
+        try:
+            top = int((d / "cpuinfo_max_freq").read_text())
+        except (OSError, ValueError):
+            ok = False
+            continue
+        ok = _write(d / "scaling_max_freq", top * pct // 100, run) and ok
+    return ok
+
+
+def can_cap():
+    """-> (True, how) when this system's cap can be moved by this user now, else (False, why). Nothing is changed:
+    the current value is written back to itself."""
+    if sys.platform == "win32":
+        return (read_cap() is not None, "power plan PROCTHROTTLEMAX (powercfg)")
+    if sys.platform.startswith("linux"):
+        now = _linux_read_cap()
+        if now is None:
+            return False, "no intel_pstate or cpufreq cap file on this machine"
+        how = "intel_pstate max_perf_pct" if PSTATE.exists() else "cpufreq scaling_max_freq"
+        if _linux_set_cap(now):
+            return True, how
+        return False, f"{how} is root-only and sudo asks for a password; the monitor can only speak, not cool"
+    return False, f"no processor cap is known on this system ({sys.platform})"
+
+
 def read_cap():
+    if sys.platform.startswith("linux"):
+        return _linux_read_cap()
+    if sys.platform != "win32":
+        return None
     rc, out = _powercfg("/query", "scheme_current", "sub_processor", "PROCTHROTTLEMAX")
     for line in out.splitlines():
         if "Current AC Power Setting Index" in line:
@@ -73,9 +153,15 @@ def set_cap(pct):
                 m.write_text(json.dumps({"original": orig}), encoding="utf-8")
             except OSError:
                 pass
-    for rail in ("/setacvalueindex", "/setdcvalueindex"):
-        _powercfg(rail, "scheme_current", "sub_processor", "PROCTHROTTLEMAX", str(int(pct)))
-    _powercfg("/setactive", "scheme_current")          # apply
+    if sys.platform == "win32":
+        for rail in ("/setacvalueindex", "/setdcvalueindex"):
+            _powercfg(rail, "scheme_current", "sub_processor", "PROCTHROTTLEMAX", str(int(pct)))
+        _powercfg("/setactive", "scheme_current")      # apply
+        done = True
+    elif sys.platform.startswith("linux"):
+        done = _linux_set_cap(pct)
+    else:
+        done = False
     if m.exists():
         try:
             import json as _j
@@ -83,6 +169,7 @@ def set_cap(pct):
                 m.unlink()                              # back at (or above) the original: nothing to undo
         except (OSError, ValueError):
             pass
+    return done
 
 
 def restore_stale_cap(say=print):

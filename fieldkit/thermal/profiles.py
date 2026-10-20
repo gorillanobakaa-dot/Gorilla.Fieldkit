@@ -1,4 +1,4 @@
-"""Everyday cooling for a Windows laptop: a profile, a background monitor, and a voice when it gets hot.
+"""Everyday cooling for a laptop (Windows and Linux): a profile, a background monitor, and a voice when it gets hot.
 
     fieldkit thermal profile [quiet|balanced|performance|off]   show or choose the profile
     fieldkit thermal monitor                                      the monitor itself (started at login; runs until
@@ -21,7 +21,13 @@ NO_DATA_AFTER seconds: the cap goes back to 100% and it says so. The cap is 100%
 Born from the academic harness this generalises (thermal_control.py, 2026-10-05), on Fieldkit's rule that a sensor
 is believed only after it has been PROVEN to move under load (sensors.best). The start at login is a Startup-folder
 shortcut, not a scheduled task: a process Task Scheduler starts sees a different HKEY_CURRENT_USER, without the
-HWiNFO values a desktop process sees (measured 2026-10-09). Linux needs none of this: the kernel and thermald do it.
+HWiNFO values a desktop process sees (measured 2026-10-09).
+
+Linux (2026-10-20, owner: "fix the thermal monitor so it works on linux"): the same loop with the kernel's levers,
+the die sensor from hwmon (sensors.providers) and the cap in intel_pstate/cpufreq (governor.set_cap). Before this the
+monitor started PowerShell on Linux and died. It says at start which sensor and which cap it uses; when this user
+cannot move the cap (root-only, sudo wants a password) it still watches and speaks, and says it cannot cool.
+Autostart at login stays Windows-only (a Startup-folder shortcut); on Linux run it from the build script or a unit.
 """
 import collections
 import json
@@ -131,14 +137,24 @@ def words(ev):
             }[ev["kind"]]
 
 
-def monitor(sensor=None, set_cap=None, say=None, clock=time.time, sleep=time.sleep, ticks=None):
-    """The loop. -> the events it acted on (for tests: give `sensor`, `set_cap`, `say`, `ticks`)."""
+def monitor(sensor=None, set_cap=None, say=None, clock=time.time, sleep=time.sleep, ticks=None, report=print,
+            until_pid=None, alive=None):
+    """The loop. -> the events it acted on (for tests: give `sensor`, `set_cap`, `say`, `ticks`).
+    `until_pid`: stop when that process ends (a build), as `thermal log --until-pid` does; the cap goes back to 100%."""
     from . import governor, sensors
     if sensor is None:
         name, sensor, detail = sensors.best(prove=True)
         if sensor is None:
             raise RuntimeError(f"no CPU temperature source moves under load here: {detail}")
-    set_cap = set_cap or governor.set_cap
+        report(f"thermal monitor: sensor {name} ({detail})")
+    if set_cap is None:
+        ok, how = governor.can_cap()
+        if ok:
+            set_cap = governor.set_cap
+            report(f"thermal monitor: cap through {how}; profile {chosen()}")
+        else:
+            set_cap = lambda pct: False                     # never claim a cap that was not set
+            report(f"thermal monitor: CANNOT COOL, only watches and speaks: {how}")
     if say is None:
         from ..buildh import herald
         say = herald.say
@@ -148,7 +164,9 @@ def monitor(sensor=None, set_cap=None, say=None, clock=time.time, sleep=time.sle
     set_cap(MODES[1])
     acted, last_data, told, n = [], clock(), False, 0
     try:
-        while (ticks is None or n < ticks) and not stop.exists():
+        if until_pid is not None and alive is None:
+            from ..peers.peers import pid_alive as alive
+        while (ticks is None or n < ticks) and not stop.exists() and (until_pid is None or alive(int(until_pid))):
             n += 1
             now = clock()
             if chosen() != ctl.profile:

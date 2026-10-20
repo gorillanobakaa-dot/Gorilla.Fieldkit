@@ -149,7 +149,9 @@ def test_a_slow_die_sensor_is_regraded_after_a_longer_load(monkeypatch):
         def kill(self): pass
     readings = iter([30.0, 31, 32, 33, 34, 35, 36, 37,        # the 20-second test: +7, "surface"
                      38, 45, 52, 58, 63, 68, 72, 75, 78])     # the 60-second test: +48, "die"
-    monkeypatch.setattr(sensors, "PROVIDERS", (("fake", lambda: next(readings)),))
+    # 2026-10-20: best() reads providers(), this system's own list (Windows readers or the Linux kernel's), so the
+    # fake replaces that list on whichever system runs the test.
+    monkeypatch.setattr(sensors, "providers", lambda platform=None: (("fake", lambda: next(readings)),))
     name, fn, detail = sensors.best(prove=True, settle=0, samples=6, interval=0, load=lambda n: [P()])
     assert name == "fake" and "[die sensor]" in detail and "after a 60 s load" in detail
 

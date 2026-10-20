@@ -48,6 +48,7 @@ import uuid
 from pathlib import Path
 
 from .core import settings
+from .core.host import platform_ok, platform_refusal, this_platform
 from .core.proc import Runner
 from .desk import cards as cardmod
 from .desk import recipes as recipemod
@@ -116,6 +117,8 @@ def discover(goal, limit=5, include_drafts=False, cards=None, recipes=None):
     for c in cards or _cards():
         if c.get("retired"):
             continue
+        if not platform_ok(c.get("platforms")):
+            continue                       # a tool for another system is never offered here (2026-10-20)
         level, why = cardmod.trust(c, results)
         if level == "gathered" and not include_drafts:
             continue
@@ -176,6 +179,10 @@ def describe(tool_id, cards=None):
             return dict(r, trust="recipe", how_to_use=recipemod.HOW_TO_USE, text=recipemod.text(r))
     c = dict(_find_card(tool_id, cards))
     c["trust"], c["trust_blockers"] = cardmod.trust(c)
+    c["runs_here"] = platform_ok(c.get("platforms"))
+    c["this_system"] = this_platform()
+    if not c["runs_here"]:
+        c["not_here"] = platform_refusal(c["id"], c["platforms"], c.get("platforms_why"))
     return c
 
 
@@ -437,6 +444,9 @@ def run(tool_id, inputs=None, mode="apply", approve=False, cards=None, timeout=6
         raise Refused(f"'{tool_id}' is a recipe: how this was done before, to read and adapt. A recipe is never run. "
                       "NEXT: describe it and follow its steps, or call discover for a tool that does the job.")
     card = _find_card(tool_id, cards)
+    refusal = platform_refusal(card["id"], card.get("platforms"), card.get("platforms_why"))
+    if refusal:
+        raise Refused(refusal)
     level, why = cardmod.trust(card)
     if ORDER[level] < ORDER["carded"]:
         raise Refused(f"'{tool_id}' is not ready for an agent ({level}): {why[0]}. "
