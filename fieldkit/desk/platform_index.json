@@ -1540,6 +1540,15 @@
    "flaky"
   ]
  },
+ "gtk-theme check": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "GTK user stylesheets (~/.config/gtk-*/gtk.css) and the libadwaita/GTK libraries it reads exist only on a Linux desktop",
+  "ids": [
+   "fieldkit-gtk-theme-check"
+  ]
+ },
  "handover": {
   "platforms": [
    "linux",
