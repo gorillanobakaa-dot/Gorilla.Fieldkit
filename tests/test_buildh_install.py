@@ -80,7 +80,10 @@ def test_startup_caches_are_cleared_and_proven_empty(tmp_path, monkeypatch):
     assert len(cleared) == 1 and "1 files" in cleared[0] and inst.caches_row()["ok"]
     # an absolute path outside the temp folder: a bare "firefox" resolved against the working directory, so the test
     # passed in ~/Documents and failed in a checkout under /tmp, where it reads as a throwaway bench copy (2026-10-14)
-    running = str(Path.home() / "apps" / "firefox" / "firefox")
+    # and outside the temp folder whatever HOME is (2026-10-20: a stranger test with HOME under the temp folder made
+    # this a throwaway copy too); the drive root of the temp folder is never inside it
+    import tempfile
+    running = str(Path(Path(tempfile.gettempdir()).anchor) / "gorilla-apps" / "firefox" / "firefox")
     monkeypatch.setattr(inst.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": running, "returncode": 0})())
     with pytest.raises(task.Refused, match="running"):
         inst.clear_startup_caches()
