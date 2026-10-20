@@ -25,8 +25,14 @@ def report(cards=None):
     by_source = collections.defaultdict(collections.Counter)
     blockers = collections.Counter()
     rows = []
+    library = 0
     for c in cards:
         if c.get("retired"):
+            continue
+        # 2026-10-19: a module other code imports is not a tool; counted apart so the tool total means something
+        # (1,112 "gathered" entries were mostly library and vendored files)
+        if c.get("draft") and c.get("probe") == "library":
+            library += 1
             continue
         lvl, why = cardmod.trust(c, results)
         levels[lvl] += 1
@@ -36,7 +42,12 @@ def report(cards=None):
             blockers[re.sub(r"\(.*?\)", "", w).strip()] += 1
         rows.append({"id": c["id"], "level": lvl, "why": why, "draft": c.get("draft", False)})
     py = [c for c in cards if str(c.get("path", "")).endswith(".py") and c.get("draft")]
+    from . import recipes as recipemod
+    recs = recipemod.load()
     return {
+        "recipes": {"published": sum(1 for r in recs if r.get("public")),
+                    "own": sum(1 for r in recs if not r.get("public"))},
+        "library": library,
         "total": sum(levels.values()),
         "levels": {lv: levels.get(lv, 0) for lv in cardmod.LEVELS},
         "registered": sum(1 for c in cards if not c.get("draft") and not c.get("retired")),
@@ -53,8 +64,12 @@ def report(cards=None):
 
 def lines(r):
     L = r["levels"]
+    R = r.get("recipes") or {"published": 0, "own": 0}
     out = [f"{r['total']} tools: {L['verified']} verified, {L['tested']} tested, {L['carded']} carded, "
            f"{L['gathered']} gathered only.",
+           f"{R['published'] + R['own']} recipes (how something was done before, to read): {R['published']} "
+           f"published, {R['own']} the owner's own. {r.get('library', 0)} library files (code other tools import) "
+           f"are not counted as tools.",
            f"registered {r['registered']} ({r['registered_without_test']} without a test); gathered Python "
            f"{r['gathered_python']} ({r['gathered_not_probe_safe']} not safe to start blind); "
            f"{r['hard_coded_home_files']} files hard-code a home path.",
@@ -75,6 +90,10 @@ def docs_block(r):
             f"Gathered Python scripts: {r['gathered_python']}, of which {r['gathered_not_probe_safe']} are not safe to "
             f"start blind (library modules, scripts that run on load, scripts without a command line). "
             f"{r['hard_coded_home_files']} files hard-code a home folder.",
+            "",
+            f"Recipes (how something was done before, read and adapted, never run): "
+            f"{(r.get('recipes') or {}).get('published', 0)} published, {(r.get('recipes') or {}).get('own', 0)} "
+            f"the owner's own. Library files (code other tools import, not tools): {r.get('library', 0)}.",
             "", "Top blockers:", ""]
     body += [f"- {w}: {n}" for w, n in r["top_blockers"]]
     return "\n".join([BEGIN] + body + [END])

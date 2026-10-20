@@ -50,7 +50,7 @@ def test_judge_fails_closed():
                          _entry(id="p", kind="process", values=["firefox.exe"], approval={"by": "owner"})]}
     events = ALL_SENSORS + [
         _ev(value="ublockorigin.github.io"),
-        _ev(value="incoming.telemetry.mozilla.org"),
+        _ev(value="incoming.telemetry.mozilla.org"),  # telemetry-ok: test fixture
         _ev(kind="canary", value="form", sensor="mitm", detail="POST https://x.example/"),
         _ev(kind="process", value="pingsender.exe", sensor="process-tree", detail="C:/build/pingsender.exe"),
         _ev(kind="process", value="firefox.exe", sensor="process-tree", detail="C:/elsewhere/firefox.exe"),
@@ -143,7 +143,7 @@ def test_the_scenarios_own_host_holds_for_wire_dns_but_a_vendor_name_still_fails
     allow = {"entries": [_entry(id="f", kind="file", values=["*"], approval={"by": "owner"})]}
     events = ALL_SENSORS + [
         _ev(scenario="page", sensor="pktmon", kind="dns-wire", value="www.anthropic.com"),
-        _ev(scenario="startup-idle", sensor="pktmon", kind="dns-wire", value="incoming.telemetry.mozilla.org"),
+        _ev(scenario="startup-idle", sensor="pktmon", kind="dns-wire", value="incoming.telemetry.mozilla.org"),  # telemetry-ok: test fixture
     ]
     fail, lists = gate.judge(events, allow, {"page": ["www.anthropic.com"]}, ["C:/build"], [], 3, True, False)
     assert not any("anthropic" in x for x in lists["UNEXPECTED_DNS"])
@@ -167,7 +167,7 @@ def test_benign_profile_folders_collapse_but_reporting_folders_stay_visible():
 def test_the_dns_witness_pseudo_scenario_knows_the_tests_own_hosts():
     allow = {"entries": [_entry(id="f", kind="file", values=["*"], approval={"by": "owner"})]}
     events = ALL_SENSORS + [_ev(scenario="(dns-controlled)", sensor="doh-server", kind="dns", value="www.anthropic.com"),
-                            _ev(scenario="(dns-controlled)", sensor="doh-server", kind="dns", value="incoming.telemetry.mozilla.org")]
+                            _ev(scenario="(dns-controlled)", sensor="doh-server", kind="dns", value="incoming.telemetry.mozilla.org")]  # telemetry-ok: test fixture
     fail, lists = gate.judge(events, allow, {"page": ["www.anthropic.com"]}, ["C:/build"], [], 3, True, False)
     assert not any("anthropic" in x for x in lists["UNEXPECTED_DNS"])
     assert any("incoming.telemetry" in x for x in lists["UNEXPECTED_TELEMETRY"])
@@ -175,8 +175,8 @@ def test_the_dns_witness_pseudo_scenario_knows_the_tests_own_hosts():
 
 def test_the_dns_witness_names_another_program_but_never_excuses_the_browser():
     allow = {"entries": [_entry(id="f", kind="file", values=["*"], approval={"by": "owner"})]}
-    wire = _ev(sensor="pktmon", kind="dns-wire", value="incoming.telemetry.mozilla.org", rep=0)
-    other = _ev(sensor="dns-client", kind="dns-attribution", value="incoming.telemetry.mozilla.org", rep=0,
+    wire = _ev(sensor="pktmon", kind="dns-wire", value="incoming.telemetry.mozilla.org", rep=0)  # telemetry-ok: test fixture
+    other = _ev(sensor="dns-client", kind="dns-attribution", value="incoming.telemetry.mozilla.org", rep=0,  # telemetry-ok: test fixture
                 pid=42, in_build=False, detail="2026-10-04T04:23 pid 42 python.exe (C:/mozilla-build/python.exe)")
     fail, lists = gate.judge(ALL_SENSORS + [wire, other], allow, {}, ["C:/build"], [], 3, True, False)
     assert lists["OTHER_PROGRAMS"] and "python.exe" in lists["OTHER_PROGRAMS"][0]

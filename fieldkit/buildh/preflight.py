@@ -71,7 +71,13 @@ def run(task_id, build=False, model=False, fix_locks=False, lm_url=LM_STUDIO, fa
     ram = _ram_gb()
     row("memory", ram >= MIN_RAM_GB, f"{ram:.0f} GB installed, need {MIN_RAM_GB} GB")
     for tool in ("git", "patch"):
-        found = shutil.which(tool)
+        # patch: the one the harness really runs (Git for Windows' own on Windows; 2026-10-16 the PATH had none and the
+        # row failed while every apply worked)
+        if tool == "patch":
+            from . import firefox
+            found = firefox._patch_exe() if Path(firefox._patch_exe()).is_file() else shutil.which("patch")
+        else:
+            found = shutil.which(tool)
         row(f"{tool} available", found, found or f"{tool} not found on PATH")
     v = vault.verify("firefox", t["meta"]["upstream"]["version"])
     row("vault copy intact", v["intact"], "; ".join(v["problems"]) or "unchanged")

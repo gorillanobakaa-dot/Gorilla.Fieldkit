@@ -7,7 +7,8 @@ shell's child: it is invisible, and it dies when the session ends (2026-10-0x: E
 vanished twice overnight). This starts `python -m fieldkit build-harness <command> ...` in a new PowerShell window
 created by Windows itself (WMI Win32_Process.Create), so the owner can watch it and it keeps running whatever
 happens to the session, the way `screen` keeps a job on Linux. Everything it prints also goes to a log file
-(state/windows/<stamp>-<command>.log) that ends with "exit <code>"; the window stays open afterwards (-NoExit).
+(state/windows/<stamp>-<command>.log) that ends with "exit <code>"; the window closes itself CLOSE_AFTER seconds later
+(2026-10-19: it used to stay open with -NoExit, and finished windows piled up on the owner's desktop).
 -> {"pid", "log"}.
 
 On Linux (2026-10-10) the same command runs in a detached session of its own (setsid: no terminal, not this session's
@@ -67,6 +68,10 @@ def spoken(args):
     return "the " + (args[0] if args else "run").replace("-", " ")
 
 
+#: seconds a finished window stays open so its last lines can be read (the log keeps them for good)
+CLOSE_AFTER = 300
+
+
 def script(args, log, python=None):
     """The PowerShell the window runs (UTF-8 throughout; every line to the log too, as it comes; the exit code at the
     end). Not Tee-Object: in Windows PowerShell 5.1 it writes UTF-16 and has no -Encoding (2026-10-08: a build log
@@ -94,6 +99,12 @@ def script(args, log, python=None):
         "$log.Close()",
         "Write-Host ''",
         f"Write-Host ('Finished with exit ' + $code + '. Log: ' + {_ps_quote(log)})",
+        # the window closes itself (owner 2026-10-19: "we really need to teach you to clean after yourself"; three
+        # finished runbook windows were still open the next night): the log keeps every line, the herald spoke the
+        # result, and the owner gets CLOSE_AFTER seconds to read the end
+        f"Write-Host 'This window closes in {CLOSE_AFTER} s (the log above keeps everything).'",
+        f"Start-Sleep -Seconds {CLOSE_AFTER}",
+        "exit $code",
     ])
 
 
@@ -148,7 +159,7 @@ def read_log(path):
 def command_line(args, log, python=None):
     """powershell.exe with the script base64-encoded (no quoting can break it)."""
     enc = base64.b64encode(script(args, log, python).encode("utf-16-le")).decode("ascii")
-    return f"powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -EncodedCommand {enc}"
+    return f"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {enc}"
 
 
 def sh_script(args, log, python=None, herald=True, which=shutil.which):

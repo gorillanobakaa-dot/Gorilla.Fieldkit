@@ -493,6 +493,15 @@ def run(task_id, do_backup=True, say=print, install_dir=None, use_installer=Fals
     target = Path(install_dir) if install_dir else find_install()
     if not target:
         return no_target()
+    # D-157-28: a different folder opens a different, empty profile and every saved login looks erased (2026-10-16:
+    # 155 in Program Files, 157 in the user folder). Refused before anything is touched.
+    from . import profilekeep
+    pk = profilekeep.check(target, profiles_dir())
+    for l in profilekeep.lines(pk):
+        say(l)
+    if not pk["ok"]:
+        task.journal(t, "install-refused", target=str(target), why=pk["evidence"])
+        return {"ok": False, "why": pk["evidence"], "rows": [pk]}
     before = installed(target)
     say(f"  installed now: {before} at {target}")
     bdir = None
@@ -526,10 +535,16 @@ POST_INSTALL = (
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
 PROOF_CHECKS = frozenset({"profile", "prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui",
-                          "about", "stamp", "satellite"})
+                          "about", "stamp", "satellite", "search"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
+
+
+def unplanned_groups(want, planned, platform=None):
+    """The asked-for proof groups that the post-install plan does not run. "profile" is Linux only by design."""
+    skip = {"profile"} if (platform or sys.platform) == "win32" else set()
+    return set(want) - set(planned) - skip
 
 
 STARTUP_ERROR = re.compile(r"JavaScript error:.*(SyntaxError|No such JSWindowActor|ReferenceError|is not defined)")
@@ -604,6 +619,15 @@ def _stamp_rows(task_id, target, say=print, carried=None):
     return buildstamp.about_rows(target, recorded=recorded, say=say)
 
 
+def _search_rows(target, say=print):
+    """D-158-13 on the browser as people run it: Google is the only engine on a fresh profile AND on a copy of the
+    profile this install opens (2026-10-18: a profile carried over from 157 still offered Perplexity, and every
+    earlier check had used a fresh profile only)."""
+    from . import profilekeep, searchstrip
+    k = profilekeep.keeper(profilekeep.profiles(profiles_dir()))
+    return searchstrip.offered_rows(target, [k["path"]] if k else [])
+
+
 def _satellite_rows(target, say=print):
     """Satellite mode on a copy of the install: identity and scripts per level and per kind of site (satellite.py)."""
     from . import satellite
@@ -668,10 +692,19 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
             plan.append(("claims", lambda: _claims_row(t, target)))
         runs = {"visual": lambda: _visual_row(t, target, say), "ui": lambda: _ui_rows(t, target, say),
                 "about": lambda: _about_rows(t, target, say), "satellite": lambda: _satellite_rows(target, say),
+                "search": lambda: _search_rows(target, say),
                 "stamp": lambda: _stamp_rows(task_id, target, say, carried=carry.get("stamp"))}
-        for g in pkgproof.PACKAGE_GROUPS:
+        # every group post-install knows, not only the package groups build-run carries (2026-10-18: "search" was
+        # in runs and PROOF_CHECKS but never planned, so D-158-13 on the real-profile copy never ran)
+        for g in list(pkgproof.PACKAGE_GROUPS) + [k for k in runs if k not in pkgproof.PACKAGE_GROUPS]:
             if g in want:
                 plan.append((g, (lambda g=g: carry[g]) if g in carry and g != "stamp" else runs[g]))
+        # fail closed: a group that is asked for but never planned is a FAIL row, never silence (2026-10-18:
+        # "search" was declared and never ran, so D-158-13 on the real profile looked proven)
+        unplanned = sorted(unplanned_groups(want, [n for n, _ in plan], platform=sys.platform))
+        if unplanned:
+            plan.append(("unplanned", lambda u=unplanned: [{"check": "post-install: every asked-for check group ran",
+                                                             "ok": False, "evidence": f"declared but never planned: {u}"}]))
         seconds = {}
         for name, fn in plan:
             t0 = time.time()

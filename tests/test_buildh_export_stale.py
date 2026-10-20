@@ -8,15 +8,17 @@ def test_a_stale_numbered_patch_is_removed_and_the_written_ones_stay(tmp_path, m
     port, priv = root / "21.PORT.FIXES.157", root / "22.EGRESS.LOCKDOWN.157"
     port.mkdir(parents=True)
     priv.mkdir()
-    (priv / "001-old-name.patch").write_text("x", encoding="utf-8")
-    (port / "001-cut.patch").write_text("x", encoding="utf-8")          # moved to the other group since
+    mark = export.MARK + "t\n"                                           # written by this task's export before
+    (priv / "001-old-name.patch").write_text("# x\n" + mark + "\ndiff --git a/o b/o\n", encoding="utf-8")
+    (port / "001-cut.patch").write_text("# x\n" + mark + "\ndiff --git a/c b/c\n", encoding="utf-8")  # moved since
+    (port / "002-linux.patch").write_text("# from the other machine\n\ndiff --git a/l b/l\n", encoding="utf-8")
     (priv / "README.md").write_text("keep", encoding="utf-8")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "workdir": str(tmp_path)})
     monkeypatch.setattr(export, "hand_commits", lambda t: [("c1", ["a.js"], "cut", "now", "privacy")])
     monkeypatch.setattr(export, "_git", lambda w, *a: "" if "--name-only" in a else "diff --git a/a.js b/a.js\n")
     export.export("t", root, "157", say=lambda *_: None)
-    assert sorted(p.name for p in priv.glob("*.patch")) == ["001-cut.patch"]
-    assert not list(port.glob("*.patch"))
+    assert sorted(p.name for p in priv.glob("*.patch")) == ["003-cut.patch"]       # the next free number (002 is the other machine's)
+    assert [p.name for p in port.glob("*.patch")] == ["002-linux.patch"]           # never another writer's patch
     assert (priv / "README.md").exists()
 
 

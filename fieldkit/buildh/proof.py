@@ -264,7 +264,7 @@ def egress_row(install_dir, url="https://www.anthropic.com/legal/archive/21d66aa
 # webRequestBlocking) must keep every one of them out of the browser's own HTTP log
 AD_HOSTS = ("doubleclick.net", "googlesyndication.com", "googleadservices.com", "adnxs.com", "amazon-adsystem.com",
             "criteo.com", "rubiconproject.com", "pubmatic.com", "openx.net", "taboola.com", "outbrain.com",
-            "scorecardresearch.com", "google-analytics.com", "googletagmanager.com", "facebook.net", "adsrvr.org")
+            "scorecardresearch.com", "google-analytics.com", "googletagmanager.com", "facebook.net", "adsrvr.org")  # telemetry-ok: block list the egress proof fails on
 
 
 def adblock_row(install_dir, url="https://www.theguardian.com/international", seconds=60):

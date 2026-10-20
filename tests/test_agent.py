@@ -111,6 +111,64 @@ def test_discover_prefers_trusted_and_skips_drafts():
     assert len(agent.discover("remove names", cards=cs, include_drafts=True)) == 2
 
 
+def test_discover_keeps_two_letter_words_like_tv():
+    # 2026-10-19: "screen tv" lost "tv" (words under three letters were dropped) and found the wrong tools
+    cs = [_card(id="hdmi-diag", title="Check the laptop and the TV"),
+          _card(id="tui-attach", title="Talk to a window on the screen")]
+    assert [h["tool"] for h in agent.discover("tv", cards=cs)] == ["hdmi-diag"]
+    assert agent.discover("screen tv", cards=cs)[0]["tool"] == "hdmi-diag" or \
+        {h["tool"] for h in agent.discover("screen tv", cards=cs)} == {"hdmi-diag", "tui-attach"}
+    assert agent.discover("the and of", cards=cs) == []                    # stop words still match nothing
+
+
+def test_a_tool_name_spelled_with_underscores_or_case_is_found():
+    # 2026-10-19: Gemma asked for 'thermal_profile' after discover said 'thermal-profile', and gave up
+    cs = [_card(id="thermal-profile", title="cooling"), _card(id="hdmi-diag", title="TV")]
+    assert agent._find_card("thermal_profile", cs)["id"] == "thermal-profile"
+    assert agent._find_card("Thermal Profile", cs)["id"] == "thermal-profile"
+    with pytest.raises(agent.Refused) as e:
+        agent._find_card("thermal-profil", cs)              # not the same name: refused, with the nearest one named
+    assert "Did you mean 'thermal-profile'" in str(e.value)
+    with pytest.raises(agent.Refused) as e:
+        agent._find_card("quantum-flux", cs)
+    assert "NEXT: call discover" in str(e.value)
+
+
+def test_a_cards_headline_is_the_first_line_of_the_answer():
+    # 2026-10-19: Gemma ran thermal-profile, read past "profile: balanced" on line 3, and said the tool needs a choice
+    out = "ok: True\nprofile: balanced\nprofiles: {...}\n"
+    card = {"headline": "The cooling profile is {profile}.", "answer_lines": 15}
+    rec = agent._journal({"tool": "thermal-profile", "run_id": "20261019-080817-1c487d", "output": out},
+                         "DONE", ["NEXT: x"], card)
+    assert rec["answer"][0] == "ANSWER: The cooling profile is balanced."
+    assert rec["answer"][1].startswith("DONE: thermal-profile")
+    # a field the output does not carry: no headline at all, never a half-filled sentence
+    assert agent.headline("The TV is {tv_state}.", out) == ""
+    assert agent.headline(None, out) == ""
+    # keys with spaces, as hdmi-status prints them ("TV on cable : NO")
+    hdmi = "TV on cable : NO\nTV active   : False   topology: internal\n"
+    assert agent.headline("TV on the HDMI cable: {tv_on_cable}. TV active as a screen: {tv_active}.", hdmi) == \
+        "TV on the HDMI cable: NO. TV active as a screen: False."
+
+
+def test_discover_description_says_the_catalogue_is_behind_it():
+    from fieldkit import mcp
+    d = next(t for t in mcp.TOOLS if t["name"] == "discover")["description"]
+    assert d.startswith("START HERE") and "NOT" in d and "BEFORE you ever say Fieldkit cannot" in d
+    for words in ("HDMI", "cooling", "Word"):
+        assert words in d
+
+
+def test_mcp_marks_only_reading_tools_read_only():
+    from fieldkit import mcp
+    marks = {t["name"]: t["annotations"]["readOnlyHint"] for t in mcp.TOOLS}
+    assert {n for n, ro in marks.items() if ro} == {"discover", "describe", "readiness", "build_harness_status",
+                                                    "build_harness_briefs"}
+    assert marks["run"] is False and marks["undo"] is False and marks["build_harness_submit"] is False
+    listed = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
+    assert all("annotations" in t for t in listed)
+
+
 def test_system_changes_need_the_owner_even_when_reversible(tmp_path):
     c = _card(safety="reversible", effects=["registry"], modes={"preview": ["+", "--dry"]},
               entry=[PY, "-c", "import sys; print('would set', sys.argv[1:])"])

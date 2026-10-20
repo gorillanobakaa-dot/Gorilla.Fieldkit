@@ -26,7 +26,27 @@ SPECIFIC = 25       # a removed line this long, still present, proves the hunk i
 
 
 
-def superseded_by_hand(steps, step, now):
+_DIFF_CACHE = {}
+
+
+def _refreshed():
+    """The security lists lists-refresh replaces at every build (D-157-42): data judged by timebombs, not hunk by
+    hunk (2026-10-17: thousands of recorded hunks of nsSTSPreloadList.inc held the gate for over half an hour)."""
+    from .setproof import refreshed_files
+    return refreshed_files()
+
+
+def _commit_diff_lines(w, commit, rel):
+    """The +/- lines a checkpoint commit made to `rel` (headers left out). Cached: 2026-10-17 the refreshed HSTS list
+    (several MB, thousands of hand-step hunks) was read once per step and held the gate for over half an hour."""
+    key = (str(w), commit, rel)
+    if key not in _DIFF_CACHE:
+        out = _git(w, "show", "--format=", "--no-color", commit, "--", rel).splitlines()
+        _DIFF_CACHE[key] = [l for l in out if l[:1] in "+-" and not l.startswith(("+++ ", "--- "))]
+    return _DIFF_CACHE[key]
+
+
+def superseded_by_hand(steps, step, now, w=None, checkpoints=None):
     """A step whose result is not in the tree only because LATER hand steps on the same file changed it on purpose
     (2026-10-04: patch 08.Look browser-shared.css h17 added a nova CSS block that could never match; the one-pass fix
     removed it). Every added line that is missing must be one the later hand steps remove, and every removed line that
@@ -49,7 +69,12 @@ def superseded_by_hand(steps, step, now):
         la = later.get("args") or {}
         if later.get("status") != "done" or la.get("file") != f or not (later.get("done_by") == "hand" or later.get("hand_port")):
             continue
-        lines = (la.get("hunk") or {}).get("lines", [])
+        lines = list((la.get("hunk") or {}).get("lines", []))
+        # what the hand step really did to the file, not only the hunk it was asked for (2026-10-16: 027's hand port
+        # also removed the block 006 h2 had been put inside a getPrefType( call; the step's hunk does not show it)
+        hc = hand_step_commit(w, later, checkpoints=checkpoints) if w is not None else None
+        if hc:
+            lines += _commit_diff_lines(w, hc, f)
         removed_later |= {l[1:].strip() for l in lines if l.startswith("-")}
         added_later |= {l[1:].strip() for l in lines if l.startswith("+")}
         last = later["id"]
@@ -58,7 +83,7 @@ def superseded_by_hand(steps, step, now):
     return None
 
 
-def held_until_later_hand_edit(w, steps, step, pristine_commit):
+def held_until_later_hand_edit(w, steps, step, pristine_commit, checkpoints=None):
     """A step that held on the file just before the FIRST later hand edit of that file was replaced on purpose by that
     recorded edit (2026-10-08: a 155-era snapshot hunk of tokens-shared.css held, by its own check, until the files
     went back to pristine 157). -> the later step's id, or None."""
@@ -70,7 +95,7 @@ def held_until_later_hand_edit(w, steps, step, pristine_commit):
     after = ids.index(step["id"]) + 1 if step["id"] in ids else len(ids)
     first = next((x for x in steps[after:] if x.get("status") == "done" and (x.get("args") or {}).get("file") == f
                   and (x.get("done_by") == "hand" or x.get("hand_port"))), None)
-    hc = hand_step_commit(w, first) if first else None
+    hc = hand_step_commit(w, first, checkpoints=checkpoints) if first else None
     if not hc:
         return None
     prev = _git(w, "show", f"{hc}^:{f}").splitlines()
@@ -84,12 +109,17 @@ def held_until_later_hand_edit(w, steps, step, pristine_commit):
     return first["id"] if ok else None
 
 
-def hand_step_commit(w, step, _log={}):
-    """The checkpoint commit a hand step was recorded in: `commit` on the step (record stores it since 2026-10-08), or,
-    for older steps, the first "checkpoint: hand edit" commit touching the step's file at or after the time in the
-    step id (hand-<group>-<name>-YYYYMMDD-HHMMSS-...). -> commit or None."""
+def hand_step_commit(w, step, _log={}, checkpoints=None):
+    """The checkpoint commit a hand step was recorded in: `commit` on the step (record stores it since 2026-10-08),
+    the checkpoint labelled with the step's id (`submit --hand` on a port step; 2026-10-16: 027's hand port also
+    removed 006's duplicate block, which went unseen because only `record` steps were found), or, for older steps, the
+    first "checkpoint: hand edit" commit touching the step's file at or after the time in the step id
+    (hand-<group>-<name>-YYYYMMDD-HHMMSS-...). -> commit or None."""
     if step.get("commit"):
         return step["commit"]
+    c = next((x.get("commit") for x in reversed(checkpoints or []) if x.get("label") == step.get("id")), None)
+    if c:
+        return c
     import datetime
     import re as _re
     m = _re.search(r"-(\d{8}-\d{6})-", step.get("id", ""))
@@ -400,6 +430,26 @@ def creep(task_id):
     return syms, firefox.excision_creep(Path(t["workdir"]), old_pristine, syms, exclude_dirs=excl)
 
 
+_DIFF_GIT = re.compile(r"^diff --git a/(\S+) b/(\S+)\s*$", re.M)
+
+
+def patched_files(pset, groups):
+    """{file} written or deleted by an enabled, non-excluded .patch of this platform's selection, text or GIT binary
+    (binary sections have no ---/+++ lines). 2026-10-16: the 158 gate called 47 08.Look NEW_FILES "missing" that
+    21.PORT.FIXES.157/038 and 22.EGRESS 009/045 rewrite or delete on purpose."""
+    out = set()
+    for g, spec in groups.items():
+        if spec.get("status") != "enabled" or not (pset / g).is_dir():
+            continue
+        ex = set(spec.get("exclude", []))
+        for pf in (pset / g).rglob("*.patch"):
+            if pf.name in ex or "NEW_FILES" in pf.parts or "REPLACE_FILES" in pf.parts:
+                continue
+            for a, b in _DIFF_GIT.findall(pf.read_text(encoding="utf-8", errors="replace")):
+                out.update((a, b))
+    return out
+
+
 def verify(task_id):
     """-> report dict. Read-only."""
     t = task.load(task_id)
@@ -444,7 +494,10 @@ def verify(task_id):
             m = re.search(r"-h(\d+)$", s["id"])
             by_key[(a["patch"], a["file"], int(m.group(1)) if m else -1)] = s
     for key, s in by_key.items():
-        if s["status"] not in ("done", "obsolete") or s.get("skipped_by_owner") or s.get("dropped_by_owner"):
+        # `dropped_by` is what task.drop writes (2026-10-16: the 167 steps of a dropped 098 still read as 106 false
+        # completions because only `dropped_by_owner` was skipped)
+        if s["status"] not in ("done", "obsolete") or s.get("skipped_by_owner") or s.get("dropped_by_owner") \
+                or s.get("dropped_by") or (s.get("args") or {}).get("file") in _refreshed():
             continue
         v, d = scores.get(key, (None, None))
         if (s.get("done_by") == "hand" or s.get("hand_port")) and firefox.deletes_whole_file((s.get("args") or {}).get("hunk")):
@@ -483,11 +536,12 @@ def verify(task_id):
         # an OBSOLETE step whose lines the tree still holds (renamed or not) was closed wrongly: reopened like a
         # false completion (live run 16: Tabbrowser.sys.mjs h4, closed as obsolete with the code still there)
         if v in ("NOT-APPLIED", "PARTIAL"):
-            later = superseded_by_hand(t["steps"], s, body(s["args"]["file"]) if (s.get("args") or {}).get("file") else None)
+            later = superseded_by_hand(t["steps"], s, body(s["args"]["file"]) if (s.get("args") or {}).get("file") else None,
+                                       w, t.get("checkpoints"))
             if later:
                 v, d = "SUPERSEDED", f"a later hand step removed these lines on purpose: {later}"
             else:
-                held = held_until_later_hand_edit(w, t["steps"], s, root[0] if root else None)
+                held = held_until_later_hand_edit(w, t["steps"], s, root[0] if root else None, t.get("checkpoints"))
                 if held:
                     v, d = "SUPERSEDED", f"held until the later hand edit {held} changed the file on purpose"
         if v in ("NOT-APPLIED", "PARTIAL"):
@@ -546,11 +600,14 @@ def verify(task_id):
     deleted_by_hand = {s.get("args", {}).get("file") for s in t["steps"] if s.get("status") == "done"
                        and (s.get("hand_port") or s.get("done_by") == "hand")
                        and firefox.deletes_whole_file((s.get("args") or {}).get("hunk"))}
+    rewritten = patched_files(pset, groups) | firefox.manifest_deletions(hr)
     for g, spec in groups.items():
         if spec.get("status") != "enabled":
             continue
         for src, rel in firefox.new_files(pset, g):
             d = w / rel
+            if rel in rewritten:
+                continue          # a patch of the set rewrites or deletes it: judged by that patch's step, not the copy
             if not d.is_file() and rel in deleted_by_hand:
                 continue          # a later recorded hand step deletes it on purpose (replay: added, then deleted)
             if not d.is_file():
@@ -562,7 +619,8 @@ def verify(task_id):
     # 6b. changed build files that do not parse (a merge left `GeneratedFile(` dangling: configure stopped, live run 16)
     rep["syntax"] = firefox.syntax_problems(w, changed) if root else []
     from . import symbols
-    rep["symbols"] = symbols.problems(w, changed) if root else []
+    rep["symbols"] = symbols.problems(w, changed, pristine=lambda rel: _git(w, "show", f"{root[0]}:{rel}") or None) \
+        if root else []
     # 6c. excision creep is NOT computed here: two tree-wide greps over hundreds of symbols held the build gate for
     #     three hours (2026-10-02). It is its own command, `fieldkit build-harness creep TASK`, run on purpose.
     rep["creep"] = []

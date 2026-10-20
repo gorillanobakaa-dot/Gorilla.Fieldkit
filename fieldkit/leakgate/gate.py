@@ -23,8 +23,8 @@ from pathlib import Path
 from . import allow as al, audit, scenarios as sc, sensors as se
 from ..buildh.proof import VENDOR_HOST, AD_HOSTS
 
-TELEMETRY_HOSTS = ("incoming.telemetry.mozilla.org", "*.telemetry.mozilla.org", "telemetry*.mozilla.org", "*glean*",
-                   "crash-reports.mozilla.com", "crash-stats.mozilla.org", "*.crash-reports.mozilla.com")
+TELEMETRY_HOSTS = ("incoming.telemetry.mozilla.org", "*.telemetry.mozilla.org", "telemetry*.mozilla.org", "*glean*",  # telemetry-ok: block list: hosts the leak gate fails on
+                   "crash-reports.mozilla.com", "crash-stats.mozilla.org", "*.crash-reports.mozilla.com")  # telemetry-ok: block list: hosts the leak gate fails on
 EXPERIMENT_HOSTS = ("normandy*.mozilla.org", "normandy.cdn.mozilla.net", "*experimenter*", "*nimbus*")
 REMOTE_SETTINGS_HOSTS = ("firefox.settings.services.mozilla.com", "firefox-settings-attachments.cdn.mozilla.net",
                          "content-signature-2.cdn.mozilla.net", "*.settings.services.mozilla.com")
@@ -137,13 +137,10 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for e in events:
         if e["kind"] in ("dest", "dns", "sni"):
             names_by_scenario.setdefault(e["scenario"], set()).add(e["value"])
-    for scen, names in names_by_scenario.items():
-        for n in names:
-            try:
-                for a in socket.getaddrinfo(n, 443):
-                    resolved.setdefault(scen, set()).add(a[4][0])
-            except OSError:
-                pass
+    # 2026-10-19: no live lookup at judging time. Resolving every observed name here sent real DNS queries (the
+    # canary's planted incoming.telemetry.mozilla.org, eight times during the 158 build 2 gate) and made the verdict  telemetry-ok: names it to explain a rule
+    # depend on what the network answered later. Addresses come only from the run's own evidence: the wire's DNS
+    # answers and the build's resolver log (dns-a events, below).
 
     def allowed(kind, value, scen, port=None):
         # the scenario's own destinations hold for every witness, the packet capture's DNS too (2026-10-04: the
@@ -207,8 +204,15 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
     for e in events:
         if e["kind"] == "dns-attribution":
             (asked_by_build if e.get("in_build") else asked_by_other).setdefault(window(e), set()).add(e["value"].rstrip("."))
-        elif e["kind"] in ("dest", "dns", "sni") and e.get("sensor") != "pktmon":
+        elif e["kind"] in ("dest", "dns", "sni") and e.get("sensor") not in ("pktmon", "doh-server"):
             asked_by_build.setdefault(window(e), set()).add(str(e["value"]).rstrip("."))
+    # owner 2026-10-19 (proposal F): the controlled resolver serves only the build copies, so every name it was asked
+    # was asked BY THE BUILD in each dns-controlled window of the run (its log is kept under "(dns-controlled)", not
+    # under the scenario; 2026-10-19 newtab re-run: uBlock's malware-filter.gitlab.io list failed NETWORK and IPV6)
+    doh_names = {str(e["value"]).rstrip(".") for e in events if e.get("sensor") == "doh-server" and e["kind"] == "dns"}
+    if doh_names:
+        for w in {window(e) for e in events if e.get("mode") == "dns-controlled" and not str(e["scenario"]).startswith("(")}:
+            asked_by_build.setdefault(w, set()).update(doh_names)
     for (scen, _mode, _rep), names in asked_by_build.items():
         for n in names:
             if n in answers and allowed_here(n, scen):
@@ -220,6 +224,16 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             m = re.search(r"from (\S+):\d+$", e.get("detail", ""))
             if m and se.lan_address(m.group(1)):
                 machine_ips.add(m.group(1))
+    # owner 2026-10-19 (proposal B): DNS may leave from a link-local address while sockets use a rotating temporary
+    # IPv6 address. Also this machine's: its interface addresses (machine-ip, recorded per window), and the local
+    # address of any socket a sampled process bound (no process can bind an address its machine does not own)
+    for e in events:
+        if e["kind"] == "machine-ip":
+            machine_ips.add(str(e["value"]))
+        elif e["kind"] in ("udp", "listener") and e.get("sensor") == "sockets":
+            ip = str(e["value"]).rsplit(":", 1)[0].strip("[]")
+            if ip not in ("0.0.0.0", "::", "127.0.0.1", "::1", "*") and not ip.startswith("127."):
+                machine_ips.add(ip)
 
     lists = {k: [] for k in ("UNEXPECTED_DESTINATIONS", "UNEXPECTED_DNS", "UNEXPECTED_PROCESSES", "UNEXPECTED_EXECUTABLES",
                              "UNEXPECTED_FILES", "UNEXPECTED_SOCKETS", "UNEXPECTED_TELEMETRY", "UNEXPECTED_EXPERIMENTS",
@@ -236,8 +250,28 @@ def judge(events, allow, scenario_hosts, copy_dirs, server_results, repeat, pack
             lists[listname].append(item)
 
     copy_prefixes = [str(Path(c)).lower() for c in copy_dirs]
+
+    def socket_in_build(e):
+        if e.get("sensor") != "sockets":
+            return True
+        if e.get("in_build") is False:
+            return False
+        exe = (e.get("exe") or "").lower()
+        if exe and copy_prefixes and not any(exe.startswith(p) for p in copy_prefixes):
+            return False
+        chain = e.get("parent_chain") or []
+        if chain and copy_prefixes:
+            paths = [c.get("path", "").lower() for c in chain if c.get("path")]
+            if paths and not any(any(p.startswith(cp) for cp in copy_prefixes) for p in paths):
+                return False
+        return True
+
     for e in events:
         k, v, scen = e["kind"], e["value"], e["scenario"]
+        if not socket_in_build(e):
+            lists["OTHER_PROGRAMS"].append(f"[{scen}/{e['mode']}/sockets] {k} {v}" + (f":{e['port']}" if e.get("port") else "")
+                                           + f" ({e.get('detail', 'outside browser process tree')})")
+            continue
         if k in ("dest", "sni", "dns", "dns-wire"):
             host = v.lower()
             if k == "dns-wire" and host not in names_by_scenario.get(scen, set()):
@@ -524,6 +558,29 @@ def planned_runs(repeat=1, quick=True, only=None):
             for rep in range(repeat) for mode in modes_for(name, quick)]
 
 
+def previous_cargo_lock(n_minus_1_tree, workdir_tree=None):
+    """Return the previous release's Cargo.lock text from n_minus_1_tree (git root commit if .git exists, else
+    Cargo.lock on disk), falling back to a sibling release directory if n_minus_1_tree is not provided."""
+    candidates = [Path(n_minus_1_tree)] if n_minus_1_tree else []
+    if workdir_tree:
+        candidates.append(Path(workdir_tree).parent / "155.0.1")
+    for p in candidates:
+        if not p or not p.is_dir():
+            continue
+        if (p / ".git").exists():
+            r = subprocess.run(["git", "-C", str(p), "rev-list", "--max-parents=0", "HEAD"],
+                               capture_output=True, text=True, timeout=30)
+            root = r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
+            if root:
+                r2 = subprocess.run(["git", "-C", str(p), "show", f"{root}:Cargo.lock"],
+                                    capture_output=True, text=True, timeout=30)
+                if r2.returncode == 0 and r2.stdout:
+                    return r2.stdout
+        if (p / "Cargo.lock").is_file():
+            return (p / "Cargo.lock").read_text(encoding="utf-8")
+    return None
+
+
 def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
         previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
     owner_root = Path(owner_root)
@@ -538,12 +595,36 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
         st0 = lx.selftest()
         if not st0["ok"]:
             raise RuntimeError(f"leakgate (linux): not root or missing required tools {st0['missing_required']}; see selftest")
-    packets = True if linux else se.is_admin()
-    dns_prev = se.dnsclient_enable() if packets and not linux else None   # the DNS witness, put back afterwards
     if release:
         repeat, quick = max(repeat, 3), False
     work = Path(workroot) / time.strftime("%Y%m%d-%H%M%S")
     work.mkdir(parents=True)
+    if linux:
+        packets, dns_prev = True, None
+    else:
+        # the elevated helper (one UAC click) only for a release run, which requires the packet sensor; a quick run
+        # captures packets only when the shell is already elevated (2026-10-18: the overnight edit asked for UAC on
+        # every run, the test suite included)
+        packets = se.is_admin()
+        if release and not packets:
+            packets, _ = se.ensure_packet_sensor(work, say=say)
+        dns_prev = se.dnsclient_enable() if se.is_admin() else None
+    # quiet machine for the WHOLE run, Windows and Linux (owner 2026-10-18: "half a billion of them constantly pinging
+    # all the UDP ports"): every user app that holds a network socket, or is on the quiet list, is stopped by PID now;
+    # a holder judges every new process every 2 s and all of them every 30 s until this gate process ends. The
+    # system, the gate, its browser and the watching agent are spared; a system daemon that talks is named, not
+    # stopped. Logged in the run folder (quiet-start.json, quiet.log).
+    try:
+        from ..autopilot import quiet as _quiet
+        talking = []
+        stopped = _quiet.stop(_quiet.noisy(also=(os.getpid(),), talking_system=talking), say=say)
+        holder = _quiet.start_holder(os.getpid(), work / "quiet.log")
+        (work / "quiet-start.json").write_text(json.dumps({"stopped": stopped, "system_talking": talking,
+                                                           "holder_pid": holder}, indent=1), encoding="utf-8")
+        say(f"  quiet machine: {len(stopped)} app(s) stopped by PID; holder {holder} re-checks every 2 s; "
+            f"{len(talking)} system process(es) talking, named in quiet-start.json")
+    except Exception as e:  # noqa: BLE001 - a gate that cannot quiet the machine says so, it does not guess
+        raise RuntimeError(f"leakgate: the machine could not be quieted ({e}); refusing to measure a noisy machine")
     zp = work / "build.zip"
     shutil.copyfile(zip_path, zp)
     if linux:
@@ -616,6 +697,11 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
             for rep in range(repeat):
                 for mode, bdir in modes:
                     say(f"  {name} [{mode}] run {rep + 1}/{repeat}: {secs} s + {watch} s after shutdown")
+                    try:                       # owner 2026-10-18: the ETA from the plan and this run's measured overhead
+                        from ..core import eta as _eta
+                        say("    " + _eta.human(_eta.leakgate(work, repeat, quick)))
+                    except Exception:  # noqa: BLE001 - an estimate never stops a gate
+                        pass
                     if linux:
                         allowed = [v for e in allow.get("entries", []) if e.get("kind") in ("dns", "dest") for v in e.get("values", [])] + list(hosts)
                         ev, art = lx.run_one(bdir, server.url(target), secs, args, work / "runs",
@@ -633,6 +719,7 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
                                        "detail": "the page itself never reached mitmproxy"})
     finally:
         if packets and not linux:
+            se.close_packet_sensor()
             se.dnsclient_restore(dns_prev)
         server.close()
         doh.close()
@@ -646,6 +733,9 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
     for q in doh.queries:
         events.append({"scenario": "(dns-controlled)", "mode": "dns-controlled", "sensor": "doh-server", "kind": "dns", "value": q["name"],
                        "detail": f"type {q['type']} {'answered' if q['answered'] else 'NXDOMAIN'}", "rep": 0})
+        for ip in q.get("ips", []):                   # proposal F: the address the controlled resolver answered with
+            events.append({"scenario": "(dns-controlled)", "mode": "dns-controlled", "sensor": "doh-server", "kind": "dns-a",
+                           "value": q["name"], "ip": ip, "rep": 0})
     fail, lists = judge(events, allow, scen_hosts, [direct, proxied, dnsctl], server.results, repeat, packets, quick)
     afail, alists = action_checks(set(scen_hosts), events, server.results, server.requests, packets, linux)
     for pol, items in afail.items():
@@ -732,15 +822,7 @@ def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=
         fail["BINARY_POLICY"].append(f"{len(ex['unapproved_new'])} executable/DLL(s) new since release N-1 without an approved disposition: {ex['unapproved_new'][:6]}")
     if ex["unexpected_network_imports"]:
         fail["BINARY_POLICY"].append(f"binaries importing network libraries they should not: {dict(list(ex['unexpected_network_imports'].items())[:4])}")
-    prev_lock = None
-    if n_minus_1_tree:
-        try:
-            import subprocess as _sp
-            repo = Path(workdir_tree).parent / "155.0.1"
-            root = _sp.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()[0]
-            prev_lock = _sp.run(["git", "-C", str(repo), "show", f"{root}:Cargo.lock"], capture_output=True, text=True, encoding="utf-8").stdout
-        except Exception:
-            prev_lock = None
+    prev_lock = previous_cargo_lock(n_minus_1_tree, workdir_tree)
     dep = audit.dependency_audit(workdir_tree, prev_lock, dispositions)
     if not prev_lock:
         fail["DEPENDENCY_POLICY"].append("no previous Cargo.lock to compare with")
@@ -784,7 +866,35 @@ JUDGED = ("NETWORK_POLICY", "TELEMETRY_POLICY", "DNS_POLICY", "PROCESS_POLICY", 
 _JUDGE_ITEM = re.compile(r"^\[[^\]/]+/[^\]/]+/[^\]]+\] ")
 
 
-def rejudge(run_dir, owner_root, why=""):
+NECKO_LOG = re.compile(r"^necko-(?P<scen>.+)-r(?P<rep>\d+)-(?P<mode>direct)\.log")
+
+
+def recorded_lookups(run_dir, events):
+    """The build's own resolver results (proposal A) read from the necko logs a run RECORDED in runs/: the same
+    evidence, read again, nothing re-measured. The logs are the source; the derived necko-dns dns-a events in
+    events.jsonl are replaced by this (strip them first: with_recorded_lookups), so a reader fix reaches old runs
+    (2026-10-19: the first reader cut IPv6 addresses ending in "::" and the newtab re-run stored them cut)."""
+    texts = {}
+    for f in sorted((Path(run_dir) / "runs").glob("necko-*-direct.log*")):
+        m = NECKO_LOG.match(f.name)
+        if m:
+            key = (m["scen"], m["mode"], int(m["rep"]))
+            texts[key] = texts.get(key, "") + f.read_text(encoding="utf-8", errors="replace")
+    out = []
+    for (scen, mode, rep), text in texts.items():
+        out += se.necko_lookups(text, {"scenario": scen, "mode": mode, "rep": rep})
+    return out
+
+
+def with_recorded_lookups(run_dir, events):
+    """events with the necko-dns dns-a rows re-derived from the run's own logs (kept as they were when it has none)."""
+    fresh = recorded_lookups(run_dir, events)
+    if not fresh:
+        return events
+    return [e for e in events if not (e.get("kind") == "dns-a" and e.get("sensor") == "necko-dns")] + fresh
+
+
+def rejudge(run_dir, owner_root, why="", dependency_baseline=None, rerun=None):
     """Judge a finished run again with the current judge and allowlist: the SAME evidence (events.jsonl, the page
     results), nothing re-measured. Items judge() produces are replaced; every other item (action checks, audits,
     regression, reproducibility) is carried over unchanged, so a re-judge can only remove judging errors. The original
@@ -797,6 +907,7 @@ def rejudge(run_dir, owner_root, why=""):
     if not orig.is_file():
         orig.write_text(json.dumps(old, indent=1), encoding="utf-8")
     events = [json.loads(l) for l in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    events = with_recorded_lookups(run_dir, events)
     allow = al.load(al.path_for(owner_root))
     scen_hosts = {name: hosts for name, _t, _s, _a, hosts, _w in sc.SCENARIOS}
     pr = run_dir / "page-results.json"
@@ -804,11 +915,33 @@ def rejudge(run_dir, owner_root, why=""):
     copies = [run_dir / "build-direct", run_dir / "build-proxied", run_dir / "build-dns"]
     reps = {e.get("rep", 0) for e in events}
     fail, lists = judge(events, allow, scen_hosts, copies, results, repeat=len(reps), packets=True, quick=False)
+    rerun_note = None
+    if rerun:
+        fail, lists, rerun_note = _fold_rerun(run_dir, Path(rerun), fail, lists, allow, scen_hosts)
     new, changes = dict(old), {}
     why_old = old.get("WHY", {})
+    dep_items = None
+    if dependency_baseline:
+        # owner 2026-10-19 (proposal D): the crates are compared with a NAMED earlier build's Cargo.lock (a git ref in
+        # the ported tree), the run's own evidence otherwise unchanged
+        tree, ref = dependency_baseline
+        r = subprocess.run(["git", "-C", str(tree), "show", f"{ref}:Cargo.lock"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
+        if r.returncode != 0 or not r.stdout:
+            raise ValueError(f"no Cargo.lock at {ref} in {tree}: {r.stderr.strip()[:200]}")
+        disp_path = owner_root / "leakgate" / "dispositions.json"
+        dispositions = json.loads(disp_path.read_text(encoding="utf-8")) if disp_path.is_file() else {}
+        dep = audit.dependency_audit(tree, r.stdout, dispositions)
+        items = ([f"{len(dep['unapproved_new'])} Rust crate(s) new since {ref} without an approved disposition"
+                  + (f"; network-capable: {dep['network_capable_new']}" if dep["network_capable_new"] else "")
+                  + f": {dep['unapproved_new'][:8]}"] if dep["unapproved_new"] else [])
+        dep_items = items
+        (run_dir / f"dependencies.vs-{ref}.json").write_text(json.dumps(dep, indent=1), encoding="utf-8")
     for pol in POLICIES:
         if pol in JUDGED:
             items = fail[pol] + [x for x in why_old.get(pol, []) if not _JUDGE_ITEM.match(x)]
+        elif pol == "DEPENDENCY_POLICY" and dep_items is not None:
+            items = dep_items
         elif pol == "ALLOWLIST_POLICY":
             items = al.problems(allow) + al.scope_problems(allow) + ([] if allow.get("entries") else ["no allowlist"])
         else:
@@ -826,9 +959,41 @@ def rejudge(run_dir, owner_root, why=""):
         new[k] = sorted(set(v))
     new["FINAL_RESULT"] = "PASS" if all(new[p] == "PASS" for p in POLICIES) else "FAIL"
     new["REJUDGED"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "why": why, "changes": changes,
-                       "original": orig.name, "evidence": "events.jsonl and page-results.json of this run, unchanged"}
+                       "original": orig.name, "evidence": "events.jsonl and page-results.json of this run, unchanged"
+                       + (f"; {rerun_note}" if rerun_note else "")}
     (run_dir / "test-results.json").write_text(json.dumps(new, indent=1), encoding="utf-8")
     return new, changes
+
+def _fold_rerun(run_dir, rerun_dir, fail, lists, allow, scen_hosts):
+    """Owner 2026-10-19 ("re-run newtab"): the judged items of the scenarios a partial RELEASE run of the SAME build
+    re-measured replace the full run's items for those scenarios only; everything else of the full run stands.
+    Refused unless the re-run is a release-mode run limited to named scenarios, of the same BUILD."""
+    plan = json.loads((rerun_dir / "gate-plan.json").read_text(encoding="utf-8"))
+    full_res = json.loads((run_dir / "test-results.json").read_text(encoding="utf-8"))
+    re_res = json.loads((rerun_dir / "test-results.json").read_text(encoding="utf-8"))
+    only = set(plan.get("only") or [])
+    if not plan.get("release") or not only:
+        raise ValueError(f"{rerun_dir.name} is not a release-mode run limited to named scenarios (only={plan.get('only')})")
+    if str(re_res.get("BUILD")) != str(full_res.get("BUILD")):
+        raise ValueError(f"{rerun_dir.name} measured build {re_res.get('BUILD')}, not {full_res.get('BUILD')}")
+    ev = [json.loads(l) for l in (rerun_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    ev = with_recorded_lookups(rerun_dir, ev)
+    pr = rerun_dir / "page-results.json"
+    results = json.loads(pr.read_text(encoding="utf-8")) if pr.is_file() else []
+    copies = [rerun_dir / "build-direct", rerun_dir / "build-proxied", rerun_dir / "build-dns"]
+    rfail, rlists = judge(ev, allow, scen_hosts, copies, results, repeat=len({e.get("rep", 0) for e in ev}),
+                          packets=True, quick=False)
+    tag = re.compile(r"^\[([^\]/]+)/")
+
+    def scen_of(item):
+        m = tag.match(item)
+        return m.group(1) if m else None
+    merged = {p: [x for x in fail[p] if scen_of(x) not in only] + [x for x in rfail[p] if scen_of(x) in only]
+              for p in fail}
+    mlists = {k: [x for x in v if scen_of(x) not in only] + [x for x in rlists.get(k, []) if scen_of(x) in only]
+              for k, v in lists.items()}
+    return merged, mlists, f"scenarios {sorted(only)} from re-run {rerun_dir.name} (same build, release mode)"
+
 
 NO_BASELINE = "no approved baseline (leakgate/baseline.json)"
 

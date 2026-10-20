@@ -206,6 +206,46 @@ SYMPTOMS = [
         "last_fix": "2026-10-16: detector for browser profile data added; the 158 push was clean (306 files)",
         "then": "remove the file from the commits and add it to .gitignore; never publish, then delete",
     },
+    {
+        "id": "menu-colors-wrong",
+        "seen": "A menu, list or popup is white or grey, its text hard to read, the row under the mouse is not the "
+                "purple highlight, or a label is cut short, although the theme CSS says otherwise.",
+        "example": "the search list popup is white and the hover color is wrong",
+        "words": [r"menu|popup|pop-?up|list|panel|hover|highlight|meniu|lista",
+                  r"white|grey|gray|alb|gri|wrong|color|colour|culoare|contrast|read|cut|t[aă]iat|purple|mov"],
+        "action": "probe",
+        "run": "build-harness probe <task> js=theme-diag --install-dir C:\\gfobj\\dist\\bin [file=<path in dist/bin>=<edited tree file> ...]",
+        "proves": "what REALLY paints each surface (appearance, background, variables, the item's colors, the hover "
+                  "after the transition, the label's needed vs given width), on a copy of the UNPACKED build: a CSS "
+                  "fix is tried in about 90 s, never by a rebuild; the gate runs the same loop on every chrome change",
+        "look": ["browser/themes/shared/master-redirect.css (GORILLA THEME, ONE CONSTANT; menupopup block)",
+                 "browser/themes/shared/toolbarbuttons.css (#gorilla-satellite-button > menupopup)",
+                 "browser/themes/shared/customizableui/panelUI-shared.css (#appMenu-popup panelview width)",
+                 "gorilla-patchset/decisions/THEME.yaml (the spec the rows judge against)"],
+        "last_fix": "D-158-19 (2026-10-18): menus were the system's white (menupopup appearance:auto, Menu), the "
+                    "Satellite hover cyan 25%, the app menu sized by panelview 25em not --menu-panel-width",
+        "then": "edit the tree file, prove it with file=..., record it (build-harness record), export-hand; the build "
+                "gate's fast-loop rows must pass before compiling",
+    },
+    {
+        "id": "only-on-my-profile",
+        "seen": "Something is wrong on the browser as the person uses it but right on a fresh or test profile: an "
+                "engine, a setting, a page or a color the build does not have, Linux or Windows.",
+        "example": "my browser still offers Perplexity but a fresh profile shows only Google",
+        "words": [r"my (browser|profile)|real profile|old profile|profilul meu|browserul meu|on my|la mine|still offers|still shows",
+                  r"fresh|new profile|test profile|clean|profil nou|only google|works on|merge pe"],
+        "action": "profile-diff",
+        "run": "build-harness profile-diff <task> probe=<the probe that measures it> profile=<the real profile dir>",
+        "proves": "the same probe on a fresh profile and on a COPY of the real one (never the real one): the lines "
+                  "only the real profile shows are what the profile carries, not the build",
+        "look": ["build-harness profile-check <task> (which profile the launcher opens, which version last ran it)",
+                 "fieldkit/buildh/probes/ (search-engines, ui-contrast, settings-groups ...: pick the one that measures it)",
+                 "post-install runs the search rows on a fresh profile AND a copy of the kept profile"],
+        "last_fix": "D-158-13 (2026-10-18): SearchService stores only AppProvidedConfigEngine ids ^google(-|$); a 157 "
+                    "profile had brought Perplexity, Bing, DuckDuckGo, Wikipedia and eBay back",
+        "then": "fix it in the build (lock or refuse what the profile brings) or move the person with profile-fresh; "
+                "never edit the profile by hand",
+    },
 ]
 
 

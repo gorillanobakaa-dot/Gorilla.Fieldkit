@@ -156,7 +156,9 @@ def test_a_broken_speakable_never_stops_the_voice():
     real = sp.speakable
     sp.speakable = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
     try:
-        out = herald.say("the laptop is offline", which=lambda n: None, out=lambda *a, **k: None)
+        # platform="linux" + no voice found: nothing can sound. 2026-10-16: without it, Windows found its own voice
+        # (System.Speech needs no `which`) and the test said "the laptop is offline" aloud to the owner.
+        out = herald.say("the laptop is offline", platform="linux", which=lambda n: None, out=lambda *a, **k: None)
         assert out == "printed"
     finally:
         sp.speakable = real

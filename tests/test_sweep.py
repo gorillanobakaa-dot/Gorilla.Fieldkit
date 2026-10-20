@@ -78,6 +78,18 @@ def test_an_empty_scratch_or_only_adopted_copies_exits_zero(tmp_path):
     assert sweep.exit_code(sweep.scan([tmp_path / "Empty"], [], {}, ignore=set())) == 0
 
 
+def test_a_loose_script_captured_as_a_recipe_is_adopted_and_its_marker_is_no_leftover(tmp_path):
+    # 2026-10-19: `fieldkit recipes capture` and `adopt` mark a loose file with NAME.adopted beside it; the sweep
+    # listed the file as untracked and the marker as a leftover, so it could never reach exit 0.
+    scratch = tmp_path / "Scripts"
+    scratch.mkdir()
+    (scratch / "probe.py").write_text("print(1)\n")
+    (scratch / "probe.py.adopted").write_text("adopted 2026-10-19 into local/recipes/x/probe.py\n")
+    rows = sweep.scan([scratch], [], {}, ignore=set())
+    assert [(r["name"], r["status"]) for r in rows] == [("probe.py", "adopted")]
+    assert sweep.exit_code(rows) == 0
+
+
 def test_cli_sweep_runs_and_reports_json():
     r = subprocess.run([sys.executable, "-m", "fieldkit", "sweep", "--json"], cwd=ROOT,
                        capture_output=True, text=True, encoding="utf-8")

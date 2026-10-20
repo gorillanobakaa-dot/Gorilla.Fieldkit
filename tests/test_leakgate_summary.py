@@ -21,6 +21,22 @@ def test_the_table_comes_from_the_log(tmp_path):
     assert "10:08 to 14:08" in md and not r["missing"]
 
 
+def test_a_rejudged_run_shows_its_new_verdict_and_says_so(tmp_path):
+    # 2026-10-19: the launcher's exit code said FAIL; the owner's re-judge said PASS; the page must say both, plainly
+    log = tmp_path / "run.log"
+    log.write_bytes(LOG.encode("utf-16"))
+    res = tmp_path / "run.result.json"
+    res.write_text('{"exit_code": 3, "minutes": 251.6, "started": "2026-10-18T22:30:18", "ended": "2026-10-19T02:41:00"}',
+                   encoding="utf-8-sig")
+    tr = {"FINAL_RESULT": "PASS", "REJUDGED": {"at": "2026-10-19T06:05:14", "why": "fixes A B",
+                                               "changes": {"NETWORK_POLICY": {"before": "FAIL", "after": "PASS"}},
+                                               "evidence": "events.jsonl of this run, unchanged"}}
+    md = s.run(log, res, verdict=tr)["markdown"]
+    assert "**Result on this build: PASS**" in md and "first verdict was **FAIL**" in md
+    assert "NETWORK_POLICY FAIL to PASS" in md and "unchanged" in md
+    assert "**Result on this build: FAIL**" in s.run(log, res)["markdown"]      # no verdict given: the exit code
+
+
 def test_an_unexplained_scene_is_named():
     md, missing = s.render(s.scenes("  brand-new-scene [direct] run 1/3: 30 s + 5 s after shutdown\n"))
     assert missing == ["brand-new-scene"] and "(not explained)" in md

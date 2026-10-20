@@ -65,8 +65,21 @@ copy HANDOFF.md DIR\                                                            
 python -I catchup.py manifest DIR && python -I catchup.py check DIR
 python -I catchup.py pack DIR E:\Handover --replace
 ```
-Then do what the receiving side will do: `sha256sum -c`, unzip into a scratch folder, check every file against
-`MANIFEST.json`. Update HANDOFF.md for every decision made since the last pack (pushes done, owner choices).
+Then do what the receiving side will do: `python3 catchup.py verify E:\Handover\NAME.zip` (the zip against its
+`.sha256`, every file against `MANIFEST.json`; exit 3 names what is missing, different or unlisted). The receiver
+runs the same command, never an inline script. Update HANDOFF.md for every decision made since the last pack
+(pushes done, owner choices).
+
+## 3b. Questions to the other machine: the ledger
+
+```
+python -I catchup.py ask "Did leakgate-selftest pass on the VAIO?" --to linux   # -> Q-YYYYMMDD-N
+python -I catchup.py questions [--all]                                         # open ones, oldest first, with age
+python -I catchup.py answer Q-20261019-1 "READY, report attached"              # when the report comes back
+```
+Every open question goes into every bundle as QUESTIONS-OPEN.md until it is answered: a question is never
+repeated by hand ("may still be unanswered") or lost between handovers (2026-10-19). The ledger is private:
+Fieldkit's local/catchup-questions.json.
 
 ## 4. Before anything goes public: public-check
 

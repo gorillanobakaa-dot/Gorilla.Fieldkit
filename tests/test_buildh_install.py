@@ -80,7 +80,10 @@ def test_startup_caches_are_cleared_and_proven_empty(tmp_path, monkeypatch):
     assert len(cleared) == 1 and "1 files" in cleared[0] and inst.caches_row()["ok"]
     # an absolute path outside the temp folder: a bare "firefox" resolved against the working directory, so the test
     # passed in ~/Documents and failed in a checkout under /tmp, where it reads as a throwaway bench copy (2026-10-14)
-    running = str(Path.home() / "apps" / "firefox" / "firefox")
+    # and outside the temp folder whatever HOME is (2026-10-20: a stranger test with HOME under the temp folder made
+    # this a throwaway copy too); the drive root of the temp folder is never inside it
+    import tempfile
+    running = str(Path(Path(tempfile.gettempdir()).anchor) / "gorilla-apps" / "firefox" / "firefox")
     monkeypatch.setattr(inst.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": running, "returncode": 0})())
     with pytest.raises(task.Refused, match="running"):
         inst.clear_startup_caches()
@@ -107,6 +110,8 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     monkeypatch.setattr(inst, "_about_rows", lambda t, target, say=print: [])      # its own tests: test_buildh_aboutpages.py
     monkeypatch.setattr(inst, "_stamp_rows", lambda task_id, target, say=print, carried=None: [])  # its own tests: test_buildh_buildstamp.py
     monkeypatch.setattr(inst, "_satellite_rows", lambda target, say=print: [])     # its own tests: test_buildh_satellite.py
+    searched = []
+    monkeypatch.setattr(inst, "_search_rows", lambda target, say=print: searched.append(target) or [])  # test_buildh_searchstrip.py
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
@@ -114,6 +119,8 @@ def test_post_install_runs_each_owner_script_with_the_install_dir_and_keeps_logs
     monkeypatch.setattr(task, "journal", lambda t, ev, **kw: journal.append((ev, kw)))
     said = []
     r = inst.post_install("t1", install_dir=tmp_path / "G", say=said.append)
+    # 2026-10-18: every declared group runs (search was declared and never planned); nothing is left unplanned
+    assert searched and not any("never planned" in s for s in said)
     # the keyboard-taking check is skipped unless asked, and the skip is said out loud
     assert not r["ok"] and [(x["name"], x["rc"]) for x in r["results"]] == [("profiles", 0), ("startup", 0),
         ("verify_installed_build", 0), ("verify_no_phone_home", 2), ("webrtc_selftest", 0), ("verify_address_bar", None)]
@@ -244,6 +251,7 @@ def _post_install_world(tmp_path, monkeypatch, scripts=None):
     monkeypatch.setattr(inst, "_about_rows", lambda t, target, say=print: [])      # its own tests: test_buildh_aboutpages.py
     monkeypatch.setattr(inst, "_stamp_rows", lambda task_id, target, say=print, carried=None: [])  # its own tests: test_buildh_buildstamp.py
     monkeypatch.setattr(inst, "_satellite_rows", lambda target, say=print: [])     # its own tests: test_buildh_satellite.py
+    monkeypatch.setattr(inst, "_search_rows", lambda target, say=print: [])          # its own tests: test_buildh_searchstrip.py
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
@@ -396,3 +404,9 @@ def test_linux_install_is_found_through_dpkg(tmp_path):
         returncode = 1
         stdout = ""
     assert inst.linux_installs(run=lambda *a, **k: Missing()) == []
+
+
+def test_a_group_asked_for_but_never_planned_is_named():
+    # 2026-10-18: "search" sat in PROOF_CHECKS and never ran; the post-install plan now fails such a group
+    assert inst.unplanned_groups({"search", "ui", "profile"}, ["ui"], platform="win32") == {"search"}
+    assert inst.unplanned_groups({"profile"}, [], platform="linux") == {"profile"}

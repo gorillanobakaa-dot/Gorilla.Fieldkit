@@ -76,6 +76,42 @@ repoints everything that used the old place. A card that still points into Scrip
 adoption: the sweep reports it as `adopt` and exits 3. Extra scratch roots (a repository's
 own test scripts, say) go in `sweep.roots`. The sweep is done when the command exits 0.
 
+## Unattended work (autopilot)
+
+Safety comes from the harness, not from approval prompts (owner, 2026-10-18, after 40 hours of pressing Yes).
+- `fieldkit autopilot claude PROMPT` runs Claude Code headless in bypass mode; a Claude Code desktop session opened
+  in `Documents\Autopilot` (`fieldkit autopilot workspace`) works the same way. `fieldkit autopilot antigravity`
+  starts Antigravity for unattended work (close it first). No prompts; only the hard lines hold
+  (`fieldkit/autopilot/hardlines.py`, enforced by the hook of each tool): no push or publish, no deletes outside
+  scratch, no changes to the build harness, guards, rules files, leak-gate allowlists or the decision register,
+  no owner approvals, no credential files.
+- An autopilot run has no GitHub or git credential: publishing is impossible, not just forbidden.
+- Anything that needs the owner goes to `fieldkit inbox add TITLE WHY [COMMAND]`, and the run carries on with what
+  does not depend on it. The owner clears the inbox in one sitting and publishes with `fieldkit publish`.
+- `fieldkit autopilot stop` (the owner's STOP) leaves only reads; `resume` lifts it. A stop is never argued with.
+- Before a measuring run: `fieldkit autopilot quiet --apply --hold PID` stops the apps that call home, by PID,
+  for the length of the run, never touching the agent's own app.
+- Report from the logs, never from memory: a PASS needs the line that printed it.
+
+## Two machines, one harness (Windows and Linux)
+
+The owner runs Fieldkit on a Windows laptop and a Linux machine, each with its own agent session.
+
+- **At session start and before ending, run `fieldkit sync`.** It fetches and reports every repository in
+  `sync.repos` (`fieldkit.local.json`) against GitHub. `fieldkit sync --apply` takes upstream commits only as a
+  fast-forward, only with a clean tree, and only when CI ran green on both windows-latest and ubuntu-latest for
+  that commit. Diverged history and a default branch ahead of a feature branch are reported for a person to merge.
+  Pushing still needs the owner's yes. Private files (`local/`, memory) travel by `catchup`, not git.
+- **A tool is written for both systems.** CI runs every test on both. A card naming one system needs
+  `platforms_why` (what the other system lacks). `python -m fieldkit.desk.platformcheck` fails on a new
+  single-system card without one, and on a card that promises a system its test file is skipped on. The cards
+  that were single-system on 2026-10-16 are the frozen backlog (`fieldkit/desk/single_platform_baseline.txt`):
+  it only shrinks.
+- **A Firefox patch is applied only where it builds.** `build-harness set-proof` (run by the patch set's pre-push
+  hook for both systems) fails on a patch whose files only the other system builds, unless the policy declares it.
+  Declare it with `platforms` on the group or `exclude_on.<system>`. rebase-set writes these declarations for its
+  own group.
+
 ## Working with a small model
 
 - **Let the harness plan.** Ask `fieldkit next`, do the one `DO:` line or pick one
@@ -84,6 +120,15 @@ own test scripts, say) go in `sweep.roots`. The sweep is done when the command e
 - **Snapshot around changes.** Take a snapshot before and after any change, and report
   the diff, not the model's own account of what it did.
 - **Measure.** `fieldkit exam` shows whether the kit really helps a given model.
+
+## Telemetry and the tool router (owner, 2026-10-18)
+
+- Telemetry is off and cut out in every project, without asking: `fieldkit telemetry scan <project>` exits 0 (SDKs,
+  endpoints and collectors excised, not disabled; a deliberate line says `telemetry-ok: <why>`). The machine:
+  `fieldkit telemetry machine`, every row closed; the build gate fails while one is open.
+- The tool router (`fieldkit/autopilot/toolrouter.py`, a Claude Code PreToolUse hook and Antigravity's guard) refuses
+  hand-rolled recursive searches and size scans and names the tool to use (`fieldkit size find`, `fieldkit size`).
+  A new tool that replaces a hand-rolled habit gets a row in its ROUTES table, with a test.
 
 ## Rules this code enforces, and that you should keep to
 
@@ -162,3 +207,7 @@ local/            your own cards, sources and tests (git-ignored, merged at load
 
 How the work gets done, and the tool each method becomes: [docs/METHODS.md](docs/METHODS.md). Before inventing a
 procedure, look there; when you invent one, add it there, and turn it into a tool with a test.
+
+## Commands for the owner
+
+OWNER COMMANDS ARE PASTEABLE AS THEY ARE (owner, 2026-10-18). Every command the owner is to paste is a Windows PowerShell block that starts with cd to a full path (cd $HOME; ...), calls every program by its full real path (an MSIX app such as Claude Desktop keeps its files under $env:LOCALAPPDATA\Packages\<package>\LocalCache, not where the app itself sees them), uses PowerShell syntax only (no &&, export, $VAR, ~/), and says in words where anything typed AFTER it goes (for example: type /login inside Claude's prompt, not in PowerShell). Checked by fieldkit.autopilot.ownercmd; in Claude Code a Stop hook sends a failing answer back.

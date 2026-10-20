@@ -103,6 +103,19 @@ def test_privacy_masks_and_allows_placeholders():
     assert privacy.scan_text("/home/" + "gorilla9/.bashrc")                       # a real-looking name still counts
 
 
+FAKE_GOOGLE_SECRET = "GOCSPX" + "-" + "Ab1_" * 7                 # 28 characters after the dash, built at runtime
+
+
+def test_privacy_finds_a_google_oauth_client_secret():
+    # 2026-10-19: a room line printed one and nothing redacted it
+    hits = privacy.scan_text(f'secret = "{FAKE_GOOGLE_SECRET}"')
+    assert [h["kind"] for h in hits] == ["google-oauth-secret"]
+    assert FAKE_GOOGLE_SECRET not in json.dumps(hits)
+    assert privacy.scan_text("GOCSPX" + "-short") == []          # not the shape of a secret
+    # a vendor's public installed-app secret, kept on purpose, carries the allow mark and its reason
+    assert privacy.scan_text(f'"{FAKE_GOOGLE_SECRET}" // public, shipped in the vendor app; privacy-scan: allow') == []
+
+
 def test_privacy_allow_marker_only_silences_its_own_line():
     text = f"fixture {FAKE_TOKEN}  # privacy-scan: allow\nreal {FAKE_TOKEN}"
     hits = privacy.scan_text(text)

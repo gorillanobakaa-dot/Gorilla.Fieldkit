@@ -14,6 +14,8 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     from fieldkit.buildh import timebombs                # its own tests: test_buildh_timebombs.py (a real Firefox tree)
     monkeypatch.setattr(timebombs, "rows", lambda workdir, at=None, margin=42, run=None: [])
+    # the owner's preflight and the register on the source tree: their own tests (test_buildh_prefconflicts.py)
+    monkeypatch.setattr(cg, "owner_rows", lambda t: [])
     w = tmp_path / "work"
     w.mkdir()
     subprocess.run(["git", "init", "-q", str(w)], check=True)

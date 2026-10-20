@@ -44,6 +44,18 @@ def test_a_lost_decision_is_violated(tmp_path):
     assert not r["ok"] and r["rows"][0]["verdict"] == "VIOLATED"
 
 
+def test_mozconfig_lacks_holds_only_while_the_option_is_not_set(tmp_path):
+    # 2026-10-19: Windows keeps RLBox while Linux turns it off; a commented-out option is not set
+    o = _owner(tmp_path, [_e("A", verify=[{"mozconfig_lacks": {"file": "mozconfig",
+                                                                "text": "ac_add_options --without-wasm-sandboxed-libraries"}}])])
+    (o / "mozconfig").write_text("ac_add_options --disable-updater\n# ac_add_options --without-wasm-sandboxed-libraries\n",
+                                 encoding="utf-8")
+    r = dec.check(o)
+    assert r["ok"] and r["rows"][0]["verdict"] == "ENFORCED", r      # ok: the kind is known to the register lint too
+    (o / "mozconfig").write_text("ac_add_options --without-wasm-sandboxed-libraries\n", encoding="utf-8")
+    assert dec.check(o)["rows"][0]["verdict"] == "VIOLATED"
+
+
 def test_enforced_without_a_check_is_violated(tmp_path):
     r = dec.check(_owner(tmp_path, [_e("A")]))
     assert not r["ok"] and r["rows"][0]["verdict"] == "VIOLATED"

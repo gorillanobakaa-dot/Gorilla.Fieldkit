@@ -130,7 +130,16 @@ def tree_since(workdir, since, install_dir, out_dir, until="HEAD"):
     import hashlib
     git = lambda *a: subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(workdir), *a], capture_output=True)
     index, names = {}, {}
-    for jar in ("omni.ja", "browser/omni.ja"):
+    if not (Path(install_dir) / "omni.ja").is_file():
+        # 2026-10-18: an UNPACKED build (the objdir's dist/bin: Gorilla builds without omni.ja so that CSS and JS
+        # can be tried without a rebuild) has every chrome file as a plain file; the member is "@<relative path>"
+        root = Path(install_dir)
+        for f in root.rglob("*"):
+            if f.is_file() and f.suffix.lower() in TEXT_MEMBER + (".png", ".webp", ".ico") and f.stat().st_size < 8_000_000:
+                rel = f.relative_to(root).as_posix()
+                index.setdefault(hashlib.sha256(f.read_bytes()).hexdigest(), []).append("@" + rel)
+                names.setdefault(rel.split("/chrome/", 1)[-1], []).append("@" + rel)
+    for jar in ("omni.ja", "browser/omni.ja") if (Path(install_dir) / "omni.ja").is_file() else ():
         with zipfile.ZipFile(Path(install_dir) / jar) as z:
             for n in z.namelist():
                 if not n.endswith("/"):

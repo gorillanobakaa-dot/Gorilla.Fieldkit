@@ -18,6 +18,9 @@
 #   test: tests/test_gdocs.py, skill: skills/gorilla-documentation-ibm-style/SKILL.md
 
 groups:
+  - name: autopilot
+    title: Unattended work - the hard lines no session crosses, the runbook runner, the owner's inbox and one-command publish
+    sources: [autopilot/*.py]
   - name: terminal
     title: A terminal window opened in front of a person, with the command ready
     sources: [terminal/*.py]
@@ -48,7 +51,7 @@ groups:
 
   - name: core
     title: The core engine (pipelines, next, privacy, settings, snapshots)
-    sources: ["core/*.py"]
+    sources: ["core/*.py", "core/offline_site/*.py"]
 
   - name: tool-collection
     title: The tool desk (registry, cards, readiness, gather, harvest)
@@ -128,6 +131,7 @@ groups:
       - buildh/clipcheck.py
       - buildh/symptoms.py
       - buildh/companions.py
+      - buildh/fastloop.py
       - buildh/satellite.py
       - buildh/window.py
       - buildh/herald.py
@@ -135,11 +139,21 @@ groups:
       - buildh/lossaudit.py
       - buildh/mozbuild_rules.py
       - buildh/ownercheck.py
+      - buildh/prefconflicts.py
+      - buildh/searchstrip.py
+      - buildh/themecheck.py
       - buildh/preflight.py
       - buildh/profilecheck.py
       - buildh/profilefresh.py
+      - buildh/profilediff.py
+      - buildh/profilekeep.py
       - buildh/recorder.py
+      - buildh/releasepage.py
+      - buildh/installertest.py
+      - buildh/releasepublish.py
+      - buildh/nightpack.py
       - buildh/repair.py
+      - buildh/setproof.py
       - buildh/stats.py
       - buildh/symbols.py
       - buildh/truthbound.py

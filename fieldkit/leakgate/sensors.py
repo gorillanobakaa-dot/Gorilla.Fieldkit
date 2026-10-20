@@ -28,6 +28,40 @@ NECKO = "nsHttp:3,nsHostResolver:5,nsSocketTransport:4,timestamp"
 URL_RX = re.compile(r"(?:uri=|URI |spec=|BeginConnect )\[?(https?|wss?)://([^/\s\]]+)([^\s\]]*)")
 RES_RX = re.compile(r"(?:Resolving host|host \[|NameLookup|resolving) \[?([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\]?", re.I)
 SOCK_RX = re.compile(r"nsSocketTransport::Init.*?host=([^:\s\]]+):(\d+)")
+#: the build's own resolver result (owner 2026-10-19, leak-gate proposal A): the name -> address pair the browser USED,
+#: also when no answer crossed the wire (Windows' DNS cache, HTTPS-record address hints)
+LOOKUP_RX = re.compile(r"CompleteLookup: ([a-z0-9][a-z0-9.-]*\.[a-z]{2,}) has (\S+)", re.I)
+
+
+def necko_lookups(text, base):
+    """-> dns-a events (sensor necko-dns) for every `nsHostResolver CompleteLookup: NAME has ADDRESS` line. The
+    address is validated whole (2026-10-19: an IPv6 address ending in "::" was cut short by a hex-digit pattern, so
+    uBlock's and Widevine's Google-hosted addresses never matched)."""
+    import ipaddress
+    seen, out = set(), []
+    for m in LOOKUP_RX.finditer(text or ""):
+        try:
+            ip = str(ipaddress.ip_address(m.group(2).rstrip(",;)")))
+        except ValueError:
+            continue
+        key = (m.group(1).lower(), ip)
+        if key not in seen:
+            seen.add(key)
+            out.append({**base, "sensor": "necko-dns", "kind": "dns-a", "value": key[0], "ip": key[1]})
+    return out
+
+
+def machine_addresses(base):
+    """-> machine-ip events: this machine's own interface addresses now (owner 2026-10-19, proposal B: Windows
+    rotates temporary IPv6 addresses, and DNS may leave from a link-local address, so the DNS source is not enough)."""
+    try:
+        import psutil
+        addrs = {a.address.split("%")[0] for nic in psutil.net_if_addrs().values() for a in nic
+                 if a.family in (socket.AF_INET, socket.AF_INET6)}
+    except Exception:
+        return []
+    return [{**base, "sensor": "machine", "kind": "machine-ip", "value": a} for a in sorted(addrs)
+            if a not in ("127.0.0.1", "::1", "0.0.0.0", "::")]
 HOSTNAME = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$")
 
 MITM_ADDON = r'''
@@ -137,14 +171,14 @@ def snapshot_processes():
 
 
 def tree(rows, root_pid):
+    by_pid = {r["ProcessId"]: r for r in rows if "ProcessId" in r}
+    if root_pid not in by_pid:
+        return []
     kids = {}
     for r in rows:
         kids.setdefault(r.get("ParentProcessId"), []).append(r)
-    out, q = [], [root_pid]
+    out, q = [by_pid[root_pid]], [root_pid]
     seen = {root_pid}
-    by_pid = {r["ProcessId"]: r for r in rows}
-    if root_pid in by_pid:
-        out.append(by_pid[root_pid])
     while q:
         parent = q.pop()
         born = (by_pid.get(parent) or {}).get("Created") or 0
@@ -159,6 +193,53 @@ def tree(rows, root_pid):
                 out.append(k)
                 q.append(k["ProcessId"])
     return out
+
+
+def parent_chain(by_pid, pid):
+    """-> [{"pid", "name", "path"}, ...] from `pid` up through its parents in `by_pid` (stops on PID reuse or cycle)."""
+    chain, seen, cur = [], set(), pid
+    while cur is not None and cur not in seen:
+        seen.add(cur)
+        r = by_pid.get(cur)
+        if not r:
+            if not chain:
+                chain.append({"pid": int(cur), "name": "?", "path": ""})
+            break
+        chain.append({"pid": int(r["ProcessId"]), "name": r.get("Name") or "?", "path": r.get("ExecutablePath") or ""})
+        ppid = r.get("ParentProcessId")
+        parent = by_pid.get(ppid) if ppid is not None else None
+        if parent and (parent.get("Created") or 0) and (r.get("Created") or 0) and parent["Created"] > r["Created"]:
+            break
+        cur = ppid if parent else None
+    return chain
+
+
+def format_chain(chain):
+    """Human-readable process + parent chain for socket findings."""
+    if not chain:
+        return "pid ?"
+    return " <- ".join(f"pid {c['pid']} {c['name']} ({c['path'] or 'no path'})" for c in chain)
+
+
+def browser_tree(snap, root_pid, build_dir=None):
+    """-> rows in `snap` that belong to the browser under test's own process tree.
+    When `build_dir` is given, roots are `root_pid` (if its executable is in `build_dir` or has no path recorded) plus
+    every process running from `build_dir`, and ALL their descendants in `snap`, wherever those run from."""
+    bd = str(Path(build_dir)).lower() if build_dir else None
+    rows = list(tree(snap, root_pid))
+    if bd:
+        have = {r["ProcessId"] for r in rows}
+        for r in snap:
+            if (r.get("ExecutablePath") or "").lower().startswith(bd):
+                for tr in tree(snap, r["ProcessId"]):
+                    if tr["ProcessId"] not in have:
+                        have.add(tr["ProcessId"])
+                        rows.append(tr)
+        # 2026-10-18 (review): every descendant of the browser stays in the tree, wherever its program lives. An
+        # overnight edit dropped the descendants running from outside the build folder: a helper the browser
+        # starts from TEMP or the profile would have been invisible to the sockets sensor and to PROCESS_POLICY
+        # ("executable outside the build"). Where a program lives labels a finding; it never hides one.
+    return rows
 
 
 def snapshot_all_sockets():
@@ -216,30 +297,27 @@ class Sampler(threading.Thread):
     def __init__(self, root_pid, interval=2.0, build_dir=None):
         super().__init__(daemon=True)
         self.root, self.interval, self.stop_flag = root_pid, interval, threading.Event()
-        self.build_dir = str(build_dir).lower() if build_dir else None
-        self.procs, self.socks, self.timeline = {}, set(), []
+        self.build_dir = str(Path(build_dir)).lower() if build_dir else None
+        self.procs, self.all_procs, self.socks, self.sock_chains, self.timeline = {}, {}, set(), {}, []
         self.owners = PortOwners()
 
     def run(self):
         t0 = time.time()
         while not self.stop_flag.is_set():
             snap = snapshot_processes()
-            rows = tree(snap, self.root)
-            # 2026-10-05 (build 27 gate): started from an ELEVATED shell, Firefox's launcher process starts the browser
-            # de-elevated through the shell, so the real browser is not a child of the process we started; the
-            # tree walk never saw it, WM_CLOSE never reached its window and it ran on. Every process running from
-            # this scene's own build copy is the browser's.
-            if self.build_dir:
-                have = {r["ProcessId"] for r in rows}
-                rows += [r for r in snap if r["ProcessId"] not in have
-                         and (r.get("ExecutablePath") or "").lower().startswith(self.build_dir)]
+            for r in snap:
+                if "ProcessId" in r:
+                    self.all_procs[r["ProcessId"]] = r
+            rows = browser_tree(snap, self.root, self.build_dir)
             for r in rows:
                 self.procs.setdefault(r["ProcessId"], r)
             pids = {r["ProcessId"] for r in rows}
             every = snapshot_all_sockets()
             self.owners.add(time.time(), every, pids)
             s = [x for x in every if x[6].isdigit() and int(x[6]) in pids]
-            self.socks.update(s)
+            for x in s:
+                self.socks.add(x)
+                self.sock_chains.setdefault(x, parent_chain(self.all_procs, int(x[6])))
             self.timeline.append({"t": round(time.time() - t0, 1), "processes": len(rows), "sockets": len(s),
                                   "remote": sorted({f"{x[4]}:{x[5]}" for x in s if x[0] == "tcp" and x[4] not in ("", "0.0.0.0", "::", "127.0.0.1", "::1")})})
             self.stop_flag.wait(self.interval)
@@ -249,6 +327,38 @@ def build_pids(build_dir):
     """-> ids of the processes running from this build copy (each scene and mode has its own copy)."""
     bd = str(Path(build_dir)).lower()
     return [r["ProcessId"] for r in snapshot_processes() if (r.get("ExecutablePath") or "").lower().startswith(bd)]
+
+
+def confirm_exit(rows, wait=30, kill=None, waiter=None):
+    """Owner 2026-10-19 (leak-gate proposal E): a process still listed when the watch window ends is waited on for its
+    REAL exit (up to `wait` s), then killed once more and waited on again. -> rows, each with "outcome":
+      exited-late       it was dying: gone within `wait` s (noted, not a failure)
+      killed-again      a second kill ended it (it survived the first: a failure)
+      survived          still running after both kills (a failure)
+    2026-10-19 build 2 run: pid 2132 was listed 10 s after `taskkill /T /F` while its log had stopped mid-line at the
+    kill; the gate could not tell "slow to vanish" from "refused to die"."""
+    def _wait(pid, t):
+        try:
+            import psutil
+            psutil.Process(int(pid)).wait(timeout=t)
+            return True
+        except Exception as e:                            # NoSuchProcess = already gone; TimeoutExpired = alive
+            return type(e).__name__ == "NoSuchProcess"
+    waiter = waiter or _wait
+    kill = kill or (lambda pid: subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
+                                               text=True).returncode)
+    out = []
+    for r in rows:
+        if not r.get("why", "").startswith("still running"):
+            out.append(r)
+            continue
+        pid = r.get("ProcessId")
+        if waiter(pid, wait):
+            out.append({**r, "outcome": "exited-late"})
+            continue
+        rc = kill(pid)
+        out.append({**r, "outcome": "killed-again" if waiter(pid, wait) else "survived", "second_kill_rc": rc})
+    return out
 
 
 def watch_after_kill(build_dir, seconds, killed_at=None):
@@ -280,7 +390,7 @@ def watch_after_kill(build_dir, seconds, killed_at=None):
 
 # ------------------------------------------------------------------------------------------- DNS witness
 # Windows' own DNS-client log: every query with the process that made it (event 3006, logged inside the caller).
-# 2026-10-04: one lookup of incoming.telemetry.mozilla.org per 4-hour run, seen only on the wire, never by the
+# 2026-10-04: one lookup of incoming.telemetry.mozilla.org per 4-hour run, seen only on the wire, never by the  telemetry-ok: describes a refused lookup
 # browser's logs; nothing could say which program asked. With this witness the gate names it.
 DNS_CLIENT_LOG = "Microsoft-Windows-DNS-Client/Operational"
 
@@ -353,6 +463,144 @@ def fs_diff(before, after):
 
 # ------------------------------------------------------------------------------------------- packets
 _WATCHDOG = None
+_ELEVATED_PKTMON = None
+# Elevate was adopted into the owner's kits on 2026-10-19 (Documents\Scripts is a scratchpad, emptied by each sweep).
+# The adopted copy wins; a machine where it was never adopted keeps the old place, so the gate does not lose its
+# packet sensor there.
+ELEVATE_ADOPTED = Path(__file__).resolve().parents[2] / "local" / "kits" / "Elevate" / "elevate.py"
+ELEVATE_LEGACY = Path.home() / "Documents" / "Scripts" / "Elevate" / "elevate.py"
+
+
+def find_elevate_py(adopted=None, legacy=None):
+    """The elevate.py to start the packet sensor with: the adopted kit copy when present, else the old place."""
+    adopted, legacy = Path(adopted or ELEVATE_ADOPTED), Path(legacy or ELEVATE_LEGACY)
+    return adopted if adopted.is_file() else legacy
+
+
+ELEVATE_PY = find_elevate_py()
+
+_PKTMON_WORKER_PS1 = r"""
+param([string]$ControlDir, [int]$GatePid)
+$ErrorActionPreference = 'Continue'
+$cmdFile = Join-Path $ControlDir 'pktmon-cmd.json'
+$ackFile = Join-Path $ControlDir 'pktmon-ack.json'
+$dnsLog = 'Microsoft-Windows-DNS-Client/Operational'
+$gl = (& wevtutil gl $dnsLog 2>&1 | Out-String)
+$dnsWasEnabled = $gl -match 'enabled:\s*true'
+if (-not $dnsWasEnabled) { & wevtutil sl $dnsLog /e:true 2>&1 | Out-Null }
+Write-Host 'PKTMON_WORKER: ready'
+try {
+    while ($true) {
+        if (-not (Get-Process -Id $GatePid -ErrorAction SilentlyContinue)) { break }
+        if (Test-Path -LiteralPath $cmdFile) {
+            try {
+                $raw = Get-Content -LiteralPath $cmdFile -Raw -Encoding UTF8 -ErrorAction Stop
+                $c = $raw | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                Start-Sleep -Milliseconds 50
+                continue
+            }
+            Remove-Item -LiteralPath $cmdFile -Force -ErrorAction SilentlyContinue
+            if ($c.op -eq 'start') {
+                & pktmon stop 2>&1 | Out-Null
+                & pktmon filter remove 2>&1 | Out-Null
+                & pktmon start --capture --pkt-size 0 --file-name $c.etl 2>&1 | Out-Null
+                @{seq=$c.seq; ok=$true} | ConvertTo-Json -Compress | Set-Content -LiteralPath $ackFile -Encoding UTF8
+            } elseif ($c.op -eq 'stop') {
+                & pktmon stop 2>&1 | Out-Null
+                & pktmon etl2pcap $c.etl --out $c.pcap 2>&1 | Out-Null
+                @{seq=$c.seq; ok=$true} | ConvertTo-Json -Compress | Set-Content -LiteralPath $ackFile -Encoding UTF8
+            } elseif ($c.op -eq 'quit') {
+                @{seq=$c.seq; ok=$true} | ConvertTo-Json -Compress | Set-Content -LiteralPath $ackFile -Encoding UTF8
+                break
+            }
+        }
+        Start-Sleep -Milliseconds 150
+    }
+} finally {
+    & pktmon stop 2>&1 | Out-Null
+    if (-not $dnsWasEnabled) { & wevtutil sl $dnsLog /e:false 2>&1 | Out-Null }
+}
+"""
+
+
+class ElevatedPktmon:
+    """Starts the packet sensor worker once per gate run through elevate.py (ELEVATE_PY; one UAC click)."""
+
+    def __init__(self, workdir, elevate_py=None, runner=subprocess.run, timeout_min=15):
+        self.dir = Path(workdir) / "pktmon-elevated"
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.elevate_py = Path(elevate_py or ELEVATE_PY)
+        self.runner = runner
+        self.timeout_min = timeout_min
+        self.seq = 0
+        self.active = False
+
+    def start(self, say=print):
+        if not self.elevate_py.is_file():
+            raise RuntimeError(f"elevate.py not found at {self.elevate_py}")
+        worker = self.dir / "pktmon-worker.ps1"
+        worker.write_text(_PKTMON_WORKER_PS1.strip() + "\n", encoding="utf-8")
+        launcher = self.dir / "pktmon-launch.ps1"
+        q = lambda s: "'" + str(s).replace("'", "''") + "'"
+        launcher.write_text(f"& {q(worker)} -ControlDir {q(self.dir)} -GatePid {os.getpid()}\n", encoding="utf-8")
+        log = self.dir / "elevated-pktmon.log"
+        say(f"  packet sensor: starting elevated helper through {self.elevate_py} (one UAC click) ...")
+        r = self.runner([sys.executable, str(self.elevate_py), "run", str(launcher), "--log", str(log), "--close"],
+                        capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"packet sensor elevation refused or failed: {(r.stdout or '') + (r.stderr or '')}".strip())
+        w = self.runner([sys.executable, str(self.elevate_py), "wait", str(log), "--marker", "PKTMON_WORKER: ready",
+                         "--timeout", str(self.timeout_min)], capture_output=True, text=True)
+        if w.returncode != 0:
+            raise RuntimeError(f"packet sensor helper did not become ready: {(w.stdout or '') + (w.stderr or '')}".strip())
+        self.active = True
+        return True
+
+    def send(self, op, **kw):
+        self.seq += 1
+        ack = self.dir / "pktmon-ack.json"
+        cmd = self.dir / "pktmon-cmd.json"
+        ack.unlink(missing_ok=True)
+        cmd.write_text(json.dumps({"seq": self.seq, "op": op, **kw}), encoding="utf-8")
+        deadline = time.monotonic() + 60.0
+        while time.monotonic() < deadline:
+            if ack.is_file():
+                try:
+                    d = json.loads(ack.read_text(encoding="utf-8").lstrip("\ufeff"))
+                    if d.get("seq") == self.seq:
+                        ack.unlink(missing_ok=True)
+                        return True
+                except (ValueError, OSError):
+                    pass
+            time.sleep(0.1)
+        raise RuntimeError(f"elevated packet sensor helper did not acknowledge {op!r}")
+
+    def close(self):
+        if self.active:
+            try:
+                self.send("quit")
+            except Exception:
+                pass
+            self.active = False
+
+
+def ensure_packet_sensor(workdir, say=print, elevate_py=None, runner=subprocess.run):
+    """Ensure the packet sensor can run: directly when already elevated, or via elevate.py (ELEVATE_PY)."""
+    global _ELEVATED_PKTMON
+    if is_admin():
+        return True, None
+    helper = ElevatedPktmon(workdir, elevate_py=elevate_py, runner=runner)
+    helper.start(say=say)
+    _ELEVATED_PKTMON = helper
+    return True, helper
+
+
+def close_packet_sensor():
+    global _ELEVATED_PKTMON
+    if _ELEVATED_PKTMON is not None:
+        _ELEVATED_PKTMON.close()
+        _ELEVATED_PKTMON = None
 
 
 def pktmon_watchdog():
@@ -372,6 +620,9 @@ def pktmon_watchdog():
 
 
 def pktmon_start(etl):
+    if _ELEVATED_PKTMON is not None and _ELEVATED_PKTMON.active:
+        _ELEVATED_PKTMON.send("start", etl=str(etl))
+        return
     pktmon_watchdog()
     subprocess.run(["pktmon", "stop"], capture_output=True)
     subprocess.run(["pktmon", "filter", "remove"], capture_output=True)
@@ -379,6 +630,9 @@ def pktmon_start(etl):
 
 
 def pktmon_stop(etl, pcap):
+    if _ELEVATED_PKTMON is not None and _ELEVATED_PKTMON.active:
+        _ELEVATED_PKTMON.send("stop", etl=str(etl), pcap=str(pcap))
+        return
     subprocess.run(["pktmon", "stop"], capture_output=True)
     subprocess.run(["pktmon", "etl2pcap", str(etl), "--out", str(pcap)], capture_output=True)
 
@@ -558,7 +812,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     for pid in build_pids(build_dir):                 # a de-elevated browser is not in the launcher's tree
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
-    after_kill = watch_after_kill(build_dir, watch, killed_at=killed_at)
+    after_kill = confirm_exit(watch_after_kill(build_dir, watch, killed_at=killed_at))
     after = fs_snapshot(watch_dirs())
     if packets:
         pktmon_stop(etl, pcap)
@@ -577,24 +831,37 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
         ev.append({**base, "sensor": "process-tree", "kind": "shutdown-failed", "value": "the browser did not exit within 45 s of WM_CLOSE"})
     for r in sampler.procs.values():
         ev.append({**base, "sensor": "process-tree", "kind": "process", "value": (r.get("Name") or "?").lower(),
+                   "pid": r.get("ProcessId"), "parent_pid": r.get("ParentProcessId"),
                    "detail": r.get("ExecutablePath") or "", "cmd": (r.get("CommandLine") or "")[:300]})
     for r in after_kill:
-        ev.append({**base, "sensor": "process-tree", "kind": "process-after-shutdown", "value": (r.get("Name") or "?").lower(),
-                   "detail": f"{r.get('why', '')}: pid {r.get('ProcessId')} {(r.get('CommandLine') or r.get('ExecutablePath') or '')[:200]}"})
+        late = r.get("outcome") == "exited-late"                  # dying, not alive: noted, not judged (proposal E)
+        why = r.get("why", "") + (f" ({r['outcome']}" + (f", second kill rc {r['second_kill_rc']}" if "second_kill_rc" in r else "")
+                                  + ")" if r.get("outcome") else "")
+        ev.append({**base, "sensor": "process-tree", "kind": "process-exited-late" if late else "process-after-shutdown",
+                   "value": (r.get("Name") or "?").lower(),
+                   "detail": f"{why}: pid {r.get('ProcessId')} {(r.get('CommandLine') or r.get('ExecutablePath') or '')[:200]}"})
     local_ports = set()
+    bd_prefix = str(Path(build_dir)).lower()
     for s in sampler.socks:
         proto, state, laddr, lport, raddr, rport, pid = s
         local_ports.add(int(lport)) if lport.isdigit() else None
+        pid_int = int(pid) if str(pid).isdigit() else None
+        chain = sampler.sock_chains.get(s) or (parent_chain(sampler.all_procs, pid_int) if pid_int is not None else [])
+        proc_name = (chain[0]["name"] if chain else "?")
+        proc_path = (chain[0]["path"] if chain else "")
+        in_build = bool(pid_int in sampler.procs and (not proc_path or proc_path.lower().startswith(bd_prefix)))
+        chain_str = format_chain(chain) if chain else f"pid {pid}"
+        meta = {"pid": pid_int, "process": proc_name, "exe": proc_path, "parent_chain": chain, "in_build": in_build}
         if proto == "tcp" and state == "Listen":
-            ev.append({**base, "sensor": "sockets", "kind": "listener", "value": f"{laddr}:{lport}", "detail": f"pid {pid}"})
+            ev.append({**base, "sensor": "sockets", "kind": "listener", "value": f"{laddr}:{lport}", "detail": chain_str, **meta})
         elif proto == "tcp" and raddr not in ("", "0.0.0.0", "::"):
             loop = raddr.startswith("127.") or raddr == "::1"
             if not loop:
-                ev.append({**base, "sensor": "sockets", "kind": "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} pid {pid}"})
+                ev.append({**base, "sensor": "sockets", "kind": "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} {chain_str}", **meta})
                 if mode in ("proxied", "poisoned", "dns-controlled"):
-                    ev.append({**base, "sensor": "sockets", "kind": "proxy-bypass" if mode != "dns-controlled" else "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state}"})
+                    ev.append({**base, "sensor": "sockets", "kind": "proxy-bypass" if mode != "dns-controlled" else "dest-ip", "value": raddr, "port": int(rport), "detail": f"tcp {state} {chain_str}", **meta})
         elif proto == "udp":
-            ev.append({**base, "sensor": "sockets", "kind": "udp", "value": f"{laddr}:{lport}", "detail": f"pid {pid}"})
+            ev.append({**base, "sensor": "sockets", "kind": "udp", "value": f"{laddr}:{lport}", "detail": chain_str, **meta})
     for p in fs_diff(before, after):
         ev.append({**base, "sensor": "filesystem", "kind": "file-system", "value": p.replace("\\", "/")})
     for p in sorted(prof.rglob("*")):
@@ -609,6 +876,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                 ev.append({**base, "sensor": "necko-http", "kind": "dest", "value": host, "detail": f"{m.group(1)}://{host}{m.group(3)[:120]}"})
         for m in RES_RX.finditer(text):
             ev.append({**base, "sensor": "necko-dns", "kind": "dns", "value": m.group(1).lower()})
+        ev += necko_lookups(text, base)
         for m in SOCK_RX.finditer(text):
             h = m.group(1).lower()
             if HOSTNAME.match(h):
@@ -620,6 +888,7 @@ def run_one(build_dir, url, seconds, args, workdir, name, mode, canaries, proxy_
                 if c in line and "127.0.0.1" not in line and "localhost" not in line and ("uri=" in line or "host" in line):
                     ev.append({**base, "sensor": "necko-http", "kind": "canary", "value": cname, "detail": line.strip()[:200]})
                     break
+    ev += machine_addresses(base)
     if mode in ("proxied", "poisoned") and mitm_out.is_file():
         for l in mitm_out.read_text(encoding="utf-8").splitlines():
             r = json.loads(l)

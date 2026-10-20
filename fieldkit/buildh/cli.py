@@ -437,7 +437,8 @@ def _change_args(args, tid, inst, tmp_prefix, say=print):
         if since == "build":
             since = json.loads(_cg._record_path(tid).read_text(encoding="utf-8"))["head"]
         got, skipped = pb.tree_since(task.load(tid)["workdir"], since, inst, _tf.mkdtemp(prefix=tmp_prefix), until)
-        change["omni"].update({k: str(v) for k, v in got.items()})
+        change["omni"].update({k: str(v) for k, v in got.items() if not k.startswith("@")})
+        change["files"].update({k[1:]: str(v) for k, v in got.items() if k.startswith("@")})   # an unpacked build
         notes.append(f"tree-since {since[:10]}: {len(got)} member(s) replaced; {len(skipped)} change(s) not applied:")
         notes += [f"  {path}: {why}" for path, why in skipped]
     for n in notes:
@@ -507,7 +508,11 @@ def run(a, emit):
         emit(r, lambda r: print("\n".join(pc.lines(r, limit=int(opts.get("limit", 200))))))
         return 3 if r["LOST"] else 0
     if act == "vault":
-        sub, rest = a.args[0], a.args[1:]
+        # an unknown or missing sub-command used to exit 0 and print nothing (found 2026-10-18)
+        sub, rest = (a.args[0], a.args[1:]) if a.args else ("", [])
+        if sub not in ("measure", "fetch", "verify", "restore", "restore-files", "list"):
+            raise task.Refused(f"vault: say what to do: measure | fetch firefox|kernel | verify WHAT | restore WHAT DIR | "
+                               f"restore-files firefox WORKDIR PATH... | list (got {sub or 'nothing'!r})")
         if sub == "measure":
             m = vault.measure_firefox()
             return emit(m, lambda m: print(f"Firefox {m['version']}: {m['bytes'] / 1e6:,.0f} MB to download ({m['archive']})")) or 0
@@ -530,15 +535,19 @@ def run(a, emit):
         if sub == "list":
             return emit(vault.listing(), lambda rows: [print(f"{r['product']:8} {r['version']:10} {r['fetched']}  {r['path']}") for r in rows]) or 0
     if act == "start":
-        if a.args[0] != "firefox":
-            raise SystemExit("start: firefox (the kernel workflow comes next)")
+        if not a.args or a.args[0] != "firefox":            # `start` alone was an IndexError (2026-10-18)
+            raise task.Refused("start firefox: the only workflow so far (the kernel workflow comes next)")
         t = start_firefox(a.task, a.pin, a.source, a.budget, a.workdir, harness_root=a.harness)
+        # a local name: `settings` is imported further down in run(), which makes it local to the whole function
+        # (2026-10-16: start created the task, then crashed printing this with "cannot access free variable")
+        from ..core import settings as _set
+        fk = _set.self_cmd()
         return emit({"task": t["id"], "steps": [s["id"] for s in t["steps"]], "workdir": t["workdir"]},
                     lambda r: print(f"task {r['task']} planned: {', '.join(r['steps'])}\n"
                                     f"working copy: {r['workdir']}\n"
-                                    f"NEXT: the owner reads the plan and runs: {settings.self_cmd()} build-harness approve {r['task']}\n"
-                                    f"      or let the harness open the window for them: {settings.self_cmd()} terminal ask -- "
-                                    f"{settings.self_cmd()} build-harness approve {r['task']}")) or 0
+                                    f"NEXT: the owner reads the plan and runs: {fk} build-harness approve {r['task']}\n"
+                                    f"      or let the harness open the window for them: {fk} terminal ask -- "
+                                    f"{fk} build-harness approve {r['task']}")) or 0
     if act == "herald":
         # herald --say "words" | herald [name=..] [pid=..] [log=..] [every=..]: the spoken herald (herald.py), from any
         # folder (2026-10-10: `python -m fieldkit.buildh.herald` was given to the owner and depends on where it runs)
@@ -566,7 +575,7 @@ def run(a, emit):
             print(f"  {'ok  ' if r['root'] else 'MISS'} root")
             print("READY" if r["ok"] else f"NOT READY: missing {r['missing_required'] or []}"
                   + ("" if r["root"] else "; the leak gate needs root (network namespace, nftables)"))
-            print("NEXT: " + (f"{settings.self_cmd()} build-harness leakgate TASK" if r["ok"] else
+            print("NEXT: " + (f"{_settings.self_cmd()} build-harness leakgate TASK" if r["ok"] else
                               "fieldkit doctor --for leakgate (it gives the install lines); run as root; then "
                               "fieldkit build-harness leakgate-selftest"))
         return 0 if r["ok"] else 3
@@ -944,6 +953,22 @@ def run(a, emit):
                     write=opts.get("write", "0") not in ("0", "no", "false", ""), say=lambda m: print(m, flush=True))
         task.journal(t, "rebase-set", **{k: v for k, v in r.items() if k != "replay"}, replay=str(r["replay"])[:300])
         return 0 if r["ok"] else 3
+    if act == "carry":
+        # build-harness carry TASK COMMIT PATCH... --note WHY: the hand step is already in these patches of the set
+        from . import export as ex
+        from .ownercheck import patchset_owner
+        import json as _js
+        if len(a.args) < 3 or not a.note:
+            raise task.Refused("usage: build-harness carry TASK COMMIT PATCH-FILE... --note \"why the set already carries it\"")
+        t = task.load(tid)
+        owner = patchset_owner(t)
+        pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
+        full = ex._git(t["workdir"], "rev-parse", "--verify", a.args[1] + "^{commit}").strip()
+        if not full:
+            raise task.Refused(f"no commit {a.args[1]} in the work tree")
+        ex.carry(tid, full, a.args[2:], a.note, owner / pol["patchset_root"])
+        print(f"recorded: {full[:12]} is carried by {', '.join(a.args[2:])}; export-hand skips it, replay proves it")
+        return 0
     if act == "export-hand":
         from . import export as ex, buildrun
         t = task.load(tid)
@@ -953,12 +978,13 @@ def run(a, emit):
             raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
         import json as _js
         pol = _js.loads((owner / "config" / "patch_policy.json").read_text(encoding="utf-8"))
-        r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True))
+        r = ex.export(tid, owner / pol["patchset_root"], t["meta"]["upstream"]["version"].split(".")[0], say=lambda m: print(m, flush=True),
+                      dry=bool(getattr(a, "dry_run", False)))
         print("register new groups in config/patch_policy.json if they are not there; then prove the set: build-harness replay " + tid)
         return 0
     if act == "release-check":
         from . import releasecheck as rc_
-        rows = rc_.run(tid, say=lambda m: print(m, flush=True), skip_post_install="--fast" in a.args or getattr(a, "build", False))
+        rows = rc_.run(tid, say=lambda m: print(m, flush=True), skip_post_install=bool(getattr(a, "fast", False)) or getattr(a, "build", False))
         return 0 if all(r["ok"] for r in rows) else 3
     if act == "probe":
         # probe TASK js=<file|name> [url=...] [wait=S] [omni=<jar>:<member>=<file> ...] [file=..] [add=..]: a question to (or a JS fix
@@ -1011,12 +1037,37 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("HIDDEN-PAGES DOC " + ("OK" if all(r["ok"] for r in rows) else "NOT OK"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "release-page":
+        # release-page TASK dir=<releases-draft/<release>>: RELEASE-BODY.md from <dir>/PAGE.parts, then release-cover on
+        # it (releasepage.py; 2026-10-19: the page had been assembled by a script nobody kept)
+        from . import releasepage, releasecover, ownercheck
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        if not opts.get("dir"):
+            raise task.Refused("usage: build-harness release-page TASK dir=<releases-draft/<release>>")
+        page, n = releasepage.write(opts["dir"])
+        print(f"written: {page} ({n} characters)")
+        rows = releasecover.run(ownercheck._owner_root(task.load(tid)), str(page), opts.get("previous"))
+        for row in rows:
+            print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
+        print("RELEASE PAGE " + ("COVERS EVERYTHING" if all(r["ok"] for r in rows) else "INCOMPLETE"))
+        return 0 if all(r["ok"] for r in rows) else 3
     if act == "release-cover":
         # release-cover TASK page=<release page .md> [previous=<tag or file>]: the release page names every decision
         # made since the last release and fits GitHub's limit (releasecover.py)
         from . import releasecover, ownercheck
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
         owner = ownercheck._owner_root(task.load(tid))
+        if opts.get("due"):
+            # due=<file>: the decisions this page must name, in the register's own words, whole (2026-10-18)
+            import sys as _s
+            from .decisions import register_file
+            reg = register_file(Path(owner))
+            pages = releasecover.platform_pages(suffix="-win64" if _s.platform == "win32" else None)
+            ids = [i for i, _ in releasecover.uncovered(reg, pages, min(p["published"] for p in pages))]
+            Path(opts["due"]).write_text(releasecover.due_text(reg, ids), encoding="utf-8")
+            print(f"due: {len(ids)} decision(s) written in full to {opts['due']}")
+            if not opts.get("page"):
+                return 0
         rows = releasecover.run(owner, opts.get("page"), opts.get("previous"))
         for row in rows:
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
@@ -1038,6 +1089,101 @@ def run(a, emit):
             print(f"    can: {n} ({why})")
         print("LEAK-GATE SCOPE: " + r["verdict"])
         return 0
+    if act == "set-proof":
+        # set-proof [TASK] [patchset=DIR] [version=158.0] [platform=windows|linux|all]: pristine + each platform's
+        # selection must apply; excluded dependencies and refreshed lists named (setproof.py, 2026-10-16)
+        from . import setproof, vault as _vault
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        if opts.get("patchset"):
+            pset_root = Path(opts["patchset"]).resolve()
+        else:
+            from .ownercheck import patchset_owner
+            pset_root = Path(patchset_owner(task.load(tid)))
+        versions = sorted((r["version"] for r in _vault.listing() if r["product"] == "firefox"),
+                          key=lambda v: [int(x) if x.isdigit() else 0 for x in v.split(".")])
+        version = opts.get("version") or (versions[-1] if versions else None)
+        if not version:
+            raise task.Refused("set-proof: no Firefox in the vault; fetch it first (build-harness vault fetch firefox)")
+        pristine = _vault.root() / "firefox" / version
+        plats = setproof.PLATFORMS if opts.get("platform", "all") == "all" else (opts["platform"],)
+        ok = True
+        out = []
+        for p in plats:
+            r = setproof.prove(pset_root, pristine, p, say=lambda m: None)
+            ok &= r["ok"]
+            out.append(r)
+        if a.json:
+            print(json.dumps(out, indent=1))
+        else:
+            for r in out:
+                print("\n".join(setproof.lines(r)))
+        return 0 if ok else 3
+    if act == "profile-diff":
+        # profile-diff TASK probe=<name> profile=<dir> [install=<dir>]: the probe on a fresh profile and on a copy of
+        # the real one; exit 3 when they differ (profilediff.py; born 2026-10-18, Perplexity only on the real profile)
+        from . import profilediff, install as _inst
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        if not opts.get("probe") or not opts.get("profile"):
+            raise task.Refused("usage: build-harness profile-diff TASK probe=<name> profile=<profile dir> [install=<dir>]")
+        inst = opts.get("install") or getattr(a, "install_dir", None) or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed Gorilla found; name it: install=<dir>")
+        r = profilediff.diff(inst, opts["probe"], opts["profile"])
+        print(json.dumps(r, indent=1) if a.json else "\n".join(profilediff.lines(r, opts["probe"], opts["profile"])))
+        return 0 if r["ok"] else 3
+    if act == "search-strip":
+        # search-strip TASK [--apply]: D-158-13's leftovers (other engines' icons, wordmarks) out of the source
+        from . import searchstrip
+        w = task.load(tid)["workdir"]
+        r = searchstrip.apply(w) if a.apply else searchstrip.check(w)
+        print(json.dumps(r if a.apply else r, indent=1) if a.json else
+              ("removed: " + ", ".join(f"{k} {len(v)}" for k, v in r.items()) if a.apply else
+               ("SEARCH-STRIP: Google only" if r["ok"] else f"SEARCH-STRIP: {len(r['left'])} left, e.g. {r['left'][:5]}")))
+        return 0 if a.apply or r["ok"] else 3
+    if act == "runbook":
+        # runbook run|status FILE: the harness runs the steps (fieldkit/autopilot/runbook.py); here so that
+        # `build-harness window runbook run FILE` gives it the detached window, the log and the keep-awake
+        # 2026-10-18 (found by the tool-harness review session): the first word was taken as the task id, so
+        # `runbook status FILE` ran "status" as a file. ACTION and FILE are read from the words; no FILE: refused
+        from ..cli import runbook_main
+        words = [w for w in a.args if w in ("run", "status", "start")] or ["status"]
+        files = [w for w in a.args if w.lower().endswith(".md")]
+        if not files:
+            raise task.Refused("usage: build-harness runbook run|status|start FILE.md (the runbook file is required)")
+        return runbook_main(words[0], files[0])
+    if act == "pref-conflicts":
+        # pref-conflicts TASK: two definitions the patch set adds for one pref, with different values under
+        # conditions that can both hold (prefconflicts.py; 2026-10-16: Inter vs Segoe UI, 8 more). Exit 3 on any.
+        from . import prefconflicts
+        found = prefconflicts.scan(task.load(tid)["workdir"])
+        print(json.dumps(found, indent=1) if a.json else "\n".join(prefconflicts.lines(found)))
+        return 3 if found else 0
+    if act == "profile-keep":
+        # profile-keep [TASK] [install=DIR]: which profile holds the saved logins and which install folder opens it;
+        # FAIL when DIR (default: the Gorilla install) would open another, empty profile (profilekeep.py, D-157-28)
+        from . import profilekeep, install as _inst
+        opts = dict(x.split("=", 1) for x in a.args if "=" in x)
+        target = Path(opts["install"]) if opts.get("install") else _inst.find_install()
+        if not target:
+            raise task.Refused("profile-keep: no single Gorilla install found; name it with install=DIR")
+        r = profilekeep.check(target, _inst.profiles_dir())
+        print(json.dumps(r, indent=1) if a.json else "\n".join(profilekeep.lines(r)))
+        return 0 if r["ok"] else 3
+    if act == "leakgate-runs":
+        # leakgate-runs TASK: every gate run with its verdict, build, size and every file that cites it; only an
+        # uncited run is free to remove (fieldkit/leakgate/runs.py; 2026-10-16: runs chosen by date were evidence)
+        from ..leakgate import runs as lruns
+        from ..core import settings as _st
+        from .ownercheck import _owner_root
+        tdir = _st.ROOT / "state" / "build-harness" / "leakgate" / tid
+        owner = _owner_root(task.load(tid))
+        rows = lruns.runs(tdir, owner, extra_roots=[_st.ROOT / "state" / "build-harness" / tid])
+        if a.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            human = lambda b: f"{b / (1 << 30):.2f} GiB" if b >= 1 << 30 else f"{b / (1 << 20):.1f} MiB"
+            print("\n".join(lruns.lines(rows, human)))
+        return 0
     if act == "leakgate-summary":
         # leakgate-summary TASK [log=<launcher log>] [out=<file.md>]: the gate's run scene by scene, in plain words,
         # for the release page (leakgate/summary.py); default: the newest launcher run of this task
@@ -1045,11 +1191,23 @@ def run(a, emit):
         from ..core import settings as _st
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
         logs = sorted((_st.ROOT / "state" / "leakgate-launcher").glob(f"{tid}-*.log"))
+        # 2026-10-19: the page describes the RELEASE run behind state/leakgate_result.json, with its (re-judged) verdict;
+        # the newest log was a newtab-only re-run, and the page said "1 scenes ... FAIL"
+        from . import buildrun as _br
+        verdict = None
+        if not opts.get("log"):
+            try:
+                st = json.loads((Path(_br._owner_root(task.load(tid))) / "state" / "leakgate_result.json").read_text(encoding="utf-8"))
+                art = Path(st["artifacts"])
+                verdict = json.loads((art / "test-results.json").read_text(encoding="utf-8"))
+                logs = [l for l in logs if art.name in lsum.read(l)] or logs
+            except (OSError, ValueError, KeyError):
+                verdict = None
         log = Path(opts["log"]) if opts.get("log") else (logs[-1] if logs else None)
         if not log or not log.is_file():
             raise task.Refused("leakgate-summary: no leak-gate launcher log for this task")
         res = log.with_suffix(".result.json")
-        r = lsum.run(log, res if res.is_file() else None, opts.get("build"))
+        r = lsum.run(log, res if res.is_file() else None, opts.get("build"), verdict=verdict)
         if opts.get("out"):
             Path(opts["out"]).write_text(r["markdown"], encoding="utf-8", newline="\n")
             print(f"  written: {opts['out']}")
@@ -1060,6 +1218,53 @@ def run(a, emit):
             return 3
         print(f"LEAK-GATE SUMMARY OK: {len(r['scenes'])} scenes from {log.name}")
         return 0
+    if act == "night-pack":
+        # night-pack TASK prepare [release=TAG] [rejudge=RUN dep=REF rerun=RUN] [gate=0] | arm [hours=12] | run |
+        #                 status | disarm      (owner 2026-10-19: pre-approve once, go to sleep)
+        from . import nightpack as npk
+        sub = a.args[1] if len(a.args) > 1 else "status"
+        o = dict(x.split("=", 1) for x in a.args[2:] if "=" in x)
+        say = lambda m: print(m, flush=True)
+        if sub == "prepare":
+            npk.prepare(tid, release=o.get("release"), rejudge=o.get("rejudge"), dep=o.get("dep"), rerun=o.get("rerun"),
+                        gate=o.get("gate", "1") != "0", say=say)
+            return 0
+        if sub == "arm":
+            return npk.arm(tid, hours=float(o.get("hours", 12)), say=say)
+        if sub == "run":
+            return npk.run(tid, say=say)
+        if sub == "disarm":
+            return npk.disarm(tid, say=say)
+        print(json.dumps(npk.status(tid), indent=1))
+        return 0
+    if act == "release-publish":
+        # release-publish TASK prepare repo=DIR gh=OWNER/REPO tag=T title="..." notes=FILE asset=F [asset=F ...]
+        #                               [push=REF ...] [ci=WORKFLOW ...] [supersede=OLDTAG supersede_title="..."
+        #                               supersede_notes=FILE]
+        # release-publish TASK send tag=T     the owner's one action (owner terminal only; asks yes once)
+        from . import releasepublish as rp
+        sub = a.args[1] if len(a.args) > 1 else ""
+        kv = [x.split("=", 1) for x in a.args[2:] if "=" in x]
+        one = {k: v for k, v in kv}
+        many = lambda k: [v for kk, v in kv if kk == k]
+        say = lambda m: print(m, flush=True)
+        if sub == "prepare":
+            r = rp.prepare(tid, one["repo"], one["tag"], one["title"], one["notes"], many("asset"),
+                           supersede=one.get("supersede"), supersede_title=one.get("supersede_title"),
+                           supersede_notes=one.get("supersede_notes"), gh_repo=one.get("gh"),
+                           pushes=many("push") or None, ci=many("ci") or None, checks=many("check") or None, say=say)
+            print("RELEASE PREPARED: the owner runs `send`" if r["ok"] else "RELEASE NOT PREPARED (rows above)")
+            return 0 if r["ok"] else 3
+        if sub == "send":
+            return rp.send(one["tag"], say=say)
+        raise task.Refused("release-publish TASK prepare|send ...")
+    if act == "installer-test":
+        # installer-test TASK: the shipped installer installed silently into a temp folder (no shortcuts, no service),
+        # checked file by file against the proved zip, uninstalled by its own uninstaller, machine as before (2026-10-19)
+        from . import installertest
+        r = installertest.run(tid, say=lambda m: print(m, flush=True))
+        print("INSTALLER TEST " + ("OK" if r["ok"] else "NOT OK: " + "; ".join(x["check"] for x in r["rows"] if not x["ok"])))
+        return 0 if r["ok"] else 3
     if act == "stops":
         # stops TASK [since=YYYY-MM-DD]: every window run that did not pass, classified - the browser, the check or the
         # machine - and each check's false alarms (stops.py)
@@ -1279,7 +1484,7 @@ def run(a, emit):
                     say(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
                 if r["ok"]:
                     say(f"second source folder: {r['work2']}\nsecond objdir:        {r['obj2']}")
-                    say(f"NEXT: {settings.self_cmd()} build-harness window repro {tid} --run   (a full build, like the first)")
+                    say(f"NEXT: {_settings.self_cmd()} build-harness window repro {tid} --run   (a full build, like the first)")
                 else:
                     say("REPRO CANNOT RUN YET: fix the FAIL rows above")
             return 0 if r["ok"] else 3
@@ -1367,10 +1572,19 @@ def run(a, emit):
             return 0
         workroot = task.STATE / "leakgate" / tid
         if act == "leakgate-rejudge":
-            # `leakgate-rejudge TASK [RUN]`: the same evidence judged again by the current judge and allowlist
+            # `leakgate-rejudge TASK [RUN] [dep=REF]`: the same evidence judged again by the current judge and allowlist;
+            # dep=REF compares the crates with that git ref's Cargo.lock in the ported tree (owner 2026-10-19, D)
+            if not task.owner_terminal():                   # 2026-10-19: re-judging is the owner's, at a real terminal
+                raise task.Refused("re-judging a leak gate is the owner's, at a real terminal: " + task.agent_shell())
+            rest = a.args[1:]
+            dep = next((x.split("=", 1)[1] for x in rest if x.startswith("dep=")), None)
+            rerun = next((x.split("=", 1)[1] for x in rest if x.startswith("rerun=")), None)   # owner 2026-10-19
+            rest = [x for x in rest if not x.startswith(("dep=", "rerun="))]
             runs = sorted(p for p in workroot.iterdir() if (p / "events.jsonl").is_file())
-            run_dir = workroot / a.args[1] if len(a.args) > 1 else runs[-1]
-            new, changes = lg.rejudge(run_dir, owner, why=a.note or "")
+            run_dir = workroot / rest[0] if rest else runs[-1]
+            new, changes = lg.rejudge(run_dir, owner, why=a.note or "",
+                                      dependency_baseline=(t["workdir"], dep) if dep else None,
+                                      rerun=workroot / rerun if rerun else None)
             for pol, c in changes.items():
                 print(f"  {pol}: {c['before']} -> {c['after']}  (removed {len(c['removed'])}, added {len(c['added'])})")
                 for x in c["added"][:10]:
@@ -1453,7 +1667,7 @@ def run(a, emit):
         result, events, st, bi = lg.run(res["artifacts"]["zip"]["file"], owner, t["workdir"], t["meta"]["upstream"],
                                         workroot, repeat=int(getattr(a, "repeat", None) or 1), quick=not getattr(a, "release", False),
                                         only=only, release=getattr(a, "release", False), previous_zip=prev,
-                                        n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,
+                                        n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,   # 2026-10-18: no older-upstream stand-in; the owner's release N-1 or a stated "no baseline"
                                         soak=getattr(a, "soak", None), firewall=getattr(a, "firewall", False))
         for p in lg.POLICIES:
             print(f"  {p:24s} {result[p]}" + (f"  - {result['WHY'][p][0][:220]}" if p in result.get("WHY", {}) else ""))
@@ -1466,8 +1680,13 @@ def run(a, emit):
         except Exception:
             bid = None
         (owner / "state").mkdir(exist_ok=True)
-        (owner / "state" / "leakgate_result.json").write_text(_js.dumps({
-            "build_id": bid, "BUILD": result["BUILD"], "when": time.strftime("%Y-%m-%dT%H:%M:%S"), "release_run": bool(getattr(a, "release", False)),
+        # 2026-10-19: a run limited to some scenarios (--only) is never the release result. Recorded as release_run it
+        # would have let release-check pass the whole gate on one scenario; it goes to its own file instead, and only
+        # `leakgate-rejudge ... rerun=RUN` folds it into a full run's verdict.
+        partial = bool(only)
+        (owner / "state" / ("leakgate_result.partial.json" if partial else "leakgate_result.json")).write_text(_js.dumps({
+            "build_id": bid, "BUILD": result["BUILD"], "when": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "release_run": bool(getattr(a, "release", False)) and not partial, "only": sorted(only) if only else None,
             "FINAL_RESULT": result["FINAL_RESULT"], "policies": {p: result[p] for p in lg.POLICIES}, "artifacts": result["ARTIFACTS"]}, indent=1), encoding="utf-8")
         task.journal(t, "leakgate", final=result["FINAL_RESULT"], release=bool(getattr(a, "release", False)),
                      failed=[p for p in lg.POLICIES if result[p] != "PASS"], artifacts=result["ARTIFACTS"])
@@ -1509,7 +1728,8 @@ def run(a, emit):
     if act == "truthbound":
         from . import truthbound, verify as vf
         t = task.load(tid)
-        repo155 = task.load("firefox-155.0.1")["workdir"]
+        # the truth tree's task was fixed in the code as firefox-155.0.1; --truth-task names another (default unchanged)
+        repo155 = task.load(getattr(a, "truth_task", None) or "firefox-155.0.1")["workdir"]
         truth155 = vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"])
         r = truthbound.run(tid, repo155, truth155, say=lambda m: print(m, flush=True))
         emit(r, lambda r: print(f"TRUTHBOUND {'OK' if r['ok'] else 'NOT OK'}: {r['changed']} changed files, {len(r['unexplained'])} unexplained"))

@@ -8,9 +8,13 @@ from fieldkit.gdocs import checks
 
 
 def test_fieldkit_where_prints_the_folder_from_anywhere(tmp_path):
-    r = subprocess.run([sys.executable, "-m", "fieldkit", "where"], capture_output=True, text=True, timeout=60,
-                       cwd=str(tmp_path))
+    import os
     from fieldkit.core import settings
+    # the child imports the Fieldkit under test, not whichever one pip installed (2026-10-19: in a second working
+    # tree the installed checkout answered and the test failed for a reason that was not the code's)
+    env = dict(os.environ, PYTHONPATH=str(settings.ROOT) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "where"], capture_output=True, text=True, timeout=60,
+                       cwd=str(tmp_path), env=env)
     assert r.returncode == 0 and r.stdout.strip() == str(settings.ROOT)
 
 

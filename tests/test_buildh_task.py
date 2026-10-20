@@ -297,6 +297,7 @@ def test_the_owner_at_a_window_whose_output_is_logged_is_still_the_owner(monkeyp
             return True
     monkeypatch.setattr(task.sys, "stdin", Tty())
     monkeypatch.setattr(task.sys, "stdout", io.StringIO())
+    monkeypatch.setattr(task, "agent_shell", lambda: "")      # a person's chain (the agent side: test_buildh_owner_terminal)
     assert task.owner_terminal()
     monkeypatch.setattr(task.sys, "stdin", io.StringIO())
     assert not task.owner_terminal()

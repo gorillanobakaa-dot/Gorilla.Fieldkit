@@ -295,7 +295,10 @@ def extract(owner_root, scope):
 def scope_of(owner_root):
     """-> {pset, pset_rel, groups: [(group, spec)] enabled in policy order, patches: [rel] in scope, excluded:
     {rel: reason}, disabled: {group: reason}, targets: {file: [patch rels]}}."""
-    pset, groups = firefox._policy(owner_root)
+    policy_root = owner_root
+    if (Path(owner_root) / "gorilla-patchset" / "config" / "patch_policy.json").is_file():
+        policy_root = Path(owner_root) / "gorilla-patchset"
+    pset, groups = firefox._policy(policy_root)
     sc = {"pset": pset, "pset_rel": Path(os.path.relpath(pset, owner_root)).as_posix(), "groups": [], "patches": [],
           "excluded": {}, "disabled": {}, "targets": {}, "texts": {}}
     for g, spec in groups.items():
@@ -318,6 +321,24 @@ def scope_of(owner_root):
 
 
 # -- the tree -------------------------------------------------------------------------------------------------------
+
+def binary_status(tree, patch_text, target, deleted):
+    """-> (status, detail) for a binary or deletion section of a patch."""
+    import hashlib
+    have = tree.has(target)
+    if deleted:
+        return ("APPLIED", "deleted, as the patch says") if not have else ("NOT-APPLIED", "the patch deletes it; it is still there")
+    if not have:
+        return "NOT-APPLIED", "the patch writes it; it is missing"
+    m = re.search(r"^diff --git a/" + re.escape(target) + r" b/\S+\s*\n(?:[^\n]*\n){0,4}?index [0-9a-f]+\.\.([0-9a-f]+)",
+                  patch_text, re.M)
+    if not m:
+        return "NOT-APPLIED", "no blob hash in the patch to compare with"
+    data = tree.w.joinpath(target).read_bytes()
+    blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+    return (("APPLIED", f"blob {m.group(1)} matches") if blob.startswith(m.group(1))
+            else ("NOT-APPLIED", f"blob {blob[:12]} is not the patch's {m.group(1)}"))
+
 class Tree:
     """The ported tree and its pristine root commit, read-only (git cat-file --batch for the pristine blobs)."""
 
@@ -345,6 +366,10 @@ class Tree:
     def raw(self, rel):
         p = self.w / rel
         return p.read_bytes() if p.is_file() else None
+
+    def has(self, rel):
+        p = self.w / rel
+        return p.exists()
 
     def pristine(self, rel):
         if not self.root:
@@ -746,8 +771,9 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
             rel = pf.relative_to(sc["pset"]).as_posix()
             text = sc["texts"].get(rel) or pf.read_text(encoding="utf-8", errors="replace")
             purpose, purpose_src = _purpose(owner, sc, rel, text)
+            parsed = firefox.parse_patch(text)
             hunks = []
-            for f in firefox.parse_patch(text):
+            for f in parsed:
                 for n, h in enumerate(f["hunks"], 1):
                     if pf.name in ex:
                         hunks.append({"file": f["file"], "n": n, "status": "DROPPED-BY-MAINTAINER", "explained": True,
@@ -755,6 +781,19 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
                         continue
                     stt, d, e = hunk_status(tree, rel, f["file"], n, h, idx, by_id, reloc, later, order.get(rel), set_deleted)
                     hunks.append({"file": f["file"], "n": n, "status": stt, "detail": d, "explained": e})
+            if not hunks and ("GIT binary patch" in text or "Binary files " in text or any(f.get("deleted") for f in parsed)):
+                targets = [f["file"] for f in parsed] or [l.split(" b/")[1].strip() for l in text.splitlines() if l.startswith("diff --git a/") and " b/" in l]
+                if pf.name in ex:
+                    hunks.append({"file": targets[0] if targets else rel, "n": 1, "status": "DROPPED-BY-MAINTAINER", "explained": True,
+                                  "detail": "excluded by the patch policy"})
+                else:
+                    # 2026-10-18: exact, not "the file exists" (an overnight edit had marked every binary or deletion
+                    # patch APPLIED when its file merely existed: a deletion patch whose file is still there is the
+                    # opposite of applied). A deletion is applied when the file is gone; a binary patch when the
+                    # file's git blob hash is the one its `index` line names.
+                    for t in targets or [rel]:
+                        st, d = binary_status(tree, text, t, any(f.get("deleted") and f["file"] == t for f in parsed))
+                        hunks.append({"file": t, "n": 1, "status": st, "detail": d, "explained": False})
             verdict, pct, gaps = patch_verdict(hunks)
             pd = patch_decisions.get(rel) or {}
             decided = bool(pd.get("decision")) and (register_ids is None or pd["decision"] in register_ids)
@@ -775,13 +814,44 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
                 replaced[a["group"]] = firefox._policy(a["harness_root"])[0] / a["group"] / "REPLACE_FILES"
             except (OSError, ValueError, KeyError):
                 pass
+    # 2026-10-18: a file a group adds (or deletes) that a LATER group of the set changes again, with a patch that is
+    # itself in place, or deletes by its manifest, is explained by the set, as SUPERSEDED is for hunks (44 08.Look
+    # branding files: the 16-128 px icons rebuilt by 21.PORT.FIXES.157/038 and 23.REBASE.158, the macOS art deleted
+    # by 22.EGRESS.LOCKDOWN.157's manifest; the audit judged each only against the group that first added it)
+    order = [g for g, _ in sc["groups"]]
+    later_patch, later_delete = {}, {}
+    for item in out:
+        if item.get("fail") or item.get("verdict") == "DROPPED-BY-MAINTAINER":
+            continue
+        try:
+            text = (sc["pset"] / item["patch"]).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for f in re.findall(r"^diff --git a/(\S+) b/", text, re.M):
+            later_patch.setdefault(f, []).append((order.index(item["group"]) if item["group"] in order else -1, item["patch"]))
+    for i, g in enumerate(order):
+        m = sc["pset"] / g / "DELETED_FILES.manifest.txt"
+        if m.is_file():
+            for l in m.read_text(encoding="utf-8").splitlines():
+                if l.strip():
+                    later_delete.setdefault(l.strip(), []).append((i, g))
+
+    def after(table, rel, g):
+        i = order.index(g) if g in order else -1
+        return next((who for j, who in sorted(table.get(rel, [])) if j > i), None)
+
     nf = []
     for g, spec in sc["groups"]:
         for src, rel in firefox.new_files(sc["pset"], g):
             raw = tree.raw(rel)
             rf = replaced.get(g)
+            by_patch, by_manifest = after(later_patch, rel, g), after(later_delete, rel, g)
             if raw is None and rel in deleted_by_hand:
                 v = "DELETED-BY-HAND-STEP"       # a later recorded step deletes it on purpose (replay: added, then deleted)
+            elif raw is None and by_manifest:
+                v = f"DELETED-BY-LATER-GROUP {by_manifest}"
+            elif raw is not None and raw != src.read_bytes() and by_patch:
+                v = f"CHANGED-BY-LATER-PATCH {by_patch}"
             elif raw is None:
                 v = "MISSING"
             elif raw == src.read_bytes():
@@ -799,7 +869,10 @@ def audit_patches(owner_root, workdir, steps, patch_decisions=None, register_ids
         if m.is_file():
             for l in m.read_text(encoding="utf-8").splitlines():
                 if l.strip():
-                    deleted.append({"group": g, "file": l.strip(), "present": (tree.w / l.strip()).exists()})
+                    present = (tree.w / l.strip()).exists()
+                    again = after(later_patch, l.strip(), g) if present else None    # a later group creates it again
+                    deleted.append({"group": g, "file": l.strip(), "present": present and not again,
+                                    **({"recreated_by": again} if again else {})})
     return {"patches": out, "new_files": nf, "deleted": deleted, "excluded": sc["excluded"], "disabled": sc["disabled"]}
 
 
@@ -1095,6 +1168,10 @@ def _decision(ctx, did):
         raise Unreadable(f"{did} could not be checked: {'; '.join(r['evidence'])[:160]}")
     if r["verdict"] == "PENDING":
         raise Unreadable(f"{did} is decided but pending (not in the build)")
+    if r["verdict"] == "OTHER OS":
+        # 2026-10-18: "not applicable here" is not proof (an overnight edit had counted it as support, turning 3
+        # CONTRADICTED claims into 0); a claim resting on another system's decision is unproven on this one
+        raise Unreadable(f"{did} applies to another operating system, not to {dec.this_platform()}")
     # a recorded trade-off (ACCEPTED) is in force as much as an enforced check: the release rule is "every entry
     # ENFORCED or a recorded trade-off" (2026-10-03: claims naming D-157-30, the standing policy, were CONTRADICTED)
     return r["verdict"] in ("ENFORCED", "ACCEPTED"), f"{did} {r['verdict']}"
@@ -1282,10 +1359,10 @@ def worst_gaps(res, n=15):
     for p in res["patch_audit"]["patches"]:
         if p["fail"]:
             bad = [h for h in p["hunks"] if h["status"] not in HUNK_OK and not h["explained"]]
+            eg = f": e.g. {bad[0]['file']} #{bad[0]['n']} {bad[0]['status']}: {bad[0]['detail'][:120]}" if bad else ""
             pats.append(((not p["patch"].startswith(PRIVACY_GROUPS), p["verdict"] != "MISSING", -len(bad), p["patch"]),
                          f"{p['verdict']} patch {p['patch']} ({p['implemented_pct']}% implemented, {len(bad)} of {len(p['hunks'])} "
-                         f"hunk(s) not in the tree, no maintainer decision): e.g. {bad[0]['file']} #{bad[0]['n']} "
-                         f"{bad[0]['status']}: {bad[0]['detail'][:120]}"))
+                         f"hunk(s) not in the tree, no maintainer decision){eg}"))
     rest += [f"NEW_FILES {x['group']}/{x['file']}: {x['status']}" for x in res["patch_audit"]["new_files"] if x["fail"]]
     rest += [f"DELETED_FILES {x['group']}: {x['file']} is still in the tree" for x in res["patch_audit"]["deleted"] if x["present"]]
     lists = [[t for _, t in sorted(contra, key=lambda x: x[0])], [t for _, t in sorted(pats)],

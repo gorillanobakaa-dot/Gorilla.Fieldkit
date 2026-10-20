@@ -34,7 +34,7 @@ FOG_PATCH = """# Gorilla: Glean never starts.
 +  return NS_OK;  // GORILLA early return before fog_init
 +
    fog_init(&dataPath, &aAppIdOverride, aDisableInternalPings);
-   const char* url = "https://incoming.telemetry.mozilla.org/submit";
+   const char* url = "https://incoming.telemetry.mozilla.org/submit";  # telemetry-ok: test fixture
  }
 """
 FTL_PATCH = """--- a/browser/locales/en-US/browser/x.ftl
@@ -228,7 +228,7 @@ def tree_and_install(tmp_path, ship_policies=False, shipped_prefs=None):
     fog = w / "toolkit" / "components" / "glean" / "xpcom" / "FOG.cpp"
     fog.write_text("x\n" * 145 + 'NS_IMETHODIMP\nFOG::InitializeFOG(const nsACString& aDataPathOverride) {\n'
                    '  fog_init(&dataPath, &aAppIdOverride, aDisableInternalPings);\n'
-                   '  const char* url = "https://incoming.telemetry.mozilla.org/submit";\n}\n', encoding="utf-8")
+                   '  const char* url = "https://incoming.telemetry.mozilla.org/submit";\n}\n', encoding="utf-8")  # telemetry-ok: test fixture
     ftl = w / "browser" / "locales" / "en-US" / "browser" / "x.ftl"
     ftl.write_text("# comment\nx-title = Firefox does a thing\nx-other = unchanged line here\n\n\n\n\ny-block =\n  .label = Keep this\nz-end = end\n",
                    encoding="utf-8")

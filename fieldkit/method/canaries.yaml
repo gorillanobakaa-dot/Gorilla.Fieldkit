@@ -1,0 +1,167 @@
+# Canaries: every check proves it can fail (fieldkit canary run; fieldkit/method/canary.py).
+# File contents are lists of parts joined at run time, so this registry never trips the scanners it tests.
+# {dir} is a fresh temporary folder holding the planted files; {python} is the running interpreter.
+# Machine-specific witnesses (paths to built programs) belong in the owner's local/canaries.yaml.
+
+canaries:
+  - id: telemetry-scan-endpoint
+    check: telemetry-scan
+    why: "the source scan finds a crash-reporting endpoint planted in a Rust file"
+    run: ["{python}", -m, fieldkit, telemetry, scan, "{dir}"]
+    canary: {files: {src/main.rs: ["fn main() { let dsn = \"https:/", "/o1.ingest.sen", "try.io/1\"; }\n"]}}
+    control: {files: {src/main.rs: ["fn main() { println!(\"hello\"); }\n"]}}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: telemetry-scan-go-module
+    check: telemetry-scan
+    why: "the source scan finds a tracing module named in go.mod (2026-10-18: missed until the module pattern was added)"
+    run: ["{python}", -m, fieldkit, telemetry, scan, "{dir}"]
+    canary: {files: {go.mod: ["module example.org/app\n\ngo 1.24\n\nrequire go.open", "telemetry.io/otel v1.35.0\n"]}}
+    control: {files: {go.mod: ["module example.org/app\n\ngo 1.24\n\nrequire golang.org/x/net v0.32.0\n"]}}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: privacy-scan-home-path
+    check: privacy-scan
+    why: "the privacy scan finds a Windows home folder path"
+    run: ["{python}", -m, fieldkit, privacy, scan, "{dir}"]
+    canary: {files: {notes.txt: ["see C:", "\\Users\\", "jane.example\\Desktop\\plan.txt\n"]}}
+    control: {files: {notes.txt: ["see the plan in the shared folder\n"]}}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: privacy-scan-secret
+    check: privacy-scan
+    why: "the privacy scan finds an access key"
+    run: ["{python}", -m, fieldkit, privacy, scan, "{dir}"]
+    canary: {files: {config.ini: ["[aws]\nkey = AKIA", "IOSFODNN7EXAMPLE\n"]}}
+    control: {files: {config.ini: ["[aws]\nregion = eu-west-2\n"]}}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: size-dupes
+    check: gorilla-size-dupes
+    why: "dupes finds two files with the same bytes"
+    run: ["{python}", -m, fieldkit, size, dupes, "{dir}", --json]
+    canary: {files: {a.bin: ["the same bytes in two places\n"], sub/b.bin: ["the same bytes in two places\n"]}}
+    control: {files: {a.bin: ["one thing\n"], sub/b.bin: ["another thing\n"]}}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: size-empty
+    check: gorilla-size-empty
+    why: "empty finds a zero-byte file"
+    run: ["{python}", -m, fieldkit, size, empty, "{dir}", --json]
+    canary: {files: {left/over.log: [""], kept.txt: ["x\n"]}}
+    control: {files: {kept.txt: ["x\n"]}}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: toolrouter-recursive-search
+    check: toolrouter
+    why: "the tool router refuses a hand-rolled recursive search and lets an ordinary command through"
+    run: ["{python}", -m, fieldkit.autopilot.toolrouter]
+    canary: {run: ["{python}", -m, fieldkit.autopilot.toolrouter, "Get-ChildItem", "C:\\", "-Recurse", "-Filter", "x.exe"]}
+    control: {run: ["{python}", -m, fieldkit.autopilot.toolrouter, "git", "status", "--short"]}
+    flagged: {exit: [2]}
+    passed: {exit: [0]}
+
+  - id: toolrouter-permanent-delete
+    check: toolrouter
+    why: "the tool router refuses a permanent delete of a build tree and allows one inside temp"
+    run: ["{python}", -m, fieldkit.autopilot.toolrouter]
+    canary: {run: ["{python}", -m, fieldkit.autopilot.toolrouter, "Remove-Item", "D:\\Build.Work\\157.0-clean", "-Recurse", "-Force"]}
+    control: {run: ["{python}", -m, fieldkit.autopilot.toolrouter, "Remove-Item", "$env:TEMP\\fk-test", "-Recurse", "-Force"]}
+    flagged: {exit: [2]}
+    passed: {exit: [0]}
+
+  # checks with no one-file command line: fieldkit/method/canary_checks.py plants the input and calls the function
+  # (forms from the owner of each check, 2026-10-19); it answers 3 when the check flagged, 0 when it passed
+  - id: themecheck-static
+    check: bh-ui-check
+    why: "the static theme check names a colour outside the theme added on top of the pristine tree"
+    run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+    unavailable: {exit: [4]}
+
+  - id: themecheck-static-white-popup
+    check: bh-ui-check
+    why: "the static theme check names white (a text-only colour) used as a popup background (blind until themecheck 1.1.0)"
+    run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static-white-popup]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static-white-popup, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-static-white-popup, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+    unavailable: {exit: [4]}
+
+  - id: themecheck-rendered
+    check: bh-ui-check
+    why: "the rendered theme check fails cyan text on a white popup (contrast 1.25)"
+    run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-rendered]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-rendered, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, themecheck-rendered, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+    unavailable: {exit: [4]}
+
+  - id: claims-new-file
+    check: bh-claims
+    why: "the claims audit fails a NEW_FILES entry the tree lacks and nothing explains"
+    run: ["{python}", -m, fieldkit.method.canary_checks, claims-new-file]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, claims-new-file, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, claims-new-file, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: claims-hunk
+    check: bh-claims
+    why: "the claims audit fails a patch whose added line is not in the tree"
+    run: ["{python}", -m, fieldkit.method.canary_checks, claims-hunk]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, claims-hunk, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, claims-hunk, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: decisions-tree-contains
+    check: bh-decisions
+    why: "a decision check of kind tree_contains does not pass on text the file does not hold"
+    run: ["{python}", -m, fieldkit.method.canary_checks, decisions-tree-contains]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, decisions-tree-contains, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, decisions-tree-contains, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: leakgate-canary-form
+    check: leak-gate
+    why: "the leak-gate judge fails CANARY_POLICY when the browser posts a canary form"
+    run: ["{python}", -m, fieldkit.method.canary_checks, leakgate-canary]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, leakgate-canary, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, leakgate-canary, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  - id: leakgate-telemetry-host
+    check: leak-gate
+    why: "the leak-gate judge lists a telemetry destination the browser reached"
+    run: ["{python}", -m, fieldkit.method.canary_checks, leakgate-telemetry]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, leakgate-telemetry, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, leakgate-telemetry, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+  # the runner itself (2026-10-19: the leak-gate canaries made a real DNS query for Mozilla's telemetry host on every
+  # run): a check started by `fieldkit canary run` must find the offline guard in place and a non-local name refused
+  - id: canary-runner-offline
+    check: canary
+    why: "a check run by the canary runner cannot look a name up on the real network"
+    run: ["{python}", -m, fieldkit.method.canary_checks, runner-offline]
+    canary: {run: ["{python}", -m, fieldkit.method.canary_checks, runner-offline, canary]}
+    control: {run: ["{python}", -m, fieldkit.method.canary_checks, runner-offline, control]}
+    flagged: {exit: [3]}
+    passed: {exit: [0]}
+
+witnesses: []

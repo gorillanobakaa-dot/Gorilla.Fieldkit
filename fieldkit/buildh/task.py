@@ -460,14 +460,48 @@ def drop(task_id, patches, reason, who="owner", keep=(), patchset_root=None):
     if changed_files(t):
         raise Refused("the work tree has uncommitted changes; submit or revert the current step first")
     pristine = _git(t, "rev-list", "--max-parents=0", "HEAD").split()[0]
+    in_pristine = lambda f: subprocess.run(["git", "-C", t["workdir"], "cat-file", "-e", f"{pristine}:{f}"],
+                                           capture_output=True).returncode == 0
+    # A file the release does not have (created by an earlier group, e.g. 08.Look's branding prefs) has no pristine
+    # version: only the dropped patches' own hunks are taken back out of it (2026-10-16, Windows 158: dropping
+    # 098 failed with "pathspec browser/branding/gorilla/pref/firefox-branding.js did not match").
+    # Every file first tries to lose ONLY the dropped patches' hunks (git apply -R): other groups' changes to the same
+    # file stay (2026-10-16: aboutDialog.js carries 23.REBASE.158's work too; going back to pristine would erase it).
+    # Back to pristine only when the reverse does not fit (hunks half ported) AND no other patch in the set writes
+    # that file. Otherwise refused, with nothing touched.
+    def reverses(f):
+        return all(subprocess.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
+                                   "--check", str(root / p)], capture_output=True).returncode == 0 for p in patches)
+    others_write = set()
+    for pf in root.rglob("*.patch"):
+        rel = pf.relative_to(root).as_posix()
+        if rel not in set(patches) and rel not in set(keep):     # a kept patch is applied again below
+            try:
+                others_write |= {x["file"] for x in firefox.parse_patch(pf.read_text(encoding="utf-8", errors="replace"))}
+            except (OSError, ValueError):
+                pass
+    plan = {}
     for f in sorted(files):
-        _git(t, "checkout", pristine, "--", f)
+        if reverses(f):
+            plan[f] = "reverse"
+        elif in_pristine(f) and f not in others_write:
+            plan[f] = "pristine"
+        else:
+            raise Refused(f"{f}: the dropped change cannot be taken back cleanly and other patches write this file; "
+                          f"nothing was touched")
+    for f, how in plan.items():
+        if how == "reverse":
+            for p in patches:
+                subprocess.run(["git", "-C", t["workdir"], "apply", "-R", "--whitespace=nowarn", f"--include={f}",
+                                str(root / p)], capture_output=True, text=True, check=True)
+        else:
+            _git(t, "checkout", pristine, "--", f)
     reapplied = []
     for p in keep:
         # --binary: the work tree holds upstream's LF bytes (cloned with core.autocrlf=false). Without it the Windows
         # GNU patch 2.5.9 (Strawberry, GnuWin32) reads an LF-only patch in text mode and aborts with the assertion
         # "Expression: hunk" (CI, 2026-10-15). On Linux --binary changes nothing.
-        r = subprocess.run(["patch", "-p1", "--fuzz=0", "--binary", "--no-backup-if-mismatch", "-i", str(root / p)],
+        r = subprocess.run([firefox._patch_exe(), "-p1", "--fuzz=0", "--binary", "--no-backup-if-mismatch", "-i", str(root / p)],
                            cwd=t["workdir"], capture_output=True, text=True)
         if r.returncode != 0:
             revert_to_checkpoint(t)
@@ -754,8 +788,59 @@ def owner_terminal():
 
     Only stdin is judged (2026-10-14): the terminal opener (`fieldkit terminal ask`) shows a command in a window, the
     owner presses Enter, and the window copies the output into its log, so stdout is a pipe. Requiring a terminal on
-    stdout as well refused the owner's own skip in the window built for exactly that."""
+    stdout as well refused the owner's own skip in the window built for exactly that.
+
+    2026-10-19: a terminal on stdin is NOT enough. Claude Code's Bash tool gives its shell a terminal, and the
+    orchestrator session ran an owner-only allowlist approval script that this check let through (the change was
+    restored from git at once). So: refuse when the process carries an AI agent's environment marker, or when any
+    ancestor process is an AI agent."""
+    if agent_shell():
+        return False
     return sys.stdin.isatty()
+
+
+#: environment variables an AI agent's shell carries (Claude Code, the Agent SDK, Antigravity/Gemini, Codex)
+AGENT_ENV = ("CLAUDECODE", "AI_AGENT", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_AGENT_SDK_VERSION",
+             "ANTIGRAVITY_AGENT", "GEMINI_CLI", "CODEX_SANDBOX", "CODEX_HOME")
+#: ancestor process names that are AI agents
+AGENT_PROCS = re.compile(r"^(claude|antigravity|gemini|codex)(\.exe)?$|claude-code|@anthropic-ai", re.I)
+#: what may stand between a person's desktop and this process: terminals, shells, Python
+PERSON_CHAIN = re.compile(r"^(windowsterminal|openconsole|conhost|wt|powershell|pwsh|cmd|python\d*(\.\d+)?|py|pythonw)"
+                          r"(\.exe)?$", re.I)
+DESKTOPS = re.compile(r"^(explorer(\.exe)?|plasmashell|gnome-shell|kwin\w*|xfce4-session|lxsession|"
+                      r"sshd|login|systemd)$", re.I)
+
+
+def agent_shell(env=None, ancestors=None):
+    """-> the reason this process may NOT be a person's own terminal, or "" when it positively is one.
+
+    A person's terminal: no agent environment marker, and the parent chain reaches the desktop (explorer.exe, or a
+    Linux session) through terminals, shells and Python only. Anything else is refused, a broken chain included
+    (2026-10-19: Git Bash's env.exe cut the chain before claude.exe, so "no agent seen" proved nothing)."""
+    env = os.environ if env is None else env
+    hit = next((k for k in AGENT_ENV if env.get(k)), None)
+    if hit:
+        return f"agent environment ({hit})"
+    if ancestors is None:
+        ancestors = []
+        try:
+            import psutil
+            for a in psutil.Process().parents():
+                try:
+                    ancestors.append((a.name(), " ".join(a.cmdline())[:300]))
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    ancestors.append(("?", ""))
+        except Exception:                                   # fail closed: an unreadable ancestry is not a person
+            return "process ancestry unreadable"
+    for name, cmd in ancestors:
+        if AGENT_PROCS.search(name or "") or AGENT_PROCS.search(cmd or ""):
+            return f"agent ancestor ({name})"
+    for name, _cmd in ancestors:
+        if DESKTOPS.match(name or ""):
+            return ""
+        if not PERSON_CHAIN.match(name or ""):
+            return f"not a person's terminal: {name} stands between this process and the desktop"
+    return "no path to the desktop (the parent chain is broken or detached)"
 
 
 def unblock(task_id, step_id, how):

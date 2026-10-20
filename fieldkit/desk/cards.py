@@ -33,6 +33,11 @@ from ..core import settings
 
 TEST_RESULTS = settings.ROOT / "state" / "test-results.json"
 LEVELS = ("gathered", "carded", "tested", "verified")
+#: the only words a card's effects may use (2026-10-19: 13 home-made words such as "starts-processes", "system" or
+#: "network-on-fetch" had crept in, and "starts-processes" hid a process start from the read-only rule below). A
+#: condition ("only for --fetch") goes in a comment or the notes, never in the word.
+EFFECTS = ("reads-files", "writes-files", "deletes-files", "registry", "services", "processes", "network", "admin",
+           "hardware", "power", "gui-automation", "git")
 # harvest "touches" and AST-detected effects -> card effects that change something
 CHANGING = {"writes-files", "deletes-files", "registry", "services", "processes", "power", "git", "admin"}
 
@@ -223,7 +228,10 @@ def curated_card(tool):
             "output": tool.get("output") or "third-party",
             # exit codes that are answers, not failures: {2: question, 3: findings}
             "exits": {int(k): v for k, v in (tool.get("exits") or {}).items()},
-            "answer_lines": int(tool.get("answer_lines") or 15)}
+            "answer_lines": int(tool.get("answer_lines") or 15),
+            # one sentence put FIRST in the answer, filled from the tool's own "key: value" lines (2026-10-19: Gemma
+            # read past "profile: balanced" on line 3 and said the tool needs a choice). None: no headline.
+            "headline": tool.get("headline")}
     if card["safety"] is None:                        # tools.yaml "changes" is the reviewed judgement
         card["safety"] = "read-only" if tool.get("changes") is False else "unknown"
     p = card["path"]
@@ -357,3 +365,42 @@ def _build_cards():
                 continue
             drafts.append(draft_card(dict(e, path=str(path))))
     return curated + drafts
+
+
+CATALOGUE_LEVELS = ("carded", "tested", "verified")
+
+
+def catalogue(cards=None, results=None, public_only=True):
+    """The tool catalogue Gorilla OpenCode embeds: every non-retired card at carded level or better, with what a model
+    needs to pick one (id, title, trust, safety, inputs). Drafts and gathered scripts are left out: a model is never
+    pointed at a tool nobody reviewed. Stamped with the Fieldkit commit it came from, so it is never a typed fact."""
+    import subprocess
+    cards = cards if cards is not None else all_cards()
+    results = results if results is not None else test_results()
+    public = None
+    if public_only:
+        from . import registry
+        public = {t["id"] for t in settings.read_file(registry.REGISTRY)["tools"]}
+    tools = []
+    for c in cards:
+        if c.get("retired") or (public is not None and c["id"] not in public):
+            continue
+        level, _ = trust(c, results)
+        if level not in CATALOGUE_LEVELS:
+            continue
+        tools.append({"id": c["id"], "title": c.get("title", ""), "trust": level, "safety": c.get("safety"),
+                      "online": "network" in (c.get("effects") or []),
+                      "inputs": [{"name": i["name"], "required": bool(i.get("required"))} for i in c.get("inputs") or []]})
+    tools.sort(key=lambda t: t["id"])
+    try:
+        commit = subprocess.run(["git", "-C", str(settings.ROOT), "rev-parse", "--short", "HEAD"], capture_output=True,
+                                text=True, timeout=20).stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        commit = "unknown"
+    # Recipes too (2026-10-19): published ones only, title and problem, so the in-process matcher can name them; the
+    # steps stay behind describe. Schema 2 adds this list; a reader of schema 1 ignores it.
+    from . import recipes as recipemod
+    recipes = sorted(({"id": r["id"], "title": r.get("title", ""), "problem": r.get("problem", ""),
+                       "tags": list(r.get("tags") or []), "platforms": list(r.get("platforms") or [])}
+                      for r in recipemod.load(public_only=public_only)), key=lambda r: r["id"])
+    return {"schema": 2, "fieldkit_commit": commit, "tools": tools, "recipes": recipes}

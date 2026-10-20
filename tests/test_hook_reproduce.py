@@ -110,8 +110,14 @@ def test_the_hook_finds_an_interpreter_even_without_a_bare_python(tmp_path):
 def test_no_interpreter_with_pytest_says_so_instead_of_blaming_the_tests(tmp_path):
     """The distinction that matters: 'nothing was verified' is not 'tests failed'."""
     r, env = _repo(tmp_path, "def test_fine():\n    assert True\n")
+    # git stays reachable (a wrapper), every Python does not. 2026-10-16: with PATH holding only an empty folder, the
+    # hook run by Git for Windows' sh (as in a real commit) died at its first line, "git: command not found", before
+    # it looked for an interpreter, so the test failed only inside the commit hook.
     empty = tmp_path / "nointerp"
     empty.mkdir()
+    g = empty / "git"
+    g.write_text(f'#!/bin/sh\nexec "{Path(shutil.which("git")).as_posix()}" "$@"\n', encoding="utf-8", newline="\n")
+    g.chmod(0o755)
     env = dict(env, PATH=str(empty))
     env.pop("VIRTUAL_ENV", None)
     rc, out = _run(r, env)

@@ -22,9 +22,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
-def reg():
+def reg(monkeypatch, request):
     # Short: a Unix socket path must stay under ~100 characters, and pytest's tmp_path can be longer.
     d = Path(tempfile.mkdtemp(prefix="fkp-")) / "peers"
+    # Windows names the pipe after the pid, and every test in one pytest process has the same pid: a test's wait
+    # (FILE_FLAG_FIRST_PIPE_INSTANCE) failed whenever the previous test's server had not let go of the name yet
+    # (2026-10-16: 3-5 failures in about one full run in five, refusing commits). Each test gets its own namespace,
+    # as the per-test folder already gives each Unix socket. A test that lists from a SUBPROCESS keeps the real name
+    # (the child judges endpoints by it); with every other test in its own namespace, nothing else holds that name.
+    if "command_line" not in request.node.name:
+        monkeypatch.setattr(peers, "PIPE_PREFIX", f"{peers.PIPE_PREFIX}t{d.parent.name}-")
     yield d
     shutil.rmtree(d.parent, ignore_errors=True)
 

@@ -35,6 +35,7 @@ def world(tmp_path, monkeypatch):
     (h / "config" / "patch_policy.json").write_text('{"patchset_root": "patchset", "groups": {}}')
     (h / "config" / "versions.lock.json").write_text(json.dumps({"build": {"moz_build_date": "20261011120000"}}))
     monkeypatch.setattr(cg, "mozconfig_path", lambda root=None: h / "config" / "mozconfig.win64")
+    monkeypatch.setattr(cg, "owner_rows", lambda t: [])          # the owner's checks have their own tests
     task.start("r1", "demo", w, [], budget_tokens=1000, meta={"upstream": {"version": "157.0"}, "harness_root": str(h)})
     task.approve("r1", "owner")
     task.journal(task.load("r1"), "script-done", step="final-checks")

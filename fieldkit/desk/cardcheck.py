@@ -73,6 +73,9 @@ def check_card(card):
             s = str(settings.expand(part, strict=False))
             if s.endswith(".py") and ("/tests/" in s.replace("\\", "/")) and not Path(s).is_file():
                 problems.append(f"test file missing: {s}")
+    unknown = [e for e in card.get("effects") or [] if e not in cardmod.EFFECTS]
+    if unknown:
+        problems.append(f"effects not in the schema: {', '.join(unknown)} (use {', '.join(cardmod.EFFECTS)})")
     changing = set(card.get("effects") or []) & cardmod.CHANGING
     if changing and card.get("safety") == "read-only":
         problems.append(f"marked read-only but its effects change things: {', '.join(sorted(changing))}")

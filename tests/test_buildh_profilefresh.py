@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from conftest import needs_symlinks
 from fieldkit.buildh import profilecheck, profilefresh as pf
 
 
@@ -60,6 +61,7 @@ def test_refuses_to_mix_into_a_used_folder(tmp_path):
         pf.apply(old, new)
 
 
+@needs_symlinks
 def test_a_stale_lock_is_not_a_running_browser(tmp_path):
     old = _old(tmp_path)
     (old / "lock").symlink_to("127.0.1.1:+999999999")

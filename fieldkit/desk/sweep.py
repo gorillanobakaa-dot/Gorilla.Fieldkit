@@ -42,6 +42,7 @@ from . import registry
 SCRIPT_EXT = {".py", ".ps1", ".cmd", ".bat", ".sh"}
 DOC_EXT = {".md", ".txt", ".rst"}
 ALWAYS_IGNORE = {"Fieldkit", "__pycache__", ".git", ".pytest_cache"}
+ADOPTED = ".adopted"                 # the marker adopt and recipes capture leave (fieldkit.desk.adopt.MARKER)
 
 
 def _norm(p):
@@ -88,6 +89,8 @@ def items(root, ignore):
     for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         if entry.name in ignore or entry.name.startswith("."):
             continue
+        if entry.is_file() and entry.name.endswith(ADOPTED):
+            continue                   # the marker beside an adopted loose script, not an item of its own
         if entry.is_dir():
             out.append({"name": entry.name, "path": str(entry), "kind": "folder"})
         elif entry.suffix.lower() in SCRIPT_EXT:
@@ -118,8 +121,10 @@ def _cards_inside(item_path, tools):
 
 
 def status_of(item, tools, results):
-    if item["kind"] == "folder" and (Path(item["path"]) / ".adopted").is_file():
+    if item["kind"] == "folder" and (Path(item["path"]) / ADOPTED).is_file():
         return "adopted", []           # moved into Fieldkit; this old copy goes once nothing runs from it
+    if item["kind"] == "script" and Path(item["path"] + ADOPTED).is_file():
+        return "adopted", []           # a loose script: its marker sits beside it (adopt, recipes capture)
     if item["kind"] == "leftover":
         return "leftover", []
     cards = _cards_inside(item["path"], tools)

@@ -5,10 +5,33 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Every child `python -m fieldkit` a test starts imports the Fieldkit UNDER TEST too, not whichever checkout pip
+# installed (2026-10-19: in a second working tree the installed main checkout answered, and a test failed for a
+# reason that was not the code's). Children inherit the environment.
+import os as _os_root  # noqa: E402
+_os_root.environ["PYTHONPATH"] = _os_root.pathsep.join(
+    p for p in (str(Path(__file__).resolve().parents[1]), _os_root.environ.get("PYTHONPATH", "")) if p)
+
 from fieldkit.core.host import host  # noqa: E402
 
 windows_only = pytest.mark.skipif(not host()["is_windows"], reason="Windows-only behaviour")
 linux_only = pytest.mark.skipif(not host()["is_linux"], reason="Linux-only behaviour")
+
+
+def _can_symlink():
+    import tempfile
+    d = Path(tempfile.mkdtemp(prefix="fieldkit-symlink-probe-"))
+    try:
+        (d / "l").symlink_to(d / "t")
+        return True
+    except OSError:
+        return False
+
+
+# Windows lets an account make symbolic links only as administrator or with Developer Mode on (WinError 1314).
+# The GitHub runner is an administrator, so these tests pass there and failed only in this laptop's commit hook.
+needs_symlinks = pytest.mark.skipif(not _can_symlink(), reason="this account cannot create symbolic links "
+                                    "(Windows: administrator or Developer Mode, WinError 1314)")
 
 
 # Tests never write into the real MCP flight recorder (subprocesses inherit this too).
@@ -21,7 +44,11 @@ import tempfile as _tempfile
 for _k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX", "GIT_OBJECT_DIRECTORY",
            "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
            "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
-           "GIT_COMMITTER_DATE"):
+           "GIT_COMMITTER_DATE", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"):
+    _os.environ.pop(_k, None)
+# `git -c user.name=... commit` hands the hook its -c values in GIT_CONFIG_PARAMETERS (and git config --env style in
+# GIT_CONFIG_KEY_n/VALUE_n): the tests then saw an identity and the no-identity rule failed only in the hook (2026-10-16).
+for _k in [k for k in _os.environ if k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))]:
     _os.environ.pop(_k, None)
 # Tests run with NO git identity, as on the GitHub runners (owner 2026-10-16: "can't this be a deterministic tool?").
 # Three times code that commits or tags worked here, where the owner's ~/.gitconfig names him, and failed or went
@@ -38,7 +65,7 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 
 
 # Tests never look a name up on the real network (2026-10-06: during the build 27 release leak test the commit hook's
-# test run resolved incoming.telemetry.mozilla.org, www.anthropic.com and ublockorigin.github.io, and the gate's DNS
+# test run resolved incoming.telemetry.mozilla.org, www.anthropic.com and ublockorigin.github.io, and the gate's DNS  telemetry-ok: test fixture
 # witness had to work out that it was not the browser). Loopback names and IP literals still resolve.
 import ipaddress as _ip
 import socket as _socket
@@ -63,6 +90,13 @@ def _offline_gethostbyaddr(addr):
 
 _socket.getaddrinfo = _offline_getaddrinfo
 _socket.gethostbyaddr = _offline_gethostbyaddr
+
+# 2026-10-19: the guard above covers this process only; the canary registry test's CHILDREN resolved
+# incoming.telemetry.mozilla.org on every run. Every child a test starts inherits this environment and is offline too  telemetry-ok: test fixture
+# (a fieldkit child on import, any other Python child through fieldkit/core/offline_site/sitecustomize.py).
+from fieldkit.core import offline as _offline
+
+_os.environ.update(_offline.child_env())
 
 
 # Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
@@ -112,6 +146,13 @@ _VOICE_TESTS = "FIELDKIT_VOICE_TESTS"
 
 def _voice_tests_on():
     return _os.environ.get(_VOICE_TESTS, "").strip() not in ("", "0", "false", "no")
+
+
+# No single test makes a sound either (2026-10-16: on Windows a test reached System.Speech and told the owner "the
+# laptop is offline" while it was online). Silent still resolves the voice and returns "spoken", so the tests check
+# the same path. A test that pops it to fake the runner is fine: it restores it.
+if not _voice_tests_on():
+    _os.environ["FIELDKIT_VOICE_SILENT"] = "1"
 
 
 def _announce(text):
@@ -184,3 +225,38 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     line = (_random.choice(_SOME_FAILED).format(f=failed, t=total) if failed
             else _random.choice(_ALL_PASSED).format(p=passed))
     _announce(line)
+
+
+# Tests never put a UAC prompt or an admin window on the owner's screen (2026-10-18: three leak-gate tests started
+# the real elevated packet helper twice; six "Administrator: Windows PowerShell" windows were left open). A test that
+# injects its own runner still exercises the helper.
+@pytest.fixture(autouse=True)
+def _no_real_elevation(monkeypatch):
+    import subprocess
+    from fieldkit.leakgate import sensors
+    real_start = sensors.ElevatedPktmon.start
+
+    def start(self, *a, **k):
+        if self.runner is subprocess.run:
+            raise RuntimeError("tests never elevate: inject a runner")
+        return real_start(self, *a, **k)
+    monkeypatch.setattr(sensors.ElevatedPktmon, "start", start)
+    yield
+
+
+# Tests never stop a real process (2026-10-18: the leak gate quiets the machine at start; its tests run the real
+# gate): the stop and the holder are no-ops unless a test hands quiet its own fake psutil.
+@pytest.fixture(autouse=True)
+def _no_real_quiet(monkeypatch):
+    from fieldkit.autopilot import quiet
+    real_stop = quiet.stop
+
+    def stop(rows, psutil=None, say=print):
+        return real_stop(rows, psutil, say) if psutil is not None else []
+    monkeypatch.setattr(quiet, "stop", stop)
+    monkeypatch.setattr(quiet, "noisy", lambda *a, **k: [] if not k.get("psutil") and not a else _real_noisy(*a, **k))
+    monkeypatch.setattr(quiet, "start_holder", lambda pid, log: 0)
+    yield
+
+
+from fieldkit.autopilot.quiet import noisy as _real_noisy  # noqa: E402

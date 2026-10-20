@@ -28,6 +28,7 @@
     fieldkit cards list [--level L] | show ID    the contract of every tool, with its trust level
     fieldkit readiness [--write-docs]            how much of the collection an agent can rely on
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
+    fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
@@ -337,6 +338,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_size(a):
+    from .desk import size
+    return size.main(a.args)
+
+
 def cmd_tools(a):
     from .desk import registry
     if a.action == "list":
@@ -589,7 +595,13 @@ def cmd_privacy(a):
     # message was added, by reading its own output on this release's notes).
     counted = []
     for p in a.paths:
-        rep.update(privacy.scan_path(p, git_only=a.git, examined=counted,
+        # a git checkout is scanned as git would publish it unless --all says otherwise (2026-10-19: `privacy scan .`
+        # in Fieldkit walked the ignored state/ folder - leak-gate build copies and packet captures - for three hours
+        # at a full core; survey.py already scanned repositories this way)
+        git_only = a.git or (Path(p).is_dir() and (Path(p) / ".git").exists() and not getattr(a, "all", False))
+        if git_only and not a.git and not a.json:
+            print(f"  {p}: a git checkout - scanning what git would publish (--all scans every file, ignored ones too)")
+        rep.update(privacy.scan_path(p, git_only=git_only, examined=counted,
                                      allow_paths=a.allow_paths, allow_emails=a.allow_emails))
     examined = sum(counted)
 
@@ -686,8 +698,12 @@ def cmd_agent(a):
     try:
         if a.action == "discover":
             res = agent.discover(" ".join(a.args), include_drafts=a.include_drafts)
-            _emit(res, a.json, lambda rs: [print(f"{r['trust']:<9} {str(r['safety']):<12} {r['tool']:<34} "
-                                                 f"{r['title'][:60]}  [{', '.join(r['inputs'])}]") for r in rs]
+            def row(r):
+                if r.get("kind") == "recipe":                  # read, never run: no safety, no inputs
+                    return f"{'recipe':<9} {'read only':<12} {r['tool']:<34} {r['title'][:60]}"
+                return (f"{r['trust']:<9} {str(r['safety']):<12} {r['tool']:<34} "
+                        f"{r['title'][:60]}  [{', '.join(r['inputs'])}]")
+            _emit(res, a.json, lambda rs: [print(row(r)) for r in rs]
                   or (None if rs else print("no reviewed tool fits; try other words or --include-drafts")))
             return 0 if res else 3
         if a.action == "describe":
@@ -746,6 +762,17 @@ def cmd_cards(a):
         return 0 if r["ok"] else 3
     all_c = cards.all_cards()
     results = cards.test_results()
+    if a.action == "export":
+        # 2026-10-19: Gorilla OpenCode embeds this so it can match a person's request against Fieldkit's tools in
+        # milliseconds, with no server start, and put the fitting names in front of a small model (Gemma answered
+        # "no such tool" without searching). Reviewed or tested tools only: a draft is never suggested.
+        out = cards.catalogue(all_c, results)
+        if a.id:
+            Path(a.id).write_bytes((json.dumps(out, indent=1, ensure_ascii=False) + "\n").encode("utf-8"))  # LF on Windows too
+            print(f"wrote {a.id}: {len(out['tools'])} tool(s) from Fieldkit {out['fieldkit_commit']}")
+        else:
+            print(json.dumps(out, indent=1, ensure_ascii=False))
+        return 0
     if a.action == "show":
         hit = [c for c in all_c if c["id"] == a.id]
         if not hit:
@@ -776,6 +803,200 @@ def cmd_readiness(a):
     out = {k: v for k, v in r.items() if k != "rows"}
     _emit(out, a.json, lambda o: print(chr(10).join(readiness.lines(r))))
     return 0
+
+
+def cmd_recipes(a):
+    """Recipes: how something was done before, to read and adapt (fieldkit/desk/recipes.py)."""
+    from .desk import recipes
+    if a.action == "check":
+        problems = recipes.check()
+        _emit({"problems": problems, "ok": not problems}, a.json,
+              lambda o: print(chr(10).join(problems or [f"RECIPES OK: {len(recipes.load())} recipe(s) meet the contract"])))
+        return 3 if problems else 0
+    if a.action == "show":
+        if not a.rest:
+            print("fieldkit recipes show ID")
+            return 2
+        r = next((x for x in recipes.load() if x["id"] == a.rest[0]), None)
+        if r is None:
+            print(f"no recipe '{a.rest[0]}'. NEXT: fieldkit recipes list")
+            return 2
+        _emit(r, a.json, lambda o: print(recipes.text(r)))
+        return 0
+    if a.action == "capture":
+        if len(a.rest) != 2:
+            print("fieldkit recipes capture ID SOURCE")
+            return 2
+        recipes.capture(a.rest[0], a.rest[1])
+        return 0
+    rs = recipes.load()
+    _emit(rs, a.json, lambda o: print(chr(10).join(
+        [f"{r['id']:<34} {'published' if r['public'] else 'own':<9} {r.get('title', '')}" for r in rs]
+        or ["no recipes yet"])))
+    return 0
+
+
+def cmd_autopilot(a):
+    from .autopilot import run, quiet
+    if a.action in ("on", "off"):
+        r = run.switch(a.action == "on", " ".join(a.rest))
+    elif a.action == "stop":
+        r = run.stop(" ".join(a.rest) or "the owner said stop")
+    elif a.action == "resume":
+        r = run.resume()
+    elif a.action == "workspace":
+        r = {"settings": str(run.workspace(a.rest[0] if a.rest else None))}
+    elif a.action == "antigravity":
+        r = run.antigravity()
+    elif a.action == "login":
+        if "--check" in a.rest or "check" in a.rest:
+            r = {"logged_in": run.logged_in(), "command": run.paste_command()}
+        else:
+            r = run.login()
+    elif a.action == "claude":
+        if not a.rest:
+            print("autopilot claude PROMPT [--cwd DIR]")
+            return 2
+        r = run.claude(" ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns)
+    elif a.action == "quiet" and getattr(a, "restore", False):
+        print("started again: " + (", ".join(quiet.restore_units()) or "nothing was recorded"))
+        return 0
+    elif a.action == "quiet":
+        rows = quiet.noisy(also=(int(a.hold),) if a.hold else ())
+        for x in rows:
+            print(f"  {x['name']:<32} PID {x['pid']:<7} sockets {x['net']:<3} {x.get('why', ''):<22} {x['exe']}")
+        talking = []
+        quiet.noisy(also=(int(a.hold),) if a.hold else (), talking_system=talking)
+        for x in talking:
+            print(f"  (system, not stopped) {x['name']:<20} PID {x['pid']:<7} sockets {x['net']:<3} {x['exe']}")
+        if not a.apply:
+            print(f"QUIET: {len(rows)} process(es) would be stopped (add --apply; --hold PID keeps them stopped)")
+            return 0
+        quiet.stop(rows)
+        if a.hold or getattr(a, "minutes", None):
+            from .autopilot.hardlines import STOP_FILE as _stop
+            quiet.hold(a.hold, minutes=getattr(a, "minutes", None), stop_file=_stop)
+        return 0
+    else:
+        r = run.status()
+    print(json.dumps(r, indent=1, ensure_ascii=False))
+    return 0 if r.get("ok", True) else 3
+
+
+def cmd_inbox(a):
+    from .autopilot import inbox
+    if a.action == "add":
+        if len(a.rest) < 2:
+            print("inbox add TITLE WHY [COMMAND]")
+            return 2
+        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else ""), indent=1))
+        return 0
+    if a.action == "done":
+        print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
+        return 0
+    its = inbox.items(None if a.all else "open")
+    if a.action == "show" and a.rest:
+        its = [i for i in its if i["n"] == int(a.rest[0])]
+        print(json.dumps(its, indent=1, ensure_ascii=False))
+        return 0
+    print("\n".join(inbox.lines(its)))
+    return 0
+
+
+def cmd_publish(a):
+    from .autopilot import inbox
+    if getattr(a, "sums", None):
+        for l in inbox.write_sums(a.asset, a.sums):
+            print("  " + l)
+        print(f"written: {a.sums} (add it with --asset; publish checks it against every file)")
+        return 0
+    return inbox.publish(a.repo, a.release, a.notes, a.asset, dry_run=a.dry_run)
+
+
+def cmd_telemetry(a):
+    """fieldkit telemetry scan PATH | machine [--fix OUT.ps1] (fieldkit/core/telemetry.py; owner rule 2026-10-18)."""
+    from .core import telemetry as tm
+    if a.action == "scan":
+        r = tm.scan(a.path)
+        if a.json:
+            print(json.dumps(r, indent=1))
+        else:
+            for f in r["findings"]:
+                print(f"  TELEMETRY {f['kind']:<9} {f['file']}:{f['line']}  {f['match']}  | {f['text'][:90]}")
+            for f in r["marked"]:
+                print(f"  marked    {f['kind']:<9} {f['file']}:{f['line']}  {f['match']}  (telemetry-ok on the line)")
+            print(f"TELEMETRY SCAN: {len(r['findings'])} finding(s) in {r['files']} file(s); {len(r['marked'])} marked")
+        bad = len(r["findings"])
+        for exe in a.artifact:
+            ar = tm.scan_artifact(exe)
+            for f in ar["findings"]:
+                print(f"  TELEMETRY {f['kind']:<9} {exe}: {f['match']} x{f['count']}")
+            print(f"TELEMETRY ARTIFACT: {len(ar['findings'])} finding(s) in {exe} ({ar['bytes']} bytes)")
+            bad += len(ar["findings"])
+        return 3 if bad else 0
+    rows = tm.machine_rows()
+    for r in rows:
+        print(f"  [{'ok' if r['ok'] else 'OPEN'}] {r['check']}: {r['evidence']}")
+    open_ = [r for r in rows if not r["ok"]]
+    print(f"TELEMETRY MACHINE: {len(rows) - len(open_)} of {len(rows)} closed")
+    if a.fix:
+        Path(a.fix).write_text(tm.fix_script(rows), encoding="utf-8")
+        print(f"fix script written: {a.fix} (run it elevated; it backs up, checks itself and ends with a verdict line)")
+    return 3 if open_ else 0
+
+
+def cmd_eta(a):
+    from .core import eta
+    x = a.args
+    if a.action == "record":
+        eta.record(x[0], float(x[1]))
+        return 0
+    if a.action == "history":
+        eta.import_build_logs()
+        steps = [x[0]] if x else sorted({json.loads(l)["step"] for l in eta.HISTORY.read_text(encoding="utf-8").splitlines() if l.strip()}) if eta.HISTORY.is_file() else []
+        for s in steps:
+            print(f"  {s}: {[round(d / 60, 1) for d in eta.durations(s)]} min")
+        return 0
+    if a.action == "leakgate":
+        if not x:
+            print("usage: fieldkit eta leakgate <run folder> (the gate's run folder, printed when it starts)")
+            return 2
+        r = eta.leakgate(x[0])
+    elif a.action == "build":
+        r = eta.build(x[0] if x else "build", objdir=x[1] if len(x) > 1 else None)
+    elif a.action == "delete":
+        r = eta.delete(x[0])
+    else:
+        r = eta.copy(x[0], x[1])
+    print(json.dumps(r, indent=1) if a.json else eta.human(r))
+    return 0 if r["remaining_s"] is not None else 3
+
+
+def cmd_runbook(a):
+    return runbook_main(a.action, a.file, fix=not a.no_fix)
+
+
+def runbook_main(action, file, fix=True):
+    from .autopilot import runbook, run as aprun
+    if action == "status":
+        print("\n".join(runbook.lines(file)))
+        return 0
+    if action == "start":
+        from .buildh import window
+        r = window.launch(["runbook", "run", str(Path(file).resolve())])
+        print(f"started in its own window (PID {r.get('pid')}); log {r.get('log')}")
+        return 0
+    claude = (lambda prompt, cwd=None: aprun.claude(prompt, cwd=cwd, max_turns=30)) if fix else None
+    r = runbook.run(file, claude=claude)
+    print(json.dumps(r, indent=1))
+    return 0 if r["ok"] else 3
+
+
+def cmd_sync(a):
+    from .core import sync
+    rows = sync.run(do_apply=a.apply, extra=a.repo, fetch=not a.no_fetch)
+    print(json.dumps(rows, indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
+    return 0 if all(r["ok"] for r in rows) else 3
 
 
 def cmd_sweep(a):
@@ -960,6 +1181,9 @@ METHODS = {
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push; never forces"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
+    "flaky": ("flaky", "a test that fails sometimes: failure rate over fresh runs, the swallowed thread error, shared OS names (repeat TEST | log | scan)"),
+    "canary": ("canary", "prove a CHECK can fail: a planted input it must flag, a clean control it must pass; a second witness reads the artifact (run | witness | list)"),
+    "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
 }
 
 
@@ -1033,6 +1257,11 @@ def build_parser():
                              "(fieldkit icons --help)")
     ic.add_argument("args", nargs=argparse.REMAINDER)
     ic.set_defaults(fn=cmd_icons)
+    sz = sub.add_parser("size", add_help=False,
+                        help="how big folders are, where the space went, what can go (gorilla-size: every core, "
+                             "read-only; doctor --install builds it; fieldkit size --help)")
+    sz.add_argument("args", nargs=argparse.REMAINDER)
+    sz.set_defaults(fn=cmd_size)
 
     for name, (_, text) in METHODS.items():
         mp = sub.add_parser(name, add_help=False, help=text)
@@ -1118,6 +1347,8 @@ def build_parser():
     pr.add_argument("--allow-paths", action="store_true")
     pr.add_argument("--allow-emails", action="store_true")
     pr.add_argument("--git", action="store_true", help="scan only what git would publish (respects .gitignore)")
+    pr.add_argument("--all", action="store_true", help="in a git checkout, scan every file, ignored ones too "
+                    "(default there: what git would publish)")
     pr.set_defaults(fn=cmd_privacy)
 
     g = sub.add_parser("gather", parents=[common])
@@ -1153,8 +1384,9 @@ def build_parser():
     sub.add_parser("mcp", help="serve the agent interface over MCP (stdio)").set_defaults(fn=cmd_mcp, json=False)
 
     cd = sub.add_parser("cards", parents=[common])
-    cd.add_argument("action", choices=["list", "show", "check", "draft"],
-                    help="check: every reviewed card against its command; draft FILE.py: a card to review")
+    cd.add_argument("action", choices=["list", "show", "check", "draft", "export"],
+                    help="check: every reviewed card against its command; draft FILE.py: a card to review; "
+                         "export [FILE]: the catalogue Gorilla OpenCode embeds (carded or better)")
     cd.add_argument("id", nargs="?")
     cd.add_argument("--level", choices=["gathered", "carded", "tested", "verified"])
     cd.set_defaults(fn=cmd_cards)
@@ -1163,9 +1395,69 @@ def build_parser():
     rd.add_argument("--write-docs", action="store_true", help="refresh local/READINESS.md (this machine's numbers, never published)")
     rd.set_defaults(fn=cmd_readiness)
 
+    rcp = sub.add_parser("recipes", parents=[common],
+                         help="how something was done before, to read and adapt, never run: list | show ID | check | "
+                              "capture ID SOURCE")
+    rcp.add_argument("action", nargs="?", default="list", choices=["list", "show", "check", "capture"])
+    rcp.add_argument("rest", nargs="*")
+    rcp.set_defaults(fn=cmd_recipes)
+
     sw = sub.add_parser("sweep", parents=[common])
     sw.add_argument("--run-tests", action="store_true", help="also run the tests of the registered tools under the sweep roots")
     sw.set_defaults(fn=cmd_sweep)
+
+    apl = sub.add_parser("autopilot", parents=[common])
+    apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet", "antigravity", "login"])
+    apl.add_argument("rest", nargs="*", help="stop: the reason; claude: the prompt; workspace: the folder")
+    apl.add_argument("--cwd", help="claude: the folder the run works in")
+    apl.add_argument("--max-turns", type=int, default=40)
+    apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
+    apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")
+    apl.add_argument("--restore", action="store_true", help="quiet (Linux): start again the system services a run stopped")
+    apl.add_argument("--apply", action="store_true", help="quiet: stop them (without it: list only)")
+    apl.set_defaults(fn=cmd_autopilot)
+
+    ib = sub.add_parser("inbox", parents=[common])
+    ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
+    ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
+    ib.add_argument("--all", action="store_true", help="list: done items too")
+    ib.set_defaults(fn=cmd_inbox)
+
+    pb = sub.add_parser("publish", parents=[common])
+    pb.add_argument("--repo", default=".")
+    pb.add_argument("--release")
+    pb.add_argument("--notes")
+    pb.add_argument("--sums", metavar="OUT", help="write OUT (SHA256SUMS.txt) from the --asset files, then stop")
+    pb.add_argument("--asset", action="append", default=[])
+    pb.add_argument("--dry-run", action="store_true")
+    pb.set_defaults(fn=cmd_publish)
+
+    tm = sub.add_parser("telemetry", parents=[common],
+                        help="telemetry off and cut out: scan a project's source, or check this machine's toolchains")
+    tm.add_argument("action", choices=["scan", "machine"])
+    tm.add_argument("path", nargs="?", default=".", help="scan: the project folder")
+    tm.add_argument("--fix", metavar="OUT.ps1", help="machine: write the one script the owner runs elevated")
+    tm.add_argument("--artifact", metavar="FILE", action="append", default=[],
+                    help="scan: also a built program (exe, dll, asar): the telemetry module paths its bytes carry")
+    tm.set_defaults(fn=cmd_telemetry)
+
+    et = sub.add_parser("eta", parents=[common])
+    et.add_argument("action", choices=["leakgate", "build", "history", "delete", "copy", "record"])
+    et.add_argument("args", nargs="*", help="leakgate RUN_DIR; build [build|package] [OBJDIR]; history [STEP]; "
+                                             "delete PATH; copy SRC DEST_DIR; record STEP SECONDS")
+    et.set_defaults(fn=cmd_eta)
+
+    rb = sub.add_parser("runbook", parents=[common])
+    rb.add_argument("action", choices=["run", "status", "start"])
+    rb.add_argument("file")
+    rb.add_argument("--no-fix", action="store_true", help="never call a model on a failed step")
+    rb.set_defaults(fn=cmd_runbook)
+
+    sy = sub.add_parser("sync", parents=[common])
+    sy.add_argument("--apply", action="store_true", help="fast-forward to upstream commits CI proved on Windows and Linux")
+    sy.add_argument("--repo", action="append", default=[], help="another repository to sync (also: sync.repos in fieldkit.local.json)")
+    sy.add_argument("--no-fetch", action="store_true", help="judge what was fetched before; no network")
+    sy.set_defaults(fn=cmd_sync)
 
     gd = sub.add_parser("guard", parents=[common],
                         help="run any compile job (cargo build, go build, make ...) with the fan check and the build governor")
@@ -1173,8 +1465,10 @@ def build_parser():
     gd.set_defaults(fn=cmd_guard)
 
     ad = sub.add_parser("adopt", parents=[common],
-                        help="move a tool out of Documents/Scripts into local/kits and repoint everything (plan first)")
-    ad.add_argument("names", nargs="*", help="folders (or loose files, with --into) under Documents/Scripts")
+                        help="move a tool out of Documents/Scripts (or another sweep root) into local/kits and repoint "
+                             "everything (plan first)")
+    ad.add_argument("names", nargs="*", help="folders (or loose files, with --into) under Documents/Scripts or another "
+                                             "sweep root (all names in one folder)")
     ad.add_argument("--into", help="the local/kits folder that loose files share")
     ad.add_argument("--apply", action="store_true", help="do it (backed up, tested, rolled back on any failure)")
     ad.add_argument("--finish", action="store_true", help="remove old copies of adopted tools that nothing runs from")
@@ -1406,9 +1700,9 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "satellite", "window", "awake", "follow",
-                                       "probe-compare", "stats", "leakgate-status", "leakgate-context",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check"])
+                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "installer-test", "release-publish", "night-pack", "satellite", "window", "awake", "follow",
+                                       "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
@@ -1447,6 +1741,8 @@ def build_parser():
     bh.add_argument("--restore", help="install: put a backup directory back instead of installing")
     bh.add_argument("--install-dir", dest="install_dir", help="install: the directory to install into (default: the registered install)")
     bh.add_argument("--build", action="store_true", help="preflight: also check what a compile needs (disk, fan control)")
+    bh.add_argument("--fast", action="store_true", help="release-check: skip the post-install rows (read as \"--fast\" in the arguments, never declared, so it was refused until 2026-10-18)")
+    bh.add_argument("--truth-task", dest="truth_task", help="truthbound: the task whose tree is the truth (default firefox-155.0.1)")
     bh.add_argument("--model", action="store_true", help="preflight: also check that the model server answers")
     bh.add_argument("--technical", action="store_true", help="brief: the full technical brief instead of the plain-words one")
     bh.add_argument("--do", help="brief: the exact sentence the brief told you to type, to carry out the safe fix")
@@ -2010,6 +2306,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["size"]:                          # gorilla-size has its own parser: every argument goes to it
+        from .desk import size as size_cli
+        return size_cli.main(args[1:])
     if args[:1] == ["academic"]:                      # so is the academic module
         from .academic import cli as academic_cli
         return academic_cli.main(args[1:])
@@ -2029,7 +2328,15 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(f".method.{METHODS[args[0]][0]}", __package__)
         return mod.main(args[1:], prog=f"fieldkit {args[0]}")
-    a = build_parser().parse_args(argv)
+    # key=value arguments are accepted after --flags too (2026-10-18: `probe ... --install-dir D file=a=b` was
+    # refused as "unrecognized arguments", and the fast CSS loop looked broken); anything else unknown still fails
+    _p = build_parser()
+    a, extra = _p.parse_known_args(argv)
+    kv = [x for x in extra if "=" in x and not x.startswith("-")]
+    if len(kv) != len(extra) or (kv and not isinstance(getattr(a, "args", None), list)):
+        _p.error("unrecognized arguments: " + " ".join(x for x in extra if x not in kv or not isinstance(getattr(a, "args", None), list)))
+    if kv:
+        a.args = list(a.args) + kv
     if a.cmd == "pipeline" and a.action != "list" and not a.name:
         raise SystemExit("pipeline: name required")
     try:

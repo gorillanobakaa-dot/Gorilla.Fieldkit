@@ -103,7 +103,36 @@ def _apply_patch(pf, scratch):
     return r.returncode == 0 and "previously applied" not in out, out
 
 
-def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=(), include=None):
+def refreshed_lists(task_id, workdir):
+    """{path: blob} of the security-list files whose built form is lists-refresh's output, proven from the record:
+    the last commit touching the file is a recorded hand step whose reason is lists-refresh's (export.DERIVED) and
+    which touches list files only. Those files are regenerated before every build and are in no patch (2026-10-18),
+    so replay takes them from the built tree; any other difference still fails."""
+    import json as _json
+    from . import export
+    from .timebombs import LIST_FILES
+    notes = []
+    jp = task.STATE / task_id / "journal.jsonl"
+    for line in jp.read_text(encoding="utf-8").splitlines() if jp.is_file() else []:
+        try:
+            e = _json.loads(line)
+        except ValueError:
+            continue
+        if e.get("event") == "hand-edit" and export.DERIVED.match(" / ".join(e.get("why") or [])):
+            notes.append(set(e.get("files") or []))
+    out = {}
+    for f in LIST_FILES:
+        c = _git(workdir, "log", "-1", "--format=%H", "HEAD", "--", f).decode().strip()
+        if not c:
+            continue
+        subj = _git(workdir, "show", "-s", "--format=%s", c).decode().strip()
+        files = set(_git(workdir, "show", "--name-only", "--format=", c).decode().split())
+        if subj.startswith("checkpoint: hand edit") and files <= set(LIST_FILES) and files in notes:
+            out[f] = _git(workdir, "rev-parse", f"HEAD:{f}").decode().strip()
+    return out
+
+
+def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=(), include=None, refreshed=None):
     """-> {ok, replayed, built, pristine, failures, dirty, differ, patches, scratch}.
     `extra_exclude` {group: {patch name}} and `skip` (group names) are for rebase.py: a replay as if the policy
     already excluded those patches and had no such group; `include` {group: {patch name}} applies patches the policy
@@ -163,6 +192,10 @@ def replay(owner_root, workdir, say=print, keep=False, extra_exclude=None, skip=
             _git(w, "update-index", "--add", "--index-info", env=env, inp=info.encode("utf-8"))
         if gone:
             _git(w, "update-index", "--force-remove", "-z", "--stdin", env=env, inp="\0".join(gone).encode("utf-8") + b"\0")
+        if refreshed:
+            info = "".join(f"{(modes.get(p) or '100644')} {sha}\t{p}\n" for p, sha in sorted(refreshed.items()))
+            _git(w, "update-index", "--add", "--index-info", env=env, inp=info.encode("utf-8"))
+            res["refreshed"] = sorted(refreshed)
         res["replayed"] = _git(w, "write-tree", env=env).decode().strip()
         if res["replayed"] != built:
             res["differ"] = _git(w, "diff-tree", "-r", "--name-status", res["replayed"], built).decode("utf-8", "replace").splitlines()[:40]
@@ -177,7 +210,9 @@ def run(task_id, say=print):
     from .ownercheck import patchset_owner
     t = task.load(task_id)
     owner = Path(patchset_owner(t))              # the patch-set repo, Linux included (2026-10-15)
-    r = replay(owner, t["workdir"], say=say)
+    r = replay(owner, t["workdir"], say=say, refreshed=refreshed_lists(task_id, t["workdir"]))
+    for f in r.get("refreshed", []):
+        say(f"  lists-refresh output (from the record, in no patch): {f}")
     task.journal(t, "replay-proof", ok=r["ok"], tree=r["built"], replayed=r.get("replayed"), pristine=r["pristine"],
                  patches=r["patches"], failures=r["failures"][:20], dirty=r["dirty"][:10], differ=r["differ"][:20])
     say(f"  replayed tree : {r.get('replayed')}")

@@ -35,12 +35,24 @@ from .desk import readiness
 PROTOCOL = "2024-11-05"
 
 TOOLS = [
-    {"name": "discover", "description": "Find tools for a goal, in plain words. Returns up to 5 tools, "
-                                        "most trusted first, with their inputs (a trailing ? means optional).",
+    # 2026-10-19, Gemma 4 E2B through Gorilla OpenCode: asked about the TV, an Office file and the cooling profile,
+    # it read these ten names, decided Fieldkit "is focused on build harnesses" and answered "no such tool" three
+    # times without searching. The catalogue is behind discover; the description must say so, first.
+    {"name": "discover", "description": "START HERE. Fieldkit has hundreds of tools on this computer that are NOT "
+                                        "listed as separate tools: the TV and HDMI, fans and cooling profiles, Word, "
+                                        "Excel and PDF files, privacy checks, disk sizes, Wi-Fi and the network, "
+                                        "backups, icons, builds and more. Search them here with the person's own "
+                                        "words BEFORE you ever say Fieldkit cannot do something. Returns up to 8 "
+                                        "tools, most trusted first, with their exact names and inputs (a trailing ? "
+                                        "means optional), and RECIPES: how something was done on this computer "
+                                        "before, to read with describe and follow, never to run.",
      "inputSchema": {"type": "object", "properties": {"goal": {"type": "string"}}, "required": ["goal"]}},
-    {"name": "describe", "description": "Show a tool's card: inputs with types, safety, how it is verified.",
+    {"name": "describe", "description": "Show a tool's card (use the exact name discover gave): inputs with types, "
+                                        "safety, how it is verified. For a recipe: the problem, the steps, the key "
+                                        "facts and what happened when it was done.",
      "inputSchema": {"type": "object", "properties": {"tool": {"type": "string"}}, "required": ["tool"]}},
-    {"name": "run", "description": "Run a tool with named inputs. Tools that change things: use mode=preview "
+    {"name": "run", "description": "Run a tool found with discover, by its exact name, with named inputs. Tools that "
+                                   "change things: use mode=preview "
                                    "first (nothing changes), then mode=apply. Irreversible tools need the owner. "
                                    "Tools that go online need network=true.",
      "inputSchema": {"type": "object", "properties": {
@@ -68,6 +80,15 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}}},
 ]
 
+
+# Tools that only read Fieldkit's own registry and state: marked with the MCP standard's readOnlyHint, so a client
+# that trusts this server can answer them without asking the person each time (2026-10-19: the owner was asked to
+# approve every discover and describe while looking for one HDMI tool). run, undo, next and the build_harness jobs
+# that hand out or check work are NOT marked; fail closed: a tool missing here is treated as one that changes things.
+READ_ONLY = {"discover", "describe", "readiness", "build_harness_status", "build_harness_briefs"}
+for _t in TOOLS:
+    _t["annotations"] = {"readOnlyHint": _t["name"] in READ_ONLY, "destructiveHint": _t["name"] not in READ_ONLY,
+                         "openWorldHint": _t["name"] == "run"}
 
 RECORDER = None       # set by serve(): state/recorder/mcp-<date>.jsonl
 
@@ -123,14 +144,22 @@ def call_tool(name, args):
                 "person can be asked first."), False
     try:
         if name == "discover":
-            hits = agent.discover(args.get("goal", ""))
+            hits = agent.discover(args.get("goal", ""), limit=8)
             if not hits:
                 return "No reviewed tool fits that goal.\nNEXT: rephrase in plain words, or ask the owner.", False
-            return _text([f"- {h['tool']} [{h['trust']}, {h['safety']}] {h['title']}  inputs: "
-                          f"{', '.join(h['inputs']) or 'none'}" for h in hits] +
-                         ["NEXT: describe the best one, then run it."]), False
+            rows = []
+            for h in hits:
+                if h.get("kind") == "recipe":
+                    rows.append(f"- {h['tool']} [RECIPE: read it, never run it] {h['title']}")
+                else:
+                    rows.append(f"- {h['tool']} [{h['trust']}, {h['safety']}] {h['title']}  inputs: "
+                                f"{', '.join(h['inputs']) or 'none'}")
+            return _text(rows + ["NEXT: describe the best one, then run it (a recipe: describe it and follow "
+                                 "its steps)."]), False
         if name == "describe":
             c = agent.describe(args.get("tool", ""))
+            if c.get("trust") == "recipe":
+                return c["text"] + "\nNEXT: follow these steps yourself; a recipe is never run.", False
             ins = [f"  {i['name']} ({i.get('type', 'str')}{', required' if i.get('required') else ''})"
                    f"{' one of ' + str(i['choices']) if i.get('choices') else ''}: {i.get('help', '')}"
                    for i in c.get("inputs") or []]

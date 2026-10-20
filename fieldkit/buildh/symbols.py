@@ -95,12 +95,47 @@ def missing_members(workdir, rel, _cache=None):
     return out
 
 
-def problems(workdir, files):
-    """-> ["rel: X.MEMBER (module)"] over the changed .mjs/.js files."""
+LAZY_USE = re.compile(r"\blazy\.([A-Za-z_]\w*)")
+# every way a module puts a name on its `lazy` object
+LAZY_DECL = (
+    re.compile(r"define(?:Lazy)?\w*Getters?\(\s*lazy\s*,\s*\{(.*?)\}\s*[,)]", re.S),        # block forms: names are keys
+    re.compile(r"define\w*Getter\(\s*lazy\s*,\s*[\"'](\w+)[\"']"),                          # defineLazyGetter(lazy, "x")
+    re.compile(r"\blazy\.(\w+)\s*=[^=]"),                                                   # lazy.x = ...
+    re.compile(r"Object\.defineProperty\(\s*lazy\s*,\s*[\"'](\w+)[\"']"),
+)
+_KEY = re.compile(r"(?:^|[,{\s])([A-Za-z_]\w*)\s*:", re.M)
+
+
+def undeclared_lazy(text):
+    """-> sorted names used as `lazy.X` that the same module never declares. 2026-10-16: UITour.sys.mjs kept two
+    `lazy.AIWindow` uses after the 158 rebase removed the getter with the Smart Window; the gate's member check only
+    looked at UPPER_CASE members and passed, and the owner's preflight found it at build time."""
+    if not re.search(r"\b(?:const|let|var)\s+lazy\s*=", text):
+        return []
+    declared = set()
+    for rx in LAZY_DECL:
+        for m in rx.findall(text):
+            declared |= set(_KEY.findall(m)) if rx is LAZY_DECL[0] else {m}
+    return sorted(set(LAZY_USE.findall(text)) - declared)
+
+
+def problems(workdir, files, pristine=None):
+    """-> ["rel: X.MEMBER (module)" | "rel: lazy.X is never declared"] over the changed .mjs/.js files.
+    `pristine(rel)` -> upstream text or None: a lazy name counts only when the port made it undeclared (upstream
+    declares lazies in shapes this module does not model, e.g. XPCOMUtils.declareLazy; those look the same in
+    pristine, so the delta is the port's own excision leftovers). Without `pristine` lazy names are not judged."""
     out, cache = [], {}
     for rel in files:
         if not rel.endswith((".mjs", ".js")) or "/test" in rel or not (Path(workdir) / rel).is_file():
             continue
         for m in missing_members(workdir, rel, cache):
             out.append(f"{rel}: {m}")
+        if pristine is None:
+            continue
+        text = COMMENT.sub("", (Path(workdir) / rel).read_text(encoding="utf-8", errors="replace"))
+        before = pristine(rel)
+        was = set(undeclared_lazy(COMMENT.sub("", before))) if before else set()
+        for n in undeclared_lazy(text):
+            if n not in was:
+                out.append(f"{rel}: lazy.{n} is never declared in this module (undefined when the line runs)")
     return out

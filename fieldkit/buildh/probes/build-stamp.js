@@ -4,7 +4,7 @@
 // own BuildID (application.ini), so the harness can hold both against the build it recorded.
 // Output lines:
 //   STAMP|buildid|<Services.appinfo.appBuildID>
-//   STAMP|expected|built <YY:MM:DD:HH:MM:SS from the BuildID>
+//   STAMP|expected|built <YYYY-MM-DD-HHMMhrs from the BuildID>
 //   STAMP|shown|<the About window's version line, as drawn>
 //   STAMP|number|<the build number the browser carries: pref gorilla.build.number, 0 when absent>
 //   STAMP|idline|<the line under it: "Build ID <the 14 digits>" (owner 2026-10-09: "i do not have a way to check
@@ -15,7 +15,8 @@ if (!win) { say("STAMP|verdict|FAIL|no browser window"); return; }
 const { setTimeout: wait } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 const sleep = ms => new Promise(r => wait(r, ms));
 const id = Services.appinfo.appBuildID;
-const want = /^\d{14}$/.test(id) ? "built " + [id.slice(2, 4), id.slice(4, 6), id.slice(6, 8), id.slice(8, 10), id.slice(10, 12), id.slice(12, 14)].join(":") : "";
+// owner 2026-10-15 (21.PORT.FIXES.158/027): "built 2026-10-15-2050hrs", seconds left out (buildstamp.stamp says the same)
+const want = /^\d{14}$/.test(id) ? `built ${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}-${id.slice(8, 10)}${id.slice(10, 12)}hrs` : "";
 const number = Services.prefs.getIntPref("gorilla.build.number", 0);
 say(`STAMP|buildid|${id}`);
 say(`STAMP|number|${number}`);

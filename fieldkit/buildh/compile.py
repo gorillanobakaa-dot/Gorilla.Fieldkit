@@ -50,6 +50,82 @@ def _record_path(task_id):
     return task.STATE / task_id / "build-record.json"
 
 
+def owner_rows(t, run_preflight=None, check=None, local=None):
+    """The gate rows that hold the tree to the OWNER's checks, on every system. 2026-10-16: build-gate PASSED on the
+    158 tree, then build-run stopped on four hard blockers of the owner's Windows preflight (dropped AI @imports, an
+    undeclared lazy.AIWindow, a second font value, 22 unrecorded pref decisions): the gate had never asked it.
+      1. the owner's preflight, its hard (non objdir) blockers -> fail. A machine without one must say so in
+         fieldkit.local.json firefox.owner_preflight ("none: <reason>"); silence fails (fail closed).
+      2. the decision register on the SOURCE tree (prefs, tree text, tree_pref_all) -> a VIOLATED decision fails.
+    -> [(name, ok, evidence)]"""
+    from . import buildrun, decisions
+    from .ownercheck import _owner_root, parse
+    from .ownercheck import run_preflight as _rp
+    run_preflight = run_preflight or _rp
+    out = []
+    root = _owner_root(t)
+    if local is None:
+        try:
+            from ..core.settings import local_settings
+            local = local_settings()
+        except Exception:  # noqa: BLE001
+            local = {}
+    declared = str(((local or {}).get("firefox") or {}).get("owner_preflight") or "")
+    name = "the owner's preflight holds on this tree (hard blockers stop the gate, not the build after it)"
+    if root:
+        rc, text = run_preflight(root)
+        if rc is None:
+            out.append((name, False, "the owner's preflight could not run: " + (text or "")[:160]))
+        else:
+            hard = [b for b in parse(text) if not buildrun.post_build(b["name"])]
+            out.append((name, not hard, "no hard blocker" if not hard else
+                        f"{len(hard)} hard: " + "; ".join(f"{b['name']}: {b['detail'][:90]}" for b in hard[:4])))
+    elif declared.startswith("none:") and len(declared) > 8:
+        out.append((name, True, f"declared for this machine: {declared}"))
+    else:
+        out.append((name, False, "no owner preflight found, and fieldkit.local.json firefox.owner_preflight does not "
+                                 "declare 'none: <reason>'"))
+    # D-158-19: every colour a Gorilla stylesheet line sets is in the theme spec (before the build, 2026-10-18)
+    from . import themecheck
+    tr = themecheck.static_row(t["workdir"])
+    out.append((tr["check"], tr["ok"], tr["evidence"]))
+    # D-158-13: no search data of an engine other than Google in the source (2026-10-18)
+    from . import searchstrip
+    sr = searchstrip.row(t["workdir"])
+    out.append((sr["check"], sr["ok"], sr["evidence"]))
+    # the fast loop: a chrome change runs on the last build's unpacked dist/bin before an hour of compiling (2026-10-18:
+    # build 2's theme had never run in a browser and build-verify spent the build to find it)
+    # telemetry off on the build machine too (owner rule 2026-10-18): a toolchain that phones home while it builds
+    # is an open door in the build itself; an open row fails the gate and names the one script that closes it
+    from ..core import telemetry as _tm
+    try:
+        trows = _tm.machine_rows()
+        open_ = [r["check"] for r in trows if not r["ok"]]
+        out.append(("telemetry off on this build machine (fieldkit telemetry machine)", not open_,
+                    f"{len(trows)} closed" if not open_ else
+                    f"{len(open_)} open, e.g. {open_[:2]}; close them: fieldkit telemetry machine --fix OUT.ps1, "
+                    "then run OUT.ps1 elevated (one UAC click)"))
+    except Exception as e:  # noqa: BLE001 - unchecked is not closed
+        out.append(("telemetry off on this build machine (fieldkit telemetry machine)", False, f"could not check: {e}"))
+    from . import fastloop
+    for fr in fastloop.rows(t.get("id"), t):
+        out.append((fr["check"], fr["ok"], fr["evidence"]))
+    from . import prefconflicts
+    pcs = prefconflicts.scan(t["workdir"])
+    out.append(("one pref, one value: no two definitions the set adds disagree (prefconflicts)", not pcs,
+                "none" if not pcs else "; ".join(f"{c['name']}: {c['a']} vs {c['b']}" for c in pcs[:3])))
+    check = check or decisions.check
+    reg = decisions.register_root(t)
+    if reg:
+        res = check(reg, workdir=t["workdir"], source_prefs=True)
+        bad = [e for e in res.get("entries", []) if e.get("verdict") == "VIOLATED"]
+        out.append(("the decision register holds on the source tree", not bad,
+                    "no decision violated" if not bad else "VIOLATED: " + ", ".join(e.get("id", "?") for e in bad[:6])))
+    else:
+        out.append(("the decision register holds on the source tree", False, "no decision register for this task"))
+    return out
+
+
 def gate(task_id, harness_root=None, write=True):
     """-> rows [{check, ok, evidence}]; writes build-record.json only when every row passes."""
     t = task.load(task_id)
@@ -99,6 +175,8 @@ def gate(task_id, harness_root=None, write=True):
     for name, ok, evidence in uicheck.gate_rows(wd) if (wd / "browser/config/version.txt").is_file() else []:
         row(name, ok, evidence)
     for name, ok, evidence in techniques.gate_rows(wd) if (wd / "browser/config/version.txt").is_file() else []:
+        row(name, ok, evidence)
+    for name, ok, evidence in owner_rows(t):
         row(name, ok, evidence)
     moz = mozconfig_path(harness_root)
     row("mozconfig present", moz.is_file(), str(moz))

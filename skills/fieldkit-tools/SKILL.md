@@ -29,7 +29,9 @@ Anything written on the fly becomes a harness tool in the same session. It is ne
 A tool is finished when it has all of these:
 1. **One script with subcommands**: an argparse `__main__` guard and no work at import, with a README that
    says what was measured and what the limits are. Put it in `kits/<name>/` in this repo when it is generic
-   and holds nothing personal (privacy scan first), otherwise in `Documents/Scripts/<Name>Kit/`.
+   and holds nothing personal (privacy scan first), otherwise in `local/kits/<name>/` (git-ignored). A script
+   saved in `Documents/Scripts` during the session is only a scratch copy that survives the session: it is
+   not finished until step 5 has moved it in.
 2. **`doctor [--install]`**:
    - it probes the machine for every dependency: interpreter version, Python packages, external
      programs, and the program features used (for example ffmpeg filters);
