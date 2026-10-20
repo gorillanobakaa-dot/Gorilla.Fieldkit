@@ -1017,6 +1017,22 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
 
+- id: fieldkit-gtk-theme-check
+  title: A GTK theme that changes when a window loses focus, or a theme fix that does not show on screen
+  harness: fieldkit
+  entry: [python, -m, fieldkit, gtk-theme, check]
+  path: ${FIELDKIT}/fieldkit/gtktheme/gtkcheck.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable, with every uncoloured selector"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: 'GTK user stylesheets (~/.config/gtk-*/gtk.css) and the libadwaita/GTK libraries it reads exist only on a Linux desktop'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_gtktheme.py"]
+  notes: "Reads the unfocused-window (:backdrop) rules embedded in libadwaita, GTK4 and GTK3 on THIS machine and checks ~/.config/gtk-*/gtk.css against them; lists GTK programs started before the stylesheet was written; runs /usr/bin/black-gorilla-theme into a throwaway HOME to compare. Born 2026-10-20."
+
 # --- academic work (fieldkit academic): one card per command, so an agent can reach each one ----
 
 - id: academic-countries

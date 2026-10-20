@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-17-30
+# Version: 1.0.0 · updated 26-10-20-18-54
 """symptom: what you see -> the tool built for it. Every entry is checked: its words match its own example (English
 and the Romanian the owner writes), its command is a real build-harness action, and no two entries claim one example."""
 import re
@@ -43,6 +43,14 @@ def test_today_s_owner_words_2026_10_15_16():
     assert sy.match("Feature Queries Manager could not be installed because it is not compatible with Gorilla Unleashed 158.0")[0]["id"] == "addon-or-theme-refused"
     assert sy.match("asigura-te ca nu imi urci bookmarkurile si history pe github")[0]["id"] == "private-data-before-publishing"
     assert sy.match("cele 77 de patchuri vechi nu se aplica pe 158")[0]["id"] == "patches-do-not-apply-to-new-release"
+
+
+def test_today_s_owner_words_2026_10_20():
+    # the owner's own words, Black Gorilla Theme unfocused windows
+    assert sy.match("it seems to appear when I am ALT+TAB-in through programs the theme shows substandard contrast")[0]["id"] \
+        == "window-changes-when-unfocused"
+    assert sy.match("i closed and restarted the file manager. at the moment it does not look fixed")[0]["id"] \
+        == "theme-fix-not-showing"
 
 
 def test_unknown_symptom_matches_nothing():

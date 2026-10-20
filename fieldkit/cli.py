@@ -338,6 +338,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_gtk_theme(a):
+    from .gtktheme import gtkcheck
+    return gtkcheck.main(a.args, prog="fieldkit gtk-theme")
+
+
 def cmd_size(a):
     from .desk import size
     return size.main(a.args)
@@ -1258,6 +1263,12 @@ def build_parser():
                              "(fieldkit icons --help)")
     ic.add_argument("args", nargs=argparse.REMAINDER)
     ic.set_defaults(fn=cmd_icons)
+    gt = sub.add_parser("gtk-theme", add_help=False,
+                        help="a GTK theme that changes when a window loses focus, or a fix that does not show: "
+                             "unfocused colours and fades the user stylesheet misses, apps still on the old one "
+                             "(fieldkit gtk-theme check)")
+    gt.add_argument("args", nargs=argparse.REMAINDER)
+    gt.set_defaults(fn=cmd_gtk_theme)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -2318,6 +2329,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["gtk-theme"]:                     # gtkcheck has its own parser: every argument goes to it
+        from .gtktheme import gtkcheck
+        return gtkcheck.main(args[1:], prog="fieldkit gtk-theme")
     if args[:1] == ["size"]:                          # gorilla-size has its own parser: every argument goes to it
         from .desk import size as size_cli
         return size_cli.main(args[1:])

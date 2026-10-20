@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-15-17-56
+# Version: 1.0.0 · updated 26-10-20-18-54
 """What you SEE -> the tool that diagnoses it. The first command for any visible problem in a Gorilla build.
 
 Born 2026-10-15. The owner: "a narrative is not exactly a deterministic tool ... none of the models was trained on
@@ -226,6 +226,45 @@ SYMPTOMS = [
                     "Satellite hover cyan 25%, the app menu sized by panelview 25em not --menu-panel-width",
         "then": "edit the tree file, prove it with file=..., record it (build-harness record), export-hand; the build "
                 "gate's fast-loop rows must pass before compiling",
+    },
+    {
+        "id": "window-changes-when-unfocused",
+        "seen": "A desktop app (Files, Settings, System Monitor) looks right while in use, but when another window "
+                "is on top or after Alt+Tab its sidebar turns light grey or white, its text pale, its header faded.",
+        "example": "when I alt tab the file manager sidebar turns into a white bar and the text looks faded",
+        "words": [r"alt\W?tab|unfocus|not focus|another (app|window|program)|on top|backdrop|in spate|f[aă]r[aă] focus",
+                  r"grey|gray|white|pale|fad|dim|contrast|weird|gri|alb|[sș]ters|decolorat"],
+        "action": "gtk-theme",
+        "run": "fieldkit gtk-theme check",
+        "proves": "every unfocused-window (:backdrop) colour name, opacity fade and fixed grey that the toolkits on "
+                  "THIS machine apply (read from libadwaita, GTK4 and GTK3 themselves) and the user stylesheet does "
+                  "not override; then which apps still draw an old stylesheet",
+        "look": ["~/.config/gtk-4.0/gtk.css and ~/.config/gtk-3.0/gtk.css (the only sheets libadwaita reads)",
+                 "Documents/gtk-high-contrast-theme/install.sh (the Black Gorilla Theme source of both blocks)",
+                 "Documents/gtk-high-contrast-theme/DOCUMENTATION.dual-track.md section D"],
+        "last_fix": "Black Gorilla Theme 26.10.20 (2026-10-20): sidebar/headerbar/secondary_sidebar _backdrop_color "
+                    "named, libadwaita filter: opacity(0.5) cancelled by selector, GTK3 .background:backdrop #919190 "
+                    "overridden, five GTK3 unfocused_* names set",
+        "then": "edit install.sh, run it, run the check again, then restart the app (closing its window is not enough)",
+    },
+    {
+        "id": "theme-fix-not-showing",
+        "seen": "A GTK theme or gtk.css change was made and installed, but the app on screen still looks the old "
+                "way, even after closing and opening its window.",
+        "example": "I closed and restarted the file manager and it still does not look fixed",
+        "words": [r"restart|reopen|closed|close|reinstall|upgrad|after|repornit|[iî]nchis|redeschis",
+                  r"(not|n't|still) (look |seem |appear )?(fixed|changed|different|work)|still (the )?(same|old)|"
+                  r"nu (s-a )?(schimbat|merge)|tot la fel|neschimbat"],
+        "action": "gtk-theme",
+        "run": "fieldkit gtk-theme check",
+        "proves": "which GTK programs started BEFORE the stylesheet was last written (one line each, with how to "
+                  "really restart it), and whether the installed theme package writes something different from the "
+                  "live stylesheet",
+        "look": ["ps -o lstart -C nautilus: Files runs as nautilus --gapplication-service and survives its window",
+                 "/usr/bin/black-gorilla-theme --apply-once (refreshes users who kept the theme since 26.10.20)"],
+        "last_fix": "2026-10-20: Files had run since 15:23 (fix written 18:19); /usr/bin/nautilus -q then "
+                    "gapplication launch org.gnome.Nautilus showed the fix at once",
+        "then": "restart what it lists; a service app needs its quit command, not its window closed",
     },
     {
         "id": "only-on-my-profile",
