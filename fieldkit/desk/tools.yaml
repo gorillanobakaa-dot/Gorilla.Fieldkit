@@ -4743,6 +4743,25 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Read-only on the project; with --binary it starts that program once. Born 2026-10-19 (TPFanControl installer gorilla.3 vs program gorilla.4)."
 
+- id: stranger
+  title: The stranger test - download a project the way someone else would (fresh clone, fresh environment, empty home folder, the documented install) and see whether its tests and cards pass
+  harness: method
+  entry: [python, -m, fieldkit, stranger]
+  path: ${FIELDKIT}/fieldkit/method/stranger.py
+  inputs:
+    - {name: repo, flag: null, type: str, required: false, help: "the repository to clone (default: this Fieldkit)"}
+    - {name: ref, flag: --ref, type: str, required: false, help: "branch or tag to clone (default: its current branch)"}
+    - {name: extras, flag: --extras, type: str, required: false, help: "pip extras to install (default: test)"}
+    - {name: keep, flag: --keep, type: bool, required: false, help: "keep the work folder instead of recycling it"}
+  effects: [writes-files, deletes-files, processes, network]
+  safety: reversible
+  output: own
+  exits: {3: "a step failed: the clone, the install, the suite, fieldkit host or the card check"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_stranger.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Network: pip downloads the dependencies from PyPI, as a stranger's install does. The child processes get an allowlist environment (PATH and the system's own variables) and a fresh HOME/USERPROFILE/APPDATA/LOCALAPPDATA/XDG_*; the work folder goes to the Recycle Bin through gorilla-size. Heavy: run under fieldkit guard --. Born 2026-10-20 (METHODS.md #20)."
+
 - id: canary
   title: Prove a CHECK can fail - each check on a planted input it must flag and a clean control it must pass; a second witness reads the artifact
   harness: method
