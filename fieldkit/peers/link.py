@@ -774,6 +774,9 @@ def main(argv=None):
     ap.add_argument("--me")
     ap.add_argument("--peer")
     ap.add_argument("--to")
+    ap.add_argument("--needs-you", action="store_true", help="send: the owner must act ([NEEDS YOU] on the first line)")
+    ap.add_argument("--done", action="store_true", help="send: the work is finished and checked ([DONE]; needs --evidence)")
+    ap.add_argument("--evidence", help="send: what proves it is done (a commit, a test count, a checksum)")
     ap.add_argument("--agent", default="claude")
     ap.add_argument("--brief")
     ap.add_argument("--seconds", type=float)
@@ -818,7 +821,8 @@ def main(argv=None):
             print(f"PEER {r['host']} ({r['os']})\n" + "\n".join(agent_lines(r["agents"])))
         return 0 if r.get("ok") else 3
     if a.action == "send":
-        r = call({"verb": "message", "text": " ".join(a.rest), "to": a.to})
+        r = call({"verb": "message", "text": " ".join(a.rest), "to": a.to, "needs_you": a.needs_you, "done": a.done,
+                  "evidence": a.evidence})
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") else 3
     if a.action == "ask":

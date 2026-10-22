@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-22-20-13
+# Version: 1.0.0 · updated 26-10-22-22-22
 """fieldkit peers link relay: a listener that ends only when a note comes, and remembers what it has read."""
 import json
 import os
@@ -78,3 +78,22 @@ def test_cli_listen_prints_fenced_and_status_counts(home):
     t0 = time.time()
     r = run("listen", "--seconds", "1")
     assert r.returncode == 1 and "nothing from the peer" in r.stdout and time.time() - t0 < 20
+
+
+def test_brief_paths_survive_git_bash(home, monkeypatch):
+    # 2026-10-22 on Windows: Git Bash turned an unquoted backslash path into one with the slashes eaten
+    monkeypatch.setattr(link_relay, "ROOT", r"D:\work\Fieldkit-agent-link")
+    monkeypatch.setattr(link_relay.sys, "executable", r"C:\Python312\python.exe")
+    b = link_relay.brief()
+    assert '"D:/work/Fieldkit-agent-link"' in b and '"C:/Python312/python.exe" -m fieldkit' in b
+    assert "\\" not in b
+    assert "cd prefix shown is fine" in b and "PowerShell" in b
+
+
+def test_send_passes_needs_you_done_and_evidence(home, monkeypatch):
+    sent = []
+    monkeypatch.setattr(link, "call", lambda req, **k: sent.append(req) or {"ok": True, "stored": 1})
+    assert link.main(["send", "build", "green", "--done", "--evidence", "25 passed"]) == 0
+    assert link.main(["send", "approve", "the", "push", "--needs-you"]) == 0
+    assert sent[0]["text"] == "build green" and sent[0]["done"] and sent[0]["evidence"] == "25 passed"
+    assert sent[1]["needs_you"] and not sent[1]["done"] and sent[1]["evidence"] is None
