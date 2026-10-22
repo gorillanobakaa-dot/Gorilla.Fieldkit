@@ -64,19 +64,32 @@ AGENTS = {
 }
 # How a session is STARTED for "ask". Only claude is wired (proven: fieldkit autopilot claude). Others are reported
 # as present but start only with a command the owner writes into link.yaml (start_commands), never a guessed one.
-DEFAULT_START = {"claude": [sys.executable, "-m", "fieldkit", "autopilot", "claude", "{brief}", "--cwd", "{cwd}",
+DEFAULT_START = {"claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot", "claude", "{brief}", "--cwd", "{cwd}",
                             "--job", "{job}", "--wall-minutes", "{wall}"]}
 # 2026-10-22, found on the VAIO by its Claude: --job and --wall-minutes exist only where the long horizon code is
 # (feat/long-horizon); an older `fieldkit autopilot` refused them and the session died at once. Options this
 # computer's autopilot does not offer are dropped (with their value), never passed blind.
 OPTIONAL_START_FLAGS = ("--job", "--wall-minutes")
 START_GRACE = 2.0           # a started process must still be alive this many seconds later to count as started
+# 2026-10-22, found on the VAIO by its Claude: a started session runs with cwd = the approved folder (the main
+# checkout), and `python -m fieldkit` there loaded THAT checkout's code, not the link's, so no fix on this branch
+# reached it. -P (Python 3.11+) drops the cwd from sys.path; PYTHONPATH puts this link's own root first.
+LINK_ROOT = Path(__file__).resolve().parents[2]
+
+
+def link_env(env=None):
+    """The environment a started session gets: PYTHONPATH begins with this link's own root."""
+    env = dict(os.environ if env is None else env)
+    env["PYTHONPATH"] = os.pathsep.join([str(LINK_ROOT)] + [x for x in env.get("PYTHONPATH", "").split(os.pathsep)
+                                                            if x and x != str(LINK_ROOT)])
+    return env
 
 
 def autopilot_flags(run=subprocess.run):
     """The options this computer's `fieldkit autopilot` accepts (read from its own --help)."""
     try:
-        r = run([sys.executable, "-m", "fieldkit", "autopilot", "--help"], capture_output=True, text=True, timeout=30)
+        r = run([sys.executable, "-P", "-m", "fieldkit", "autopilot", "--help"], capture_output=True, text=True,
+                timeout=30, env=link_env())
         return set(re.findall(r"--[a-z][a-z-]+", (r.stdout or "") + (r.stderr or "")))
     except (OSError, subprocess.TimeoutExpired):
         return set()
@@ -349,7 +362,7 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
     log = open(jobd / "session.log", "a", encoding="utf-8")
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)) if os.name == "nt" else 0
-    p = popen(argv, cwd=reg["cwd"], stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
+    p = popen(argv, cwd=reg["cwd"], stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=link_env())
     # "started" only for a process that is still alive after a moment (2026-10-22: one died on its arguments at
     # once and the caller was told it ran)
     sleep(grace)

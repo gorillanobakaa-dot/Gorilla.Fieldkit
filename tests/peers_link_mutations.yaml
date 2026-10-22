@@ -121,3 +121,9 @@
 - file: fieldkit/peers/link.py
   swap: ['        if a in OPTIONAL_START_FLAGS and a not in known:', '        if False:']
   why: options this computer's autopilot does not offer are dropped, never passed blind
+- file: fieldkit/peers/link.py
+  swap: ['DEFAULT_START = {"claude": [sys.executable, "-P", "-m",', 'DEFAULT_START = {"claude": [sys.executable, "-m",']
+  why: a started session never puts its working folder (another checkout) ahead of the link's own code
+- file: fieldkit/peers/link.py
+  swap: ['creationflags=flags, env=link_env())', 'creationflags=flags)']
+  why: a started session gets PYTHONPATH = this link's own root

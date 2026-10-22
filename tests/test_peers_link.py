@@ -148,7 +148,8 @@ def test_a_wrong_key_and_a_stranger_address_are_refused(two, monkeypatch):
 def test_ask_starts_nothing_without_this_computers_own_approval(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
     added, started = [], []
-    pop = lambda argv, **kw: started.append(argv) or type("P", (), {"pid": 4242})()
+    envs = []
+    pop = lambda argv, **kw: started.append(argv) or envs.append(kw.get("env")) or type("P", (), {"pid": 4242})()
     ok, why = link.start_session("claude", "talk to me", "vaio", popen=pop,
                                  inbox_add=lambda *a, **k: added.append(a))
     assert not ok and not started and added and "no approved link.yaml" in why
@@ -163,8 +164,11 @@ def test_ask_starts_nothing_without_this_computers_own_approval(tmp_path, monkey
                                  flags_fn=lambda: {"--cwd", "--job", "--wall-minutes"}, sleep=lambda s: None)
     assert ok and "PID 4242" in why
     argv = started[0]
-    assert argv[1:5] == ["-m", "fieldkit", "autopilot", "claude"] and "--job" in argv
-    brief = argv[5]
+    assert argv[1:6] == ["-P", "-m", "fieldkit", "autopilot", "claude"] and "--job" in argv
+    # the session loads THIS link's code, not the code of the folder it works in (VAIO, 2026-10-22)
+    assert envs[0]["PYTHONPATH"].split(os.pathsep)[0] == str(link.LINK_ROOT)
+    assert (link.LINK_ROOT / "fieldkit" / "peers" / "link.py").is_file()
+    brief = argv[6]
     assert "not the owner's instruction" in brief and "\x1b" not in brief and "fieldkit peers link send" in brief
     ok, why = link.start_session("codex", "x", "vaio", popen=pop, inbox_add=lambda *a, **k: added.append(a))
     assert not ok                                                              # not in allow_start
