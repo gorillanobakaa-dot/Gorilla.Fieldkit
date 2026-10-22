@@ -267,6 +267,28 @@ SYMPTOMS = [
         "then": "restart what it lists; a service app needs its quit command, not its window closed",
     },
     {
+        "id": "theme-scrambled-after-login",
+        "seen": "After a restart or login, a dark GTK theme that worked yesterday is gone: Files and Settings come up "
+                "light grey or white, some icons missing, while the terminal still looks right.",
+        "example": "after I logged in the theme is light again, files and settings are white, it got scrambled",
+        "words": [r"login|log in|logged|restart|reboot|boot|start ?up|this morning|today|repornit|pornit",
+                  r"theme|light|white|grey|gray|scrambl|regress|broken|went back|reverted|tem[aă]|alb|deschis"],
+        "action": "gtk-theme",
+        "run": "fieldkit gtk-theme check",
+        "proves": "whether ~/.config/gtk-*/gtk.css holds the theme block more than once or with BEGIN/END markers that "
+                  "do not pair up (two writers at once), and which login launchers start the same program at the same "
+                  "instant, with the package that owns each and its dpkg state (rc = removed, leftover kept)",
+        "look": ["journalctl --user -b | grep -i theme  (cp: ... gtk.css.new: File exists = two runs collided)",
+                 "ls /etc/xdg/autostart ~/.config/autostart; dpkg -l | grep '^rc'",
+                 "wc -l ~/.config/gtk-4.0/gtk.css: exactly double the clean block = two copies interleaved"],
+        "last_fix": "2026-10-22: black-gorilla-theme.desktop and a leftover gtk-high-contrast-theme.desktop (old "
+                    "package, state rc, Exec through a symlink to the same tool) both ran --apply-once; both files "
+                    "came out doubled (318/158 lines). Files quarantined, tool run once, old package purged, tool "
+                    "26.10.22-14-03 writes under flock with a mktemp name (old 40 of 40 races broke, new 0 of 40)",
+        "then": "quarantine the scrambled file, run the theme tool once, purge the leftover package, check again, "
+                "restart the apps it lists",
+    },
+    {
         "id": "only-on-my-profile",
         "seen": "Something is wrong on the browser as the person uses it but right on a fresh or test profile: an "
                 "engine, a setting, a page or a color the build does not have, Linux or Windows.",
