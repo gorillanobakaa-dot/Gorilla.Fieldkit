@@ -115,3 +115,9 @@
 - file: fieldkit/peers/link.py
   swap: ['    while p.exists():', '    while False:']
   why: nothing is ever overwritten
+- file: fieldkit/peers/link.py
+  swap: ['    if rc is not None:', '    if False:']
+  why: a session that died at start is reported dead, never "started"
+- file: fieldkit/peers/link.py
+  swap: ['        if a in OPTIONAL_START_FLAGS and a not in known:', '        if False:']
+  why: options this computer's autopilot does not offer are dropped, never passed blind

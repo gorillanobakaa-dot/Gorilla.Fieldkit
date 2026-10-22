@@ -159,7 +159,8 @@ def test_ask_starts_nothing_without_this_computers_own_approval(tmp_path, monkey
     assert link.approve(confirm=True, say=lambda m: None) == 3                 # never from autopilot
     monkeypatch.delenv("FIELDKIT_AUTOPILOT")
     assert link.approve(confirm=True, say=lambda m: None) == 0
-    ok, why = link.start_session("claude", "talk to me \x1b]0;x", "vaio", popen=pop, inbox_add=lambda *a, **k: None)
+    ok, why = link.start_session("claude", "talk to me \x1b]0;x", "vaio", popen=pop, inbox_add=lambda *a, **k: None,
+                                 flags_fn=lambda: {"--cwd", "--job", "--wall-minutes"}, sleep=lambda s: None)
     assert ok and "PID 4242" in why
     argv = started[0]
     assert argv[1:5] == ["-m", "fieldkit", "autopilot", "claude"] and "--job" in argv
@@ -170,6 +171,32 @@ def test_ask_starts_nothing_without_this_computers_own_approval(tmp_path, monkey
     (tmp_path / "link.yaml").write_text((tmp_path / "link.yaml").read_text() + "# changed\n")
     ok, why = link.start_session("claude", "x", "vaio", popen=pop, inbox_add=lambda *a, **k: added.append(a))
     assert not ok and "changed after its approval" in why
+
+
+def test_a_session_that_dies_at_start_is_reported_dead_and_unknown_options_are_dropped(tmp_path, monkeypatch):
+    """2026-10-22 on the VAIO: an older `fieldkit autopilot` refused --job/--wall-minutes, the process died at once,
+    and the laptop was told 'started'."""
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
+    (tmp_path / "link.yaml").write_text("allow_start: [claude]\ncwd: " + str(tmp_path).replace("\\", "/") + "\n")
+    link.approve(confirm=True, say=lambda m: None)
+    seen = []
+
+    class Dead:
+        pid = 637515
+
+        def poll(self):
+            return 2
+
+    def pop(argv, stdout=None, **kw):
+        seen.append(argv)
+        stdout.write("fieldkit: error: unrecognized arguments: --job\n")
+        stdout.flush()
+        return Dead()
+    ok, why = link.start_session("claude", "hi", "win", popen=pop, inbox_add=lambda *a, **k: None,
+                                 flags_fn=lambda: {"--cwd", "--max-turns"}, sleep=lambda s: None)
+    assert not ok and why.startswith("died at start (exit 2") and "unrecognized arguments" in why
+    assert "--job" not in seen[0] and "--wall-minutes" not in seen[0] and "--cwd" in seen[0]
+    assert link.fit_command(["a", "--job", "J", "--cwd", "C", "--wall-minutes", "9"], {"--cwd"}) == ["a", "--cwd", "C"]
 
 
 def test_an_allowed_agent_without_a_known_start_command_is_never_guessed(tmp_path, monkeypatch):
