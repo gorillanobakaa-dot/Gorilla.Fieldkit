@@ -138,3 +138,12 @@
 - file: fieldkit/autopilot/hardlines.py
   swap: ['(goal\.json|goal\.md|', '(nothing-here|']
   why: a model never edits the goal it is judged by
+- file: fieldkit/autopilot/inbox.py
+  swap: ['    r = run(["git", "-C", str(repo), "push", *(["-u"] if plan["new"] else []), "origin", plan["branch"]],', '    r = run(["git", "-C", str(repo), "push", "origin", plan["branch"]],']
+  why: a new branch is pushed with its upstream set
+- file: fieldkit/autopilot/inbox.py
+  swap: ['    return f"{head}..HEAD", True', '    return "@{u}..HEAD", True']
+  why: a branch never pushed is compared with origin's default branch (it has no upstream)
+- file: fieldkit/autopilot/inbox.py
+  swap: ['    if new and br in ("main", "master", "HEAD"):', '    if False:']
+  why: publish never pushes a new main

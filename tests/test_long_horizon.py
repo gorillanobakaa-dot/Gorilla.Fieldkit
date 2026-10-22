@@ -644,3 +644,36 @@ def test_a_model_never_edits_what_judges_it(path):
 @pytest.mark.parametrize("path", ["state/goals/g1/rounds/001/plan.json", "state/goals/g1/jobs/j/HANDOFF.md"])
 def test_the_planner_and_workers_may_write_their_own_files(path):
     assert hardlines.decide("Write", {"file_path": "C:/fk/" + path, "content": "x"})[0] == "allow"
+
+
+# ---- publish: a branch never pushed (2026-10-22: publish refused all three of the day's new branches) ------------
+def test_publish_pushes_a_new_branch_with_upstream_and_checks_its_own_commits(tmp_path, monkeypatch):
+    monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+    r = repo(tmp_path)
+    subprocess.run(["git", "-C", str(r), "branch", "-m", "main"], check=True)
+    subprocess.run(["git", "-C", str(r), "remote", "add", "origin", str(origin)], check=True)
+    subprocess.run(["git", "-C", str(r), "push", "-q", "origin", "main"], check=True)
+    subprocess.run(["git", "-C", str(r), "fetch", "-q", "origin"], check=True)
+    subprocess.run(["git", "-C", str(r), "switch", "-q", "-c", "feat/x"], check=True)
+    (r / "b.txt").write_text("new\n")
+    subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-qm", "the new work"], check=True)
+    plan = inbox.publish_plan(r)
+    assert plan["new"] and plan["range"].endswith("..HEAD") and plan["range"].startswith("origin/")
+    assert len(plan["ahead"]) == 1 and "the new work" in plan["ahead"][0]
+    seen = []
+
+    class R:
+        returncode, stdout, stderr = 0, "", ""
+
+    def run(args, **kw):
+        seen.append(args)
+        return R()
+    assert inbox.publish(r, confirm=True, run=run, say=lambda m: None) == 0
+    assert seen[0][-1] == plan["range"]                                   # the privacy check sees the new commits
+    assert seen[1][-4:] == ["push", "-u", "origin", "feat/x"]
+    subprocess.run(["git", "-C", str(r), "switch", "-q", "main"], check=True)
+    subprocess.run(["git", "-C", str(r), "branch", "--unset-upstream"], capture_output=True)
+    assert "never a new main" in " ".join(inbox.publish_plan(r)["blockers"])
