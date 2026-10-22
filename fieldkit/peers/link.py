@@ -1,5 +1,7 @@
 """Agents on two computers joined by one cable: find what is there, send a note, ask for a session to talk to.
 
+    fieldkit peers link setup --first [--usb E:\\]     EVERYTHING on the first computer (link_setup.py); the other
+                                                       computer: sh <stick>/fieldkit-link/setup-linux.sh
     fieldkit peers link agents                         what agents this computer has (installed, running, reachable)
     fieldkit peers link pair init --me IP --peer IP     a new key + the pairing file to carry to the other computer
     fieldkit peers link pair import FILE               the other computer's pairing file (carried by hand)
@@ -467,6 +469,9 @@ def _has_address(ip):
 
 
 def main(argv=None):
+    if argv and argv[0] == "setup":                  # the whole thing, one command per computer (link_setup.py)
+        from . import link_setup
+        return link_setup.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor"])

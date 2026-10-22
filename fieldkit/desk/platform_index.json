@@ -1880,6 +1880,16 @@
    "peers-link-agents"
   ]
  },
+ "peers link setup": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Windows side run for real 2026-10-22; Linux side tested with fakes and a loopback join only",
+  "ids": [
+   "peers-link-setup"
+  ]
+ },
  "peers list": {
   "platforms": [
    "linux",

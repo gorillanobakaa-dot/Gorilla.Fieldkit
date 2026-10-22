@@ -1,5 +1,5 @@
 # Rules tests/test_peers_link.py must hold. Every one CAUGHT:
-#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py
+#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py
 - file: fieldkit/peers/link.py
   swap: ['    if a.is_unspecified:', '    if False:']
   why: a wildcard address (listen everywhere) is refused
@@ -42,3 +42,32 @@
 - file: fieldkit/peers/link.py
   swap: ['    text = (f"--- {FENCE.format(host=from_host)} ---\n', '    text = (f"\n']
   why: a started session sees the brief fenced as text from the other computer
+# link setup (link_setup.py); run the plan with BOTH test files:
+#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py
+- file: fieldkit/peers/link_setup.py
+  swap: ['    cands = [c for c in cards if c.get("wired") and c.get("up") and c.get("name") != internet_iface]', '    cands = [c for c in cards if c.get("wired") and c.get("up")]']
+  why: the card carrying the internet is never taken for the cable
+- file: fieldkit/peers/link_setup.py
+  swap: ['    if len(cands) > 1:', '    if False:']
+  why: two candidate cards are never guessed between
+- file: fieldkit/peers/link_setup.py
+  swap: ['"Where-Object { $_.PrefixOrigin -ne ''WellKnown'' } | Remove-NetIPAddress -Confirm:$false",', '"Remove-NetIPAddress -Confirm:$false",']
+  why: only a manual address is replaced
+- file: fieldkit/peers/link_setup.py
+  swap: ['"ipv4.never-default", "yes",', '']
+  why: the cable never becomes a default route on Linux
+- file: fieldkit/peers/link_setup.py
+  swap: ['    elif not (cfg and k and cfg.get("me") == me and cfg.get("peer") == peer):', '    elif True:']
+  why: a second run keeps the key already carried on the stick
+- file: fieldkit/peers/link_setup.py
+  swap: ['        if need_ip or need_rule:', '        if True:']
+  why: nothing missing = no admin prompt
+- file: fieldkit/peers/link_setup.py
+  swap: ['            if "LINKSETUP: FAILED" in log or rc != 0:', '            if False:']
+  why: a failed admin step is a failure, said so
+- file: fieldkit/peers/link_setup.py
+  swap: ['        if r.returncode != 0 and re.search(', '        if False and re.search(']
+  why: root is asked through pkexec only when refused
+- file: fieldkit/peers/link_setup.py
+  swap: ['sha256sum -c SHA256SUMS || {', 'true || {']
+  why: the Linux script checks every file on the stick first

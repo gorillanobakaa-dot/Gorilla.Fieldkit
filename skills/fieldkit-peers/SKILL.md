@@ -22,6 +22,17 @@ clients refused); no network at all. Sessions on another computer, or Claude ses
 
 Owner, 2026-10-22: the Windows laptop and the Linux box are joined by one cable. Their agents talk to each other
 and ask each other for a session.
+
+THE WHOLE SETUP IS ONE COMMAND PER COMPUTER (owner: "the fieldkit was supposed to be able to set up the whole shebang
+both from the windows side and from the linux side"). Never walk a person through the steps below by hand.
+- First computer: `fieldkit peers link setup --first --usb <stick>`. It finds the cable port (never the internet
+  one), sets 10.77.0.1 and the firewall rule (one UAC click, only if missing), pairs, writes the kit to the stick,
+  and listens.
+- Second computer: `sh <stick>/fieldkit-link/setup-linux.sh`. It checks SHA256SUMS, installs the code as a worktree,
+  then runs `setup --join`: sets 10.77.0.2 (pkexec if needed), imports the key, opens ufw/firewalld if active,
+  listens, and says hello. The VERDICT shows the fingerprint, and the owner compares it with the first screen.
+- Run it again any time: it checks each step first and only does what is missing.
+The steps underneath, for repair:
 1. `fieldkit peers link agents` lists what this computer has: claude, codex, opencode, gorilla-opencode,
    antigravity/agy (installed, version, running PIDs, messageable sessions).
 2. Once per pair: `fieldkit peers link pair init --me 10.77.0.1 --peer 10.77.0.2` makes the key and a pairing file.

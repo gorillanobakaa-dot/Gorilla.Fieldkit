@@ -1490,13 +1490,31 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py", -k, agents]
 
+- id: peers-link-setup
+  title: "The whole agent link in ONE command per computer: finds the cable port (never the internet one), sets 10.77.0.1/.2 (one UAC click / pkexec), pairs, opens the firewall for the peer only, writes the USB kit (code bundle + key + setup-linux.sh + SHA256SUMS), listens, says hello"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, setup]
+  path: ${FIELDKIT}/fieldkit/peers/link_setup.py
+  inputs:
+    - {name: first, flag: --first, type: bool, required: false, help: "this computer starts the pair (10.77.0.1)"}
+    - {name: join, flag: --join, type: str, required: false, help: "the stick's fieldkit-link folder (or auto) on the second computer"}
+    - {name: usb, flag: --usb, type: str, required: false, help: "--first: write the kit for the other computer here"}
+    - {name: iface, flag: --iface, type: str, required: false, help: "the cable's card, when two could be it"}
+  effects: [network, writes-files, processes, admin]   # one UAC (Windows) / pkexec (Linux) prompt, only for what is missing
+  safety: reversible
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'Windows side run for real 2026-10-22; Linux side tested with fakes and a loopback join only'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_setup.py"]
+  notes: "Idempotent: each step is checked first and skipped when already true (a second run asks for no admin and keeps the carried key). The second computer runs only `sh <stick>/fieldkit-link/setup-linux.sh` (checks SHA256SUMS, adds the code as a worktree or clones it, runs setup --join). Starting sessions stays off until that computer's owner runs `fieldkit peers link approve`."
+
 - id: peers-link
   title: "Agents on the OTHER computer of a direct cable: pair (key carried by hand), serve (cable address, paired peer only), hello (its agents), send a note, ask it to start a session, read what it sent (fenced)"
   harness: peers
   entry: [python, -m, fieldkit, peers, link]
   path: ${FIELDKIT}/fieldkit/peers/link.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [agents, pair, approve, serve, hello, send, ask, inbox, doctor], help: "doctor first; pair init --me IP --peer IP | pair import FILE"}
+    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE"}
     - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text"}
     - {name: me, flag: --me, type: str, required: false, help: "pair init: this computer's cable address (e.g. 10.77.0.1)"}
     - {name: peer, flag: --peer, type: str, required: false, help: "pair init: the other computer's cable address"}
