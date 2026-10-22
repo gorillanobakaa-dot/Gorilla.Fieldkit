@@ -40,14 +40,38 @@ tools:
     - {name: action, flag: null, type: str, required: true, choices: [on, off, status, stop, resume, claude, workspace, quiet, antigravity, login], help: "status first; claude PROMPT runs one headless run"}
     - {name: rest, flag: null, type: str, required: false, help: "stop: the reason; claude: the prompt; workspace: the folder"}
     - {name: cwd, flag: --cwd, type: str, required: false, help: "claude: the folder the run works in"}
-    - {name: max_turns, flag: --max-turns, type: int, required: false, help: "claude: turn limit (40)"}
+    - {name: max_turns, flag: --max-turns, type: int, required: false, help: "claude: turns per session (10000)"}
+    - {name: wall_minutes, flag: --wall-minutes, type: float, required: false, help: "claude: wall time per session; the process tree is killed after it (default: none; with --job 720)"}
+    - {name: cost_usd, flag: --cost-usd, type: float, required: false, help: "claude --job: dollars per session"}
+    - {name: job, flag: --job, type: str, required: false, help: "claude: a job folder: budgeted, checkpointed, resumable; exit 75 = paused-resumable (also FIELDKIT_JOB_DIR)"}
+    - {name: max_continuations, flag: --max-continuations, type: int, required: false, help: "claude --job: resumes after a budget end (3)"}
     - {name: hold, flag: --hold, type: int, required: false, help: "quiet: keep the apps stopped until this PID exits"}
     - {name: minutes, flag: --minutes, type: float, required: false, help: "quiet: keep the apps stopped this many minutes (or until the STOP file)"}
     - {name: restore, flag: --restore, type: bool, required: false, help: "quiet (Linux): start again the system services a run stopped"}
     - {name: apply, flag: --apply, type: bool, required: false, help: "quiet: stop them (without it: list only)"}
   platforms: [windows, linux]
   changes: true
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py", "${FIELDKIT}/tests/test_autopilot_hardlines.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py", "${FIELDKIT}/tests/test_autopilot_hardlines.py", "${FIELDKIT}/tests/test_long_horizon.py"]
+
+- id: goal
+  title: Long horizon goals - a planner writes bounded jobs, fresh workers do them (budgets, checkpoints, resume), a separate verifier runs the acceptance criteria and decides; pre-approved decisions answered without a human; a supervisor resumes every unfinished goal at logon
+  harness: core
+  entry: [python, -m, fieldkit, goal]
+  path: ${FIELDKIT}/fieldkit/autopilot/goal.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, supervisor-script], help: "status first; run = the supervisor"}
+    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1]"}
+    - {name: from_file, flag: --from, type: str, required: false, help: "new: the goal spec (goal.json shape)"}
+    - {name: objective, flag: --objective, type: str, required: false, help: "new: the objective (without --from)"}
+    - {name: criterion, flag: --criterion, type: str, required: false, help: "new: a command that must exit 0 (repeatable)"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "new: the goal's folder"}
+    - {name: force, flag: --force, type: bool, required: false, help: "new: overwrite an existing goal"}
+    - {name: all, flag: --all, type: bool, required: false, help: "stop: every unfinished goal"}
+    - {name: once, flag: --once, type: bool, required: false, help: "run: one round per goal, then exit"}
+  platforms: [windows, linux]
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_long_horizon.py"]
+  notes: "State in state/goals/<id>/ (goal.json, GOAL.md, state.json, verdicts.jsonl, events.log, REPORT.md, jobs/<job>/HANDOFF.md + CHECKPOINT.json). Models may not edit goal.json, state.json, verdicts, PREAPPROVALS.yaml or APPROVAL.json (hard line 3). approve needs the owner at a real terminal and pins the register's sha256; any later change voids it. push_branch/open_pr are done by the harness only under an approved register, never to main/master, after the privacy push-check. The scheduled task is written by supervisor-script and registered by the owner, never by a model. Mutation plan: tests/long_horizon_mutations.yaml."
 
 - id: runbook
   title: The harness runs a runbook's steps (logs, ETA, retries, STOP, inbox for owner steps); a model only fixes a failed step
@@ -55,12 +79,13 @@ tools:
   entry: [python, -m, fieldkit, runbook]
   path: ${FIELDKIT}/fieldkit/autopilot/runbook.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [run, status, start], help: "start = run in its own detached window"}
+    - {name: action, flag: null, type: str, required: true, choices: [run, status, start, check], help: "start = run in its own detached window; check = validate needs, budgets, fallback chains"}
     - {name: file, flag: null, type: str, required: true, help: "the runbook .md with a runbook block"}
     - {name: no_fix, flag: --no-fix, type: bool, required: false, help: "never call a model on a failed step"}
   platforms: [windows, linux]
   changes: true
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_runbook.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_runbook.py", "${FIELDKIT}/tests/test_long_horizon.py"]
+  notes: "Agent steps (agent: BRIEF, or a run: that calls fieldkit autopilot claude) are budgeted jobs in state/jobs/<runbook>/<step>/; exit 75 = paused-resumable (resumed by the next run, dependents wait); agent steps default to stop_on_fail false. Exit 75 when only paused steps are left."
 
 - id: telemetry
   title: Telemetry off and cut out - a project's source scanned for telemetry SDKs, endpoints and collectors; this machine's toolchain opt-outs and firewall blocks checked

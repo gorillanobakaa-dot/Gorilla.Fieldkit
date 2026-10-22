@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18-21-00
+# Version: 1.1.0 · updated 26-10-22-14-00
 """fieldkit runbook: the harness runs the job; a model is called only when a step fails.
 
 Owner, 2026-10-18: 40-50 hours per release, a human pressing Yes. The overnight model also ran ~100 PID polls
@@ -15,6 +15,14 @@ work, the waiting, the retries, the ETA and the verdict are code:
     lines only.
 
     fieldkit runbook run FILE        fieldkit runbook status FILE        fieldkit runbook start FILE (own window)
+    fieldkit runbook check FILE      the runbook parses, its needs, budgets and fallback chains are valid
+
+Agent steps (2026-10-22, long horizon step 1): `agent: BRIEF` (+ `cwd`, `budget: {turns, wall_minutes, cost_usd}`,
+`max_continuations`, `fallback`, `model`) runs a budgeted job (job.py) whose state lives in
+state/jobs/<runbook>/<step>/; a `run:` step that calls `fieldkit autopilot claude` gets the same job folder through
+FIELDKIT_JOB_DIR (and its budget through FIELDKIT_JOB_BUDGET). Exit 75 = paused-resumable: not a failure; the next
+`runbook run` resumes the job from its checkpoint, and the steps that need it wait. Agent steps default to
+`stop_on_fail: false` (the night of 2026-10-22: one failed job stopped seven independent ones).
 """
 import json
 import os
@@ -27,8 +35,19 @@ from pathlib import Path
 import yaml
 
 from . import hardlines
+from .budget import EXIT_PAUSED
 
 BLOCK = re.compile(r"```runbook\s*\n(.*?)```", re.S)
+JOBS = Path(__file__).resolve().parents[2] / "state" / "jobs"
+PAUSED = "paused-resumable"
+
+
+def is_agent(step):
+    return bool(step.get("agent")) or "autopilot claude" in str(step.get("run") or "")
+
+
+def job_dir(path, step):
+    return JOBS / Path(path).stem / step["id"]
 
 
 def load(path):
@@ -41,9 +60,16 @@ def load(path):
     ids = [s.get("id") for s in steps]
     if not steps or any(not i for i in ids) or len(set(ids)) != len(ids):
         raise ValueError(f"{path}: every step needs a unique id")
+    from . import job
     for s in steps:
-        if not s.get("owner") and not s.get("run"):
-            raise ValueError(f"{path}: step {s['id']} has no run")
+        if not s.get("owner") and not s.get("run") and not s.get("agent"):
+            raise ValueError(f"{path}: step {s['id']} has no run (or agent)")
+        bad = [k for k in (s.get("budget") or {}) if k not in ("turns", "wall_minutes", "cost_usd")]
+        if bad:
+            raise ValueError(f"{path}: step {s['id']}: unknown budget key(s) {bad} (turns, wall_minutes, cost_usd)")
+        problems = job.check_fallback(s.get("fallback") or data.get("fallback"))
+        if problems:
+            raise ValueError(f"{path}: step {s['id']}: " + "; ".join(problems))
         for n in s.get("needs") or []:
             if n not in ids[:ids.index(s["id"])]:
                 raise ValueError(f"{path}: step {s['id']} needs {n}, which is not an earlier step")
@@ -82,9 +108,14 @@ def done_if(cond, cwd):
     return False, f"unknown done_if {cond}"
 
 
-def _run_step(step, log, say, run=subprocess.Popen):
+def _run_step(step, log, say, run=subprocess.Popen, env=None):
     cmd = step["run"]
     cwd = os.path.expandvars(step.get("cwd") or os.getcwd())
+    timeout = step.get("timeout")
+    if timeout is None and is_agent(step):
+        # an agent step's wall budget is enforced by the job itself; this is only the backstop
+        from .budget import merge
+        timeout = merge(step.get("budget"))["wall_minutes"] * 60 * (1 + int(step.get("max_continuations", 3))) + 600
     t0 = time.time()
     with open(log, "a", encoding="utf-8") as lf:
         lf.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} $ {cmd}\n")
@@ -94,13 +125,14 @@ def _run_step(step, log, say, run=subprocess.Popen):
         ps = ("$global:LASTEXITCODE = 0; " + cmd + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE")
         shell = ["powershell", "-NoProfile", "-Command", ps] if os.name == "nt" else ["bash", "-lc", cmd]
-        p = run(shell, cwd=cwd, stdout=lf, stderr=subprocess.STDOUT)
+        p = run(shell, cwd=cwd, stdout=lf, stderr=subprocess.STDOUT, env=env)
         try:
-            rc = p.wait(timeout=step.get("timeout"))
+            rc = p.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            p.kill()
+            from .run import kill_tree
+            killed = kill_tree(p.pid)            # the whole tree by PID: killing the shell alone left its child
             rc = 124
-            lf.write(f"\n=== TIMEOUT after {step.get('timeout')} s\n")
+            lf.write(f"\n=== TIMEOUT after {timeout} s: stopped PIDs {killed}\n")
     return rc, time.time() - t0
 
 
@@ -111,7 +143,7 @@ def _tail(log, n=40):
         return ""
 
 
-def run(path, say=print, claude=None, hold=True):
+def run(path, say=print, claude=None, hold=True, job_runner=None):
     """Run the runbook from its first unfinished step. -> {ok, done, failed, blocked, stopped}"""
     from ..core import eta
     data = load(path)
@@ -125,7 +157,7 @@ def run(path, say=print, claude=None, hold=True):
         except Exception as e:  # noqa: BLE001
             say(f"  [WARN] stay awake: not held ({e})")
     steps = data["steps"]
-    out = {"ok": True, "done": [], "failed": [], "blocked": [], "stopped": False}
+    out = {"ok": True, "done": [], "failed": [], "blocked": [], "paused": [], "stopped": False}
     for i, step in enumerate(steps, 1):
         sid = step["id"]
         rec = st["steps"].get(sid, {})
@@ -152,12 +184,30 @@ def run(path, say=print, claude=None, hold=True):
             _save(path, st)
             continue
         log = logs / f"{i:02d}-{sid}.log"
-        say(f"[{i}/{len(steps)}] {sid}: {step.get('title', step['run'])[:100]}")
+        say(f"[{i}/{len(steps)}] {sid}: {step.get('title', step.get('run') or step.get('agent'))[:100]}")
         say("    " + eta.human(eta.from_history(f"runbook {sid}")))
+        if step.get("agent"):
+            rc, secs, why = _run_agent(path, step, data, say, job_runner)
+            ok = rc == 0
+            say(f"    exit {rc}, {int(secs)} s; {why[:200]}")
+            _record(path, st, out, step, rc, secs, why, log, ok, say)
+            if not ok and rc != EXIT_PAUSED and step.get("stop_on_fail", False):
+                say(f"    FAILED: the run stops here (stop_on_fail)")
+                break
+            continue
+        env = None
+        if is_agent(step):
+            env = dict(os.environ, FIELDKIT_JOB_DIR=str(job_dir(path, step)),
+                       FIELDKIT_JOB_BUDGET=json.dumps(step.get("budget") or {}),
+                       FIELDKIT_JOB_CONTINUATIONS=str(step.get("max_continuations", 3)))
         tries = int(step.get("retries", 0)) + 1
         ok, why = False, ""
         for attempt in range(1, tries + 2):
-            rc, secs = _run_step(step, log, say)
+            rc, secs = _run_step(step, log, say, env=env)
+            if rc == EXIT_PAUSED and is_agent(step):
+                why = "paused-resumable (exit 75): the job checkpointed; the next run resumes it"
+                say(f"    attempt {attempt}: exit 75, {int(secs)} s; {why}")
+                break
             good, why = done_if(step.get("done_if"), step.get("cwd"))
             ok = rc == 0 and good
             say(f"    attempt {attempt}: exit {rc}, {int(secs)} s; {why}")
@@ -173,17 +223,53 @@ def run(path, say=print, claude=None, hold=True):
                 continue
             if attempt >= tries:
                 break
-        st["steps"][sid] = {"status": "done" if ok else "failed", "rc": rc, "seconds": int(secs), "evidence": why,
-                            "log": str(log), "at": time.strftime("%Y-%m-%d %H:%M:%S")}
-        _save(path, st)
-        (out["done"] if ok else out["failed"]).append(sid)
-        if not ok:
-            out["ok"] = False
-            if step.get("stop_on_fail", True):
-                say(f"    FAILED: the run stops here (the log: {log})")
-                break
+        _record(path, st, out, step, rc, secs, why, log, ok, say)
+        if not ok and rc != EXIT_PAUSED and step.get("stop_on_fail", not is_agent(step)):
+            say(f"    FAILED: the run stops here (the log: {log})")
+            break
     _save(path, st)
     report(path, data, st, report_p)
+    return out
+
+
+def _record(path, st, out, step, rc, secs, why, log, ok, say):
+    sid = step["id"]
+    paused = rc == EXIT_PAUSED and is_agent(step)
+    status = "done" if ok else PAUSED if paused else "failed"
+    prev = st["steps"].get(sid, {})
+    st["steps"][sid] = {"status": status, "rc": rc, "seconds": int(secs), "evidence": why, "log": str(log),
+                        "at": time.strftime("%Y-%m-%d %H:%M:%S"), "pauses": prev.get("pauses", 0) + paused}
+    if is_agent(step):
+        st["steps"][sid]["job"] = str(job_dir(path, step))
+    _save(path, st)
+    (out["done"] if ok else out["paused"] if paused else out["failed"]).append(sid)
+    if not ok:
+        out["ok"] = False
+
+
+def _run_agent(path, step, data, say, job_runner=None):
+    """An `agent:` step: one budgeted job (job.py) in state/jobs/<runbook>/<step>."""
+    from . import job
+    t0 = time.time()
+    r = (job_runner or job.run_job)(
+        job_dir(path, step), step["agent"], os.path.expandvars(step.get("cwd") or os.getcwd()),
+        budget=step.get("budget"), job_id=f"{Path(path).stem}-{step['id']}",
+        max_continuations=int(step.get("max_continuations", 3)), fallback=step.get("fallback") or data.get("fallback"),
+        model=step.get("model"), say=say)
+    return r["rc"], time.time() - t0, f"{r['status']}: {r.get('why', '')}"
+
+
+def check(path):
+    """-> list of lines; raises ValueError on the first problem (load does the checking)."""
+    data = load(path)
+    out = [f"RUNBOOK {Path(path).name}: {len(data['steps'])} step(s) valid"]
+    from .budget import merge
+    for s in data["steps"]:
+        kind = "owner" if s.get("owner") else "agent" if is_agent(s) else "command"
+        b = merge(s.get("budget")) if kind == "agent" else None
+        out.append(f"  {s['id']:<24} {kind:<7} " + (f"budget {b['turns']} turns, {int(b['wall_minutes'])} min"
+                                                    + (f", ${b['cost_usd']}" if b.get("cost_usd") else "")
+                                                    + f"; stop_on_fail {s.get('stop_on_fail', False)}" if b else ""))
     return out
 
 

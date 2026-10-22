@@ -862,7 +862,19 @@ def cmd_autopilot(a):
         if not a.rest:
             print("autopilot claude PROMPT [--cwd DIR]")
             return 2
-        r = run.claude(" ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns)
+        job_dir = a.job or os.environ.get("FIELDKIT_JOB_DIR")
+        if job_dir:
+            # a budgeted job: checkpoints, resumes, exit 75 = paused-resumable (fieldkit/autopilot/job.py)
+            from .autopilot import job
+            b = json.loads(os.environ.get("FIELDKIT_JOB_BUDGET") or "{}")
+            b.update({k: v for k, v in (("turns", a.max_turns), ("wall_minutes", a.wall_minutes),
+                                        ("cost_usd", a.cost_usd)) if v is not None})
+            r = job.run_job(job_dir, " ".join(a.rest), a.cwd or os.getcwd(), budget=b,
+                            max_continuations=int(os.environ.get("FIELDKIT_JOB_CONTINUATIONS") or a.max_continuations))
+            print(json.dumps({k: v for k, v in r.items() if k != "checkpoint"}, indent=1, ensure_ascii=False))
+            return r["rc"]
+        r = run.claude(" ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns or 10000,
+                       timeout=a.wall_minutes * 60 if a.wall_minutes else None)
     elif a.action == "quiet" and getattr(a, "restore", False):
         print("started again: " + (", ".join(quiet.restore_units()) or "nothing was recorded"))
         return 0
@@ -986,15 +998,68 @@ def runbook_main(action, file, fix=True):
     if action == "status":
         print("\n".join(runbook.lines(file)))
         return 0
+    if action == "check":
+        try:
+            print("\n".join(runbook.check(file)))
+        except ValueError as e:
+            print(f"RUNBOOK CHECK: FAILED - {e}")
+            return 3
+        return 0
     if action == "start":
         from .buildh import window
         r = window.launch(["runbook", "run", str(Path(file).resolve())])
         print(f"started in its own window (PID {r.get('pid')}); log {r.get('log')}")
         return 0
-    claude = (lambda prompt, cwd=None: aprun.claude(prompt, cwd=cwd, max_turns=30)) if fix else None
+    claude = (lambda prompt, cwd=None: aprun.claude(prompt, cwd=cwd, max_turns=200, timeout=3600)) if fix else None
     r = runbook.run(file, claude=claude)
     print(json.dumps(r, indent=1))
-    return 0 if r["ok"] else 3
+    return 0 if r["ok"] else 75 if r["paused"] and not r["failed"] else 3
+
+
+def cmd_goal(a):
+    from .autopilot import goal
+    x = a.args
+    if a.action == "new":
+        if not x:
+            print("goal new ID --from SPEC.json | --objective TEXT --criterion CMD ...")
+            return 2
+        if a.from_file:
+            spec = json.loads(Path(a.from_file).read_text(encoding="utf-8"))
+            spec["id"] = x[0]
+        else:
+            spec = {"id": x[0], "objective": a.objective or "",
+                    "criteria": [{"id": f"c{i}", "run": c} for i, c in enumerate(a.criterion, 1)],
+                    "cwd": a.cwd or os.getcwd()}
+        try:
+            d = goal.new(spec, force=a.force)
+        except ValueError as e:
+            print(f"GOAL NEW: REFUSED - {e}")
+            return 2
+        print(f"GOAL NEW: {d}\n  read {d / 'GOAL.md'}; record decisions in {d / 'PREAPPROVALS.yaml'}, then "
+              f"fieldkit goal approve {x[0]}; start: fieldkit goal run {x[0]}")
+        return 0
+    if a.action == "status":
+        print("\n".join(goal.status_lines(x[0] if x else None)))
+        return 0
+    if a.action == "stop":
+        gid = None if a.all else (x[0] if x else None)
+        if not gid and not a.all:
+            print("goal stop ID | --all [why]")
+            return 2
+        print("STOPPED: " + (", ".join(goal.stop(gid, " ".join(x[1:]) or "the owner said stop")) or "nothing"))
+        return 0
+    if a.action == "approve":
+        return goal.approve(x[0]) if x else 2
+    if a.action == "report":
+        goal.report(x[0])
+        print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
+        return 0
+    if a.action == "supervisor-script":
+        out = Path(x[0] if x else goal.GOALS / "register-goal-supervisor.ps1")
+        ps, xml = goal.supervisor_script(out)
+        print(f"written: {ps} and {xml}\n  the owner runs it once: powershell -NoProfile -ExecutionPolicy Bypass -File \"{ps}\"")
+        return 0
+    return goal.supervise(x or None, once=a.once)
 
 
 def cmd_sync(a):
@@ -1422,7 +1487,11 @@ def build_parser():
     apl.add_argument("action", choices=["on", "off", "status", "stop", "resume", "claude", "workspace", "quiet", "antigravity", "login"])
     apl.add_argument("rest", nargs="*", help="stop: the reason; claude: the prompt; workspace: the folder")
     apl.add_argument("--cwd", help="claude: the folder the run works in")
-    apl.add_argument("--max-turns", type=int, default=40)
+    apl.add_argument("--max-turns", type=int, default=None, help="claude: turns per session (10000)")
+    apl.add_argument("--wall-minutes", type=float, help="claude: wall time per session; the tree is killed after it")
+    apl.add_argument("--cost-usd", type=float, help="claude --job: dollars per session")
+    apl.add_argument("--job", help="claude: a job folder: budgeted, checkpointed, resumable (exit 75 = paused)")
+    apl.add_argument("--max-continuations", type=int, default=3, help="claude --job: resumes after a budget end")
     apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
     apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")
     apl.add_argument("--restore", action="store_true", help="quiet (Linux): start again the system services a run stopped")
@@ -1460,10 +1529,22 @@ def build_parser():
     et.set_defaults(fn=cmd_eta)
 
     rb = sub.add_parser("runbook", parents=[common])
-    rb.add_argument("action", choices=["run", "status", "start"])
+    rb.add_argument("action", choices=["run", "status", "start", "check"])
     rb.add_argument("file")
     rb.add_argument("--no-fix", action="store_true", help="never call a model on a failed step")
     rb.set_defaults(fn=cmd_runbook)
+
+    gl = sub.add_parser("goal", parents=[common], help="long horizon goals: planner, workers, verifier, supervisor")
+    gl.add_argument("action", choices=["new", "status", "run", "stop", "approve", "report", "supervisor-script"])
+    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID")
+    gl.add_argument("--from", dest="from_file", help="new: the goal spec (goal.json shape)")
+    gl.add_argument("--objective", help="new: the objective (without --from)")
+    gl.add_argument("--criterion", action="append", default=[], help="new: a command that must exit 0 (repeatable)")
+    gl.add_argument("--cwd", help="new: the goal's folder")
+    gl.add_argument("--force", action="store_true", help="new: overwrite an existing goal")
+    gl.add_argument("--all", action="store_true", help="stop: every unfinished goal")
+    gl.add_argument("--once", action="store_true", help="run: one round per goal, then exit")
+    gl.set_defaults(fn=cmd_goal)
 
     sy = sub.add_parser("sync", parents=[common])
     sy.add_argument("--apply", action="store_true", help="fast-forward to upstream commits CI proved on Windows and Linux")

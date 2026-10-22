@@ -1540,6 +1540,16 @@
    "flaky"
   ]
  },
+ "goal": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "goal"
+  ]
+ },
  "gtk-theme check": {
   "platforms": [
    "linux"
