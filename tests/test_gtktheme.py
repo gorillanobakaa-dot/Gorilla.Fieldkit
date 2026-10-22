@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-20-19-00
+# Version: 1.1.0 · updated 26-10-22-14-30
 """gtk-theme check: the three mistakes of 2026-10-20 (Black Gorilla Theme, Files sidebar grey on Alt+Tab) must each be
 caught. The synthetic rules below are copied from libadwaita 1.7.6 / GTK 3.24.49 as this machine had them; the
 last tests read the real libraries when they are installed and are skipped elsewhere."""
@@ -88,3 +88,60 @@ def test_real_gtk3_definitions_are_read():
 @pytest.mark.skipif(not os.path.isdir("/proc/self"), reason="no /proc")
 def test_stale_apps_never_lists_this_process():
     assert all(a["pid"] != os.getpid() for a in g.stale_apps())
+
+
+# 2026-10-22: two login launchers wrote gtk.css at once. The order of markers below is the real file's
+# (grep -o of ~/.config/gtk-4.0/gtk.css, 318 lines): both runs opened their block before either closed it.
+B, E = "/* BEGIN black-gorilla-theme */", "/* END black-gorilla-theme */"
+
+
+def test_scrambled_file_is_caught():
+    real = f"{B}\n/* Named colours\n{B}\n a{{}}\n*/\n{E}\n{E}\n"
+    assert "do not pair up" in g.scrambled(real)
+    assert "2 times" in g.scrambled(f"{B}\na{{}}\n{E}\n{B}\na{{}}\n{E}\n")    # appended twice, cleanly
+    assert "before its BEGIN" in g.scrambled(f"{E}\n{B}\n")
+    assert "do not pair up" in g.scrambled(f"{B}\na{{}}\n")                       # cut off mid-write
+
+
+def test_clean_or_absent_block_is_not_scrambled():
+    assert g.scrambled(f"user {{}}\n{B}\na{{}}\n{E}\nmore {{}}\n") is None
+    assert g.scrambled("only the user's own css {}") is None
+
+
+def _desktop(d, name, exec_line, extra=""):
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, name), "w") as f:
+        f.write(f"[Desktop Entry]\nType=Application\nExec={exec_line}\n{extra}")
+
+
+def test_leftover_launcher_through_a_symlink_is_one_program(tmp_path):
+    prog = tmp_path / "bin" / "black-gorilla-theme"
+    prog.parent.mkdir()
+    prog.write_text("#!/bin/sh\n")
+    try:
+        (tmp_path / "bin" / "gtk-high-contrast-theme").symlink_to("black-gorilla-theme")
+    except OSError as e:      # Windows without Developer Mode: WinError 1314 (CI runners have the privilege)
+        pytest.skip(f"this system cannot make a symlink: {e}")
+    sys_dir = str(tmp_path / "xdg")
+    _desktop(sys_dir, "black-gorilla-theme.desktop", f"{prog} --apply-once")
+    _desktop(sys_dir, "gtk-high-contrast-theme.desktop", f"{tmp_path}/bin/gtk-high-contrast-theme --apply-once")
+    _desktop(sys_dir, "other.desktop", f"{prog} --revert")                     # other arguments: not the same run
+    states = {"gtk-high-contrast-theme.desktop": ("gtk-high-contrast-theme", "rc"),
+              "black-gorilla-theme.desktop": ("black-gorilla-theme", "ii")}
+    groups = g.duplicate_launchers([sys_dir], owner=lambda f: states.get(os.path.basename(f), (None, None)),
+                                   desktops={"gnome"})
+    assert len(groups) == 1 and len(groups[0]) == 2
+    assert {x["state"] for x in groups[0]} == {"rc", "ii"}
+    assert groups[0][0]["program"] == str(prog)
+
+
+def test_launchers_that_never_both_run_are_not_duplicates(tmp_path):
+    sys_dir, user_dir = str(tmp_path / "xdg"), str(tmp_path / "user")
+    _desktop(sys_dir, "a.desktop", "/bin/true", "OnlyShowIn=KDE;\n")
+    _desktop(sys_dir, "b.desktop", "/bin/true")
+    _desktop(sys_dir, "c.desktop", "/bin/false")
+    _desktop(sys_dir, "d.desktop", "/bin/false", "NotShowIn=GNOME;\n")
+    _desktop(sys_dir, "e.desktop", "/bin/echo")
+    _desktop(sys_dir, "f.desktop", "/bin/echo")
+    _desktop(user_dir, "f.desktop", "/bin/echo", "Hidden=true\n")           # the user switched the system one off
+    assert g.duplicate_launchers([sys_dir, user_dir], owner=lambda f: (None, None), desktops={"gnome"}) == []

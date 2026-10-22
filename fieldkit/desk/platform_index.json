@@ -1530,6 +1530,15 @@
    "explain"
   ]
  },
+ "firmware check": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "reads /sys, the kernel log and /lib/modules: a Linux kernel",
+  "ids": [
+   "fieldkit-firmware-check"
+  ]
+ },
  "flaky": {
   "platforms": [
    "linux",
@@ -1749,6 +1758,15 @@
    "laptop-volume"
   ]
  },
+ "leftovers": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "XDG autostart, desktop menu entries, systemd user units and dpkg exist only on a Linux desktop",
+  "ids": [
+   "fieldkit-leftovers"
+  ]
+ },
  "lifecycle": {
   "platforms": [
    "linux",
@@ -1757,6 +1775,24 @@
   "why": "",
   "ids": [
    "lifecycle"
+  ]
+ },
+ "mac": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "finds the Mac with avahi-resolve and ip neigh (Linux); the Mac end needs only Remote Login (sshd), which macOS has had since 10.0",
+  "ids": [
+   "fieldkit-mac"
+  ]
+ },
+ "macair": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "the Mac browser is cross-built on Linux (an old Mac cannot build a modern browser); install and verify reach the Mac over SSH (fieldkit mac)",
+  "ids": [
+   "fieldkit-macair"
   ]
  },
  "mcp-probe": {
@@ -2094,9 +2130,10 @@
    "linux",
    "windows"
   ],
-  "why": "",
+  "why": "pure Python with Pillow; never changes its inputs, writes the new picture next to the first one",
   "ids": [
-   "shot"
+   "shot",
+   "shot-look"
   ]
  },
  "shot speedtest": {

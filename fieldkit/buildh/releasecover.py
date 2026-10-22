@@ -86,7 +86,8 @@ def due_text(register, ids):
         out.append(f"## {i}: {e.get('title', '')}")
         out.append(f"- decided {e.get('decided')}, status {e.get('status')}, platforms {e.get('platforms') or 'all'}")
         for k, v in e.items():                       # every descriptive field, whole (costs live in why/audit/...)
-            if k in ("id", "title", "decided", "by", "provenance", "status", "platforms", "verify", "covers", "models"):
+            if k in ("id", "title", "decided", "by", "provenance", "status", "platforms", "verify", "covers", "models",
+                     "app_absent"):
                 continue
             if v:
                 out.append(f"- {k}: {' '.join(str(v).split())}")

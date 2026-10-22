@@ -1017,8 +1017,78 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
 
+- id: fieldkit-macair
+  title: 'Gorilla for the MacBook Air (old Intel Macs, macOS 10.13): status, preflight of every Mac decision in the source, the 11-inch layout budget, export the patch series, recreate, install on the Mac, verify there by measurement'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, macair]
+  path: ${FIELDKIT}/fieldkit/macair/macair.py
+  inputs:
+    - {name: command, type: choice, choices: [status, preflight, budget, export-patches, recreate, install, verify], required: true, help: "status first; preflight before every build; verify after every install"}
+    - {name: json, flag: --json, type: flag, required: false, help: "preflight as JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: changes
+  output: own
+  exits: {3: "preflight: a Mac decision lost; verify: not verified", 1: "the Mac not found or a step failed"}
+  platforms: [linux]
+  platforms_why: 'the Mac browser is cross-built on Linux (an old Mac cannot build a modern browser); install and verify reach the Mac over SSH (fieldkit mac)'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macair.py"]
+  notes: "Born 2026-10-22 when the owner made the MacBook Air a maintained target. Drives gorilla-firefox/macos-legacy/recreate-mac.sh (the public recipe, never copied here). preflight reads 17 Mac decisions from the source before a two-hour build (Sandy Bridge not native, fonts bundled, Segoe UI + Consolas, Segoe UI interface, thin greyscale text, About window and add-ons logo inside the 11-inch budget 669/459 px). verify on the Air: fonts held open, stroke of a known sentence on a neutral grey page (2.11 px, Linux 2.12), LCD colour 0 %."
+
+- id: fieldkit-mac
+  title: 'Reach an old Mac over SSH (a MacBook Air 2011 on macOS 10.13 and the like): find it when its address changes, check key, login and alias, read what it is, run a command on it'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, mac]
+  path: ${FIELDKIT}/fieldkit/mac/macssh.py
+  inputs:
+    - {name: command, type: choice, choices: [list, add, doctor, find, info, fix-alias, run], required: true, help: "doctor first; fix-alias and add change files"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "fix-alias: write ~/.ssh/config (the old file is kept in Trash)"}
+    - {name: save, flag: --save, type: flag, required: false, help: "find: record today's address"}
+    - {name: json, flag: --json, type: flag, required: false, help: "info as JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: changes
+  output: own
+  exits: {1: "a fault, or the Mac not found", 2: "refused (nothing to run, bad hardware address)"}
+  platforms: [linux]
+  platforms_why: 'finds the Mac with avahi-resolve and ip neigh (Linux); the Mac end needs only Remote Login (sshd), which macOS has had since 10.0'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macssh.py"]
+  notes: "Born 2026-10-22: the owner's MacBook Air 4,1 (macOS 10.13.6, out of Apple support) is the Gorilla Mac browser's test target, and the way to reach it lived only in handover notes, one of them wrong. Tests the connection every time; finds the Mac by mDNS name, else hardware address in the neighbour table, else after a ping sweep (all three proven live). Names, addresses and keys live in local/macs.json (git-ignored), never in code."
+
+- id: fieldkit-firmware-check
+  title: A device plugged in that does not work because its firmware is missing (USB Wi-Fi sticks, network cards), built-in kernel drivers included
+  harness: fieldkit
+  entry: [python, -m, fieldkit, firmware, check]
+  path: ${FIELDKIT}/fieldkit/firmware/fwcheck.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: 'reads /sys, the kernel log and /lib/modules: a Linux kernel'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_fwcheck.py"]
+  notes: "Born 2026-10-22: the ALFA AWUS036NH (RT3070, rt2800usb built into the monolithic kernel) never came up, 'Direct firmware load for rt2870.bin failed' 22 times, and the stick reset off the bus between tries. Reads present USB/PCI devices, the firmware each driver declares (modules.builtin.modinfo for built-ins, modinfo for modules), /lib/firmware (plain, .xz, .zst), CONFIG_EXTRA_FIRMWARE and the kernel log; a failed load is a finding even when the device has just reset away; a driver that lists many files and loaded one is only noted. Names the fix (CONFIG_EXTRA_FIRMWARE for a built-in driver), changes nothing."
+
+- id: fieldkit-leftovers
+  title: Leftovers on a Linux desktop (removed-not-purged packages, duplicate or dead login launchers, VM helpers on real hardware, dead menu entries and user services), shown first, cleaned on request, undoable
+  harness: fieldkit
+  entry: [python, -m, fieldkit, leftovers]
+  path: ${FIELDKIT}/fieldkit/leftovers/leftovers.py
+  inputs:
+    - {name: command, type: choice, choices: [scan, clean, restore, doctor], required: true, help: "scan is read-only; clean prints the plan unless --apply"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "carry the plan out (clean, restore)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "scan as JSON"}
+  effects: [reads-files, writes-files, deletes-files, admin, services]
+  safety: changes
+  output: own
+  exits: {1: "clean or restore failed, or the login check did not pass", 2: "an id that is not a current finding", 3: findings}
+  platforms: [linux]
+  platforms_why: 'XDG autostart, desktop menu entries, systemd user units and dpkg exist only on a Linux desktop'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_leftovers.py"]
+  notes: "Born 2026-10-22 from a theme scrambled by a removed package's leftover launcher. Never stops a process, never edits a file an installed package owns (a user-level Hidden=true override instead), never touches the current session; copies everything into ~/Agents.Work.Trash/leftovers-<time>/ with a manifest before changing it; after --apply rescans and runs a login-safety check. Masks, TryExec self-hides, OnlyShowIn and DesktopNames are honoured."
+
 - id: fieldkit-gtk-theme-check
-  title: A GTK theme that changes when a window loses focus, or a theme fix that does not show on screen
+  title: A GTK theme that changes when a window loses focus, is scrambled after a login, or a theme fix that does not show on screen
   harness: fieldkit
   entry: [python, -m, fieldkit, gtk-theme, check]
   path: ${FIELDKIT}/fieldkit/gtktheme/gtkcheck.py
@@ -1031,7 +1101,7 @@ tools:
   platforms: [linux]
   platforms_why: 'GTK user stylesheets (~/.config/gtk-*/gtk.css) and the libadwaita/GTK libraries it reads exist only on a Linux desktop'
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_gtktheme.py"]
-  notes: "Reads the unfocused-window (:backdrop) rules embedded in libadwaita, GTK4 and GTK3 on THIS machine and checks ~/.config/gtk-*/gtk.css against them; lists GTK programs started before the stylesheet was written; runs /usr/bin/black-gorilla-theme into a throwaway HOME to compare. Born 2026-10-20."
+  notes: "Reads the unfocused-window (:backdrop) rules embedded in libadwaita, GTK4 and GTK3 on THIS machine and checks ~/.config/gtk-*/gtk.css against them; lists GTK programs started before the stylesheet was written; runs /usr/bin/black-gorilla-theme into a throwaway HOME to compare. Born 2026-10-20. Since 2026-10-22 also: a stylesheet scrambled by two writers (theme block twice, or BEGIN/END not paired) and duplicate login launchers starting the same program (leftover autostart files of removed, dpkg-state rc, packages)."
 
 # --- academic work (fieldkit academic): one card per command, so an agent can reach each one ----
 
@@ -3008,6 +3078,22 @@ tools:
   platforms: [windows, linux]
   changes: false
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]
+
+- id: shot-look
+  title: 'Compare two screenshots the way a person does: find the place (grid), cut it out (crop), enlarge without smoothing (zoom), stack two, contact sheet, and measure text (stroke width, blur, coloured smoothing)'
+  harness: shot
+  entry: [python, -m, fieldkit, shot]
+  path: ${FIELDKIT}/fieldkit/shot/look.py
+  inputs:
+    - {name: command, type: choice, choices: [grid, crop, zoom, stack, sheet, text, text-compare], required: true, help: "text-compare A BOX B BOX measures the same text on two screens"}
+    - {name: json, flag: --json, type: flag, required: false, help: "text, text-compare as JSON"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'pure Python with Pillow; never changes its inputs, writes the new picture next to the first one'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_shot_look.py"]
+  notes: "Born 2026-10-22: the owner's Linux about:about was thin and crisp, the MacBook Air's 'oversmoothed thick blurry almost'. Crop the same sentence from both, zoom 3x NEAREST, stack, text-compare: Mac strokes 2.97 px vs Linux 2.12 px (1.40x), taller extent (a different font: macOS's own interface font, not Segoe UI). Same tool showed Segoe UI vs Segoe UI Variable on the Air at 1.00x. Numbers are relative: same text, same size, two screens. With fieldkit mac shot NAME for the Mac's screen."
 
 - id: shot-speedtest
   title: Pull download, upload and ping off a speedtest screenshot (never guesses)
