@@ -2022,9 +2022,10 @@
    "linux",
    "windows"
   ],
-  "why": "",
+  "why": "pure Python with Pillow; never changes its inputs, writes the new picture next to the first one",
   "ids": [
-   "shot"
+   "shot",
+   "shot-look"
   ]
  },
  "shot speedtest": {

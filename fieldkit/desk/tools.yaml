@@ -2887,6 +2887,22 @@ tools:
   changes: false
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_shot.py"]
 
+- id: shot-look
+  title: 'Compare two screenshots the way a person does: find the place (grid), cut it out (crop), enlarge without smoothing (zoom), stack two, contact sheet, and measure text (stroke width, blur, coloured smoothing)'
+  harness: shot
+  entry: [python, -m, fieldkit, shot]
+  path: ${FIELDKIT}/fieldkit/shot/look.py
+  inputs:
+    - {name: command, type: choice, choices: [grid, crop, zoom, stack, sheet, text, text-compare], required: true, help: "text-compare A BOX B BOX measures the same text on two screens"}
+    - {name: json, flag: --json, type: flag, required: false, help: "text, text-compare as JSON"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'pure Python with Pillow; never changes its inputs, writes the new picture next to the first one'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_shot_look.py"]
+  notes: "Born 2026-10-22: the owner's Linux about:about was thin and crisp, the MacBook Air's 'oversmoothed thick blurry almost'. Crop the same sentence from both, zoom 3x NEAREST, stack, text-compare: Mac strokes 2.97 px vs Linux 2.12 px (1.40x), taller extent (a different font: macOS's own interface font, not Segoe UI). Same tool showed Segoe UI vs Segoe UI Variable on the Air at 1.00x. Numbers are relative: same text, same size, two screens. With fieldkit mac shot NAME for the Mac's screen."
+
 - id: shot-speedtest
   title: Pull download, upload and ping off a speedtest screenshot (never guesses)
   harness: shot

@@ -124,3 +124,9 @@ def test_the_code_holds_no_private_address():
     found = set(re.findall(r"\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", src.lower()))
     assert found <= {"aa:bb:cc:dd:ee:ff"}                       # only the placeholder in a message, no real one
     assert "192.168.1." not in src and "id_ed25519_macair" not in src
+
+
+def test_one_argument_is_a_shell_line_several_are_words():
+    # 2026-10-22: run macair -- 'pgrep -x firefox; ls ...' was quoted whole and the Mac answered exit 127
+    assert M.remote_line(["pgrep -x firefox; df -h /"]) == "pgrep -x firefox; df -h /"
+    assert M.remote_line(["echo", "quoted 'arg' ok"]) == "echo 'quoted '\"'\"'arg'\"'\"' ok'"

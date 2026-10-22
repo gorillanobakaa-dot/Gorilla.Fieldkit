@@ -40,7 +40,7 @@ groups:
     title: Which interface carries your traffic, what kind of line it is, and what antenna the cellular bands need
     sources: [net/*.py]
   - name: shot
-    title: Reading numbers off a screenshot, and reasoning about which layer is limiting
+    title: Reading numbers off a screenshot and reasoning about which layer is limiting; cropping, enlarging and comparing screenshots and measuring their text
     sources: [shot/*.py]
   - name: voice
     title: A voice worth listening to, on Linux (piper, speech-dispatcher, the loudness chain)

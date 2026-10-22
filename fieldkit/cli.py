@@ -49,6 +49,7 @@
     fieldkit wifi card                                  what this machine's radio can actually do
     fieldkit wifi gui                                   the same thing in a clickable window
     fieldkit shot read|speedtest|verdict FILE...        read numbers off a screenshot (fieldkit/shot)
+    fieldkit shot grid|crop|zoom|stack|sheet|text|text-compare   crop, enlarge, compare screenshots, measure text
     fieldkit snapshot take NAME [--path DIR...] [--services --tasks --programs --processes]
     fieldkit snapshot diff BEFORE AFTER          exit 3 when something changed
     fieldkit lifecycle SPEC.yaml --approve       install, verify, uninstall; report leftovers (exit 3)
@@ -2360,6 +2361,10 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["shot"] and args[1:2] and args[1] in ("grid", "crop", "zoom", "stack", "sheet", "text",
+                                                           "text-compare"):
+        from .shot import look                        # look has its own parser; read/speedtest/verdict stay below
+        return look.main(args[1:], prog="fieldkit shot")
     if args[:1] == ["mac"]:                           # macssh has its own parser: every argument goes to it
         from .mac import macssh
         return macssh.main(args[1:], prog="fieldkit mac")

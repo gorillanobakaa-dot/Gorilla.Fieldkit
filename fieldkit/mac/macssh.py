@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.0.0 · updated 26-10-22-16-40
+# Version: 1.1.0 · updated 26-10-22-18-40
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -9,6 +9,7 @@
     fieldkit mac info NAME [--json]                    model, CPU, memory, macOS, disk, uptime, read from the Mac
     fieldkit mac fix-alias NAME [--ip] [--apply]       the "Host NAME" entry in ~/.ssh/config (old one kept in Trash)
     fieldkit mac run NAME -- COMMAND ...               run a command on the Mac; its exit code is this tool's
+    fieldkit mac shot NAME [--out FILE]                the Mac's screen now (screencapture), fetched to this machine
 
 Born 2026-10-22. The owner's MacBook Air 4,1 (2011, macOS 10.13.6, no longer supported by Apple) is a test target
 of the Gorilla browser, reached from the Linux box over SSH. The way to reach it lived only in handover notes, and one
@@ -152,6 +153,35 @@ def ssh_argv(mac, address, command=None, batch=True):
     return argv
 
 
+def remote_line(words):
+    """The line the Mac's shell runs. ONE argument is already a shell line ('a; b | c') and goes as it is; several
+    are separate words and are quoted so each stays one word. (2026-10-22: quoting a single 'pgrep ...; ls ...'
+    made the Mac look for a program of that whole name: exit 127.)"""
+    return words[0] if len(words) == 1 else shlex.join(words)
+
+
+def scp_argv(mac, address, remote, local):
+    return ["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", f"HostKeyAlias={mac['host_key_alias']}",
+            "-o", "IdentitiesOnly=yes", "-i", os.path.expanduser(mac["key"]), f"{mac['user']}@{address}:{remote}", local]
+
+
+def take_shot(mac, address, remote, out, runner=None, tries=3):
+    """screencapture on the Mac, then fetch it. A home Wi-Fi drops SSH for seconds at a time (seen twice on
+    2026-10-22): each step is tried up to three times before it counts as failed."""
+    for step, argv in (("capture", ssh_argv(mac, address, f"screencapture -x {remote}")),
+                       ("fetch", scp_argv(mac, address, remote, out))):
+        for attempt in range(tries):
+            rc, msg = _run(argv, timeout=60, runner=runner)
+            if rc == 0:
+                break
+        else:
+            print(f"FAILED {step}: {msg}")
+            return 1
+    _run(ssh_argv(mac, address, f"rm -f {remote}"), timeout=20, runner=runner)
+    print(f"{out}  (the Mac's screen; next: fieldkit shot grid {out})")
+    return 0
+
+
 INFO = ("sw_vers -productVersion; sysctl -n hw.model; sysctl -n machdep.cpu.brand_string; sysctl -n hw.memsize; "
         "df -h / | tail -1 | awk '{print $3 \" used of \" $2 \", \" $4 \" free\"}'; uptime")
 
@@ -277,6 +307,9 @@ def main(argv=None, prog="macssh.py"):
     x.add_argument("name")
     x.add_argument("--ip", action="store_true", help="write today's address instead of the mDNS name")
     x.add_argument("--apply", action="store_true")
+    sh = sp.add_parser("shot", help="the Mac's screen now, fetched here (then fieldkit shot crop/stack/text-compare)")
+    sh.add_argument("name")
+    sh.add_argument("--out", help="where to put it (default: ./NAME-screen-<time>.png)")
     r = sp.add_parser("run", help="run a command on the Mac")
     r.add_argument("name")
     r.add_argument("command", nargs=argparse.REMAINDER)
@@ -340,6 +373,14 @@ def main(argv=None, prog="macssh.py"):
         rc, _ = _run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", o.name, "true"], timeout=20)
         print(f"ssh {o.name}: {'works' if rc == 0 else 'still fails, run doctor'}")
         return 0 if rc == 0 else 1
+    if o.cmd == "shot":
+        address, how = find(mac)
+        if not address:
+            print(f"NOT FOUND: {how}")
+            return 1
+        remote = f"/tmp/fieldkit-shot-{datetime.datetime.now():%y%m%d%H%M%S}.png"
+        out = o.out or f"{o.name}-screen-{datetime.datetime.now():%y-%m-%d-%H-%M-%S}.png"
+        return take_shot(mac, address, remote, out)
     if o.cmd == "run":
         cmd = o.command[1:] if o.command[:1] == ["--"] else o.command
         if not cmd:
@@ -349,7 +390,7 @@ def main(argv=None, prog="macssh.py"):
         if not address:
             print(f"NOT FOUND: {how}", file=sys.stderr)
             return 1
-        return subprocess.run(ssh_argv(mac, address, shlex.join(cmd), batch=False)).returncode
+        return subprocess.run(ssh_argv(mac, address, remote_line(cmd), batch=False)).returncode
     return 2
 
 

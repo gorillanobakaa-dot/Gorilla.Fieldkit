@@ -267,6 +267,24 @@ SYMPTOMS = [
         "then": "restart what it lists; a service app needs its quit command, not its window closed",
     },
     {
+        "id": "text-looks-different-on-two-screens",
+        "seen": "The same page or app looks different on two machines: text thin and crisp on one, thick, bold, blurry or "
+                "over-smoothed on the other; or a font looks wrong and nobody can say which font or why.",
+        "example": "here the fonts are thin crisp, on the mac they look oversmoothed thick blurry, is that antialias or serif",
+        "words": [r"font|text|letters|typeface|segoe|serif|antialias|anti-alias|smooth|hinting",
+                  r"thick|thin|bold|blurr?y|crisp|sharp|fuzzy|soft|oversmooth|readab|compare|difference|different"],
+        "action": "shot",
+        "run": "fieldkit shot text-compare A X,Y,W,H B X,Y,W,H --out both.png",
+        "proves": "stroke width in pixels, ink share, blur (half-tone pixels), coloured (LCD) smoothing and extent of the "
+                  "SAME text on two screenshots, with the two boxes stacked at 3x; a different extent means a different font",
+        "look": ["fieldkit shot grid FILE to find the box; fieldkit shot crop FILE BOX --zoom 3 to see pixels",
+                 "fieldkit mac shot NAME to fetch an old Mac's screen", "which font is drawn: browser UI and about: pages "
+                 "use the OS interface font, web pages the browser's default (D-158-12/21)"],
+        "last_fix": "2026-10-22: about:about on the MacBook Air: strokes 1.40x the Linux ones (2.97 vs 2.12 px) and taller "
+                    "text: macOS's interface font with its stroke-widening smoothing, not Segoe UI; not serif",
+        "then": "change ONE thing (the font, or -moz-osx-font-smoothing), take the same screenshot, text-compare again",
+    },
+    {
         "id": "old-mac-unreachable",
         "seen": "The old Mac (MacBook Air or another out-of-support Mac) cannot be reached over SSH, its address changed, "
                 "the ssh alias stopped working, or a session does not know how to connect to it.",
