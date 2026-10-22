@@ -96,6 +96,16 @@ def test_no_decode_packets_is_no_hardware_decode(tmp_path):
     assert "VERDICT: NO HARDWARE DECODE" in outp
 
 
+def test_a_trace_that_lost_its_gpu_data_is_not_a_no():
+    # 2026-10-22: a -filemode trace of 30 s playback held 2 packets (Explorer, DWM). That is a broken
+    # recording, and must never read as "no hardware decoding".
+    packets = [{"adapter": "Intel(R) Iris(R) Xe Graphics", "process": p, "node": 1, "count": 1,
+                "gpu_us": 500.0, "start": 27.9} for p in ("explorer.exe (4932)", "dwm.exe (1960)")]
+    result, code = gd.judge(packets, engines())
+    assert code == 1
+    assert result["verdict"].startswith("INCOMPLETE TRACE: only 2 GPU packets")
+
+
 def test_wpa_nodes_count_from_one(tmp_path):
     # Shift the map by one (engine 2 = VideoDecode): node 2 is then Copy, and the verdict must not
     # call it a decode. Counting nodes from 0 would make this pass wrongly.
@@ -180,7 +190,9 @@ def test_trace_script_never_cancels_someone_elses_trace(tmp_path):
     s = gd.trace_script(tmp_path / "gpu.etl", 30, tmp_path / "done")
     assert "-cancel" not in s
     assert "WPR is recording" in s and "BUSY" in s
-    assert "-start GPU -start Video -filemode" in s
+    assert "-start GPU -start Video" in s
+    # -filemode lost the GPU packets (2 left in a 30 s playback trace, 2026-10-22)
+    assert "-filemode" not in s
     assert "Start-Sleep -Seconds 30" in s
     assert s.index("-status") < s.index("-start GPU")
 
@@ -190,6 +202,20 @@ def test_trace_refuses_without_yes_and_bad_lengths(tmp_path):
     assert code == 2 and "--yes" in outp
     assert not (tmp_path / "t").exists()
     assert run("trace", "--seconds", "600", "--yes", "--out", tmp_path / "t")[0] == 2
+
+
+def test_read_refuses_a_missing_trace(tmp_path):
+    code, outp = run("read", tmp_path / "nothing.etl")
+    assert code == 1 and "no such trace" in outp
+
+
+def test_manual_command_is_the_one_proven_by_hand():
+    # 2026-10-22: this exact line, pasted into an admin PowerShell, recorded 3,220 VideoDecode packets
+    cmd = gd.manual_command(r"C:\x\gpu-30s.etl", 30)
+    assert cmd.startswith("cd $HOME; ")
+    assert r"C:\Windows\System32\wpr.exe -start GPU -start Video; Start-Sleep -Seconds 30; " in cmd
+    assert cmd.endswith(r'C:\Windows\System32\wpr.exe -stop "C:\x\gpu-30s.etl"')
+    assert "-filemode" not in cmd and "&&" not in cmd
 
 
 def test_adk_install_refuses_without_yes():

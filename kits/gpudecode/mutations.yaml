@@ -40,6 +40,12 @@
   swap: ["        return 2\n    outdir.mkdir(parents=True, exist_ok=True)", "        pass\n    outdir.mkdir(parents=True, exist_ok=True)"]
   why: trace does nothing without --yes
 - file: kits/gpudecode/gpudecode.py
+  swap: ["-start GPU -start Video\",", "-start GPU -start Video -filemode\","]
+  why: memory mode only; -filemode loses the GPU packets
+- file: kits/gpudecode/gpudecode.py
+  swap: ['elif sum(p["count"] for p in packets) < MIN_TRACE_PACKETS:', 'elif False:']
+  why: a trace that lost its GPU data is INCOMPLETE, never a no
+- file: kits/gpudecode/gpudecode.py
   swap: ['if process and process.lower() not in p["process"].lower():', 'if False:']
   why: the verdict is about the named browser only
 - file: kits/gpudecode/gpudecode.py

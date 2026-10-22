@@ -13,6 +13,7 @@ does not. Procedure: skill fieldkit-gpudecode.
                                                per-process engine use from the built-in counters (no admin)
   gpudecode.py trace [--seconds 30] [--out DIR] --yes
                                                one UAC prompt: record GPU work with wpr, export, verdict
+  gpudecode.py read ETL [--out DIR]            a .etl recorded by hand -> export + verdict + RESULTS.md
   gpudecode.py export ETL [--out DIR]          an existing .etl -> packets CSV (needs the toolkit)
   gpudecode.py verdict CSV --engines FILE [--process firefox] [--json]
                                                the answer: VideoDecode packets per process, rate, timing
@@ -23,7 +24,7 @@ The engine map matters: WPA numbers the engines of a GPU from 1 (its A/N/E colum
 Windows counters from 0. Node N is counter engine N-1. Measured 2026-10-22 on Intel Iris Xe:
 Firefox's packets went to nodes 1, 2 and 4 = 3D, VideoDecode and VideoProcessing.
 
-Trace size: about 15 MB per second of GPU+Video recording (430 s = 6.3 GB, measured). Never convert
+Trace size: about 40 MB per requested second (30 s = 1.2 GB; wpr stops ~24 s after; measured). Never convert
 a whole trace to XML with tracerpt: 30 s of trace became more than 43 GB of XML before it was stopped.
 
 Doors: none in doctor/engines/live/export/verdict (no network, no install). trace needs one UAC
@@ -52,9 +53,10 @@ HERE = Path(__file__).resolve().parent
 PROFILE = HERE / "gpu-packets.wpaProfile"
 ADK_URL = "https://go.microsoft.com/fwlink/?linkid=2289980"   # adksetup.exe (checked 2026-10-21)
 ADK_FEATURE = "OptionId.WindowsPerformanceToolkit"
-BYTES_PER_SECOND = 15 << 20      # measured trace growth, GPU+Video profiles
+BYTES_PER_SECOND = 40 << 20      # per requested second: 30 s gave 1.2 GB (2026-10-22, working trace)
 SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
 VIDEO_ENGINE = "VideoDecode"
+MIN_TRACE_PACKETS = 100        # fewer in a whole trace = an idle screen (measured: 2 packets, 68 vsyncs in 30 s), never a "no"
 SOFTWARE = "software (CPU)"     # Windows' software renderer: every node of it is the CPU
 INSTANCE_RE = re.compile(
     r"pid_(?P<pid>\d+)_luid_(?P<luid>0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)_phys_(?P<phys>\d+)"
@@ -245,7 +247,7 @@ def cmd_doctor(a):
     lines.append(f"Video-engine counters: {'yes' if d['counters_video_decode'] else 'NO (older driver or none; use trace)'}")
     lines.append(f"wpr.exe (records the trace, ships with Windows): {'yes' if d['wpr'] else 'MISSING'}")
     lines.append(f"Windows Performance Toolkit (WPA + wpaexporter): {d['toolkit'] or 'not installed (gpudecode adk plan)'}")
-    lines.append(f"Free space for a trace: {d['free_bytes'] // (1 << 30)} GB (30 s needs about 0.5 GB)")
+    lines.append(f"Free space for a trace: {d['free_bytes'] // (1 << 30)} GB (30 s needs about 1.2 GB)")
     lines.append(f"Browsers found: {', '.join(d['browsers']) or 'none in Program Files'}")
     lines.append(f"Methods that work here: {'; '.join(d['methods']) or 'none'}")
     lines.append("VERDICT: READY for trace + verdict" if d["ready"] else
@@ -411,6 +413,12 @@ def judge(packets, engines, process="firefox"):
                    f"(WPA node {best['node']}) from {best['first_s']} s to {best['last_s']} s, "
                    f"steady {best['per_second']} per second over {best['busy_seconds']} s - one per video frame")
         code = 0
+    elif sum(p["count"] for p in packets) < MIN_TRACE_PACKETS:
+        verdict = (f"INCOMPLETE TRACE: only {sum(p['count'] for p in packets)} GPU packets in the whole recording "
+                   "(a playing video makes hundreds a second): the screen was idle - the video was paused, or "
+                   "the browser window was hidden or minimized (it then stops drawing). Play the video in a "
+                   "VISIBLE window and record again")
+        code = 1
     elif unknown:
         verdict = ("UNKNOWN: engine names could not be matched to WPA nodes (no engine map, or two GPUs with "
                    "video engines); run 'gpudecode engines --save' on the machine that recorded the trace")
@@ -466,7 +474,8 @@ def trace_script(etl, seconds, marker):
         f"  'BUSY another trace is already running; nothing was started' | Out-File -Encoding utf8 '{marker}'",
         "  exit 3",
         "}",
-        f"& '{wpr}' -start GPU -start Video -filemode",
+        # Memory mode, the exact command proven by hand (2026-10-22: 30 s, 3,220 VideoDecode packets).
+        f"& '{wpr}' -start GPU -start Video",
         f"if ($LASTEXITCODE -ne 0) {{ \"FAILED start $LASTEXITCODE\" | Out-File -Encoding utf8 '{marker}'; exit 1 }}",
         f"Start-Sleep -Seconds {int(seconds)}",
         f"& '{wpr}' -stop '{etl}'",
@@ -482,7 +491,7 @@ def cmd_trace(a):
         print(f"refused: {free >> 20} MB free, {need >> 20} MB needed for {a.seconds} s", file=sys.stderr)
         return 1
     if not a.yes:
-        print(f"This records ALL GPU work on this computer for {a.seconds} s (about {a.seconds * 15} MB), "
+        print(f"This records ALL GPU work on this computer for {a.seconds} s (about {a.seconds * 40} MB), "
               "after one Windows admin prompt (UAC). Re-run with --yes to start.")
         return 2
     outdir.mkdir(parents=True, exist_ok=True)
@@ -492,8 +501,11 @@ def cmd_trace(a):
          "note": "WPA node N = engine N-1"}, indent=2), encoding="utf-8")
     ps1.write_text(trace_script(etl, a.seconds, marker), encoding="utf-8-sig")
     print(f"Click YES on the Windows prompt, then play the video. Recording {a.seconds} s.", flush=True)
-    code, so, se = powershell(f"Start-Process -FilePath powershell.exe -Verb RunAs -Wait -WindowStyle Minimized "
-                              f"-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','\"{ps1}\"'",
+    # A normal, visible admin window, like the run that worked by hand. Measured 2026-10-22: launched
+    # minimized with -NoProfile, three 30 s traces held 2-5 GPU packets while the counters showed
+    # Firefox's VideoDecode engine busy; the same commands typed into an admin window held 3,220.
+    code, so, se = powershell(f"Start-Process -FilePath powershell.exe -Verb RunAs -Wait "
+                              f"-ArgumentList '-ExecutionPolicy','Bypass','-File','\"{ps1}\"'",
                               timeout=a.seconds + 600)
     status = marker.read_text(encoding="utf-8-sig", errors="replace").strip() if marker.is_file() else ""
     if not status.startswith("DONE 0") or not etl.is_file():
@@ -503,18 +515,47 @@ def cmd_trace(a):
     if not toolkit_dir():
         print("VERDICT: NOT READY - recorded, but reading it needs the toolkit: gpudecode adk plan")
         return 3
+    return read_and_judge(etl, outdir, a.process, a.seconds)
+
+
+def manual_command(etl, seconds):
+    """The command a person pastes into an administrator PowerShell: the method proven by hand."""
+    return (f"cd $HOME; C:\\Windows\\System32\\wpr.exe -start GPU -start Video; Start-Sleep -Seconds {int(seconds)}; "
+            f"C:\\Windows\\System32\\wpr.exe -stop \"{etl}\"")
+
+
+def read_and_judge(etl, outdir, process, seconds=None):
+    engines_file = outdir / "engines.json"
+    if not engines_file.is_file():
+        engines_file.write_text(json.dumps(
+            {"gpus": {l: {str(k): v for k, v in e.items()} for l, e in read_engines().items()},
+             "note": "WPA node N = engine N-1"}, indent=2), encoding="utf-8")
     csvp = export(etl, outdir / "export")
-    result, code = judge(read_packets(csvp), json.loads((outdir / "engines.json").read_text(encoding="utf-8")),
-                         a.process)
+    result, code = judge(read_packets(csvp), json.loads(engines_file.read_text(encoding="utf-8")), process)
     (outdir / "verdict.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-    write_results_md(outdir, result, a.seconds)
+    write_results_md(outdir, result, seconds)
     print(f"VERDICT: {result['verdict']}\nresults: {outdir / 'RESULTS.md'}")
+    if result["verdict"].startswith("INCOMPLETE"):
+        print("If the video WAS playing in a visible window, record by hand instead: open PowerShell as "
+              "administrator, paste the line below, then run: gpudecode read FILE\n"
+              + manual_command(Path.home() / "Desktop" / "gpu-30s.etl", seconds or 30))
     return code
+
+
+def cmd_read(a):
+    etl = Path(a.etl).resolve()
+    if not etl.is_file():
+        print(f"no such trace: {etl}", file=sys.stderr)
+        return 1
+    outdir = Path(a.out).resolve() if a.out else etl.with_name(etl.stem + "-gpudecode")
+    outdir.mkdir(parents=True, exist_ok=True)
+    return read_and_judge(etl, outdir, a.process)
 
 
 def write_results_md(outdir, result, seconds):
     lines = ["# GPU video decoding check", "",
-             f"Recorded {seconds} s with wpr.exe (Windows), read with wpaexporter.exe (Windows Performance Toolkit).",
+             (f"Recorded {seconds} s with wpr.exe (Windows)" if seconds else "Recorded with wpr.exe (Windows)")
+             + ", read with wpaexporter.exe (Windows Performance Toolkit).",
              "", f"**VERDICT:** {result['verdict']}", "",
              "| process | WPA node | engine | packets | GPU seconds | per second |", "|---|---|---|---|---|---|"]
     for r in result["rows"]:
@@ -617,6 +658,8 @@ def main(argv=None):
     p.add_argument("--process", default="firefox"); p.add_argument("--yes", action="store_true")
     p.set_defaults(fn=cmd_trace)
     p = sub.add_parser("export"); p.add_argument("etl"); p.add_argument("--out"); p.set_defaults(fn=cmd_export)
+    p = sub.add_parser("read"); p.add_argument("etl"); p.add_argument("--out")
+    p.add_argument("--process", default="firefox"); p.set_defaults(fn=cmd_read)
     p = sub.add_parser("verdict"); p.add_argument("csv"); p.add_argument("--engines", required=True)
     p.add_argument("--process", default="firefox"); p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_verdict)
@@ -625,7 +668,7 @@ def main(argv=None):
     p = sub.add_parser("explain"); p.set_defaults(fn=lambda a: print(EXPLAIN) or 0)
     a = ap.parse_args(argv)
     if a.cmd == "trace" and not 5 <= a.seconds <= 120:
-        ap.error("--seconds must be 5..120 (about 15 MB per second)")
+        ap.error("--seconds must be 5..120 (about 40 MB per second)")
     return a.fn(a)
 
 

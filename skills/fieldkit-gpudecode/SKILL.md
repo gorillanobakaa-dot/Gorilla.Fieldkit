@@ -61,7 +61,7 @@ Manager engine + 1, from `engines.json`). The release page text with screenshots
 ## Never
 
 - Never convert a trace with `tracerpt` to XML: 30 s of trace became more than 43 GB (2026-10-22).
-- Never record longer than needed: about 15 MB per second.
+- Never record longer than needed: about 40 MB per second (30 s = 1.2 GB).
 - Never cancel someone else's `wpr` session (`trace` refuses while one runs).
 - Never send the .etl anywhere: it records every program's GPU work on the machine.
 - Never let WPA load symbols (Microsoft's symbol server): not needed for this.
@@ -70,4 +70,7 @@ Manager engine + 1, from `engines.json`). The release page text with screenshots
 
 16,803 VideoDecode packets, 599-600 per 10 s (60.0/s) from 110 s to 380 s; VideoProcessing 16,030; 3D 52,592
 (180/s). Engine map from `typeperf -qx "GPU Engine"`: 0 3D, 1 VideoDecode, 2 Copy, 3 VideoProcessing,
-4 VideoDecode. A 430 s trace was 6.3 GB; wpaexporter read it in under a minute.
+4 VideoDecode (Iris Xe has two decoders: a second 30 s run used node 5, engine 4). A 430 s trace was
+6.3 GB; wpaexporter read it in under a minute. `trace` must open a NORMAL visible admin window: launched
+minimized with -NoProfile, three traces held 2-5 GPU packets while the video was decoding (2026-10-22);
+if `trace` says INCOMPLETE with the video visibly playing, use the pasted command it prints, then `read`.
