@@ -2527,6 +2527,20 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_videokit.py", -p, "no:cacheprovider"]
   notes: "Writes the output named plus an analysis cache in ~/.cache/videokit (VIDEOKIT_CACHE; safe to delete); the source is never touched. Needs numpy, Pillow, opencv-python and a full ffmpeg build (doctor checks; NOT the PyPI vidstab package). Long-video proof: kits/videokit/bench_long.py. Procedure: skill fieldkit-video-edit."
+- id: gpudecode
+  title: "Prove a browser decodes video on the GPU's video engine (Windows): doctor (GPUs, drivers, the no-driver trap, which methods work), engines (engine number -> type; WPA node = engine + 1), live (built-in counters, no admin), trace (wpr, one UAC prompt) + export (wpaexporter) + verdict (VideoDecode packets per process, steady rate), adk plan/install (Windows Performance Toolkit only, Microsoft-signed, CEIP off)"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/gpudecode/gpudecode.py"]
+  path: ${FIELDKIT}/kits/gpudecode/gpudecode.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--json] | engines [--save F] | live [--seconds N] [--process P] | trace [--seconds N] [--out DIR] --yes | export ETL [--out DIR] | verdict CSV --engines F [--process P] | adk plan | adk install --yes | explain"}
+  effects: [reads-files, writes-files, processes, admin, network]   # admin: trace and adk install (one UAC prompt each); network: adk install only
+  safety: reversible
+  platforms: [windows]
+  platforms_why: "wpr/ETW, the GPU Engine counters and the Windows Performance Toolkit exist only on Windows; Linux has intel_gpu_top, macOS gets its own backend (DTrace on the Intel decoder bundle + a VideoToolbox hardware-only session), planned"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_gpudecode.py", -p, "no:cacheprovider"]
+  notes: "Evidence from Microsoft's own tools: wpr.exe (ships with Windows) records the kernel graphics scheduler's work packets; wpaexporter.exe (Windows Performance Toolkit, Windows ADK) exports them, one CSV row per packet, through kits/gpudecode/gpu-packets.wpaProfile. Hardware decoding = the browser's packets on a VideoDecode engine at about the video's frame rate (measured 2026-10-22, Gorilla on Iris Xe: 16,803 packets, steady 60/s on a 60 fps clip). Traces are ~40 MB per requested second (30 s = 1.2 GB) and record ALL GPU work on the machine: keep them local. NEVER tracerpt a trace to XML (30 s -> 43+ GB). trace refuses while another wpr session runs and never cancels it. Old Intel (HD 4000 and older): drivers are pre-WDDM 2.0, so live has no counters - use trace; they hardware-decode H.264 only. Procedure: skill fieldkit-gpudecode."
+
 - id: catchup
   title: "Machine catch-up handover: repos (ahead/behind, token-free remotes), collect (memory, instructions, private tools, unpushed diffs/patches/untracked, bundles for repos with no remote), check (secrets fail it), public-check (Romanian text and private names before anything goes public), pack (verified zip to a stick, never overwrites)"
   harness: desk

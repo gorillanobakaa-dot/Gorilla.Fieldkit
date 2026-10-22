@@ -1,0 +1,56 @@
+# Rules tests/test_gpudecode.py must hold. Every one must be CAUGHT:
+#   fieldkit mutate --plan kits/gpudecode/mutations.yaml -- python -m pytest -q tests/test_gpudecode.py -p no:cacheprovider
+- file: kits/gpudecode/gpudecode.py
+  swap: ['{i + 1: t for i, t in next(iter(vg.values())).items()}', '{i: t for i, t in next(iter(vg.values())).items()}']
+  why: WPA node N is counter engine N-1
+- file: kits/gpudecode/gpudecode.py
+  swap: ['if "Basic Render" in name:', 'if "never" in name:']
+  why: the software renderer is never a video engine
+- file: kits/gpudecode/gpudecode.py
+  swap: ['elif len(vg) == 1:', 'elif len(vg) >= 1:']
+  why: two GPUs with video engines are UNKNOWN, never guessed
+- file: kits/gpudecode/gpudecode.py
+  swap: ['decode = [r for r in rows if r["engine"] == VIDEO_ENGINE]', 'decode = [r for r in rows if r["engine"] != "nothing"]']
+  why: only VideoDecode packets prove hardware decoding
+- file: kits/gpudecode/gpudecode.py
+  swap: ['"per_second": busy[len(busy) // 2]', '"per_second": busy[-1]']
+  why: the rate is the steady median, not the busiest second
+- file: kits/gpudecode/gpudecode.py
+  swap: ['if m["type"] or idx not in eng:', 'if True:']
+  why: a typed engine name wins over a blank one
+- file: kits/gpudecode/gpudecode.py
+  swap: ['return {l: e for l, e in gpus.items() if VIDEO_ENGINE in e.values()}', 'return dict(gpus)']
+  why: only GPUs with a video decoder count
+- file: kits/gpudecode/gpudecode.py
+  swap: ['if "Basic Display" in name:', 'if "never" in name:']
+  why: the no-driver adapter is reported as a problem
+- file: kits/gpudecode/gpudecode.py
+  swap: ['if "O=Microsoft Corporation" not in subject:', 'if False:']
+  why: the installer must be signed by Microsoft
+- file: kits/gpudecode/gpudecode.py
+  swap: ['if status not in ("0", "Valid"):', 'if False:']
+  why: the installer signature must be valid
+- file: kits/gpudecode/gpudecode.py
+  swap: ['"/ceip", "off"', '"/ceip", "on"']
+  why: the toolkit installs with CEIP (telemetry) off
+- file: kits/gpudecode/gpudecode.py
+  swap: ["\"if ($status -match 'WPR is recording') {\",", "\"if ($false) {\","]
+  why: a trace already running is never touched
+- file: kits/gpudecode/gpudecode.py
+  swap: ["        return 2\n    outdir.mkdir(parents=True, exist_ok=True)", "        pass\n    outdir.mkdir(parents=True, exist_ok=True)"]
+  why: trace does nothing without --yes
+- file: kits/gpudecode/gpudecode.py
+  swap: ["-start GPU -start Video\",", "-start GPU -start Video -filemode\","]
+  why: memory mode only; -filemode loses the GPU packets
+- file: kits/gpudecode/gpudecode.py
+  swap: ['elif sum(p["count"] for p in packets) < MIN_TRACE_PACKETS:', 'elif False:']
+  why: a trace that lost its GPU data is INCOMPLETE, never a no
+- file: kits/gpudecode/gpudecode.py
+  swap: ['if process and process.lower() not in p["process"].lower():', 'if False:']
+  why: the verdict is about the named browser only
+- file: kits/gpudecode/gpudecode.py
+  swap: ['if process and process.lower() not in name.lower():', 'if False:']
+  why: live counters are filtered to the named browser
+- file: kits/gpudecode/gpudecode.py
+  swap: ['"avg": round(s / c, 2) if c else 0.0', '"avg": round(s, 2) if c else 0.0']
+  why: live utilization is an average per sample
