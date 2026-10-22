@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WpaProfileContainer xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" Version="2" xmlns="http://tempuri.org/SerializableElement.xsd">
+  <Content xsi:type="WpaProfile2">
+    <Sessions>
+      <Session Index="0">
+        <FileReferences />
+      </Session>
+    </Sessions>
+    <Views>
+      <View Guid="911459f4-8d4b-40c1-855c-3346193dea22" IsVisible="true" Title="Analysis">
+        <Graphs>
+          <Graph Guid="b859d131-dfb5-4605-be19-810b298b6975" LayoutStyle="All" GraphHeight="316" IsMinimized="false" IsShown="true" IsExpanded="false">
+            <Preset Name="GPU by Adapter, Process" GraphChartType="StackedLine" BarGraphIntervalCount="50" IsThreadActivityTable="false" LeftFrozenColumnCount="0" RightFrozenColumnCount="18" KeyColumnCount="0" GraphColumnCount="19" InitialFilterShouldKeep="true" GraphFilterTopValue="0" GraphFilterThresholdValue="0">
+              <Columns>
+                <Column Name="Adapter" Guid="4e530693-5f47-4b0c-9cbc-f451e7c6ff0c" Width="194" IsVisible="true" SortPriority="1">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Process Name" Guid="267ef701-7c6d-11e2-be78-b4b52fe06835" Width="140" IsVisible="false" SortPriority="2">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Process" Guid="267ef702-7c6d-11e2-be78-b4b52fe06835" Width="140" IsVisible="true" SortPriority="3">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="A/N/E" Guid="267ef70a-7c6d-11e2-be78-b4b52fe06835" Width="64" IsVisible="true" SortPriority="4">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Type" Guid="267ef700-7c6d-11e2-be78-b4b52fe06835" Width="100" IsVisible="true" SortPriority="5">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="ThreadId" Guid="267ef703-7c6d-11e2-be78-b4b52fe06835" Width="60" IsVisible="false" SortPriority="6" TextAlignment="Right">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Thread Name" Guid="cb796d44-2927-5ac1-d231-4b71904c18f5" Width="80" IsVisible="false" SortPriority="7">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Thread Activity Tag" Guid="82ddfdff-ee93-5f35-08ac-4705069618dc" Width="80" IsVisible="false" SortPriority="8">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Annotation" Guid="2818954f-2d30-5569-4510-dade0a5a605c" Width="80" IsVisible="false" SortPriority="9">
+                  <AnnotationsOptionsParameter>
+                    <AnnotationQueryEntries />
+                  </AnnotationsOptionsParameter>
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Count" Guid="267ef704-7c6d-11e2-be78-b4b52fe06835" Width="77" IsVisible="true" AggregationMode="Count" SortOrder="Descending" SortPriority="0" TextAlignment="Right">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="GPU Time" Guid="267ef705-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Sum" SortPriority="11" TextAlignment="Right">
+                  <DurationInViewOptionsParameter TimeStampType="Start" InViewEnabled="false" />
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Initialized" Guid="267ef706-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Min" SortPriority="12" TextAlignment="Right">
+                  <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Submitted To HW" Guid="267ef707-7c6d-11e2-be78-b4b52fe06835" Width="130" IsVisible="true" AggregationMode="Min" SortPriority="13" TextAlignment="Right">
+                  <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Start Execution" Guid="267ef708-7c6d-11e2-be78-b4b52fe06835" Width="130" IsVisible="true" AggregationMode="Min" SortPriority="14" TextAlignment="Right">
+                  <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Finished" Guid="267ef709-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Max" SortPriority="15" TextAlignment="Right">
+                  <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="Percentage" Guid="267ef70b-7c6d-11e2-be78-b4b52fe06835" Width="150" IsVisible="true" AggregationMode="Sum" SortPriority="16" TextAlignment="Right">
+                  <ColorQueryEntries />
+                </Column>
+                <Column Name="GPU Time" Guid="267ef705-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Sum" SortPriority="17" TextAlignment="Right">
+                  <DurationInViewOptionsParameter TimeStampType="Start" InViewEnabled="false" />
+                  <ColorQueryEntries />
+                </Column>
+              </Columns>
+              <MetadataEntries>
+                <MetadataEntry Name="Start Execution" Guid="267ef708-7c6d-11e2-be78-b4b52fe06835" ColumnMetadata="StartTime" />
+                <MetadataEntry Name="GPU Time" Guid="267ef705-7c6d-11e2-be78-b4b52fe06835" ColumnMetadata="Duration" />
+              </MetadataEntries>
+              <HighlightEntries />
+            </Preset>
+          </Graph>
+        </Graphs>
+        <SessionIndices>
+          <SessionIndex>0</SessionIndex>
+        </SessionIndices>
+      </View>
+    </Views>
+    <ModifiedGraphs>
+      <GraphSchema Guid="b859d131-dfb5-4605-be19-810b298b6975">
+        <ModifiedPresets />
+        <PersistedPresets>
+          <Preset Name="GPU by Adapter, Process" GraphChartType="StackedLine" BarGraphIntervalCount="50" IsThreadActivityTable="false" LeftFrozenColumnCount="0" RightFrozenColumnCount="18" KeyColumnCount="0" GraphColumnCount="19" InitialFilterShouldKeep="true" GraphFilterTopValue="0" GraphFilterThresholdValue="0">
+            <Columns>
+              <Column Name="Adapter" Guid="4e530693-5f47-4b0c-9cbc-f451e7c6ff0c" Width="194" IsVisible="true" SortPriority="1">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Process Name" Guid="267ef701-7c6d-11e2-be78-b4b52fe06835" Width="140" IsVisible="false" SortPriority="2">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Process" Guid="267ef702-7c6d-11e2-be78-b4b52fe06835" Width="140" IsVisible="true" SortPriority="3">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="A/N/E" Guid="267ef70a-7c6d-11e2-be78-b4b52fe06835" Width="64" IsVisible="true" SortPriority="4">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Type" Guid="267ef700-7c6d-11e2-be78-b4b52fe06835" Width="100" IsVisible="true" SortPriority="5">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="ThreadId" Guid="267ef703-7c6d-11e2-be78-b4b52fe06835" Width="60" IsVisible="false" SortPriority="6" TextAlignment="Right">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Thread Name" Guid="cb796d44-2927-5ac1-d231-4b71904c18f5" Width="80" IsVisible="false" SortPriority="7">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Thread Activity Tag" Guid="82ddfdff-ee93-5f35-08ac-4705069618dc" Width="80" IsVisible="false" SortPriority="8">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Annotation" Guid="2818954f-2d30-5569-4510-dade0a5a605c" Width="80" IsVisible="false" SortPriority="9">
+                <AnnotationsOptionsParameter>
+                  <AnnotationQueryEntries />
+                </AnnotationsOptionsParameter>
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Count" Guid="267ef704-7c6d-11e2-be78-b4b52fe06835" Width="77" IsVisible="true" AggregationMode="Count" SortOrder="Descending" SortPriority="0" TextAlignment="Right">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="GPU Time" Guid="267ef705-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Sum" SortPriority="11" TextAlignment="Right">
+                <DurationInViewOptionsParameter TimeStampType="Start" InViewEnabled="false" />
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Initialized" Guid="267ef706-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Min" SortPriority="12" TextAlignment="Right">
+                <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Submitted To HW" Guid="267ef707-7c6d-11e2-be78-b4b52fe06835" Width="130" IsVisible="true" AggregationMode="Min" SortPriority="13" TextAlignment="Right">
+                <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Start Execution" Guid="267ef708-7c6d-11e2-be78-b4b52fe06835" Width="130" IsVisible="true" AggregationMode="Min" SortPriority="14" TextAlignment="Right">
+                <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Finished" Guid="267ef709-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Max" SortPriority="15" TextAlignment="Right">
+                <DateTimeTimestampOptionsParameter DateTimeEnabled="false" />
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="Percentage" Guid="267ef70b-7c6d-11e2-be78-b4b52fe06835" Width="150" IsVisible="true" AggregationMode="Sum" SortPriority="16" TextAlignment="Right">
+                <ColorQueryEntries />
+              </Column>
+              <Column Name="GPU Time" Guid="267ef705-7c6d-11e2-be78-b4b52fe06835" Width="90" IsVisible="true" AggregationMode="Sum" SortPriority="17" TextAlignment="Right">
+                <DurationInViewOptionsParameter TimeStampType="Start" InViewEnabled="false" />
+                <ColorQueryEntries />
+              </Column>
+            </Columns>
+            <MetadataEntries>
+              <MetadataEntry Name="Start Execution" Guid="267ef708-7c6d-11e2-be78-b4b52fe06835" ColumnMetadata="StartTime" />
+              <MetadataEntry Name="GPU Time" Guid="267ef705-7c6d-11e2-be78-b4b52fe06835" ColumnMetadata="Duration" />
+            </MetadataEntries>
+            <HighlightEntries />
+          </Preset>
+        </PersistedPresets>
+      </GraphSchema>
+    </ModifiedGraphs>
+  </Content>
+</WpaProfileContainer>
