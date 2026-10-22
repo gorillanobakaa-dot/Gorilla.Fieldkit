@@ -285,6 +285,24 @@ SYMPTOMS = [
         "then": "change ONE thing (the font, or -moz-osx-font-smoothing), take the same screenshot, text-compare again",
     },
     {
+        "id": "macbook-air-browser",
+        "seen": "Building, shipping or checking Gorilla for the MacBook Air or another old Mac: a new build is due, a "
+                "Mac fix went missing in a build, something does not fit the 11-inch screen, or text looks thick there.",
+        "example": "the gorilla icon is too big for the macbook air screen and goes out of bounds",
+        "words": [r"macbook|mac ?air|sierra|high sierra|10\.13|momiji|old mac|11 ?inch|11\"",
+                  r"build|rebuild|recreate|install|icon|logo|window|screen|fit|bounds|font|blurr?y|thick|release|package"],
+        "action": "macair",
+        "run": "fieldkit macair status",
+        "proves": "the recreate run, the Mac tree and the published series, and whether every Mac decision is still in "
+                  "the source (preflight: fonts, Consolas, Segoe UI interface, thin text, the 11-inch budget)",
+        "look": ["gorilla-firefox/macos-legacy/recreate-mac.sh (the public recipe)",
+                 "fieldkit macair budget (669 px content, 459 px logo on 1366x768)",
+                 "Firefox.158.Macbook.air.Sierra.Legacy/BUILD-LOG-legacy-mac.md (every try)"],
+        "last_fix": "2026-10-22: About window min-height 800 on a 768 px screen -> 610 and logo 400; add-ons logo capped "
+                    "by page height; Segoe UI interface + greyscale text (verify: 2.11 px, 0 % LCD)",
+        "then": "fieldkit macair preflight, then recreate, install ZIP, verify; record the result in the BUILD-LOG",
+    },
+    {
         "id": "old-mac-unreachable",
         "seen": "The old Mac (MacBook Air or another out-of-support Mac) cannot be reached over SSH, its address changed, "
                 "the ssh alias stopped working, or a session does not know how to connect to it.",

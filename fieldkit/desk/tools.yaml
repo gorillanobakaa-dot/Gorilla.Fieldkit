@@ -1017,6 +1017,23 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
 
+- id: fieldkit-macair
+  title: 'Gorilla for the MacBook Air (old Intel Macs, macOS 10.13): status, preflight of every Mac decision in the source, the 11-inch layout budget, export the patch series, recreate, install on the Mac, verify there by measurement'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, macair]
+  path: ${FIELDKIT}/fieldkit/macair/macair.py
+  inputs:
+    - {name: command, type: choice, choices: [status, preflight, budget, export-patches, recreate, install, verify], required: true, help: "status first; preflight before every build; verify after every install"}
+    - {name: json, flag: --json, type: flag, required: false, help: "preflight as JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: changes
+  output: own
+  exits: {3: "preflight: a Mac decision lost; verify: not verified", 1: "the Mac not found or a step failed"}
+  platforms: [linux]
+  platforms_why: 'the Mac browser is cross-built on Linux (an old Mac cannot build a modern browser); install and verify reach the Mac over SSH (fieldkit mac)'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macair.py"]
+  notes: "Born 2026-10-22 when the owner made the MacBook Air a maintained target. Drives gorilla-firefox/macos-legacy/recreate-mac.sh (the public recipe, never copied here). preflight reads 17 Mac decisions from the source before a two-hour build (Sandy Bridge not native, fonts bundled, Segoe UI + Consolas, Segoe UI interface, thin greyscale text, About window and add-ons logo inside the 11-inch budget 669/459 px). verify on the Air: fonts held open, stroke of a known sentence on a neutral grey page (2.11 px, Linux 2.12), LCD colour 0 %."
+
 - id: fieldkit-mac
   title: 'Reach an old Mac over SSH (a MacBook Air 2011 on macOS 10.13 and the like): find it when its address changes, check key, login and alias, read what it is, run a command on it'
   harness: fieldkit

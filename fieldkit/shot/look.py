@@ -187,6 +187,10 @@ def main(argv=None, prog="fieldkit shot"):
     tc.add_argument("--out", help="also write the two boxes stacked at 3x")
     o = ap.parse_args(argv)
     need_pil()
+    for f in [getattr(o, k) for k in ("file", "a", "b") if getattr(o, k, None)] + list(getattr(o, "files", None) or []):
+        if not os.path.isfile(f):
+            print(f"REFUSED: {f} does not exist")
+            return 2
     if o.cmd in ("grid", "crop", "zoom"):
         im = Image.open(o.file)
         res = grid(im, o.step) if o.cmd == "grid" else zoom(crop(im, o.box), o.zoom) if o.cmd == "crop" else zoom(im, o.zoom)

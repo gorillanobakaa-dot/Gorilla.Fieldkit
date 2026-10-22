@@ -1786,6 +1786,15 @@
    "fieldkit-mac"
   ]
  },
+ "macair": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "the Mac browser is cross-built on Linux (an old Mac cannot build a modern browser); install and verify reach the Mac over SSH (fieldkit mac)",
+  "ids": [
+   "fieldkit-macair"
+  ]
+ },
  "mcp-probe": {
   "platforms": [
    "linux",

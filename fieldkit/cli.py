@@ -339,6 +339,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_macair(a):
+    from .macair import macair
+    return macair.main(a.args, prog="fieldkit macair")
+
+
 def cmd_mac(a):
     from .mac import macssh
     return macssh.main(a.args, prog="fieldkit mac")
@@ -1301,6 +1306,11 @@ def build_parser():
                              "alias, run a command on it (fieldkit mac doctor)")
     mc.add_argument("args", nargs=argparse.REMAINDER)
     mc.set_defaults(fn=cmd_mac)
+    ma = sub.add_parser("macair", add_help=False,
+                        help="Gorilla for the MacBook Air (old Intel Macs, macOS 10.13): status, preflight of the Mac "
+                             "decisions, 11-inch budget, export the patch series, recreate, install, verify on the Mac")
+    ma.add_argument("args", nargs=argparse.REMAINDER)
+    ma.set_defaults(fn=cmd_macair)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -2365,6 +2375,9 @@ def main(argv=None):
                                                            "text-compare"):
         from .shot import look                        # look has its own parser; read/speedtest/verdict stay below
         return look.main(args[1:], prog="fieldkit shot")
+    if args[:1] == ["macair"]:                        # macair has its own parser: every argument goes to it
+        from .macair import macair
+        return macair.main(args[1:], prog="fieldkit macair")
     if args[:1] == ["mac"]:                           # macssh has its own parser: every argument goes to it
         from .mac import macssh
         return macssh.main(args[1:], prog="fieldkit mac")

@@ -168,7 +168,11 @@ def scp_argv(mac, address, remote, local):
 def take_shot(mac, address, remote, out, runner=None, tries=3):
     """screencapture on the Mac, then fetch it. A home Wi-Fi drops SSH for seconds at a time (seen twice on
     2026-10-22): each step is tried up to three times before it counts as failed."""
-    for step, argv in (("capture", ssh_argv(mac, address, f"screencapture -x {remote}")),
+    # caffeinate -u wakes a sleeping display; then the file must EXIST and be non-empty: with the display asleep
+    # screencapture exits 0 and writes nothing (2026-10-22, the Air after 15 min idle)
+    capture = (f"caffeinate -u -t 3 & sleep 2; screencapture -x {remote} && test -s {remote} "
+               f"|| {{ echo 'screencapture wrote nothing (display asleep or locked?)'; exit 3; }}")
+    for step, argv in (("capture", ssh_argv(mac, address, capture)),
                        ("fetch", scp_argv(mac, address, remote, out))):
         for attempt in range(tries):
             rc, msg = _run(argv, timeout=60, runner=runner)
