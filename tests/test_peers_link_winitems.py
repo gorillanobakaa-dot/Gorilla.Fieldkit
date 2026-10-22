@@ -93,6 +93,7 @@ def test_the_brief_names_the_interpreter_by_full_path(tmp_path, monkeypatch):
     link.start_session("claude", "x", "vaio", popen=pop, check_fn=lambda a: (True, ""), flags_fn=set,
                        sleep=lambda s: None)
     brief = started[0][6]
-    assert f"{sys.executable} -P -m fieldkit peers link send" in brief
-    assert f"{sys.executable} -P -m fieldkit peers link inbox" in brief
+    exe = link.Path(sys.executable).as_posix()
+    assert f"{exe} -P -m fieldkit peers link send" in brief and "\\" not in brief.split("Talk back")[1]
+    assert f"{exe} -P -m fieldkit peers link inbox" in brief
     assert started[0][0] == sys.executable

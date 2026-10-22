@@ -480,8 +480,10 @@ def approve(confirm=None, say=print, isatty=None, allow=None, cwd=None, wall_min
 
 
 # 2026-10-22: the VAIO had no `python` on PATH (only python3), so a brief saying "python -m fieldkit" failed there.
-# The brief names THIS interpreter by its full path, with -P like the start command (directive 12b).
-PY = (f'"{sys.executable}"' if " " in sys.executable else sys.executable) + " -P -m fieldkit"
+# The brief names THIS interpreter by its full path, with -P like the start command (directive 12b), in forward
+# slashes: the started session runs it in Git Bash, which eats unquoted backslashes (link_checks shell).
+_EXE = Path(sys.executable).as_posix()
+PY = (f'"{_EXE}"' if " " in _EXE else _EXE) + " -P -m fieldkit"
 
 
 def startcheck(agent="claude", run_check=None):
