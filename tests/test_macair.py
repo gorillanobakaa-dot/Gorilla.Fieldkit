@@ -1,0 +1,144 @@
+# Version: 1.0.0 · updated 26-10-22-19-55
+"""fieldkit macair: the Mac decisions are read from the source, the 11-inch budget is the measured arithmetic, the
+published series can never carry a Microsoft font, and the verify page is found on a colour-managed screen."""
+import subprocess
+
+import sys
+
+import pytest
+
+from fieldkit.macair import macair as M
+
+PIL = pytest.importorskip("PIL")
+from PIL import Image, ImageDraw  # noqa: E402
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Linux-only tool: the Mac browser is cross-built on Linux")
+
+GOOD = {
+    "browser/app/profile/firefox.js": 'pref("font.name.sans-serif.x-western", "Segoe UI");\n'
+                                      'pref("gorilla.ui.font-family", "Segoe UI");\npref("gorilla.mac.thin-text", true);\n',
+    "modules/libpref/init/all.js": 'pref("font.name.monospace.x-western", "");\npref("font.name.monospace.x-western", "Consolas");\n',
+    "widget/cocoa/nsLookAndFeel.mm": 'Preferences::GetCString("gorilla.ui.font-family", family)',
+    "layout/style/res/ua.css": '@media -moz-pref("gorilla.mac.thin-text") {\n  :root {\n    -moz-osx-font-smoothing: grayscale;\n  }\n}\n',
+    "browser/fonts/moz.build": 'if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("windows", "gtk", "cocoa"):\n' +
+                               "".join(f'    "{f}",\n' for f in M.FONTS),
+    "browser/installer/package-manifest.in": "#if defined(XP_WIN) || defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX)\n@RESPATH@/fonts/*\n#endif\n",
+    "browser/base/content/aboutDialog.css": "#aboutDialogContainer {\n  min-height: 610px !important;\n}\n\n"
+                                            "#leftBox {\n  width: 400px !important;\n  height: 400px !important;\n}\n",
+    "toolkit/themes/shared/in-content/common-shared.css": "@media (max-height: 819px) {\n  #content {\n    background-size: min(650px, calc(100vh - 170px)) !important;\n  }\n}\n",
+}
+MOZCONFIG = """export CFLAGS="-march=sandybridge -mtune=sandybridge"
+ac_add_options --enable-bundled-fonts
+ac_add_options --without-onnx-runtime
+ac_add_options --without-wasm-sandboxed-libraries
+ac_add_options --target=x86_64-apple-darwin
+"""
+
+
+def tree(tmp_path, **changes):
+    root = tmp_path / "tree"
+    for rel, text in {**GOOD, **changes}.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+    mc = tmp_path / "mozconfig.air"
+    mc.write_text(changes.pop("_mozconfig", MOZCONFIG) if "_mozconfig" in changes else MOZCONFIG)
+    return root, mc
+
+
+def lost(rows):
+    return [what for ok, dec, what in rows if not ok]
+
+
+def test_a_complete_tree_is_ready(tmp_path):
+    root, mc = tree(tmp_path)
+    assert lost(M.preflight(root, mc)) == []
+
+
+@pytest.mark.parametrize("rel,text,expect", [
+    ("browser/base/content/aboutDialog.css", "#aboutDialogContainer {\n  min-height: 800px !important;\n}\n"
+     "#leftBox {\n  width: 500px !important;\n  height: 500px !important;\n}\n", "min-height 800"),
+    ("modules/libpref/init/all.js", 'pref("font.name.monospace.x-western", "JetBrains Mono");\n', "monospace"),
+    ("modules/libpref/init/all.js", 'pref("font.name.monospace.x-western", "Consolas");\n'
+     'pref("font.name.monospace.x-western", "JetBrains Mono");\n', "also set to"),       # right value + a stale second one
+    ("layout/style/res/ua.css", "", "greyscale"),
+    ("toolkit/themes/shared/in-content/common-shared.css", "@media (-moz-platform: macos) {\n}\n", "page height"),
+    ("browser/fonts/moz.build", 'if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("windows", "gtk"):\n', "cocoa"),
+])
+def test_each_lost_decision_is_named(tmp_path, rel, text, expect):
+    root, mc = tree(tmp_path, **{rel: text})
+    assert any(expect in w for w in lost(M.preflight(root, mc)))
+
+
+def test_native_cpu_in_the_mozconfig_is_refused(tmp_path):
+    root, mc = tree(tmp_path)
+    mc.write_text(MOZCONFIG + 'export CFLAGS="-march=native"\n')
+    assert any("never -march=native" in w for w in lost(M.preflight(root, mc)))
+
+
+def test_the_budget_is_the_measured_arithmetic():
+    b = M.budget()
+    assert b["content_max"] == 768 - 22 - 35 - 22 - 20 == 669
+    assert b["logo_max"] == 669 - (100 + 40 + 20 + 50) == 459
+    assert M.budget({"height": 900})["logo_max"] == 591                       # a taller screen gets a bigger logo
+
+
+def test_export_refuses_a_series_that_carries_a_font(tmp_path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+    g("init", "-q")
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
+    (repo / "a.txt").write_text("x")
+    g("add", "-A")
+    g("commit", "-qm", "base")
+    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    (repo / "a.txt").write_text("y")
+    g("commit", "-qam", "change")
+
+    def run(argv, **kw):                       # format-patch with the font exclusion removed: a series WITH a font
+        if "format-patch" in argv:
+            (repo / "segoeui.ttf").write_bytes(b"\0font")
+            g("add", "-A")
+            g("commit", "-qm", "font")
+            argv = [a for a in argv if not a.startswith(":(exclude)")]
+            argv[argv.index(f"{M.BASE}..HEAD")] = f"{base}..HEAD"
+        return subprocess.run(argv, **kw)
+    with pytest.raises(SystemExit, match="Microsoft font"):
+        M.export_patches(repo, tmp_path / "out.tar.xz", tmp_path / "macos", run=run)
+
+
+def test_export_writes_tarball_and_checksums(tmp_path, monkeypatch):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+    g("init", "-q")
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
+    (repo / "a.txt").write_text("x")
+    g("add", "-A")
+    g("commit", "-qm", "base")
+    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    (repo / "a.txt").write_text("y")
+    g("commit", "-qam", "change")
+    monkeypatch.setattr(M, "BASE", base)
+    out, n = M.export_patches(repo, tmp_path / "p.tar.xz", tmp_path / "macos")
+    assert n == 1 and out.exists()
+    assert (tmp_path / "macos" / "patches-mac.sha256").read_text().startswith(M.sha256(out))
+    assert "0001-change.patch" in (tmp_path / "macos" / "PATCHES.sha256").read_text()
+
+
+def screen(page):
+    """A 1366x768 screen: black browser chrome on top, the test page below in `page` colour, one line of text."""
+    im = Image.new("RGB", (1366, 768), (0, 0, 0))
+    ImageDraw.Draw(im).rectangle([0, 96, 1365, 767], fill=page)
+    ImageDraw.Draw(im).text((30, 130), "This is a list of about Gorilla pages", fill=(251, 251, 254))
+    return im
+
+
+def test_the_page_is_found_on_a_colour_managed_grey_and_not_on_black():
+    b = M.locate(screen((44, 43, 41)))                     # #2a2a2a after colour management: close, not exact
+    assert b and b[1] == 96 and b[3] <= 140
+    assert M.locate(screen((0, 0, 0))) is None             # the browser's own black chrome is never the page
+    assert M.locate(screen((3, 50, 89))) is None           # a coloured page is refused: LCD counts would be wrong
