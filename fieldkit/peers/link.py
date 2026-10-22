@@ -263,6 +263,8 @@ cwd: null                # the folder a started session works in (required when 
 wall_minutes: 120
 start_commands: {}       # agent -> argv list with {brief} {cwd} {job} {wall}; only for agents other than claude,
                          # written by the owner, never guessed
+accept_to_desktop: false # true: a file sent with `put --to-desktop` is also copied onto this computer's Desktop
+                         # (always kept in ~/.fieldkit/link/received/; nothing is ever overwritten)
 """
 
 
@@ -319,12 +321,115 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
     return True, f"started {agent} (PID {p.pid}, job {jobd})"
 
 
+# ---- files over the cable (put) -----------------------------------------------------------------------------------
+# Owner, 2026-10-22: "we need to be able to send data over the cable". Neither computer shares folders (the Windows
+# Server service is stopped, no Samba on Linux: the owner's hardening, kept). A file goes over the same signed,
+# cable-only connection in 40 KB chunks, is checked against its SHA-256, and lands in ~/.fieldkit/link/received/.
+# The Desktop only when this computer's owner approved `accept_to_desktop: true` in link.yaml. Never overwrites.
+MAX_FILE = 50 * 1024 * 1024
+CHUNK = 40 * 1024
+_UPLOADS = {}
+
+
+def safe_name(name):
+    """A file name from the other computer, made harmless: no folders, no leading dot, no control characters."""
+    n = os.path.basename(str(name).replace("\\", "/"))
+    n = re.sub(r"[^\w.\- ()+,=@]", "_", n).strip(" .")
+    return n[:120] or "file"
+
+
+def _free(folder, name):
+    p = Path(folder) / name
+    stem, suf, i = p.stem, p.suffix, 1
+    while p.exists():
+        p = Path(folder) / f"{stem}-{i}{suf}"
+        i += 1
+    return p
+
+
+def receive(req, desktop=None):
+    """put-begin / put-chunk / put-end on the receiving side."""
+    import base64
+    import hashlib
+    verb = req.get("verb")
+    if verb == "put-begin":
+        size = int(req.get("size", -1))
+        if size < 0 or size > MAX_FILE:
+            return {"ok": False, "error": f"size {size} refused (at most {MAX_FILE} bytes)"}
+        uid = secrets.token_hex(8)
+        part = home() / "received" / ".partial"
+        part.mkdir(parents=True, exist_ok=True)
+        _UPLOADS[uid] = {"name": safe_name(req.get("name")), "size": size, "sha256": str(req.get("sha256", "")).lower(),
+                         "next": 0, "path": part / uid, "desktop": bool(req.get("to_desktop")),
+                         "from": req.get("from_host")}
+        _UPLOADS[uid]["path"].write_bytes(b"")
+        return {"ok": True, "id": uid, "chunk": CHUNK}
+    u = _UPLOADS.get(str(req.get("id")))
+    if not u:
+        return {"ok": False, "error": "unknown upload id"}
+    if verb == "put-chunk":
+        if int(req.get("n", -1)) != u["next"]:
+            return {"ok": False, "error": f"chunk {req.get('n')} out of order (expected {u['next']})"}
+        data = base64.b64decode(req.get("data", ""))
+        if u["path"].stat().st_size + len(data) > u["size"]:
+            return {"ok": False, "error": "more bytes than announced"}
+        with open(u["path"], "ab") as f:
+            f.write(data)
+        u["next"] += 1
+        return {"ok": True}
+    if verb == "put-end":
+        _UPLOADS.pop(str(req.get("id")))
+        got = hashlib.sha256(u["path"].read_bytes()).hexdigest()
+        if u["path"].stat().st_size != u["size"] or got != u["sha256"]:
+            u["path"].unlink(missing_ok=True)
+            return {"ok": False, "error": "checksum or size mismatch: the file was discarded"}
+        dest = _free(home() / "received", u["name"])
+        os.replace(u["path"], dest)
+        where = [str(dest)]
+        if u["desktop"]:
+            reg, why = approvals()
+            if reg.get("accept_to_desktop") is True:
+                d = Path(desktop or (Path.home() / "Desktop"))
+                d.mkdir(parents=True, exist_ok=True)
+                tgt = _free(d, u["name"])
+                shutil.copy2(dest, tgt)
+                where.append(str(tgt))
+            else:
+                where.append(f"not on the Desktop: {why if not reg else 'accept_to_desktop is not approved in link.yaml'}")
+        _log(f"file {u['name']} ({u['size']} bytes, sha256 {got[:12]}) from {u['from']}: {'; '.join(where)}")
+        store("file", {"from_host": u["from"], "text": f"file {u['name']} ({u['size']} bytes) saved: {'; '.join(where)}"})
+        return {"ok": True, "saved": where, "sha256": got}
+    return {"ok": False, "error": f"unknown verb {verb!r}"}
+
+
+def put(path, to_desktop=False, call_fn=None):
+    """Send one file. -> the receiver's last answer."""
+    import base64
+    import hashlib
+    call_fn = call_fn or call
+    data = Path(path).read_bytes()
+    if len(data) > MAX_FILE:
+        return {"ok": False, "error": f"{len(data)} bytes: at most {MAX_FILE}"}
+    r = call_fn({"verb": "put-begin", "name": Path(path).name, "size": len(data),
+                 "sha256": hashlib.sha256(data).hexdigest(), "to_desktop": bool(to_desktop)})
+    if not r.get("ok"):
+        return r
+    step = int(r.get("chunk", CHUNK))
+    for n, i in enumerate(range(0, len(data), step)):
+        c = call_fn({"verb": "put-chunk", "id": r["id"], "n": n, "data": base64.b64encode(data[i:i + step]).decode()})
+        if not c.get("ok"):
+            return c
+    return call_fn({"verb": "put-end", "id": r["id"]})
+
+
 def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents):
     bad = verifier.check(req)
     if bad:
         _log(f"REFUSED from {req.get('from_host') if isinstance(req, dict) else '?'}: {bad}")
         return {"ok": False, "error": bad}
     verb = req.get("verb")
+    if verb in ("put-begin", "put-chunk", "put-end"):
+        return receive(req)
     if verb == "hello":
         return {"ok": True, "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
                 "agents": agents_fn()}
@@ -477,7 +582,9 @@ def main(argv=None):
         return link_find.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor"])
+    ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor",
+                                       "put"])
+    ap.add_argument("--to-desktop", action="store_true", help="put: also onto the other computer's Desktop (if its owner allowed it)")
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--me")
     ap.add_argument("--peer")
@@ -539,4 +646,14 @@ def main(argv=None):
     if a.action == "inbox":
         print("\n".join(fenced(inbox(a.wait, a.since))))
         return 0
+    if a.action == "put":
+        if not a.rest:
+            print("put FILE [FILE ...] [--to-desktop]")
+            return 2
+        code = 0
+        for f in a.rest:
+            r = put(f, a.to_desktop)
+            print(f"{'SENT' if r.get('ok') else 'NOT SENT'}  {f}: " + ("; ".join(r.get("saved", [])) if r.get("ok") else r.get("error", "")))
+            code = code or (0 if r.get("ok") else 3)
+        return code
     return doctor()

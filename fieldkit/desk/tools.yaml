@@ -1532,7 +1532,7 @@ tools:
   entry: [python, -m, fieldkit, peers, link]
   path: ${FIELDKIT}/fieldkit/peers/link.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE"}
+    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE"}
     - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text"}
     - {name: me, flag: --me, type: str, required: false, help: "pair init: this computer's cable address (e.g. 10.77.0.1)"}
     - {name: peer, flag: --peer, type: str, required: false, help: "pair init: the other computer's cable address"}

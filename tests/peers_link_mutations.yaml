@@ -96,3 +96,22 @@
 - file: fieldkit/peers/link_find.py
   swap: ['        out.append(ROADBLOCKS["no_remote_list"])', '        pass']
   why: the person is told the app cannot see the other computer's session, and what to paste there
+# put: files over the cable
+- file: fieldkit/peers/link.py
+  swap: ['    n = os.path.basename(str(name).replace("\\", "/"))', '    n = str(name)']
+  why: a received file name never carries a folder (no ../ escape)
+- file: fieldkit/peers/link.py
+  swap: ['    if size < 0 or size > MAX_FILE:', '    if size < 0:']
+  why: files over the size cap are refused
+- file: fieldkit/peers/link.py
+  swap: ['        if int(req.get("n", -1)) != u["next"]:', '        if False:']
+  why: chunks out of order are refused
+- file: fieldkit/peers/link.py
+  swap: ['        if u["path"].stat().st_size != u["size"] or got != u["sha256"]:', '        if False:']
+  why: a file whose checksum does not match is discarded
+- file: fieldkit/peers/link.py
+  swap: ['            if reg.get("accept_to_desktop") is True:', '            if True:']
+  why: the Desktop only when that computer's owner approved it
+- file: fieldkit/peers/link.py
+  swap: ['    while p.exists():', '    while False:']
+  why: nothing is ever overwritten

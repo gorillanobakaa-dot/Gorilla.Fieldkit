@@ -35,10 +35,14 @@ def two(tmp_path, monkeypatch):
 
 def serve_a(two, seconds=25, extra_env=None):
     env = dict(os.environ, FIELDKIT_LINK_HOME=str(two["a"]), **(extra_env or {}))
+    log = two["a"] / "link.log"
+    # a restart must wait for ITS OWN "serving on" line (found on Linux by the VAIO's Claude, 2026-10-22: the
+    # second serve_a() saw the first server's line and the call raced the restart)
+    before = log.read_text().count("serving on") if log.is_file() else 0
     p = subprocess.Popen([sys.executable, "-m", "fieldkit", "peers", "link", "serve", "--seconds", str(seconds),
                           "--loopback-test"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for _ in range(100):
-        if (two["a"] / "link.log").is_file() and "serving on" in (two["a"] / "link.log").read_text():
+        if log.is_file() and log.read_text().count("serving on") > before:
             return p
         time.sleep(0.1)
     p.kill()
@@ -180,3 +184,60 @@ def test_the_link_key_is_behind_the_hard_lines():
     from fieldkit.autopilot import hardlines
     assert hardlines.decide("Read", {"file_path": "D:/data/.fieldkit/link/link.key"})[0] == "deny"
     assert hardlines.decide("Bash", {"command": "cat ~/.fieldkit/link/link.key"})[0] == "deny"
+
+
+# ---- put: files over the cable (2026-10-22: neither computer shares folders, by the owner's hardening) -----------
+def test_put_sends_a_file_in_chunks_end_to_end_and_checks_it(two, tmp_path):
+    import hashlib
+    src = tmp_path / "big.bin"
+    src.write_bytes(os.urandom(150_000))                                  # several 40 KB chunks
+    p = serve_a(two)
+    try:
+        r = link.put(src)
+    finally:
+        p.kill()
+        p.wait()
+    assert r["ok"], r
+    got = two["a"] / "received" / "big.bin"
+    assert hashlib.sha256(got.read_bytes()).hexdigest() == hashlib.sha256(src.read_bytes()).hexdigest()
+    assert any("not on the Desktop" not in s for s in r["saved"])
+    assert not list((two["a"] / "received" / ".partial").glob("*"))      # nothing half-written left
+
+
+def test_put_refuses_bad_names_sizes_order_and_checksums(tmp_path, monkeypatch):
+    import base64
+    import hashlib
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
+    assert link.safe_name("../../etc/passwd") == "passwd" and link.safe_name("C:\\Windows\\x.dll") == "x.dll"
+    assert link.safe_name(".bashrc") == "bashrc" and link.safe_name("a\x1b[31mb") == "a__31mb"
+    assert not link.receive({"verb": "put-begin", "name": "x", "size": link.MAX_FILE + 1, "sha256": ""})["ok"]
+    data = b"hello"
+    b = link.receive({"verb": "put-begin", "name": "h.txt", "size": 5, "sha256": hashlib.sha256(data).hexdigest()})
+    assert not link.receive({"verb": "put-chunk", "id": b["id"], "n": 1, "data": base64.b64encode(data).decode()})["ok"]
+    assert not link.receive({"verb": "put-chunk", "id": b["id"], "n": 0,
+                             "data": base64.b64encode(data + b"!").decode()})["ok"]   # more than announced
+    link.receive({"verb": "put-chunk", "id": b["id"], "n": 0, "data": base64.b64encode(b"hellx").decode()})
+    r = link.receive({"verb": "put-end", "id": b["id"]})
+    assert not r["ok"] and "discarded" in r["error"] and not (tmp_path / "received" / "h.txt").exists()
+
+
+def test_put_reaches_the_desktop_only_when_that_owner_allowed_it_and_never_overwrites(tmp_path, monkeypatch):
+    import base64
+    import hashlib
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
+    desk = tmp_path / "Desktop"
+
+    def send(name, data):
+        b = link.receive({"verb": "put-begin", "name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                          "to_desktop": True})
+        link.receive({"verb": "put-chunk", "id": b["id"], "n": 0, "data": base64.b64encode(data).decode()})
+        return link.receive({"verb": "put-end", "id": b["id"]}, desktop=desk)
+    r = send("APPROVE.txt", b"one")
+    assert r["ok"] and "not on the Desktop" in r["saved"][1] and not desk.exists()
+    (tmp_path / "link.yaml").write_text("allow_start: []\ncwd: null\naccept_to_desktop: true\n")
+    link.approve(confirm=True, say=lambda m: None)
+    r = send("APPROVE.txt", b"two")
+    assert (desk / "APPROVE.txt").read_bytes() == b"two"
+    send("APPROVE.txt", b"three")
+    assert (desk / "APPROVE.txt").read_bytes() == b"two" and (desk / "APPROVE-1.txt").read_bytes() == b"three"
+    assert (tmp_path / "received" / "APPROVE.txt").read_bytes() == b"one"   # received/ never overwritten either
