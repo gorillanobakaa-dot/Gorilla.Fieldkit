@@ -266,6 +266,98 @@ class Verifier:
         return None
 
 
+# ---- the note convention, enforced by the tool --------------------------------------------------------------------
+# Owner, 2026-10-22: "we both know the models wont remember it ... Is better to have deterministic checks and
+# deterministic tools to enforce this". Every note is stamped by the SENDING tool: [FROM <OS> #N], N this computer's
+# own counter, sent as the signed field `seq` and advanced only after the peer answered ok; [NEEDS YOU] and [DONE]
+# come from request fields, and [DONE] is refused without evidence. Tags a model typed are stripped and replaced.
+# The RECEIVING tool flags what the numbers and tags say went wrong: a gap, a repeat, a typed tag that disagrees with
+# the signed number, [DONE] without evidence.
+OS_TAG = {"Windows": "WINDOWS", "Linux": "LINUX", "Darwin": "OSX"}
+TAG_RE = re.compile(r"\[\s*(?:FROM\s+[A-Za-z]+(?:\s*#\s*\d+)?|NEEDS\s+YOU|DONE)\s*\]\s*", re.I)
+FROM_RE = re.compile(r"\[FROM\s+([A-Za-z]+)(?:\s*#\s*(\d+))?\]", re.I)
+
+
+def os_tag(system=None):
+    system = system or platform.system()
+    return OS_TAG.get(system, system.upper() or "UNKNOWN")
+
+
+def stamp(text, seq, os_name, needs_you=False, done=False, evidence=""):
+    """-> the note as the tool sends it. Refuses [DONE] without evidence (ValueError)."""
+    evidence = " ".join(str(evidence or "").split())
+    if done and not evidence:
+        raise ValueError("[DONE] needs evidence: a commit, a VERDICT line or a test count (--evidence)")
+    body = TAG_RE.sub("", str(text)).strip()
+    tags = f"[FROM {os_name} #{seq}]" + (" [NEEDS YOU]" if needs_you else "") + (" [DONE]" if done else "")
+    return f"{tags} {body}" + (f"\nEVIDENCE: {evidence}" if evidence else "")
+
+
+class _Lock:
+    """One sender at a time, so two notes never take the same number."""
+
+    def __init__(self, path, wait=30.0, stale=120.0):
+        self.path, self.wait, self.stale = Path(path), wait, stale
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        end = time.time() + self.wait
+        while True:
+            try:
+                os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - self.path.stat().st_mtime > self.stale:
+                        self.path.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    pass
+                if time.time() >= end:
+                    raise TimeoutError(f"another send holds {self.path}")
+                time.sleep(0.1)
+
+    def __exit__(self, *exc):
+        self.path.unlink(missing_ok=True)
+
+
+def _seq_file():
+    return home() / "sent-seq.json"
+
+
+def last_sent():
+    try:
+        return int(json.loads(_seq_file().read_text(encoding="utf-8")).get("last", 0))
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
+def seq_flags(host, seq, text, os_name, evidence, state):
+    """What is wrong with one received note, given what was seen from `host` before. Updates `state`."""
+    flags = []
+    st = state.setdefault(str(host), {"last": 0, "seen": []})
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:
+        flags.append("no signed number: the sender's link does not number its notes")
+    else:
+        if seq in st["seen"]:
+            flags.append(f"#{seq} repeated: this number arrived before")
+        elif st["last"] and seq > st["last"] + 1:
+            a, b = st["last"] + 1, seq - 1
+            flags.append(f"#{a} never arrived" if a == b else f"#{a}-#{b} never arrived")
+        elif seq < st["last"]:
+            flags.append(f"#{seq} arrived after #{st['last']} (out of order)")
+        st["seen"] = sorted(set(st["seen"]) | {seq})[-500:]
+        st["last"] = max(st["last"], seq)
+    m = FROM_RE.search(text or "")
+    if m and isinstance(seq, int) and ((m.group(2) and int(m.group(2)) != seq) or
+                                       (os_name and m.group(1).upper() != str(os_name).upper())):
+        flags.append(f"the tag says [FROM {m.group(1).upper()} #{m.group(2) or '?'}] but the signed number is "
+                     f"#{seq} from {os_name or '?'}")
+    if re.search(r"\[\s*DONE\s*\]", text or "", re.I) and not str(evidence or "").strip():
+        flags.append("[DONE] without evidence")
+    return flags
+
+
 # ---- the receiving side -------------------------------------------------------------------------------------------
 def _log(text):
     home().mkdir(parents=True, exist_ok=True)
@@ -280,6 +372,17 @@ def store(kind, req):
     item = {"n": n, "kind": kind, "from_host": req.get("from_host"), "at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "to": req.get("to"), "agent": req.get("agent"),
             "text": local_peers.sanitize(str(req.get("text") or req.get("brief") or ""))[:16000]}
+    if kind == "message":
+        sp = home() / "recv-seq.json"
+        try:
+            state = json.loads(sp.read_text(encoding="utf-8")) if sp.is_file() else {}
+        except ValueError:
+            state = {}
+        item.update(seq=req.get("seq"), os=req.get("os"),
+                    evidence=local_peers.sanitize(str(req.get("evidence") or ""))[:2000],
+                    flags=seq_flags(req.get("from_host"), req.get("seq"), item["text"], req.get("os"),
+                                    req.get("evidence"), state))
+        sp.write_text(json.dumps(state, indent=1), encoding="utf-8")
     (d / f"{n:04d}-{kind}.json").write_text(json.dumps(item, indent=1, ensure_ascii=False), encoding="utf-8")
     return item
 
@@ -557,6 +660,26 @@ def call(req, timeout=15):
     cfg, k = config(), key()
     if not cfg or not k:
         return {"ok": False, "error": "not paired"}
+    if req.get("verb") == "message":
+        try:
+            with _Lock(home() / "sent-seq.lock"):
+                seq, me = last_sent() + 1, os_tag()
+                text = stamp(req.get("text", ""), seq, me, bool(req.get("needs_you")), bool(req.get("done")),
+                             req.get("evidence", ""))
+                out = {**req, "text": text, "seq": seq, "os": me}
+                out = {x: v for x, v in out.items() if v not in (None, False, "") or x == "text"}
+                r = _call(out, cfg, k, timeout)
+                if r.get("ok"):
+                    _seq_file().write_text(json.dumps({"last": seq, "at": time.strftime("%Y-%m-%d %H:%M:%S")}),
+                                           encoding="utf-8")
+                    r["seq"] = seq
+                return r
+        except (ValueError, TimeoutError) as e:
+            return {"ok": False, "error": f"not sent: {e}"}
+    return _call(req, cfg, k, timeout)
+
+
+def _call(req, cfg, k, timeout):
     data = json.dumps(sign(req, k), ensure_ascii=False).encode("utf-8") + b"\n"
     if len(data) > MAX_REQUEST:
         return {"ok": False, "error": f"too large ({len(data)} bytes, at most {MAX_REQUEST})"}
@@ -590,7 +713,13 @@ def inbox(wait=0, since=0):
 def fenced(items):
     L = []
     for i in items:
+        flags = list(i.get("flags") or [])
+        # also for a note stored before the checks existed: [DONE] with no evidence anywhere
+        if (re.search(r"\[\s*DONE\s*\]", i.get("text", ""), re.I) and not str(i.get("evidence") or "").strip()
+                and "EVIDENCE:" not in i.get("text", "") and "[DONE] without evidence" not in flags):
+            flags.append("[DONE] without evidence")
         L.append(f"--- #{i['n']} {i['kind']} at {i['at']}: {FENCE.format(host=i['from_host'])} ---")
+        L += [f"!! LINK CHECK: {f}" for f in flags]
         L.append(i["text"])
         L.append("--- end ---")
     return L or ["nothing from the peer"]

@@ -113,7 +113,7 @@ def test_hello_and_send_end_to_end_between_two_processes(two):
         p.kill()
         p.wait()
     item = json.loads(next((two["a"] / "inbox").glob("0001-*.json")).read_text(encoding="utf-8"))
-    assert item["text"] == "B here: coordinate on step A?[31m"        # escape and bidi override removed
+    assert item["text"] == f"[FROM {link.os_tag()} #1] B here: coordinate on step A?[31m"   # escape + bidi removed
     os.environ["FIELDKIT_LINK_HOME"] = str(two["a"])
     try:
         out = "\n".join(link.fenced(link.inbox()))
@@ -272,3 +272,62 @@ def test_put_reaches_the_desktop_only_when_that_owner_allowed_it_and_never_overw
     send("APPROVE.txt", b"three")
     assert (desk / "APPROVE.txt").read_bytes() == b"two" and (desk / "APPROVE-1.txt").read_bytes() == b"three"
     assert (tmp_path / "received" / "APPROVE.txt").read_bytes() == b"one"   # received/ never overwritten either
+
+
+# ---- the note convention, enforced by the tool (owner, 2026-10-22: "deterministic checks and deterministic tools") --
+def test_the_sender_stamps_its_own_tags_and_refuses_done_without_evidence():
+    assert link.stamp("hi", 7, "WINDOWS") == "[FROM WINDOWS #7] hi"
+    typed = "[FROM LINUX #99] [DONE] [needs you] pushed it"                 # whatever a model typed is replaced
+    assert link.stamp(typed, 3, "WINDOWS", needs_you=True) == "[FROM WINDOWS #3] [NEEDS YOU] pushed it"
+    assert link.stamp("x", 4, "LINUX", done=True, evidence="commit 209debc") == \
+        "[FROM LINUX #4] [DONE] x\nEVIDENCE: commit 209debc"
+    with pytest.raises(ValueError, match="evidence"):
+        link.stamp("x", 5, "LINUX", done=True, evidence="  ")
+    assert link.os_tag("Windows") == "WINDOWS" and link.os_tag("Linux") == "LINUX" and link.os_tag("Darwin") == "OSX"
+
+
+def test_the_receiver_flags_gaps_repeats_wrong_tags_and_done_without_evidence():
+    st = {}
+    assert link.seq_flags("vaio", 1, "[FROM LINUX #1] a", "LINUX", "", st) == []
+    assert link.seq_flags("vaio", 2, "[FROM LINUX #2] b", "LINUX", "", st) == []
+    assert link.seq_flags("vaio", 5, "[FROM LINUX #5] c", "LINUX", "", st) == ["#3-#4 never arrived"]
+    assert link.seq_flags("vaio", 7, "[FROM LINUX #7] d", "LINUX", "", st) == ["#6 never arrived"]
+    assert link.seq_flags("vaio", 7, "[FROM LINUX #7] d", "LINUX", "", st) == ["#7 repeated: this number arrived before"]
+    assert "out of order" in link.seq_flags("vaio", 3, "[FROM LINUX #3] late", "LINUX", "", st)[0]
+    assert link.seq_flags("other", 40, "[FROM LINUX #40] e", "LINUX", "", st) == []      # each sender its own count
+    f = link.seq_flags("vaio", 8, "[FROM LINUX #12] f", "LINUX", "", st)
+    assert f and "signed number is #8" in f[0]
+    f = link.seq_flags("vaio", 9, "[FROM WINDOWS #9] g", "LINUX", "", st)
+    assert f and "[FROM WINDOWS #9]" in f[0]
+    assert link.seq_flags("vaio", 10, "[FROM LINUX #10] [DONE] h", "LINUX", "", st) == ["[DONE] without evidence"]
+    assert link.seq_flags("vaio", 11, "[FROM LINUX #11] [DONE] h", "LINUX", "3 passed", st) == []
+    assert "no signed number" in link.seq_flags("vaio", None, "old note", None, "", st)[0]
+
+
+def test_numbered_notes_end_to_end_the_counter_moves_only_on_ok_and_the_inbox_shows_flags(two):
+    p = serve_a(two)
+    try:
+        r = link.call({"verb": "message", "text": "[FROM OSX #77] first"})
+        assert r["ok"] and r["seq"] == 1 and link.last_sent() == 1
+        r = link.call({"verb": "message", "text": "done", "done": True})        # refused here, nothing sent
+        assert not r["ok"] and "evidence" in r["error"] and link.last_sent() == 1
+        r = link.call({"verb": "message", "text": "done", "done": True, "evidence": "VERDICT OK", "needs_you": True})
+        assert r["ok"] and r["seq"] == 2
+        (two["b"] / "sent-seq.json").write_text('{"last": 4}')                 # as if #3 and #4 were lost
+        assert link.call({"verb": "message", "text": "after a loss"})["seq"] == 5
+    finally:
+        p.terminate()
+        p.wait(10)
+    r = link.call({"verb": "message", "text": "nobody listens"}, timeout=3)      # no answer: the number is kept
+    assert not r["ok"] and link.last_sent() == 5
+    items = [json.loads(x.read_text(encoding="utf-8")) for x in sorted((two["a"] / "inbox").glob("*.json"))]
+    me = link.os_tag()
+    assert items[0]["text"] == f"[FROM {me} #1] first" and items[0]["flags"] == []
+    assert items[1]["text"] == f"[FROM {me} #2] [NEEDS YOU] [DONE] done\nEVIDENCE: VERDICT OK"
+    assert items[1]["evidence"] == "VERDICT OK" and items[1]["flags"] == []
+    assert items[2]["seq"] == 5 and items[2]["flags"] == ["#3-#4 never arrived"]
+    shown = "\n".join(link.fenced(items))
+    assert "!! LINK CHECK: #3-#4 never arrived" in shown
+    # a note with no counter behind it (a peer on older code), and an old note claiming [DONE] with nothing
+    old = {"n": 9, "kind": "message", "at": "t", "from_host": "vaio", "text": "[FROM LINUX] [DONE] Pushed"}
+    assert "!! LINK CHECK: [DONE] without evidence" in "\n".join(link.fenced([old]))

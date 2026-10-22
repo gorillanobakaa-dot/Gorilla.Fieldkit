@@ -127,3 +127,40 @@
 - file: fieldkit/peers/link.py
   swap: ['creationflags=flags, env=link_env())', 'creationflags=flags)']
   why: a started session gets PYTHONPATH = this link's own root
+# the note convention (owner, 2026-10-22: "deterministic checks and deterministic tools to enforce this")
+- file: fieldkit/peers/link.py
+  swap: ['    if done and not evidence:', '    if False:']
+  why: '[DONE] is refused without evidence'
+- file: fieldkit/peers/link.py
+  swap: ['    body = TAG_RE.sub("", str(text)).strip()', '    body = str(text).strip()']
+  why: tags a model typed are stripped and replaced by the tool's own
+- file: fieldkit/peers/link.py
+  swap: ['                if r.get("ok"):', '                if True:']
+  why: the sender's counter advances only after the peer answered ok
+- file: fieldkit/peers/link.py
+  swap: ['out = {**req, "text": text, "seq": seq, "os": me}', 'out = {**req, "text": text, "os": me}']
+  why: the number travels as a signed field
+- file: fieldkit/peers/link.py
+  swap: ['        elif st["last"] and seq > st["last"] + 1:', '        elif False:']
+  why: a gap in the signed numbers is flagged
+- file: fieldkit/peers/link.py
+  swap: ['        if seq in st["seen"]:', '        if False:']
+  why: a repeated number is flagged
+- file: fieldkit/peers/link.py
+  swap: ['        elif seq < st["last"]:', '        elif False:']
+  why: a number arriving out of order is flagged
+- file: fieldkit/peers/link.py
+  swap: ['    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:', '    if False:']
+  why: a note without a signed number is flagged
+- file: fieldkit/peers/link.py
+  swap: ['    if m and isinstance(seq, int) and', '    if False and']
+  why: a typed tag that disagrees with the signed number is flagged
+- file: fieldkit/peers/link.py
+  swap: ['    if re.search(r"\[\s*DONE\s*\]", text or "", re.I) and not str(evidence or "").strip():', '    if False:']
+  why: a received [DONE] without evidence is flagged
+- file: fieldkit/peers/link.py
+  swap: ['            flags.append("[DONE] without evidence")', '            pass']
+  why: the inbox flags an old [DONE] note with no evidence too
+- file: fieldkit/peers/link.py
+  swap: ['        L += [f"!! LINK CHECK: {f}" for f in flags]', '        pass']
+  why: the inbox shows every flag above its note
