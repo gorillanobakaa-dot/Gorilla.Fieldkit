@@ -1948,9 +1948,10 @@
  },
  "peers link restart": {
   "platforms": [
-   "linux"
+   "linux",
+   "windows"
   ],
-  "why": "done by hand on the VAIO twice on 2026-10-22; the command not yet run on Windows",
+  "why": "run for real on the VAIO 2026-10-23 (twice); on Windows the code path is the same (psutil terminate, link_setup.start_serve with its DETACHED_PROCESS flags) and was opened on 2026-10-23 after the laptop had to restart by hand because this card said linux only",
   "ids": [
    "peers-link-restart"
   ]

@@ -131,7 +131,10 @@ def refusal(args, index=None):
 
 def write(path=None):
     p = Path(path or INDEX)
-    p.write_text(json.dumps(build_index(public_tools()), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    # newline="\n": on Windows text mode wrote CRLF, so the shipped index differed from the Linux copy byte for byte
+    # (found on the Windows laptop 2026-10-23 while regenerating it after new cards)
+    p.write_text(json.dumps(build_index(public_tools()), indent=1, ensure_ascii=False) + "\n", encoding="utf-8",
+                 newline="\n")
     return p
 
 
