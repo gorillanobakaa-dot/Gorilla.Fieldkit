@@ -953,6 +953,16 @@ def cmd_telemetry(a):
 def cmd_eta(a):
     from .core import eta
     x = a.args
+    if a.action == "calibrate":
+        from .core import calibrate
+        from .thermal.buildguard import BuildRefused
+        try:
+            r, p = calibrate.calibrate(minutes=a.minutes, quick=a.quick)
+        except BuildRefused as e:
+            print(f"REFUSED: {e}")
+            return 2
+        _emit(r, a.json, lambda o: print("\n".join(calibrate.lines(o, p))))
+        return 3 if (r.get("governor") or {}).get("verdict") else 0
     if a.action == "record":
         eta.record(x[0], float(x[1]))
         return 0
@@ -1454,9 +1464,11 @@ def build_parser():
     tm.set_defaults(fn=cmd_telemetry)
 
     et = sub.add_parser("eta", parents=[common])
-    et.add_argument("action", choices=["leakgate", "build", "history", "delete", "copy", "record"])
+    et.add_argument("action", choices=["leakgate", "build", "history", "delete", "copy", "record", "calibrate"])
     et.add_argument("args", nargs="*", help="leakgate RUN_DIR; build [build|package] [OBJDIR]; history [STEP]; "
-                                             "delete PATH; copy SRC DEST_DIR; record STEP SECONDS")
+                                             "delete PATH; copy SRC DEST_DIR; record STEP SECONDS; calibrate")
+    et.add_argument("--minutes", type=float, default=10.0, help="calibrate: longest thermal load (stops at 70 C first)")
+    et.add_argument("--quick", action="store_true", help="calibrate: no thermal load")
     et.set_defaults(fn=cmd_eta)
 
     rb = sub.add_parser("runbook", parents=[common])
