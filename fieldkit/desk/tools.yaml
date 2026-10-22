@@ -1017,6 +1017,24 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
 
+- id: fieldkit-leftovers
+  title: Leftovers on a Linux desktop (removed-not-purged packages, duplicate or dead login launchers, VM helpers on real hardware, dead menu entries and user services), shown first, cleaned on request, undoable
+  harness: fieldkit
+  entry: [python, -m, fieldkit, leftovers]
+  path: ${FIELDKIT}/fieldkit/leftovers/leftovers.py
+  inputs:
+    - {name: command, type: choice, choices: [scan, clean, restore, doctor], required: true, help: "scan is read-only; clean prints the plan unless --apply"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "carry the plan out (clean, restore)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "scan as JSON"}
+  effects: [reads-files, writes-files, deletes-files, admin, services]
+  safety: changes
+  output: own
+  exits: {1: "clean or restore failed, or the login check did not pass", 2: "an id that is not a current finding", 3: findings}
+  platforms: [linux]
+  platforms_why: 'XDG autostart, desktop menu entries, systemd user units and dpkg exist only on a Linux desktop'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_leftovers.py"]
+  notes: "Born 2026-10-22 from a theme scrambled by a removed package's leftover launcher. Never stops a process, never edits a file an installed package owns (a user-level Hidden=true override instead), never touches the current session; copies everything into ~/Agents.Work.Trash/leftovers-<time>/ with a manifest before changing it; after --apply rescans and runs a login-safety check. Masks, TryExec self-hides, OnlyShowIn and DesktopNames are honoured."
+
 - id: fieldkit-gtk-theme-check
   title: A GTK theme that changes when a window loses focus, is scrambled after a login, or a theme fix that does not show on screen
   harness: fieldkit

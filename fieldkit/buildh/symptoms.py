@@ -267,6 +267,28 @@ SYMPTOMS = [
         "then": "restart what it lists; a service app needs its quit command, not its window closed",
     },
     {
+        "id": "desktop-leftovers",
+        "seen": "A Linux desktop that has had other desktops, virtual machines or many programs installed and removed: "
+                "things start at login that should not, menu entries open nothing, two copies of something run, or the "
+                "person wants a clean install back without reinstalling.",
+        "example": "I tried KDE and XFCE and some VMs, now there is junk starting at login and dead icons in the menu",
+        "words": [r"leftover|remnant|orphan|residu|junk|crap|clutter|dead (icon|entr|launcher)|duplicate|conflict|"
+                  r"r[aă]m[aă]?[sș]i[tț]|resturi|gunoi",
+                  r"launcher|autostart|login|start ?up|menu|desktop|package|uninstall|removed|vm|virtual|de\b|kde|xfce"],
+        "action": "leftovers",
+        "run": "fieldkit leftovers scan",
+        "proves": "every removed-not-purged package (and which of its files still start at login), login launchers that "
+                  "start one program twice or a program that is gone, VM guest helpers on real hardware, dead menu "
+                  "entries and user services, dead login-screen sessions; masks, TryExec self-hides, OnlyShowIn and "
+                  "DesktopNames honoured so the running desktop's own parts are never listed",
+        "look": ["dpkg -l | grep '^rc'", "ls /etc/xdg/autostart ~/.config/autostart ~/.local/share/applications",
+                 "systemd-detect-virt (none = a VM helper has nothing to do here)"],
+        "last_fix": "2026-10-22 on the VAIO: 10 rc packages, spice-vdagent on real hardware, desktop-base's KDE copy of "
+                    "xdg-user-dirs, 2 dead menu entries (an old nvm path, Telegram from Downloads)",
+        "then": "fieldkit leftovers clean shows the plan; --apply copies everything to ~/Agents.Work.Trash first, "
+                "changes only what starts at the next login, and checks login safety; restore undoes a run",
+    },
+    {
         "id": "theme-scrambled-after-login",
         "seen": "After a restart or login, a dark GTK theme that worked yesterday is gone: Files and Settings come up "
                 "light grey or white, some icons missing, while the terminal still looks right.",

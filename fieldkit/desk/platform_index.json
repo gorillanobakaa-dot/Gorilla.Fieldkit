@@ -1749,6 +1749,15 @@
    "laptop-volume"
   ]
  },
+ "leftovers": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "XDG autostart, desktop menu entries, systemd user units and dpkg exist only on a Linux desktop",
+  "ids": [
+   "fieldkit-leftovers"
+  ]
+ },
  "lifecycle": {
   "platforms": [
    "linux",

@@ -338,6 +338,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_leftovers(a):
+    from .leftovers import leftovers
+    return leftovers.main(a.args, prog="fieldkit leftovers")
+
+
 def cmd_gtk_theme(a):
     from .gtktheme import gtkcheck
     return gtkcheck.main(a.args, prog="fieldkit gtk-theme")
@@ -1269,6 +1274,12 @@ def build_parser():
                              "(fieldkit gtk-theme check)")
     gt.add_argument("args", nargs=argparse.REMAINDER)
     gt.set_defaults(fn=cmd_gtk_theme)
+    lo = sub.add_parser("leftovers", add_help=False,
+                        help="what removed packages, other desktops, VMs and old installs left behind on Linux "
+                             "(login launchers, menu entries, user services, sessions): scan, clean, restore "
+                             "(fieldkit leftovers scan)")
+    lo.add_argument("args", nargs=argparse.REMAINDER)
+    lo.set_defaults(fn=cmd_leftovers)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -2329,6 +2340,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["leftovers"]:                     # leftovers has its own parser: every argument goes to it
+        from .leftovers import leftovers
+        return leftovers.main(args[1:], prog="fieldkit leftovers")
     if args[:1] == ["gtk-theme"]:                     # gtkcheck has its own parser: every argument goes to it
         from .gtktheme import gtkcheck
         return gtkcheck.main(args[1:], prog="fieldkit gtk-theme")
