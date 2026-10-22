@@ -1,6 +1,6 @@
 ---
 name: fieldkit-linux-leftovers
-description: Find and clean what removed packages, other desktops (KDE, XFCE, Cinnamon...), virtual machines and old installs left behind on a Linux desktop - packages removed but not purged, two login launchers starting one program, launchers and menu entries whose program is gone, VM guest helpers on real hardware, dead user services and login-screen sessions - show the person first, then clean without touching the running session, and undo a clean. Use when something starts at login that should not, a theme or setting changes after a login, menu icons open nothing, after trying several desktops or VMs, or when asked for a "clean install" without reinstalling.
+description: Find and clean what removed packages, other desktops (KDE, XFCE, Cinnamon...), virtual machines and old installs left behind on a Linux desktop - packages removed but not purged, two login launchers starting one program, launchers and menu entries whose program is gone, VM guest helpers on real hardware, dead user services and login-screen sessions - show the person first, then clean without touching the running session, and undo a clean; and find a plugged-in device (USB Wi-Fi stick, antenna, network card) that does not work because its firmware failed to load, built-in kernel drivers included. Use when an antenna or USB Wi-Fi stick is detected but stays down, when something starts at login that should not, a theme or setting changes after a login, menu icons open nothing, after trying several desktops or VMs, or when asked for a "clean install" without reinstalling.
 ---
 
 # Desktop leftovers on Linux
@@ -50,6 +50,15 @@ starting at every login.
 - GNOME Classic is GNOME: login sessions are matched by their `DesktopNames=` line, never by file name.
 - Debian's `desktop-base` ships `xdg-user-dirs-kde.desktop` with no OnlyShowIn, so on GNOME both it and
   `xdg-user-dirs.desktop` start. That IS a duplicate; the program's own package (xdg-user-dirs) keeps its copy.
+
+## A device plugged in that does not work: its firmware
+
+`fieldkit firmware check` (read-only). It reads the kernel log for "Direct firmware load for X failed", the firmware
+each present driver declares (built-in drivers from modules.builtin.modinfo), /lib/firmware and CONFIG_EXTRA_FIRMWARE.
+A USB stick that fails its firmware load resets and drops off the bus, so it can be missing from lsusb at the moment
+you look: the failed load still counts. For a built-in driver (a monolithic kernel) the fix is the kernel's
+CONFIG_EXTRA_FIRMWARE; installing a distribution firmware package is NOT the fix the owner wants for the Gorilla kernel
+(2026-10-22, the ALFA AWUS036NH: see Debian.Kernel.Work/CLAUDE.md "NEXT KERNEL BUILD").
 
 ## Related
 

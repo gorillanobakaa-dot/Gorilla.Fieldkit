@@ -1017,6 +1017,22 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
 
+- id: fieldkit-firmware-check
+  title: A device plugged in that does not work because its firmware is missing (USB Wi-Fi sticks, network cards), built-in kernel drivers included
+  harness: fieldkit
+  entry: [python, -m, fieldkit, firmware, check]
+  path: ${FIELDKIT}/fieldkit/firmware/fwcheck.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {3: findings}
+  platforms: [linux]
+  platforms_why: 'reads /sys, the kernel log and /lib/modules: a Linux kernel'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_fwcheck.py"]
+  notes: "Born 2026-10-22: the ALFA AWUS036NH (RT3070, rt2800usb built into the monolithic kernel) never came up, 'Direct firmware load for rt2870.bin failed' 22 times, and the stick reset off the bus between tries. Reads present USB/PCI devices, the firmware each driver declares (modules.builtin.modinfo for built-ins, modinfo for modules), /lib/firmware (plain, .xz, .zst), CONFIG_EXTRA_FIRMWARE and the kernel log; a failed load is a finding even when the device has just reset away; a driver that lists many files and loaded one is only noted. Names the fix (CONFIG_EXTRA_FIRMWARE for a built-in driver), changes nothing."
+
 - id: fieldkit-leftovers
   title: Leftovers on a Linux desktop (removed-not-purged packages, duplicate or dead login launchers, VM helpers on real hardware, dead menu entries and user services), shown first, cleaned on request, undoable
   harness: fieldkit

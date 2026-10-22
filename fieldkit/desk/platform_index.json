@@ -1530,6 +1530,15 @@
    "explain"
   ]
  },
+ "firmware check": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "reads /sys, the kernel log and /lib/modules: a Linux kernel",
+  "ids": [
+   "fieldkit-firmware-check"
+  ]
+ },
  "flaky": {
   "platforms": [
    "linux",

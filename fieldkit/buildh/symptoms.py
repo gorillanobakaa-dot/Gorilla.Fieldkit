@@ -267,6 +267,25 @@ SYMPTOMS = [
         "then": "restart what it lists; a service app needs its quit command, not its window closed",
     },
     {
+        "id": "device-firmware-missing",
+        "seen": "A USB Wi-Fi stick, antenna, network card or other device is plugged in and detected, but never works: "
+                "its interface stays down, it disconnects and reconnects in a loop, or it is missing from the network list.",
+        "example": "the alfa antenna is connected but the wifi interface stays down",
+        "words": [r"antenna|antena|alfa|dongle|usb wi-?fi|stick|adapter|network card|bluetooth|webcam|device|plugged",
+                  r"not work|doesn'?t work|down|no connect|reconnect|loop|missing|dead|firmware|not detected|nu merge"],
+        "action": "firmware",
+        "run": "fieldkit firmware check",
+        "proves": "which plugged-in device's driver failed to load its firmware (kernel log), even when the device has "
+                  "reset off the bus since; whether that driver is built into the kernel (fix: CONFIG_EXTRA_FIRMWARE) or "
+                  "a module (fix: the file in /lib/firmware)",
+        "look": ["dmesg | grep 'Direct firmware load'", "lsusb (a stick that resets may be missing between tries)",
+                 "/lib/modules/$(uname -r)/modules.builtin.modinfo (what built-in drivers need)"],
+        "last_fix": "2026-10-22: ALFA AWUS036NH (148f:3070), rt2800usb built in, rt2870.bin never built in nor on disk; "
+                    "not rebuilt (next kernel build carries it: Debian.Kernel.Work/CLAUDE.md 'NEXT KERNEL BUILD')",
+        "then": "built-in driver: add the file to the next kernel's CONFIG_EXTRA_FIRMWARE; module: put it in /lib/firmware; "
+                "plug the device in again and run the check",
+    },
+    {
         "id": "desktop-leftovers",
         "seen": "A Linux desktop that has had other desktops, virtual machines or many programs installed and removed: "
                 "things start at login that should not, menu entries open nothing, two copies of something run, or the "

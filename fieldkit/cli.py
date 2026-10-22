@@ -338,6 +338,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_firmware(a):
+    from .firmware import fwcheck
+    return fwcheck.main(a.args, prog="fieldkit firmware")
+
+
 def cmd_leftovers(a):
     from .leftovers import leftovers
     return leftovers.main(a.args, prog="fieldkit leftovers")
@@ -1280,6 +1285,11 @@ def build_parser():
                              "(fieldkit leftovers scan)")
     lo.add_argument("args", nargs=argparse.REMAINDER)
     lo.set_defaults(fn=cmd_leftovers)
+    fw = sub.add_parser("firmware", add_help=False,
+                        help="does every device plugged in have the firmware its driver needs: failed loads from the "
+                             "kernel log, built-in drivers included (fieldkit firmware check)")
+    fw.add_argument("args", nargs=argparse.REMAINDER)
+    fw.set_defaults(fn=cmd_firmware)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -2340,6 +2350,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["firmware"]:                      # fwcheck has its own parser: every argument goes to it
+        from .firmware import fwcheck
+        return fwcheck.main(args[1:], prog="fieldkit firmware")
     if args[:1] == ["leftovers"]:                     # leftovers has its own parser: every argument goes to it
         from .leftovers import leftovers
         return leftovers.main(args[1:], prog="fieldkit leftovers")
