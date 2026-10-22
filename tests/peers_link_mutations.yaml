@@ -1,5 +1,5 @@
 # Rules tests/test_peers_link.py must hold. Every one CAUGHT:
-#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py
+#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py tests/test_peers_link_find.py
 - file: fieldkit/peers/link.py
   swap: ['    if a.is_unspecified:', '    if False:']
   why: a wildcard address (listen everywhere) is refused
@@ -43,7 +43,7 @@
   swap: ['    text = (f"--- {FENCE.format(host=from_host)} ---\n', '    text = (f"\n']
   why: a started session sees the brief fenced as text from the other computer
 # link setup (link_setup.py); run the plan with BOTH test files:
-#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py
+#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py tests/test_peers_link_find.py
 - file: fieldkit/peers/link_setup.py
   swap: ['    cands = [c for c in cards if c.get("wired") and c.get("up") and c.get("name") != internet_iface]', '    cands = [c for c in cards if c.get("wired") and c.get("up")]']
   why: the card carrying the internet is never taken for the cable
@@ -71,3 +71,28 @@
 - file: fieldkit/peers/link_setup.py
   swap: ['sha256sum -c SHA256SUMS || {', 'true || {']
   why: the Linux script checks every file on the stick first
+# link find (link_find.py); tests/test_peers_link_find.py
+- file: fieldkit/peers/link_find.py
+  swap: ["    if f.get(\"cable_received\") == 0:\n        v = (", "    if False:\n        v = ("]
+  why: a cable that received nothing says the other side is not using its port
+- file: fieldkit/peers/link_find.py
+  swap: ['    return [e for e in entries if norm(e.get("mac")) not in ("", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff")', '    return [e for e in entries if True']
+  why: an all-zero or broadcast neighbor entry is not a device
+- file: fieldkit/peers/link_find.py
+  swap: ['    lan = [e for e in live(raw.get("lan") or []) if e.get("ip") != raw.get("gw")]', '    lan = list(live(raw.get("lan") or []))']
+  why: the gateway is not counted as the other computer
+- file: fieldkit/peers/link_find.py
+  swap: ['    return "randomized MAC (a phone or a privacy setting)" if randomized(m) else "unknown maker"', '    return "unknown maker"']
+  why: a made-up MAC is said to be made up
+- file: fieldkit/peers/link_find.py
+  swap: ['    if f["cable_peer"] and raw.get("scope"):', '    if False:']
+  why: the cable peer is probed by itself, on its link-local address with its scope
+- file: fieldkit/peers/link_find.py
+  swap: ['    if kind == "ConnectionRefusedError":', '    if False:']
+  why: refused (a live host, nothing listening) is told apart from timed out
+- file: fieldkit/peers/link_find.py
+  swap: ["    if probes and not any(r.get(\"banner\") is not None for ports in probes.values() for r in ports.values()):\n        code = max(code, 2)", "    if False:\n        code = max(code, 2)"]
+  why: no open door is said, with the two ways that are left
+- file: fieldkit/peers/link_find.py
+  swap: ['        out.append(ROADBLOCKS["no_remote_list"])', '        pass']
+  why: the person is told the app cannot see the other computer's session, and what to paste there

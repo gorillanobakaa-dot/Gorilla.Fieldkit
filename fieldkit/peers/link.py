@@ -472,6 +472,9 @@ def main(argv=None):
     if argv and argv[0] == "setup":                  # the whole thing, one command per computer (link_setup.py)
         from . import link_setup
         return link_setup.main(argv[1:])
+    if argv and argv[0] == "find":                   # where is the other computer (link_find.py)
+        from . import link_find
+        return link_find.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor"])

@@ -1477,6 +1477,24 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers.py", -k, goes or command]
 
+- id: peers-link-find
+  title: "Where is the other computer? Cable counters, the cable peer (IPv6 all-nodes ping, maker from its MAC), the home network read passively, the cable peer and named hosts probed once on 22 (SSH banner) and 47077; --explain says each roadblock in plain words and writes the text to paste to the other computer's Claude"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, find]
+  path: ${FIELDKIT}/fieldkit/peers/link_find.py
+  inputs:
+    - {name: iface, flag: --iface, type: str, required: false, help: "the cable's card (default: found as setup finds it)"}
+    - {name: probe, flag: --probe, type: str, required: false, help: "a host to connect to once on 22 and 47077 (repeatable); never a sweep"}
+    - {name: explain, flag: --explain, type: bool, required: false, help: "plain words for the person + the text for the other computer's Claude"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [network, writes-files]   # one IPv6 all-nodes ping on the cable; TCP connects only to the cable peer and named hosts
+  safety: reversible
+  output: third-party
+  platforms: [windows, linux]
+  platforms_why: 'run for real on Windows 2026-10-22 (found the VAIO on the cable, all doors refused); Linux side on fakes'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_find.py"]
+  notes: "refused = a live host with nothing listening; timed out = filtered or nothing there. An SSH client on a machine says nothing about an SSH server. When no door is open nothing here can open one from outside: run setup there, or paste link-ask-the-other-claude.txt to the Claude session there (this app does not list sessions of other computers, even with Remote Control on; the app refuses Claude the Remote Control switch)."
+
 - id: peers-link-agents
   title: "Which AI agents this computer has: claude, codex, opencode, gorilla-opencode, antigravity/agy - installed (path, version), running (PIDs), messageable sessions"
   harness: peers

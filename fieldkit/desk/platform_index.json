@@ -1880,6 +1880,16 @@
    "peers-link-agents"
   ]
  },
+ "peers link find": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run for real on Windows 2026-10-22 (found the VAIO on the cable, all doors refused); Linux side on fakes",
+  "ids": [
+   "peers-link-find"
+  ]
+ },
  "peers link setup": {
   "platforms": [
    "linux",
