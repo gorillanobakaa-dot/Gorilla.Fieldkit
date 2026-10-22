@@ -414,11 +414,47 @@ accept_to_desktop: false # true: a file sent with `put --to-desktop` is also cop
 """
 
 
-def approve(confirm=None, say=print, isatty=None):
+def render_link_yaml(values):
+    """LINK_TEMPLATE with each given top-level key set (JSON flow values are valid YAML), the comments kept."""
+    out = []
+    for line in LINK_TEMPLATE.splitlines():
+        key = line.split(":", 1)[0]
+        if key in values and not line.startswith(("#", " ")):
+            comment = line[line.index("#"):] if "#" in line else ""
+            line = f"{key}: {json.dumps(values[key])}" + (f"   {comment}" if comment else "")
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def approve(confirm=None, say=print, isatty=None, allow=None, cwd=None, wall_minutes=None):
+    """approve: show link.yaml, one typed yes pins it. With allow/cwd/wall it first writes them into link.yaml, so
+    the whole thing is ONE command (owner, 2026-10-22: six steps were too many)."""
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1":
         say("REFUSED: never approved from inside an autopilot run")
         return 3
     p = home() / "link.yaml"
+    if allow is not None or cwd is not None or wall_minutes is not None:
+        if confirm is None and not (isatty if isatty is not None else sys.stdin.isatty()):
+            say("REFUSED: approving needs the owner typing yes at a real terminal (link.yaml left as it was)")
+            return 3
+        import yaml
+        d = (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
+        if allow is not None:
+            names = [x.strip() for a in allow for x in str(a).split(",") if x.strip()]
+            unknown = [x for x in names if x not in AGENTS]
+            if unknown:
+                say(f"PROBLEM: unknown agent {', '.join(unknown)} (known: {', '.join(AGENTS)})")
+                return 2
+            d["allow_start"] = names
+        if cwd is not None:
+            if not Path(cwd).is_dir():
+                say(f"PROBLEM: --cwd {cwd} is not a folder on this computer")
+                return 2
+            d["cwd"] = str(Path(cwd).resolve())
+        if wall_minutes is not None:
+            d["wall_minutes"] = int(wall_minutes)
+        home().mkdir(parents=True, exist_ok=True)
+        p.write_text(render_link_yaml(d), encoding="utf-8")
     if not p.is_file():
         home().mkdir(parents=True, exist_ok=True)
         p.write_text(LINK_TEMPLATE, encoding="utf-8")
@@ -443,13 +479,33 @@ def approve(confirm=None, say=print, isatty=None):
     return 0
 
 
+# 2026-10-22: the VAIO had no `python` on PATH (only python3), so a brief saying "python -m fieldkit" failed there.
+# The brief names THIS interpreter by its full path, with -P like the start command (directive 12b).
+PY = (f'"{sys.executable}"' if " " in sys.executable else sys.executable) + " -P -m fieldkit"
+
+
+def startcheck(agent="claude", run_check=None):
+    """-> (ok, why): link_ops.startcheck(agent) (rows of (check, ok, detail)) says the start command will really
+    work. Fail closed: no precheck, a crash, or no rows at all starts nothing."""
+    try:
+        if run_check is None:
+            from .link_ops import startcheck as run_check
+        rows = list(run_check(agent))
+    except Exception as e:  # noqa: BLE001
+        return False, f"startcheck could not run ({type(e).__name__}: {e})"
+    if not rows:
+        return False, "startcheck returned no checks"
+    bad = [f"{c}: {d}" for c, ok, d in rows if not ok]
+    return (False, "; ".join(bad)) if bad else (True, f"{len(rows)} checks ok")
+
+
 def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
-                  grace=START_GRACE):
+                  grace=START_GRACE, check_fn=startcheck):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
     text = (f"--- {FENCE.format(host=from_host)} ---\n{local_peers.sanitize(brief)[:12000]}\n--- end ---\n\n"
-            f"Talk back to it with: fieldkit peers link send \"...\"   and read its replies with: "
-            f"fieldkit peers link inbox --wait 600")
+            f"Talk back to it with: {PY} peers link send \"...\"   and read its replies with: "
+            f"{PY} peers link inbox --wait 600")
     if agent not in (reg.get("allow_start") or []):
         if inbox_add is None:
             from ..autopilot.inbox import add as inbox_add
@@ -459,6 +515,9 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
     tmpl = (reg.get("start_commands") or {}).get(agent) or DEFAULT_START.get(agent)
     if not tmpl:
         return False, f"not started: no start command for {agent} (the owner writes one in link.yaml start_commands)"
+    ok, cwhy = check_fn(agent)
+    if not ok:     # 2026-10-22: three start bugs were each found only after a session died; the precheck says why first
+        return False, f"not started: precheck failed: {cwhy}"
     jobd = home() / "jobs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{agent}"
     jobd.mkdir(parents=True, exist_ok=True)
     argv = [a.format(brief=text, cwd=reg["cwd"], job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
@@ -579,7 +638,16 @@ def put(path, to_desktop=False, call_fn=None):
     return call_fn({"verb": "put-end", "id": r["id"]})
 
 
-def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents):
+def toolset():
+    """This computer's versions (link_ops.toolset_local); None when that cannot be read, never an exception."""
+    try:
+        from .link_ops import toolset_local
+        return toolset_local()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset):
     bad = verifier.check(req)
     if bad:
         _log(f"REFUSED from {req.get('from_host') if isinstance(req, dict) else '?'}: {bad}")
@@ -588,8 +656,10 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     if verb in ("put-begin", "put-chunk", "put-end"):
         return receive(req)
     if verb == "hello":
+        # toolset: the peer diffs it against its own (owner, 2026-10-22: the same tools on both); time: the asking
+        # side measures the clock skew the Verifier would refuse (link_checks clock)
         return {"ok": True, "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
-                "agents": agents_fn()}
+                "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time()}
     if verb == "message":
         item = store("message", req)
         handed = ""

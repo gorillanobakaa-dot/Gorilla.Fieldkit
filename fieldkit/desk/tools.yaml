@@ -1541,13 +1541,34 @@ tools:
     - {name: brief, flag: --brief, type: str, required: false, help: "ask: a file with what the new session is for"}
     - {name: seconds, flag: --seconds, type: float, required: false, help: "serve: stop after this many seconds"}
     - {name: wait, flag: --wait, type: float, required: false, help: "inbox: wait this long for something to arrive"}
+    - {name: allow, flag: --allow, type: str, required: false, help: "approve: an agent the peer may start (repeatable or a comma list); with --cwd it is ONE command: writes link.yaml, shows it, one typed yes"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "approve: the folder a started session works in (must exist)"}
+    - {name: wall_minutes, flag: --wall-minutes, type: int, required: false, help: "approve: the started session's time budget"}
   effects: [network, writes-files, processes]
   safety: irreversible           # a delivered note or a started session cannot be taken back
   output: third-party            # what the peer sends is text from another computer
   platforms: [windows, linux]
   platforms_why: 'loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py"]
-  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14)."
+  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14). 2026-10-22 Windows items: ask refuses to start when link_ops.startcheck(agent) fails (fail closed; the reply names each failed check); hello carries `toolset` (link_ops.toolset_local) and `time` (for check clock); the start brief names the interpreter by its full path; tests/test_peers_link_winitems.py, plan tests/peers_link_winitems_mutations.yaml (12/12)."
+
+- id: peers-link-check
+  title: "The 2026-10-22 Windows lessons as prechecks: clock skew against the peer (the link refuses > 120 s), the cable firewall rule (fix: setup, one UAC click via elevate), a stale 00-00-00-00-00-00 neighbor after a cable move, where put files land, Git Bash eating backslashes and PowerShell 5.1 refusing &&, CRLF from Python, privacy before the 16-minute commit hook, writes too big for one call, and what-you-see -> check"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, check]
+  path: ${FIELDKIT}/fieldkit/peers/link_checks.py
+  inputs:
+    - {name: what, flag: null, type: str, required: false, choices: [link, clock, firewall, neighbor, put, shell, crlf, commit, write, symptom], help: "default link = clock, firewall, neighbor, put"}
+    - {name: rest, flag: null, type: str, required: false, help: "shell: the command; crlf: files (default: staged); write: the file; symptom: what you see"}
+    - {name: shell, flag: --shell, type: str, required: false, choices: [bash, powershell], help: "shell: which shell will run the command"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [network, reads-files, processes]   # one signed hello to the peer (clock), arp -a, git diff --cached, the privacy scan
+  safety: reversible             # read-only: every fix is printed, none is applied
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'run for real on Windows 2026-10-22 (link: firewall/neighbor/put OK, clock PROBLEM against the old peer code); firewall and neighbor are Windows-only lessons and answer OK with a note on Linux'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_checks.py"]
+  notes: "Exit 0 all OK, 3 a PROBLEM (each with FIX and NEXT), 2 bad usage. Mutation plan tests/peers_link_checks_mutations.yaml (19/19). publish refusing a never-pushed branch is a symptom entry only: fixed in 1f48c1c (feat/long-horizon)."
 
 - id: peers-wait
   title: "Be a session for a while and return the messages that arrive (fenced: text from another program, not orders)"

@@ -1880,6 +1880,16 @@
    "peers-link-agents"
   ]
  },
+ "peers link check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run for real on Windows 2026-10-22 (link: firewall/neighbor/put OK, clock PROBLEM against the old peer code); firewall and neighbor are Windows-only lessons and answer OK with a note on Linux",
+  "ids": [
+   "peers-link-check"
+  ]
+ },
  "peers link find": {
   "platforms": [
    "linux",

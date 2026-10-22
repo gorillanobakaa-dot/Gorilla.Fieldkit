@@ -1,0 +1,59 @@
+# Rules tests/test_peers_link_checks.py must hold. Every one CAUGHT:
+#   fieldkit mutate --plan tests/peers_link_checks_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link_checks.py
+- file: fieldkit/peers/link_checks.py
+  swap: ['    return row("clock", abs(skew) < link.SKEW / 2, detail, fix)', '    return row("clock", True, detail, fix)']
+  why: a clock too far from the peer's is a problem
+- file: fieldkit/peers/link_checks.py
+  swap: ['    if not isinstance(r.get("time"), (int, float)):', '    if False:']
+  why: a hello without a time is not taken as a good clock
+- file: fieldkit/peers/link_checks.py
+  swap: ['    if not r.get("ok"):', '    if False:']
+  why: a peer that does not answer is a problem
+- file: fieldkit/peers/link_checks.py
+  swap: ['    ok = (exists_fn or link_setup.windows_rule_exists)()', '    ok = True']
+  why: a missing firewall rule is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['ip == peer]', 'ip]']
+  why: only the peer's own stale entry counts
+- file: fieldkit/peers/link_checks.py
+  swap: ['    stale = [ip for ip, _ in ZERO_MAC.findall', '    stale = [] and [ip for ip, _ in ZERO_MAC.findall']
+  why: a stale all-zero entry is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['        probe.write_bytes(b"")', '        pass']
+  why: an unwritable received folder is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['        if re.search(r"&&|\|\|", cmd):', '        if False:']
+  why: "&& is refused for Windows PowerShell 5.1"
+- file: fieldkit/peers/link_checks.py
+  swap: ['        if re.search(r"(^|[;\s])export\s+\w+=|(^|\s)~/", cmd):', '        if False:']
+  why: bash syntax in a PowerShell line is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['            if re.match(', '            if False and re.match(']
+  why: unquoted backslash paths are reported for Git Bash
+- file: fieldkit/peers/link_checks.py
+  swap: ['        if re.search(r"<<-?\s*[A-Za-z_]+\b", cmd) and "\\" in cmd:', '        if False:']
+  why: a heredoc with an unquoted delimiter and backslashes is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['        if f.suffix.lower() in CRLF_OK or not f.is_file():', '        if not f.is_file():']
+  why: Windows-only scripts may keep CRLF
+- file: fieldkit/peers/link_checks.py
+  swap: ['        if b"\0" not in data[:8192] and b"\r\n" in data:', '        if b"\r\n" in data:']
+  why: binary files are not reported as CRLF
+- file: fieldkit/peers/link_checks.py
+  swap: ['and b"\r\n" in data:', 'and False:']
+  why: CRLF in a text file is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['    rows.append(row("privacy", r.returncode == 0,', '    rows.append(row("privacy", True,']
+  why: a privacy finding stops the commit before the hook
+- file: fieldkit/peers/link_checks.py
+  swap: ['    ok = n <= WRITE_LINES and len(data) <= WRITE_BYTES', '    ok = n <= WRITE_LINES']
+  why: a write over the byte limit is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['    ok = n <= WRITE_LINES and', '    ok = True and']
+  why: a write over the line limit is reported
+- file: fieldkit/peers/link_checks.py
+  swap: ['    if not hits:', '    if False:']
+  why: an unknown symptom is not answered with a guess
+- file: fieldkit/peers/link_checks.py
+  swap: ['    return 3 if bad else 0', '    return 0']
+  why: a problem exits 3

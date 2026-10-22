@@ -161,7 +161,8 @@ def test_ask_starts_nothing_without_this_computers_own_approval(tmp_path, monkey
     monkeypatch.delenv("FIELDKIT_AUTOPILOT")
     assert link.approve(confirm=True, say=lambda m: None) == 0
     ok, why = link.start_session("claude", "talk to me \x1b]0;x", "vaio", popen=pop, inbox_add=lambda *a, **k: None,
-                                 flags_fn=lambda: {"--cwd", "--job", "--wall-minutes"}, sleep=lambda s: None)
+                                 flags_fn=lambda: {"--cwd", "--job", "--wall-minutes"}, sleep=lambda s: None,
+                                 check_fn=lambda a: (True, ""))
     assert ok and "PID 4242" in why
     argv = started[0]
     assert argv[1:6] == ["-P", "-m", "fieldkit", "autopilot", "claude"] and "--job" in argv
@@ -197,7 +198,8 @@ def test_a_session_that_dies_at_start_is_reported_dead_and_unknown_options_are_d
         stdout.flush()
         return Dead()
     ok, why = link.start_session("claude", "hi", "win", popen=pop, inbox_add=lambda *a, **k: None,
-                                 flags_fn=lambda: {"--cwd", "--max-turns"}, sleep=lambda s: None)
+                                 flags_fn=lambda: {"--cwd", "--max-turns"}, sleep=lambda s: None,
+                                 check_fn=lambda a: (True, ""))
     assert not ok and why.startswith("died at start (exit 2") and "unrecognized arguments" in why
     assert "--job" not in seen[0] and "--wall-minutes" not in seen[0] and "--cwd" in seen[0]
     assert link.fit_command(["a", "--job", "J", "--cwd", "C", "--wall-minutes", "9"], {"--cwd"}) == ["a", "--cwd", "C"]
