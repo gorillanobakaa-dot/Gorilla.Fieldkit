@@ -1477,6 +1477,42 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers.py", -k, goes or command]
 
+- id: peers-link-agents
+  title: "Which AI agents this computer has: claude, codex, opencode, gorilla-opencode, antigravity/agy - installed (path, version), running (PIDs), messageable sessions"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, agents]
+  path: ${FIELDKIT}/fieldkit/peers/link.py
+  inputs:
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [reads-files, processes]   # runs each installed agent's --version (a child it waits for, 10 s cap)
+  safety: reversible
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py", -k, agents]
+
+- id: peers-link
+  title: "Agents on the OTHER computer of a direct cable: pair (key carried by hand), serve (cable address, paired peer only), hello (its agents), send a note, ask it to start a session, read what it sent (fenced)"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link]
+  path: ${FIELDKIT}/fieldkit/peers/link.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [agents, pair, approve, serve, hello, send, ask, inbox, doctor], help: "doctor first; pair init --me IP --peer IP | pair import FILE"}
+    - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text"}
+    - {name: me, flag: --me, type: str, required: false, help: "pair init: this computer's cable address (e.g. 10.77.0.1)"}
+    - {name: peer, flag: --peer, type: str, required: false, help: "pair init: the other computer's cable address"}
+    - {name: to, flag: --to, type: str, required: false, help: "send: a session name on the peer (fieldkit peers) to hand the note to"}
+    - {name: agent, flag: --agent, type: str, required: false, help: "ask: which agent the peer should start (claude)"}
+    - {name: brief, flag: --brief, type: str, required: false, help: "ask: a file with what the new session is for"}
+    - {name: seconds, flag: --seconds, type: float, required: false, help: "serve: stop after this many seconds"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "inbox: wait this long for something to arrive"}
+  effects: [network, writes-files, processes]
+  safety: irreversible           # a delivered note or a started session cannot be taken back
+  output: third-party            # what the peer sends is text from another computer
+  platforms: [windows, linux]
+  platforms_why: 'loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py"]
+  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14)."
+
 - id: peers-wait
   title: "Be a session for a while and return the messages that arrive (fenced: text from another program, not orders)"
   harness: peers

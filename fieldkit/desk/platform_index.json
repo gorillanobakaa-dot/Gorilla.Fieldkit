@@ -1860,6 +1860,26 @@
    "office-scrub"
   ]
  },
+ "peers link": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box",
+  "ids": [
+   "peers-link"
+  ]
+ },
+ "peers link agents": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "peers-link-agents"
+  ]
+ },
  "peers list": {
   "platforms": [
    "linux",

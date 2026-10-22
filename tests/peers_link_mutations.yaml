@@ -1,0 +1,44 @@
+# Rules tests/test_peers_link.py must hold. Every one CAUGHT:
+#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py
+- file: fieldkit/peers/link.py
+  swap: ['    if a.is_unspecified:', '    if False:']
+  why: a wildcard address (listen everywhere) is refused
+- file: fieldkit/peers/link.py
+  swap: ['    if a.is_loopback or a.is_multicast or not (a.is_private or a.is_link_local):', '    if False:']
+  why: only a private or link-local cable address
+- file: fieldkit/peers/link.py
+  swap: ['    if fingerprint(k) != d.get("fingerprint"):', '    if False:']
+  why: a pairing file whose key does not match its fingerprint is refused
+- file: fieldkit/peers/link.py
+  swap: ['        if not hmac.compare_digest(want, str(req.get("mac"))):', '        if False:']
+  why: an altered or wrongly keyed request is refused
+- file: fieldkit/peers/link.py
+  swap: ['        if abs(self.now() - int(req.get("ts", 0))) > SKEW:', '        if False:']
+  why: a stale request is refused
+- file: fieldkit/peers/link.py
+  swap: ['        if not n or n in self.seen:', '        if not n:']
+  why: a replayed request is refused
+- file: fieldkit/peers/link.py
+  swap: ['                if ipaddress.ip_address(addr[0]) != peer:', '                if False:']
+  why: only the paired peer's address is answered
+- file: fieldkit/peers/link.py
+  swap: ['"text": local_peers.sanitize(str(req.get("text") or req.get("brief") or ""))[:16000]}', '"text": str(req.get("text") or req.get("brief") or "")[:16000]}']
+  why: received text is cleaned of escape sequences and bidi overrides before anyone reads it
+- file: fieldkit/peers/link.py
+  swap: ['    if agent not in (reg.get("allow_start") or []):', '    if False:']
+  why: nothing is started that this computer's owner did not allow
+- file: fieldkit/peers/link.py
+  swap: ['    if json.loads(a.read_text(encoding="utf-8")).get("sha256") != hashlib.sha256(p.read_bytes()).hexdigest():', '    if False:']
+  why: link.yaml changed after its approval is void
+- file: fieldkit/peers/link.py
+  swap: ['        if not (isatty if isatty is not None else sys.stdin.isatty()):', '        if False:']
+  why: approving needs a real terminal
+- file: fieldkit/peers/link.py
+  swap: ['    if os.environ.get("FIELDKIT_AUTOPILOT") == "1":', '    if False:']
+  why: an autopilot run never approves
+- file: fieldkit/peers/link.py
+  swap: ['    tmpl = (reg.get("start_commands") or {}).get(agent) or DEFAULT_START.get(agent)', '    tmpl = (reg.get("start_commands") or {}).get(agent) or DEFAULT_START.get(agent) or ["codex", "{brief}"]']
+  why: a start command is never guessed
+- file: fieldkit/peers/link.py
+  swap: ['    text = (f"--- {FENCE.format(host=from_host)} ---\n', '    text = (f"\n']
+  why: a started session sees the brief fenced as text from the other computer
