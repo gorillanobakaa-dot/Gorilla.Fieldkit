@@ -1542,10 +1542,9 @@
  },
  "goal": {
   "platforms": [
-   "linux",
    "windows"
   ],
-  "why": "",
+  "why": "proven on Windows only (tests + one real goal, 2026-10-22); the supervisor is a Windows scheduled task. Linux needs the systemd user unit and a Linux run of tests/test_long_horizon.py first (state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md step B)",
   "ids": [
    "goal"
   ]
