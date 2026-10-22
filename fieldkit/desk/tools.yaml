@@ -1017,6 +1017,25 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_icons.py"]
 
+- id: fieldkit-mac
+  title: 'Reach an old Mac over SSH (a MacBook Air 2011 on macOS 10.13 and the like): find it when its address changes, check key, login and alias, read what it is, run a command on it'
+  harness: fieldkit
+  entry: [python, -m, fieldkit, mac]
+  path: ${FIELDKIT}/fieldkit/mac/macssh.py
+  inputs:
+    - {name: command, type: choice, choices: [list, add, doctor, find, info, fix-alias, run], required: true, help: "doctor first; fix-alias and add change files"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "fix-alias: write ~/.ssh/config (the old file is kept in Trash)"}
+    - {name: save, flag: --save, type: flag, required: false, help: "find: record today's address"}
+    - {name: json, flag: --json, type: flag, required: false, help: "info as JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: changes
+  output: own
+  exits: {1: "a fault, or the Mac not found", 2: "refused (nothing to run, bad hardware address)"}
+  platforms: [linux]
+  platforms_why: 'finds the Mac with avahi-resolve and ip neigh (Linux); the Mac end needs only Remote Login (sshd), which macOS has had since 10.0'
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macssh.py"]
+  notes: "Born 2026-10-22: the owner's MacBook Air 4,1 (macOS 10.13.6, out of Apple support) is the Gorilla Mac browser's test target, and the way to reach it lived only in handover notes, one of them wrong. Tests the connection every time; finds the Mac by mDNS name, else hardware address in the neighbour table, else after a ping sweep (all three proven live). Names, addresses and keys live in local/macs.json (git-ignored), never in code."
+
 - id: fieldkit-firmware-check
   title: A device plugged in that does not work because its firmware is missing (USB Wi-Fi sticks, network cards), built-in kernel drivers included
   harness: fieldkit

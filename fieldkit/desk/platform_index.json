@@ -1777,6 +1777,15 @@
    "lifecycle"
   ]
  },
+ "mac": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "finds the Mac with avahi-resolve and ip neigh (Linux); the Mac end needs only Remote Login (sshd), which macOS has had since 10.0",
+  "ids": [
+   "fieldkit-mac"
+  ]
+ },
  "mcp-probe": {
   "platforms": [
    "linux",

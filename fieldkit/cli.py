@@ -338,6 +338,11 @@ def cmd_icons(a):
     return iconkit.main(a.args, prog="fieldkit icons")
 
 
+def cmd_mac(a):
+    from .mac import macssh
+    return macssh.main(a.args, prog="fieldkit mac")
+
+
 def cmd_firmware(a):
     from .firmware import fwcheck
     return fwcheck.main(a.args, prog="fieldkit firmware")
@@ -1290,6 +1295,11 @@ def build_parser():
                              "kernel log, built-in drivers included (fieldkit firmware check)")
     fw.add_argument("args", nargs=argparse.REMAINDER)
     fw.set_defaults(fn=cmd_firmware)
+    mc = sub.add_parser("mac", add_help=False,
+                        help="reach an old Mac over SSH: find it when its address changes, doctor, info, fix the ssh "
+                             "alias, run a command on it (fieldkit mac doctor)")
+    mc.add_argument("args", nargs=argparse.REMAINDER)
+    mc.set_defaults(fn=cmd_mac)
     sz = sub.add_parser("size", add_help=False,
                         help="how big folders are, where the space went, what can go (gorilla-size: every core, "
                              "read-only; doctor --install builds it; fieldkit size --help)")
@@ -2350,6 +2360,9 @@ def main(argv=None):
     if args[:1] == ["icons"]:                         # IconKit has its own parser: every argument goes to it, --help too
         from .icons import iconkit
         return iconkit.main(args[1:], prog="fieldkit icons")
+    if args[:1] == ["mac"]:                           # macssh has its own parser: every argument goes to it
+        from .mac import macssh
+        return macssh.main(args[1:], prog="fieldkit mac")
     if args[:1] == ["firmware"]:                      # fwcheck has its own parser: every argument goes to it
         from .firmware import fwcheck
         return fwcheck.main(args[1:], prog="fieldkit firmware")

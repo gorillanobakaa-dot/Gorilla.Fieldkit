@@ -267,6 +267,24 @@ SYMPTOMS = [
         "then": "restart what it lists; a service app needs its quit command, not its window closed",
     },
     {
+        "id": "old-mac-unreachable",
+        "seen": "The old Mac (MacBook Air or another out-of-support Mac) cannot be reached over SSH, its address changed, "
+                "the ssh alias stopped working, or a session does not know how to connect to it.",
+        "example": "can you still connect to the macbook air via ssh",
+        "words": [r"mac\b|macbook|mac ?air|imac|mac ?mini|sierra|high sierra|el capitan|mojave|osx|os x",
+                  r"ssh|connect|reach|address|ip\b|alias|remote|log ?in|unreachable|offline|can'?t get"],
+        "action": "mac",
+        "run": "fieldkit mac doctor",
+        "proves": "the key is there with safe permissions, the Mac's address today (mDNS name, else hardware address, "
+                  "else after a ping sweep), that login works and which macOS answers, and whether the ssh alias works",
+        "look": ["local/macs.json (private: the Macs this machine knows)", "~/.ssh/config Host entries",
+                 "avahi-resolve -4 -n NAME.local; ip -4 neigh"],
+        "last_fix": "2026-10-22: a handover said 'ssh macair' was stale after the Mac's name changed; tested, it worked "
+                    "(mDNS answers some minutes, not others). The Air is now in local/macs.json with its hardware "
+                    "address, so a silent mDNS or a new DHCP address no longer loses it",
+        "then": "fieldkit mac fix-alias NAME --apply if the alias fails; fieldkit mac run NAME -- COMMAND for work on it",
+    },
+    {
         "id": "device-firmware-missing",
         "seen": "A USB Wi-Fi stick, antenna, network card or other device is plugged in and detected, but never works: "
                 "its interface stays down, it disconnects and reconnects in a loop, or it is missing from the network list.",
