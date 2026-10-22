@@ -6,9 +6,13 @@ import json
 import os
 import stat
 
+import sys
+
 import pytest
 
 from fieldkit.mac import macssh as M
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Linux-only tool: the Mac is reached from the Linux box (avahi, ip neigh, POSIX key modes)")
 
 MAC = {"user": "user1", "key": "~/.ssh/id_test", "mdns": "Old-Mac.local", "hw_addr": "aa:bb:cc:dd:ee:ff",
        "host_key_alias": "old-mac.local", "note": "an old Mac"}

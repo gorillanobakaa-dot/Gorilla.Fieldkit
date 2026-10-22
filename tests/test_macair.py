@@ -3,12 +3,16 @@
 published series can never carry a Microsoft font, and the verify page is found on a colour-managed screen."""
 import subprocess
 
+import sys
+
 import pytest
 
 from fieldkit.macair import macair as M
 
 PIL = pytest.importorskip("PIL")
 from PIL import Image, ImageDraw  # noqa: E402
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Linux-only tool: the Mac browser is cross-built on Linux")
 
 GOOD = {
     "browser/app/profile/firefox.js": 'pref("font.name.sans-serif.x-western", "Segoe UI");\n'

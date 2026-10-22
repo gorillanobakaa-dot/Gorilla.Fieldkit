@@ -4,9 +4,13 @@
 import json
 import os
 
+import sys
+
 import pytest
 
 from fieldkit.leftovers import leftovers as L
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Linux-only tool: Linux desktops: XDG autostart, dpkg, systemd user units")
 
 
 class FakeDpkg:

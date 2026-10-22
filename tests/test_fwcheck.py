@@ -3,8 +3,13 @@
 found whether it is attached at the moment or has reset off the bus; a driver that lists many files and loaded one
 is not a finding. The log lines are copied from the VAIO's dmesg that day."""
 import os
+import sys
+
+import pytest
 
 from fieldkit.firmware import fwcheck as F
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Linux-only tool: a Linux kernel's /sys and firmware (the fake /sys paths hold colons Windows refuses)")
 
 LOG = """[ 8177.726677] usb 4-1.5: new high-speed USB device number 22 using ehci-pci
 [ 8177.823212] usb 4-1.5: New USB device found, idVendor=148f, idProduct=3070, bcdDevice= 1.01
