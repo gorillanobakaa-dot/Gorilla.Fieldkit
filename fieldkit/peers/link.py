@@ -12,6 +12,7 @@
                                                        session of that name through fieldkit peers when one runs)
     fieldkit peers link ask --agent claude --brief F   ask the peer to start a session of that agent to talk to
     fieldkit peers link inbox [--wait S]               what arrived from the peer, fenced as text from it
+    fieldkit peers link relay listen|brief|status      a session that only listens, so notes are heard as they come
     fieldkit peers link doctor                         key, address, peer, approval, firewall hint
 
 Owner, 2026-10-22: "check the other computer, see whether codex claude opencode gorilla or antigravity /agy is there
@@ -619,6 +620,9 @@ def main(argv=None):
     if argv and argv[0] == "find":                   # where is the other computer (link_find.py)
         from . import link_find
         return link_find.main(argv[1:])
+    if argv and argv[0] == "relay":                  # one session per computer that only listens (link_relay.py)
+        from . import link_relay
+        return link_relay.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor",
