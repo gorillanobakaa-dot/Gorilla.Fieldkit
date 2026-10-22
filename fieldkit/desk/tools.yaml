@@ -2541,6 +2541,20 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_gpudecode.py", -p, "no:cacheprovider"]
   notes: "Evidence from Microsoft's own tools: wpr.exe (ships with Windows) records the kernel graphics scheduler's work packets; wpaexporter.exe (Windows Performance Toolkit, Windows ADK) exports them, one CSV row per packet, through kits/gpudecode/gpu-packets.wpaProfile. Hardware decoding = the browser's packets on a VideoDecode engine at about the video's frame rate (measured 2026-10-22, Gorilla on Iris Xe: 16,803 packets, steady 60/s on a 60 fps clip). Traces are ~40 MB per requested second (30 s = 1.2 GB) and record ALL GPU work on the machine: keep them local. NEVER tracerpt a trace to XML (30 s -> 43+ GB). trace refuses while another wpr session runs and never cancels it. Old Intel (HD 4000 and older): drivers are pre-WDDM 2.0, so live has no counters - use trace; they hardware-decode H.264 only. Procedure: skill fieldkit-gpudecode."
 
+- id: wintrace
+  title: "Inspect your own Windows computer for intrusion, read-only, with Windows' own APIs (the Linux reflexes Windows lacks): ss (sockets + process + signer + hosted services; flags network-reachable listeners whose binary is not validly signed), fuser (who holds a file open, Restart Manager), modules (every DLL/EXE/.node mapped into a process and its signer), svc (services in a process), whodraws (windows in Z order; which windows of other processes lie over a process's window or sit at a point; no screenshots), opensnoop (files opened per process for N <= 120 s: Kernel-File ETW via logman, tracerpt to CSV, one UAC click), doctor"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/wintrace/wintrace.py"]
+  path: ${FIELDKIT}/kits/wintrace/wintrace.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "ss [--listen] [--pid P] | fuser PATH... | modules PID [--all] | svc PID | whodraws [--over PID|NAME | --at X Y] | opensnoop --seconds N [--pid P] [--match RE] [--keep] --yes | doctor; every command takes --json"}
+  effects: [reads-files, processes, admin]   # admin: opensnoop only (one UAC prompt through local/kits/Elevate); it writes and then deletes only its own temporary trace folder
+  safety: reversible   # inspection only; the one thing it creates (opensnoop's temporary trace folder) it removes
+  platforms: [windows]
+  platforms_why: "Authenticode, the Restart Manager, EnumWindows/DWM, Win32_Service and ETW (logman/tracerpt) exist only on Windows; Linux already has ss -tulnp, fuser, /proc/PID/maps, xdotool/xprop and opensnoop-bpf"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_wintrace.py", -p, "no:cacheprovider"]
+  notes: "Defensive, inspection only: nothing is sent anywhere and nothing is stopped, killed, disabled or changed (fuser calls RmGetList, never RmShutdown). Each command ends with VERDICT and NEXT; exit 3 = a finding (unsigned code, an exposed unsigned listener, a window of another process over the target, a trace that recorded nothing, a holder list Windows would not give). whodraws uses the compositor's visible frame (DWMWA_EXTENDED_FRAME_BOUNDS) and counts overlaps of 32x32 px or more; smaller ones are listed as slivers. modules treats any mapped file starting with MZ as code, whatever its extension. opensnoop: the trace stops at 512 MB, is converted to CSV (never XML: a large trace once grew to 43 GB), and its folder is a plain mkdir under %TEMP% (mkdtemp's 0o700 made the elevated files unreadable, measured 2026-10-22). Measured 2026-10-22 during the 'quit and reopen Claude' banner: no window of another process over Claude's window; 157 code modules (plus 13 resource PE files), all validly signed. Recipe: 'inspect a suspicious window or process on Windows'."
+
 - id: catchup
   title: "Machine catch-up handover: repos (ahead/behind, token-free remotes), collect (memory, instructions, private tools, unpushed diffs/patches/untracked, bundles for repos with no remote), check (secrets fail it), public-check (Romanian text and private names before anything goes public), pack (verified zip to a stick, never overwrites)"
   harness: desk

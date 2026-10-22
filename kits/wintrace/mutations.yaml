@@ -1,0 +1,73 @@
+# Rules tests/test_wintrace.py must hold. Every one must be CAUGHT:
+#   fieldkit mutate --plan kits/wintrace/mutations.yaml -- python -m pytest -q tests/test_wintrace.py -p no:cacheprovider
+# No mutant here can start a trace: the --yes refusal and the fuser verdict are tested in-process with no elevate kit
+# and no subprocess, and the --seconds cap is tested without --yes.
+- file: kits/wintrace/wintrace.py
+  swap: ['elif sig["status"] != "Valid":', 'elif False:']
+  why: an exposed listener owned by an unsigned binary is FLAGGED
+- file: kits/wintrace/wintrace.py
+  swap: ['exposed = listening and not is_loopback(r["lip"])', 'exposed = listening']
+  why: a loopback-only listener cannot be reached from other machines
+- file: kits/wintrace/wintrace.py
+  swap: ['judgement = "UNVERIFIED"', 'judgement = "ok"']
+  why: an exposed listener whose binary cannot be read is never assumed good
+- file: kits/wintrace/wintrace.py
+  swap: ['listening = r["state"] in ("LISTEN", "UNCONN")', 'listening = r["state"] == "LISTEN"']
+  why: a UDP socket bound to all interfaces is a listener
+- file: kits/wintrace/wintrace.py
+  swap: ['if r["pid"] in KERNEL_PIDS:', 'if False:']
+  why: the kernel (pid 0/4) owns no image file and is reported as the kernel
+- file: kits/wintrace/wintrace.py
+  swap: ['code = Path(p).suffix.lower() in CODE_EXT or pe(p)', 'code = Path(p).suffix.lower() in CODE_EXT']
+  why: a PE image is code whatever its name (a DLL renamed .dat)
+- file: kits/wintrace/wintrace.py
+  swap: ['s = sigs.get(p, {"status": "Unreadable", "org": ""})', 's = sigs.get(p, {"status": "Valid", "org": ""})']
+  why: a module without a signature answer is not valid
+- file: kits/wintrace/wintrace.py
+  swap: ['        if s["status"] == "Valid":', '        if s["status"] != "NotSigned":']
+  why: only Valid is valid (Unreadable, HashMismatch, NotTrusted are not)
+- file: kits/wintrace/wintrace.py
+  swap: ['    if not n:', '    if False:']
+  why: no code read at all is UNKNOWN, never OK
+- file: kits/wintrace/wintrace.py
+  swap: ['if w["z"] >= t["z"]:', 'if False:']
+  why: only windows above the target in Z order can lie over it
+- file: kits/wintrace/wintrace.py
+  swap: ['if w["pid"] in target_pids or w["cloaked"] or', 'if w["pid"] in target_pids or']
+  why: a cloaked window is not drawn by the compositor
+- file: kits/wintrace/wintrace.py
+  swap: ['(over if inter >= MIN_OVERLAP_PX else slivers)', '(over if inter >= 1 else slivers)']
+  why: a 1 px helper window is a sliver, not an overlay
+- file: kits/wintrace/wintrace.py
+  swap: ['if cells[col["Event Name"]] != ETW_PROVIDER or cells[col["Event ID"]] != "12":', 'if False:']
+  why: only Kernel-File Create events are opens; the trace header row carries the .etl path too
+- file: kits/wintrace/wintrace.py
+  swap: ['if path.lower().startswith(dev.lower() + "\\"):', 'if path.lower().startswith(dev.lower()):']
+  why: HarddiskVolume3 must not swallow HarddiskVolume30
+- file: kits/wintrace/wintrace.py
+  swap: ['        if rx and not rx.search(path):', '        if False:']
+  why: --match filters the opens
+- file: kits/wintrace/wintrace.py
+  swap: ['    if total == 0:', '    if False:']
+  why: an empty trace is INCOMPLETE, never a quiet machine
+- file: kits/wintrace/wintrace.py
+  swap: ['ETW_KEYWORD = "0x80"', 'ETW_KEYWORD = "0xFFFF"']
+  why: the trace records file opens only
+- file: kits/wintrace/wintrace.py
+  swap: ['-o ''{csv_path}'' -of CSV -y', '-o ''{csv_path}'' -of XML -y']
+  why: never XML (a large trace grew to 43 GB)
+- file: kits/wintrace/wintrace.py
+  swap: ['Start-Sleep -Seconds {int(seconds)} }} finally {{', 'Start-Sleep -Seconds {int(seconds)} }}; if ($true) {{']
+  why: the session is stopped even if the sleep is interrupted
+- file: kits/wintrace/wintrace.py
+  swap: ['query ''{name}'' -ets', 'query ''other'' -ets']
+  why: a running session of the same name is never touched
+- file: kits/wintrace/wintrace.py
+  swap: ['    if not a.yes:', '    if False:']
+  why: opensnoop does nothing without --yes
+- file: kits/wintrace/wintrace.py
+  swap: ['if not 1 <= a.seconds <= MAX_SECONDS:', 'if False:']
+  why: a trace lasts at most 120 s
+- file: kits/wintrace/wintrace.py
+  swap: ['    if failed:', '    if False:']
+  why: a holder list that could not be read is UNKNOWN, never FREE
