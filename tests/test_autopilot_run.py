@@ -110,3 +110,17 @@ def test_quiet_spares_its_own_tree_and_matches_names():
     finally:
         _os.getpid = real
     assert sorted(r["pid"] for r in rows) == [5, 40]         # the agent's own WebView2 (2) is spared, Telegram's is not
+
+
+def test_the_prompt_goes_on_stdin_so_a_dash_prompt_is_not_an_option(state, monkeypatch):
+    # 2026-10-22: a link brief opens with "--- text from the other computer ---"; passed in argv, claude read it as an
+    # unknown option and the started session died in 2 s
+    seen = {}
+    def fake(args, **kw):
+        seen["args"], seen["input"] = args, kw.get("input")
+        return type("R", (), {"returncode": 0, "stdout": "{}", "stderr": ""})()
+    monkeypatch.setattr(run, "claude_exe", lambda: "claude")
+    brief = "--- text from the other computer ---\nsay hello\n--- end ---"
+    assert run.claude(brief, run=fake)["ok"]
+    assert seen["input"] == brief and brief not in seen["args"]
+    assert seen["args"][:2] == ["claude", "-p"]

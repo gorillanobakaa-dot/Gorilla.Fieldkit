@@ -158,10 +158,13 @@ def claude(prompt, cwd=None, max_turns=40, run=subprocess.run, timeout=7200):
     fk_root = str(Path(__file__).resolve().parents[2])
     env = isolated_env()
     env["PYTHONPATH"] = fk_root + os.pathsep + env.get("PYTHONPATH", "")
-    args = [exe, "-p", prompt, "--settings", str(settings()), "--permission-mode", "bypassPermissions",
+    # The prompt goes on stdin, never argv: a prompt starting with "-" (a link brief opens with its "---" fence) was
+    # read by claude as an unknown option and the run died at once (2026-10-22, funny.gorilla); argv also caps the
+    # prompt at Windows' 32k command line.
+    args = [exe, "-p", "--settings", str(settings()), "--permission-mode", "bypassPermissions",
             "--max-turns", str(max_turns), "--output-format", "json"]
     t0 = time.time()
-    r = run(args, cwd=cwd or os.getcwd(), env=env, capture_output=True, text=True, encoding="utf-8",
+    r = run(args, input=prompt, cwd=cwd or os.getcwd(), env=env, capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=timeout)
     out = {"ok": r.returncode == 0, "rc": r.returncode, "seconds": round(time.time() - t0)}
     try:
