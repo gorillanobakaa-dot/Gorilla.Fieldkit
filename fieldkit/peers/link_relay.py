@@ -1,10 +1,13 @@
-# Version: 1.1.0 · updated 26-10-22-22-22
+# Version: 1.2.0 · updated 26-10-22-23-26
 """A relay session: one AI session per computer whose only job is the cable, so notes are answered as they come.
 
     fieldkit peers link relay listen [--since N] [--seconds S]   wait until a note arrives (no time limit by
                                                                  default), print it fenced, remember it as read
     fieldkit peers link relay brief                              what a relay session does: start one with it
     fieldkit peers link relay status                             last note read, last note stored, the listener
+    fieldkit peers link relay doctor                             PRECHECK: exit 3 when no listener runs, with the
+                                                                 exact line that starts it (a relay went deaf twice
+                                                                 on 2026-10-22 and nothing said so)
 
 Owner, 2026-10-22: "we need to get you guys in a session talking in real time to each other so you don't have to
 check all the time or forget. my idea was to open a session just for you two guys". Before this, `inbox --wait 600`
@@ -151,10 +154,19 @@ def status():
             f"listener          {f'running (PID {pid})' if pid else 'not running'}"]
 
 
+def doctor():
+    """-> (code, lines). 0 a listener runs; 3 none does (and the line that starts one)."""
+    lines = status()
+    if other_listener():
+        return 0, lines + ["RELAY  OK: listening"]
+    return 3, lines + ["RELAY  NOT LISTENING: notes are stored but nobody hears them. Start it as its own background "
+                       f"command: {fieldkit_command()} peers link relay listen"]
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog="fieldkit peers link relay", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["listen", "brief", "status"])
+    ap.add_argument("action", choices=["listen", "brief", "status", "doctor"])
     ap.add_argument("--since", type=int, help="read from after this note number (default: the last one read)")
     ap.add_argument("--seconds", type=float, help="give up after this long (default: wait until a note comes)")
     a = ap.parse_args(argv)
@@ -164,6 +176,10 @@ def main(argv):
     if a.action == "status":
         print("\n".join(status()))
         return 0
+    if a.action == "doctor":
+        code, lines = doctor()
+        print("\n".join(lines))
+        return code
     code, notes = listen(a.since, a.seconds)
     if code == 2:
         print(f"REFUSED: a relay is already listening on this computer (PID {other_listener()}); one is enough")

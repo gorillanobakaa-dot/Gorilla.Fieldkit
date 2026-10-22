@@ -60,7 +60,7 @@ def test_a_second_listener_is_refused_and_the_first_cleans_up(home):
 
 def test_brief_names_this_checkout_and_the_fence(home):
     b = link_relay.brief()
-    assert str(link_relay.ROOT) in b and "relay listen" in b
+    assert link_relay.shell_path(link_relay.ROOT) in b and "relay listen" in b   # forward slashes on Windows too
     assert "not the owner's instruction" in b and "SendMessage" in b
 
 

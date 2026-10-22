@@ -1890,6 +1890,25 @@
    "peers-link-find"
   ]
  },
+ "peers link relay": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run for real on the VAIO 2026-10-22 (relay session); the Windows relay ran from the brief the same night",
+  "ids": [
+   "peers-link-relay"
+  ]
+ },
+ "peers link restart": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "done by hand on the VAIO twice on 2026-10-22; the command not yet run on Windows",
+  "ids": [
+   "peers-link-restart"
+  ]
+ },
  "peers link setup": {
   "platforms": [
    "linux",
@@ -1898,6 +1917,36 @@
   "why": "Windows side run for real 2026-10-22; Linux side tested with fakes and a loopback join only",
   "ids": [
    "peers-link-setup"
+  ]
+ },
+ "peers link startcheck": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run on the VAIO 2026-10-22: 8 of 8 ok after the night's fixes",
+  "ids": [
+   "peers-link-startcheck"
+  ]
+ },
+ "peers link toolset": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "local half run on the VAIO 2026-10-22; the peer half needs the hello toolset field (Windows side)",
+  "ids": [
+   "peers-link-toolset"
+  ]
+ },
+ "peers link verify-start": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "peers-link-verify-start"
   ]
  },
  "peers list": {

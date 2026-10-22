@@ -12,7 +12,8 @@
                                                        session of that name through fieldkit peers when one runs)
     fieldkit peers link ask --agent claude --brief F   ask the peer to start a session of that agent to talk to
     fieldkit peers link inbox [--wait S]               what arrived from the peer, fenced as text from it
-    fieldkit peers link relay listen|brief|status      a session that only listens, so notes are heard as they come
+    fieldkit peers link relay listen|brief|status|doctor  a session that only listens, so notes are heard as they come
+    fieldkit peers link toolset|startcheck|restart|verify-start   the 2026-10-22 night's manual steps (link_ops.py)
     fieldkit peers link doctor                         key, address, peer, approval, firewall hint
 
 Owner, 2026-10-22: "check the other computer, see whether codex claude opencode gorilla or antigravity /agy is there
@@ -765,6 +766,16 @@ def main(argv=None):
     if argv and argv[0] == "relay":                  # one session per computer that only listens (link_relay.py)
         from . import link_relay
         return link_relay.main(argv[1:])
+    if argv and argv[0] == "check":                  # the Windows side's checks (link_checks.py)
+        try:
+            from . import link_checks
+        except ImportError:
+            print("peers link check: link_checks.py is not on this computer yet (fetch feat/agent-link)")
+            return 2
+        return link_checks.main(argv[1:])
+    if argv and argv[0] in ("toolset", "startcheck", "restart", "verify-start"):   # the night's steps (link_ops.py)
+        from . import link_ops
+        return link_ops.main(argv[0], argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor",
@@ -777,6 +788,9 @@ def main(argv=None):
     ap.add_argument("--needs-you", action="store_true", help="send: the owner must act ([NEEDS YOU] on the first line)")
     ap.add_argument("--done", action="store_true", help="send: the work is finished and checked ([DONE]; needs --evidence)")
     ap.add_argument("--evidence", help="send: what proves it is done (a commit, a test count, a checksum)")
+    ap.add_argument("--allow", action="append", help="approve: an agent the peer may start (repeatable or a comma list): writes link.yaml, shows it, one yes")
+    ap.add_argument("--cwd", help="approve: the folder a started session works in")
+    ap.add_argument("--wall-minutes", type=int, help="approve: the budget of a started session")
     ap.add_argument("--agent", default="claude")
     ap.add_argument("--brief")
     ap.add_argument("--seconds", type=float)
@@ -809,6 +823,10 @@ def main(argv=None):
         print("pair init --me IP --peer IP | pair import FILE")
         return 2
     if a.action == "approve":
+        # owner, 2026-10-22: six steps and an editor is too much; one command and one yes
+        if a.allow or a.cwd or a.wall_minutes:
+            allow = [x.strip() for v in (a.allow or []) for x in v.split(",") if x.strip()]
+            return approve(allow=allow, cwd=a.cwd, wall_minutes=a.wall_minutes)
         return approve()
     if a.action == "serve":
         serve(a.seconds, allow_loopback=lb)

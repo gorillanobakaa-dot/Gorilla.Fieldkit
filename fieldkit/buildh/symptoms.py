@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-20-18-54
+# Version: 1.1.0 · updated 26-10-22-23-26
 """What you SEE -> the tool that diagnoses it. The first command for any visible problem in a Gorilla build.
 
 Born 2026-10-15. The owner: "a narrative is not exactly a deterministic tool ... none of the models was trained on
@@ -284,6 +284,63 @@ SYMPTOMS = [
                     "profile had brought Perplexity, Bing, DuckDuckGo, Wikipedia and eBay back",
         "then": "fix it in the build (lock or refuse what the profile brings) or move the person with profile-fresh; "
                 "never edit the profile by hand",
+    },
+    {
+        "id": "link-started-session-dead",
+        "seen": "The other computer was told a session started on this one, but no hello ever comes back over the "
+                "cable; the job's session.log ends with an error.",
+        "example": "the link said started alive after 2 s but funny.gorilla never said hello",
+        "words": [r"start|pornit|funny|session|sesiun|ask", r"never|no hello|nu (a )?r[aă]spun|dead|died|mort|unknown option|nu merge|did not run"],
+        "action": "peers",
+        "run": "fieldkit peers link startcheck",
+        "proves": "every way a started session failed on 2026-10-22: approval, folder, python 3.11+, which fieldkit "
+                  "it loads (cwd beats PYTHONPATH), autopilot's options, claude found, the brief on stdin",
+        "look": ["~/.fieldkit/link/jobs/<newest>/session.log", "~/.fieldkit/link/link.log (the ask line)"],
+        "last_fix": "2026-10-22: prompt on stdin (209debc), python -P + PYTHONPATH (af46310), unknown flags dropped "
+                    "(67305ff); proven by funny.gorilla's --done hello",
+        "then": "fieldkit peers link verify-start --since N: the only proof is the session's own [DONE] note",
+    },
+    {
+        "id": "link-relay-deaf",
+        "seen": "Notes from the other computer pile up in ~/.fieldkit/link/inbox but no session reacts to them.",
+        "example": "the relay is not answering notes from windows, they just sit in the inbox",
+        "words": [r"relay|releu|inbox|note|mesaj|notit", r"not answer|no answer|nu r[aă]spun|ignor|sit|pile|stau|nobody|nimeni|deaf|surd"],
+        "action": "peers",
+        "run": "fieldkit peers link relay doctor",
+        "proves": "whether a relay listener runs, the last note read and how many wait; exit 3 with the exact line "
+                  "that starts the listener",
+        "look": ["~/.fieldkit/link/relay.json (last read)", "~/.fieldkit/link/relay-listen.pid"],
+        "last_fix": "2026-10-22: the relay chained its listener after a send and it died; the brief now says start "
+                    "it as its own background command",
+        "then": "start the relay session again from: fieldkit peers link relay brief",
+    },
+    {
+        "id": "commit-no-pytest-in-worktree",
+        "seen": "A commit is refused with 'COULD NOT RUN THE TESTS - no interpreter with pytest' although the "
+                "tests pass in the main checkout.",
+        "example": "pre-commit says no interpreter with pytest in the worktree",
+        "words": [r"commit|pre-commit|hook", r"no interpreter|pytest|could not run"],
+        "action": "peers",
+        "run": "fieldkit peers link toolset",
+        "proves": "which interpreter is the test interpreter here (test_python: this checkout's .venv, else the main "
+                  "checkout's beside the shared git folder) and its pytest version",
+        "look": ["hooks/pre-commit (MAIN_VENV)", "git rev-parse --git-common-dir"],
+        "last_fix": "2026-10-22: the hook also tries the main checkout's .venv (a worktree has none of its own)",
+        "then": "never pipe the hook's output into tail: a refusal then looks like success; log it to a file",
+    },
+    {
+        "id": "link-toolset-differs",
+        "seen": "The two computers behave differently with the same code: a test or command works on one and not "
+                "the other.",
+        "example": "works on windows but not on the linux laptop with the same commit",
+        "words": [r"windows|linux|laptop|vaio|other computer|cel[aă]lalt", r"differ|diferit|works on|merge pe|not the other|nu pe|same commit|aceea[sș]i"],
+        "action": "peers",
+        "run": "fieldkit peers link toolset --peer",
+        "proves": "both computers' python, pytest, PyYAML, psutil, git, claude and link commit side by side, and each "
+                  "gap with the line that closes it",
+        "look": ["the GAP lines it prints"],
+        "last_fix": "2026-10-22: the only gap was claude 2.1.296 on the VAIO against 2.1.302 on the laptop",
+        "then": "close each gap, then run it again until it says SAME TOOLSET",
     },
 ]
 
