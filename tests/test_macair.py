@@ -142,3 +142,68 @@ def test_the_page_is_found_on_a_colour_managed_grey_and_not_on_black():
     assert b and b[1] == 96 and b[3] <= 140
     assert M.locate(screen((0, 0, 0))) is None             # the browser's own black chrome is never the page
     assert M.locate(screen((3, 50, 89))) is None           # a coloured page is refused: LCD counts would be wrong
+
+
+def test_fan_text_is_parsed_and_medians_skip_missing_reads():
+    for text, want in (("@ 2001rpm / 41.1°C", (2001, 41.1)), ("9 1992rpm / 36.7°C", (1992, 36.7)),
+                       ("2010 rpm/ 38.9 C", (2010, 38.9))):
+        m = M.FAN.search(text)
+        assert (int(m.group(1)), float(m.group(2))) == want
+    assert M.FAN.search("SB 200rpm /41.10c") is None or True          # a bad read must not crash
+    assert M._median([3, None, 1, 2]) == 2 and M._median([None]) is None
+
+
+def test_heat_report_puts_runs_side_by_side(tmp_path):
+    import json
+    p = tmp_path / "heat-runs.jsonl"
+    for label, cpu in (("h264-shipped", 38.5), ("vp9-test", 121.0)):
+        p.open("a").write(json.dumps({"label": label, "when": "26-10-22-21-00-00", "cpu_median": cpu,
+                                      "mem_mb_median": 1500, "rpm_median": 2000, "temp_median": 55.0,
+                                      "temp_max": 61.0, "prefs": []}) + "\n")
+    out = M.heat_report(p)
+    assert out[0].startswith("label") and "h264-shipped" in out[1] and "121.0" in out[2]
+
+
+def _app_zip(path, inner_files):
+    """A built Mac app as a .zip whose omni.ja holds `inner_files`."""
+    import io
+    import zipfile
+    omni = io.BytesIO()
+    with zipfile.ZipFile(omni, "w") as o:
+        for f in inner_files:
+            o.writestr(f, "x")
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("Gorilla Unleashed.app/Contents/Resources/omni.ja", omni.getvalue())
+        z.writestr("Gorilla Unleashed.app/Contents/MacOS/firefox", "bin")
+    return path
+
+
+REG = """decisions:
+  - id: D-158-08
+    title: no AI
+    app_absent:
+      - 'chrome/toolkit/content/global/ml/*'
+      - 'localization/*/preview/aiWindow.ftl'
+  - id: D-157-12
+    title: no app_absent here
+"""
+
+
+def test_app_check_names_every_removed_file_by_its_decision(tmp_path):
+    reg = tmp_path / "reg.yaml"
+    reg.write_text(REG)
+    z = _app_zip(tmp_path / "t4.zip", ["chrome/toolkit/content/global/ml/backends/OnnxPipeline.mjs",
+                                        "localization/en-US/preview/aiWindow.ftl", "chrome/toolkit/content/global/ok.js"])
+    found = M.app_check(z, reg)
+    assert {d for d, _ in found} == {"D-158-08"} and len(found) == 2
+    assert all(p.startswith("Resources/omni.ja!") for _, p in found)
+    assert M.app_check(_app_zip(tmp_path / "t5.zip", ["chrome/toolkit/content/global/ok.js"]), reg) == []
+
+
+def test_install_refuses_a_dirty_app_before_touching_the_mac(tmp_path, monkeypatch):
+    reg = tmp_path / "reg.yaml"
+    reg.write_text(REG)
+    monkeypatch.setattr(M, "REGISTER", reg)
+    monkeypatch.setattr(M, "mac_target", lambda name: (_ for _ in ()).throw(AssertionError("must not reach the Mac")))
+    rc, out = M.install(_app_zip(tmp_path / "t4.zip", ["chrome/toolkit/content/global/ml/x.mjs"]))
+    assert rc == 3 and out.startswith("REFUSED") and "D-158-08" in out

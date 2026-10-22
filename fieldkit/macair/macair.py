@@ -8,8 +8,11 @@ way every time.
     fieldkit macair budget [--screen 1366x768 ...]      the 11-inch layout budget, calculated (what preflight checks)
     fieldkit macair export-patches [TREE]               our Mac commits -> patches-mac.tar.xz + checksums (no fonts)
     fieldkit macair recreate [STAGE] [--route a|b]      run gorilla-firefox/macos-legacy/recreate-mac.sh
-    fieldkit macair install ZIP [--mac NAME]            copy to the Mac, check it, old app to the trash, unpack
+    fieldkit macair app-check ZIP                       nothing a decision removed is inside the built app (register app_absent)
+    fieldkit macair install ZIP [--mac NAME]            app-check, copy, start it once on a throwaway profile, then swap
     fieldkit macair verify [--mac NAME]                 on the Mac: fonts loaded, thin text measured on a test page
+    fieldkit macair heat LABEL --url URL [--minutes 3] [--pref NAME=VALUE ...]   CPU, memory, fan, temperature
+    fieldkit macair heat-report                         every heat run side by side (medians)
 
 Born 2026-10-22, when the owner made the MacBook Air a maintained target ("from now on we're gonna have to maintain
 and build for this old macbook ... no need to rebuild tools, procedures and relearn operations"). The public recipe
@@ -17,6 +20,7 @@ is recreate-mac.sh in gorilla-firefox/macos-legacy: this tool drives ITS stages 
 recipe. What only the project needs (decision checks, export, install, measurement on the Air) lives here.
 """
 import argparse
+from shlex import quote as shlex_quote
 import hashlib
 import json
 import os
@@ -145,6 +149,37 @@ def export_patches(tree=TREE, out=None, macos=MACOS, run=subprocess.run):
     return out, len(pats)
 
 
+REGISTER = GORILLA_FIREFOX / "decisions" / "PRODUCT-DECISIONS.yaml"
+
+
+def app_absent(register=None):
+    """{decision id: [globs]} from the register's app_absent lists: paths inside the built app's omni.ja archives
+    that a decision removed. The one list lives in the register, never here."""
+    import yaml
+    data = yaml.safe_load(Path(register or REGISTER).read_text(encoding="utf-8")) or {}
+    return {e["id"]: list(e["app_absent"]) for e in data.get("decisions") or [] if e.get("app_absent")}
+
+
+def app_check(zip_path, register=None):
+    """-> [(decision, path inside the app)] for every removed path still shipped in a built Mac app (.zip)."""
+    import fnmatch
+    import io
+    import zipfile
+    rules = app_absent(register)
+    z = zipfile.ZipFile(zip_path)
+    found = []
+    for name in z.namelist():
+        if not name.endswith("omni.ja"):
+            continue
+        inner = zipfile.ZipFile(io.BytesIO(z.read(name)))
+        for f in inner.namelist():
+            for did, globs in rules.items():
+                if any(fnmatch.fnmatch(f, g) for g in globs):
+                    found.append((did, f"{name.split('Contents/', 1)[-1]}!{f}"))
+                    break
+    return found
+
+
 def _mac():
     from fieldkit.mac import macssh
     return macssh
@@ -160,18 +195,29 @@ def mac_target(name):
 
 
 def install(zip_path, name="macair"):
-    m, mac, address = mac_target(name)
     zip_path = Path(zip_path)
+    bad = app_check(zip_path)                       # before anything reaches the Mac
+    if bad:
+        return 3, (f"REFUSED: {len(bad)} removed file(s) are inside the app, first: {bad[0][1]} ({bad[0][0]}); "
+                   f"build clean with recreate-mac.sh (fieldkit macair app-check {zip_path})")
+    m, mac, address = mac_target(name)
     want = sha256(zip_path)
     remote = f"/Users/{mac['user']}/Downloads/{zip_path.name}"
     r = subprocess.run(m.scp_argv(mac, address, remote, "x")[:-2] + [str(zip_path), f"{mac['user']}@{address}:{remote}"])
     if r.returncode != 0:
         return 1, "copy failed"
     line = (f'set -e; [ "$(shasum -a 256 "{remote}" | cut -d" " -f1)" = "{want}" ] || {{ echo "CHECKSUM MISMATCH"; exit 3; }}; '
+            # start the NEW app once, on a throwaway profile, BEFORE it replaces anything: on 2026-10-22 a build that
+            # crashed at start (test5) went straight onto the owner's profile and left a Troubleshoot Mode question.
+            f'N=/tmp/macair-new-$$; rm -rf "$N"; mkdir -p "$N/prof"; ditto -x -k "{remote}" "$N"; '
+            f'( "$N/Gorilla Unleashed.app/Contents/MacOS/firefox" -no-remote -profile "$N/prof" > "$N/start.log" 2>&1 & '
+            f'P=$!; sleep 25; if ps -p $P >/dev/null; then kill $P; sleep 2; echo START-OK; else echo START-FAILED; fi ) | tee "$N/verdict"; '
+            f'grep -q START-OK "$N/verdict" || {{ echo "REFUSED: the new app did not stay up 25 s on a throwaway profile; '
+            f'nothing replaced. Its output: $N/start.log"; head -5 "$N/start.log"; exit 5; }}; '
             f'pgrep -x firefox >/dev/null && {{ echo "Gorilla is running: quit it first"; exit 4; }}; '
             f'T=/Users/{mac["user"]}/Agents.Work.Trash-user/gorilla-app-$(date +%y-%m-%d-%H-%M); mkdir -p "$T"; '
             f'[ -d "/Applications/Gorilla Unleashed.app" ] && mv "/Applications/Gorilla Unleashed.app" "$T/"; '
-            f'ditto -x -k "{remote}" /Applications; ls "/Applications/Gorilla Unleashed.app/Contents/Resources/fonts" | wc -l; '
+            f'mv "$N/Gorilla Unleashed.app" /Applications/; ls "/Applications/Gorilla Unleashed.app/Contents/Resources/fonts" | wc -l; '
             f'echo "previous app kept in $T"')
     rc, out = m._run(m.ssh_argv(mac, address, line), timeout=600)
     return rc, out
@@ -238,6 +284,99 @@ def verify(name="macair", out_dir=None, thin_max=2.5, colour_max=5.0):
     return rows
 
 
+FAN = re.compile(r"(\d{3,5})\s*rpm\s*/\s*(\d{2,3}(?:\.\d)?)\s*°?\s*C", re.I)
+
+
+def read_fan(img):
+    """(rpm, celsius) from Macs Fan Control's menu-bar text ("2001rpm / 41.1°C"), or (None, None). Plain tesseract
+    on a 4x enlargement; a thresholded or whitelisted read returned nothing (2026-10-22)."""
+    import tempfile
+    t = shutil.which("tesseract")
+    if not t:
+        return None, None
+    W = img.width
+    crop = img.convert("RGB").crop((int(W * 0.70), 0, int(W * 0.86), 22))
+    crop = crop.resize((crop.width * 4, crop.height * 4))
+    with tempfile.NamedTemporaryFile(suffix=".png") as f:
+        crop.save(f.name)
+        out = subprocess.run([t, f.name, "-", "--psm", "7"], capture_output=True, text=True).stdout
+    m = FAN.search(out.replace(",", "."))
+    return (int(m.group(1)), float(m.group(2))) if m else (None, None)
+
+
+def _median(v):
+    v = sorted(x for x in v if x is not None)
+    return v[len(v) // 2] if v else None
+
+
+HEAT_LOG = WORK / "heat-runs.jsonl"
+
+
+def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, out_dir=None):
+    """One measured run of the browser on the Mac. Test prefs go into the profile's user.js for this run only (the
+    original is copied first and put back after). -> summary dict, also appended to heat-runs.jsonl."""
+    import time
+    from PIL import Image
+    m, mac, address = mac_target(name)
+    out_dir = Path(out_dir or WORK)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rc, prof = m._run(m.ssh_argv(mac, address, "P=$(pgrep -x firefox | head -1); [ -n \"$P\" ] && lsof -p $P 2>/dev/null "
+                                 "| grep -o '/Users/[^ ]*/Profiles/[^/]*' | head -1"), timeout=60)
+    prof = prof.strip().splitlines()[-1] if rc == 0 and prof.strip() else ""
+    if not prof.startswith("/Users/"):
+        raise SystemExit("REFUSED: start Gorilla on the Mac first (the profile is read from the running browser)")
+    q = shlex_quote
+    lines = "".join(f'user_pref("{k}", {v});\n' for k, v in prefs)
+    stamp = time.strftime("%y-%m-%d-%H-%M-%S")
+    setup = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; sleep 6; "
+             f"cp -p {q(prof + '/user.js')} {q(prof + '/user.js.heat-' + stamp)} 2>/dev/null; "
+             + (f"printf '%b' {q(lines)} >> {q(prof + '/user.js')}; " if lines else "")
+             + f"open -a '/Applications/Gorilla Unleashed.app' {q(url)}")
+    m._run(m.ssh_argv(mac, address, setup), timeout=120)
+    time.sleep(warmup)
+    samples = []
+    end = time.time() + minutes * 60
+    while time.time() < end:
+        t0 = time.time()
+        rc, o = m._run(m.ssh_argv(mac, address, "ps -A -o %cpu=,rss=,comm= | awk '/firefox|plugin-container/"
+                                  "{c+=$1; r+=$2} END{printf \"%.1f %d\\n\", c, r/1024}'"), timeout=30)
+        cpu = mem = None
+        if rc == 0 and len(o.split()) >= 2:
+            cpu, mem = float(o.split()[-2]), int(o.split()[-1])
+        shot = out_dir / f"heat-{label}-last.png"
+        rpm = temp = None
+        if m.take_shot(mac, address, "/tmp/macair-heat.png", str(shot)) == 0:
+            rpm, temp = read_fan(Image.open(shot))
+        samples.append({"t": round(time.time() - end + minutes * 60), "cpu": cpu, "mem_mb": mem, "rpm": rpm, "temp": temp})
+        time.sleep(max(0, every - (time.time() - t0)))
+    restore = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; sleep 6; "
+               f"if [ -f {q(prof + '/user.js.heat-' + stamp)} ]; then mv {q(prof + '/user.js.heat-' + stamp)} {q(prof + '/user.js')}; "
+               f"else mkdir -p ~/Agents.Work.Trash-user && mv {q(prof + '/user.js')} ~/Agents.Work.Trash-user/user.js.heat-{stamp} 2>/dev/null; fi; "
+               f"open -a '/Applications/Gorilla Unleashed.app'")
+    if prefs:
+        m._run(m.ssh_argv(mac, address, restore), timeout=120)
+    res = {"label": label, "url": url, "prefs": [f"{k}={v}" for k, v in prefs], "minutes": minutes, "when": stamp,
+           "samples": len(samples), "cpu_median": _median([x["cpu"] for x in samples]),
+           "mem_mb_median": _median([x["mem_mb"] for x in samples]), "rpm_median": _median([x["rpm"] for x in samples]),
+           "temp_median": _median([x["temp"] for x in samples]), "temp_max": max((x["temp"] for x in samples if x["temp"]), default=None),
+           "raw": samples}
+    with open(HEAT_LOG if out_dir == WORK else out_dir / "heat-runs.jsonl", "a") as f:
+        f.write(json.dumps(res) + "\n")
+    return res
+
+
+def heat_report(path=None):
+    p = Path(path or HEAT_LOG)
+    if not p.exists():
+        return ["no heat runs yet"]
+    rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    out = [f"{'label':<22} {'when':<17} {'cpu %':>6} {'mem MB':>7} {'rpm':>6} {'temp C':>7} {'max C':>6}  prefs"]
+    for r in rows:
+        out.append(f"{r['label']:<22} {r['when']:<17} {r['cpu_median'] or '-':>6} {r['mem_mb_median'] or '-':>7} "
+                   f"{r['rpm_median'] or '-':>6} {r['temp_median'] or '-':>7} {r['temp_max'] or '-':>6}  {' '.join(r['prefs'])}")
+    return out
+
+
 def status():
     lines = []
     logs = sorted(WORK.glob("recreate-run*.log"), key=lambda p: p.stat().st_mtime)
@@ -278,7 +417,12 @@ def main(argv=None, prog="fieldkit macair"):
     e = sp.add_parser("export-patches"); e.add_argument("tree", nargs="?", default=str(TREE)); e.add_argument("--out")
     r = sp.add_parser("recreate"); r.add_argument("stage", nargs="?", default="all"); r.add_argument("--route", default="a")
     i = sp.add_parser("install"); i.add_argument("zip"); i.add_argument("--mac", default="macair")
+    ac = sp.add_parser("app-check"); ac.add_argument("zip")
     v = sp.add_parser("verify"); v.add_argument("--mac", default="macair")
+    h = sp.add_parser("heat"); h.add_argument("label"); h.add_argument("--url", required=True)
+    h.add_argument("--minutes", type=float, default=3.0); h.add_argument("--pref", action="append", default=[])
+    h.add_argument("--warmup", type=int, default=45); h.add_argument("--mac", default="macair")
+    sp.add_parser("heat-report")
     o = ap.parse_args(argv)
     if o.cmd == "status":
         print("\n".join(status()))
@@ -305,10 +449,33 @@ def main(argv=None, prog="fieldkit macair"):
         return 0
     if o.cmd == "recreate":
         return subprocess.run(["bash", str(MACOS / "recreate-mac.sh"), o.stage, "--route", o.route]).returncode
+    if o.cmd == "app-check":
+        bad = app_check(o.zip)
+        for did, path in bad[:40]:
+            print(f"  REMOVED BUT SHIPPED [{did}] {path}")
+        if len(bad) > 40:
+            print(f"  ... and {len(bad) - 40} more")
+        print(f"VERDICT  {'CLEAN: nothing a decision removed is in the app' if not bad else f'{len(bad)} removed file(s) shipped'}")
+        return 3 if bad else 0
     if o.cmd == "install":
         rc, out = install(o.zip, o.mac)
         print(out)
         return rc
+    if o.cmd == "heat":
+        prefs = []
+        for p in o.pref:
+            if "=" not in p:
+                print(f"REFUSED: --pref {p!r} is not NAME=VALUE")
+                return 2
+            k, v = p.split("=", 1)
+            prefs.append((k, v if v in ("true", "false") or v.lstrip("-").isdigit() else json.dumps(v)))
+        r = heat(o.label, o.url, o.minutes, prefs, o.mac, o.warmup)
+        print(f"{o.label}: {r['samples']} samples; median CPU {r['cpu_median']} %, memory {r['mem_mb_median']} MB, "
+              f"fan {r['rpm_median']} rpm, temperature {r['temp_median']} C (max {r['temp_max']})")
+        return 0 if r["samples"] else 1
+    if o.cmd == "heat-report":
+        print("\n".join(heat_report()))
+        return 0
     if o.cmd == "verify":
         rows = verify(o.mac)
         for ok, what in rows:
