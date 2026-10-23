@@ -2,6 +2,8 @@
 
     fieldkit peers [list]                                          the sessions running on this computer
     fieldkit peers send NAME TEXT|--file F [--as NAME]             one message to one session
+    fieldkit peers link ...                                        agents on the other computer on a direct cable
+                                                                   (link.py: discover, pair, send, ask for a session)
     fieldkit peers wait [--seconds N] [--count N] [--as NAME] [--notify-when-idle NAME]
                                                                    be a session for N seconds and print what arrives
 
@@ -588,6 +590,9 @@ def lines(r):
 
 def main(argv=None, prog="fieldkit peers"):
     import argparse
+    if argv and argv[0] == "link":                 # agents on the OTHER computer over the cable (link.py)
+        from . import link
+        return link.main(argv[1:])
     ap = argparse.ArgumentParser(prog=prog, description="Messages between AI sessions on this computer "
                                                         "(Gorilla OpenCode's protocol).")
     ap.add_argument("action", nargs="?", default="list", choices=["list", "send", "wait"])

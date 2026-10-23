@@ -1659,6 +1659,16 @@
    "hdmi-tv-wifi-report"
   ]
  },
+ "heal-round": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "heal-round"
+  ]
+ },
  "i18n": {
   "platforms": [
    "linux",
@@ -1804,6 +1814,16 @@
    "fieldkit-macair"
   ]
  },
+ "mandate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate"
+  ]
+ },
  "mcp-probe": {
   "platforms": [
    "linux",
@@ -1905,6 +1925,116 @@
    "office-scrub"
   ]
  },
+ "peers link": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box",
+  "ids": [
+   "peers-link"
+  ]
+ },
+ "peers link agents": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "peers-link-agents"
+  ]
+ },
+ "peers link check": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run for real on Windows 2026-10-22 (link: firewall/neighbor/put OK, clock PROBLEM against the old peer code); firewall and neighbor are Windows-only lessons and answer OK with a note on Linux",
+  "ids": [
+   "peers-link-check"
+  ]
+ },
+ "peers link find": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run for real on Windows 2026-10-22 (found the VAIO on the cable, all doors refused); Linux side on fakes",
+  "ids": [
+   "peers-link-find"
+  ]
+ },
+ "peers link relay": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run for real on the VAIO 2026-10-22 (relay session); the Windows relay ran from the brief the same night",
+  "ids": [
+   "peers-link-relay"
+  ]
+ },
+ "peers link restart": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run for real on the VAIO 2026-10-23 (twice); on Windows the code path is the same (psutil terminate, link_setup.start_serve with its DETACHED_PROCESS flags) and was opened on 2026-10-23 after the laptop had to restart by hand because this card said linux only",
+  "ids": [
+   "peers-link-restart"
+  ]
+ },
+ "peers link setup": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "Windows side run for real 2026-10-22; Linux side tested with fakes and a loopback join only",
+  "ids": [
+   "peers-link-setup"
+  ]
+ },
+ "peers link startcheck": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run on the VAIO 2026-10-22: 8 of 8 ok after the night's fixes",
+  "ids": [
+   "peers-link-startcheck"
+  ]
+ },
+ "peers link toolset": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "local half run on the VAIO 2026-10-22; the peer half needs the hello toolset field (Windows side)",
+  "ids": [
+   "peers-link-toolset"
+  ]
+ },
+ "peers link verify-start": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "peers-link-verify-start"
+  ]
+ },
+ "peers link watchdog": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "the check and the restart are the same code on both (link_ops.restart); only --install is Linux (a systemd user timer); the Windows scheduled task is the Windows side",
+  "ids": [
+   "peers-link-watchdog"
+  ]
+ },
  "peers list": {
   "platforms": [
    "linux",
@@ -2003,6 +2133,16 @@
   "why": "",
   "ids": [
    "release-check"
+  ]
+ },
+ "release-cycle": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-cycle"
   ]
  },
  "repro compare": {

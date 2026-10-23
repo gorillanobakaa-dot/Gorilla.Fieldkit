@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-16-02-50
+# Version: 1.0.0 · updated 26-10-23-13-45
 """ship audit / ship release: work reaches main and main is released (2026-10-16: main 135 commits past v0.3.0 and no
 tool said so). Real git repositories in a temp folder; GitHub is a stand-in."""
 import json
@@ -110,3 +110,23 @@ def test_prune_deletes_only_what_is_proven_merged_and_archives_the_rest_on_reque
     assert r["archived"] == ["open-work"] and r["ok"]
     remote = _g(w, "ls-remote", "origin")
     assert "refs/heads/open-work" not in remote and "refs/tags/archive/open-work" in remote
+
+
+def test_audit_finds_what_is_left_behind_locally(tmp_path):
+    # owner, 2026-10-23: when the release is finished nothing stays forgotten on a stray branch or worktree
+    w = _origin_and_clone(tmp_path)
+    rows = lambda: {x["check"]: x for x in sr.audit(w, offline=True)["rows"]}
+    assert rows()["worktrees"]["state"] == "OK" and rows()["local-branches"]["state"] == "OK"
+    _g(w, "branch", "done-already")                                    # merged, still lying here
+    _g(w, "checkout", "-q", "-b", "stray")
+    (w / "stray.txt").write_text("x")
+    _g(w, "add", "-A")
+    _g(w, "commit", "-qm", "on no remote")
+    _g(w, "checkout", "-q", "main")
+    _g(w, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    r = rows()
+    assert r["local-branches"]["state"] == "DO"
+    assert "stray (1)" in r["local-branches"]["say"] and "done-already" in r["local-branches"]["say"]
+    assert "side" not in r["local-branches"]["say"]                   # checked out in a worktree: reported there
+    assert r["worktrees"]["state"] == "DO" and "side: its work is on main" in r["worktrees"]["say"]
+    assert sr.audit(w, offline=True)["rows"][-1]["check"] == "release"

@@ -1,0 +1,38 @@
+# Rules tests/test_peers_link_winitems.py must hold (Windows items a-d, 2026-10-22). Every one CAUGHT:
+#   fieldkit mutate --plan tests/peers_link_winitems_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_winitems.py
+- file: fieldkit/peers/link.py
+  swap: ['            if unknown:', '            if False:']
+  why: approve --allow refuses an agent name the link does not know
+- file: fieldkit/peers/link.py
+  swap: ['            if not Path(cwd).is_dir():', '            if False:']
+  why: approve --cwd refuses a folder that does not exist
+- file: fieldkit/peers/link.py
+  swap: ['        if confirm is None and not (isatty if isatty is not None else sys.stdin.isatty()):', '        if False:']
+  why: approve with flags writes nothing without a person at a terminal
+- file: fieldkit/peers/link.py
+  swap: ['            d["wall_minutes"] = int(wall_minutes)', '            pass']
+  why: approve --wall-minutes is written
+- file: fieldkit/peers/link.py
+  swap: ['        if key in values and not line.startswith(("#", " ")):', '        if False:']
+  why: the given values reach link.yaml
+- file: fieldkit/peers/link.py
+  swap: ['    if not ok:     # 2026-10-22: three start bugs', '    if False:     # 2026-10-22: three start bugs']
+  why: ask starts nothing when the start precheck fails
+- file: fieldkit/peers/link.py
+  swap: ['    if not rows:', '    if False:']
+  why: a precheck with no checks is a failure (fail closed)
+- file: fieldkit/peers/link.py
+  swap: ['        return False, f"startcheck could not run', '        return True, f"startcheck could not run']
+  why: a precheck that crashes is a failure (fail closed)
+- file: fieldkit/peers/link.py
+  swap: ['    return (False, "; ".join(bad)) if bad else', '    return (True, "; ".join(bad)) if bad else']
+  why: one failed check fails the precheck
+- file: fieldkit/peers/link.py
+  swap: ['    ok, cwhy = check_fn(agent)', '    ok, cwhy = check_fn("claude")']
+  why: the precheck is for the agent asked for
+- file: fieldkit/peers/link.py
+  swap: ['"agents": agents_fn(), "toolset": toolset_fn(), "time": time.time()}', '"agents": agents_fn()}']
+  why: hello carries the toolset and the clock
+- file: fieldkit/peers/link.py
+  swap: ['            f"Talk back to it with: {PY} peers link send', '            f"Talk back to it with: python -m fieldkit peers link send']
+  why: the brief names the interpreter by its full path

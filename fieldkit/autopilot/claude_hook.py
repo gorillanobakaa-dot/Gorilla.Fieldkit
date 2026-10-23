@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-22-14-00
+# Version: 1.2.0 · updated 26-10-23-18-02
 """Claude Code hook for autopilot runs: the hard lines (hardlines.py) as a deny, and inside a job its budget.
 
 PreToolUse (no argument): Claude Code runs it before every tool call, in every permission mode including
@@ -49,7 +49,7 @@ def main(stdin=sys.stdin, stdout=sys.stdout):
     try:
         payload = json.load(stdin)
         tool, args = payload.get("tool_name"), payload.get("tool_input") or {}
-        decision, why = hardlines.decide(tool, args)
+        decision, why = hardlines.decide(tool, args, cwd=payload.get("cwd"))   # a mandated push is checked where it runs
         job = os.environ.get("FIELDKIT_JOB_DIR")
         if decision == "allow" and job:
             from fieldkit.autopilot import budget

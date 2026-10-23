@@ -1286,12 +1286,17 @@ METHODS = {
     "drift": ("drift", "does a committed generated file still match its generator? reports, never rewrites"),
     "mcp-probe": ("mcp_probe", "speak MCP to a server as a client does: handshake, tools and their size, one call"),
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
-    "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push; never forces"),
+    "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "
+                     "merge into main only under a project mandate; never forces"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
     "flaky": ("flaky", "a test that fails sometimes: failure rate over fresh runs, the swallowed thread error, shared OS names (repeat TEST | log | scan)"),
     "canary": ("canary", "prove a CHECK can fail: a planted input it must flag, a clean control it must pass; a second witness reads the artifact (run | witness | list)"),
     "stranger": ("stranger", "download a project the way someone else would: fresh clone, venv and home folder, install, tests, cards ([REPO] [--ref R] [--keep])"),
+    "release-cycle": ("releasecycle", "one release, the whole cycle, each stage proven by its artefact: audit, build, checksums, "
+                                      "screenshots, notes, on-base, publish, verify-page, leftovers (PROJECT plan|next|run)"),
+    "heal-round": ("healloop", "a self-healing build loop that cannot oscillate: one hypothesis per round; a round that "
+                               "does not lower the error count is undone, its changes kept in the trash (start|end|status)"),
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
 }
 
@@ -1415,6 +1420,7 @@ def build_parser():
                              "elevated) (fieldkit hdmi)")
     hd.add_argument("args", nargs=argparse.REMAINDER)
     hd.set_defaults(fn=lambda a: __import__("fieldkit.hdmi.cli", fromlist=["main"]).main(a.args))
+    sub.add_parser("mandate", add_help=False, help="one owner approval per project, valid on both computers")
     pe = sub.add_parser("peers", add_help=False,
                         help="messages between AI sessions on this computer, in Gorilla OpenCode's protocol: list, "
                              "send, wait (fieldkit peers --help)")
@@ -2501,6 +2507,9 @@ def main(argv=None):
     if args[:1] == ["hdmi"]:                          # the HDMI Harness, elevated and waited for (fieldkit/hdmi)
         from .hdmi import cli as hdmi_cli
         return hdmi_cli.main(args[1:])
+    if args[:1] == ["mandate"]:                       # one owner approval per project, both computers (fieldkit/mandate)
+        from .mandate import mandate as mandate_cli
+        return mandate_cli.main(args[1:])
     if args[:1] == ["peers"]:                         # messages between sessions on this computer (fieldkit/peers)
         from .peers import peers as peers_cli
         return peers_cli.main(args[1:])
