@@ -9,6 +9,23 @@ The MacBook Air 4,1 (2011, i5-2467M Sandy Bridge, Intel HD 3000, 4 GB, macOS 10.
 target on 2026-10-22. Mozilla dropped 10.13; the base is Momiji v157.0-mj (a Firefox kept alive for old macOS), so
 the Mac has its own small patch series on top of Momiji: the one recorded exception to "one patch set".
 
+## Testing a released program on the Air: as a new user, from the release page
+
+Never test a build copied onto the Mac by hand when the question is "does the release work". Owner, 2026-10-23:
+take the program from the GitHub release page like a person anywhere on the planet, and leave no old version
+installed. One command does exactly that (older copies moved to `~/Agents.Work.Trash-linux/`, with a manifest;
+download from the release page only; checksum; the release's own installer; version and single-copy check):
+
+```bash
+fieldkit mac release-install macair --tag latest --launch
+```
+
+`--plan` prints the script first. It does not exercise Gatekeeper's first-open prompt (curl over SSH sets no
+quarantine flag): a report must say so.
+
+"Publish" from the owner means the full cycle: commit, push, PR, merge into main, every package on the release page,
+checked there (~/.agents/SETTLED.md, 2026-10-23). A pushed branch with an open PR is not published.
+
 ## Start every session here
 
 ```
