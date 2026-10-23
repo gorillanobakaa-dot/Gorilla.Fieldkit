@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.0.0 · updated 26-10-22-19-40
+# Version: 1.1.0 · updated 26-10-23-16-39
 """macair.py - build, check, install and verify Gorilla for the MacBook Air (old Intel Macs, macOS 10.13), the same
 way every time.
 
@@ -12,6 +12,7 @@ way every time.
     fieldkit macair install ZIP [--mac NAME]            app-check, copy, start it once on a throwaway profile, then swap
     fieldkit macair verify [--mac NAME]                 on the Mac: fonts loaded, thin text measured on a test page
     fieldkit macair heat LABEL --url URL [--minutes 3] [--pref NAME=VALUE ...]   CPU, memory, fan, temperature
+                                                        (Macs Fan Control off for the run, started again after)
     fieldkit macair heat-report                         every heat run side by side (medians)
 
 Born 2026-10-22, when the owner made the MacBook Air a maintained target ("from now on we're gonna have to maintain
@@ -284,24 +285,13 @@ def verify(name="macair", out_dir=None, thin_max=2.5, colour_max=5.0):
     return rows
 
 
-FAN = re.compile(r"(\d{3,5})\s*rpm\s*/\s*(\d{2,3}(?:\.\d)?)\s*°?\s*C", re.I)
-
-
-def read_fan(img):
-    """(rpm, celsius) from Macs Fan Control's menu-bar text ("2001rpm / 41.1°C"), or (None, None). Plain tesseract
-    on a 4x enlargement; a thresholded or whitelisted read returned nothing (2026-10-22)."""
-    import tempfile
-    t = shutil.which("tesseract")
-    if not t:
-        return None, None
-    W = img.width
-    crop = img.convert("RGB").crop((int(W * 0.70), 0, int(W * 0.86), 22))
-    crop = crop.resize((crop.width * 4, crop.height * 4))
-    with tempfile.NamedTemporaryFile(suffix=".png") as f:
-        crop.save(f.name)
-        out = subprocess.run([t, f.name, "-", "--psm", "7"], capture_output=True, text=True).stdout
-    m = FAN.search(out.replace(",", "."))
-    return (int(m.group(1)), float(m.group(2))) if m else (None, None)
+# The sensor reader is sensors.gorilla's macOS side (SMC through IOKit, no password): one source for the dashboard a
+# person reads and for this harness. It replaced reading Macs Fan Control's menu-bar text with tesseract (2026-10-23),
+# which returned nothing once the owner ruled that tests run with Macs Fan Control OFF, "as on a normal MacBook Air".
+SENSORS = Path(__file__).resolve().parents[2] / "toolbox" / "sensors-gorilla" / "sensors.gorilla"
+MAC_PYTHON = "/usr/local/bin/python3"          # not on the SSH PATH of the Air (2026-10-22)
+TOO_HOT_C = 95.0                               # CPU die: stop the run, macOS throttles near 100 on the i5-2467M
+MFC = "Macs Fan Control"
 
 
 def _median(v):
@@ -312,11 +302,11 @@ def _median(v):
 HEAT_LOG = WORK / "heat-runs.jsonl"
 
 
-def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, out_dir=None):
-    """One measured run of the browser on the Mac. Test prefs go into the profile's user.js for this run only (the
-    original is copied first and put back after). -> summary dict, also appended to heat-runs.jsonl."""
+def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, out_dir=None, keep_fan_control=False):
+    """One measured run of the browser on the Mac, with Macs Fan Control off unless keep_fan_control. Test prefs go
+    into the profile's user.js for this run only (the original is copied first and put back after). -> summary dict,
+    also appended to heat-runs.jsonl."""
     import time
-    from PIL import Image
     m, mac, address = mac_target(name)
     out_dir = Path(out_dir or WORK)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -324,31 +314,67 @@ def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, 
                                  "| grep -o '/Users/[^ ]*/Profiles/[^/]*' | head -1"), timeout=60)
     prof = prof.strip().splitlines()[-1] if rc == 0 and prof.strip() else ""
     if not prof.startswith("/Users/"):
-        raise SystemExit("REFUSED: start Gorilla on the Mac first (the profile is read from the running browser)")
+        raise SystemExit("REFUSED: start Gorilla on the Mac first (the profile is read from the running browser): "
+                         "ssh macair \"open -a '/Applications/Gorilla Unleashed.app'\"")
     q = shlex_quote
     lines = "".join(f'user_pref("{k}", {v});\n' for k, v in prefs)
     stamp = time.strftime("%y-%m-%d-%H-%M-%S")
+    # `open -a App about:blank` is read as a FILE name: the browser was quit and never came back (2026-10-23), so the
+    # idle run measured nothing and the next run was refused. An empty local page stands in for "blank"; any other
+    # non-web address is refused.
+    if url in ("blank", "about:blank"):
+        open_page = ("printf '<!doctype html><title>blank</title>' > /tmp/heat-blank.html; "
+                     "open -a '/Applications/Gorilla Unleashed.app' /tmp/heat-blank.html")
+    elif url.startswith(("http://", "https://")):
+        open_page = f"open -a '/Applications/Gorilla Unleashed.app' {q(url)}"
+    else:
+        raise SystemExit(f"REFUSED: --url must be http(s) or 'blank' (macOS opens {url!r} as a file name)")
     setup = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; sleep 6; "
              f"cp -p {q(prof + '/user.js')} {q(prof + '/user.js.heat-' + stamp)} 2>/dev/null; "
              + (f"printf '%b' {q(lines)} >> {q(prof + '/user.js')}; " if lines else "")
-             + f"open -a '/Applications/Gorilla Unleashed.app' {q(url)}")
-    m._run(m.ssh_argv(mac, address, setup), timeout=120)
-    time.sleep(warmup)
-    samples = []
-    end = time.time() + minutes * 60
-    while time.time() < end:
-        t0 = time.time()
-        rc, o = m._run(m.ssh_argv(mac, address, "ps -A -o %cpu=,rss=,comm= | awk '/firefox|plugin-container/"
-                                  "{c+=$1; r+=$2} END{printf \"%.1f %d\\n\", c, r/1024}'"), timeout=30)
-        cpu = mem = None
-        if rc == 0 and len(o.split()) >= 2:
-            cpu, mem = float(o.split()[-2]), int(o.split()[-1])
-        shot = out_dir / f"heat-{label}-last.png"
-        rpm = temp = None
-        if m.take_shot(mac, address, "/tmp/macair-heat.png", str(shot)) == 0:
-            rpm, temp = read_fan(Image.open(shot))
-        samples.append({"t": round(time.time() - end + minutes * 60), "cpu": cpu, "mem_mb": mem, "rpm": rpm, "temp": temp})
-        time.sleep(max(0, every - (time.time() - t0)))
+             + open_page)
+    if not SENSORS.exists():
+        raise SystemExit(f"REFUSED: the sensor reader is missing: {SENSORS}")
+    rc, _ = m._run(m.scp_argv(mac, address, "/tmp/sensors.gorilla", str(SENSORS), upload=True), timeout=60)
+    if rc != 0:
+        raise SystemExit("REFUSED: could not copy sensors.gorilla to the Mac")
+    # Macs Fan Control OFF for the measured run (owner, 2026-10-23): "quit" from AppleScript is cancelled by the app
+    # itself (error -128), so it gets a plain TERM, and it is started again afterwards whatever happens.
+    rc, o = m._run(m.ssh_argv(mac, address, f"pgrep -x {q(MFC)} || true"), timeout=30)
+    mfc_was_on = rc == 0 and o.strip().isdigit()
+    if mfc_was_on and not keep_fan_control:
+        m._run(m.ssh_argv(mac, address, f"pkill -TERM -x {q(MFC)}; sleep 5; ! pgrep -x {q(MFC)}"), timeout=60)
+    samples, stopped = [], ""
+    try:
+        m._run(m.ssh_argv(mac, address, setup), timeout=120)
+        time.sleep(warmup)
+        end = time.time() + minutes * 60
+        while time.time() < end:
+            t0 = time.time()
+            rc, o = m._run(m.ssh_argv(mac, address, "ps -A -o %cpu=,rss=,comm= | awk '/firefox|plugin-container/"
+                                      "{c+=$1; r+=$2} END{printf \"%.1f %d\\n\", c, r/1024}'; "
+                                      f"{MAC_PYTHON} /tmp/sensors.gorilla --json"), timeout=40)
+            cpu = mem = rpm = temp = die = None
+            ctl = ""
+            if rc == 0:
+                first, _, rest = o.partition("\n")
+                if len(first.split()) >= 2:
+                    cpu, mem = float(first.split()[-2]), int(first.split()[-1])
+                try:
+                    r = json.loads(rest.strip().splitlines()[-1])
+                    temp, die, ctl = r.get("cpu_c"), r.get("cpu_die_c"), r.get("fan_control", "")
+                    rpm = (r.get("fans") or [{}])[0].get("rpm")
+                except (ValueError, IndexError):
+                    pass
+            samples.append({"t": round(time.time() - end + minutes * 60), "cpu": cpu, "mem_mb": mem, "rpm": rpm,
+                            "temp": temp, "die": die, "fan_control": ctl})
+            if die is not None and die >= TOO_HOT_C:
+                stopped = f"stopped early: CPU die {die} C (limit {TOO_HOT_C})"
+                break
+            time.sleep(max(0, every - (time.time() - t0)))
+    finally:
+        if mfc_was_on and not keep_fan_control:
+            m._run(m.ssh_argv(mac, address, f"open -a {q(MFC)}"), timeout=60)
     restore = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; sleep 6; "
                f"if [ -f {q(prof + '/user.js.heat-' + stamp)} ]; then mv {q(prof + '/user.js.heat-' + stamp)} {q(prof + '/user.js')}; "
                f"else mkdir -p ~/Agents.Work.Trash-user && mv {q(prof + '/user.js')} ~/Agents.Work.Trash-user/user.js.heat-{stamp} 2>/dev/null; fi; "
@@ -359,10 +385,18 @@ def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, 
            "samples": len(samples), "cpu_median": _median([x["cpu"] for x in samples]),
            "mem_mb_median": _median([x["mem_mb"] for x in samples]), "rpm_median": _median([x["rpm"] for x in samples]),
            "temp_median": _median([x["temp"] for x in samples]), "temp_max": max((x["temp"] for x in samples if x["temp"]), default=None),
-           "raw": samples}
+           "die_max": max((x["die"] for x in samples if x["die"]), default=None),
+           "fan_control": fan_control_summary(samples), "stopped": stopped, "raw": samples}
     with open(HEAT_LOG if out_dir == WORK else out_dir / "heat-runs.jsonl", "a") as f:
         f.write(json.dumps(res) + "\n")
     return res
+
+
+def fan_control_summary(samples):
+    """'off' when every sample saw macOS's own fan control, else what was seen (a run with Macs Fan Control on does
+    not say what the browser does to a normal Air)."""
+    seen = {x.get("fan_control") for x in samples if x.get("fan_control")}     # a dropped read says nothing
+    return "off" if seen == {"macOS (automatic)"} else ", ".join(sorted(seen)) or "unknown"
 
 
 def heat_report(path=None):
@@ -370,10 +404,12 @@ def heat_report(path=None):
     if not p.exists():
         return ["no heat runs yet"]
     rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
-    out = [f"{'label':<22} {'when':<17} {'cpu %':>6} {'mem MB':>7} {'rpm':>6} {'temp C':>7} {'max C':>6}  prefs"]
+    out = [f"{'label':<22} {'when':<17} {'cpu %':>6} {'mem MB':>7} {'rpm':>6} {'temp C':>7} {'max C':>6} "
+           f"{'fan ctl':<8} prefs"]
     for r in rows:
         out.append(f"{r['label']:<22} {r['when']:<17} {r['cpu_median'] or '-':>6} {r['mem_mb_median'] or '-':>7} "
-                   f"{r['rpm_median'] or '-':>6} {r['temp_median'] or '-':>7} {r['temp_max'] or '-':>6}  {' '.join(r['prefs'])}")
+                   f"{r['rpm_median'] or '-':>6} {r['temp_median'] or '-':>7} {r['temp_max'] or '-':>6} "
+                   f"{r.get('fan_control', 'on (MFC)'):<8} {' '.join(r['prefs'])}")
     return out
 
 
@@ -422,6 +458,7 @@ def main(argv=None, prog="fieldkit macair"):
     h = sp.add_parser("heat"); h.add_argument("label"); h.add_argument("--url", required=True)
     h.add_argument("--minutes", type=float, default=3.0); h.add_argument("--pref", action="append", default=[])
     h.add_argument("--warmup", type=int, default=45); h.add_argument("--mac", default="macair")
+    h.add_argument("--keep-fan-control", action="store_true", help="leave Macs Fan Control running (not a normal Air)")
     sp.add_parser("heat-report")
     o = ap.parse_args(argv)
     if o.cmd == "status":
@@ -469,9 +506,10 @@ def main(argv=None, prog="fieldkit macair"):
                 return 2
             k, v = p.split("=", 1)
             prefs.append((k, v if v in ("true", "false") or v.lstrip("-").isdigit() else json.dumps(v)))
-        r = heat(o.label, o.url, o.minutes, prefs, o.mac, o.warmup)
+        r = heat(o.label, o.url, o.minutes, prefs, o.mac, o.warmup, keep_fan_control=o.keep_fan_control)
         print(f"{o.label}: {r['samples']} samples; median CPU {r['cpu_median']} %, memory {r['mem_mb_median']} MB, "
-              f"fan {r['rpm_median']} rpm, temperature {r['temp_median']} C (max {r['temp_max']})")
+              f"fan {r['rpm_median']} rpm, temperature {r['temp_median']} C (max {r['temp_max']}, die max "
+              f"{r['die_max']}); Macs Fan Control {r['fan_control']}" + (f"; {r['stopped']}" if r["stopped"] else ""))
         return 0 if r["samples"] else 1
     if o.cmd == "heat-report":
         print("\n".join(heat_report()))
