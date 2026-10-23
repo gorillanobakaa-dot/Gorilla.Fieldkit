@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-22-23-26
+# Version: 1.0.0 · updated 26-10-23-18-04
 """Running the cable link without improvising: what each step of 2026-10-22 night was done by hand, as one command.
 
     fieldkit peers link toolset [--peer]          this computer's tools (python, pytest, PyYAML, psutil, git, claude,
@@ -136,16 +136,23 @@ def startcheck(agent="claude", run=_run):
         exe = aprun.claude_exe()
         rows.append(("claude found", bool(exe), exe or "not on PATH or in the desktop app"))
         seen = {}
-        def fake(args, **kw):
-            seen.update(args=args, input=kw.get("input"))
-            return type("R", (), {"returncode": 0, "stdout": "{}", "stderr": ""})()
+
+        class Fake:                                       # the runner's popen, recording argv and stdin, running nothing
+            returncode, pid = 0, 0
+
+            def __init__(self, args, **kw):
+                seen["args"] = args
+
+            def communicate(self, input=None, timeout=None):
+                seen["input"] = input
+                return "{}", ""
         probe = "--- a brief that starts with dashes ---"
         try:
-            old = aprun.claude_exe
-            aprun.claude_exe = lambda: exe or "claude"
-            aprun.claude(probe, run=fake)
+            old = aprun.claude_cmd
+            aprun.claude_cmd = lambda: [exe or "claude"]
+            aprun.claude(probe, popen=Fake)
         finally:
-            aprun.claude_exe = old
+            aprun.claude_cmd = old
         rows.append(("brief goes on stdin, not argv", seen.get("input") == probe and probe not in seen.get("args", []),
                      "argv would read '---' as an option" if probe in seen.get("args", []) else "ok"))
     return rows

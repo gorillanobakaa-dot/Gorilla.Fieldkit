@@ -1,0 +1,149 @@
+# Rules tests/test_long_horizon.py must hold. Every one must be CAUGHT:
+#   fieldkit mutate --plan tests/long_horizon_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_long_horizon.py
+# step 1: budgets and what ended a run
+- file: fieldkit/autopilot/budget.py
+  swap: ['DEFAULT = {"turns": 10000,', 'DEFAULT = {"turns": 40,']
+  why: the turn budget defaults to 10000 (owner 2026-10-22), not 40
+- file: fieldkit/autopilot/budget.py
+  swap: ['elif share >= 0.8 and not checkpointed_since(d, m.get("mark80")):', 'elif False:']
+  why: at 80 % a checkpoint is forced before any further work
+- file: fieldkit/autopilot/budget.py
+  swap: ['if share >= 1.0 and which != "turns":', 'if False:']
+  why: past 100 % of the wall or dollar budget only a checkpoint is allowed
+- file: fieldkit/autopilot/budget.py
+  swap: ['if "handoff.md" in text and', 'if False and']
+  why: writing HANDOFF.md is always allowed, or a forced checkpoint deadlocks
+- file: fieldkit/autopilot/budget.py
+  swap: ['due = [lv for lv in LEVELS if share * 100 >= lv and lv not in m.get("said", [])]', 'due = []']
+  why: the job is told at 50 / 80 / 95 %
+- file: fieldkit/autopilot/budget.py
+  swap: ['    if r.get("timed_out"):', '    if False:']
+  why: a killed run is a wall-budget end, not a crash
+- file: fieldkit/autopilot/budget.py
+  swap: ['res.get("subtype") == "error_max_turns"', 'res.get("subtype") == "never"']
+  why: the turn cap is a budget end (resumable), not a failure
+- file: fieldkit/autopilot/budget.py
+  swap: ['    if USAGE.search(text):', '    if False:']
+  why: a usage-limit answer is a planned pause
+- file: fieldkit/autopilot/budget.py
+  swap: ['    if RATE.search(text) and', '    if False and']
+  why: 429 / 529 is a rate limit (back off), not a failure
+- file: fieldkit/autopilot/budget.py
+  swap: ['        if t.timestamp() <= now:', '        if False:']
+  why: a reset time already past today is tomorrow
+- file: fieldkit/autopilot/budget.py
+  swap: ['        if ap == "pm" and h < 12:', '        if False:']
+  why: 3pm is 15:00
+# checkpoint
+- file: fieldkit/autopilot/checkpoint.py
+  swap: ['if sid and now - ended < FRESH_SECONDS', 'if sid and True']
+  why: a stale session is not resumed by id; a fresh one starts from HANDOFF.md
+- file: fieldkit/autopilot/checkpoint.py
+  swap: ['    return "checkpoint", None', '    return "start", None']
+  why: never from scratch while a checkpoint exists
+- file: fieldkit/autopilot/checkpoint.py
+  swap: ['    env["GIT_INDEX_FILE"] = str(idx)', '    pass']
+  why: the WIP snapshot uses its own index (the checkout's index, and a stale index.lock, untouched)
+- file: fieldkit/autopilot/checkpoint.py
+  swap: ['    _git(cwd, "update-ref", ref, sha)', '    pass']
+  why: the WIP commit is reachable from refs/heads/wip/<job>
+# job
+- file: fieldkit/autopilot/job.py
+  swap: ['if resumable and cp["continuations"] <= max_continuations:', 'if resumable and cp["continuations"] < max_continuations:']
+  why: max_continuations resumes, then the handoff
+- file: fieldkit/autopilot/job.py
+  swap: ['if "one_fix_run" in chain and not cp.get("fix_used"):', 'if False:']
+  why: one fix run from the checkpoint after a crash
+- file: fieldkit/autopilot/job.py
+  swap: ['            if "wait_window" in _names(_chain(fallback, "usage_limit")):', '            if False:']
+  why: a closed usage window is waited out, then the job resumes
+- file: fieldkit/autopilot/job.py
+  swap: ['if "backoff" in chain and rate_tries < BACKOFF_TRIES:', 'if False:']
+  why: a rate limit backs off before anything else
+- file: fieldkit/autopilot/job.py
+  swap: ['delay = ra if ra else min(', 'delay = min(']
+  why: retry-after is honored
+- file: fieldkit/autopilot/job.py
+  swap: ['        wip = ck.wip_commit(cwd, d, job_id, f"{kind}: {detail[:120]}")', '        wip = {"ok": False, "why": "mutant"}']
+  why: every non-success end is checkpointed with a WIP commit
+- file: fieldkit/autopilot/job.py
+  swap: ['        if Path(stop_file).exists():', '        if False:']
+  why: the owner's STOP file pauses a job
+# run.py
+- file: fieldkit/autopilot/run.py
+  swap: ['        kill_tree(p.pid)', '        p.kill()']
+  why: a stuck run is killed with its whole process tree
+- file: fieldkit/autopilot/run.py
+  swap: ['via_stdin = len(prompt) > 8000', 'via_stdin = False']
+  why: a long prompt goes on stdin (32k command line)
+- file: fieldkit/autopilot/claude_hook.py
+  swap: ['if decision == "allow" and job:', 'if False:']
+  why: the hook enforces the job budget
+# runbook
+- file: fieldkit/autopilot/runbook.py
+  swap: ['            if rc == EXIT_PAUSED and is_agent(step):', '            if False:']
+  why: exit 75 of an agent step is paused-resumable, not failed
+- file: fieldkit/autopilot/runbook.py
+  swap: ['step.get("stop_on_fail", not is_agent(step))', 'step.get("stop_on_fail", True)']
+  why: agent steps default to stop_on_fail false
+- file: fieldkit/autopilot/runbook.py
+  swap: ['FIELDKIT_JOB_DIR=str(job_dir(path, step))', 'FIELDKIT_JOB_DIRX=str(job_dir(path, step))']
+  why: an autopilot claude run step gets its job folder
+# step 0: goals
+- file: fieldkit/autopilot/goal.py
+  swap: ['            if all_pass(st):', '            if True:']
+  why: the planner saying done is not done; the verifier decides
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if all(x["verdict"] == "PASS" for x in own):', '        if True:']
+  why: a worker's claim of success does not verify its job
+- file: fieldkit/autopilot/goal.py
+  swap: ['return {"verdict": "FAIL", "rc": r.get("rc"), "why": "the verifier printed no VERDICT line",', 'return {"verdict": "PASS", "rc": r.get("rc"), "why": "the verifier printed no VERDICT line",']
+  why: an agent verifier that prints no VERDICT line is a FAIL
+- file: fieldkit/autopilot/goal.py
+  swap: ['    if a.get("sha256") != _sha(p):', '    if False:']
+  why: a register changed after its approval is void
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if not (isatty if isatty is not None else sys.stdin.isatty()):', '        if False:']
+  why: approving needs a real terminal
+- file: fieldkit/autopilot/goal.py
+  swap: ["    if os.environ.get(\"FIELDKIT_AUTOPILOT\") == \"1\":\n        say(\"REFUSED: pre-approvals", "    if False:\n        say(\"REFUSED: pre-approvals"]
+  why: an autopilot run can never approve
+- file: fieldkit/autopilot/goal.py
+  swap: ['            if a.get("take_default") and q.get("default"):', '            if False:']
+  why: a pre-approved category is answered without a human
+- file: fieldkit/autopilot/goal.py
+  swap: ["def covered_action(reg, kind, repo, branch):\n    if branch in PROTECTED_BRANCHES:", "def covered_action(reg, kind, repo, branch):\n    if False:"]
+  why: main and master are never pushed under a pre-approval
+- file: fieldkit/autopilot/goal.py
+  swap: ["        if chk.returncode != 0:\n            return False, f\"privacy", "        if False:\n            return False, f\"privacy"]
+  why: the privacy push-check runs and decides before any push
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if any(_glob_match(spec.get("branches", ""), b) for b in PROTECTED_BRANCHES):', '        if False:']
+  why: a register whose glob covers main is refused
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if sum(s["usd"] for s in recent) >= float(b["window_usd"]):', '        if False:']
+  why: the usage window budget spreads the work
+- file: fieldkit/autopilot/goal.py
+  swap: ['and now() - cur.get("heartbeat", 0) < LOCK_STALE:', ':']
+  why: a silent supervisor's lock is taken over
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if any(q not in st["answers"] for q in s.get("waits_on") or []):', '        if False:']
+  why: a job waiting on an owner answer does not start without it
+- file: fieldkit/autopilot/goal.py
+  swap: ['PROTECTED_BRANCHES = ("main", "master", "windows-port")', 'PROTECTED_BRANCHES = ("main", "master")']
+  why: Gorilla.Opencode's release branch is never pushed by the harness
+- file: fieldkit/autopilot/goal.py
+  swap: ['    if not any(ch in branch for ch in "*?["):', '    if True:']
+  why: an on_done branch glob names every matching job branch
+- file: fieldkit/autopilot/hardlines.py
+  swap: ['(goal\.json|goal\.md|', '(nothing-here|']
+  why: a model never edits the goal it is judged by
+- file: fieldkit/autopilot/inbox.py
+  swap: ['    r = run(["git", "-C", str(repo), "push", *(["-u"] if plan["new"] else []), "origin", plan["branch"]],', '    r = run(["git", "-C", str(repo), "push", "origin", plan["branch"]],']
+  why: a new branch is pushed with its upstream set
+- file: fieldkit/autopilot/inbox.py
+  swap: ['    return f"{head}..HEAD", True', '    return "@{u}..HEAD", True']
+  why: a branch never pushed is compared with origin's default branch (it has no upstream)
+- file: fieldkit/autopilot/inbox.py
+  swap: ['    if new and br in ("main", "master", "HEAD"):', '    if False:']
+  why: publish never pushes a new main

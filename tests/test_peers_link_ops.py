@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-22-23-26
+# Version: 1.0.0 · updated 26-10-23-18-04
 """fieldkit peers link toolset|startcheck|restart|verify-start: the 2026-10-22 night's manual steps as tools."""
 import pytest
 
@@ -54,8 +54,8 @@ def test_startcheck_passes_on_a_ready_computer(monkeypatch, tmp_path):
 
 def test_startcheck_catches_the_brief_in_argv(monkeypatch, tmp_path):
     aprun = _ready(monkeypatch, tmp_path)
-    def old_claude(prompt, run=None, **kw):          # the pre-209debc shape: the prompt as a word on the line
-        return run(["claude", "-p", prompt], capture_output=True)
+    def old_claude(prompt, popen=None, **kw):        # the pre-209debc shape: the prompt as a word on the line
+        return popen(["claude", "-p", prompt]).communicate(None)
     monkeypatch.setattr(aprun, "claude", old_claude)
     assert rows(link_ops.startcheck())["brief goes on stdin, not argv"] is False
 
