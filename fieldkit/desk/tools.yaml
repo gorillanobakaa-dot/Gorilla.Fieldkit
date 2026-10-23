@@ -31,6 +31,23 @@ tools:
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_sync_and_platforms.py"]
 
+- id: install-ps1
+  title: Install Fieldkit on Windows without git (GitHub zip, private .venv, lean set, doctor --lean, INSTALLED.txt)
+  harness: core
+  entry: [powershell, -NoProfile, -ExecutionPolicy, Bypass, -File, "${FIELDKIT}/install.ps1"]
+  path: ${FIELDKIT}/install.ps1
+  inputs:
+    - {name: target, flag: -Target, type: str, required: false, help: "the folder (default %USERPROFILE%\\Fieldkit); refused if it has files or is under OneDrive"}
+    - {name: branch, flag: -Branch, type: str, required: false, help: "the GitHub branch whose zip is downloaded (main)"}
+    - {name: yes, flag: -Yes, type: bool, required: false, help: "answer yes to every question"}
+  effects: [network, writes-files, processes]
+  safety: reversible
+  notes: 'Twin of install.sh (Linux/macOS). Asks y/N before each download and install; Windows PowerShell 5.1; Python found by full path (py launcher, python.org installs, never PATH or the Store alias); refuses a zip entry outside its top folder. Only the target folder changes: delete it to undo. FIELDKIT_ZIP_URL (file:// = copy) and FIELDKIT_SKIP_PIP=1 as in install.sh. Exit 0 ready, 2 bad usage or refused folder, 3 not ready. Owner order 2026-10-23.'
+  platforms: [windows]
+  platforms_why: 'Windows PowerShell 5.1 and the Windows Python layout (py launcher, %LOCALAPPDATA%\Programs\Python); Linux and macOS use install.sh'
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_install_ps1.py"]
+
 - id: autopilot
   title: Unattended agent runs (Claude Code, Antigravity) with no approval prompts, held by hard lines and no credential
   harness: core
