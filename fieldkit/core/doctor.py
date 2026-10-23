@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-01-35
+# Version: 1.0.0 · updated 26-10-23-02-17
 """fieldkit doctor: what this machine still needs before the harness can work, and the exact line that installs it.
 
     fieldkit doctor [--for PIPELINE] [--lean] [--json]
@@ -115,7 +115,9 @@ def check(pipeline=None, pyproject=None, requirements=None, have_dist=None, whic
         if t.get("only") and t["only"] != ("windows" if h["is_windows"] else "linux"):
             continue                                       # a tool of the other system: not asked for here
         path = which(name)
-        if path and name == "git" and git_state(path) == "stub":
+        # Apple's stub lives only on a Mac; on another family the check would run the REAL machine's git
+        # (2026-10-23: three Linux-shaped tests failed when run on the Air, which has the stub)
+        if path and name == "git" and fam == "mac" and git_state(path, system="darwin") == "stub":
             path = None                                    # Apple's stand-in that only asks for the developer tools
         if not path and way and t.get("optional_when") == way:
             rows.append({"kind": "tool", "name": name, "ok": True,
