@@ -303,6 +303,26 @@ SYMPTOMS = [
         "then": "fieldkit macair preflight, then recreate, install ZIP, verify; record the result in the BUILD-LOG",
     },
     {
+        "id": "mac-sensors-heat",
+        "seen": "How hot is the Mac, how fast is its fan, how much memory is in use, or how hard does the browser press "
+                "an old Mac: a heat or memory test, temperatures needed with Macs Fan Control off, or the sensors "
+                "dashboard (sensors.gorilla, gorilla-sensors) wanted on a Mac.",
+        "example": "start gorilla-sensors on the macbook air and test the browser heat with macs fan control off",
+        "words": [r"mac\b|macbook|mac ?air|sierra|old mac|osx|os x",
+                  r"heat|hot|temp|temperature|fan|rpm|thermal|sensor|smc|memory|ram|battery|throttl"],
+        "action": "mac",
+        "run": "fieldkit mac sensors macair",
+        "proves": "the Mac's temperatures, fan, who controls the fan, CPU speed limit, battery and memory now, read "
+                  "from the SMC by sensors.gorilla (no password, nothing installed)",
+        "look": ["fieldkit mac sensors macair --open (live on the Mac's own screen)",
+                 "fieldkit macair heat LABEL --url blank|https://... (Macs Fan Control off for the run)",
+                 "fieldkit macair heat-report (every run; 'fan ctl off' = a normal Air)"],
+        "last_fix": "2026-10-23: temperatures came from Macs Fan Control's menu-bar text via tesseract and read nothing; "
+                    "replaced by sensors.gorilla 2.2.0 (SMC through IOKit). about:blank made the browser vanish: "
+                    "'open -a App about:blank' is a file name, use --url blank",
+        "then": "record each heat run's numbers in Firefox.158.Macbook.air.Sierra.Legacy/BUILD-LOG-legacy-mac.md",
+    },
+    {
         "id": "old-mac-unreachable",
         "seen": "The old Mac (MacBook Air or another out-of-support Mac) cannot be reached over SSH, its address changed, "
                 "the ssh alias stopped working, or a session does not know how to connect to it.",

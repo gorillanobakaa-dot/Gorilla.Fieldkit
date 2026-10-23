@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-01-35
+# Version: 1.0.0 · updated 26-10-23-02-32
 """fieldkit doctor: what this machine still needs before the harness can work, and the exact line that installs it.
 
     fieldkit doctor [--for PIPELINE] [--lean] [--json]
@@ -115,7 +115,9 @@ def check(pipeline=None, pyproject=None, requirements=None, have_dist=None, whic
         if t.get("only") and t["only"] != ("windows" if h["is_windows"] else "linux"):
             continue                                       # a tool of the other system: not asked for here
         path = which(name)
-        if path and name == "git" and git_state(path) == "stub":
+        # Apple's stub lives only on a Mac; on another family the check would run the REAL machine's git
+        # (2026-10-23: three Linux-shaped tests failed when run on the Air, which has the stub)
+        if path and name == "git" and fam == "mac" and git_state(path, system="darwin") == "stub":
             path = None                                    # Apple's stand-in that only asks for the developer tools
         if not path and way and t.get("optional_when") == way:
             rows.append({"kind": "tool", "name": name, "ok": True,
@@ -126,7 +128,9 @@ def check(pipeline=None, pyproject=None, requirements=None, have_dist=None, whic
                      "install": "" if path else (t.get("install") or {}).get(fam, f"install {name} for this system")})
 
     missing = [r for r in rows if not r["ok"]]
-    lines = list(dict.fromkeys(r["install"] for r in missing if r["install"]))   # one line per command, in order
+    # one line per command, in order; "a && b" becomes two lines: PowerShell 5.1 refuses && (the Windows side,
+    # 2026-10-23, running the lean line from install.ps1)
+    lines = list(dict.fromkeys(part.strip() for r in missing if r["install"] for part in r["install"].split(" && ")))
     nxt = ("run these, then python -m fieldkit doctor again: " + " ; ".join(lines)) if missing else \
           (("fieldkit pipeline run {} --only deps" if (ROOT / "fieldkit/build/pipelines" / f"{pipeline}.yaml").exists()
             else "fieldkit {}").format(pipeline) if pipeline else "fieldkit next PIPELINE")   # audio is a command
@@ -250,7 +254,8 @@ def probe_lines(r):
            f"  git         {f['git']}      Homebrew {'yes' if f['brew'] else 'no'}      C compiler {'yes' if f['compiler'] else 'no'}",
            f"  curl        {'yes' if f['curl'] else 'no'}      unzip {'yes' if f['unzip'] else 'no'}",
            *([f"  SIP         {f['sip']} (System Integrity Protection)"] if "sip" in f else []),
-           f"WAY IN: {r['way']}{' + lean' if r['lean'] else ''}"]
+           f"WAY IN: {r['way']}{' + lean' if r['lean'] else ''}   (how to get Fieldkit here: git when git works, "
+           "else the zip)"]
     out += [f"  because {w}" for w in r["why"]]
     if r["ready_to_install"]:
         py = f["python_to_use"]

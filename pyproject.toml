@@ -36,6 +36,7 @@ ocr = ["pytesseract", "pdf2image"]   # scanned study materials (academic/read_so
 
 [project.scripts]
 fieldkit = "fieldkit.cli:main"
+fk = "fieldkit.aliases:main"          # short plain-English names for long commands (fieldkit/desk/aliases.yaml)
 
 [tool.setuptools.packages.find]
 include = ["fieldkit*"]

@@ -98,7 +98,7 @@ STUB = "xcode-select: error: no developer tools were found at '/Applications/Xco
 def test_apples_git_stub_is_not_git():
     assert doctor.git_state("/usr/bin/git", run=lambda argv, **k: (1, STUB), system="darwin") == "stub"
     assert doctor.git_state("/usr/bin/git", run=lambda argv, **k: (0, "git version 2.47.3"), system="linux") == "real"
-    assert doctor.git_state(None, run=lambda argv, **k: (0, "")) in ("missing", "real")   # no path given: looks it up
+    assert doctor.git_state("/nowhere/git", run=lambda argv, **k: (127, "not found"), system="linux") == "missing"
 
 
 def test_a_mac_is_a_family_with_its_own_lines_and_the_stub_counts_as_missing(tmp_path, monkeypatch):
@@ -123,7 +123,7 @@ def test_lean_asks_only_for_the_lean_packages(tmp_path):
     req.write_text(json.dumps(data))
     r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: None, which=lambda n: "/x", h=DEB, lean=True)
     names = [x["name"] for x in r["rows"] if x["kind"] == "python-package"]
-    assert names == ["pyyaml"] and "--no-deps" in r["install"][0]          # lxml (a full dependency) is not asked for
+    assert names == ["pyyaml"] and "--no-deps" in r["install"][-1]          # lxml (a full dependency) is not asked for
 
 
 def test_the_real_lean_set_is_what_the_core_was_measured_with():
@@ -154,3 +154,24 @@ def test_probe_picks_zip_and_lean_on_the_air(monkeypatch):
     assert r["facts"]["python_to_use"] == "/usr/local/bin/python3" and r["facts"]["sip"] == "disabled"
     assert any("full path" in w for w in r["why"])                      # python3 is not on this PATH
     assert doctor.probe_lines(r)[-1].endswith("-m fieldkit.core.doctor --lean")
+
+
+def test_a_linux_check_never_runs_this_machines_git(tmp_path, monkeypatch):
+    # run on the 2011 Air (which has Apple's git stub) these Linux-shaped tests failed: the stub check ran for real
+    pp, req = _files(tmp_path)
+    def boom(*a, **k):
+        raise AssertionError("git_state must not run for a Linux host")
+    monkeypatch.setattr(doctor, "git_state", boom)
+    r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: "1.0", which=lambda n: "/usr/bin/" + n, h=DEB)
+    assert r["ok"]
+
+
+def test_no_install_line_joins_commands_with_ampersands(tmp_path):
+    # PowerShell 5.1 refuses "a && b" (found on Windows, 2026-10-23): the lean line comes out as two lines
+    pp, req = _files(tmp_path)
+    data = json.loads(req.read_text())
+    data["lean"] = {"packages": ["pyyaml>=6"]}
+    req.write_text(json.dumps(data))
+    r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: None, which=lambda n: "/x", h=DEB, lean=True)
+    assert len(r["install"]) == 2 and not any("&&" in line for line in r["install"])
+    assert "--no-deps" in r["install"][1]

@@ -20,6 +20,20 @@ that have no support anymore and provide them with support".
 5. New Mac: `fieldkit mac add NAME --user U --key ~/.ssh/KEY --mdns NAME.local --hw-addr aa:bb:cc:dd:ee:ff`.
    The hardware address is what finds it when mDNS is silent: on the Mac, `ifconfig en0 | grep ether`.
 
+## Sensors: temperature, fan, battery, memory (sensors.gorilla)
+
+```bash
+fieldkit mac sensors macair           one reading, the 11-inch panel, printed here
+fieldkit mac sensors macair --json     the same as JSON (what heat tests read)
+fieldkit mac sensors macair --open     live in a Terminal window on the Mac's own screen
+```
+
+The reader is sensors.gorilla 2.2.0 (github gorillanobakaa-dot/sensors-gorilla, gathered into `toolbox/`): the SMC
+read through IOKit with Python's ctypes, so no password, no Homebrew, no Xcode. The command copies it to the Mac's
+`~/bin/` only when the file differs. On Linux the same program is `~/.local/bin/sensors.gorilla`.
+Never read temperatures from Macs Fan Control's menu-bar text again: with that app off (the rule for tests, owner
+2026-10-23) there is no text, and tesseract read nothing even with it on.
+
 ## Facts that cost time
 
 - A home network's mDNS answers some minutes and not others, and DHCP moves addresses. Never conclude "the alias is
@@ -31,7 +45,11 @@ that have no support anymore and provide them with support".
 - On 10.13 there is no Xcode: no `strings`. `vmmap -summary PID`, `sample`, `lsof`, `top -o power` work as the user;
   `footprint` and `powermetrics` need root; powermetrics on 10.13 gives package power only.
 - Never touch on the Air: `keymap.sh` and `com.local.keyremap` (broken keys), Macs Fan Control, `cloudd`/`bird`,
-  `fontd` (must stay ON).
+  `fontd` (must stay ON). One exception, owner 2026-10-23: Macs Fan Control is OFF while a test measures the
+  browser ("as on a normal MacBook Air"), and started again after. AppleScript "quit" is refused by the app
+  (error -128): it takes `pkill -TERM -x "Macs Fan Control"`; `open -a "Macs Fan Control"` starts it again.
+- An Air's fan never stops: 2000 rpm is Apple's own minimum (SMC F0Mn). 2000 rpm with Macs Fan Control off is
+  normal, not a fan still being driven.
 
 ## Private data
 

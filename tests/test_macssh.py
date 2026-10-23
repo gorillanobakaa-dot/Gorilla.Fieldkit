@@ -134,3 +134,25 @@ def test_one_argument_is_a_shell_line_several_are_words():
     # 2026-10-22: run macair -- 'pgrep -x firefox; ls ...' was quoted whole and the Mac answered exit 127
     assert M.remote_line(["pgrep -x firefox; df -h /"]) == "pgrep -x firefox; df -h /"
     assert M.remote_line(["echo", "quoted 'arg' ok"]) == "echo 'quoted '\"'\"'arg'\"'\"' ok'"
+
+
+def test_sensors_refuses_without_python_on_the_mac_and_copies_only_when_changed():
+    import hashlib
+    from fieldkit.mac import macssh as S
+    if not S.SENSORS.exists():
+        import pytest
+        pytest.skip("sensors-gorilla not gathered")
+    mac = {"host_key_alias": "h", "key": "~/k", "user": "u"}
+    calls = []
+    def no_python(argv):
+        calls.append(argv)
+        return 0, "NO-PYTHON"
+    assert S.sensors(mac, "1.2.3.4", runner=no_python) == 2
+    same = hashlib.sha256(S.SENSORS.read_bytes()).hexdigest()
+    calls.clear()
+    def same_file(argv):
+        calls.append(argv)
+        return 0, same
+    assert S.sensors(mac, "1.2.3.4", json_out=True, runner=same_file) == 0
+    assert not any(a[0] == "scp" for a in calls)                     # unchanged file: nothing copied
+    assert "--json" in calls[-1][-1]

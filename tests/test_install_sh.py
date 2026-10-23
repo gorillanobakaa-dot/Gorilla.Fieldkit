@@ -69,3 +69,54 @@ def test_help_and_bad_option():
     assert r.returncode == 0 and "without git" in r.stdout.lower()
     r = subprocess.run(["sh", str(ROOT / "install.sh"), "--nope"], capture_output=True, text=True, timeout=30)
     assert r.returncode == 2
+
+
+def _flaky_curl(tmp_path, zipfile_path, plan):
+    """A curl stand-in on PATH: each call follows the next step of `plan` ('half': write half the bytes and fail
+    with 18, a dropped connection; 'none': write nothing and fail; 'all': write the rest and succeed). It honours
+    -C - by appending to the existing part file, like curl does."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    state = tmp_path / "curl-calls"
+    state.write_text("0")
+    fake = bindir / "curl"
+    fake.write_text(f"""#!{sys.executable}
+import sys, pathlib
+state = pathlib.Path({str(state)!r}); n = int(state.read_text()); state.write_text(str(n + 1))
+plan = {plan!r}; step = plan[min(n, len(plan) - 1)]
+out = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+data = pathlib.Path({str(zipfile_path)!r}).read_bytes()
+have = out.stat().st_size if out.exists() and "-C" in sys.argv else 0
+if step == "half":
+    with open(out, "ab" if have else "wb") as fh: fh.write(data[have:have + max(1, (len(data) - have) // 2)])
+    sys.exit(18)
+if step == "none":
+    sys.exit(28)
+with open(out, "ab" if have else "wb") as fh: fh.write(data[have:])
+""")
+    fake.chmod(0o755)
+    return bindir, state
+
+
+def test_a_dropped_download_resumes_where_it_stopped(tmp_path):
+    z = _zip(tmp_path)
+    bindir, calls = _flaky_curl(tmp_path, z, ["half", "half", "all"])
+    work = tmp_path / "w"
+    work.mkdir()
+    r = run(["--yes"], work, FIELDKIT_ZIP_URL="https://example.invalid/fk.zip", FIELDKIT_RETRY_WAIT="0",
+            PATH=f"{bindir}:{os.environ['PATH']}")
+    out = r.stdout + r.stderr
+    assert (work / "Fieldkit" / "fieldkit" / "core" / "doctor.py").is_file(), out[-1500:]
+    assert calls.read_text() == "3" and out.count("resuming, try") == 2, out[-1500:]
+
+
+def test_a_download_that_makes_no_progress_stops_instead_of_looping(tmp_path):
+    z = _zip(tmp_path)
+    bindir, calls = _flaky_curl(tmp_path, z, ["half", "none"])
+    work = tmp_path / "w"
+    work.mkdir()
+    r = run(["--yes"], work, FIELDKIT_ZIP_URL="https://example.invalid/fk.zip", FIELDKIT_RETRY_WAIT="0",
+            PATH=f"{bindir}:{os.environ['PATH']}")
+    out = r.stdout + r.stderr
+    assert r.returncode == 3 and "No progress since the last try" in out, out[-1500:]
+    assert calls.read_text() == "2" and not (work / "Fieldkit").exists()

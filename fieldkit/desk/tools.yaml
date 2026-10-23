@@ -57,14 +57,39 @@ tools:
     - {name: action, flag: null, type: str, required: true, choices: [on, off, status, stop, resume, claude, workspace, quiet, antigravity, login], help: "status first; claude PROMPT runs one headless run"}
     - {name: rest, flag: null, type: str, required: false, help: "stop: the reason; claude: the prompt; workspace: the folder"}
     - {name: cwd, flag: --cwd, type: str, required: false, help: "claude: the folder the run works in"}
-    - {name: max_turns, flag: --max-turns, type: int, required: false, help: "claude: turn limit (40)"}
+    - {name: max_turns, flag: --max-turns, type: int, required: false, help: "claude: turns per session (10000)"}
+    - {name: wall_minutes, flag: --wall-minutes, type: float, required: false, help: "claude: wall time per session; the process tree is killed after it (default: none; with --job 720)"}
+    - {name: cost_usd, flag: --cost-usd, type: float, required: false, help: "claude --job: dollars per session"}
+    - {name: job, flag: --job, type: str, required: false, help: "claude: a job folder: budgeted, checkpointed, resumable; exit 75 = paused-resumable (also FIELDKIT_JOB_DIR)"}
+    - {name: max_continuations, flag: --max-continuations, type: int, required: false, help: "claude --job: resumes after a budget end (3)"}
     - {name: hold, flag: --hold, type: int, required: false, help: "quiet: keep the apps stopped until this PID exits"}
     - {name: minutes, flag: --minutes, type: float, required: false, help: "quiet: keep the apps stopped this many minutes (or until the STOP file)"}
     - {name: restore, flag: --restore, type: bool, required: false, help: "quiet (Linux): start again the system services a run stopped"}
     - {name: apply, flag: --apply, type: bool, required: false, help: "quiet: stop them (without it: list only)"}
   platforms: [windows, linux]
   changes: true
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py", "${FIELDKIT}/tests/test_autopilot_hardlines.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py", "${FIELDKIT}/tests/test_autopilot_hardlines.py", "${FIELDKIT}/tests/test_long_horizon.py"]
+
+- id: goal
+  title: Long horizon goals - a planner writes bounded jobs, fresh workers do them (budgets, checkpoints, resume), a separate verifier runs the acceptance criteria and decides; pre-approved decisions answered without a human; a supervisor resumes every unfinished goal at logon
+  harness: core
+  entry: [python, -m, fieldkit, goal]
+  path: ${FIELDKIT}/fieldkit/autopilot/goal.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, supervisor-script], help: "status first; run = the supervisor"}
+    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1]"}
+    - {name: from_file, flag: --from, type: str, required: false, help: "new: the goal spec (goal.json shape)"}
+    - {name: objective, flag: --objective, type: str, required: false, help: "new: the objective (without --from)"}
+    - {name: criterion, flag: --criterion, type: str, required: false, help: "new: a command that must exit 0 (repeatable)"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "new: the goal's folder"}
+    - {name: force, flag: --force, type: bool, required: false, help: "new: overwrite an existing goal"}
+    - {name: all, flag: --all, type: bool, required: false, help: "stop: every unfinished goal"}
+    - {name: once, flag: --once, type: bool, required: false, help: "run: one round per goal, then exit"}
+  platforms: [windows]
+  platforms_why: 'proven on Windows only (tests + one real goal, 2026-10-22); the supervisor is a Windows scheduled task. Linux needs the systemd user unit and a Linux run of tests/test_long_horizon.py first (state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md step B)'
+  changes: true
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_long_horizon.py"]
+  notes: "State in state/goals/<id>/ (goal.json, GOAL.md, state.json, verdicts.jsonl, events.log, REPORT.md, jobs/<job>/HANDOFF.md + CHECKPOINT.json). Models may not edit goal.json, state.json, verdicts, PREAPPROVALS.yaml or APPROVAL.json (hard line 3). approve needs the owner at a real terminal and pins the register's sha256; any later change voids it. push_branch/open_pr are done by the harness only under an approved register, never to main/master, after the privacy push-check. The scheduled task is written by supervisor-script and registered by the owner, never by a model. Mutation plan: tests/long_horizon_mutations.yaml."
 
 - id: runbook
   title: The harness runs a runbook's steps (logs, ETA, retries, STOP, inbox for owner steps); a model only fixes a failed step
@@ -72,12 +97,13 @@ tools:
   entry: [python, -m, fieldkit, runbook]
   path: ${FIELDKIT}/fieldkit/autopilot/runbook.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [run, status, start], help: "start = run in its own detached window"}
+    - {name: action, flag: null, type: str, required: true, choices: [run, status, start, check], help: "start = run in its own detached window; check = validate needs, budgets, fallback chains"}
     - {name: file, flag: null, type: str, required: true, help: "the runbook .md with a runbook block"}
     - {name: no_fix, flag: --no-fix, type: bool, required: false, help: "never call a model on a failed step"}
   platforms: [windows, linux]
   changes: true
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_runbook.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_runbook.py", "${FIELDKIT}/tests/test_long_horizon.py"]
+  notes: "Agent steps (agent: BRIEF, or a run: that calls fieldkit autopilot claude) are budgeted jobs in state/jobs/<runbook>/<step>/; exit 75 = paused-resumable (resumed by the next run, dependents wait); agent steps default to stop_on_fail false. Exit 75 when only paused steps are left."
 
 - id: telemetry
   title: Telemetry off and cut out - a project's source scanned for telemetry SDKs, endpoints and collectors; this machine's toolchain opt-outs and firewall blocks checked
@@ -169,13 +195,15 @@ tools:
   entry: [python, -m, fieldkit, eta]
   path: ${FIELDKIT}/fieldkit/core/eta.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [leakgate, build, history, delete, copy, record], help: "what to estimate"}
+    - {name: action, flag: null, type: str, required: true, choices: [leakgate, build, history, delete, copy, record, calibrate], help: "what to estimate; calibrate measures this machine"}
     - {name: args, flag: null, type: str, required: false, help: "leakgate RUN_DIR; build [build|package] [OBJDIR]; history [STEP]; delete PATH; copy SRC DEST_DIR; record STEP SECONDS"}
-  effects: [reads-files, writes-files]
+    - {name: minutes, flag: --minutes, type: float, required: false, help: "calibrate: longest thermal load (it stops at 70 C first; default 10)"}
+    - {name: quick, flag: --quick, type: bool, required: false, help: "calibrate: no thermal load"}
+  effects: [reads-files, writes-files, processes]
   safety: reversible
-  notes: 'delete and copy time a trial on scratch files they create and remove in a .fieldkit-eta-trial folder on the measured disk; nothing else is touched'
+  notes: 'delete and copy time a trial on scratch files they create and remove in a .fieldkit-eta-trial folder on the measured disk; nothing else is touched. calibrate (fieldkit/core/calibrate.py) runs fixed workloads (workload fk-cal-1: CPU single + one process per thread, disk fsync writes, RAM copy, every thread busy until 70 C or --minutes) INSIDE the build guard (fan check fails closed on Windows, governor above thermal.build_target + 3) and stores state/machines/<host>.json (previous run kept under "previous"); the ratio of two machines'' scores decides delegation (DESIGN-MULTI-MACHINE.md)'
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py", "${FIELDKIT}/tests/test_calibrate.py"]
 
 - id: inbox
   title: The owner inbox - every approval an unattended run needs, collected for one sitting
@@ -1088,7 +1116,24 @@ tools:
   platforms: [linux]
   platforms_why: 'a POSIX sh script for macOS and Linux (run on Linux and on macOS 10.13 on 2026-10-23); Windows gets install.ps1 (the Windows side), and macOS is not a platform word cards use yet'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_install_sh.py"]
-  notes: "Born 2026-10-23 on the 2011 MacBook Air (macOS 10.13, 4 GB), cleaned of Homebrew, Xcode and git to save memory: git clone could not work there. Zip 3.7 MB; lean install about 2 MB plus pip's own build tools."
+  notes: "2026-10-23: a dropped download resumes where it stopped (curl -C -), stops when a try makes no progress or after 6 tries, starts once from zero when the server cannot resume, and checks the zip before unzipping (one clean re-download if damaged). Born 2026-10-23 on the 2011 MacBook Air (macOS 10.13, 4 GB), cleaned of Homebrew, Xcode and git to save memory: git clone could not work there. Zip 3.7 MB; lean install about 2 MB plus pip's own build tools."
+
+- id: fk-aliases
+  title: "fk: short plain-English names for long Fieldkit commands (fk machine, fk ready, fk mac ...); prints the full command before running it, so a person always sees what runs"
+  harness: core
+  entry: [python, -m, fieldkit.aliases]
+  path: ${FIELDKIT}/fieldkit/aliases.py
+  inputs:
+    - {name: name, flag: null, type: str, required: false, help: "a short name; none lists them all"}
+    - {name: show, flag: --show, type: flag, required: false, help: "print the full command only"}
+    - {name: json, flag: --json, type: flag, required: false, help: "the list as JSON (Gorilla OpenCode /commands)"}
+  effects: [processes]           # runs the fieldkit command the name stands for, nothing else
+  safety: reversible             # the command it runs carries its own card and safety
+  output: own
+  exits: {2: "unknown name, or a value it needs was not given"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_aliases.py"]
+  notes: "Owner, 2026-10-23: commands so long that typing them takes longer than letting the AI do the job; short names in English, the full command always shown. Names are data (fieldkit/desk/aliases.yaml; local/aliases.yaml for a person's own names and defaults such as which Mac). The test runs every name's command with --help, so a renamed command breaks the test, not a person."
 
 - id: fieldkit-mac
   title: 'Reach an old Mac over SSH (a MacBook Air 2011 on macOS 10.13 and the like): find it when its address changes, check key, login and alias, read what it is, run a command on it'
@@ -1096,7 +1141,10 @@ tools:
   entry: [python, -m, fieldkit, mac]
   path: ${FIELDKIT}/fieldkit/mac/macssh.py
   inputs:
-    - {name: command, type: choice, choices: [list, add, doctor, find, info, fix-alias, run, shot, keep-awake, open-app, screen-text, keys, wait-text], required: true, help: "doctor first; fix-alias and add change files; keep-awake/open-app/screen-text/keys/wait-text drive the Mac's screen (macdrive.py)"}
+    - {name: command, type: choice, choices: [list, add, doctor, find, info, fix-alias, run, shot, release-install, keep-awake, open-app, screen-text, keys, wait-text, tui-start, watch-dialogs], required: true, help: "doctor first; fix-alias and add change files; release-install installs from the GitHub release page; keep-awake/open-app/screen-text/keys/wait-text/tui-start/watch-dialogs drive the Mac's screen (macdrive.py)"}
+    - {name: tag, flag: --tag, type: str, required: false, help: "release-install: vX.Y.Z or latest (default)"}
+    - {name: launch, flag: --launch, type: flag, required: false, help: "release-install: then open the Desktop icon and fetch the screen"}
+    - {name: plan, flag: --plan, type: flag, required: false, help: "release-install: print the script the Mac would run, run nothing"}
     - {name: apply, flag: --apply, type: flag, required: false, help: "fix-alias: write ~/.ssh/config (the old file is kept in Trash)"}
     - {name: save, flag: --save, type: flag, required: false, help: "find: record today's address"}
     - {name: json, flag: --json, type: flag, required: false, help: "info as JSON"}
@@ -1106,8 +1154,8 @@ tools:
   exits: {1: "a fault, or the Mac not found", 2: "refused (nothing to run, bad hardware address)"}
   platforms: [linux]
   platforms_why: 'finds the Mac with avahi-resolve and ip neigh (Linux); the Mac end needs only Remote Login (sshd), which macOS has had since 10.0'
-  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macssh.py", "${FIELDKIT}/tests/test_macdrive.py"]
-  notes: "2026-10-23 (macdrive.py): every step of driving the Air's screen by hand became a command: keep-awake (caffeinate, its own PID only), open-app (answers a choose-folder dialog, closes only the idle Terminal windows that appeared with it), screen-text (the tab's text by tty, no picture), keys (raise THAT tab after activate, paste as one line, exit 3 when the screen did not change), wait-text; each remote step retried on a Wi-Fi drop (the Air dropped 5 times in an hour). Born 2026-10-22: the owner's MacBook Air 4,1 (macOS 10.13.6, out of Apple support) is the Gorilla Mac browser's test target, and the way to reach it lived only in handover notes, one of them wrong. Tests the connection every time; finds the Mac by mDNS name, else hardware address in the neighbour table, else after a ping sweep (all three proven live). Names, addresses and keys live in local/macs.json (git-ignored), never in code."
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macssh.py", "${FIELDKIT}/tests/test_macdrive.py", "${FIELDKIT}/tests/test_mac_releaseinstall.py"]
+  notes: "release-install (2026-10-23, owner: behave like a new user, take the Mac program from the release page, old versions must not stay installed): older copies MOVED to ~/Agents.Work.Trash-linux/<product>-old-versions-<time>/ with a MANIFEST, download only from github.com/<repo>/releases/download/<tag>/, shasum -c, ditto, the release's own installer, version and single-copy check; --launch opens the Desktop icon and fetches the screen. First run by hand that day: v0.1.150 on the Air. Born 2026-10-22: the owner's MacBook Air 4,1 (macOS 10.13.6, out of Apple support) is the Gorilla Mac browser's test target, and the way to reach it lived only in handover notes, one of them wrong. Tests the connection every time; finds the Mac by mDNS name, else hardware address in the neighbour table, else after a ping sweep (all three proven live). Names, addresses and keys live in local/macs.json (git-ignored), never in code. 2026-10-23 watch-dialogs also recovers: a turn that ended in a provider error (Google HTTP 500 left a run idle for 40 minutes) gets 'continue' typed, at most --nudges times, then it stops and says so; a screen unchanged for --idle-seconds stops the watch with the reason. 2026-10-23 tui-start waits out a Google sign-in (it finishes alone when the browser is signed in; never typed into) and, if it never finishes, says a person must finish it. 2026-10-23 watch-dialogs: stays with a running Gorilla OpenCode and answers EVERY permission dialog with one key (allow, session or deny), logging the command and why it asked (JSON lines) and ending with the count, until a report file exists on the Mac; born when a test waited only for REPORT.txt while Gemini sat behind an unanswered dialog until the owner saw it. 2026-10-23 (macdrive.py): every step of driving the Air's screen by hand became a command: keep-awake (caffeinate, its own PID only), open-app (answers a choose-folder dialog, closes only the idle Terminal windows that appeared with it), screen-text (the tab's text by tty, no picture), keys (raise THAT tab after activate, paste as one line, exit 3 when the screen did not change; --expect refuses to type into an unidentified screen), wait-text, tui-start (Gorilla OpenCode's start-up screens walked by their text, the folder cursor moved to entry 1 before Enter, a key only on a known screen); each remote step retried on a Wi-Fi drop (the Air dropped 5 times in an hour). Born 2026-10-22: the owner's MacBook Air 4,1 (macOS 10.13.6, out of Apple support) is the Gorilla Mac browser's test target, and the way to reach it lived only in handover notes, one of them wrong. Tests the connection every time; finds the Mac by mDNS name, else hardware address in the neighbour table, else after a ping sweep (all three proven live). Names, addresses and keys live in local/macs.json (git-ignored), never in code."
 
 - id: fieldkit-firmware-check
   title: A device plugged in that does not work because its firmware is missing (USB Wi-Fi sticks, network cards), built-in kernel drivers included
@@ -2666,6 +2714,25 @@ tools:
   platforms_why: "wpr/ETW, the GPU Engine counters and the Windows Performance Toolkit exist only on Windows; Linux has intel_gpu_top, macOS gets its own backend (DTrace on the Intel decoder bundle + a VideoToolbox hardware-only session), planned"
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_gpudecode.py", -p, "no:cacheprovider"]
   notes: "Evidence from Microsoft's own tools: wpr.exe (ships with Windows) records the kernel graphics scheduler's work packets; wpaexporter.exe (Windows Performance Toolkit, Windows ADK) exports them, one CSV row per packet, through kits/gpudecode/gpu-packets.wpaProfile. Hardware decoding = the browser's packets on a VideoDecode engine at about the video's frame rate (measured 2026-10-22, Gorilla on Iris Xe: 16,803 packets, steady 60/s on a 60 fps clip). Traces are ~40 MB per requested second (30 s = 1.2 GB) and record ALL GPU work on the machine: keep them local. NEVER tracerpt a trace to XML (30 s -> 43+ GB). trace refuses while another wpr session runs and never cancels it. Old Intel (HD 4000 and older): drivers are pre-WDDM 2.0, so live has no counters - use trace; they hardware-decode H.264 only. Procedure: skill fieldkit-gpudecode."
+
+- id: linkcheck
+  title: "A direct cable between two computers: setup (a private address, no gateway, no DNS; idempotent, read back), serve (the other end: TCP sink/source + UDP echo bound to one address, one allowed peer, idle stop), check PEER (speed, duplex, Energy Efficient Ethernet, RTT p50/p99/jitter/loss, TCP throughput both ways with its own sender, path MTU; one LINK line), status, doctor; Windows + Linux, standard library"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/linkcheck/linkcheck.py"]
+  path: ${FIELDKIT}/kits/linkcheck/linkcheck.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "setup --ip A/P --iface NAME [--undo] | serve --bind A [--allow PEER] [--idle S] [--once] | check PEER [--count N] [--seconds S] | status [PEER] [--iface NAME] | doctor"}
+    - {name: peer, flag: null, type: str, required: false, help: "check/status: the other end's cable address"}
+    - {name: ip, flag: --ip, type: str, required: false, help: "setup: this end's private address with prefix, e.g. 10.77.0.1/30"}
+    - {name: iface, flag: --iface, type: str, required: false, help: "the cable's card (Windows 'Ethernet'; Linux enp0s25)"}
+    - {name: bind, flag: --bind, type: str, required: false, help: "serve: this end's cable address (never 0.0.0.0)"}
+    - {name: allow, flag: --allow, type: str, required: false, help: "serve: the only peer answered"}
+    - {name: json, flag: --json, type: bool, required: false, help: "check/status: machine output"}
+  effects: [reads-files, writes-files, network, admin]   # network: the cable only; admin: setup only (one UAC prompt via the elevate kit / pkexec)
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_linkcheck.py", -p, "no:cacheprovider"]
+  notes: "Built for two machines sharing one goal over a direct cable (state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md, step A). No iperf3: its own sender/receiver (6 Gbit/s on loopback on an i7-1255U, so Python is not the limit at 1 Gbit/s). RTT is application level (both stacks) from UDP echoes, one outstanding. A Wi-Fi card is not failed for half duplex and its PHY rate is not judged as capacity. setup never adds a gateway or DNS and refuses a public address; undo only removes what it set. serve is a foreground process, never a service: it binds one address, answers one peer, echoes only its own 12-byte packets, stops when idle. Results kept as JSON in state/linkcheck (LINKCHECK_RESULTS). Admin on Windows through local/kits/Elevate (LINKCHECK_ELEVATE); without it, setup writes the script and says to run it elevated."
 
 - id: catchup
   title: "Machine catch-up handover: repos (ahead/behind, token-free remotes), collect (memory, instructions, private tools, unpushed diffs/patches/untracked, bundles for repos with no remote), check (secrets fail it), public-check (Romanian text and private names before anything goes public), pack (verified zip to a stick, never overwrites)"

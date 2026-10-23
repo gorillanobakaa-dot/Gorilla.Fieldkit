@@ -1,0 +1,89 @@
+# Rules tests/test_linkcheck.py and tests/test_calibrate.py must hold. Every one must be CAUGHT:
+#   python -m fieldkit mutate --plan kits/linkcheck/mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_linkcheck.py tests/test_calibrate.py
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if not iface.ip.is_private:', '    if False:']
+  why: only a private address goes on the cable
+- file: kits/linkcheck/linkcheck.py
+  swap: ["    if (ip, prefix) not in have:\n        stale", "    if True:\n        stale"]
+  why: setup is idempotent (an address in place is not added again)
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    for g in c.get("gateways") or []:', '    for g in []:']
+  why: never a gateway on the cable
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if c.get("dhcp"):', '    if False:']
+  why: DHCP goes off on the cable's card before the static address
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    return ("$ErrorActionPreference = ''Stop''\n"', '    return ("$ErrorActionPreference = ''Continue''\n"']
+  why: the elevated script fails closed
+- file: kits/linkcheck/linkcheck.py
+  swap: ['        if rc != 0 or "LINKCHECK: SET" not in log:', '        if rc != 0:']
+  why: the admin step counts only when its own SET marker is in the transcript
+- file: kits/linkcheck/linkcheck.py
+  swap: ['        bad = setup_problems(read(iface), ip, prefix, undo)', '        bad = []']
+  why: the result is read back from the machine, never assumed
+- file: kits/linkcheck/linkcheck.py
+  swap: ['        out.append(f"a default gateway is on the cable', '        (f"a default gateway is on the cable']
+  why: the read-back fails on a gateway on the cable
+- file: kits/linkcheck/linkcheck.py
+  swap: ['"ipv4.never-default", "yes"', '"ipv4.never-default", "no"']
+  why: Linux never takes a default route from the cable
+- file: kits/linkcheck/linkcheck.py
+  swap: ['                r = run(["pkexec", *cmd], capture_output=True, text=True)', '                pass']
+  why: Linux asks root once through pkexec, only when refused
+- file: kits/linkcheck/linkcheck.py
+  swap: ['            if wrong:', '            if False:']
+  why: undo never removes an address linkcheck did not set
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if a.is_unspecified:', '    if False:']
+  why: serve never listens on every network
+- file: kits/linkcheck/linkcheck.py
+  swap: ['        return self.allow is None or addr[0] == self.allow', '        return True']
+  why: serve answers only the allowed peer
+- file: kits/linkcheck/linkcheck.py
+  swap: ['            if self.allowed(addr) and len(data) == struct.calcsize(ECHO_FMT):', '            if self.allowed(addr):']
+  why: the echo returns only its own fixed size (no amplification)
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    return r.returncode == 0 and "ttl=" in (r.stdout or "").lower()', '    return r.returncode == 0']
+  why: a ping counts only with a real reply (Windows exits 0 on "unreachable")
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if probe(peer, hi):', '    if True:']
+  why: MTU is measured, not taken from the card
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    jit = statistics.fmean(abs(b - a) for a, b in zip(rtts_ms, rtts_ms[1:]))', '    jit = statistics.pstdev(rtts_ms)']
+  why: jitter is the mean change between consecutive round trips
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if not r.get("received"):', '    if False:']
+  why: no echo back is a FAIL
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if c.get("duplex") == "half" and not c.get("wireless"):', '    if c.get("duplex") == "half":']
+  why: Wi-Fi is not failed for being half duplex (cable vs Wi-Fi comparison)
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if r.get("loss_pct", 0) > LOSS_FAIL:', '    if False:']
+  why: lost echoes fail the link
+- file: kits/linkcheck/linkcheck.py
+  swap: ['    if line_rate and up is not None', '    if False and line_rate and up is not None']
+  why: a direction under 90 % of what the line carries is SLOW
+- file: kits/linkcheck/linkcheck.py
+  swap: ['"--log", str(log), "--close"]', '"--log", str(log)]']
+  why: the harness closes its admin window
+- file: fieldkit/core/calibrate.py
+  swap: ["            if c is not None and c >= target:\n                break", "            if c is not None and c >= target:\n                pass"]
+  why: the thermal load stops at the owner's cap
+- file: fieldkit/core/calibrate.py
+  swap: ['    Path(near or MACHINES).mkdir(parents=True, exist_ok=True)', '    pass']
+  why: a first calibration on a machine creates its folder (the real run failed without it)
+- file: fieldkit/core/calibrate.py
+  swap: ['    while idle is not None and idle > start_c and clock() - t_cool < COOL_MAX_S:', '    while False:']
+  why: the thermal load starts from the same cool point every time
+- file: fieldkit/core/calibrate.py
+  swap: ['    if idle is not None and idle > start_c:', '    if False:']
+  why: a CPU that never cools is not loaded (no number from a hot start)
+- file: fieldkit/core/calibrate.py
+  swap: ['            result["previous"] = old', '            pass']
+  why: a new calibration keeps the previous one
+- file: fieldkit/core/calibrate.py
+  swap: ['        p.unlink(missing_ok=True)', '        pass']
+  why: the disk trial leaves nothing behind
+- file: fieldkit/core/calibrate.py
+  swap: ['            return round(t / 60, 2)', '            return round(t / 60)']
+  why: minutes to the cap keep their fraction
