@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-16-02-40
+# Version: 1.0.0 · updated 26-10-23-13-45
 """Is the work on main, and is main released? The two questions nothing asked until 2026-10-16.
 
 That night the Fieldkit release page still showed v0.3.0 of 13 October while main was 135 commits ahead: every pull
@@ -13,6 +13,8 @@ audit (git + the GitHub API; --offline: git only, for the session-start brief):
   checkout    the checkout is on the base, clean, and equal to origin/<base>
   branches    no remote branch carries commits the base lacks (work that never reached main), merged ones ignored
   pulls       open pull requests, each with its CI state (green ones are waiting to be merged)
+  worktrees   extra local worktrees, each with whether its work is on the base (2026-10-23)
+  local-branches  local branches with commits on no remote, and merged ones still lying here (2026-10-23)
   release     commits and days between the newest v* tag and origin/<base>; DUE past --max-commits or --max-days
 
 release (refuses until every condition holds, then does it all; never forces, never edits history):
@@ -170,6 +172,7 @@ def audit(repo=".", base="main", offline=False, max_commits=MAX_COMMITS, max_day
                 desc.append(f"#{p['number']} {ci}")
             row("pulls", not prs, "no open pull request" if not prs else "open: " + ", ".join(desc),
                 "" if not prs else f"merge the green ones (gh pr merge N -R {slug} --merge), fix the red ones")
+    _local_leftovers(repo, base, row)
     gap = release_gap(repo, base)
     due = gap["commits"] > max_commits or (gap["days"] is not None and gap["days"] > max_days and gap["commits"] > 0)
     row("release", not due,
@@ -177,6 +180,56 @@ def audit(repo=".", base="main", offline=False, max_commits=MAX_COMMITS, max_day
          f"no v* release tag yet; {gap['commits']} commit(s) on {base}") + (": a release is DUE" if due else ""),
         "" if not due else "fieldkit ship release vX.Y.Z --scaffold, write the notes, then fieldkit ship release vX.Y.Z")
     return {"ok": all(r["state"] == "OK" for r in rows), "rows": rows, "gap": gap}
+
+
+def _worktrees(repo):
+    """-> [{worktree, branch, HEAD, ...}] from `git worktree list --porcelain`; the first is the main checkout."""
+    out, cur = [], {}
+    for ln in git(repo, "worktree", "list", "--porcelain").stdout.splitlines() + [""]:
+        if not ln.strip():
+            if cur:
+                out.append(cur)
+            cur = {}
+            continue
+        k, _, v = ln.partition(" ")
+        cur[k] = v or True
+    return out
+
+
+def _on_base(repo, ref, base):
+    return (git(repo, "merge-base", "--is-ancestor", ref, f"origin/{base}").returncode == 0
+            or content_on_base(repo, ref, base))
+
+
+def _local_leftovers(repo, base, row):
+    """Local worktrees and branches left after the work is done (owner, 2026-10-23: "when the release cycle is finished
+    nothing is left forgotten unmerged on some stray branch"). Git only, so offline too; nothing is removed here."""
+    wts = _worktrees(repo)
+    extra = [w for w in wts[1:] if "prunable" not in w]
+    said = []
+    for w in extra:
+        ref = w.get("branch") or w.get("HEAD")
+        name = str(w.get("branch") or "").removeprefix("refs/heads/") or "detached"
+        said.append(f"{w['worktree']} ({name}: {'its work is on ' + base if _on_base(repo, ref, base) else 'work NOT on ' + base})")
+    row("worktrees", not extra, "no extra worktree" if not extra else f"{len(extra)} extra worktree(s): " + "; ".join(said[:6]),
+        "" if not extra else "work on the base: git worktree remove PATH (it refuses uncommitted changes); "
+                             "work not on it: push the branch and open a pull request")
+    checked_out = {str(w.get("branch") or "").removeprefix("refs/heads/") for w in wts}
+    unpushed, merged = [], []
+    for b in git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").stdout.split():
+        if b == base:
+            continue
+        n = git(repo, "rev-list", "--count", b, "--not", "--remotes").stdout.strip()
+        if n and int(n) > 0:
+            unpushed.append(f"{b} ({n})")
+        elif b not in checked_out and _on_base(repo, b, base):
+            merged.append(b)
+    row("local-branches", not unpushed and not merged,
+        "no local branch left over" if not (unpushed or merged) else
+        "; ".join(([f"commits on no remote: {', '.join(unpushed[:6])}"] if unpushed else []) +
+                  ([f"merged into {base}, still here: {', '.join(merged[:6])}"] if merged else [])),
+        "" if not (unpushed or merged) else
+        "unpushed: push and open a pull request (fieldkit ship push); merged: git branch -d NAME (refuses unmerged)")
 
 
 def prune(repo=".", base="main", archive_unproven=False, gh=_gh):

@@ -118,7 +118,10 @@ def test_leftover_launcher_through_a_symlink_is_one_program(tmp_path):
     prog = tmp_path / "bin" / "black-gorilla-theme"
     prog.parent.mkdir()
     prog.write_text("#!/bin/sh\n")
-    (tmp_path / "bin" / "gtk-high-contrast-theme").symlink_to("black-gorilla-theme")
+    try:
+        (tmp_path / "bin" / "gtk-high-contrast-theme").symlink_to("black-gorilla-theme")
+    except OSError as e:      # Windows without Developer Mode: WinError 1314 (CI runners have the privilege)
+        pytest.skip(f"this system cannot make a symlink: {e}")
     sys_dir = str(tmp_path / "xdg")
     _desktop(sys_dir, "black-gorilla-theme.desktop", f"{prog} --apply-once")
     _desktop(sys_dir, "gtk-high-contrast-theme.desktop", f"{tmp_path}/bin/gtk-high-contrast-theme --apply-once")

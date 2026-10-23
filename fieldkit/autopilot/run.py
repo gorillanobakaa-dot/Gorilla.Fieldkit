@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-22-14-00
+# Version: 1.2.0 · updated 26-10-23-18-02
 """Autopilot: an unattended agent run with no approval prompts, held by the hard lines and by what it cannot reach.
 
 Owner, 2026-10-18: "we need both Gemini Antigravity and Claude to work automatically and unattended". Two layers:
@@ -198,7 +198,10 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
     env = isolated_env()
     env["PYTHONPATH"] = fk_root + os.pathsep + env.get("PYTHONPATH", "")
     env.update(env_extra or {})
-    via_stdin = len(prompt) > 8000
+    # The prompt always goes on stdin, never argv: a prompt starting with "-" (a link brief opens with its "---" fence)
+    # was read by claude as an unknown option and the run died at once (2026-10-22, funny.gorilla); argv also caps it
+    # at Windows' 32k command line. (Kept when the long-horizon runner, which sent short prompts in argv, merged in.)
+    via_stdin = True
     args = cmd + ["-p"] + ([] if via_stdin else [prompt]) + [
         "--settings", str(settings()), "--permission-mode", "bypassPermissions",
         "--max-turns", str(max_turns), "--output-format", "json"]

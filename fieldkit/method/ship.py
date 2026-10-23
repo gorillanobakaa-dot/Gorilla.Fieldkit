@@ -3,6 +3,10 @@
     fieldkit ship status [--base main]     where the branch stands against its remote and the base, and what to do
     fieldkit ship sync   [--base main]     make the next push a fast-forward, safely (see below); never force
     fieldkit ship push   [--base main]     sync if needed, then push with retries on network errors
+    fieldkit ship commit --message-file F  commit what is staged; a known hook refusal fixed and tried again, the same
+                                           one twice or an unknown one stops and is reported; never --no-verify
+    fieldkit ship merge  [--base main]     merge the branch into main ONLY when a project mandate allows it, every
+                                           condition proven by the tool (fieldkit/mandate); otherwise the owner does it
     fieldkit ship audit  [--offline]       is the work on main, is the checkout on main, is main released (shiprelease.py)
     fieldkit ship release vX.Y.Z [--scaffold]   tag and publish, only when main, CI, version and notes all agree
     fieldkit ship prune  [--archive-unproven]   delete remote branches git or GitHub prove merged; one source of truth
@@ -14,12 +18,17 @@ when the remote branch's tree is IDENTICAL to a commit already on the base (so n
 recorded with `git merge -s ours`: history is kept, the local tree is unchanged, and the push fast-forwards.
 Anything else that is not a fast-forward (someone else pushed, real divergence) is refused with what to do.
 
-Never: force-push, rebase a published branch, push to the base, or skip the pre-commit hook.
+Never: force-push, rebase a published branch, push to the base, or skip the pre-commit hook. The one exception to
+"push to the base" is `ship merge`, and only under an approved project mandate (owner, 2026-10-23: one approval per
+project): fast-forward (`how: fast-forward`, a push of HEAD to main that git refuses unless it only adds) or the
+branch's pull request (`how: pull-request`, merged by gh only if its head is the proven commit). A push or merge the
+mandate covers is written to the mandate's log.
 The merge commit carries the lines in `git config --get-all fieldkit.trailer` (co-author or session lines).
 The pull request itself (open, watch CI, merge) is the host's job; the fieldkit-ship skill says how.
 Exit 0 done or nothing to do, 3 refused (with the reason and the next step), 2 bad input.
 """
 import argparse
+import re
 import subprocess
 import time
 
@@ -90,17 +99,36 @@ def sync(repo=".", base="main"):
     return dict(status(repo, base, fetch=False), synced=True)
 
 
-def push(repo=".", base="main", tries=5, sleep=time.sleep):
+def _mandate(action, **kw):
+    """-> (verdict, why, mandate path or None); a broken mandate module never opens anything."""
+    try:
+        from ..mandate import mandate as M
+        return M.decide(action, **kw)
+    except Exception as e:  # noqa: BLE001
+        return "ask", f"the mandate could not be read ({e})", None
+
+
+def _mandate_log(path, what, detail, **extra):
+    if path is not None:
+        from ..mandate import mandate as M
+        M.log(path, what, detail, **extra)
+
+
+def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     st = sync(repo, base)
     if not st.get("ok"):
         return st
     if st["state"] == "in-step":
         return dict(st, pushed=False)
+    # an unattended push reaches here only through the hard line, which asked the mandate first; here it is logged
+    verdict, why, mpath = mandate("push", repo_path=repo)
     delay, last = 2, ""
     for _ in range(tries):
         r = git(repo, "push", "-u", "origin", st["branch"])
         if r.returncode == 0:
-            return dict(status(repo, base), pushed=True)
+            if verdict == "allow":
+                _mandate_log(mpath, "push", why, branch=st["branch"], commit=st.get("local"))
+            return dict(status(repo, base), pushed=True, mandate=why if verdict == "allow" else "")
         last = (r.stderr or r.stdout).strip()
         if "rejected" in last or "non-fast-forward" in last or "denied" in last.lower():
             return dict(st, ok=False, pushed=False, error=last[-300:],
@@ -110,9 +138,74 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep):
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
 
 
+def request_test_job(repo, commit, call=None):
+    """Give the worker the `test` job for `commit` under the mandate in force here, once -> (job id, what happened)."""
+    from ..mandate import jobs, proofs
+    name, _ = proofs.where(repo)
+    mp = jobs.mandate_for(name)
+    if mp is None:
+        return None, "no mandate in force here names this repository"
+    return jobs.send("test", name, commit, mp, call=call)
+
+
+def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_call=None):
+    """Merge the current branch into `base` under a project mandate, or refuse with what is missing."""
+    branch = git(repo, "branch", "--show-current").stdout.strip()
+    if not branch or branch == base:
+        return {"ok": False, "state": "no-branch", "next": f"check out the branch to merge into {base}"}
+    if git(repo, "status", "--porcelain").stdout.strip():
+        return {"ok": False, "state": "dirty", "branch": branch, "next": "commit or set aside the changes first"}
+    git(repo, "fetch", "--quiet", "origin", base)
+    git(repo, "fetch", "--quiet", "origin", branch)
+    commit = _rev(repo, "HEAD")
+    rep = {"branch": branch, "base": base, "commit": commit}
+    if _rev(repo, f"origin/{branch}") != commit:
+        return dict(rep, ok=False, state="unpushed", next=f"push {branch} first (fieldkit ship push): the reviewer "
+                                                           "and CI must have seen this exact commit")
+    verdict, why, mpath = mandate("merge_main", repo_path=repo, commit=commit)
+    if verdict != "allow" and re.search(r"(other_machine_reviewed|tests_on)(:[\w-]+)?: no passing RESULT", why) \
+            and "full_tests_pass_here:" not in why:
+        # a worker's result is missing: give the worker the test job ONCE (a tool runs it there, no session is asked),
+        # then wait in one blocking call, not a loop of questions (plan section 16, 2026-10-23)
+        jid, what = request_test_job(repo, commit, call=verdict_call)
+        return dict(rep, ok=False, state="waiting-result", error=why, job=jid, job_sent=what,
+                    next=f"wait for the worker in one call: fieldkit mandate job wait {jid} --seconds 3600; "
+                         f"then fieldkit ship merge again")
+    if verdict != "allow":
+        return dict(rep, ok=False, state="not-mandated", error=why,
+                    next=f"a merge into {base} is the owner's unless a mandate allows it; prove what is missing")
+    from ..mandate import mandate as M
+    from ..mandate import proofs
+    name, _ = proofs.where(repo)
+    how = ((M.load(mpath)["repos"][name].get("merge_to_main") or {}).get("how") or "fast-forward")
+    if how == "fast-forward":
+        base_ref = _rev(repo, f"origin/{base}")
+        if base_ref and git(repo, "merge-base", "--is-ancestor", base_ref, commit).returncode != 0:
+            return dict(rep, ok=False, state="not-fast-forward", error=f"origin/{base} has commits this branch lacks",
+                        next=f"merge origin/{base} into {branch}, push, and have it reviewed again")
+        r = git(repo, "push", "origin", f"{commit}:refs/heads/{base}")
+    elif how == "pull-request":
+        r = run(["gh", "pr", "merge", branch, "--merge", "--match-head-commit", commit],
+                cwd=str(repo), capture_output=True, text=True)
+    else:
+        return dict(rep, ok=False, state="unknown-how", error=f"merge_to_main.how is {how!r}",
+                    next="the mandate says fast-forward or pull-request")
+    if r.returncode != 0:
+        return dict(rep, ok=False, state="refused", error=(r.stderr or r.stdout).strip()[-300:],
+                    next="nothing was forced; read the error")
+    git(repo, "fetch", "--quiet", "origin", base)
+    landed = git(repo, "merge-base", "--is-ancestor", commit, f"origin/{base}").returncode == 0
+    if not landed:                                     # the artefact, not the exit code
+        return dict(rep, ok=False, state="not-landed", error=f"{commit[:10]} is not on origin/{base} after the merge",
+                    next="look at the pull request or the remote")
+    _mandate_log(mpath, "merge_main", why, branch=branch, commit=commit, how=how)
+    return dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
+
+
 def main(argv=None, prog="fieldkit ship"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["status", "sync", "push", "audit", "release", "prune"])
+    ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune"])
+    ap.add_argument("--message-file", help="commit: the commit message file")
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
     ap.add_argument("--offline", action="store_true", help="audit: git only, no network")
     ap.add_argument("--archive-unproven", action="store_true",
@@ -123,6 +216,13 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.action == "commit":
+        from . import shipcommit
+        if not a.message_file:
+            ap.error("commit needs --message-file F")
+        r = shipcommit.commit(a.repo, a.message_file)
+        emit(r, a.json, shipcommit.lines)
+        return 0 if r["ok"] else 3
     if a.action in ("audit", "release", "prune"):
         from . import shiprelease as sr
         if a.action == "audit":
@@ -136,10 +236,11 @@ def main(argv=None, prog="fieldkit ship"):
         emit(r, a.json, lambda d: [f"SHIP {a.action.upper()} {'OK' if d['ok'] else 'NOT OK'}"] + sr.lines(d))
         return 0 if r["ok"] else 3
     try:
-        r = {"status": status, "sync": sync, "push": push}[a.action](a.repo, a.base)
+        r = {"status": status, "sync": sync, "push": push, "merge": merge}[a.action](a.repo, a.base)
     except RuntimeError as e:
         r = {"ok": False, "error": str(e), "next": "nothing was pushed"}
     emit(r, a.json, lambda d: [f"{d.get('branch', '?')}: {d.get('state', 'error')}"
                                + (" (synced)" if d.get("synced") else "") + (" (pushed)" if d.get("pushed") else "")]
-         + ([f"error: {d['error']}"] if d.get("error") else []))
+         + ([f"error: {d['error']}"] if d.get("error") else [])
+         + ([f"mandate: {d['mandate']}"] if d.get("mandate") else []))
     return 0 if r.get("ok") else 3

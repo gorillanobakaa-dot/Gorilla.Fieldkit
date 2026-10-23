@@ -194,3 +194,15 @@ def test_the_monitor_stops_when_the_build_ends(monkeypatch, tmp_path):
                      until_pid=12345, alive=lambda pid: next(beats))
     assert caps[-1] == 100                                     # the cap is back at 100% when it stops
     assert json.loads((tmp_path / "monitor.json").read_text())["cpu"] == 40.0
+
+
+def test_the_index_is_written_with_lf_on_every_system(tmp_path, monkeypatch):
+    # 2026-10-23: --write on Windows produced CRLF (text mode); the index must be the same bytes on both systems
+    seen = {}
+    real = gate.Path.write_text
+    def spy(self, data, *a, **kw):
+        seen.update(kw)
+        return real(self, data, *a, **kw)
+    monkeypatch.setattr(gate.Path, "write_text", spy)
+    p = gate.write(tmp_path / "idx.json")
+    assert seen.get("newline") == "\n" and b"\r" not in p.read_bytes()

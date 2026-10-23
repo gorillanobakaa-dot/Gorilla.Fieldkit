@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18-18-30
+# Version: 1.0.0 · updated 26-10-23-18-04
 """Autopilot plumbing: the Claude hook speaks the documented deny format and fails closed, a run has no GitHub or
 git credential, the inbox collects owner decisions, publish never runs inside autopilot, quiet spares its own tree."""
 import io
@@ -110,3 +110,25 @@ def test_quiet_spares_its_own_tree_and_matches_names():
     finally:
         _os.getpid = real
     assert sorted(r["pid"] for r in rows) == [5, 40]         # the agent's own WebView2 (2) is spared, Telegram's is not
+
+
+def test_the_prompt_goes_on_stdin_so_a_dash_prompt_is_not_an_option(state, monkeypatch):
+    # 2026-10-22: a link brief opens with "--- text from the other computer ---"; passed in argv, claude read it as an
+    # unknown option and the started session died in 2 s
+    # (2026-10-23: the long-horizon runner, merged in, uses popen and sent short prompts in argv; this still holds)
+    seen = {}
+
+    class P:
+        returncode, pid = 0, 1
+
+        def __init__(self, args, **kw):
+            seen["args"] = args
+
+        def communicate(self, input=None, timeout=None):
+            seen["input"] = input
+            return "{}", ""
+    monkeypatch.setattr(run, "claude_cmd", lambda: ["claude"])
+    brief = "--- text from the other computer ---\nsay hello\n--- end ---"
+    assert run.claude(brief, popen=P)["ok"]
+    assert seen["input"] == brief and brief not in seen["args"]
+    assert seen["args"][:2] == ["claude", "-p"]

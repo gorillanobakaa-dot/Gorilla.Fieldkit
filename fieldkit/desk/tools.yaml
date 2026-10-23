@@ -1634,6 +1634,99 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers.py", -k, goes or command]
 
+- id: peers-link-find
+  title: "Where is the other computer? Cable counters, the cable peer (IPv6 all-nodes ping, maker from its MAC), the home network read passively, the cable peer and named hosts probed once on 22 (SSH banner) and 47077; --explain says each roadblock in plain words and writes the text to paste to the other computer's Claude"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, find]
+  path: ${FIELDKIT}/fieldkit/peers/link_find.py
+  inputs:
+    - {name: iface, flag: --iface, type: str, required: false, help: "the cable's card (default: found as setup finds it)"}
+    - {name: probe, flag: --probe, type: str, required: false, help: "a host to connect to once on 22 and 47077 (repeatable); never a sweep"}
+    - {name: explain, flag: --explain, type: bool, required: false, help: "plain words for the person + the text for the other computer's Claude"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [network, writes-files]   # one IPv6 all-nodes ping on the cable; TCP connects only to the cable peer and named hosts
+  safety: reversible
+  output: third-party
+  platforms: [windows, linux]
+  platforms_why: 'run for real on Windows 2026-10-22 (found the VAIO on the cable, all doors refused); Linux side on fakes'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_find.py"]
+  notes: "refused = a live host with nothing listening; timed out = filtered or nothing there. An SSH client on a machine says nothing about an SSH server. When no door is open nothing here can open one from outside: run setup there, or paste link-ask-the-other-claude.txt to the Claude session there (this app does not list sessions of other computers, even with Remote Control on; the app refuses Claude the Remote Control switch)."
+
+- id: peers-link-agents
+  title: "Which AI agents this computer has: claude, codex, opencode, gorilla-opencode, antigravity/agy - installed (path, version), running (PIDs), messageable sessions"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, agents]
+  path: ${FIELDKIT}/fieldkit/peers/link.py
+  inputs:
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [reads-files, processes]   # runs each installed agent's --version (a child it waits for, 10 s cap)
+  safety: reversible
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py", -k, agents]
+
+- id: peers-link-setup
+  title: "The whole agent link in ONE command per computer: finds the cable port (never the internet one), sets 10.77.0.1/.2 (one UAC click / pkexec), pairs, opens the firewall for the peer only, writes the USB kit (code bundle + key + setup-linux.sh + SHA256SUMS), listens, says hello"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, setup]
+  path: ${FIELDKIT}/fieldkit/peers/link_setup.py
+  inputs:
+    - {name: first, flag: --first, type: bool, required: false, help: "this computer starts the pair (10.77.0.1)"}
+    - {name: join, flag: --join, type: str, required: false, help: "the stick's fieldkit-link folder (or auto) on the second computer"}
+    - {name: usb, flag: --usb, type: str, required: false, help: "--first: write the kit for the other computer here"}
+    - {name: iface, flag: --iface, type: str, required: false, help: "the cable's card, when two could be it"}
+  effects: [network, writes-files, processes, admin]   # one UAC (Windows) / pkexec (Linux) prompt, only for what is missing
+  safety: reversible
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'Windows side run for real 2026-10-22; Linux side tested with fakes and a loopback join only'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_setup.py"]
+  notes: "Idempotent: each step is checked first and skipped when already true (a second run asks for no admin and keeps the carried key). The second computer runs only `sh <stick>/fieldkit-link/setup-linux.sh` (checks SHA256SUMS, adds the code as a worktree or clones it, runs setup --join). Starting sessions stays off until that computer's owner runs `fieldkit peers link approve`."
+
+- id: peers-link
+  title: "Agents on the OTHER computer of a direct cable: pair (key carried by hand), serve (cable address, paired peer only), hello (its agents), send a note, ask it to start a session, read what it sent (fenced)"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link]
+  path: ${FIELDKIT}/fieldkit/peers/link.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE"}
+    - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text"}
+    - {name: me, flag: --me, type: str, required: false, help: "pair init: this computer's cable address (e.g. 10.77.0.1)"}
+    - {name: peer, flag: --peer, type: str, required: false, help: "pair init: the other computer's cable address"}
+    - {name: to, flag: --to, type: str, required: false, help: "send: a session name on the peer (fieldkit peers) to hand the note to"}
+    - {name: agent, flag: --agent, type: str, required: false, help: "ask: which agent the peer should start (claude)"}
+    - {name: brief, flag: --brief, type: str, required: false, help: "ask: a file with what the new session is for"}
+    - {name: seconds, flag: --seconds, type: float, required: false, help: "serve: stop after this many seconds"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "inbox: wait this long for something to arrive"}
+    - {name: allow, flag: --allow, type: str, required: false, help: "approve: an agent the peer may start (repeatable or a comma list); with --cwd it is ONE command: writes link.yaml, shows it, one typed yes"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "approve: the folder a started session works in (must exist)"}
+    - {name: wall_minutes, flag: --wall-minutes, type: int, required: false, help: "approve: the started session's time budget"}
+  effects: [network, writes-files, processes]
+  safety: irreversible           # a delivered note or a started session cannot be taken back
+  output: third-party            # what the peer sends is text from another computer
+  platforms: [windows, linux]
+  platforms_why: 'loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py"]
+  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14). 2026-10-22 Windows items: ask refuses to start when link_ops.startcheck(agent) fails (fail closed; the reply names each failed check); hello carries `toolset` (link_ops.toolset_local) and `time` (for check clock); the start brief names the interpreter by its full path; tests/test_peers_link_winitems.py, plan tests/peers_link_winitems_mutations.yaml (12/12)."
+
+- id: peers-link-check
+  title: "The 2026-10-22 Windows lessons as prechecks: clock skew against the peer (the link refuses > 120 s), the cable firewall rule (fix: setup, one UAC click via elevate), a stale 00-00-00-00-00-00 neighbor after a cable move, where put files land, Git Bash eating backslashes and PowerShell 5.1 refusing &&, CRLF from Python, privacy before the 16-minute commit hook, writes too big for one call, and what-you-see -> check"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, check]
+  path: ${FIELDKIT}/fieldkit/peers/link_checks.py
+  inputs:
+    - {name: what, flag: null, type: str, required: false, choices: [link, clock, firewall, neighbor, put, shell, crlf, commit, write, symptom], help: "default link = clock, firewall, neighbor, put"}
+    - {name: rest, flag: null, type: str, required: false, help: "shell: the command; crlf: files (default: staged); write: the file; symptom: what you see"}
+    - {name: shell, flag: --shell, type: str, required: false, choices: [bash, powershell], help: "shell: which shell will run the command"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [network, reads-files, processes]   # one signed hello to the peer (clock), arp -a, git diff --cached, the privacy scan
+  safety: reversible             # read-only: every fix is printed, none is applied
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'run for real on Windows 2026-10-22 (link: firewall/neighbor/put OK, clock PROBLEM against the old peer code); firewall and neighbor are Windows-only lessons and answer OK with a note on Linux'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_checks.py"]
+  notes: "Exit 0 all OK, 3 a PROBLEM (each with FIX and NEXT), 2 bad usage. Mutation plan tests/peers_link_checks_mutations.yaml (19/19). publish refusing a never-pushed branch is a symptom entry only: fixed in 1f48c1c (feat/long-horizon)."
+
 - id: peers-wait
   title: "Be a session for a while and return the messages that arrive (fenced: text from another program, not orders)"
   harness: peers
@@ -1651,6 +1744,124 @@ tools:
   answer_lines: 60
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers.py"]
+
+# -- the cable link's own operations (fieldkit/peers/link_relay.py, link_ops.py; 2026-10-22 night, Linux side) ----
+- id: mandate
+  title: "A project mandate: the owner's ONE approval for a whole project, valid on both computers: keygen (passphrase-protected Ed25519), trust (the other computer pins the public key), approve (every door shown, typed yes, passphrase), verify, allows (allow/ask/deny with the clause), stop, share"
+  harness: core
+  entry: [python, -m, fieldkit, mandate]
+  path: ${FIELDKIT}/fieldkit/mandate/mandate.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [keygen, trust, approve, verify, allows, stop, share, status], help: "status first; keygen, trust and approve are the owner's, at a real terminal"}
+    - {name: rest, flag: null, type: str, required: false, help: "FILE.yaml; allows: FILE.yaml ACTION key=value ..."}
+  effects: [writes-files, network]
+  safety: reversible             # a seal is voided by any change, a stop, or the date; nothing outside ~/.fieldkit/mandate
+  scope: [file]
+  output: own
+  exits: {1: "not approved / not trusted", 2: "bad input or no key", 3: "not in force (verify) or ask (allows)", 4: "deny"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate.py"]
+  notes: "Owner, 2026-10-23: one approval per project, valid for both sessions, same SOPs. Plan local/PROJECT-MANDATE-PLAN.md. The seal is an Ed25519 signature over the mandate's sha256, made with the owner's passphrase-protected key; the other computer holds only the public key (verify, never sign) - the Windows side's review replaced the first idea (an HMAC with the cable key, which any key holder could mint). Fail closed: no seal, a changed byte, an untrusted key, a stop or the expiry date and nothing is allowed by the mandate. Callers (M3, 2026-10-23): ship push logs a mandated push; ship merge merges into main only when a mandate allows it, conditions proven by proofs.py, fast-forward or the pull request, the landed commit checked on origin; hard lines 1 and 4 open for a plain `fieldkit ship push` on a mandated branch, `fieldkit ship merge` while a mandate is in force, and owner_approvals entries (never the mandate key or GORILLA_OWNER_APPROVED), each logged; `fieldkit mac run` on a granted Mac is judged as the business of the Mac, and logged; while a mandate is in force raw installers are refused for `fieldkit mandate install GB WHAT -- CMD` (the larger of declared and measured disk growth is logged against budget_gb). M1.1 (the Windows review of ba40f28): every write under ~/.fieldkit/mandate is hard line 3 and keygen/trust/approve hard line 4; FIELDKIT_MANDATE_HOME counts only under pytest; a trusted key must match its file name; merge conditions and the push fast-forward are proven by the tool (fieldkit/mandate/proofs.py: the suite run, the other computer's [DONE] note re-verified with the link key, CI), so `allows` on the command line is a PREVIEW that takes no proofs; a stop is permanent for the mandate it stopped (its sha256 in stopped.txt); passphrase at least 12. M1.2 (the Windows review of a6feb1e: text-matched hard lines miss writes by indirection; the link key is shared; a commit could gut its own suite): owner keys, reviewer keys and stops live in an OS-guarded store (guarded.py: root-owned /etc/fieldkit/mandate-trust written through pkexec, sudo on macOS; Windows %ProgramData% with an Administrators-only ACL, the Windows side's part, fails closed until it lands); a store this user can write counts for nothing; no FIELDKIT_MANDATE_HOME at all; each computer has its own Ed25519 review key and the merge proof is APPROVE <repo> <40-char sha> signed with the OTHER computer's pinned review key (sign-review / trust-reviewer); full_tests_pass_here also runs the suite on origin/main in a temporary worktree and needs no fewer passed, no more skipped, no deleted test file. Merge deadlock removed (2026-10-23, after the Windows session rightly refused to APPROVE another Claude's merge): nobody approves; `fieldkit mandate verdict REPO SHA --send` runs on the OTHER computer, started by its link listener on verb verdict-request (no session asked), only for repos and branches its owner listed in link.yaml allow_verdict (sha-pinned), one at a time, under verdict_minutes, without git or GitHub credentials, through fieldkit guard on Windows; it tests the pushed commit in a temporary worktree against main and signs APPROVE only on a pass; a commit that changes how its tests run (conftest.py, pytest settings, TestMain, the test command) gets NEEDS A PERSON. ship merge asks once and says to wait in one blocking call. Release door: release: {cycle: {project: [exact versions]}} opens hard line 1 for one plain `fieldkit release-cycle PROJECT run --var version=vX.Y.Z`; sign-review removed. Then the owner corrected the direction (plan section 16, same day): ONE orchestrator holds the mandate, the only approval; workers execute and report, concerns with a fix offered, never approve or object; 20 devices = 20 one-time setups, never 20 prompts a night. So: allow_verdict and APPROVE are gone; jobs.py carries job {id, kind test, repo, commit, mandate sha256} and result {id, status pass|fail|not-run, evidence, concerns[{text, fix_offered}], os, host, at, key, sig}; a worker accepts a job when a sealed mandate with that sha is in force there and names the repo, refusing only what it cannot do (with the fix); the result is Ed25519-signed by the worker for provenance; merge conditions other_machine_reviewed / tests_on:<system> read verified results; ask_when: [worker_concern] makes a concern stop the merge (the orchestrator decides); ship merge sends the job once and says `fieldkit mandate job wait ID`; `fieldkit mandate job send|status|wait`. Section 17 (owner: Yes for everything): `fieldkit mandate boss` lists the devices (this one and the paired one, from the link hello, which now carries device facts) and proposes a boss by a fixed rule, always on > memory > cable; the mandate names orchestrator (and backup) {device, key}, and a worker refuses a job from any other device; the project ledger is append-only (ledger.jsonl on the boss: job-sent, result, boss-resumed), `fieldkit mandate ledger` and `resume` (a restarted boss asks workers once to resend; a worker keeps undeliverable results in an outbox, verb resend flushes it); health.py checks temp space, the clock and origin (3 tries) before a job and keeps the device awake during it, problems travelling as concerns. Items 3, 5, 6 and the report (project.py): `fieldkit mandate tasks init|list|pass` (all failing at first, never removed, passing only with evidence, a needs: screenshot task only with a real PNG), `fieldkit mandate start` (ledger, mandate, link, the next thing), `fieldkit mandate report` (one page from the ledger; NEEDS YOU lists only ask events)."
+
+- id: peers-link-relay
+  title: "One session per computer that only listens on the cable: listen until a note comes (no time limit), the brief a relay follows, status, doctor (PRECHECK: exit 3 when nobody listens)"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, relay]
+  path: ${FIELDKIT}/fieldkit/peers/link_relay.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [listen, brief, status, doctor], help: "doctor first; listen as a BACKGROUND command of its own"}
+    - {name: since, flag: --since, type: int, required: false, help: "listen: read after this note number (default: the last one read)"}
+    - {name: seconds, flag: --seconds, type: float, required: false, help: "listen: give up after this long (default: wait until a note comes)"}
+  effects: [writes-files]
+  safety: reversible             # relay.json (last note read) and relay-listen.pid only
+  scope: [file]
+  output: third-party            # the notes are text from the other computer, fenced
+  exits: {1: "listen: nothing within --seconds", 2: "listen: another relay listens already", 3: "doctor: no listener"}
+  platforms: [windows, linux]
+  platforms_why: 'run for real on the VAIO 2026-10-22 (relay session); the Windows relay ran from the brief the same night'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_relay.py"]
+  notes: "Why: inbox --wait gave up after 10 minutes and a relay that chained its listener after a send went deaf twice. The brief prints paths quoted with forward slashes (Git Bash eats backslashes) and names the shell (PowerShell 5.1 refuses &&)."
+
+- id: peers-link-toolset
+  title: "This computer's tools for the cable link (python, pytest, PyYAML, psutil, git, claude, the link's commit) and, with --peer, the other computer's and each gap with the line that closes it"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, toolset]
+  path: ${FIELDKIT}/fieldkit/peers/link_ops.py
+  inputs:
+    - {name: peer, flag: --peer, type: flag, required: false, help: "also ask the other computer (its hello carries its toolset)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable"}
+  effects: [network]
+  safety: reversible             # reads only
+  output: own
+  exits: {3: "a gap between the two computers, or the peer does not send its toolset"}
+  platforms: [windows, linux]
+  platforms_why: 'local half run on the VAIO 2026-10-22; the peer half needs the hello toolset field (Windows side)'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_ops.py", -k, toolset or gap or python]
+
+- id: peers-link-startcheck
+  title: "PRECHECK before this computer starts a session for the peer: approval, folder, python 3.11+, which fieldkit a started session loads, autopilot's options, claude found, the brief on stdin"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, startcheck]
+  path: ${FIELDKIT}/fieldkit/peers/link_ops.py
+  inputs:
+    - {name: agent, flag: --agent, type: str, required: false, help: "the agent a start is checked for (default claude)"}
+  effects: [processes]           # two short subprocesses: python -P -c import, autopilot --help
+  safety: reversible
+  output: own
+  exits: {3: "not ready: each NO line says what"}
+  platforms: [windows, linux]
+  platforms_why: 'run on the VAIO 2026-10-22: 8 of 8 ok after the night''s fixes'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_ops.py", -k, startcheck]
+  notes: "Each check is one failure of 2026-10-22: options autopilot lacked (--job, --wall-minutes), the '---' brief read as an option (prompt in argv), cwd's checkout loaded instead of the link's (python -m: cwd beats PYTHONPATH). ask refuses to start while it fails (Windows side)."
+
+- id: peers-link-restart
+  title: "Restart the cable listener on THIS checkout's code and check its port (stops only a process that is a link listener)"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, restart]
+  path: ${FIELDKIT}/fieldkit/peers/link_ops.py
+  effects: [processes, network]
+  safety: reversible             # the listener is started again at once; serve.pid names the new one
+  scope: [process]
+  output: own
+  exits: {3: "not listening after 10 s (read serve.log)"}
+  platforms: [windows, linux]
+  platforms_why: 'run for real on the VAIO 2026-10-23 (twice); on Windows the code path is the same (psutil terminate, link_setup.start_serve with its DETACHED_PROCESS flags) and was opened on 2026-10-23 after the laptop had to restart by hand because this card said linux only'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_ops.py", -k, cli]
+
+- id: peers-link-watchdog
+  title: "The cable listener on a heartbeat: restarted with no person involved, every step logged; two failed restarts in a row stop the restarts and go to the owner's inbox; on the boss it also looks after open jobs"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, watchdog]
+  path: ${FIELDKIT}/fieldkit/peers/link_watchdog.py
+  inputs:
+    - {name: once, flag: --once, type: bool, required: false, help: "one check (what the timer runs)"}
+    - {name: every, flag: --every, type: int, required: false, help: "seconds between checks in a loop (default 120)"}
+    - {name: install, flag: --install, type: bool, required: false, help: "Linux: a systemd user timer, every 2 minutes"}
+  effects: [processes, network, writes-files]
+  safety: reversible             # a restart starts the listener again; --install writes two user unit files
+  scope: [process]
+  output: own
+  exits: {3: "--install: not on Linux, or systemctl refused"}
+  platforms: [windows, linux]
+  platforms_why: 'the check and the restart are the same code on both (link_ops.restart); only --install is Linux (a systemd user timer); the Windows scheduled task is the Windows side'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_boss.py", -k, watchdog]
+  notes: "Born 2026-10-23 (the listener went deaf silently; the owner: recovery loops, the same failure twice stops, progress measured, every attempt logged). State in ~/.fieldkit/link/watchdog.json, log in watchdog.log; it resumes by itself once the listener is heard again. Each tick also runs fieldkit/mandate/jobs.py supervise (a silent job: asked once to resend, moved once to another worker, then reported)."
+
+- id: peers-link-verify-start
+  title: "Wait for a started session's [DONE] note with evidence after inbox number N: the only proof a session ran"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, verify-start]
+  path: ${FIELDKIT}/fieldkit/peers/link_ops.py
+  inputs:
+    - {name: since, flag: --since, type: int, required: true, help: "the last inbox number before the ask"}
+    - {name: seconds, flag: --seconds, type: float, required: false, help: "how long to wait (default 300)"}
+  effects: [reads-files]
+  safety: reversible
+  output: third-party
+  exits: {3: "no proof within the time"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_ops.py", -k, verify_start]
+  notes: "2026-10-22: the link said 'started (alive after 2 s)' for a session whose claude had failed; proven only when funny.gorilla's --done hello arrived with the path of the code it ran."
 
 # -- research evidence (fieldkit/evidence, docs/METHODS.md #16) ------------------------------------------------
 - id: evidence-fetch
@@ -4884,7 +5095,7 @@ tools:
   notes: "Read-only without --keys-from; --keys-from runs that command (its safety). Exit 2 bad input."
 
 - id: ship
-  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), push, audit, release, prune; never forces
+  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), commit (a known hook refusal fixed and tried again, the same one twice or an unknown one reported, never --no-verify), push, merge (into main only under a project mandate, every condition proven by the tool), audit (remote branches, open PRs, and since 2026-10-23 local worktrees and local branches left behind), release, prune; never forces
   harness: method
   entry: [python, -m, fieldkit, ship]
   path: ${FIELDKIT}/fieldkit/method/ship.py
@@ -4977,6 +5188,45 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_versionsync.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Read-only on the project; with --binary it starts that program once. Born 2026-10-19 (TPFanControl installer gorilla.3 vs program gorilla.4)."
+
+- id: release-cycle
+  title: One release, the whole cycle, each stage DONE only by its artefact - audit, build, checksums, screenshots, notes, on-base, publish, verify-page, leftovers - driven by a project's release file
+  harness: method
+  entry: [python, -m, fieldkit, release-cycle]
+  path: ${FIELDKIT}/fieldkit/method/releasecycle.py
+  inputs:
+    - {name: project, flag: null, type: str, required: true, help: "the project; its release file is local/releases/PROJECT.yaml"}
+    - {name: action, flag: null, type: str, required: true, help: "plan | next | run | reset"}
+    - {name: version, flag: --var, type: str, required: true, help: "version=vX.Y.Z"}
+    - {name: release_file, flag: --release-file, type: str, required: false, help: "another release file"}
+  effects: [reads-files, writes-files, processes, network, git]
+  safety: irreversible             # publish makes a GitHub release; every other stage only builds and checks
+  output: own
+  exits: {2: "no release file, or it lacks project/repo/assets/notes, or the version is not vX.Y.Z", 3: "a stage failed: next says which and why"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_release_cycle.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-10-23 (owner: a release took 80 minutes once and now takes days, with about 20 projects and the owner routing every step; 'release means the full cycle'). Design: local/PROJECT-MANDATE-PLAN.md section 15. Chains existing tools on the pipeline engine (resumable, verified, a JSON report, `next` gives one line): ship audit at the start and as the last step (no stray branch, open PR, extra worktree or local branch), the release file's build commands, an asset older than this build refused (gorilla-opencode.exe has no version in its name), SHA256SUMS, screenshots as real PNGs in the gallery, the page composed by release-page and checked again on GitHub with releasepage.check, publish never clobbers. Not built yet: capture commands for screenshots, the cross-machine build (M4), the mandate's release door."
+
+- id: heal-round
+  title: A self-healing build loop that cannot oscillate - one written hypothesis per round; a round that does not lower the error count is undone, its diff and new files kept in the trash
+  harness: method
+  entry: [python, -m, fieldkit, heal-round]
+  path: ${FIELDKIT}/fieldkit/method/healloop.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "start | end | status"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "the repository (default .)"}
+    - {name: log, flag: --log, type: str, required: false, help: "the build log of this round"}
+    - {name: hypothesis, flag: --hypothesis, type: str, required: false, help: "start: the one theory this round tests"}
+    - {name: pattern, flag: --pattern, type: str, required: false, help: "the regex of an error line"}
+  effects: [reads-files, writes-files, git]
+  safety: reversible               # an undone round is a patch and the moved files in ~/Agents.Work.Trash/heal-rounds
+  output: own
+  exits: {2: "no hypothesis, a round already open, or none open", 3: "the round was undone: the errors did not fall"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_heal_round.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-10-23 (plan section 17.2 item 7, owner: Yes for everything): from Google's Android blog on Gemini 4 Argon (the self-healing build loop) and the oscillation in techdeveloper-org/lordcode issue 64 (3 -> 1 -> 5 errors). The start state is git stash create (a commit object; the shared stash list and the working tree are untouched); undoing restores the tracked files to it after writing round.patch and moving the round's new files to the trash. A separate tool on purpose: the Firefox build loop (fieldkit/buildh/buildrun.py) is the owner's harness and can call it."
 
 - id: stranger
   title: The stranger test - download a project the way someone else would (fresh clone, fresh environment, empty home folder, the documented install) and see whether its tests and cards pass

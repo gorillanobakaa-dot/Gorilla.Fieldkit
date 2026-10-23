@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.3.0 · updated 26-10-23-18-05
+# Version: 1.4.0 · updated 26-10-23-18-17
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -287,6 +287,20 @@ def doctor(name, mac, runner=None, ping=None, ssh_config=SSH_CONFIG):
 
 # ── command line ────────────────────────────────────────────────────────────
 
+def _mandate_log_run(name, cmd, rc, decide=None):
+    """A command run on a Mac a project mandate grants (mac: {full_access: NAME}) is written to that mandate's log
+    (2026-10-23, M3): the owner reads one log, not the session. No mandate, or one that does not grant it: nothing."""
+    try:
+        from ..mandate import mandate as M
+        v, why, path = (decide or M.decide)("mac", name=name)
+        if v == "allow" and path is not None:
+            M.log(path, "mac-run", why, mac=name, cmd=" ".join(cmd)[:300], rc=rc)
+            return True
+    except Exception:  # noqa: BLE001 - logging must never change what the command returned
+        pass
+    return False
+
+
 # sensors.gorilla (github gorillanobakaa-dot/sensors-gorilla, gathered into toolbox/) has a macOS side since 2.2.0
 # (2026-10-23): the SMC read through IOKit, no password and nothing installed. One source for a person's dashboard and
 # for the harness. The Air has no python3 on the SSH PATH, so the full path is used.
@@ -540,7 +554,9 @@ def main(argv=None, prog="macssh.py"):
         if not address:
             print(f"NOT FOUND: {how}", file=sys.stderr)
             return 1
-        return run_retry(ssh_argv(mac, address, remote_line(cmd), batch=False))
+        rc = run_retry(ssh_argv(mac, address, remote_line(cmd), batch=False))   # a Wi-Fi drop retried (main)
+        _mandate_log_run(o.name, cmd, rc)                 # under a mandate's mac grant: in its log (this branch)
+        return rc
     return 2
 
 
