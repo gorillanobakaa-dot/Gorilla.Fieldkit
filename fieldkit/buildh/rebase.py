@@ -349,6 +349,16 @@ def written_on(owner_root, major):
     return m.group(1) if m else None
 
 
+def other_platform_parts(owner_root, major, here):
+    """The patches of the shared rebase group that the policy leaves out on `here` (they are another platform's)."""
+    import json
+    pol = Path(owner_root) / "config" / "patch_policy.json"
+    if not pol.is_file():
+        return []
+    spec = json.loads(pol.read_text(encoding="utf-8")).get("groups", {}).get(group_name(major), {})
+    return sorted((spec.get("exclude_on") or {}).get(here) or [])
+
+
 def run(owner_root, workdir, major, write=False, say=print):
     """-> {"ok", "patches", "deleted", "superseded", "replay"}"""
     origin = written_on(owner_root, major)
@@ -363,6 +373,17 @@ def run(owner_root, workdir, major, write=False, say=print):
             f"that lacks the {origin}-only parts and rewrite the shared groups. Refused, nothing written. The {here} "
             f"remainder belongs in {group_name(major)}.{here}; until rebase-set writes only that, keep {here}-only "
             f"edits recorded in the task (handedit) and export them when it does")
+    others = other_platform_parts(owner_root, major, here)
+    if write and others:
+        # 2026-10-23, the Linux 158.0-2 check-change: 23.REBASE.158 was written on Linux, then Windows build 2 put 14
+        # Windows-only patches in it (exclude_on.linux: msix assets, nsWindow.cpp). Recomputed from the Linux tree,
+        # which rightly lacks them, rebase-set deleted all 14 and renumbered 239. The origin platform may not rewrite
+        # a shared group that now holds another platform's parts either.
+        from .task import Refused
+        raise Refused(
+            f"rebase-set: {group_name(major)} holds {len(others)} patch(es) only other platforms apply "
+            f"(exclude_on.{here}, e.g. {others[0]}); recomputed from the {here} tree it would delete them. Refused, "
+            f"nothing written. {here} changes go to 24.FINAL.{major} (export-hand); replay proves the set")
     excl, r = superseded(owner_root, workdir, major, say=say)
     out = write_group(owner_root, workdir, major, r["replayed"], excl, say=say, dry=not write)
     rows = carried(owner_root, workdir, excl, major)

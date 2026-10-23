@@ -1034,9 +1034,16 @@ def capture_patches(t, task_id, say=print, note=None):
         # the proof: a set that does not reproduce the compiled tree still makes the build NOT OK.
         say(f"  patches: rebase-set skipped: 23.REBASE.{major} was written on {origin}; {here} changes go to "
             f"24.FINAL.{major} (export-hand above); replay proves the set")
+    elif rp.replay(owner, t["workdir"], say=lambda m: None, refreshed=rp.refreshed_lists(task_id, t["workdir"]))["ok"]:
+        # 2026-10-23: the set already gives the tree (a carried build: pristine + the set, replayed); recomputing the
+        # shared group from this tree can only lose another platform's parts
+        say(f"  patches: rebase-set skipped: pristine + the set already gives this tree")
     else:
         say("  patches: rebase-set (patches that no longer apply are superseded; 23.REBASE." + major + " written)")
-        _rb.run(owner, t["workdir"], major, write=True, say=say)
+        try:
+            _rb.run(owner, t["workdir"], major, write=True, say=say)
+        except task.Refused as e:
+            say(f"  patches: {e}")
     say("  patches: replay (pristine + public patch set = compiled tree)")
     r = rp.run(task_id, say=say)
     if r["ok"]:

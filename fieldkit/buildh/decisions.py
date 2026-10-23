@@ -225,6 +225,14 @@ def platform_problems(owner_root, entries):
             only = sorted(set().union(*plats))
             out.append(f"{e.get('id')}: its tree checks read {paths[:2]}, which the set writes only on {only}; "
                        f"declare platforms: {only} (or make it hold everywhere)")
+            continue
+        # one check of a cross-platform decision on a file the set writes on some platforms only (2026-10-23: D-157-35
+        # and D-157-36 read widget/windows/*.cpp, which 23.REBASE.158 leaves pristine on Linux since build 2, and
+        # failed the Linux 158.0-2 check-change): that check names its platform
+        for pth, pl in zip(paths, plats):
+            if pl and len(pl) < len(PLATFORMS):
+                out.append(f"{e.get('id')}: its check on {pth} reads a file the set writes only on {sorted(pl)}; "
+                           f"add platform: {sorted(pl)[0]} to that check")
     return out
 
 

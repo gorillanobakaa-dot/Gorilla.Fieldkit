@@ -17,6 +17,8 @@ def owner(tmp_path, monkeypatch):
     monkeypatch.setattr(ownercheck, "patchset_owner", lambda t: str(tmp_path))      # capture_patches asks this (2026-10-15)
     from fieldkit.buildh import rebase
     monkeypatch.setattr(rebase, "run", lambda *a, **k: {"ok": True})              # tested in test_buildh_rebase.py
+    monkeypatch.setattr(replay, "replay", lambda *a, **k: {"ok": False})           # the set does not yet give the tree
+    monkeypatch.setattr(replay, "refreshed_lists", lambda *a, **k: {})
     return tmp_path
 
 
@@ -53,3 +55,29 @@ def test_an_export_crash_is_not_swallowed(owner, monkeypatch):
     monkeypatch.setattr(replay, "run", lambda *a, **k: pytest.fail("replay must not run after a failed export"))
     with pytest.raises(RuntimeError):
         buildrun.capture_patches(T, "task-x", say=lambda m: None)
+
+
+def test_rebase_set_is_skipped_when_the_set_already_gives_the_tree(owner, monkeypatch):
+    # 2026-10-23: a carried build (pristine + the set, replayed) has nothing to rebase; recomputing lost Windows parts
+    calls = []
+    monkeypatch.setattr(export, "export", lambda *a, **k: None)
+    monkeypatch.setattr(replay, "replay", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(replay, "run", lambda tid, say=print: {"ok": True, "failures": [], "differ": []})
+    monkeypatch.setattr(changecheck, "commit_patches", lambda owner, msg, say=print: (True, "nothing to commit"))
+    from fieldkit.buildh import rebase
+    monkeypatch.setattr(rebase, "run", lambda *a, **k: calls.append("rebase"))
+    said = []
+    assert buildrun.capture_patches(T, "task-x", say=said.append)["replay"] == "OK"
+    assert calls == [] and any("rebase-set skipped" in m for m in said)
+
+
+def test_a_rebase_set_refusal_is_reported_and_replay_still_judges(owner, monkeypatch):
+    from fieldkit.buildh import rebase, task
+    monkeypatch.setattr(export, "export", lambda *a, **k: None)
+    def refuse(*a, **k):
+        raise task.Refused("rebase-set: 23.REBASE.157 holds 1 patch(es) only other platforms apply")
+    monkeypatch.setattr(rebase, "run", refuse)
+    monkeypatch.setattr(replay, "run", lambda tid, say=print: {"ok": False, "failures": [], "differ": ["M\tx"]})
+    said = []
+    r = buildrun.capture_patches(T, "task-x", say=said.append)
+    assert r["replay"] == "FAILED" and any("only other platforms apply" in m for m in said)

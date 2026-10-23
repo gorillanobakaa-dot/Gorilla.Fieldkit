@@ -122,6 +122,20 @@ def test_a_decision_reading_platform_only_files_must_declare_its_platforms(world
     assert decisions.platform_problems(ps, e) == []
 
 
+
+def test_one_platform_only_check_in_a_cross_platform_decision_names_its_platform(world):
+    # 2026-10-23: D-157-35 mixed a widget/windows check with cross-platform ones; Linux failed it on a pristine file
+    ps, _ = world
+    pol = json.loads((ps / "config" / "patch_policy.json").read_text())
+    pol["groups"]["21.FIX"]["exclude_on"] = {"windows": ["008-fix.patch"]}
+    (ps / "config" / "patch_policy.json").write_text(json.dumps(pol))
+    e = [{"id": "D-Z", "status": "enforced", "verify": [{"tree_contains": {"path": "dom/Traits.cpp", "text": "x"}},
+                                                         {"tree_contains": {"path": "app.txt", "text": "x"}}]}]
+    probs = decisions.platform_problems(ps, e)
+    assert len(probs) == 1 and probs[0].startswith("D-Z") and "dom/Traits.cpp" in probs[0] and "platform: linux" in probs[0]
+    e[0]["verify"][0]["tree_contains"]["platform"] = "linux"
+    assert decisions.platform_problems(ps, e) == []
+
 def test_lists_are_refreshed_before_the_build_and_recorded():
     t = {"workdir": "W"}
     recorded = []

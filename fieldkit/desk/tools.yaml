@@ -4982,6 +4982,22 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_uicheck.py"]
   notes: "Public twin of the owner's local ui-check card (2026-10-19), so the every-action-has-a-card test holds where local/ is absent (CI). Without --static it starts a throwaway copy of the installed build. Read Gorilla.firefox/docs/GORILLA-THEME-AND-UI.md before any UI change."
 
+- id: bh-release-shots
+  title: The release page's pictures from the real screen, the installed build in a visible maximised window on a fresh profile (About, app menu, search-mode list, tab menu)
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, release-shots]
+  path: ${FIELDKIT}/fieldkit/buildh/releaseshots.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: out, flag: null, type: str, required: true, help: "out=<folder> for the pictures"}
+    - {name: prefix, flag: null, type: str, required: false, help: "prefix=<text> before each file name, e.g. 158.0-2-"}
+  effects: [reads-files, writes-files, processes, gui-automation]
+  safety: reversible
+  output: own
+  exits: {3: "a surface did not open or a capture failed (each named)"}
+  platforms: [linux]
+  platforms_why: "the capture tools it calls (gnome-screenshot, scrot, ImageMagick import) are Linux desktop programs; Windows release pictures are taken by the Windows harness"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_releaseshots.py"]
 - id: bh-release-page
   title: Assemble RELEASE-BODY.md from a draft folder's PAGE.parts, then hold it to release-cover (every decision named, under GitHub's limit)
   harness: build

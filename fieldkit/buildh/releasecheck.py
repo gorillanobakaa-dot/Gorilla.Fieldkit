@@ -52,6 +52,29 @@ def release_docs_manifest(t):
     return next((c for c in candidates if c.is_file()), candidates[0])
 
 
+def owner_of(t):
+    """The Windows owner repo, or else the patch-set repo (Linux: gorilla-firefox), or None. 2026-10-23, Linux
+    158.0-2: release-check crashed (Path(None)) because only the Windows owner repo was looked for."""
+    from . import buildrun as _br
+    from .ownercheck import patchset_owner
+    owner = _br._owner_root(t)
+    if not owner:
+        try:
+            owner = patchset_owner(t)
+        except Exception:          # no patch-set repo either: the rows that need one say so
+            owner = None
+    return Path(owner) if owner else None
+
+
+def draft_pages(owner):
+    """RELEASE-BODY.md drafts: <owner>/releases-draft/* (the Windows owner repo is private) and, beside a public
+    patch-set repo, <owner>/../release-docs/* (Linux: FIREFOX.WORK/release-docs, never published)."""
+    if not owner:
+        return []
+    return list((owner / "releases-draft").glob("*/RELEASE-BODY.md")) + \
+        list((owner.parent / "release-docs").glob("*/RELEASE-BODY.md"))
+
+
 def run(task_id, say=print, skip_post_install=False):
     rows = []
 
@@ -87,9 +110,8 @@ def run(task_id, say=print, skip_post_install=False):
         f"fieldkit build-harness hidden-pages-doc {task_id} write=1  (after explaining any new hidden page)")
     # the release page tells everything since the last release (maintainer 2026-10-09: "all the work you and I done
     # needs to go on the release page"): releases-draft/<release>/RELEASE-BODY.md, the newest one
-    from . import buildrun as _br
-    drafts = sorted((Path(_br._owner_root(task.load(task_id))) / "releases-draft").glob("*/RELEASE-BODY.md"),
-                    key=lambda f: f.stat().st_mtime)
+    owner = owner_of(task.load(task_id))
+    drafts = sorted(draft_pages(owner), key=lambda f: f.stat().st_mtime)
     if not drafts:
         row("release page", False, "no releases-draft/<release>/RELEASE-BODY.md",
             "write the release page there (the hidden pages: hidden-pages-doc release=), then release-cover")
@@ -103,8 +125,7 @@ def run(task_id, say=print, skip_post_install=False):
         row("post-install", not bad, f"{len(bad)} row(s) failing" + (f": {bad[0][:160]}" if bad else ""),
             f"fieldkit build-harness post-install {task_id}")
     t = task.load(task_id)
-    from . import buildrun
-    res = Path(buildrun._owner_root(t)) / "state" / "leakgate_result.json"
+    res = Path(owner or "/nonexistent") / "state" / "leakgate_result.json"
     try:
         lg = json.loads(res.read_text(encoding="utf-8"))
         from . import install as inst

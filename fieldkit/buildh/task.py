@@ -805,7 +805,13 @@ AGENT_ENV = ("CLAUDECODE", "AI_AGENT", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SE
 #: ancestor process names that are AI agents
 AGENT_PROCS = re.compile(r"^(claude|antigravity|gemini|codex)(\.exe)?$|claude-code|@anthropic-ai", re.I)
 #: what may stand between a person's desktop and this process: terminals, shells, Python
-PERSON_CHAIN = re.compile(r"^(windowsterminal|openconsole|conhost|wt|powershell|pwsh|cmd|python\d*(\.\d+)?|py|pythonw)"
+# 2026-10-23: Linux shells and terminal programs added. Only the Windows chain was known, so on Linux every process,
+# the owner's own terminal included, stopped at bash ("not a person's terminal") and release-publish send could
+# never run there. tmux and screen are left out on purpose: a session an agent detached reaches systemd with a pty.
+PERSON_CHAIN = re.compile(r"^(windowsterminal|openconsole|conhost|wt|powershell|pwsh|cmd|python\d*(\.\d+)?|py|pythonw"
+                          r"|bash|sh|dash|zsh|fish|sudo|su|fieldkit"
+                          r"|gnome-terminal(-server|\.real)?|kgx|ptyxis(-agent)?|konsole|xfce4-terminal|tilix|terminator"
+                          r"|xterm|uxterm|alacritty|kitty|foot|wezterm(-gui)?|lxterminal|mate-terminal|qterminal)"
                           r"(\.exe)?$", re.I)
 DESKTOPS = re.compile(r"^(explorer(\.exe)?|plasmashell|gnome-shell|kwin\w*|xfce4-session|lxsession|"
                       r"sshd|login|systemd)$", re.I)

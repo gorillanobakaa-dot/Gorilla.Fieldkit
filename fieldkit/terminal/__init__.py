@@ -132,6 +132,11 @@ def bash_script(command, mode, log, title=None, say=False):
     if mode == "ask":
         lines.append("read -r _ || exit 130")
         lines.append(f"echo \"run allowed by the person at $({stamp})\" >> \"$log\"")
+        # the person pressed Enter: from here the command is theirs, so the agent markers the window inherited from
+        # the session that opened it are dropped (2026-10-23: release-publish send refused the owner's own Enter as
+        # "agent environment (CLAUDECODE)"). `run` keeps them: nobody chose to run that command.
+        from ..buildh.task import AGENT_ENV
+        lines.append("unset " + " ".join(AGENT_ENV))
     lines += ["t0=$(date +%s)", f"echo \"command started at $({stamp})\" >> \"$log\"",
               f"{cmd} 2>&1 | tee -a \"$log\"", "code=${PIPESTATUS[0]}",
               f"echo \"command finished at $({stamp}) after $(( $(date +%s) - t0 )) s\" >> \"$log\"",

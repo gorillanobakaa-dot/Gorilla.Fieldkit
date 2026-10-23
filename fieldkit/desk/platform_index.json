@@ -1098,6 +1098,15 @@
    "bh-release-roundtrip"
   ]
  },
+ "build-harness release-shots": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "the capture tools it calls (gnome-screenshot, scrot, ImageMagick import) are Linux desktop programs; Windows release pictures are taken by the Windows harness",
+  "ids": [
+   "bh-release-shots"
+  ]
+ },
  "build-harness repair": {
   "platforms": [
    "linux",

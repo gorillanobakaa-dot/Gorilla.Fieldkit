@@ -33,11 +33,22 @@ def task_context(t):
     from ..buildh import buildrun, icons
     from ..buildh.compile import mozconfig_path
     owner = buildrun._owner_root(t)
+    if not owner:
+        # Linux has no Windows owner repo; the patch-set repo (gorilla-firefox) holds the masters (2026-10-23, 158.0-2:
+        # 116 icons UNVERIFIABLE, "its master lives in the owner repository, which is not known for this task")
+        from ..buildh.ownercheck import patchset_owner
+        try:
+            owner = patchset_owner(t)
+        except Exception:          # no patch-set repo either: the masters stay unknown, said as UNVERIFIABLE
+            owner = None
     branding = None
-    if owner:
-        mc = mozconfig_path(owner)
+    # the mozconfig the tree was built with first, then the owner's (2026-10-23, Linux 158.0-2: only the Windows
+    # config/mozconfig.win64 was read, so on Linux the branding was "None" and the static layer UNVERIFIABLE)
+    for mc in [Path(t["workdir"]) / "mozconfig"] + ([mozconfig_path(owner), Path(owner) / "mozconfig"] if owner else []):
         if mc.is_file():
             branding = icons.branding_dir(mc.read_text(encoding="utf-8", errors="replace"))
+            if branding:
+                break
     meta = t.get("meta") or {}
     commit = (meta.get("upstream") or {}).get("commit") or (meta.get("pinned") or {}).get("commit")
     return Path(t["workdir"]), branding, (Path(owner) if owner else None), commit
