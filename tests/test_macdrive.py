@@ -201,6 +201,13 @@ def test_old_screens_above_do_not_get_a_second_key_and_the_help_bar_means_ready(
     assert code == 0 and mac.keys_sent == 1 and lines[0].startswith("speed: enter"), lines
 
 
+def test_the_v0150_help_bar_without_ctrl_also_means_ready():
+    # v0.1.150 writes "? help" at the bottom, not "ctrl+? help"; the old pattern waited 90 s at a ready prompt
+    for bar in (" ? help        AUTO - approving without asking  Gemini 3.8 Flash", " ctrl+? help    Gemini 3.8 Flash"):
+        assert D._last(["Keeping your model", " >", bar], D.TUI_READY) == 2, bar
+    assert D._last(["type ? help for nothing in particular"], D.TUI_READY) == -1
+
+
 def test_mac_run_retries_only_a_wifi_drop(capsys):
     from fieldkit.mac import macssh
     seq = [(255, "", "ssh: connect to host 1.2.3.4 port 22: Connection timed out"), (0, "hello\n", "")]

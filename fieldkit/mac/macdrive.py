@@ -204,8 +204,9 @@ TUI_SCREENS = [
     ("provider", r"Choose a provider for this session", "enter"),
     ("speed", r"How fast is your connection", "enter"),
 ]
-# the prompt is ready: the old status line ("model ... | in FOLDER") or, from the layout fixes on, only the help bar
-TUI_READY = r"^model .+\|\s+in \S+|ctrl\+\? help"
+# the prompt is ready: the old status line ("model ... | in FOLDER") or, from the layout fixes on, only the help bar:
+# "ctrl+? help" in the fix builds, "? help" from v0.1.150 (2026-10-23, live on the Air: tui-start timed out at the prompt)
+TUI_READY = r"^model .+\|\s+in \S+|^\s*(?:ctrl\+)?\? help\b"
 
 
 def _last(rows, pattern):
