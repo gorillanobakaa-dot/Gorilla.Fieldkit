@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-14-30
+# Version: 1.0.0 · updated 26-10-23-21-52
 """fieldkit release-cycle: one release, the whole cycle, each stage DONE only by its artefact (owner, 2026-10-23: a
 release took 80 minutes once and days now). Real git in a temp folder, real build and screenshot commands, the real
 release-page compose; GitHub is a stand-in that remembers what was published."""
@@ -42,12 +42,13 @@ class GitHub:
             return (0, json.dumps(r), "") if r else (1, "", "release not found")
         if args[:2] == ["release", "create"]:
             notes = args[args.index("--notes-file") + 1]
-            files = [a for a in args if a.startswith("/") and a != notes]
+            files = args[args.index("--notes-file") + 2:]     # the assets; not "starts with /" (C:\ on Windows)
             body = open(notes, encoding="utf-8").read()
-            self.releases[args[2]] = {"assets": [{"name": f.rsplit("/", 1)[-1]} for f in files], "body": body}
+            self.releases[args[2]] = {"assets": [{"name": __import__("os").path.basename(f)} for f in files],
+                                      "body": body}
             return 0, "", ""
         if args[:2] == ["release", "upload"]:
-            self.releases[args[2]]["assets"] += [{"name": a.rsplit("/", 1)[-1]} for a in args[5:]]
+            self.releases[args[2]]["assets"] += [{"name": __import__("os").path.basename(a)} for a in args[5:]]
             return 0, "", ""
         return 1, "", f"unexpected gh {args}"
 
@@ -84,8 +85,8 @@ notes: {{opening: notes/opening.md, layman: notes/layman.md, developer: notes/de
     monkeypatch.setattr(rc, "release_file", lambda p: rel)
     monkeypatch.setattr(rc, "_slug", lambda repo: "o/app")
     monkeypatch.setattr(sr, "repo_slug", lambda repo: "o/app")
-    monkeypatch.setenv("PYTHONPATH", str(__import__("pathlib").Path(__file__).parent) + ":" +
-                       __import__("os").environ.get("PYTHONPATH", ""))
+    monkeypatch.setenv("PYTHONPATH", str(__import__("pathlib").Path(__file__).parent) + __import__("os").pathsep +
+                       __import__("os").environ.get("PYTHONPATH", ""))      # ";" on Windows (windows-latest CI, 2026-10-23)
     gh = GitHub()
     monkeypatch.setattr(rc, "_gh", gh)
     monkeypatch.setattr(sr, "audit", functools.partial(sr.audit, gh=lambda args, timeout=60: ("[]", "")))

@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-14-36
+# Version: 1.0.0 · updated 26-10-23-21-05
 """One release, the whole cycle, the same way every time: the pipeline engine driven by a project's release file.
 
     fieldkit release-cycle PROJECT plan  --var version=vX.Y.Z    the stages and where each runs
@@ -255,7 +255,9 @@ def verify_notes(ctx):
 def on_base(ctx):
     r = _r(ctx)
     _git(r["repo"], "fetch", "--quiet", "origin", r["base"])
-    paths = [str(Path(r["gallery"]) / s["name"]) for s, _ in _shots(r)] + list(r["notes"].values())
+    # git names files with "/" on every system (windows-latest CI, 2026-10-23: Path() gave "docs\\gallery\\...")
+    paths = [f"{r['gallery'].rstrip('/')}/{s['name']}" for s, _ in _shots(r)] + [str(v).replace("\\", "/")
+                                                                               for v in r["notes"].values()]
     absent = [p for p in paths if _git(r["repo"], "cat-file", "-e", f"origin/{r['base']}:{p}").returncode != 0]
     if absent:
         return {"ok": False, "detail": f"not on origin/{r['base']} yet: {', '.join(absent[:5])}. Commit them on a "

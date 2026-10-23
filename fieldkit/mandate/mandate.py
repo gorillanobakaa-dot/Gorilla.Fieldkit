@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-18-59
+# Version: 1.4.0 · updated 26-10-23-19-20
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -534,8 +534,15 @@ def main(argv=None):
                                        "share", "status", "install", "review-key", "verdict", "job", "boss",
                                        "ledger", "resume", "tasks", "start", "report"])
     ap.add_argument("rest", nargs="*")
-    a = ap.parse_args(argv)
-    r = a.rest
+    # the flags after the command (--kind, --seconds, --evidence, --since, --lock, --send) are read from argv by each
+    # command: parse_args refused them all, and the worker's own job process (job run ... --lock) died at start
+    # (found 2026-10-23 by the first real job)
+    a, extra = ap.parse_known_args(argv)
+    flag_values = [extra[i + 1] for i, x in enumerate(extra[:-1]) if x.startswith("--") and not extra[i + 1].startswith("-")]
+    r = list(a.rest)
+    for v in flag_values:                                 # a flag's value is never a positional
+        if v in r:
+            r.remove(v)
     if a.action == "keygen":
         if not sys.stdin.isatty():
             print("REFUSED: the owner makes the key at a real terminal")
