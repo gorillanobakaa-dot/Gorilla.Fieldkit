@@ -44,7 +44,7 @@ import sys
 import tempfile
 import time
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 VERSION = "1.0.0"
 WINDOWS = sys.platform == "win32"
@@ -515,7 +515,7 @@ def wline(w, sigs=None):
     flags = ",".join(k for k in ("topmost", "layered", "clickthrough", "tool", "cloaked", "minimized", "foreground") if w[k])
     if w["alpha"] is not None:
         flags += f",alpha={w['alpha']}"
-    return (f"z{w['z']:<4} pid {w['pid']:<6} {Path(w['exe']).name or '?':<24} {str(w['rect']):<26} "
+    return (f"z{w['z']:<4} pid {w['pid']:<6} {PureWindowsPath(w['exe']).name or '?':<24} {str(w['rect']):<26} "
             f"{flags.strip(','):<28} {(s.get('status', '') + ' ' + s.get('org', ''))[:28]:<28} "
             f"{w['class'][:28]!s:<28} {w['title'][:50]!r}")
 
@@ -524,7 +524,8 @@ def resolve_targets(spec, windows):
     """--over takes a pid or a process image name (claude.exe): every pid with that name."""
     if spec.isdigit():
         return {int(spec)}
-    return {w["pid"] for w in windows if Path(w["exe"]).name.lower() == spec.lower()}
+    # a Windows path is read as one: on another OS Path() does not split at "\\" (the CI's Linux runner failed here)
+    return {w["pid"] for w in windows if PureWindowsPath(w["exe"]).name.lower() == spec.lower()}
 
 
 def cmd_whodraws(a):
