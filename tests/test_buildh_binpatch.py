@@ -86,3 +86,17 @@ def test_the_preflight_row_runs_on_a_real_context(tmp_path):
     binpatch.restore(tree, root / "patches")
     ok, why = fp._c_binary_patches(fp.Ctx(root=root, src=tree))
     assert ok, why
+
+
+def test_a_picture_the_policy_leaves_out_on_this_platform_is_not_demanded(tmp_path):
+    # 2026-10-23: the Linux preflight demanded the 11 Windows-only msix pictures of 23.REBASE.158 (exclude_on.linux)
+    old, new = os.urandom(3000), os.urandom(5000)
+    ps = _set(tmp_path, _binary_patch(tmp_path, old, new))
+    t = _tree(tmp_path, old)
+    on = {"groups": {"22.LOOK": {"status": "enabled", "exclude_on": {"linux": ["001-logo.patch"]}}}}
+    assert binpatch.audit(t, ps, on, platform="linux")["ok"] and not binpatch.audit(t, ps, on, platform="linux")["rows"]
+    assert not binpatch.audit(t, ps, on, platform="windows")["ok"]               # still demanded where it applies
+    only = {"groups": {"22.LOOK": {"status": "enabled", "platforms": ["windows"]}}}
+    assert binpatch.audit(t, ps, only, platform="linux")["ok"]
+    excl = {"groups": {"22.LOOK": {"status": "enabled", "exclude": ["001-logo.patch"]}}}
+    assert binpatch.audit(t, ps, excl, platform="windows")["ok"]

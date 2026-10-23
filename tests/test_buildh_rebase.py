@@ -127,3 +127,22 @@ def test_a_renamed_fluent_message_s_gorilla_wording_is_found_on_its_successor(tm
     g("commit", "-qam", "carried")
     assert rebase.fluent_moves(o, w, {"08.Look": {"b.patch"}}, "158") == []
     assert rebase.fluent_moves(o, w, {"21.PORT.FIXES.158": {"b.patch"}}, "158") == []   # own release: never judged
+
+
+def test_the_origin_platform_may_not_rewrite_a_shared_group_holding_another_platforms_parts(tmp_path, monkeypatch):
+    # 2026-10-23: Windows build 2 added Windows-only patches to 23.REBASE.158 (exclude_on.linux); rebase-set on Linux,
+    # recomputing from a tree without them, deleted all 14. Refused now, and nothing is written.
+    w, o = _repo(tmp_path), _owner(tmp_path)
+    rebase.run(o, w, "158", write=True, say=lambda m: None)
+    from fieldkit.buildh import firefox
+    monkeypatch.setattr(firefox, "this_platform", lambda: "linux")
+    pol = json.loads((o / "config" / "patch_policy.json").read_text())
+    (o / "patches" / "23.REBASE.158" / "0099-win_only.patch").write_text("--- a/w.txt\n+++ b/w.txt\n", newline="\n")
+    pol["groups"]["23.REBASE.158"]["exclude_on"] = {"linux": ["0099-win_only.patch"]}
+    (o / "config" / "patch_policy.json").write_text(json.dumps(pol), newline="\n")
+    before = sorted(p.name for p in (o / "patches" / "23.REBASE.158").iterdir())
+    from fieldkit.buildh.task import Refused
+    with pytest.raises(Refused, match="exclude_on.linux"):
+        rebase.run(o, w, "158", write=True, say=lambda m: None)
+    assert sorted(p.name for p in (o / "patches" / "23.REBASE.158").iterdir()) == before
+    assert rebase.run(o, w, "158", say=lambda m: None)["replay"] == "not run (dry)"      # a dry run still reports

@@ -32,17 +32,25 @@ IDENT = {"GIT_AUTHOR_NAME": "build-harness", "GIT_AUTHOR_EMAIL": "build-harness@
          "GIT_COMMITTER_NAME": "build-harness", "GIT_COMMITTER_EMAIL": "build-harness@localhost"}
 
 
-def patch_files(patchset, policy=None):
+def patch_files(patchset, policy=None, platform=None):
+    """The patches this platform applies: enabled groups, minus `platforms` it is not in, `exclude` and
+    `exclude_on.<platform>`. 2026-10-23, Linux 158.0-2 preflight: every enabled group's patches were read, so the 11
+    Windows-only msix pictures of 23.REBASE.158 (exclude_on.linux) were demanded in the Linux tree."""
+    from .firefox import this_platform
+    platform = platform or this_platform()
     groups = (policy or {}).get("groups", {})
     for grp in sorted(p for p in Path(patchset).iterdir() if p.is_dir()):
-        if groups.get(grp.name, {}).get("status", "enabled") == "enabled":
-            yield from sorted(grp.glob("*.patch"))
+        spec = groups.get(grp.name, {})
+        if spec.get("status", "enabled") != "enabled" or (spec.get("platforms") and platform not in spec["platforms"]):
+            continue
+        skip = set(spec.get("exclude", [])) | set((spec.get("exclude_on") or {}).get(platform, []))
+        yield from (pf for pf in sorted(grp.glob("*.patch")) if pf.name not in skip)
 
 
-def sections(patchset, policy=None):
+def sections(patchset, policy=None, platform=None):
     """-> {path: {"patch", "pre", "post", "body", "deleted"}}: the last binary section per file."""
     out = {}
-    for p in patch_files(patchset, policy):
+    for p in patch_files(patchset, policy, platform):
         text = p.read_text(encoding="utf-8", errors="replace")
         if "GIT binary patch" not in text:
             continue
@@ -127,7 +135,7 @@ def audit(tree, patchset, policy=None, platform=None):
     shown, never silently passed: its state is `exempt` with the reason)."""
     exempt = exemptions(policy, platform)
     rows = []
-    for path, s in sorted(sections(patchset, policy).items()):
+    for path, s in sorted(sections(patchset, policy, platform).items()):
         st = state(tree, path, s)
         if st != "applied" and path in exempt:
             st = "exempt"

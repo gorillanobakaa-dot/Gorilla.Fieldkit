@@ -86,3 +86,13 @@ def test_build_and_package_use_the_public_scripts_and_verify_the_artefacts(tmp_p
     deb = Path(c.vars["release"]) / "gorilla-unleashed_158.0-1_amd64.deb"; deb.write_bytes(b"deb")
     r = fl.verify_package(c, run=run)
     assert r["ok"] and r["version"] == "158.0-1" and (Path(c.vars["release"]) / (deb.name + ".sha256")).is_file()
+
+
+def test_the_deb_revision_is_the_trees_gorilla_build_number(tmp_path):
+    # 2026-10-23: build 2 would have been packaged as 158.0-1 (build_deb.sh's default), build 1's version string
+    from types import SimpleNamespace
+    src = tmp_path / "src"; f = src / "browser" / "branding" / "gorilla" / "pref" / "firefox-branding.js"
+    c = SimpleNamespace(vars={"src": str(src), "version": "158.0"})
+    assert fl.deb_version(c) == ""                                    # no branding prefs: build_deb.sh decides, as before
+    f.parent.mkdir(parents=True); f.write_text('pref("gorilla.build.number", 2);\n')
+    assert fl.build_number(src) == 2 and fl.deb_version(c) == "158.0-2"

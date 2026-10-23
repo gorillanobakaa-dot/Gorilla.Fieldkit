@@ -347,8 +347,24 @@ def prune_dangling(dist, src, trash=None):
     return moved, []
 
 
+def build_number(src):
+    """The Gorilla build number the tree carries (pref gorilla.build.number in the branding prefs, D-157-38), or None.
+    2026-10-23: build_deb.sh's default revision is always "-1", so 158.0 build 2 would have shipped as 158.0-1, the
+    same version string as build 1 (the Aug-4 trap: two different .debs under one version)."""
+    f = Path(src) / "browser" / "branding" / "gorilla" / "pref" / "firefox-branding.js"
+    m = re.search(r'pref\("gorilla\.build\.number",\s*(\d+)\)', f.read_text(encoding="utf-8")) if f.is_file() else None
+    return int(m.group(1)) if m else None
+
+
+def deb_version(ctx):
+    """'<version>-<build number>' (158.0-2), or '' to let build_deb.sh read application.ini and add '-1'."""
+    n = build_number(_v(ctx, "src"))
+    return f"{_v(ctx, 'version')}-{n}" if n else ""
+
+
 def stage_package(ctx, run=_run):
-    """`scripts/build_deb.sh "" DIST_BIN OUT_DIR deb_template BRANDING`, exactly as recreate.sh calls it."""
+    """`scripts/build_deb.sh VERSION DIST_BIN OUT_DIR deb_template BRANDING`, as recreate.sh calls it; VERSION is
+    <version>-<gorilla.build.number> when the tree carries one (deb_version)."""
     harness, src, release = Path(_v(ctx, "harness")), Path(_v(ctx, "src")), Path(_v(ctx, "release"))
     script = harness / "scripts" / "build_deb.sh"
     if not script.is_file():
@@ -358,7 +374,7 @@ def stage_package(ctx, run=_run):
         return {"ok": False, "detail": "dist/bin has links to nothing that are NOT files removed from the tree "
                 f"(look before packaging): {'; '.join(refused[:5])}"}
     release.mkdir(parents=True, exist_ok=True)
-    rc, out = run(["bash", str(script), "", str(dist_bin(ctx)), str(release), str(harness / "deb_template"),
+    rc, out = run(["bash", str(script), deb_version(ctx), str(dist_bin(ctx)), str(release), str(harness / "deb_template"),
                    str(src / "browser" / "branding" / "gorilla")], cwd=str(harness))
     detail = "build_deb.sh exited 0" + (f"; {len(moved)} dangling dist/bin link(s) of removed files moved to the "
                                          f"trash first: {', '.join(m.split(' -> ')[0] for m in moved[:4])}" if moved else "")
@@ -387,8 +403,10 @@ def verify_package(ctx, run=_run):
     said = out.strip()
     sha = hashlib.sha256(deb.read_bytes()).hexdigest()
     (release / (deb.name + ".sha256")).write_text(f"{sha}  {deb.name}\n", encoding="utf-8")
-    return {"ok": rc == 0 and said.startswith(version), "deb": str(deb), "version": said, "sha256": sha,
-            "detail": f"{deb.name}: Version {said or '(unreadable)'}"}
+    want = deb_version(ctx)
+    ok = rc == 0 and (said == want if want else said.startswith(version))
+    return {"ok": ok, "deb": str(deb), "version": said, "sha256": sha,
+            "detail": f"{deb.name}: Version {said or '(unreadable)'}" + ("" if ok or not want else f", expected {want}")}
 
 
 def verify_deb(ctx, run=_run):
