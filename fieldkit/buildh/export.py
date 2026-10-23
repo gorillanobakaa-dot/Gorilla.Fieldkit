@@ -215,6 +215,10 @@ def export(task_id, patchset_root, version, say=print, dry=False, policy=None):
     for f in sorted(groups["privacy"].glob("[0-9][0-9][0-9]-*.patch")) if groups["privacy"].is_dir() else []:
         if not is_mine(f, task_id):
             privacy_files |= set(re.findall(r"^diff --git a/(\S+) b/", f.read_text(encoding="utf-8", errors="replace"), re.M))
+    final_files = set()
+    for f in sorted(groups["final"].glob("[0-9][0-9][0-9]-*.patch")) if groups["final"].is_dir() else []:
+        if not is_mine(f, task_id):
+            final_files |= set(re.findall(r"^diff --git a/(\S+) b/", f.read_text(encoding="utf-8", errors="replace"), re.M))
     for i, (c, files, why, when, recorded) in enumerate(hand_commits(t), 1):
         if isinstance(recorded, dict):
             say(f"  carried by the set ({', '.join(recorded['carried'])}): {c[:12]} not written")
@@ -226,6 +230,15 @@ def export(task_id, patchset_root, version, say=print, dry=False, policy=None):
         if clash:
             how += f"; MOVED to {groups['final'].name}: {clash[0]} is written afterwards by {later[kind][clash[0]]}"
             kind = "final"
+        # a file with a patch in the final group (from an earlier step of this record, or already there) keeps every
+        # later edit there: final applies last, so an edit put in 21/22 would come before the one it builds on
+        # (2026-10-23, D-158-22: the PdfJsDefaultPrefs.js follow-ups went to 22 after 042 had put the first edit in 24)
+        in_final = sorted(f for f in files if f in final_files)
+        if kind != "final" and in_final:
+            how += f"; MOVED to {groups['final'].name}: {in_final[0]} already has a patch there"
+            kind = "final"
+        if kind == "final":
+            final_files |= set(files)
         # a deleted file goes to the group's DELETED_FILES.manifest.txt, not into the patch: a deletion patch carries
         # the whole old file (2026-10-07: patch 070 was 8.1 MB of removed macOS art; the retired logo copies would
         # have added 10 MB more), and replay and the port apply the manifest after the group's patches anyway

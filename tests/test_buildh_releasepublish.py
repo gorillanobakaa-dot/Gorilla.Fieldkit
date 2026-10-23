@@ -112,3 +112,36 @@ def test_send_refuses_an_agent_a_missing_plan_and_changed_assets(env):
 def test_prepare_refuses_wrong_sums(env):
     env.assets[1].write_text("0" * 64 + "  app.exe\n", encoding="utf-8")
     assert not _prep(env, [])["ok"] and not rp.plan_path("v1-build2").is_file()
+
+
+def _null_digests(calls, files, env):
+    """GitHub answered digest: null for fresh assets (v158.0-2, 2026-10-23); a download writes `files[name]`."""
+    base = fake(calls)
+
+    def run(cmd, **kw):
+        if cmd[:3] == ["gh", "release", "view"] and "isDraft" in " ".join(cmd):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=0, stdout=json.dumps({"isDraft": False, "assets": [
+                {"name": a.name, "digest": None} for a in env.assets]}), stderr="")
+        if cmd[:3] == ["gh", "release", "download"]:
+            calls.append(cmd)
+            name, d = cmd[cmd.index("-p") + 1], cmd[cmd.index("-D") + 1]
+            (env.tmp.__class__(d) / name).write_bytes(files[name])
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return base(cmd, **kw)
+    return run
+
+
+def test_a_null_digest_is_checked_by_download_not_called_a_difference(env):
+    _prep(env, [])
+    files = {a.name: a.read_bytes() for a in env.assets}
+    calls, out = [], []
+    rc = rp.send("v1-build2", runner=_null_digests(calls, files, env), popen=Popen(0), say=out.append, confirm=True,
+                 owner=lambda: True, speak=lambda t: None)
+    assert rc == 0 and "RELEASE LIVE AND VERIFIED" in out
+    assert sum(c[:3] == ["gh", "release", "download"] for c in calls) == 2
+    files["app.exe"] = b"tampered"
+    calls, out = [], []
+    rc = rp.send("v1-build2", runner=_null_digests(calls, files, env), popen=Popen(0), say=out.append, confirm=True,
+                 owner=lambda: True, speak=lambda t: None)
+    assert rc == 3 and not any(c[:3] == ["gh", "release", "edit"] for c in calls)

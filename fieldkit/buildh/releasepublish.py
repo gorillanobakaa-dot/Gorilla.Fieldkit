@@ -176,6 +176,18 @@ def send(tag, runner=subprocess.run, popen=subprocess.Popen, say=print, confirm=
         online = {a["name"]: (a.get("digest") or "").replace("sha256:", "") for a in got.get("assets", [])}
     except ValueError:
         got, online = {}, {}
+    # 2026-10-23 (v158.0-2): GitHub gave both assets a null digest right after the upload, and "no digest" was read
+    # as "differ"; the files were byte-identical. With no digest, the file is downloaded and hashed here instead.
+    missing = [n for n in plan["assets"] if n in online and not online[n]]
+    if missing:
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="gpublish_") as d:
+            for n in missing:
+                dl = runner(["gh", "release", "download", plan["tag"], "-R", plan["gh_repo"], "-p", n, "-D", d],
+                            capture_output=True, text=True, errors="replace")
+                f = Path(d) / n
+                if dl.returncode == 0 and f.is_file():
+                    online[n] = _sha(f)
     bad = [n for n, a in plan["assets"].items() if online.get(n) != a["sha256"]]
     if not step("GitHub's files are byte-for-byte the prepared ones", not bad and not got.get("isDraft"),
                 f"differ or missing: {bad}" if bad else "every digest matches"):
