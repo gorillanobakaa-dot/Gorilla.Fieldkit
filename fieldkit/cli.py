@@ -1213,6 +1213,8 @@ METHODS = {
     "stranger": ("stranger", "download a project the way someone else would: fresh clone, venv and home folder, install, tests, cards ([REPO] [--ref R] [--keep])"),
     "release-cycle": ("releasecycle", "one release, the whole cycle, each stage proven by its artefact: audit, build, checksums, "
                                       "screenshots, notes, on-base, publish, verify-page, leftovers (PROJECT plan|next|run)"),
+    "heal-round": ("healloop", "a self-healing build loop that cannot oscillate: one hypothesis per round; a round that "
+                               "does not lower the error count is undone, its changes kept in the trash (start|end|status)"),
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
 }
 

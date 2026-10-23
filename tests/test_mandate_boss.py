@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-15-30
+# Version: 1.0.0 · updated 26-10-23-15-41
 """Plan section 17 (owner: "Yes for everything", 2026-10-23): the boss is proposed by a fixed rule and named in the
 sealed mandate; workers take jobs only from it; the boss keeps an append-only ledger and resumes from it; a result the
 boss could not receive waits in the worker's outbox."""
@@ -149,3 +149,49 @@ def test_awake_holds_an_inhibitor_only_while_the_job_runs(monkeypatch):
     with health.awake(popen=lambda argv, **k: P()) as held:
         assert isinstance(held, P) and not P.terminated
     assert P.terminated
+
+
+# ---- the task list, the startup check, the morning report (plan 17.2 items 3, 5, 6) --------------------------------
+def test_tasks_start_failing_are_never_removed_and_pass_only_with_evidence(tmp_path, linkhome):
+    from fieldkit.mandate import project
+    spec = tmp_path / "tasks.yaml"
+    spec.write_text("tasks:\n  - {id: build-all, what: every system builds}\n"
+                    "  - {id: layout-air, what: the banner is whole on the Air, needs: screenshot}\n")
+    assert project.init(spec) == (["build-all", "layout-air"], 2)
+    assert all("failing" in ln for ln in project.task_lines()[:2])
+    assert not project.mark_pass("build-all", "")[0]                                   # the model's word is not enough
+    assert project.mark_pass("build-all", "release-cycle build: all 6 assets made by this build")[0]
+    ok, why = project.mark_pass("layout-air", "looks right to me")
+    assert not ok and "screenshot" in why                                              # tested as a person would
+    shot = tmp_path / "air.png"
+    shot.write_bytes(project.PNG + b"\0" * 20_000)
+    assert project.mark_pass("layout-air", "the Air at 167x39", screenshot=shot)[0]
+    spec.write_text("tasks:\n  - {id: build-all, what: changed}\n")
+    assert project.init(spec) == ([], 2) and "passing" in project.task_lines()[0]      # kept, never reset or removed
+
+
+def test_the_startup_check_names_the_next_thing(tmp_path, linkhome, monkeypatch):
+    from fieldkit.mandate import project
+    lines, nxt = project.start(smoke={"ok": True})
+    assert "write the task list" in nxt and lines[0].startswith("LEDGER:")
+    spec = tmp_path / "tasks.yaml"
+    spec.write_text("tasks:\n  - {id: build-all, what: every system builds}\n")
+    project.init(spec)
+    assert "build-all" in project.start(smoke={"ok": True})[1]
+    mp = tmp_path / "m.yaml"
+    mp.write_text("x")
+    jid, _ = jobs.send("test", "R", "a" * 40, mp, call=lambda q: {"ok": True})
+    assert f"job wait {jid}" in project.start(smoke={"ok": True})[1]
+
+
+def test_the_morning_report_is_one_page_from_the_ledger(tmp_path, linkhome):
+    from fieldkit.mandate import project
+    mp = tmp_path / "m.yaml"
+    mp.write_text("x")
+    jid, _ = jobs.send("test", "R", "a" * 40, mp, call=lambda q: {"ok": True})
+    jobs.handle_result({"result": {"id": jid, "status": "pass", "host": "windows-laptop",
+                                   "concerns": [{"text": "clock: NTP synchronised: no", "fix_offered": "w32tm"}]}})
+    rep = "\n".join(project.report())
+    assert f"{jid} pass" in rep and "concern from windows-laptop: clock" in rep and "NEEDS YOU: nothing" in rep
+    jobs.event("ask", why="a test failed twice: tests_on:windows")
+    assert "NEEDS YOU: a test failed twice" in "\n".join(project.report())

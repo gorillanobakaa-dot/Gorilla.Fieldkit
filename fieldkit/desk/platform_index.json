@@ -1650,6 +1650,16 @@
    "hdmi-tv-wifi-report"
   ]
  },
+ "heal-round": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "heal-round"
+  ]
+ },
  "i18n": {
   "platforms": [
    "linux",

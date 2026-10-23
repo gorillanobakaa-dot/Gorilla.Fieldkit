@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-15-30
+# Version: 1.4.0 · updated 26-10-23-15-41
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -19,6 +19,9 @@
     fieldkit mandate boss                         the devices seen and the proposed boss (always on > memory > cable)
     fieldkit mandate ledger [N]                   the project ledger, append-only, from event N
     fieldkit mandate resume                       a restarted boss: open jobs, workers asked to resend missed results
+    fieldkit mandate tasks init|list|pass ...     the task list, all failing at first; passing only with evidence
+    fieldkit mandate start                        a session's startup check: ledger, mandate, link, the next thing
+    fieldkit mandate report [--since N]           the one morning report, from the ledger
     fieldkit mandate status                       every mandate here and whether it is in force
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
 
@@ -529,7 +532,7 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
                                        "share", "status", "install", "review-key", "verdict", "job", "boss",
-                                       "ledger", "resume"])
+                                       "ledger", "resume", "tasks", "start", "report"])
     ap.add_argument("rest", nargs="*")
     a = ap.parse_args(argv)
     r = a.rest
@@ -601,6 +604,28 @@ def main(argv=None):
         for e in jobs.events(since):
             print(f"  #{e['n']} {e['at']} {e['what']}: " + ", ".join(f"{k}={v}" for k, v in e.items()
                                                                   if k not in ("n", "at", "what")))
+        return 0
+    if a.action in ("tasks", "start", "report"):
+        from . import project
+        args = list(argv if argv is not None else sys.argv[1:])
+        opt = lambda flag: args[args.index(flag) + 1] if flag in args else None
+        if a.action == "start":
+            lines_, _ = project.start()
+            print("\n".join(lines_))
+            return 0
+        if a.action == "report":
+            print("\n".join(project.report(int(opt("--since") or 0))))
+            return 0
+        sub = r[0] if r else "list"
+        if sub == "init" and len(r) >= 2:
+            added, total = project.init(r[1])
+            print(f"TASKS: {len(added)} written, all failing; {total} in the list")
+            return 0
+        if sub == "pass" and len(r) >= 2:
+            ok, why = project.mark_pass(r[1], opt("--evidence"), opt("--screenshot"))
+            print(("PASSING " if ok else "REFUSED: ") + why)
+            return 0 if ok else 3
+        print("\n".join(project.task_lines()))
         return 0
     if a.action == "resume":
         from . import jobs
