@@ -337,18 +337,52 @@ def test_watch_dialogs_types_continue_after_a_provider_error_then_stops_at_the_r
     assert "continue after error" in log.read_text()
 
 
-def test_watch_dialogs_stops_when_the_same_error_comes_back_after_the_nudges():
+def test_watch_dialogs_stops_when_a_new_error_comes_back_after_the_nudges():
     mac = Mac(screen=ERROR_END, change_on_key=False)
+    state = {"n": 0}
     def runner(argv, stdin, _orig=mac.__call__):
         if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
-            mac.screen = mac.screen.replace(" >\n", " > continue\n", 1)     # taken, then the error is still newest
+            state["n"] += 1                                   # the continue is taken, and Google fails again, later
+            mac.screen = (ERROR_END.replace("16:37:36", f"17:0{state['n']}:00")
+                          .replace("─────\n >", f"─────\n > continue {state['n']}"))
             return 0, "SENT"
         if argv[-1].startswith("test -f"):
             return 1, ""
         return _orig(argv, stdin)
     code, lines = D.watch_dialogs(fn, "/dev/ttys001", until_file="/x/REPORT.txt", seconds=600, every=1, nudges=2,
                                   runner=runner, sleep=lambda s: None)
-    assert code == 3 and "ended in an error again after 2 'continue'" in lines[-1], lines
+    assert code == 3 and "ended in an error again after 2 'continue'" in lines[-1] and state["n"] == 2, lines
+
+
+def test_the_old_error_still_on_screen_after_a_continue_is_not_counted_again():
+    # 2026-10-23 17:18: the watcher typed a second 'continue' 9 s after the first because the SAME 16:37 error was
+    # still the newest thing on screen; only an error with a new timestamp counts
+    clock, mac = {"t": 0.0}, Mac(screen=ERROR_END)
+    def runner(argv, stdin, _orig=mac.__call__):
+        if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
+            mac.screen = mac.screen.replace("─────\n >", "─────\n > continue")
+            return 0, "SENT"
+        return (1, "") if argv[-1].startswith("test -f") else _orig(argv, stdin)
+    code, lines = D.watch_dialogs(fn, "/dev/ttys001", until_file="/x/REPORT.txt", seconds=3600, every=30,
+                                  idle_seconds=300, runner=runner, now=lambda: clock["t"],
+                                  sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    assert sum("typed 'continue'" in l for l in lines) == 1 and "has not changed" in lines[-1], lines
+
+
+def test_keys_refuses_when_another_window_is_in_front():
+    mac = Mac(screen="> \n ? help")
+    def runner(argv, stdin, _orig=mac.__call__):
+        if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
+            return 0, "FRONT IS /dev/ttys002"
+        return _orig(argv, stdin)
+    code, msg = D.keys(fn, "/dev/ttys001", paste_text="continue", runner=runner, sleep=lambda s: None)
+    assert code == 3 and "ttys002" in msg and "nothing was typed" in msg
+
+
+def test_a_paste_is_not_proven_by_the_same_word_higher_up_in_old_text():
+    mac = Mac(screen="┃     continue\n┃ code listing\n > \n ? help", change_on_key=False)
+    code, msg = D.keys(fn, "/dev/ttys001", paste_text="continue", runner=mac, sleep=lambda s: None)
+    assert code == 3 and "did not take it" in msg
 
 
 def test_watch_dialogs_stops_on_an_idle_screen_instead_of_waiting_out_the_clock():

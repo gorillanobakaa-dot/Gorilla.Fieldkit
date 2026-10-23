@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-17-25
+# Version: 1.5.0 · updated 26-10-23-17-55
 """macdrive.py - drive a Mac's screen from another computer, the way a person would, and check each step took.
 
     fieldkit mac keep-awake NAME [--minutes N | --stop]    caffeinate on the Mac for a long job (display, disk, network)
@@ -75,6 +75,8 @@ KEY_SCRIPT = '''on run argv
 				if tty of t is theTTY then
 					set selected of t to true
 					set index of w to 1
+					set frontmost of w to true
+					set wantName to name of w
 					set found to true
 					exit repeat
 				end if
@@ -84,6 +86,18 @@ KEY_SCRIPT = '''on run argv
 	end tell
 	if not found then return "NO TAB ON " & theTTY
 	delay 0.8
+	tell application "System Events" to set frontmost of process "Terminal" to true
+	delay 0.4
+	-- the window that TAKES the keys is the frontmost one, not Terminal's index 1 (10.13: a window moved to index 1
+	-- stayed grey while the bash window behind it kept the keys). System Events may not read windows (no assistive
+	-- access), so Terminal's own frontmost property is the check.
+	tell application "Terminal"
+		set keyName to ""
+		repeat with w2 in windows
+			if frontmost of w2 then set keyName to name of w2
+		end repeat
+	end tell
+	if keyName is not wantName then return "FRONT IS " & keyName
 	tell application "System Events"
 		if theAction is "paste" then
 			keystroke "v" using {command down}
@@ -172,6 +186,9 @@ def keys(ssh_argv_fn, tty, key=None, paste_text=None, settle=4, sleep=time.sleep
         if not action:
             return 2, f"unknown key {key!r} (enter, esc, up, down, tab, or one letter)"
     rc, out, _ = osa(ssh_argv_fn, KEY_SCRIPT, [tty, action], **kw)
+    if out.startswith("FRONT IS "):
+        return 3, (f"refused: the window in front is {out[9:]}, not {tty}, so nothing was typed "
+                   f"(2026-10-23: three pastes went into another window)")
     if rc != 0 or out != "SENT":
         return 1, out
     sleep(settle)
@@ -179,8 +196,11 @@ def keys(ssh_argv_fn, tty, key=None, paste_text=None, settle=4, sleep=time.sleep
     if paste_text is not None:
         # "the screen changed" is not proof for a paste: on 2026-10-23 a quota line vanished while the paste itself was
         # swallowed by a TUI still redrawing. The proof is the start of the text on the screen.
+        # ...and it must be NEW text near the prompt: "continue" was "found" in a code listing higher up while all three
+        # pastes had gone into another window (2026-10-23 17:18), so only rows that were not there before count
         probe = one_line(paste_text)[:40]
-        if not any(probe in r for r in after or []):
+        old = set(before)
+        if not any(probe in r for r in (after or [])[-15:] if r not in old):
             return 3, f"pasted, but '{probe}' is not on the screen: the program did not take it (still starting?)"
         return 0, "pasted; the text is on the screen"
     if after == before:
@@ -310,12 +330,15 @@ TOOL_ROW = r"^[┃│|]\s*(Bash|Fetch|View|Write|Edit|Read|Grep|Find|Patch):"
 
 
 def ended_in_error(rows, tail=12):
-    """True when the newest event on screen is a turn that ended in an error (nothing ran after it)."""
+    """The error's identity (its timestamp row) when the newest event on screen is a turn that ended in an error
+    (nothing ran after it), else None. The identity tells a NEW error from the old one still on screen."""
     if not rows:
-        return False
+        return None
     recent = rows[-tail:]
     err = _last(recent, TURN_ERROR)
-    return err >= 0 and err > _last(recent, TOOL_ROW)
+    if err < 0 or err <= _last(recent, TOOL_ROW):
+        return None
+    return recent[err - 1].strip() if err > 0 else "error"
 
 
 def _log(log, entry):
@@ -339,18 +362,21 @@ def watch_dialogs(ssh_argv_fn, tty, answer="allow", until_file=None, seconds=360
     if not key:
         return 2, [f"unknown answer {answer!r} (allow, session, deny)"]
     seen, lines, end = [], [], now() + seconds
-    pushed, last_rows, changed_at = 0, None, now()
+    pushed, last_rows, changed_at, nudged = 0, None, now(), None
     while True:
         rows, err = screen_text(ssh_argv_fn, tty, 60, **kw)
         if rows is not None and rows != last_rows:
             last_rows, changed_at = rows, now()
         d = current_dialog(rows) if rows else None
-        if not d and ended_in_error(rows):
+        failed = None if d else ended_in_error(rows)
+        if failed and failed != nudged:
             if pushed >= nudges:
                 return 3, lines + [f"the model ended in an error again after {pushed} 'continue'; stopped "
                                    f"({len(seen)} dialog(s) answered)"]
             code, msg = keys(ssh_argv_fn, tty, paste_text="continue", sleep=sleep, expect=r"\? help", **kw)
-            pushed += 1
+            if code != 0:          # not typed (wrong window in front, screen not identified): say so and stop
+                return 3, lines + [f"turn ended in an error, but 'continue' could not be typed: {msg}"]
+            pushed, nudged = pushed + 1, failed
             why = next((r.strip() for r in reversed(rows[-12:]) if re.search(r"error", r, re.I)
                         and not re.search(TURN_ERROR, r)), "an error")
             lines.append(f"turn ended in an error ({why[:120]}): typed 'continue' ({pushed} of {nudges}; {msg})")
