@@ -26,6 +26,7 @@ The pull request itself (open, watch CI, merge) is the host's job; the fieldkit-
 Exit 0 done or nothing to do, 3 refused (with the reason and the next step), 2 bad input.
 """
 import argparse
+import re
 import subprocess
 import time
 
@@ -135,32 +136,17 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
 
 
-def request_verdict(repo, commit, call=None, state=None):
-    """Ask the other computer for its verdict on `commit`, once per commit -> what happened, in words."""
-    import json
-    from pathlib import Path
-    from ..mandate import proofs, verdict as V
-    if state is None:
-        from ..peers import link
-        state = link.home() / "verdict-requests.json"
-    state = Path(state)
-    try:
-        asked = json.loads(state.read_text(encoding="utf-8")) if state.is_file() else {}
-    except ValueError:
-        asked = {}
-    if commit in asked:
-        return f"asked already at {asked[commit]}"
+def request_test_job(repo, commit, call=None):
+    """Give the worker the `test` job for `commit` under the mandate in force here, once -> (job id, what happened)."""
+    from ..mandate import jobs, proofs
     name, _ = proofs.where(repo)
-    res = V.request(name, commit, call=call)
-    if res.get("ok"):
-        asked[commit] = time.strftime("%Y-%m-%d %H:%M:%S")
-        state.parent.mkdir(parents=True, exist_ok=True)
-        state.write_text(json.dumps(asked, indent=1), encoding="utf-8")
-        return "asked the other computer now"
-    return f"could not ask: {res.get('error')}"
+    mp = jobs.mandate_for(name)
+    if mp is None:
+        return None, "no mandate in force here names this repository"
+    return jobs.send("test", name, commit, mp, call=call)
 
 
-def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_call=None, verdict_state=None):
+def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_call=None):
     """Merge the current branch into `base` under a project mandate, or refuse with what is missing."""
     branch = git(repo, "branch", "--show-current").stdout.strip()
     if not branch or branch == base:
@@ -175,12 +161,13 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
         return dict(rep, ok=False, state="unpushed", next=f"push {branch} first (fieldkit ship push): the reviewer "
                                                            "and CI must have seen this exact commit")
     verdict, why, mpath = mandate("merge_main", repo_path=repo, commit=commit)
-    if verdict != "allow" and "other_machine_reviewed:" in why and "full_tests_pass_here:" not in why:
-        # the other computer's verdict is missing: ask for it ONCE (its listener runs the suite and signs a pass; no
-        # session there is asked), then wait in one blocking call, not a loop of questions (2026-10-23)
-        asked = request_verdict(repo, commit, call=verdict_call, state=verdict_state)
-        return dict(rep, ok=False, state="waiting-verdict", error=why, verdict_request=asked,
-                    next=f"wait for the other computer's verdict in one call: fieldkit peers link inbox --wait 3600; "
+    if verdict != "allow" and re.search(r"(other_machine_reviewed|tests_on)(:[\w-]+)?: no passing RESULT", why) \
+            and "full_tests_pass_here:" not in why:
+        # a worker's result is missing: give the worker the test job ONCE (a tool runs it there, no session is asked),
+        # then wait in one blocking call, not a loop of questions (plan section 16, 2026-10-23)
+        jid, what = request_test_job(repo, commit, call=verdict_call)
+        return dict(rep, ok=False, state="waiting-result", error=why, job=jid, job_sent=what,
+                    next=f"wait for the worker in one call: fieldkit mandate job wait {jid} --seconds 3600; "
                          f"then fieldkit ship merge again")
     if verdict != "allow":
         return dict(rep, ok=False, state="not-mandated", error=why,

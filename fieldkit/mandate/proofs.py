@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-14-36
+# Version: 1.1.0 · updated 26-10-23-15-10
 """What a mandate's conditions mean, proven by the tool itself: never taken from the caller's word.
 
 The Windows side's review of M1 (2026-10-23, point 4): allows(merge_main) took its proofs as keyword arguments, so
@@ -11,7 +11,6 @@ the owner in the guarded store), CI is read from GitHub. A condition with no pro
     fast_forward(repo_path, branch)          -> (ok, evidence)
     PROVERS[name](repo_path, commit, cfg)    -> (ok, evidence)   cfg: the repository's block of the sealed mandate
 """
-import json
 import re
 import shlex
 import shutil
@@ -106,35 +105,29 @@ def full_tests_pass_here(repo_path, commit, cfg, run=subprocess.run):
     return True, f"the suite passed on {commit[:10]}: {passed} passed, {skipped} skipped ({base}: {bpassed} / {bskipped})"
 
 
-def other_machine_reviewed(repo_path, commit, cfg, link_home=None, reviewers=None, own_key=None):
-    """An "APPROVE <repo> <sha>" from the OTHER computer: its Ed25519 signature checked with a review key the owner
-    pinned in the guarded store, never this computer's own (M1.2: the link key is shared by both computers, so it
-    proves nothing about which one spoke). Found in the link inbox, which only carries it."""
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    from ..peers import link
-    from . import mandate as M
-    keys = reviewers if reviewers is not None else M.reviewer_keys()
-    mine = own_key if own_key is not None else M.review_key()[1]
-    keys = {fp: raw for fp, raw in keys.items() if fp != mine}
-    if not keys:
-        return False, "no review key of the other computer is pinned here (fieldkit mandate trust-reviewer)"
+def tests_on(repo_path, commit, cfg, os_name=None, workers=None, own_key=None):
+    """A worker's RESULT for this commit (jobs.py), its Ed25519 signature checked with a worker key pinned at pairing,
+    status pass; from a worker of `os_name` when given. Provenance, not approval (plan section 16): the orchestrator's
+    mandate decides; the worker's concerns travel in the evidence ("CONCERNS: ...")."""
+    from . import jobs
     repo, _ = where(repo_path)
-    want = M.approval_text(repo, commit).encode()
-    d = (Path(link_home) if link_home else link.home()) / "inbox"
-    for p in sorted(d.glob("*-message.json"), reverse=True) if d.is_dir() else []:
-        try:
-            a = (json.loads(p.read_text(encoding="utf-8")).get("signed") or {}).get("approval")
-        except (OSError, ValueError, AttributeError):
-            continue
-        if not isinstance(a, dict) or a.get("repo") != repo or a.get("commit") != commit or a.get("key") not in keys:
-            continue
-        try:
-            Ed25519PublicKey.from_public_bytes(keys[a["key"]]).verify(bytes.fromhex(str(a.get("sig", ""))), want)
-        except (InvalidSignature, ValueError):
-            continue
-        return True, f"note {p.stem}: {want.decode()} signed by review key {a['key']}"
-    return False, f"no signed '{want.decode()}' from the other computer"
+    rs = jobs.verified_results(repo, commit, workers=workers, own_key=own_key)
+    if os_name:
+        rs = [r for r in rs if str(r.get("os", "")).upper() == os_name.upper()]
+    passed = [r for r in rs if r.get("status") == "pass"]
+    if not passed:
+        said = "; ".join(f"{r.get('host')}: {r.get('status')}: {str(r.get('evidence'))[:120]}" for r in rs)
+        return False, (f"no passing RESULT from a worker{' on ' + os_name if os_name else ''} for {commit[:10]}"
+                       + (f" ({said})" if said else ""))
+    r = passed[-1]
+    concerns = [c.get("text", "") for c in r.get("concerns") or []]
+    return True, (f"{r.get('host')} ({r.get('os')}) ran it: {str(r.get('evidence'))[:160]}"
+                  + (f"; CONCERNS: {' | '.join(concerns)}" if concerns else ""))
+
+
+def other_machine_reviewed(repo_path, commit, cfg, **kw):
+    """The old name of the condition (M1 to M3): any worker's passing RESULT (tests_on)."""
+    return tests_on(repo_path, commit, cfg, **kw)
 
 
 def ci_green_both(repo_path, commit, cfg):
@@ -143,4 +136,5 @@ def ci_green_both(repo_path, commit, cfg):
 
 
 PROVERS = {"full_tests_pass_here": full_tests_pass_here, "other_machine_reviewed": other_machine_reviewed,
+           "tests_on": tests_on,
            "ci_green_both": ci_green_both}

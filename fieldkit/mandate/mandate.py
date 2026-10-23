@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-14-36
+# Version: 1.4.0 · updated 26-10-23-15-10
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -12,9 +12,10 @@
     fieldkit mandate review-key                   this computer's review key (made once; its public half is carried
                                                   to the other computer)
     fieldkit mandate trust-reviewer PUBFILE       the owner pins the OTHER computer's review key (guarded store)
-    fieldkit mandate verdict REPO SHA [--send]    this computer runs the suite on SHA (temporary worktree, measured
-                                                  against main) and, on a pass only, signs "APPROVE REPO SHA" with
-                                                  its review key; started by the link listener on a verdict-request
+    fieldkit mandate verdict REPO SHA             the worker's test run by hand (temporary worktree, measured against
+                                                  main): printed, nothing sent or signed
+    fieldkit mandate job send|status|wait ...     one orchestrator, many workers (jobs.py): a job to the worker, the
+                                                  ledger, one blocking wait for a result
     fieldkit mandate status                       every mandate here and whether it is in force
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
 
@@ -181,12 +182,13 @@ def doors(m):
         if mm:
             out.append(f"sessions may MERGE into {repo} main ({mm.get('how', 'fast-forward')}) when: "
                        f"{', '.join(mm.get('when', []))}")
-            if "other_machine_reviewed" in (mm.get("when") or []):
+            if any(str(w).split(":")[0] in ("other_machine_reviewed", "tests_on") for w in mm.get("when") or []):
                 # the Windows review of 804f28b: say what the proof is, and what it is not
-                out.append("  other_machine_reviewed: the other computer ran the full suite on that exact commit, on "
-                           "its own OS, measured against main, and its review key signed the pass. NO PERSON READS "
-                           "A DIFF BEFORE MAIN under this gate: it proves the other OS ran the tests and they did "
-                           "not shrink, nothing more. A commit that changes how its tests run is sent to you")
+                out.append("  a worker's RESULT (other_machine_reviewed, tests_on:<system>): a worker ran the full suite "
+                           "on that exact commit, on its own OS, measured against main, signed by its key for "
+                           "provenance. NO PERSON READS A DIFF BEFORE MAIN under this gate: it proves another OS ran "
+                           "the tests and they did not shrink, nothing more. The worker's concerns are reported; "
+                           "with ask_when: [worker_concern] a concern stops the merge and comes to you")
     if m.get("install"):
         out.append(f"sessions may INSTALL software up to {m['install'].get('budget_gb', 0)} GB, each logged")
     for name in (m.get("mac") or {}).values() if isinstance(m.get("mac"), dict) else []:
@@ -338,9 +340,14 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
         if not mm:
             return "ask", f"merging into {repo} main is not in the mandate"
         missing, proven = [], []
+        stop_on_concern = "worker_concern" in (m.get("ask_when") or [])
         for w in mm.get("when", []):
-            fn = pv.PROVERS.get(w)
-            ok, ev = fn(repo_path, commit, r) if fn else (False, f"no tool proves '{w}'")
+            base_, _, arg = str(w).partition(":")             # tests_on:windows runs on a worker of that system
+            fn = pv.PROVERS.get(base_)
+            ok, ev = (fn(repo_path, commit, r, os_name=arg) if arg else fn(repo_path, commit, r)) if fn else \
+                (False, f"no tool proves '{w}'")
+            if ok and stop_on_concern and "CONCERNS:" in ev:  # the orchestrator's mandate decides, never the worker
+                ok, ev = False, f"ask_when worker_concern: {ev}"
             (proven if ok else missing).append(f"{w}: {ev}")
         if missing:
             return "ask", "not proven: " + "; ".join(missing)
@@ -469,12 +476,51 @@ def _typed_yes(prompt, isatty=None):
     return input(prompt).strip().lower() == "yes"
 
 
+def _job_cli(r, argv):
+    from . import jobs
+    args = list(argv if argv is not None else sys.argv[1:])
+    sub = r[0] if r else ""
+    if sub == "status":
+        print("\n".join(jobs.lines()))
+        return 0
+    if sub == "wait" and len(r) >= 2:
+        secs = int(args[args.index("--seconds") + 1]) if "--seconds" in args else 3600
+        e = jobs.wait(r[1], secs)
+        print(f"{(e or {}).get('status', 'no such job')}: {(e or {}).get('evidence', '')}")
+        for c in (e or {}).get("concerns") or []:
+            print(f"  CONCERN: {c.get('text')}  FIX OFFERED: {c.get('fix_offered')}")
+        return 0 if e and e.get("status") not in (None, "sent") else 3
+    if sub == "send" and len(r) >= 3:
+        from . import proofs
+        kind = args[args.index("--kind") + 1] if "--kind" in args else "test"
+        repo = Path(r[1])
+        name = proofs.where(repo)[0] if repo.is_dir() else r[1]
+        mp = jobs.mandate_for(name)
+        if mp is None:
+            print(f"REFUSED: no mandate in force here names {name}: the orchestrator works under the owner's mandate")
+            return 3
+        jid, what = jobs.send(kind, name, r[2], mp)
+        print(f"{what.upper() if what == 'sent' else what}: {jid}")
+        return 0 if jid and not what.startswith("not sent") else 3
+    if sub == "run" and len(r) >= 5:                      # the worker's detached process (handle_job starts it)
+        lock = Path(args[args.index("--lock") + 1]) if "--lock" in args else None
+        try:
+            res = jobs.run_job(r[1], Path(r[2]), r[3], Path(r[4]))
+            print(f"RESULT {res['status']}: {res['evidence'][:200]}")
+            return 0
+        finally:
+            if lock is not None and lock.is_file():
+                lock.unlink()                             # one job at a time: the next may start
+    print("job send REPO SHA [--kind test] | job status | job wait ID [--seconds S]")
+    return 2
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="fieldkit mandate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
-                                       "share", "status", "install", "review-key", "verdict"])
+                                       "share", "status", "install", "review-key", "verdict", "job"])
     ap.add_argument("rest", nargs="*")
     a = ap.parse_args(argv)
     r = a.rest
@@ -519,29 +565,22 @@ def main(argv=None):
               f"{_review_paths()[1].name} (the owner, once, after it is carried over)")
         return 0
     if a.action == "verdict":
-        # this computer's OS runs the suite on that commit and a tool signs the result; no model approves (2026-10-23)
+        # the worker's test run, by hand: printed here, nothing sent, nothing signed
         if len(r) < 2:
-            print("verdict REPO SHA [--send]  (REPO: the repository's name or its folder; SHA: 40 characters)")
+            print("verdict REPO SHA  (REPO: the repository's name or its folder; SHA: 40 characters)")
             return 2
-        from . import verdict as V
+        from . import proofs, verdict as V
         repo = Path(r[0]) if Path(r[0]).is_dir() else V.find_repo(r[0])
         if repo is None:
             print(f"REFUSED: {r[0]} is not a folder nor one of this computer's repositories (sync.repos)")
             return 2
-        from . import proofs
-        name = proofs.where(repo)[0]
-        args = list(argv if argv is not None else sys.argv[1:])
-        lock = Path(args[args.index("--lock") + 1]) if "--lock" in args else None
-        try:
-            passed, ev = V.verdict(repo, r[1], name=name)
-            print(("PASS " if passed else "FAIL ") + f"{name} {r[1]}: {ev}")
-            if "--send" in args:
-                res = V.send(name, r[1], passed, ev)
-                print(("SENT" if res.get("ok") else f"NOT SENT: {res.get('error')}"))
-        finally:
-            if lock is not None and lock.is_file():
-                lock.unlink()                             # the listener's own lock for this run: one at a time
-        return 0 if passed else 3
+        res = V.verdict(repo, r[1], name=proofs.where(repo)[0], branches=["*"])
+        print(f"{res['status'].upper()} {r[1]}: {res['evidence']}")
+        for c in res["concerns"]:
+            print(f"  CONCERN: {c['text']}  FIX OFFERED: {c['fix_offered']}")
+        return 0 if res["status"] == "pass" else 3
+    if a.action == "job":
+        return _job_cli(r, argv)
     if not r:
         print(f"{a.action} FILE.yaml ...")
         return 2

@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-14-36
+# Version: 1.1.0 · updated 26-10-23-15-10
 """fieldkit mandate: one owner approval per project, valid on both computers, checkable by each (2026-10-23).
 Every test closes a way a false approval could get in: a changed byte, another key, no passphrase, a stop, a date."""
 from datetime import date
@@ -248,50 +248,8 @@ def test_a_stop_is_permanent_for_that_mandate(owner, store):
 FULL = "6cff573" + "0" * 33
 
 
-def _reviewer():
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    k = Ed25519PrivateKey.generate()
-    raw = k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-    return k, M.fingerprint(raw), raw
-
-
-def _approval_note(k, fp, repo="Gorilla.Opencode", commit=FULL, text=None, link_key=b"k" * 32):
-    from fieldkit.peers import link
-    a = {"repo": repo, "commit": commit, "key": fp, "sig": k.sign((text or M.approval_text(repo, commit)).encode()).hex()}
-    req = link.sign({"verb": "message", "text": "[FROM WINDOWS #50] [DONE] APPROVE", "done": True,
-                     "evidence": f"APPROVE {commit}", "seq": 50, "os": "WINDOWS", "approval": a}, link_key)
-    return {"n": 1, "kind": "message", "text": req["text"], "signed": req}
-
-
-def test_an_approval_counts_only_signed_by_the_other_computers_pinned_review_key(tmp_path, monkeypatch):
-    # M1.2, the Windows review's points B and D: the shared link key let THIS computer forge the other's note,
-    # and the word 'reviewed' counted even for a review that reported findings
-    import json
-    from fieldkit.mandate import proofs
-    monkeypatch.setattr(proofs, "where", lambda rp: ("Gorilla.Opencode", "feat/x"))
-    win_k, win_fp, win_raw = _reviewer()
-    own_k, own_fp, own_raw = _reviewer()
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
-    rv = lambda: proofs.other_machine_reviewed(".", FULL, {}, link_home=tmp_path, own_key=own_fp,
-                                               reviewers={win_fp: win_raw, own_fp: own_raw})
-    put = lambda n, item: (inbox / f"{n:04d}-message.json").write_text(json.dumps(item))
-    old = _approval_note(win_k, win_fp)
-    del old["signed"]["approval"]                                    # 'APPROVE <sha>' as evidence text only
-    put(1, old)
-    assert not rv()[0]
-    stranger_k, stranger_fp, _ = _reviewer()
-    put(2, _approval_note(stranger_k, stranger_fp))                  # a key nobody pinned
-    put(3, _approval_note(stranger_k, win_fp))                       # claims the pinned key, signed by another
-    put(4, _approval_note(own_k, own_fp))                            # this computer approving itself
-    put(5, _approval_note(win_k, win_fp, commit="a1b2c3d" + "0" * 33))
-    put(6, _approval_note(win_k, win_fp, text=f"REJECT Gorilla.Opencode {FULL}"))
-    assert not rv()[0]
-    put(7, _approval_note(win_k, win_fp))
-    ok, why = rv()
-    assert ok and "0007" in why
-    assert not proofs.other_machine_reviewed(".", FULL, {}, link_home=tmp_path, own_key=own_fp, reviewers={})[0]
+# The APPROVE-note proof (M1.2) was replaced by a worker's signed RESULT (plan section 16): the same guarantees, a
+# pinned key only, never this computer's own, a changed byte refused, are tested in tests/test_mandate_verdict.py.
 
 
 def test_sign_review_signs_only_a_full_sha(tmp_path, monkeypatch):
@@ -303,16 +261,6 @@ def test_sign_review_signs_only_a_full_sha(tmp_path, monkeypatch):
     raw = bytes.fromhex(M._review_paths()[1].read_text().strip())
     Ed25519PublicKey.from_public_bytes(raw).verify(bytes.fromhex(a["sig"]), f"APPROVE Gorilla.Opencode {FULL}".encode())
     assert a["key"] == M.fingerprint(raw) == M.review_key()[1]                  # made once, the same key after
-
-
-def test_a_note_stored_by_the_link_keeps_the_approval_for_the_prover(tmp_path, monkeypatch):
-    from fieldkit.mandate import proofs
-    from fieldkit.peers import link
-    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
-    monkeypatch.setattr(proofs, "where", lambda rp: ("Gorilla.Opencode", "feat/x"))
-    k, fp, raw = _reviewer()
-    link.store("message", _approval_note(k, fp)["signed"])
-    assert proofs.other_machine_reviewed(".", FULL, {}, own_key="mine", reviewers={fp: raw})[0]
 
 
 def _suite_env(monkeypatch, deleted=""):

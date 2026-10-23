@@ -414,10 +414,6 @@ start_commands: {}       # agent -> argv list with {brief} {cwd} {job} {wall}; o
                          # written by the owner, never guessed
 accept_to_desktop: false # true: a file sent with `put --to-desktop` is also copied onto this computer's Desktop
                          # (always kept in ~/.fieldkit/link/received/; nothing is ever overwritten)
-allow_verdict: {}        # repositories whose pushed commits the paired computer may ask THIS computer to test and,
-                         # on a pass, sign (fieldkit mandate verdict): {Repo.Name: [branch patterns]}, e.g.
-                         # {Gorilla.Opencode: ["feat/*", "fix/*"]}. It runs that commit's code here.
-verdict_minutes: 60      # the wall-clock cap of one verdict; one runs at a time
 """
 
 
@@ -681,13 +677,15 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
                 handed = f"; no session {req['to']} ({e})"
         _log(f"message #{item['n']} from {req.get('from_host')}{handed}")
         return {"ok": True, "stored": item["n"], "note": handed.strip("; ")}
-    if verb == "verdict-request":
-        # the merging computer asks for this computer's verdict on a commit (fieldkit/mandate/verdict.py): the suite
-        # runs here and a tool signs the result; no session is asked and no model approves (2026-10-23)
-        from ..mandate import verdict as mandate_verdict
-        res = mandate_verdict.handle_request(req, popen=popen)
-        _log(f"verdict-request from {req.get('from_host')} for {req.get('repo')} {str(req.get('commit'))[:10]}: "
-             f"{'started' if res.get('ok') else res.get('error')}")
+    if verb in ("job", "result"):
+        # one orchestrator, many workers (fieldkit/mandate/jobs.py, 2026-10-23): a job is run by a tool here, no
+        # session is asked; a result is kept for the orchestrator. Every refusal is the answer, and logged.
+        from ..mandate import jobs as mandate_jobs
+        res = mandate_jobs.handle_job(req, popen=popen) if verb == "job" else mandate_jobs.handle_result(req)
+        _log(f"{verb} {req.get('id') or (req.get('result') or {}).get('id')} from {req.get('from_host')}: "
+             f"{'ok' if res.get('ok') else res.get('error')}")
+        if verb == "result" and res.get("ok"):
+            store("message", dict(req, text=req.get("text") or "a job result"))      # the session sees it too
         return res
     if verb == "ask":
         item = store("ask", req)

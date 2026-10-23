@@ -1,4 +1,4 @@
-# Version: 1.3.0 · updated 26-10-23-14-36
+# Version: 1.3.0 · updated 26-10-23-15-10
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
