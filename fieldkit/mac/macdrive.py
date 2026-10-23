@@ -1,4 +1,4 @@
-# Version: 1.3.0 · updated 26-10-23-16-30
+# Version: 1.4.0 · updated 26-10-23-17-25
 """macdrive.py - drive a Mac's screen from another computer, the way a person would, and check each step took.
 
     fieldkit mac keep-awake NAME [--minutes N | --stop]    caffeinate on the Mac for a long job (display, disk, network)
@@ -303,10 +303,34 @@ def current_dialog(rows, tail=12):
     return {"command": command, "why": " ".join(why), "tool": tool}
 
 
+# A turn that ended in a provider error leaves the run idle at the prompt (2026-10-23 16:37: "Antigravity: Internal
+# error encountered (HTTP 500)", then 40 minutes of nothing while the watcher waited for dialogs only).
+TURN_ERROR = r"\(error\)\s*$"
+TOOL_ROW = r"^[┃│|]\s*(Bash|Fetch|View|Write|Edit|Read|Grep|Find|Patch):"
+
+
+def ended_in_error(rows, tail=12):
+    """True when the newest event on screen is a turn that ended in an error (nothing ran after it)."""
+    if not rows:
+        return False
+    recent = rows[-tail:]
+    err = _last(recent, TURN_ERROR)
+    return err >= 0 and err > _last(recent, TOOL_ROW)
+
+
+def _log(log, entry):
+    if log:
+        import json
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+
+
 def watch_dialogs(ssh_argv_fn, tty, answer="allow", until_file=None, seconds=3600, every=15, log=None,
-                  now=time.time, sleep=time.sleep, **kw):
+                  nudges=2, idle_seconds=900, now=time.time, sleep=time.sleep, **kw):
     """-> (code, lines). Stays with a running Gorilla OpenCode and answers each permission dialog with ONE key,
     counting and logging what it asked and why; 0 when until_file exists on the Mac, 3 when time ran out.
+    A turn that ended in a provider error gets "continue" typed, at most `nudges` times (then it stops and says so);
+    a screen that has not changed for idle_seconds stops the watch with the reason, instead of waiting it out.
 
     Born 2026-10-23: during the stranger's install test on the Air the Linux Claude waited only for REPORT.txt, and
     Gemini sat behind an unanswered dialog until the owner noticed ("Gemini awaits for you to click accept"). An
@@ -315,9 +339,23 @@ def watch_dialogs(ssh_argv_fn, tty, answer="allow", until_file=None, seconds=360
     if not key:
         return 2, [f"unknown answer {answer!r} (allow, session, deny)"]
     seen, lines, end = [], [], now() + seconds
+    pushed, last_rows, changed_at = 0, None, now()
     while True:
         rows, err = screen_text(ssh_argv_fn, tty, 60, **kw)
+        if rows is not None and rows != last_rows:
+            last_rows, changed_at = rows, now()
         d = current_dialog(rows) if rows else None
+        if not d and ended_in_error(rows):
+            if pushed >= nudges:
+                return 3, lines + [f"the model ended in an error again after {pushed} 'continue'; stopped "
+                                   f"({len(seen)} dialog(s) answered)"]
+            code, msg = keys(ssh_argv_fn, tty, paste_text="continue", sleep=sleep, expect=r"\? help", **kw)
+            pushed += 1
+            why = next((r.strip() for r in reversed(rows[-12:]) if re.search(r"error", r, re.I)
+                        and not re.search(TURN_ERROR, r)), "an error")
+            lines.append(f"turn ended in an error ({why[:120]}): typed 'continue' ({pushed} of {nudges}; {msg})")
+            _log(log, {"at": time.strftime("%H:%M:%S"), "event": "continue after error", "why": why, "n": pushed})
+            continue
         if d:
             code, msg = keys(ssh_argv_fn, tty, key, sleep=sleep, expect=DIALOG_TITLE, **kw)
             entry = {"n": len(seen) + 1, "at": time.strftime("%H:%M:%S"), "answer": answer, "sent": code == 0, **d}
@@ -326,10 +364,7 @@ def watch_dialogs(ssh_argv_fn, tty, answer="allow", until_file=None, seconds=360
             if code != 0:
                 line += f" [key not confirmed: {msg}]"
             lines.append(line)
-            if log:
-                import json
-                with open(log, "a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(entry) + "\n")
+            _log(log, entry)
             continue
         if until_file:
             rc, _, _ = remote(ssh_argv_fn, "test -f " + shlex.quote(until_file), tries=2, **kw)
@@ -337,6 +372,9 @@ def watch_dialogs(ssh_argv_fn, tty, answer="allow", until_file=None, seconds=360
                 return 0, lines + [f"{until_file} exists; {len(seen)} dialog(s) answered"]
         if now() >= end:
             return 3, lines + [f"stopped after {seconds:g} s; {len(seen)} dialog(s) answered"]
+        if now() - changed_at >= idle_seconds:
+            return 3, lines + [f"the screen has not changed for {idle_seconds:g} s and no report: the run is idle "
+                               f"or stuck ({len(seen)} dialog(s) answered)"]
         sleep(every)
 
 

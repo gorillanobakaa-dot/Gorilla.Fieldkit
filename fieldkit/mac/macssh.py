@@ -355,6 +355,8 @@ def main(argv=None, prog="macssh.py"):
     wd.add_argument("--seconds", type=float, default=3600)
     wd.add_argument("--every", type=float, default=15)
     wd.add_argument("--log", help="append one JSON line per dialog to this file")
+    wd.add_argument("--nudges", type=int, default=2, help="type 'continue' after a turn that ended in an error, at most N times")
+    wd.add_argument("--idle-seconds", type=float, default=900, help="stop when the screen has not changed this long")
     o = ap.parse_args(argv)
 
     if o.cmd == "add":
@@ -448,7 +450,7 @@ def main(argv=None, prog="macssh.py"):
             code, rows = macdrive.tui_start(fn, o.tty, o.seconds)
             msg = "\n".join(rows)
         elif o.cmd == "watch-dialogs":
-            code, rows = macdrive.watch_dialogs(fn, o.tty, o.answer, o.until_file, o.seconds, o.every, o.log)
+            code, rows = macdrive.watch_dialogs(fn, o.tty, o.answer, o.until_file, o.seconds, o.every, o.log, o.nudges, o.idle_seconds)
             msg = "\n".join(rows)
         else:
             code, msg = macdrive.wait_text(fn, o.tty, o.pattern, o.seconds)

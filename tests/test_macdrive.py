@@ -299,3 +299,63 @@ def test_tui_start_names_a_sign_in_that_never_finishes():
     code, lines = D.tui_start(fn, "/dev/ttys001", seconds=30, every=10, sign_in_seconds=60, runner=mac,
                               now=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
     assert code == 3 and "a person must finish it in the browser" in lines[-1], lines
+
+
+ERROR_END = """┃ Bash: cd /Users/gorilla/Stranger-Test/Fieldkit && python3 -m fieldkit.core.doctor --probe
+┃   WAY IN: zip + lean
+ 🦍⚠️·⚠️·🦍 The model returned an error and produced no answer:
+  Antigravity: Internal error encountered (HTTP 500)
+ 🦍⚠️·⚠️·🦍
+ 16:37:36
+ Gemini 3.8 Flash (High) (Antigravity) (error)""" + FOOTER
+
+
+def test_a_turn_that_ended_in_a_provider_error_is_seen_and_one_that_ran_on_is_not():
+    rows = [r for r in ERROR_END.splitlines() if r.strip()]
+    assert D.ended_in_error(rows)
+    ran_on = rows[:-5] + ["┃ Bash: ls", "┃   Fieldkit"] + rows[-5:]
+    assert not D.ended_in_error(ran_on)
+
+
+def test_watch_dialogs_types_continue_after_a_provider_error_then_stops_at_the_report(tmp_path):
+    mac = Mac(screen=ERROR_END)
+    state = {"pasted": 0}
+    def runner(argv, stdin, _orig=mac.__call__):
+        line = argv[-1]
+        if line.startswith("osascript -") and stdin == D.KEY_SCRIPT:
+            state["pasted"] += 1
+            mac.screen = "┃ > continue\n┃ Bash: sh install.sh --yes\n┃   READY" + FOOTER
+            return 0, "SENT"
+        if line.startswith("test -f"):
+            return (0, "") if state["pasted"] else (1, "")
+        return _orig(argv, stdin)
+    log = tmp_path / "w.jsonl"
+    code, lines = D.watch_dialogs(fn, "/dev/ttys001", until_file="/x/REPORT.txt", seconds=60, every=1,
+                                  log=str(log), runner=runner, sleep=lambda s: None)
+    assert code == 0 and state["pasted"] == 1, lines
+    assert "HTTP 500" in lines[0] and "typed 'continue' (1 of 2" in lines[0]
+    assert "continue after error" in log.read_text()
+
+
+def test_watch_dialogs_stops_when_the_same_error_comes_back_after_the_nudges():
+    mac = Mac(screen=ERROR_END, change_on_key=False)
+    def runner(argv, stdin, _orig=mac.__call__):
+        if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
+            mac.screen = mac.screen.replace(" >\n", " > continue\n", 1)     # taken, then the error is still newest
+            return 0, "SENT"
+        if argv[-1].startswith("test -f"):
+            return 1, ""
+        return _orig(argv, stdin)
+    code, lines = D.watch_dialogs(fn, "/dev/ttys001", until_file="/x/REPORT.txt", seconds=600, every=1, nudges=2,
+                                  runner=runner, sleep=lambda s: None)
+    assert code == 3 and "ended in an error again after 2 'continue'" in lines[-1], lines
+
+
+def test_watch_dialogs_stops_on_an_idle_screen_instead_of_waiting_out_the_clock():
+    clock, mac = {"t": 0.0}, Mac(screen="┃ Bash: ls\n┃   done" + FOOTER)
+    def runner(argv, stdin, _orig=mac.__call__):
+        return (1, "") if argv[-1].startswith("test -f") else _orig(argv, stdin)
+    code, lines = D.watch_dialogs(fn, "/dev/ttys001", until_file="/x/REPORT.txt", seconds=3600, every=60,
+                                  idle_seconds=300, runner=runner, now=lambda: clock["t"],
+                                  sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    assert code == 3 and "has not changed for 300 s" in lines[-1] and clock["t"] < 600, (lines, clock)
