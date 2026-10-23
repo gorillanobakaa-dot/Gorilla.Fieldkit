@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-04-41
+# Version: 1.1.0 · updated 26-10-23-11-10
 """fieldkit mandate: one owner approval per project, valid on both computers, checkable by each (2026-10-23).
 Every test closes a way a false approval could get in: a changed byte, another key, no passphrase, a stop, a date."""
 from datetime import date
@@ -17,6 +17,7 @@ repos:
     test: {cmd: "python -m pytest -q"}
 install: {budget_gb: 5}
 mac: {full_access: air}
+owner_approvals: ["build-harness accept"]
 release: ask
 never: [force_push, delete_outside_scratch, credentials]
 """
@@ -248,3 +249,107 @@ def test_a_note_stored_by_the_link_keeps_its_signature_for_the_prover(tmp_path, 
     k = b"k" * 32
     link.store("message", _signed_note(k, "reviewed 6cff573: 120 passed")["signed"])
     assert proofs.other_machine_reviewed(".", "6cff5731234", {}, link_key=k, my_os="LINUX")[0]
+
+
+# ---- M3: the callers --------------------------------------------------------------------------------------------------
+def test_an_owner_approval_is_granted_only_as_listed(owner):
+    M.approve(owner, "correct horse battery", True)
+    a = lambda what: M.allows(owner, "approval", today=DAY, what=what)[0]
+    assert a("fieldkit build-harness accept firefox-158 S2") == "allow"
+    assert a("fieldkit build-harness approve x") == "ask"
+    assert a("fieldkit mandate approve build-harness accept") == "ask"          # never the mandate's own key
+    assert "as if you approved it: build-harness accept" in "\n".join(M.doors(M.load(owner)))
+
+
+def test_decide_reads_every_mandate_here(owner):
+    assert M.decide("approval", what="build-harness accept x")[0] == "ask"      # not approved yet
+    M.approve(owner, "correct horse battery", True)
+    v, why, path = M.decide("approval", what="build-harness accept x")
+    assert v == "allow" and path == owner and M.in_force() == [owner]
+
+
+def test_an_install_counts_what_the_disk_measured(owner):
+    import subprocess
+    M.approve(owner, "correct horse battery", True)
+    disk = iter([10e9, 13e9])                                  # declared 1 GB, the disk grew 3 GB
+    code, msg = M.install(1, "toolchain", ["true"], run=lambda c: subprocess.CompletedProcess(c, 0),
+                          used=lambda: next(disk))
+    assert code == 0 and "3.00 GB" in msg
+    assert [e["gb"] for e in M.read_log(owner) if e["what"] == "install"] == [3.0]
+    code, msg = M.install(2.5, "more", ["true"], run=lambda c: 1 / 0, used=lambda: 0)   # 3 + 2.5 > 5: never runs
+    assert code == 3 and "NOT INSIDE" in msg
+
+
+def _git(cwd, *a):
+    import subprocess
+    return subprocess.run(["git", "-C", str(cwd), *a], capture_output=True, text=True, check=True).stdout.strip()
+
+
+@pytest.fixture
+def repos(tmp_path):
+    """origin (bare, named like the mandate's repository) and a clone on feat/x one commit ahead of main."""
+    origin = tmp_path / "Gorilla.Opencode.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    work = tmp_path / "work"
+    _git(tmp_path, "clone", "-q", str(origin), str(work))
+    for k, v in (("user.email", "tester"), ("user.name", "t"), ("commit.gpgsign", "false"),
+                 ("core.hooksPath", "/dev/null")):
+        _git(work, "config", k, v)
+    (work / "a").write_text("1")
+    _git(work, "add", "a")
+    _git(work, "commit", "-qm", "one")
+    _git(work, "push", "-q", "origin", "HEAD:main")
+    _git(work, "switch", "-qc", "feat/x")
+    (work / "a").write_text("2")
+    _git(work, "commit", "-qam", "two")
+    return origin, work
+
+
+def test_ship_merge_refuses_without_a_mandate(repos):
+    from fieldkit.method import ship
+    origin, work = repos
+    _git(work, "push", "-q", "-u", "origin", "feat/x")
+    r = ship.merge(work, mandate=lambda *a, **k: ("ask", "no mandate on this computer", None))
+    assert not r["ok"] and r["state"] == "not-mandated"
+    assert _git(origin, "rev-parse", "main") != _git(work, "rev-parse", "HEAD")
+
+
+def test_ship_merge_needs_the_exact_commit_pushed_first(repos):
+    from fieldkit.method import ship
+    origin, work = repos
+    r = ship.merge(work, mandate=lambda *a, **k: ("allow", "x", None))
+    assert not r["ok"] and r["state"] == "unpushed"
+
+
+def test_ship_merge_under_a_mandate_fast_forwards_main_and_logs_it(repos, owner, monkeypatch):
+    from fieldkit.mandate import proofs
+    from fieldkit.method import ship
+    origin, work = repos
+    _git(work, "push", "-q", "-u", "origin", "feat/x")
+    M.approve(owner, "correct horse battery", True)
+    head = _git(work, "rev-parse", "HEAD")
+    seen = {}
+    monkeypatch.setattr(proofs, "PROVERS", {w: (lambda w: lambda rp, c, cfg: (seen.setdefault(w, c) == head, w))(w)
+                                            for w in ("full_tests_pass_here", "other_machine_reviewed")})
+    monkeypatch.setattr(M, "verify", lambda p, today=None: (True, "in force"))      # the clock: DAY is in the past soon
+    r = ship.merge(work)
+    assert r["ok"] and r["state"] == "merged", r
+    assert _git(origin, "rev-parse", "main") == head                               # the artefact: main moved
+    assert seen == {"full_tests_pass_here": head, "other_machine_reviewed": head}
+    assert [e["commit"] for e in M.read_log(owner) if e["what"] == "merge_main"] == [head]
+
+
+def test_ship_push_logs_a_push_the_mandate_covers(repos, owner):
+    from fieldkit.method import ship
+    origin, work = repos
+    r = ship.push(work, mandate=lambda *a, **k: ("allow", "repos.Gorilla.Opencode.push matches feat/x", owner))
+    assert r.get("pushed") and r["mandate"]
+    assert [e["branch"] for e in M.read_log(owner) if e["what"] == "push"] == ["feat/x"]
+    assert _git(origin, "rev-parse", "feat/x") == _git(work, "rev-parse", "HEAD")
+
+
+def test_a_run_on_a_granted_mac_is_logged(owner):
+    from fieldkit.mac import macssh
+    assert macssh._mandate_log_run("air", ["ls"], 0, decide=lambda *a, **k: ("allow", "mac access to air", owner))
+    assert not macssh._mandate_log_run("other", ["ls"], 0, decide=lambda *a, **k: ("ask", "no", None))
+    assert [e["mac"] for e in M.read_log(owner) if e["what"] == "mac-run"] == ["air"]

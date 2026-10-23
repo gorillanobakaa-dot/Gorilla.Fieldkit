@@ -1204,7 +1204,8 @@ METHODS = {
     "drift": ("drift", "does a committed generated file still match its generator? reports, never rewrites"),
     "mcp-probe": ("mcp_probe", "speak MCP to a server as a client does: handshake, tools and their size, one call"),
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
-    "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push; never forces"),
+    "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "
+                     "merge into main only under a project mandate; never forces"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
     "flaky": ("flaky", "a test that fails sometimes: failure rate over fresh runs, the swallowed thread error, shared OS names (repeat TEST | log | scan)"),

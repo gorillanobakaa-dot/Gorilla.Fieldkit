@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-04-41
+# Version: 1.2.0 · updated 26-10-23-11-10
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -10,6 +10,12 @@
     fieldkit mandate stop FILE.yaml               the owner's stop: nothing is allowed by it any more
     fieldkit mandate share FILE.yaml              the mandate, its seal and the public key to the other computer
     fieldkit mandate status                       every mandate here and whether it is in force
+    fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
+
+Callers (M3): `fieldkit ship push` logs a push the mandate covers; `fieldkit ship merge` merges into main ONLY when
+a mandate allows it, with every condition proven by the tool; the autopilot hard lines 1 and 4 open for a push or an
+owner approval a mandate in force covers (and log it), and judge `fieldkit mac run` on a granted Mac as the Mac's
+business; while a mandate is in force, installs go through `fieldkit mandate install`.
 
 Owner, 2026-10-23, after a day as the router between 16 sessions on two computers: "aprobarile se dau o singura data
 pentru un proiect si ar trebui sa fie valabile si pentru cealalta sesiune ... doua sesiuni lucrand la acelasi proiect
@@ -31,6 +37,9 @@ import getpass
 import hashlib
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import date
@@ -39,7 +48,9 @@ from pathlib import Path
 import yaml
 
 REQUIRED = ("project", "goal", "expires", "repos", "never")
-ACTIONS = ("push", "merge_main", "install", "mac", "release")
+ACTIONS = ("push", "merge_main", "install", "mac", "release", "approval")
+# owner approvals no mandate can grant: the mandate's own key, and the owner's signature on a harness change
+NEVER_GRANTED = re.compile(r"\bmandate\b|gorilla_owner_approved", re.I)
 
 
 def _under_test():
@@ -131,6 +142,8 @@ def doors(m):
         out.append(f"sessions may INSTALL software up to {m['install'].get('budget_gb', 0)} GB, each logged")
     for name in (m.get("mac") or {}).values() if isinstance(m.get("mac"), dict) else []:
         out.append(f"sessions have full read/write access to the Mac '{name}'")
+    for a in m.get("owner_approvals") or []:
+        out.append(f"sessions may run, as if you approved it: {a}")
     out.append("release (tags, published assets): " + str(m.get("release", "ask")))
     out.append("never: " + ", ".join(m.get("never") or []))
     out.append(f"ends: {m['expires']}")
@@ -291,9 +304,69 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
         names = (m.get("mac") or {}).values() if isinstance(m.get("mac"), dict) else []
         return ("allow", f"mac access to {p.get('name')}") if p.get("name") in names else \
             ("ask", f"the Mac {p.get('name')} is not in the mandate")
+    if action == "approval":
+        # p["what"]: the command as the session typed it; granted when an owner_approvals entry appears in it whole
+        what = " ".join(str(p.get("what", "")).split())
+        if NEVER_GRANTED.search(what):
+            return "ask", "the mandate's own key and the owner's signature are never granted by a mandate"
+        for a in m.get("owner_approvals") or []:
+            if re.search(r"(^|\s)" + re.escape(" ".join(str(a).split())) + r"(\s|$)", what):
+                return "allow", f"owner_approvals: {a}"
+        return "ask", "this owner approval is not in the mandate's owner_approvals"
     if action == "release":
         return ("allow", "release: allow") if str(m.get("release", "ask")) == "allow" else ("ask", "release: ask")
     return "ask", f"'{action}' is not something a mandate grants ({', '.join(ACTIONS)})"
+
+
+def mandates():
+    d = home() / "mandates"
+    return sorted(d.glob("*.yaml")) if d.is_dir() else []
+
+
+def in_force(today=None):
+    return [p for p in mandates() if verify(p, today)[0]]
+
+
+def decide(action, today=None, **kw):
+    """Across every mandate here -> (verdict, why, path or None): a deny wins, then the first allow, else ask."""
+    asks, allow = [], None
+    for p in mandates():
+        v, why = allows(p, action, today, **kw)
+        if v == "deny":
+            return "deny", f"{p.stem}: {why}", p
+        if v == "allow" and allow is None:
+            allow = ("allow", f"{p.stem}: {why}", p)
+        elif v == "ask":
+            asks.append(f"{p.stem}: {why}")
+    return allow or ("ask", "; ".join(asks) or "no mandate on this computer: the owner is asked", None)
+
+
+def _disk_used():
+    seen, used = set(), 0
+    for root in (Path(os.path.abspath(os.sep)), Path.home()):
+        try:
+            u = shutil.disk_usage(root)
+        except OSError:
+            continue
+        if (u.total, u.free) not in seen:
+            seen.add((u.total, u.free))
+            used += u.used
+    return used
+
+
+def install(gb, what, cmd, run=subprocess.run, used=_disk_used):
+    """An install inside a mandate's budget -> (code, message). Logs the larger of what was declared and what the
+    disk measured, so a low declaration does not stretch the budget."""
+    v, why, p = decide("install", gb=gb)
+    if v != "allow":
+        return 3, f"NOT INSIDE THE MANDATE ({why}); nothing installed"
+    before = used()
+    rc = run(cmd).returncode
+    grew = max(0.0, (used() - before) / 1e9)
+    spent = max(float(gb), grew)
+    log(p, "install", what, gb=round(spent, 3), declared=float(gb), measured=round(grew, 3), rc=rc,
+        cmd=" ".join(cmd)[:300])
+    return (0 if rc == 0 else 1), f"{'INSTALLED' if rc == 0 else 'FAILED'} {what}: {spent:.2f} GB counted ({why})"
 
 
 def stop(path):
@@ -336,7 +409,8 @@ def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="fieldkit mandate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["keygen", "trust", "approve", "verify", "allows", "stop", "share", "status"])
+    ap.add_argument("action", choices=["keygen", "trust", "approve", "verify", "allows", "stop", "share", "status",
+                                       "install"])
     ap.add_argument("rest", nargs="*")
     a = ap.parse_args(argv)
     r = a.rest
@@ -372,6 +446,23 @@ def main(argv=None):
             ok, why = verify(p)
             print(f"  {'IN FORCE' if ok else 'not in force':12} {p.stem}: {why}")
         return 0
+    if a.action == "install":
+        if "--" not in (argv if argv is not None else sys.argv):
+            print("install GB WHAT -- COMMAND ...")
+            return 2
+        argv_all = list(argv if argv is not None else sys.argv[1:])
+        cmd = argv_all[argv_all.index("--") + 1:]
+        try:
+            gb = float(r[0])
+        except (IndexError, ValueError):
+            print("install GB WHAT -- COMMAND ...  (GB: what it will take, a number)")
+            return 2
+        if len(r) < 2 or not cmd:
+            print("install GB WHAT -- COMMAND ...")
+            return 2
+        code, msg = install(gb, r[1], cmd)
+        print(msg)
+        return code
     if not r:
         print(f"{a.action} FILE.yaml ...")
         return 2

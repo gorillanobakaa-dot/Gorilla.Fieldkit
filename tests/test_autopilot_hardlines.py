@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-04-41
+# Version: 1.0.0 · updated 26-10-23-11-10
 """The hard lines of an autopilot run, held against what an unattended model actually did on 2026-10-17/18."""
 import pytest
 
@@ -129,3 +129,88 @@ def test_the_mandate_store_is_the_owners(tool, args, nostop):
 ])
 def test_the_mandate_store_can_be_read(tool, args, nostop):
     assert hl.decide(tool, args, stop_file=nostop)[0] == "allow"
+
+
+# ---- M3 (2026-10-23): a project mandate in force opens hard lines 1 and 4 for exactly what it covers ----------------
+class Door:
+    """The project mandate as the hard lines see it, with fixed answers."""
+
+    def __init__(self, allow=(), force=False):
+        self.allow, self.force, self.logged, self.asked = set(allow), force, [], []
+
+    def decide(self, action, **kw):
+        self.asked.append((action, kw))
+        return ("allow", f"{action} granted", "m.yaml") if action in self.allow else ("ask", "not granted", None)
+
+    def in_force(self):
+        return self.force
+
+    def log(self, path, what, detail):
+        self.logged.append(what)
+
+
+def dm(cmd, door, stop, cwd="/w/repo"):
+    return hl.decide("Bash", {"command": cmd}, stop_file=stop, cwd=cwd, door=door)[0]
+
+
+def test_fieldkit_ship_push_is_publishing_without_a_mandate(nostop):
+    # before M3 the hard line saw only `git push`; ship push pushes inside the tool
+    for cmd in ("fieldkit ship push", "python -m fieldkit ship merge", "fieldkit ship release v1.2.3",
+                "/opt/tools/fieldkit ship prune"):
+        assert dm(cmd, Door(), nostop) == "deny"
+
+
+def test_a_mandated_push_is_allowed_logged_and_checked_where_it_runs(nostop):
+    door = Door(allow={"push"}, force=True)
+    assert dm("fieldkit ship push", door, nostop) == "allow"
+    assert door.logged == ["push-allowed"] and door.asked[-1] == ("push", {"repo_path": "/w/repo"})
+    assert dm("fieldkit ship push --repo /w/other", door, nostop) == "allow"
+    assert door.asked[-1] == ("push", {"repo_path": "/w/other"})
+
+
+@pytest.mark.parametrize("cmd", [
+    "git push origin feat/x",                              # the tool is the one door
+    "fieldkit ship push; git push origin main",
+    "cd /w/other && fieldkit ship push",                   # checked here, run elsewhere
+    "fieldkit ship push --repo $(pwd)/../main",
+    "fieldkit ship push | tee log",
+    "gh release create v1",
+])
+def test_only_the_plain_tool_command_is_opened(cmd, nostop):
+    assert dm(cmd, Door(allow={"push", "approval"}, force=True), nostop) == "deny"
+
+
+def test_ship_merge_goes_through_only_while_a_mandate_is_in_force(nostop):
+    assert dm("fieldkit ship merge", Door(force=True), nostop) == "allow"
+    assert dm("fieldkit ship merge", Door(force=False), nostop) == "deny"
+
+
+def test_an_owner_approval_the_mandate_lists_is_opened(nostop):
+    door = Door(allow={"approval"})
+    assert dm("fieldkit build-harness accept firefox-158 S2", door, nostop) == "allow"
+    assert door.logged == ["approval-allowed"]
+    assert dm("fieldkit build-harness accept x", Door(), nostop) == "deny"
+
+
+@pytest.mark.parametrize("cmd", ["fieldkit mandate approve m.yaml", "fieldkit mandate trust k.pub",
+                                 "fieldkit mandate keygen", "GORILLA_OWNER_APPROVED=1 python harness.py"])
+def test_no_mandate_opens_its_own_key_or_the_owners_signature(cmd, nostop):
+    assert dm(cmd, Door(allow={"approval", "push"}, force=True), nostop) == "deny"
+
+
+def test_a_granted_mac_is_the_macs_business_but_not_publishing(nostop):
+    door = Door(allow={"mac"})
+    assert dm("fieldkit mac run air -- rm -rf /Users/u/old-build", door, nostop) == "allow"
+    assert door.logged == ["mac-run-allowed"]
+    assert dm("fieldkit mac run air -- rm -rf /Users/u/old-build", Door(), nostop) == "deny"     # no grant
+    assert dm("fieldkit mac run air -- ls; rm -rf ~/work", door, nostop) == "deny"              # the ; runs HERE
+    assert dm("fieldkit mac run air -- git push origin main", door, nostop) == "deny"
+
+
+def test_under_a_mandate_installs_go_through_the_budget(nostop):
+    door = Door(force=True)
+    assert dm("sudo apt-get -y install ffmpeg", door, nostop) == "deny"
+    assert dm("pip install requests", door, nostop) == "deny"
+    assert dm("bash ./install.sh", door, nostop) == "deny"
+    assert dm("fieldkit mandate install 0.2 ffmpeg -- sudo apt-get -y install ffmpeg", door, nostop) == "allow"
+    assert dm("sudo apt-get -y install ffmpeg", Door(force=False), nostop) == "allow"         # no mandate: as before

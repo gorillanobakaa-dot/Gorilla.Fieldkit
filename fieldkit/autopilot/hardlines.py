@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-04-41
+# Version: 1.2.0 · updated 26-10-23-11-10
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -15,6 +15,15 @@ one file:
                                     fieldkit mandate keygen / trust / approve
   5. credential files               read or write: .env, keys, gh hosts.yml, .git-credentials, tokens
   and: the owner's STOP file (fieldkit autopilot stop) denies everything that is not a read.
+
+A project mandate in force (fieldkit/mandate, M3, 2026-10-23) opens two of these and nothing else, each logged in
+the mandate's log: hard line 1 for `fieldkit ship push` on a branch the mandate lets sessions push (fast-forward,
+checked here) and `fieldkit ship merge` (which proves the merge's conditions itself and refuses without them); hard
+line 4 for an owner approval listed in the mandate's owner_approvals. Only as ONE plain statement: no `;`, `&&`,
+pipe or substitution around it, so what was checked is what runs. `git push` stays denied: the tool is the door.
+`fieldkit mac run NAME -- ...` on a Mac the mandate grants is judged as the Mac's business (hard lines 2 and 3 are
+about this computer); publishing and credentials still apply. While a mandate is in force, installs go through
+`fieldkit mandate install GB WHAT -- CMD` (the budget, measured and logged).
 
 Lessons it encodes (2026-10-17/18, Gemini overnight): a blocked `git push` was followed three seconds later by
 `gh release create`; a blocked `git checkout --` by a Python script doing the same; a blocked rmtree by hiding the
@@ -48,6 +57,8 @@ PUBLISH = [
     (r"\bgh\b[^\n]*\bapi\b[^\n]*\s(-f|-F|--field|--raw-field|--input)\b", "a gh api write (fields imply POST)"),
     (r"\b(twine|npm|pnpm|yarn|cargo|poetry|flit)\b[^\n]*\bpublish\b|\btwine\b[^\n]*\bupload\b", "publishing a package"),
     (r"\bgit\b[^\n]*\bremote\b[^\n]*\b(add|set-url)\b", "changing where git pushes"),
+    # 2026-10-23: ship push/merge/release/prune push through git inside the tool, which the line above never saw
+    (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune)\b", "publishing through fieldkit ship"),
 ]
 
 DELETE = re.compile(
@@ -124,8 +135,76 @@ def _statements(cmd):
     return [s for s in re.split(r";|&&|\|\||\r?\n", cmd) if s.strip()]
 
 
-def decide(tool, args, stop_file=None):
-    """-> ("deny", why) | ("allow", why). `tool` as the agent names it, `args` its input (dict)."""
+FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python3?(?:\.exe)?\s+-m\s+fieldkit)"
+SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base)(?:\s+|=)[^\s;&|`$<>]+)*)\s*$", re.I)
+MAC_RUN = re.compile(r"^\s*" + FIELDKIT + r"\s+mac\s+run\s+([\w.-]+)\s+--\s", re.I)
+INSTALL_WRAP = re.compile(r"^\s*" + FIELDKIT + r"\s+mandate\s+install\s", re.I)
+INSTALLER = re.compile(r"\b(apt(-get)?|dnf|yum|pacman|zypper|brew|snap|flatpak|winget|choco|scoop)\s+(-\S+\s+)*install\b|"
+                       r"\bpip3?\s+install\b|\bpipx\s+install\b|\bnpm\s+(i|install)\s+(-g|--global)\b|"
+                       r"\bdpkg\s+-i\b|(^|[\s/])install\.(sh|ps1)\b", re.I)
+NEVER_OPENED = re.compile(r"\bmandate\s+(keygen|trust|approve|stop)\b|gorilla_owner_approved", re.I)   # whatever a door says
+PLAIN = re.compile(r"^[^;&|`\n]*$")                     # one statement: no ; && || | ` or newline
+SUBST = re.compile(r"\$\(|<\(|>\(")
+
+
+def _one_statement(cmd):
+    return bool(PLAIN.match(cmd)) and not SUBST.search(cmd)
+
+
+class MandateDoor:
+    """What the hard lines ask of the project mandate (fieldkit/mandate). Any error answers "not allowed"."""
+
+    def decide(self, action, **kw):
+        try:
+            from ..mandate import mandate as M
+            return M.decide(action, **kw)
+        except Exception as e:  # noqa: BLE001 - a broken mandate never opens a door
+            return "ask", f"the mandate could not be read ({e})", None
+
+    def in_force(self):
+        try:
+            from ..mandate import mandate as M
+            return bool(M.in_force())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def log(self, path, what, detail):
+        try:
+            from ..mandate import mandate as M
+            M.log(path, what, detail, by="hard line")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _mandated(cmd, cwd, door):
+    """-> ("allow", why) when a mandate in force opens hard line 1 or 4 for this exact command, else None."""
+    if not _one_statement(cmd) or NEVER_OPENED.search(cmd):
+        return None
+    m = SHIP.match(cmd)
+    if m:
+        repo = re.search(r"--repo(?:\s+|=)(\S+)", m.group(2) or "")
+        repo_path = repo.group(1) if repo else (cwd or os.getcwd())
+        if m.group(1).lower() == "merge":
+            # ship merge refuses by itself without a mandate that allows it; let it through only while one is in force
+            return ("allow", "HARD LINE 1 opened: fieldkit ship merge proves the mandate's conditions itself") \
+                if door.in_force() else None
+        v, why, path = door.decide("push", repo_path=repo_path)
+        if v == "allow":
+            door.log(path, "push-allowed", f"{why}: {cmd.strip()[:200]}")
+            return "allow", f"HARD LINE 1 opened by the mandate: {why}"
+        return None
+    if any(re.search(pat, cmd, re.I) for pat, _ in OWNER_ONLY):
+        v, why, path = door.decide("approval", what=cmd)
+        if v == "allow":
+            door.log(path, "approval-allowed", f"{why}: {cmd.strip()[:200]}")
+            return "allow", f"HARD LINE 4 opened by the mandate: {why}"
+    return None
+
+
+def decide(tool, args, stop_file=None, cwd=None, door=None):
+    """-> ("deny", why) | ("allow", why). `tool` as the agent names it, `args` its input (dict); `cwd` where a command
+    runs (the hook payload's cwd); `door` the project mandate (MandateDoor, replaced in tests)."""
+    door = door or MandateDoor()
     name = (tool or "").lower()
     args = args if isinstance(args, dict) else {}
     texts = list(_strings(args))
@@ -143,12 +222,25 @@ def decide(tool, args, stop_file=None):
     if cmd is not None and MANDATE_STORE.search(_norm(cmd)) and WRITE.search(cmd):
         return "deny", "HARD LINE 3: this would change the owner's mandate store; models may only read it"
     if cmd is not None:
-        for pat, why in PUBLISH:
-            if re.search(pat, cmd, re.I):
-                return "deny", f"HARD LINE 1: {why} is the owner's job (fieldkit publish, after the owner's yes)"
-        for pat, why in OWNER_ONLY:
-            if re.search(pat, cmd, re.I):
-                return "deny", f"HARD LINE 4: {why} is the owner's alone; put it in the owner inbox (fieldkit inbox add)"
+        published = next((why for pat, why in PUBLISH if re.search(pat, cmd, re.I)), None)
+        owner = next((why for pat, why in OWNER_ONLY if re.search(pat, cmd, re.I)), None)
+        if published or owner:
+            opened = _mandated(cmd, cwd, door)
+            if opened and not (published and owner):
+                return opened
+        if published:
+            return "deny", f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)"
+        if owner:
+            return "deny", f"HARD LINE 4: {owner} is the owner's alone; put it in the owner inbox (fieldkit inbox add)"
+        mac = MAC_RUN.match(cmd) if _one_statement(cmd) else None   # a ; after -- would run HERE, not on the Mac
+        if mac:
+            v, why, path = door.decide("mac", name=mac.group(1))
+            if v == "allow":
+                door.log(path, "mac-run-allowed", f"{why}: {cmd.strip()[:200]}")
+                return "allow", f"on the Mac {mac.group(1)}, granted by the mandate ({why})"
+        if INSTALLER.search(cmd) and not INSTALL_WRAP.match(cmd) and door.in_force():
+            return "deny", ("MANDATE: while a project mandate is in force, installs go through "
+                            "fieldkit mandate install GB WHAT -- COMMAND (the budget, measured and logged)")
         if DELETE.search(cmd) and not _scratch_only(cmd):
             return "deny", ("HARD LINE 2: deleting or discarding work outside the scratch folders; move it to a "
                             "labelled holding folder instead and say so")

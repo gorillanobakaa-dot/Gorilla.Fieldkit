@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18-17-20
+# Version: 1.0.0 · updated 26-10-23-11-10
 """Claude Code PreToolUse hook for autopilot runs: the hard lines (hardlines.py) as a deny, nothing else.
 
 Claude Code runs it before every tool call, in every permission mode including bypassPermissions
@@ -17,7 +17,8 @@ def main(stdin=sys.stdin, stdout=sys.stdout):
     from fieldkit.autopilot import hardlines
     try:
         payload = json.load(stdin)
-        decision, why = hardlines.decide(payload.get("tool_name"), payload.get("tool_input") or {})
+        decision, why = hardlines.decide(payload.get("tool_name"), payload.get("tool_input") or {},
+                                         cwd=payload.get("cwd"))
     except Exception as e:  # noqa: BLE001 - a broken hook must not open the door
         payload, decision, why = {}, "deny", f"autopilot hook error ({e}); denied to be safe"
     try:
