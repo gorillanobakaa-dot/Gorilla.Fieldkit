@@ -505,8 +505,28 @@ def stage_mac(ctx):
         return {"ok": False, "detail": f"{script} failed: " + " | ".join(last)[:400], "log": r.log}
     if f.read_bytes()[:4] not in MACHO:
         return {"ok": False, "detail": f"{f.name} is not a 64-bit Mach-O binary"}
-    return _save(ctx, src, "mac", {"ok": True, "version": version, "file": str(f), "sha256": _sha(f),
-                                   "bytes": f.stat().st_size, "detail": f"{f.name} ({f.stat().st_size:,} bytes)"})
+    rec = {"ok": True, "version": version, "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size,
+           "detail": f"{f.name} ({f.stat().st_size:,} bytes)", "package": []}
+    # the installer's folder (Install/Undo .command, the .tar.gz it checks, SHA256SUMS, a .zip for the release page),
+    # by the project's own packager (the Windows side's build_mac_legacy_package.py, 2026-10-23 PR #3)
+    pkg = (v.get("mac_package") or "").strip()
+    if pkg and (src / pkg).is_file():
+        pdir = out / "mac-package"
+        shutil.rmtree(pdir, ignore_errors=True)
+        r = _run(ctx, [sys.executable, str(src / pkg), str(src), str(f), _plain(version), str(pdir)], src,
+                 "mac-package", timeout=1800)
+        made = sorted(p for p in pdir.rglob("*") if p.is_file() and p.suffix in (".zip", ".gz"))
+        if not r.ok or not made:
+            last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
+            return {"ok": False, "detail": f"{pkg} failed: " + " | ".join(last)[:300], "log": r.log}
+        for m in made:
+            dst = out / m.name
+            shutil.copy2(m, dst)
+            rec["package"].append({"file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
+        rec["detail"] += "; package: " + ", ".join(Path(x["file"]).name for x in rec["package"])
+    elif pkg:
+        rec["detail"] += f"; no Mac package: {pkg} is not in this checkout"
+    return _save(ctx, src, "mac", rec)
 
 
 def verify_mac(ctx):
@@ -586,6 +606,7 @@ def stage_checksums(ctx):
     mac = _load(ctx, src, "mac") or {}                   # the Mac binary and the packages, when those stages ran
     if mac.get("ok") and mac.get("file"):
         lines.append(f"{mac['sha256']}  {Path(mac['file']).name}")
+        lines += [f"{x['sha256']}  {Path(x['file']).name}" for x in mac.get("package", [])]
     lines += [f"{f['sha256']}  {Path(f['file']).name}" for f in (_load(ctx, src, "packages") or {}).get("files", [])]
     f.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"ok": True, "file": str(f), "detail": f"{f.name}: {len(lines)} file(s)"}

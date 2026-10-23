@@ -23,6 +23,7 @@ vars:
   windows_name: gorilla-opencode.exe   # the name the releases use
   mac_script: scripts/build-darwin-legacy.sh   # empty: no Mac binary
   mac_suffix: macos10.13
+  mac_package: scripts/packaging/build_mac_legacy_package.py   # the installer's folder + .zip (skipped if absent)
   packages: "scripts/build-deb.sh,scripts/build-arch.sh,scripts/build-tarball.sh,scripts/build-rpm.sh"
   package_dir: Compiled.Builds   # where the package scripts leave their files
 stages:

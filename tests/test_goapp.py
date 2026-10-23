@@ -274,3 +274,29 @@ def test_without_mac_script_or_packages_both_stages_skip(tmp_path):
     ctx.vars["packages"] = ""
     assert goapp.stage_mac(ctx)["skipped"] and goapp.stage_packages(ctx)["skipped"]
     assert goapp.verify_mac(ctx)["ok"] and goapp.verify_packages(ctx)["ok"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in scripts are POSIX sh")
+def test_mac_stage_also_makes_the_installer_package_and_sums_it(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    ctx.vars["mac_script"] = _script(src, "scripts/mac.sh", 'printf "\\317\\372\\355\\376" > "$1"\n')
+    pkg = src / "scripts" / "pack.py"
+    pkg.write_text("import sys, pathlib\nrepo, binary, v, out = sys.argv[1:5]\nd = pathlib.Path(out) / f'app-{v}-mac'\n"
+                   "d.mkdir(parents=True)\n(d / f'app-{v}-mac-10.13-x86_64.tar.gz').write_bytes(b'tgz')\n"
+                   "(pathlib.Path(out) / f'app-{v}-mac-10.13.zip').write_bytes(b'zip')\n")
+    ctx.vars["mac_package"] = "scripts/pack.py"
+    r = goapp.stage_mac(ctx)
+    assert r["ok"], r
+    names = sorted(Path(x["file"]).name for x in r["package"])
+    assert names == ["app-1.2.3-mac-10.13-x86_64.tar.gz", "app-1.2.3-mac-10.13.zip"]
+    goapp.stage_checksums(ctx)
+    sums = (out / "SHA256SUMS-v1.2.3.txt").read_text()
+    assert all(n in sums for n in names)
+
+
+def test_mac_package_absent_is_said_not_failed(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    ctx.vars["mac_script"] = _script(src, "scripts/mac.sh", 'printf "\\317\\372\\355\\376" > "$1"\n')
+    ctx.vars["mac_package"] = "scripts/packaging/missing.py"
+    r = goapp.stage_mac(ctx)
+    assert r["ok"] and "not in this checkout" in r["detail"]
