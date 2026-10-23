@@ -1,0 +1,34 @@
+# Version: 1.0.0 · updated 26-10-23-02-23
+# Short names for long Fieldkit commands: `fk NAME [values]` prints the full command, then runs it.
+#
+# Owner, 2026-10-23: "comenzile sunt astronomic de lungi. dureaza mai mult sa le tastezi de mana ... decat sa faci tu
+# lucrul singur ... alias-uri ca in linux, comenzile scurte si in limbaj uman. comanda intreaga va fi afisata ca sa
+# stie user-ul ce face" - and the names in English ("no one speaks romanian").
+#
+# Each entry: name -> {run: the full command after `fieldkit`, does: one plain line}.
+# {placeholders} are filled, in order, by the values typed after the name; a placeholder with a default
+# ({path=.}) may be left out, and so may one set in local defaults. Anything typed after the placeholders is added to the end of the command.
+# Your own entries go in local/aliases.yaml (same shape, git-ignored); a local entry of the same name wins.
+# Values you always use go there too, as defaults (never in this public file):  defaults: {mac: my-mac}
+# tests/test_aliases.py checks that every entry runs a real fieldkit command.
+aliases:
+  # this computer
+  machine:      {run: "doctor --probe", does: "what this computer is and the easiest way to install Fieldkit on it"}
+  ready:        {run: "doctor --lean", does: "is the small, core install complete?"}
+  needs:        {run: "doctor", does: "everything this computer still needs for every tool, with the line that installs it"}
+  next:         {run: "next", does: "the one next thing to do"}
+  tools:        {run: "tools list", does: "every tool Fieldkit knows"}
+  sync:         {run: "sync", does: "is this computer in step with GitHub?"}
+  cards:        {run: "cards check", does: "does every tool's card still match its command?"}
+  privacy:      {run: "privacy scan {path=.} --git", does: "anything private in what git would publish?"}
+  symptom:      {run: "build-harness symptom {words}", does: "describe what you see; get the tool that diagnoses it"}
+
+  # the cable link's aliases (link, tell, inbox, listen, relay, same-tools, clock, ...) live on feat/agent-link,
+  # where `fieldkit peers link` is; they join this file when the two branches meet in main
+
+  # an old Mac on the network
+  mac:          {run: "mac doctor {mac}", does: "can this computer reach the Mac?"}
+  mac-info:     {run: "mac info {mac}", does: "what the Mac is: model, memory, macOS, disk"}
+  mac-awake:    {run: "mac keep-awake {mac}", does: "keep the Mac awake for a long job (2 hours)"}
+  mac-screen:   {run: "mac shot {mac}", does: "a picture of the Mac's screen, here"}
+  mac-text:     {run: "mac screen-text {mac} --tty {tty}", does: "the text in a Terminal window on the Mac"}

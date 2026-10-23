@@ -141,7 +141,14 @@ def cmd_where(a):
 
 def cmd_doctor(a):
     from .core import doctor
-    r = doctor.check(a.pipeline)
+    # 2026-10-23: the stranger on the MacBook Air typed `fieldkit doctor --lean` and got "unrecognized arguments";
+    # only `python -m fieldkit.core.doctor --lean` knew it. The same flags at both doors.
+    if getattr(a, "probe", False):
+        r = doctor.probe()
+        _emit(r, a.json, lambda d: print("\n".join(doctor.probe_lines(d))))
+        return 0 if r["ready_to_install"] else 3
+    way = None if doctor.git_state() == "real" else "zip"
+    r = doctor.check(a.pipeline, lean=getattr(a, "lean", False), way=way)
     _emit(r, a.json, lambda d: print("\n".join(doctor.lines(d))))
     return 0 if r["ok"] else 3
 
@@ -1301,6 +1308,8 @@ def build_parser():
     sub.add_parser("where", parents=[common], help="print the Fieldkit folder: cd (fieldkit where)").set_defaults(fn=cmd_where)
 
     dr = sub.add_parser("doctor", parents=[common], help="what this machine still needs, and the line that installs it")
+    dr.add_argument("--lean", action="store_true", help="only the packages a small or old computer needs (requirements.json lean)")
+    dr.add_argument("--probe", action="store_true", help="the machine itself and the way in (git or zip, lean or full)")
     dr.add_argument("--for", dest="pipeline", help="also the programs this pipeline needs (e.g. debian-kernel)")
     dr.set_defaults(fn=cmd_doctor)
 
