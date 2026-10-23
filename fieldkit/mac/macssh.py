@@ -10,7 +10,7 @@
     fieldkit mac fix-alias NAME [--ip] [--apply]       the "Host NAME" entry in ~/.ssh/config (old one kept in Trash)
     fieldkit mac run NAME -- COMMAND ...               run a command on the Mac; its exit code is this tool's
     fieldkit mac shot NAME [--out FILE]                the Mac's screen now (screencapture), fetched to this machine
-    fieldkit mac keep-awake|open-app|screen-text|keys|wait-text|tui-start NAME ...   drive its screen like a person (macdrive.py)
+    fieldkit mac keep-awake|open-app|screen-text|keys|wait-text|tui-start|watch-dialogs NAME ...   drive its screen like a person (macdrive.py)
 
 Born 2026-10-22. The owner's MacBook Air 4,1 (2011, macOS 10.13.6, no longer supported by Apple) is a test target
 of the Gorilla browser, reached from the Linux box over SSH. The way to reach it lived only in handover notes, and one
@@ -347,6 +347,14 @@ def main(argv=None, prog="macssh.py"):
     wt.add_argument("--tty", required=True)
     wt.add_argument("--for", dest="pattern", required=True)
     wt.add_argument("--seconds", type=float, default=120)
+    wd = sp.add_parser("watch-dialogs", help="answer, count and log every permission dialog of a running Gorilla OpenCode")
+    wd.add_argument("name")
+    wd.add_argument("--tty", required=True)
+    wd.add_argument("--answer", choices=["allow", "session", "deny"], default="allow")
+    wd.add_argument("--until-file", help="stop when this file exists on the Mac (a report the run writes)")
+    wd.add_argument("--seconds", type=float, default=3600)
+    wd.add_argument("--every", type=float, default=15)
+    wd.add_argument("--log", help="append one JSON line per dialog to this file")
     o = ap.parse_args(argv)
 
     if o.cmd == "add":
@@ -415,7 +423,7 @@ def main(argv=None, prog="macssh.py"):
         remote = f"/tmp/fieldkit-shot-{datetime.datetime.now():%y%m%d%H%M%S}.png"
         out = o.out or f"{o.name}-screen-{datetime.datetime.now():%y-%m-%d-%H-%M-%S}.png"
         return take_shot(mac, address, remote, out)
-    if o.cmd in ("keep-awake", "open-app", "screen-text", "keys", "wait-text", "tui-start"):
+    if o.cmd in ("keep-awake", "open-app", "screen-text", "keys", "wait-text", "tui-start", "watch-dialogs"):
         from . import macdrive
         address, how = find(mac)
         if not address:
@@ -438,6 +446,9 @@ def main(argv=None, prog="macssh.py"):
             code, msg = macdrive.keys(fn, o.tty, o.key, text, expect=o.expect)
         elif o.cmd == "tui-start":
             code, rows = macdrive.tui_start(fn, o.tty, o.seconds)
+            msg = "\n".join(rows)
+        elif o.cmd == "watch-dialogs":
+            code, rows = macdrive.watch_dialogs(fn, o.tty, o.answer, o.until_file, o.seconds, o.every, o.log)
             msg = "\n".join(rows)
         else:
             code, msg = macdrive.wait_text(fn, o.tty, o.pattern, o.seconds)

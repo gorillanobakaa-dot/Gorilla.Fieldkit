@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-02-51
+# Version: 1.2.0 · updated 26-10-23-16-05
 """macdrive.py - drive a Mac's screen from another computer, the way a person would, and check each step took.
 
     fieldkit mac keep-awake NAME [--minutes N | --stop]    caffeinate on the Mac for a long job (display, disk, network)
@@ -16,6 +16,11 @@
     fieldkit mac keys ... --expect REGEX                   type only if REGEX is on the screen first
     fieldkit mac wait-text NAME --tty TTY --for REGEX [--seconds S]
                                                            wait until the tab shows REGEX (a dialog, a prompt, READY)
+    fieldkit mac watch-dialogs NAME --tty TTY [--answer allow|session|deny] [--until-file PATH] [--log FILE]
+                                                           stay with a running Gorilla OpenCode: every "Permission
+                                                           Required" dialog is read (command, why it asked), answered
+                                                           with one key, counted and logged, until PATH exists on the
+                                                           Mac or --seconds run out; ends with the count
 
 Born 2026-10-23, the night the harness met its first Mac (the owner's 2011 MacBook Air, macOS 10.13, 4 GB): the Linux
 Claude drove Gorilla OpenCode on the Air by hand to run a stranger's install test, and the owner said every one of
@@ -245,6 +250,77 @@ def tui_start(ssh_argv_fn, tty, seconds=180, every=4, now=time.time, sleep=time.
         last = (name, key)
         sleep(every)
     return 3, lines + [f"not at the prompt within {seconds:g} s"]
+
+
+# Gorilla OpenCode's permission dialog, as data. It is current only while its buttons row sits among the last rows
+# of the tab, above the footer (prompt, status lines): the tab's text keeps every OLD dialog above.
+DIALOG_TITLE = r"\bPermission Required\b"
+DIALOG_BUTTONS = r"Allow \(a\).*Deny \(d\)"
+DIALOG_KEYS = {"allow": "a", "session": "s", "deny": "d"}
+
+
+def _cell(row):
+    return re.sub(r"^[\s|│┃]*|[\s|│┃]*$", "", row)
+
+
+def current_dialog(rows, tail=12):
+    """-> {"command", "why", "tool"} when a permission dialog is on screen NOW, else None."""
+    if not rows:
+        return None
+    last = _last(rows[-tail:], DIALOG_BUTTONS)
+    if last < 0:
+        return None
+    end = len(rows) - tail + last if len(rows) > tail else last
+    top = max((i for i in range(end + 1) if re.search(DIALOG_TITLE, rows[i])), default=-1)
+    if top < 0:
+        return None
+    box = [_cell(r) for r in rows[top:end + 1]]
+    command, why, tool = "", [], ""
+    for i, r in enumerate(box):
+        if r == "Command" and i + 1 < len(box):
+            command = box[i + 1]
+        elif r.startswith("Tool:"):
+            tool = r
+        elif command and r and r != command and not r.startswith(("Allow", "Command", "Permission")) and not tool:
+            why.append(r)
+    return {"command": command, "why": " ".join(why), "tool": tool}
+
+
+def watch_dialogs(ssh_argv_fn, tty, answer="allow", until_file=None, seconds=3600, every=15, log=None,
+                  now=time.time, sleep=time.sleep, **kw):
+    """-> (code, lines). Stays with a running Gorilla OpenCode and answers each permission dialog with ONE key,
+    counting and logging what it asked and why; 0 when until_file exists on the Mac, 3 when time ran out.
+
+    Born 2026-10-23: during the stranger's install test on the Air the Linux Claude waited only for REPORT.txt, and
+    Gemini sat behind an unanswered dialog until the owner noticed ("Gemini awaits for you to click accept"). An
+    earlier dialog went unanswered and was denied. Watching a run means watching its dialogs too."""
+    key = DIALOG_KEYS.get(answer)
+    if not key:
+        return 2, [f"unknown answer {answer!r} (allow, session, deny)"]
+    seen, lines, end = [], [], now() + seconds
+    while True:
+        rows, err = screen_text(ssh_argv_fn, tty, 60, **kw)
+        d = current_dialog(rows) if rows else None
+        if d:
+            code, msg = keys(ssh_argv_fn, tty, key, sleep=sleep, expect=DIALOG_TITLE, **kw)
+            entry = {"n": len(seen) + 1, "at": time.strftime("%H:%M:%S"), "answer": answer, "sent": code == 0, **d}
+            seen.append(entry)
+            line = f"dialog {entry['n']} {entry['at']}: {answer} -> {d['command'][:100]} ({d['why'][:160]})"
+            if code != 0:
+                line += f" [key not confirmed: {msg}]"
+            lines.append(line)
+            if log:
+                import json
+                with open(log, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(entry) + "\n")
+            continue
+        if until_file:
+            rc, _, _ = remote(ssh_argv_fn, "test -f " + shlex.quote(until_file), tries=2, **kw)
+            if rc == 0:
+                return 0, lines + [f"{until_file} exists; {len(seen)} dialog(s) answered"]
+        if now() >= end:
+            return 3, lines + [f"stopped after {seconds:g} s; {len(seen)} dialog(s) answered"]
+        sleep(every)
 
 
 def windows(ssh_argv_fn, **kw):

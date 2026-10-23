@@ -220,3 +220,61 @@ def test_mac_run_retries_only_a_wifi_drop(capsys):
     assert len(calls) == 2 and "hello" in capsys.readouterr().out
     refused = lambda argv: R(255, "", "Permission denied (publickey)")
     assert macssh.run_retry(["ssh", "x"], runner=refused, sleep=lambda s: None) == 255
+
+
+DIALOG = """┃ Bash: python3 -c "import urllib.request; print('urllib ok')"
+┃ Waiting for response...
+  +----------------------------------------------------------+
+  | Permission Required                                      |
+  |                                                          |
+  | Command                                                  |
+  | python3 -c "import urllib.request; print('urllib ok')"   |
+  |                                                          |
+  | Runs python3; it can reach the network or run a script.  |
+  | Asks even with auto-approve on: this turn has already    |
+  | Tool: bash   Path: /Users/gorilla/Stranger-Test          |
+  | Allow for session (s) covers: this exact request         |
+  |                                                          |
+  |  Allow (a)    Allow for session (s)    Deny (d)          |
+  +----------------------------------------------------------+
+─────────────────────────────
+ >
+model Gemini 3.8 Flash (High) (Antigravity)  |  in Stranger-Test
+tokens 40.1K in / 930 out
+ ? help  Context: 41K                         AUTO  Gemini 3.8 Flash"""
+FOOTER = "\n─────\n >\nmodel Gemini | in Stranger-Test\ntokens 1K\n ? help   AUTO"
+
+
+def test_a_dialog_on_screen_is_read_and_an_old_one_above_is_not():
+    rows = [r for r in DIALOG.splitlines() if r.strip()]
+    d = D.current_dialog(rows)
+    assert d["command"] == "python3 -c \"import urllib.request; print('urllib ok')\""
+    assert "Asks even with auto-approve on" in d["why"] and d["tool"].startswith("Tool: bash")
+    # answered: the model kept working, so the old box is now far above the footer
+    later = rows + ["┃ urllib ok", "┃ Bash: ls", "┃ a", "┃ b", "┃ c", "┃ d", "┃ e", "┃ f"] + FOOTER.split("\n")[1:]
+    assert D.current_dialog(later) is None
+
+
+def test_watch_dialogs_answers_each_dialog_once_counts_and_stops_at_the_report(tmp_path):
+    mac = Mac(screen=DIALOG)
+    state = {"answered": 0}
+    def runner(argv, stdin, _orig=mac.__call__):
+        line = argv[-1]
+        if line.startswith("osascript -") and stdin == D.KEY_SCRIPT:
+            state["answered"] += 1
+            mac.screen = "┃ urllib ok\n┃ working" + FOOTER     # the dialog goes away once a key lands
+            return 0, "SENT"
+        if line.startswith("test -f"):
+            return (0, "") if state["answered"] else (1, "")
+        return _orig(argv, stdin)
+    log = tmp_path / "dialogs.jsonl"
+    code, lines = D.watch_dialogs(fn, "/dev/ttys001", "allow", "/Users/gorilla/Stranger-Test/REPORT.txt",
+                                  seconds=60, every=1, log=str(log), runner=runner, sleep=lambda s: None)
+    assert code == 0 and state["answered"] == 1, lines
+    assert lines[0].startswith("dialog 1 ") and "allow -> python3 -c" in lines[0]
+    assert lines[-1].endswith("1 dialog(s) answered")
+    assert '"answer": "allow"' in log.read_text() and "urllib" in log.read_text()
+
+
+def test_watch_dialogs_refuses_an_unknown_answer():
+    assert D.watch_dialogs(fn, "/dev/ttys001", "maybe", runner=Mac(), sleep=lambda s: None)[0] == 2
