@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.0.0 · updated 26-10-20-18-50
+# Version: 1.1.0 · updated 26-10-22-14-20
 """gtkcheck.py - does a GTK user stylesheet hold when a window loses focus, and is the desktop showing it.
 
     fieldkit gtk-theme check [--json]          read-only; exit 0 clean, 3 findings
@@ -19,6 +19,18 @@ check here, so the next session runs this instead of guessing:
             starting again: Files runs as `nautilus --gapplication-service` and survives it (the fix "did not
             work" for 15 minutes because Files had been running since 15:23). A package upgrade that only applies
             "once" never rewrites the CSS either.
+
+Added 2026-10-22, after the owner's Files and Settings came up light after a login ("I never had a theme being
+scrambled on me before"):
+
+  4. SCRAMBLED  Two login launchers ran the installer at the same instant and wrote the same gtk.css through one
+                shared temp name: each file became two interleaved copies (318 and 158 lines instead of 159 and 79),
+                comments broken mid-way, and GTK dropped the lot. Seen here as the theme's BEGIN marker more than
+                once, or BEGIN/END markers that do not pair up.
+  5. LAUNCHERS  The second launcher was a leftover: the theme's old package (gtk-high-contrast-theme) had been
+                removed but not purged, so its autostart .desktop stayed (dpkg state rc) and still ran, through a
+                compatibility symlink, the SAME program as the new one. Seen here as two autostart entries whose
+                Exec resolves to one program; the owning package and its dpkg state are named.
 
 The rules are read from the toolkit libraries THIS machine has (their embedded CSS), never from a list typed here,
 so a new libadwaita with a new fade is caught the day it is installed.
@@ -227,6 +239,100 @@ def stale_package(installer=PACKAGE):
     return out
 
 
+def scrambled(text, marker=MARKER):
+    """Why a stylesheet's theme block is broken, or None. Counts the markers in order: a clean file has BEGIN, END,
+    BEGIN, END ... (normally once). Two runs writing at once leave BEGIN twice before an END."""
+    marks = re.findall(r"/\* (BEGIN|END) " + re.escape(marker) + r" \*/", text)
+    if not marks:
+        return None
+    depth, worst = 0, 0
+    for m in marks:
+        depth += 1 if m == "BEGIN" else -1
+        worst = max(worst, depth)
+        if depth < 0:
+            return f"an END marker before its BEGIN ({marks.count('BEGIN')} BEGIN, {marks.count('END')} END)"
+    if worst > 1 or depth != 0:
+        return f"BEGIN/END markers do not pair up ({marks.count('BEGIN')} BEGIN, {marks.count('END')} END, in order: {' '.join(marks)})"
+    if marks.count("BEGIN") > 1:
+        return f"the theme block is there {marks.count('BEGIN')} times"
+    return None
+
+
+AUTOSTART = ("/etc/xdg/autostart", os.path.expanduser("~/.config/autostart"))
+
+
+def _desktops():
+    """This session's desktop names (XDG_CURRENT_DESKTOP, e.g. "ubuntu:GNOME"); empty when not in a desktop session."""
+    return {d.lower() for d in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":") if d}
+
+
+def _exec_program(desktop, desktops=None):
+    """(resolved program, arguments) of a .desktop file's Exec line, or None when it does not start on this desktop.
+    OnlyShowIn/NotShowIn count: xdg-user-dirs ships one entry for KDE and one for the rest, same program, never both
+    run. Outside a desktop session (over SSH) an OnlyShowIn entry cannot be confirmed and is left out."""
+    desktops = _desktops() if desktops is None else desktops
+    try:
+        with open(desktop, errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return None
+    if re.search(r"^Hidden\s*=\s*true", text, re.M | re.I):
+        return None                         # a user override that switches the system entry off
+    only = re.search(r"^OnlyShowIn\s*=\s*(.+)$", text, re.M)
+    if only and not desktops & {d.strip().lower() for d in only.group(1).split(";") if d.strip()}:
+        return None
+    never = re.search(r"^NotShowIn\s*=\s*(.+)$", text, re.M)
+    if never and desktops & {d.strip().lower() for d in never.group(1).split(";") if d.strip()}:
+        return None
+    m = re.search(r"^Exec\s*=\s*(.+)$", text, re.M)
+    if not m:
+        return None
+    parts = m.group(1).split()
+    prog = parts[0]
+    if not os.path.isabs(prog):
+        for d in os.environ.get("PATH", "/usr/bin:/bin").split(":"):
+            if os.path.exists(os.path.join(d, prog)):
+                prog = os.path.join(d, prog)
+                break
+    return os.path.realpath(prog), " ".join(p for p in parts[1:] if not p.startswith("%"))
+
+
+def _owner(path):
+    """(package, dpkg state) owning a file, or (None, None) when dpkg does not know it."""
+    try:
+        r = subprocess.run(["dpkg-query", "-S", path], capture_output=True, text=True, timeout=10)
+        pkg = r.stdout.split(":", 1)[0].strip() if r.returncode == 0 else None
+        if not pkg:
+            return None, None
+        st = subprocess.run(["dpkg-query", "-W", "-f=${db:Status-Abbrev}", pkg], capture_output=True, text=True,
+                            timeout=10).stdout.strip()
+        return pkg, st or None
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+
+
+def duplicate_launchers(dirs=AUTOSTART, owner=_owner, desktops=None):
+    """Autostart entries that start the same program with the same arguments at login: they run at the same
+    instant and race on whatever that program writes. A user entry in ~/.config/autostart with the same file name
+    replaces the system one, so only the effective entry of each name counts. -> [[{file, program, package,
+    state}, ...], ...]"""
+    effective = {}
+    for d in dirs:                          # later dirs (the user's) replace earlier ones by file name
+        for p in sorted(glob.glob(os.path.join(d, "*.desktop"))):
+            effective[os.path.basename(p)] = p
+    groups = {}
+    for p in effective.values():
+        e = _exec_program(p, desktops)
+        if e:
+            groups.setdefault(e, []).append(p)
+    out = []
+    for (prog, args), files in sorted(groups.items()):
+        if len(files) > 1:
+            out.append([{"file": f, "program": prog, "args": args, **dict(zip(("package", "state"), owner(f)))}
+                        for f in files])
+    return out
+
+
 def check(self_cmd="fieldkit"):
     findings, info = [], []
     for kind, (soname, css) in LIBS.items():
@@ -257,6 +363,33 @@ def check(self_cmd="fieldkit"):
             if others:
                 info.append(f"{kind}: {len(others)} unfocused rules give a fixed text colour to an element the user "
                             f"sheet never colours (they matter only if that element shows text): --json lists them")
+    for css in (CSS4, CSS3):
+        try:
+            with open(css, errors="replace") as f:
+                why = scrambled(f.read())
+        except OSError:
+            why = None
+        if why:
+            findings.append({"check": "scrambled", "toolkit": "", "what": f"{css}: {why}",
+                             "fix": f"first find who wrote it twice (the launchers finding below; journalctl --user -b "
+                                    f"| grep -i theme); then move {css} to {os.path.expanduser('~/Agents.Work.Trash')}/ and run "
+                                    f"{PACKAGE} apply once"})
+    theme_prog = os.path.realpath(PACKAGE)
+    for group in duplicate_launchers():
+        leftovers = [g["package"] for g in group if g["state"] and g["state"].startswith("rc")]
+        if group[0]["program"] != theme_prog and not leftovers:
+            # same program twice, both packages installed (Debian's desktop-base ships a KDE copy of
+            # xdg-user-dirs.desktop): real, but not this check's business. Listed, not a finding.
+            info.append(f"also started twice at login, both packages installed: {group[0]['program']} "
+                        f"({', '.join(os.path.basename(g['file']) for g in group)})")
+            continue
+        names = ", ".join(f"{g['file']} (package {g['package'] or 'none'}"
+                          f"{', dpkg state ' + g['state'] if g['state'] else ''})" for g in group)
+        fix = (f"purge the removed package's leftover: /usr/bin/sudo /usr/bin/dpkg --purge {' '.join(leftovers)}"
+               if leftovers else "keep one: the other belongs to an old install (dpkg-query -S <file> names it); "
+                                 "move it to " + os.path.expanduser("~/Agents.Work.Trash") + "/")
+        findings.append({"check": "launchers", "toolkit": "", "what": f"{len(group)} login launchers start "
+                         f"{group[0]['program']} {group[0]['args']} at the same instant: {names}", "fix": fix})
     for app in stale_apps():
         name = os.path.basename(app["exe"])
         if name.startswith("xdg-desktop-portal"):
@@ -278,7 +411,8 @@ def check(self_cmd="fieldkit"):
 def main(argv=None, prog="gtkcheck.py"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0])
     sp = ap.add_subparsers(dest="cmd", required=True)
-    c = sp.add_parser("check", help="unfocused-window colours, fades and greys the user stylesheet misses; apps and "
+    c = sp.add_parser("check", help="unfocused-window colours, fades and greys the user stylesheet misses; a "
+                                     "scrambled stylesheet and the duplicate login launchers that scramble it; apps and "
                                      "packages still showing an old stylesheet (read-only; exit 3 = findings)")
     c.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)

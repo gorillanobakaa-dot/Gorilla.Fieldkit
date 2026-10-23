@@ -267,6 +267,143 @@ SYMPTOMS = [
         "then": "restart what it lists; a service app needs its quit command, not its window closed",
     },
     {
+        "id": "text-looks-different-on-two-screens",
+        "seen": "The same page or app looks different on two machines: text thin and crisp on one, thick, bold, blurry or "
+                "over-smoothed on the other; or a font looks wrong and nobody can say which font or why.",
+        "example": "here the fonts are thin crisp, on the mac they look oversmoothed thick blurry, is that antialias or serif",
+        "words": [r"font|text|letters|typeface|segoe|serif|antialias|anti-alias|smooth|hinting",
+                  r"thick|thin|bold|blurr?y|crisp|sharp|fuzzy|soft|oversmooth|readab|compare|difference|different"],
+        "action": "shot",
+        "run": "fieldkit shot text-compare A X,Y,W,H B X,Y,W,H --out both.png",
+        "proves": "stroke width in pixels, ink share, blur (half-tone pixels), coloured (LCD) smoothing and extent of the "
+                  "SAME text on two screenshots, with the two boxes stacked at 3x; a different extent means a different font",
+        "look": ["fieldkit shot grid FILE to find the box; fieldkit shot crop FILE BOX --zoom 3 to see pixels",
+                 "fieldkit mac shot NAME to fetch an old Mac's screen", "which font is drawn: browser UI and about: pages "
+                 "use the OS interface font, web pages the browser's default (D-158-12/21)"],
+        "last_fix": "2026-10-22: about:about on the MacBook Air: strokes 1.40x the Linux ones (2.97 vs 2.12 px) and taller "
+                    "text: macOS's interface font with its stroke-widening smoothing, not Segoe UI; not serif",
+        "then": "change ONE thing (the font, or -moz-osx-font-smoothing), take the same screenshot, text-compare again",
+    },
+    {
+        "id": "macbook-air-browser",
+        "seen": "Building, shipping or checking Gorilla for the MacBook Air or another old Mac: a new build is due, a "
+                "Mac fix went missing in a build, something does not fit the 11-inch screen, or text looks thick there.",
+        "example": "the gorilla icon is too big for the macbook air screen and goes out of bounds",
+        "words": [r"macbook|mac ?air|sierra|high sierra|10\.13|momiji|old mac|11 ?inch|11\"",
+                  r"build|rebuild|recreate|install|icon|logo|window|screen|fit|bounds|font|blurr?y|thick|release|package"],
+        "action": "macair",
+        "run": "fieldkit macair status",
+        "proves": "the recreate run, the Mac tree and the published series, and whether every Mac decision is still in "
+                  "the source (preflight: fonts, Consolas, Segoe UI interface, thin text, the 11-inch budget)",
+        "look": ["gorilla-firefox/macos-legacy/recreate-mac.sh (the public recipe)",
+                 "fieldkit macair budget (669 px content, 459 px logo on 1366x768)",
+                 "Firefox.158.Macbook.air.Sierra.Legacy/BUILD-LOG-legacy-mac.md (every try)"],
+        "last_fix": "2026-10-22: About window min-height 800 on a 768 px screen -> 610 and logo 400; add-ons logo capped "
+                    "by page height; Segoe UI interface + greyscale text (verify: 2.11 px, 0 % LCD)",
+        "then": "fieldkit macair preflight, then recreate, install ZIP, verify; record the result in the BUILD-LOG",
+    },
+    {
+        "id": "mac-sensors-heat",
+        "seen": "How hot is the Mac, how fast is its fan, how much memory is in use, or how hard does the browser press "
+                "an old Mac: a heat or memory test, temperatures needed with Macs Fan Control off, or the sensors "
+                "dashboard (sensors.gorilla, gorilla-sensors) wanted on a Mac.",
+        "example": "start gorilla-sensors on the macbook air and test the browser heat with macs fan control off",
+        "words": [r"mac\b|macbook|mac ?air|sierra|old mac|osx|os x",
+                  r"heat|hot|temp|temperature|fan|rpm|thermal|sensor|smc|memory|ram|battery|throttl"],
+        "action": "mac",
+        "run": "fieldkit mac sensors macair",
+        "proves": "the Mac's temperatures, fan, who controls the fan, CPU speed limit, battery and memory now, read "
+                  "from the SMC by sensors.gorilla (no password, nothing installed)",
+        "look": ["fieldkit mac sensors macair --open (live on the Mac's own screen)",
+                 "fieldkit macair heat LABEL --url blank|https://... (Macs Fan Control off for the run)",
+                 "fieldkit macair heat-report (every run; 'fan ctl off' = a normal Air)"],
+        "last_fix": "2026-10-23: temperatures came from Macs Fan Control's menu-bar text via tesseract and read nothing; "
+                    "replaced by sensors.gorilla 2.2.0 (SMC through IOKit). about:blank made the browser vanish: "
+                    "'open -a App about:blank' is a file name, use --url blank",
+        "then": "record each heat run's numbers in Firefox.158.Macbook.air.Sierra.Legacy/BUILD-LOG-legacy-mac.md",
+    },
+    {
+        "id": "old-mac-unreachable",
+        "seen": "The old Mac (MacBook Air or another out-of-support Mac) cannot be reached over SSH, its address changed, "
+                "the ssh alias stopped working, or a session does not know how to connect to it.",
+        "example": "can you still connect to the macbook air via ssh",
+        "words": [r"mac\b|macbook|mac ?air|imac|mac ?mini|sierra|high sierra|el capitan|mojave|osx|os x",
+                  r"ssh|connect|reach|address|ip\b|alias|remote|log ?in|unreachable|offline|can'?t get"],
+        "action": "mac",
+        "run": "fieldkit mac doctor",
+        "proves": "the key is there with safe permissions, the Mac's address today (mDNS name, else hardware address, "
+                  "else after a ping sweep), that login works and which macOS answers, and whether the ssh alias works",
+        "look": ["local/macs.json (private: the Macs this machine knows)", "~/.ssh/config Host entries",
+                 "avahi-resolve -4 -n NAME.local; ip -4 neigh"],
+        "last_fix": "2026-10-22: a handover said 'ssh macair' was stale after the Mac's name changed; tested, it worked "
+                    "(mDNS answers some minutes, not others). The Air is now in local/macs.json with its hardware "
+                    "address, so a silent mDNS or a new DHCP address no longer loses it",
+        "then": "fieldkit mac fix-alias NAME --apply if the alias fails; fieldkit mac run NAME -- COMMAND for work on it",
+    },
+    {
+        "id": "device-firmware-missing",
+        "seen": "A USB Wi-Fi stick, antenna, network card or other device is plugged in and detected, but never works: "
+                "its interface stays down, it disconnects and reconnects in a loop, or it is missing from the network list.",
+        "example": "the alfa antenna is connected but the wifi interface stays down",
+        "words": [r"antenna|antena|alfa|dongle|usb wi-?fi|stick|adapter|network card|bluetooth|webcam|device|plugged",
+                  r"not work|doesn'?t work|down|no connect|reconnect|loop|missing|dead|firmware|not detected|nu merge"],
+        "action": "firmware",
+        "run": "fieldkit firmware check",
+        "proves": "which plugged-in device's driver failed to load its firmware (kernel log), even when the device has "
+                  "reset off the bus since; whether that driver is built into the kernel (fix: CONFIG_EXTRA_FIRMWARE) or "
+                  "a module (fix: the file in /lib/firmware)",
+        "look": ["dmesg | grep 'Direct firmware load'", "lsusb (a stick that resets may be missing between tries)",
+                 "/lib/modules/$(uname -r)/modules.builtin.modinfo (what built-in drivers need)"],
+        "last_fix": "2026-10-22: ALFA AWUS036NH (148f:3070), rt2800usb built in, rt2870.bin never built in nor on disk; "
+                    "not rebuilt (next kernel build carries it: Debian.Kernel.Work/CLAUDE.md 'NEXT KERNEL BUILD')",
+        "then": "built-in driver: add the file to the next kernel's CONFIG_EXTRA_FIRMWARE; module: put it in /lib/firmware; "
+                "plug the device in again and run the check",
+    },
+    {
+        "id": "desktop-leftovers",
+        "seen": "A Linux desktop that has had other desktops, virtual machines or many programs installed and removed: "
+                "things start at login that should not, menu entries open nothing, two copies of something run, or the "
+                "person wants a clean install back without reinstalling.",
+        "example": "I tried KDE and XFCE and some VMs, now there is junk starting at login and dead icons in the menu",
+        "words": [r"leftover|remnant|orphan|residu|junk|crap|clutter|dead (icon|entr|launcher)|duplicate|conflict|"
+                  r"r[aă]m[aă]?[sș]i[tț]|resturi|gunoi",
+                  r"launcher|autostart|login|start ?up|menu|desktop|package|uninstall|removed|vm|virtual|de\b|kde|xfce"],
+        "action": "leftovers",
+        "run": "fieldkit leftovers scan",
+        "proves": "every removed-not-purged package (and which of its files still start at login), login launchers that "
+                  "start one program twice or a program that is gone, VM guest helpers on real hardware, dead menu "
+                  "entries and user services, dead login-screen sessions; masks, TryExec self-hides, OnlyShowIn and "
+                  "DesktopNames honoured so the running desktop's own parts are never listed",
+        "look": ["dpkg -l | grep '^rc'", "ls /etc/xdg/autostart ~/.config/autostart ~/.local/share/applications",
+                 "systemd-detect-virt (none = a VM helper has nothing to do here)"],
+        "last_fix": "2026-10-22 on the VAIO: 10 rc packages, spice-vdagent on real hardware, desktop-base's KDE copy of "
+                    "xdg-user-dirs, 2 dead menu entries (an old nvm path, Telegram from Downloads)",
+        "then": "fieldkit leftovers clean shows the plan; --apply copies everything to ~/Agents.Work.Trash first, "
+                "changes only what starts at the next login, and checks login safety; restore undoes a run",
+    },
+    {
+        "id": "theme-scrambled-after-login",
+        "seen": "After a restart or login, a dark GTK theme that worked yesterday is gone: Files and Settings come up "
+                "light grey or white, some icons missing, while the terminal still looks right.",
+        "example": "after I logged in the theme is light again, files and settings are white, it got scrambled",
+        "words": [r"login|log in|logged|restart|reboot|boot|start ?up|this morning|today|repornit|pornit",
+                  r"theme|light|white|grey|gray|scrambl|regress|broken|went back|reverted|tem[aă]|alb|deschis"],
+        "action": "gtk-theme",
+        "run": "fieldkit gtk-theme check",
+        "proves": "whether ~/.config/gtk-*/gtk.css holds the theme block more than once or with BEGIN/END markers that "
+                  "do not pair up (two writers at once), and which login launchers start the same program at the same "
+                  "instant, with the package that owns each and its dpkg state (rc = removed, leftover kept)",
+        "look": ["journalctl --user -b | grep -i theme  (cp: ... gtk.css.new: File exists = two runs collided)",
+                 "ls /etc/xdg/autostart ~/.config/autostart; dpkg -l | grep '^rc'",
+                 "wc -l ~/.config/gtk-4.0/gtk.css: exactly double the clean block = two copies interleaved"],
+        "last_fix": "2026-10-22: black-gorilla-theme.desktop and a leftover gtk-high-contrast-theme.desktop (old "
+                    "package, state rc, Exec through a symlink to the same tool) both ran --apply-once; both files "
+                    "came out doubled (318/158 lines). Files quarantined, tool run once, old package purged, tool "
+                    "26.10.22-14-03 writes under flock with a mktemp name (old 40 of 40 races broke, new 0 of 40)",
+        "then": "quarantine the scrambled file, run the theme tool once, purge the leftover package, check again, "
+                "restart the apps it lists",
+    },
+    {
         "id": "only-on-my-profile",
         "seen": "Something is wrong on the browser as the person uses it but right on a fresh or test profile: an "
                 "engine, a setting, a page or a color the build does not have, Linux or Windows.",
