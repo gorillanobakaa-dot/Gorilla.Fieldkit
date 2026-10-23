@@ -1,4 +1,4 @@
-# Version: 1.3.0 · updated 26-10-23-12-12
+# Version: 1.3.0 · updated 26-10-23-13-17
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -180,6 +180,10 @@ def doors(m):
         if mm:
             out.append(f"sessions may MERGE into {repo} main ({mm.get('how', 'fast-forward')}) when: "
                        f"{', '.join(mm.get('when', []))}")
+            if "other_machine_reviewed" in (mm.get("when") or []):
+                # the Windows review of 804f28b: say what the proof is, and what it is not
+                out.append("  other_machine_reviewed proves WHICH COMPUTER approved (its review key), never that a "
+                           "person read the diff: a session on that computer signs it unattended")
     if m.get("install"):
         out.append(f"sessions may INSTALL software up to {m['install'].get('budget_gb', 0)} GB, each logged")
     for name in (m.get("mac") or {}).values() if isinstance(m.get("mac"), dict) else []:
