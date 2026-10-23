@@ -294,6 +294,7 @@ def test_mac_stage_also_makes_the_installer_package_and_sums_it(tmp_path):
     assert all(n in sums for n in names)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in scripts are POSIX sh")
 def test_mac_package_absent_is_said_not_failed(tmp_path):
     src, ctx, out = _built(tmp_path)
     ctx.vars["mac_script"] = _script(src, "scripts/mac.sh", 'printf "\\317\\372\\355\\376" > "$1"\n')
