@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-15-41
+# Version: 1.0.0 · updated 26-10-23-16-17
 """Plan section 17 (owner: "Yes for everything", 2026-10-23): the boss is proposed by a fixed rule and named in the
 sealed mandate; workers take jobs only from it; the boss keeps an append-only ledger and resumes from it; a result the
 boss could not receive waits in the worker's outbox."""
@@ -195,3 +195,89 @@ def test_the_morning_report_is_one_page_from_the_ledger(tmp_path, linkhome):
     assert f"{jid} pass" in rep and "concern from windows-laptop: clock" in rep and "NEEDS YOU: nothing" in rep
     jobs.event("ask", why="a test failed twice: tests_on:windows")
     assert "NEEDS YOU: a test failed twice" in "\n".join(project.report())
+
+
+# ---- recovery loops (2026-10-23, "incepe cu toate"): the same failure twice stops; progress is measured; all logged --
+def test_health_moves_only_its_own_old_scratch_to_the_home_disk(tmp_path, monkeypatch):
+    import os
+    from fieldkit.mandate import health
+    tmp, home = tmp_path / "tmp", tmp_path / "home-temp"
+    for name in ("mandate-verdict-old", "mandate-verdict-young", "someone-elses"):
+        (tmp / name).mkdir(parents=True)
+        (tmp / name / "f").write_text("x")
+    os.utime(tmp / "mandate-verdict-old", (1_700_000_000, 1_700_000_000))
+    os.utime(tmp / "someone-elses", (1_700_000_000, 1_700_000_000))
+    free = iter([False, False])
+    monkeypatch.setattr(health, "free_temp", lambda min_gb=5, where=None: (next(free, True), "", ""))
+    monkeypatch.setattr(health.os, "environ", dict(os.environ))
+    done = health.repair_temp(where=str(tmp), home_temp=str(home))
+    assert not (tmp / "mandate-verdict-old").exists() and (tmp / "mandate-verdict-young").exists()
+    assert (tmp / "someone-elses").exists()                                       # never another program's
+    moved = list((home / "moved-from-temp").rglob("mandate-verdict-old"))
+    assert moved and (moved[0] / "f").read_text() == "x" and "moved 1" in done[0]
+    assert health.os.environ["TMPDIR"] == str(home) and "home disk" in done[1]    # still short: the job's temp moves
+
+
+def test_a_silent_job_is_asked_once_then_moved_once_then_reported(tmp_path, linkhome):
+    import time
+    mp = tmp_path / "m.yaml"
+    mp.write_text("x")
+    jid, _ = jobs.send("test", "R", "a" * 40, mp, call=lambda q: {"ok": True})
+    t0 = time.time()
+    asked = []
+    call = lambda q: asked.append(q) or {"ok": True, "resent": 0}
+    assert jobs.supervise(cap=100, now=t0 + 50, call=call) == []                  # within its time: nothing
+    assert "asked the worker to resend" in jobs.supervise(cap=100, now=t0 + 120, call=call)[0]
+    assert jobs.supervise(cap=100, now=t0 + 130, call=call) == [] and len(asked) == 1     # asked once, not again
+    moved = []
+    other = {"desk": lambda q: moved.append(q) or {"ok": True, "started": q["id"]}}
+    assert "moved to desk" in jobs.supervise(cap=100, now=t0 + 200, call=call, workers=other)[0]
+    assert moved[0]["id"] == jid
+    later = time.time() + 1000
+    assert "second worker too" in jobs.supervise(cap=100, now=later, call=call, workers=other)[0]
+    assert len(moved) == 1                                                       # never a third try
+    whats = [e["what"] for e in jobs.events()]
+    assert whats[-3:] == ["resend-asked", "job-moved", "ask"]
+
+
+def test_with_no_other_worker_a_silent_job_is_reported(tmp_path, linkhome):
+    import time
+    mp = tmp_path / "m.yaml"
+    mp.write_text("x")
+    jid, _ = jobs.send("test", "R", "a" * 40, mp, call=lambda q: {"ok": True})
+    t0 = time.time()
+    call = lambda q: {"ok": True}
+    jobs.supervise(cap=100, now=t0 + 120, call=call)
+    assert "no other worker" in jobs.supervise(cap=100, now=t0 + 200, call=call)[0]
+    from fieldkit.mandate import project
+    assert f"job {jid} silent" in "\n".join(project.report())
+
+
+def test_the_watchdog_restarts_a_deaf_listener_and_stops_after_two_failures(linkhome):
+    from fieldkit.peers import link_watchdog as W
+    reported = []
+    assert W.tick(listening=lambda: True, restart=None, report=reported.append) == "listening"
+    assert "restarted" in W.tick(listening=lambda: False, restart=lambda: (0, ["listening on x"]),
+                                 report=reported.append)
+    bad = lambda: (3, ["NOT LISTENING after 10 s"])
+    assert "restart 1 failed" in W.tick(listening=lambda: False, restart=bad, report=reported.append)
+    assert "STOPPED" in W.tick(listening=lambda: False, restart=bad, report=reported.append) and len(reported) == 1
+    calls = []
+    W.tick(listening=lambda: False, restart=lambda: calls.append(1) or (0, []), report=reported.append)
+    assert calls == [] and len(reported) == 1                                    # no third restart, no second report
+    assert W.tick(listening=lambda: True, restart=None, report=reported.append) == "listening"
+    log = (linkhome / "watchdog.log").read_text()
+    assert "restarted" in log and "STOPPED" in log and "resumes" in log
+
+
+def test_the_watchdog_timer_on_linux(tmp_path):
+    import sys
+    from fieldkit.peers import link_watchdog as W
+    ran = []
+    code, lines = W.install(run=lambda cmd, **k: ran.append(cmd) or __import__("subprocess").CompletedProcess(cmd, 0),
+                            home=tmp_path)
+    if not sys.platform.startswith("linux"):
+        assert code == 3
+        return
+    unit = (tmp_path / ".config/systemd/user/fieldkit-link-watchdog.service").read_text()
+    assert code == 0 and "peers link watchdog --once" in unit and ran[-1][-1] == "fieldkit-link-watchdog.timer"

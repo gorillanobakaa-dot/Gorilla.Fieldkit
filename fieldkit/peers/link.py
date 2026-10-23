@@ -872,6 +872,9 @@ def main(argv=None):
             print("peers link check: link_checks.py is not on this computer yet (fetch feat/agent-link)")
             return 2
         return link_checks.main(argv[1:])
+    if argv and argv[0] == "watchdog":                    # the listener on a heartbeat (link_watchdog.py, 2026-10-23)
+        from . import link_watchdog
+        return link_watchdog.main(argv[1:])
     if argv and argv[0] in ("toolset", "startcheck", "restart", "verify-start"):   # the night's steps (link_ops.py)
         from . import link_ops
         return link_ops.main(argv[0], argv[1:])

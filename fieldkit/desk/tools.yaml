@@ -1741,6 +1741,25 @@ tools:
   platforms_why: 'run for real on the VAIO 2026-10-23 (twice); on Windows the code path is the same (psutil terminate, link_setup.start_serve with its DETACHED_PROCESS flags) and was opened on 2026-10-23 after the laptop had to restart by hand because this card said linux only'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_ops.py", -k, cli]
 
+- id: peers-link-watchdog
+  title: "The cable listener on a heartbeat: restarted with no person involved, every step logged; two failed restarts in a row stop the restarts and go to the owner's inbox; on the boss it also looks after open jobs"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, watchdog]
+  path: ${FIELDKIT}/fieldkit/peers/link_watchdog.py
+  inputs:
+    - {name: once, flag: --once, type: bool, required: false, help: "one check (what the timer runs)"}
+    - {name: every, flag: --every, type: int, required: false, help: "seconds between checks in a loop (default 120)"}
+    - {name: install, flag: --install, type: bool, required: false, help: "Linux: a systemd user timer, every 2 minutes"}
+  effects: [processes, network, writes-files]
+  safety: reversible             # a restart starts the listener again; --install writes two user unit files
+  scope: [process]
+  output: own
+  exits: {3: "--install: not on Linux, or systemctl refused"}
+  platforms: [windows, linux]
+  platforms_why: 'the check and the restart are the same code on both (link_ops.restart); only --install is Linux (a systemd user timer); the Windows scheduled task is the Windows side'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_boss.py", -k, watchdog]
+  notes: "Born 2026-10-23 (the listener went deaf silently; the owner: recovery loops, the same failure twice stops, progress measured, every attempt logged). State in ~/.fieldkit/link/watchdog.json, log in watchdog.log; it resumes by itself once the listener is heard again. Each tick also runs fieldkit/mandate/jobs.py supervise (a silent job: asked once to resend, moved once to another worker, then reported)."
+
 - id: peers-link-verify-start
   title: "Wait for a started session's [DONE] note with evidence after inbox number N: the only proof a session ran"
   harness: peers
@@ -4970,7 +4989,7 @@ tools:
   notes: "Read-only without --keys-from; --keys-from runs that command (its safety). Exit 2 bad input."
 
 - id: ship
-  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), push, merge (into main only under a project mandate, every condition proven by the tool), audit (remote branches, open PRs, and since 2026-10-23 local worktrees and local branches left behind), release, prune; never forces
+  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), commit (a known hook refusal fixed and tried again, the same one twice or an unknown one reported, never --no-verify), push, merge (into main only under a project mandate, every condition proven by the tool), audit (remote branches, open PRs, and since 2026-10-23 local worktrees and local branches left behind), release, prune; never forces
   harness: method
   entry: [python, -m, fieldkit, ship]
   path: ${FIELDKIT}/fieldkit/method/ship.py

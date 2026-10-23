@@ -2016,6 +2016,16 @@
    "peers-link-verify-start"
   ]
  },
+ "peers link watchdog": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "the check and the restart are the same code on both (link_ops.restart); only --install is Linux (a systemd user timer); the Windows scheduled task is the Windows side",
+  "ids": [
+   "peers-link-watchdog"
+  ]
+ },
  "peers list": {
   "platforms": [
    "linux",

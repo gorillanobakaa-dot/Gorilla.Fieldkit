@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-15-30
+# Version: 1.0.0 · updated 26-10-23-16-17
 """Jobs between one orchestrator and its workers, under the owner's mandate (local/PROJECT-MANDATE-PLAN.md 16.4).
 
     fieldkit mandate job send REPO SHA [--kind test]   the orchestrator: give the paired worker a job (once per job)
@@ -195,6 +195,60 @@ def wait(jid, seconds=3600, sleep=time.sleep, now=time.monotonic):
         if now() >= end:
             return e
         sleep(5)
+
+
+def _age(stamp, now):
+    try:
+        return now - time.mktime(time.strptime(str(stamp), "%Y-%m-%d %H:%M:%S"))
+    except (ValueError, OverflowError):
+        return 0
+
+
+def supervise(cap=3600, workers=None, now=None, call=None):
+    """The boss looks after its open jobs (recovery loops 3 and 4, 2026-10-23). Rules: the same failure twice is a
+    stop; progress is a result arriving; every step goes into the ledger.
+      past cap, never asked      -> the worker is asked once to resend (a result lost to a dropped link or a boss
+                                    restart waits in its outbox)
+      past 1.5 x cap, asked      -> the job moves ONCE to another capable worker (`workers`: name -> call)
+      silent again, or no other  -> stuck: one `ask` event, which the morning report shows under NEEDS YOU
+    -> what was done, per job."""
+    now = time.time() if now is None else now
+    led, done = _ledger(), []
+    for jid, e in led.items():
+        if e.get("status") not in (None, "sent"):
+            continue
+        age = _age(e.get("sent"), now)
+        if age <= cap:
+            continue
+        if not e.get("resend_asked"):
+            res = (call or _link().call)({"verb": "resend"})
+            e["resend_asked"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            event("resend-asked", id=jid, age_s=int(age), worker=res.get("error") or res.get("resent"))
+            done.append(f"{jid}: silent {int(age)} s, asked the worker to resend")
+        elif age > 1.5 * cap and not e.get("moved_to"):
+            others = {n: c for n, c in (workers or {}).items() if n != e.get("worker_name")}
+            if others:
+                name, c = next(iter(others.items()))
+                res = c({"verb": "job", "id": jid, "kind": e["kind"], "repo": e["repo"], "commit": e["commit"],
+                         "mandate": e["mandate"]})
+                e.update(moved_to=name, sent=time.strftime("%Y-%m-%d %H:%M:%S"), worker_name=name,
+                         worker_said=res.get("error") or "started")
+                event("job-moved", id=jid, to=name, said=e["worker_said"])
+                done.append(f"{jid}: moved to {name}")
+            else:
+                e["status"] = "stuck"
+                event("ask", why=f"job {jid} silent for {int(age)} s and no other worker can take it", id=jid)
+                done.append(f"{jid}: stuck, no other worker: reported")
+        elif e.get("moved_to") and age > cap:
+            e["status"] = "stuck"                         # silent on the second worker too: never a third try
+            event("ask", why=f"job {jid} silent on {e['moved_to']} as well", id=jid)
+            done.append(f"{jid}: silent on its second worker too: stuck, reported")
+    _save(led)
+    return done
+
+
+def supervise_lines():
+    return supervise()
 
 
 # ---- the worker ------------------------------------------------------------------------------------------------------

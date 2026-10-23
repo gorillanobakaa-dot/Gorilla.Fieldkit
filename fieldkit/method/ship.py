@@ -3,6 +3,8 @@
     fieldkit ship status [--base main]     where the branch stands against its remote and the base, and what to do
     fieldkit ship sync   [--base main]     make the next push a fast-forward, safely (see below); never force
     fieldkit ship push   [--base main]     sync if needed, then push with retries on network errors
+    fieldkit ship commit --message-file F  commit what is staged; a known hook refusal fixed and tried again, the same
+                                           one twice or an unknown one stops and is reported; never --no-verify
     fieldkit ship merge  [--base main]     merge the branch into main ONLY when a project mandate allows it, every
                                            condition proven by the tool (fieldkit/mandate); otherwise the owner does it
     fieldkit ship audit  [--offline]       is the work on main, is the checkout on main, is main released (shiprelease.py)
@@ -202,7 +204,8 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
 
 def main(argv=None, prog="fieldkit ship"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["status", "sync", "push", "merge", "audit", "release", "prune"])
+    ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune"])
+    ap.add_argument("--message-file", help="commit: the commit message file")
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
     ap.add_argument("--offline", action="store_true", help="audit: git only, no network")
     ap.add_argument("--archive-unproven", action="store_true",
@@ -213,6 +216,13 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.action == "commit":
+        from . import shipcommit
+        if not a.message_file:
+            ap.error("commit needs --message-file F")
+        r = shipcommit.commit(a.repo, a.message_file)
+        emit(r, a.json, shipcommit.lines)
+        return 0 if r["ok"] else 3
     if a.action in ("audit", "release", "prune"):
         from . import shiprelease as sr
         if a.action == "audit":
