@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-19-20
+# Version: 1.0.0 · updated 26-10-23-19-43
 """Plan section 17 (owner: "Yes for everything", 2026-10-23): the boss is proposed by a fixed rule and named in the
 sealed mandate; workers take jobs only from it; the boss keeps an append-only ledger and resumes from it; a result the
 boss could not receive waits in the worker's outbox."""
@@ -34,9 +34,9 @@ def test_the_power_reading_on_linux(tmp_path):
         (tmp_path / name / "type").write_text(kind)
         if online:
             (tmp_path / name / "online").write_text(online)
-    assert boss._power(tmp_path) == (True, True)
+    assert boss.power_sysfs(tmp_path) == (True, True)
     (tmp_path / "AC" / "online").write_text("0")
-    assert boss._power(tmp_path) == (True, False)
+    assert boss.power_sysfs(tmp_path) == (True, False)
 
 
 @pytest.fixture

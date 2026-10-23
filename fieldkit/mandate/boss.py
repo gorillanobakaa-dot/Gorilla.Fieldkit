@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-15-30
+# Version: 1.0.0 · updated 26-10-23-19-43
 """Choosing the boss: which device orchestrates a project, proposed by a fixed rule, approved by signing the mandate.
 
     fieldkit mandate boss          the devices this one sees (itself, and the paired one over the link) and the proposal
@@ -57,13 +57,19 @@ def _power(root=Path("/sys/class/power_supply")):
         if sys.platform == "darwin":
             out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True).stdout
             return "InternalBattery" in out, "AC Power" in out
-        kinds = {p.name: (p / "type").read_text().strip() for p in root.iterdir() if (p / "type").is_file()}
-        battery = any(k == "Battery" for k in kinds.values())
-        mains = [p for p, k in kinds.items() if k == "Mains"]
-        on = any((root / p / "online").read_text().strip() == "1" for p in mains) if mains else (not battery)
-        return battery, on
+        return power_sysfs(root)
     except (OSError, ValueError, AttributeError):
         return None, None
+
+
+def power_sysfs(root):
+    """Linux's /sys/class/power_supply as (has_battery, on_mains): its own function so every system can test it
+    (2026-10-23: the test went through _power(), which on Windows asks Windows and never read the test's folder)."""
+    kinds = {p.name: (p / "type").read_text().strip() for p in Path(root).iterdir() if (p / "type").is_file()}
+    battery = any(k == "Battery" for k in kinds.values())
+    mains = [p for p, k in kinds.items() if k == "Mains"]
+    on = any((Path(root) / p / "online").read_text().strip() == "1" for p in mains) if mains else (not battery)
+    return battery, on
 
 
 def device_facts(cable=None):
