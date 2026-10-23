@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18-17-00
+# Version: 1.1.0 · updated 26-10-23-04-41
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -9,7 +9,10 @@ one file:
   2. deleting outside scratch       recursive deletes, rmtree, format - anywhere but the scratch roots
   3. changing a protection          Gorilla.firefox harness/, guards, hooks, rules files (GEMINI.md, CLAUDE.md,
                                     AGENTS.md), settings, leak-gate allowlists and dispositions, the decision register
-  4. owner approvals                leak-gate approve/dispositions, record_decisions.py, GORILLA_OWNER_APPROVED
+                                    the project mandate store (~/.fieldkit/mandate: keys, trusted keys, mandates,
+                                    seals, stops, the log), and FIELDKIT_MANDATE_HOME (a trust store of one's own)
+  4. owner approvals                leak-gate approve/dispositions, record_decisions.py, GORILLA_OWNER_APPROVED,
+                                    fieldkit mandate keygen / trust / approve
   5. credential files               read or write: .env, keys, gh hosts.yml, .git-credentials, tokens
   and: the owner's STOP file (fieldkit autopilot stop) denies everything that is not a read.
 
@@ -64,6 +67,12 @@ PROTECTED = [
     (r"product-decisions\.yaml|gorilla_decisions\.json|claims/claims\.yaml|decisions/theme\.yaml", "the owner's decision register"),
     (r"(^|/)\.gitignore\b", "a .gitignore (a decision, not a default)"),
 ]
+# 2026-10-23, the Windows review of the mandate (M1): a model that can write here can pin its own key, sign its own
+# mandate, delete a stop or truncate the install budget's log. Models may read it; a command that names it and
+# writes anything is refused as a whole (not per statement: `cd ~/.fieldkit && cp k.pub mandate/trusted/`).
+MANDATE_STORE = re.compile(r"\.fieldkit/mandate\b|(^|[/\s\"'])mandate/(trusted|mandates)\b|owner_signing\.|"
+                           r"(^|[/\s\"'])stopped\.txt\b|(^|[/\s\"'])local/mandates\b")
+MANDATE_ENV = re.compile(r"fieldkit_mandate_home", re.I)
 WRITE = re.compile(
     r"(set-content|add-content|out-file|new-item|copy-item|move-item|rename-item|remove-item|clear-content|"
     r"\bdel\b|\berase\b|\bcopy\b|\bmove\b|\bren\b|\bmv\b|\bcp\b|\brm\b|sed\s+-i|\btee\b|>>?|"
@@ -78,6 +87,8 @@ OWNER_ONLY = [
     # 2026-10-18 (found by the tool-harness review session): the other owner-only build-harness actions
     (r"build-harness\s+(approve|rewind|drop|withdraw|unblock|leakgate-rejudge)\b",
      "approving, rewinding, dropping, withdrawing, unblocking or re-judging (the owner's call)"),
+    # 2026-10-23: `trust` needs only a typed yes, which a faked terminal can give
+    (r"\bmandate\s+(keygen|trust|approve)\b", "making, trusting or using the owner's mandate key"),
 ]
 CREDENTIAL = re.compile(
     r"(^|[/\\\s\"'])(\.env(\.[a-z]+)?|id_rsa|id_ed25519|[^/\\\s\"']+\.(pem|pfx|p12|key)|hosts\.yml|"
@@ -126,7 +137,11 @@ def decide(tool, args, stop_file=None):
         return "allow", "read"
     if stop.exists():
         return "deny", f"STOPPED by the owner ({stop}): only reads until the owner removes it (fieldkit autopilot resume)"
+    if MANDATE_ENV.search(joined):
+        return "deny", "HARD LINE 3: FIELDKIT_MANDATE_HOME would bring a trust store of its own; the mandate is the owner's"
     cmd = next((v for k, v in args.items() if k.lower() in COMMAND_KEYS and isinstance(v, str)), None)
+    if cmd is not None and MANDATE_STORE.search(_norm(cmd)) and WRITE.search(cmd):
+        return "deny", "HARD LINE 3: this would change the owner's mandate store; models may only read it"
     if cmd is not None:
         for pat, why in PUBLISH:
             if re.search(pat, cmd, re.I):
@@ -142,6 +157,8 @@ def decide(tool, args, stop_file=None):
             if what and WRITE.search(seg):
                 return "deny", f"HARD LINE 3: this would change {what}; report the need in the owner inbox"
         return "allow", "command inside the hard lines"
+    if MANDATE_STORE.search(_norm(joined)):
+        return "deny", "HARD LINE 3: the owner's mandate store may not be changed by a model; models may only read it"
     what = _protected(joined)
     if what and (name in EDIT_TOOLS or name not in READ_TOOLS):
         return "deny", f"HARD LINE 3: {what} may not be changed by a model; report the need in the owner inbox"

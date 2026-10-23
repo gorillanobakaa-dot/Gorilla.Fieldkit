@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-04-20
+# Version: 1.1.0 · updated 26-10-23-04-41
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -6,7 +6,7 @@
     fieldkit mandate approve FILE.yaml            shows what the mandate allows (every door it opens), typed yes and
                                                   the passphrase: writes FILE.seal (Ed25519 over its sha256)
     fieldkit mandate verify FILE.yaml             seal, hash, trusted key, expiry, stop: in force or why not
-    fieldkit mandate allows FILE.yaml ACTION [k=v ...]   allow | ask | deny, and the clause that decided
+    fieldkit mandate allows FILE.yaml ACTION [k=v ...]   a PREVIEW: allow | ask | deny and the clause (gates nothing)
     fieldkit mandate stop FILE.yaml               the owner's stop: nothing is allowed by it any more
     fieldkit mandate share FILE.yaml              the mandate, its seal and the public key to the other computer
     fieldkit mandate status                       every mandate here and whether it is in force
@@ -20,6 +20,11 @@ could mint a seal; a seal must prove THE OWNER'S TERMINAL. The private key is en
 owner knows (a model can fake a terminal, not the passphrase); the other computer holds only the public key, so it
 can verify and never sign. Fail closed: no seal, a changed byte, an untrusted key, an expired or stopped mandate,
 an unreadable file -> nothing is allowed by the mandate ("ask": the old behaviour, the owner is asked).
+
+M1.1 (the Windows review of ba40f28): every write under the mandate home is a hard line (a model could otherwise pin
+its own key); FIELDKIT_MANDATE_HOME counts only under pytest; a trusted key must match its file name; a merge's
+conditions and a push's fast-forward are found by the tool (proofs.py), never given by the caller; a stop is
+permanent for the file it stopped.
 """
 import fnmatch
 import getpass
@@ -37,8 +42,15 @@ REQUIRED = ("project", "goal", "expires", "repos", "never")
 ACTIONS = ("push", "merge_main", "install", "mac", "release")
 
 
+def _under_test():
+    return "pytest" in sys.modules
+
+
 def home():
-    return Path(os.environ.get("FIELDKIT_MANDATE_HOME") or (Path.home() / ".fieldkit" / "mandate"))
+    # the review's point 2: `FIELDKIT_MANDATE_HOME=<dir> fieldkit ship push` would bring its own trust store
+    if _under_test() and os.environ.get("FIELDKIT_MANDATE_HOME"):
+        return Path(os.environ["FIELDKIT_MANDATE_HOME"])
+    return Path.home() / ".fieldkit" / "mandate"
 
 
 def _key_paths():
@@ -59,8 +71,8 @@ def keygen(passphrase: str):
     priv_p, pub_p = _key_paths()
     if priv_p.exists():
         raise FileExistsError(f"{priv_p} exists: a second key would void every seal; remove it by hand if meant")
-    if len(passphrase) < 8:
-        raise ValueError("the passphrase needs at least 8 characters")
+    if len(passphrase) < 12:
+        raise ValueError("the passphrase needs at least 12 characters")
     k = Ed25519PrivateKey.generate()
     priv_p.parent.mkdir(parents=True, exist_ok=True)
     priv_p.write_bytes(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
@@ -88,9 +100,11 @@ def trusted_keys():
     out = {}
     for p in d.glob("*.pub") if d.is_dir() else []:
         try:
-            out[p.stem] = bytes.fromhex(p.read_text(encoding="utf-8").strip())
-        except ValueError:
+            raw = bytes.fromhex(p.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
             continue
+        if fingerprint(raw) == p.stem:                  # the review's point 3: the name alone proves nothing
+            out[p.stem] = raw
     return out
 
 
@@ -142,6 +156,8 @@ def approve(path, passphrase, confirmed, say=print):
     m = load(path)
     if not confirmed:
         return 1, "not approved"
+    if stopped(path):
+        return 4, "this mandate was stopped: a stop is permanent for it; write a changed mandate and approve that"
     priv_p, pub_p = _key_paths()
     if not priv_p.exists():
         return 2, "no owner signing key here: fieldkit mandate keygen (once)"
@@ -165,6 +181,23 @@ def stop_path(path):
     return Path(path).with_suffix(".STOP")
 
 
+def _stopped_list():
+    return home() / "stopped.txt"
+
+
+def stopped(path):
+    """The .STOP beside it, or its sha256 in the mandate home's list of stopped mandates (a deleted .STOP does not
+    lift a stop; the review's point 5)."""
+    if stop_path(path).exists():
+        return True
+    try:
+        sha = _sha(path)
+        lst = _stopped_list().read_text(encoding="utf-8") if _stopped_list().is_file() else ""
+    except OSError:
+        return True                                     # unreadable: fail closed
+    return any(line.split()[:1] == [sha] for line in lst.splitlines())
+
+
 def verify(path, today=None):
     """-> (in_force: bool, why). Fail closed on every doubt."""
     from cryptography.exceptions import InvalidSignature
@@ -173,7 +206,7 @@ def verify(path, today=None):
         m = load(path)
     except (OSError, ValueError, yaml.YAMLError) as e:
         return False, f"unreadable mandate: {e}"
-    if stop_path(path).exists():
+    if stopped(path):
         return False, "STOPPED by the owner"
     sp = _seal_path(path)
     if not sp.is_file():
@@ -201,8 +234,14 @@ def verify(path, today=None):
     return True, f"in force until {ends} (approved {seal['approved_at']}, key {seal['key']})"
 
 
-def allows(path, action, today=None, **p):
-    """-> ("allow" | "ask" | "deny", why). Only a verified mandate allows anything."""
+def allows(path, action, today=None, repo_path=None, commit=None, provers=None, **p):
+    """-> ("allow" | "ask" | "deny", why). Only a verified mandate allows anything.
+
+    push and merge_main find their facts themselves (proofs.py): the repository and branch from git at `repo_path`,
+    the fast-forward from its refs, every `when:` condition of a merge by running its prover on `commit`. Without a
+    repo_path they answer "ask": that is the preview, it opens nothing. `provers` replaces proofs.py in tests."""
+    from . import proofs
+    pv = provers or proofs
     ok, why = verify(path, today)
     if not ok:
         return "ask", f"no mandate in force ({why}): the owner is asked"
@@ -212,24 +251,35 @@ def allows(path, action, today=None, **p):
         if str(p.get("force", "")).lower() in ("1", "true", "yes"):
             return ("deny", "never: force_push") if "force_push" in never else \
                 ("ask", "a force push is not something a mandate grants")
-        r = (m.get("repos") or {}).get(p.get("repo", ""))
+        if repo_path is None:
+            return "ask", "preview only: a push is allowed by the tool that makes it (fieldkit ship push), which " \
+                          "reads the repository, branch and fast-forward itself"
+        repo, branch = pv.where(repo_path)
+        r = (m.get("repos") or {}).get(repo)
         if not r:
-            return "ask", f"the repository {p.get('repo')} is not in the mandate"
-        if any(fnmatch.fnmatch(p.get("branch", ""), pat) for pat in r.get("push") or []):
-            return "allow", f"repos.{p['repo']}.push matches {p.get('branch')}"
-        return "ask", f"{p.get('branch')} is not a branch the mandate lets sessions push"
+            return "ask", f"the repository {repo} is not in the mandate"
+        if not any(fnmatch.fnmatch(branch, pat) for pat in r.get("push") or []):
+            return "ask", f"{branch} is not a branch the mandate lets sessions push"
+        ff, ev = pv.fast_forward(repo_path, branch)
+        if not ff:
+            return "ask", ev
+        return "allow", f"repos.{repo}.push matches {branch}; {ev}"
     if action == "merge_main":
-        r = (m.get("repos") or {}).get(p.get("repo", ""))
+        if repo_path is None or not commit:
+            return "ask", "preview only: a merge is allowed by fieldkit ship merge, which proves every condition itself"
+        repo, _ = pv.where(repo_path)
+        r = (m.get("repos") or {}).get(repo)
         mm = (r or {}).get("merge_to_main")
         if not mm:
-            return "ask", f"merging into {p.get('repo')} main is not in the mandate"
-        missing = [w for w in mm.get("when", []) if not p.get(w)]
-        # the other machine's review must name the exact commit it tested (the Windows side's review point 5)
-        if "other_machine_reviewed" in mm.get("when", []) and p.get("other_machine_reviewed") != p.get("commit"):
-            missing.append("other_machine_reviewed (the reviewer's note must name this commit sha)")
+            return "ask", f"merging into {repo} main is not in the mandate"
+        missing, proven = [], []
+        for w in mm.get("when", []):
+            fn = pv.PROVERS.get(w)
+            ok, ev = fn(repo_path, commit, r) if fn else (False, f"no tool proves '{w}'")
+            (proven if ok else missing).append(f"{w}: {ev}")
         if missing:
-            return "ask", "not yet proven: " + ", ".join(dict.fromkeys(missing))
-        return "allow", f"repos.{p['repo']}.merge_to_main: every condition proven for {p.get('commit')}"
+            return "ask", "not proven: " + "; ".join(missing)
+        return "allow", f"repos.{repo}.merge_to_main for {commit[:10]}: " + "; ".join(proven)
     if action == "install":
         budget = float((m.get("install") or {}).get("budget_gb", 0))
         used = sum(float(e.get("gb", 0)) for e in read_log(path) if e.get("what") == "install")
@@ -248,6 +298,9 @@ def allows(path, action, today=None, **p):
 
 def stop(path):
     stop_path(path).write_text(time.strftime("%Y-%m-%d %H:%M:%S") + "\n", encoding="utf-8")
+    _stopped_list().parent.mkdir(parents=True, exist_ok=True)
+    with open(_stopped_list(), "a", encoding="utf-8") as f:
+        f.write(f"{_sha(path)} {Path(path).name} {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     log(path, "stopped", "by the owner")
     return stop_path(path)
 
@@ -349,9 +402,15 @@ def main(argv=None):
             print("allows FILE.yaml ACTION [key=value ...]")
             return 2
         params = dict(kv.split("=", 1) for kv in r[2:] if "=" in kv)
+        from . import proofs
+        given = sorted(set(params) & (set(proofs.PROVERS) | {"repo_path", "commit", "provers", "today"}))
+        if given:
+            print(f"REFUSED: {', '.join(given)} cannot be given; the tool that acts proves them itself")
+            return 2
         verdict, why = allows(path, r[1], **params)
-        print(f"{verdict.upper()}  {why}")
-        return {"allow": 0, "ask": 3, "deny": 4}[verdict]
+        # a preview: it gates nothing (the review's point 4); ship push / ship merge decide with their own proofs
+        print(f"PREVIEW {verdict.upper()}  {why}")
+        return 0
     if a.action == "stop":
         print(f"STOPPED: {stop(path)}")
         return 0

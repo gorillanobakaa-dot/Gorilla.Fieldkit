@@ -383,6 +383,9 @@ def store(kind, req):
                     evidence=local_peers.sanitize(str(req.get("evidence") or ""))[:2000],
                     flags=seq_flags(req.get("from_host"), req.get("seq"), item["text"], req.get("os"),
                                     req.get("evidence"), state))
+        # the request as signed, so a later check (a mandate's merge proof) can verify the HMAC again: the inbox
+        # file alone is something a model could write
+        item["signed"] = dict(req)
         sp.write_text(json.dumps(state, indent=1), encoding="utf-8")
     (d / f"{n:04d}-{kind}.json").write_text(json.dumps(item, indent=1, ensure_ascii=False), encoding="utf-8")
     return item
