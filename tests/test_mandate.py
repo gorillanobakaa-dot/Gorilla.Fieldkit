@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-11-10
+# Version: 1.1.0 · updated 26-10-23-12-12
 """fieldkit mandate: one owner approval per project, valid on both computers, checkable by each (2026-10-23).
 Every test closes a way a false approval could get in: a changed byte, another key, no passphrase, a stop, a date."""
 from datetime import date
@@ -39,10 +39,33 @@ class Facts:
         return self.ff, "ff" if self.ff else "not a fast-forward"
 
 
+def _guarded_store(monkeypatch, root):
+    """The guarded store as a folder a test may write: guarded() says yes, write() writes it directly. (On a real
+    computer it is root-owned /etc/fieldkit/mandate-trust, written through pkexec.)"""
+    from fieldkit.mandate import guarded
+    monkeypatch.setattr(guarded, "root", lambda: root)
+    monkeypatch.setattr(guarded, "guarded", lambda path=None: (True, "a test store"))
+
+    def write(name, line, append=False, run=None):
+        p = root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a" if append else "w", encoding="utf-8") as f:
+            f.write(line + "\n")
+        return True, f"written: {p}"
+    monkeypatch.setattr(guarded, "write", write)
+    return root
+
+
 @pytest.fixture
-def owner(tmp_path, monkeypatch):
-    monkeypatch.setenv("FIELDKIT_MANDATE_HOME", str(tmp_path / "home"))
-    M.keygen("correct horse battery")
+def store(tmp_path, monkeypatch):
+    return _guarded_store(monkeypatch, tmp_path / "guarded")
+
+
+@pytest.fixture
+def owner(tmp_path, monkeypatch, store):
+    monkeypatch.setattr(M, "home", lambda: tmp_path / "home")
+    pub, _fp = M.keygen("correct horse battery")
+    assert M.trust_raw(bytes.fromhex(pub.read_text().strip()))[0]           # the owner's password, in real life
     f = tmp_path / "home" / "mandates" / "release.yaml"
     f.parent.mkdir(parents=True)
     f.write_text(MANDATE)
@@ -76,7 +99,7 @@ def test_one_changed_byte_voids_it(owner):
 def test_a_seal_from_an_untrusted_key_is_refused(owner, tmp_path, monkeypatch):
     M.approve(owner, "correct horse battery", True)
     seal = M._seal_path(owner).read_text()
-    monkeypatch.setenv("FIELDKIT_MANDATE_HOME", str(tmp_path / "other"))      # the other computer, before trust
+    _guarded_store(monkeypatch, tmp_path / "other-guarded")                   # the other computer, before trust
     ok, why = M.verify(owner, DAY)
     assert not ok and "not trusted" in why
     M.trust_raw(bytes.fromhex((tmp_path / "home" / "owner_signing.pub").read_text().strip()))
@@ -164,20 +187,37 @@ def test_approve_and_keygen_refuse_without_a_terminal(owner, capsys):
 
 
 def test_the_passphrase_needs_twelve_characters(tmp_path, monkeypatch):
-    monkeypatch.setenv("FIELDKIT_MANDATE_HOME", str(tmp_path / "h"))
+    monkeypatch.setattr(M, "home", lambda: tmp_path / "h")
     with pytest.raises(ValueError):
         M.keygen("eleven char")
 
 
-def test_the_mandate_home_from_the_environment_counts_only_under_pytest(tmp_path, monkeypatch):
-    # M1.1, the review's point 2: FIELDKIT_MANDATE_HOME=<dir> fieldkit ship push brought its own trust store
+def test_the_mandate_home_ignores_the_environment(tmp_path, monkeypatch):
+    # M1.1 point 2, and M1.2: `import pytest` satisfied the M1.1 guard, so there is no override at all
+    import pytest as _loaded                                                   # noqa: F401 - what a model would do
     monkeypatch.setenv("FIELDKIT_MANDATE_HOME", str(tmp_path / "mine"))
-    assert M.home() == tmp_path / "mine"
-    monkeypatch.setattr(M, "_under_test", lambda: False)
     assert M.home() == M.Path.home() / ".fieldkit" / "mandate"
 
 
-def test_a_trusted_key_must_match_its_file_name(owner, tmp_path):
+def test_a_trust_store_this_user_can_write_counts_for_nothing(tmp_path, monkeypatch):
+    # M1.2, the Windows review's point A: a model runs code as the same OS user, so any store that user can write is
+    # its own; a key dropped into such a store, by any route, is not trusted
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from fieldkit.mandate import guarded
+    root = tmp_path / "writable"
+    monkeypatch.setattr(guarded, "root", lambda: root)
+    raw = Ed25519PrivateKey.generate().public_key().public_bytes(serialization.Encoding.Raw,
+                                                                  serialization.PublicFormat.Raw)
+    monkeypatch.setattr(M, "home", lambda: tmp_path / "home")
+    for d in (root / "trusted", tmp_path / "home" / "trusted"):              # the M1.1 place was the user's home
+        d.mkdir(parents=True)
+        (d / f"{M.fingerprint(raw)}.pub").write_text(raw.hex())
+    (root / "stopped.txt").write_text("")
+    assert not guarded.guarded()[0] and M.trusted_keys() == {} and guarded.read("stopped.txt") == ""
+
+
+def test_a_trusted_key_must_match_its_file_name(owner, store):
     # M1.1, the review's point 3: <owner-fp>.pub holding another key passed
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -185,16 +225,17 @@ def test_a_trusted_key_must_match_its_file_name(owner, tmp_path):
     fp = M._seal_path(owner).read_text().split('"key": "')[1].split('"')[0]
     other = Ed25519PrivateKey.generate().public_key().public_bytes(serialization.Encoding.Raw,
                                                                     serialization.PublicFormat.Raw)
-    (M.trusted_dir() / f"{fp}.pub").write_text(other.hex())
+    (store / "trusted" / f"{fp}.pub").write_text(other.hex())
     assert fp not in M.trusted_keys()
     assert not M.verify(owner, DAY)[0]
 
 
-def test_a_stop_is_permanent_for_that_mandate(owner):
+def test_a_stop_is_permanent_for_that_mandate(owner, store):
     # M1.1, the review's point 5: deleting the .STOP lifted it
     M.approve(owner, "correct horse battery", True)
-    M.stop(owner)
+    assert M.stop(owner)[1]
     M.stop_path(owner).unlink()
+    assert (store / "stopped.txt").read_text().startswith(M._sha(owner))
     ok, why = M.verify(owner, DAY)
     assert not ok and "STOPPED" in why
     assert M.approve(owner, "correct horse battery", True)[0] == 4
@@ -202,53 +243,114 @@ def test_a_stop_is_permanent_for_that_mandate(owner):
     assert M.approve(owner, "correct horse battery", True)[0] == 0 and M.verify(owner, DAY)[0]
 
 
-# ---- the provers (proofs.py): a model can write a file, not a signature ------------------------------------------------
-def _signed_note(k, evidence, os_name="WINDOWS", done=True):
+# ---- the provers (proofs.py): a model can write a file, not the other computer's signature --------------------------
+FULL = "6cff573" + "0" * 33
+
+
+def _reviewer():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    k = Ed25519PrivateKey.generate()
+    raw = k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return k, M.fingerprint(raw), raw
+
+
+def _approval_note(k, fp, repo="Gorilla.Opencode", commit=FULL, text=None, link_key=b"k" * 32):
     from fieldkit.peers import link
-    req = link.sign({"verb": "message", "text": "[FROM WINDOWS #50] [DONE] review", "done": done,
-                     "evidence": evidence, "seq": 50, "os": os_name}, k)
+    a = {"repo": repo, "commit": commit, "key": fp, "sig": k.sign((text or M.approval_text(repo, commit)).encode()).hex()}
+    req = link.sign({"verb": "message", "text": "[FROM WINDOWS #50] [DONE] APPROVE", "done": True,
+                     "evidence": f"APPROVE {commit}", "seq": 50, "os": "WINDOWS", "approval": a}, link_key)
     return {"n": 1, "kind": "message", "text": req["text"], "signed": req}
 
 
-def test_the_review_note_is_checked_again_with_the_link_key(tmp_path):
+def test_an_approval_counts_only_signed_by_the_other_computers_pinned_review_key(tmp_path, monkeypatch):
+    # M1.2, the Windows review's points B and D: the shared link key let THIS computer forge the other's note,
+    # and the word 'reviewed' counted even for a review that reported findings
     import json
     from fieldkit.mandate import proofs
-    k = b"k" * 32
+    monkeypatch.setattr(proofs, "where", lambda rp: ("Gorilla.Opencode", "feat/x"))
+    win_k, win_fp, win_raw = _reviewer()
+    own_k, own_fp, own_raw = _reviewer()
     inbox = tmp_path / "inbox"
     inbox.mkdir()
-    rv = lambda: proofs.other_machine_reviewed(".", "6cff5731234", {}, link_home=tmp_path, link_key=k, my_os="LINUX")
-    forged = _signed_note(b"x" * 32, "reviewed Gorilla.Opencode 6cff573: 120 passed")   # another key
-    (inbox / "0001-message.json").write_text(json.dumps(forged))
+    rv = lambda: proofs.other_machine_reviewed(".", FULL, {}, link_home=tmp_path, own_key=own_fp,
+                                               reviewers={win_fp: win_raw, own_fp: own_raw})
+    put = lambda n, item: (inbox / f"{n:04d}-message.json").write_text(json.dumps(item))
+    old = _approval_note(win_k, win_fp)
+    del old["signed"]["approval"]                                    # 'APPROVE <sha>' as evidence text only
+    put(1, old)
     assert not rv()[0]
-    (inbox / "0002-message.json").write_text(json.dumps(_signed_note(k, "reviewed Gorilla.Opencode a1b2c3d")))
-    assert not rv()[0]                                                                    # another commit
-    (inbox / "0003-message.json").write_text(json.dumps(_signed_note(k, "reviewed 6cff573", os_name="LINUX")))
-    assert not rv()[0]                                                                    # from this computer
-    (inbox / "0004-message.json").write_text(json.dumps(_signed_note(k, "reviewed 6cff573: 120 passed")))
-    assert rv()[0]
+    stranger_k, stranger_fp, _ = _reviewer()
+    put(2, _approval_note(stranger_k, stranger_fp))                  # a key nobody pinned
+    put(3, _approval_note(stranger_k, win_fp))                       # claims the pinned key, signed by another
+    put(4, _approval_note(own_k, own_fp))                            # this computer approving itself
+    put(5, _approval_note(win_k, win_fp, commit="a1b2c3d" + "0" * 33))
+    put(6, _approval_note(win_k, win_fp, text=f"REJECT Gorilla.Opencode {FULL}"))
+    assert not rv()[0]
+    put(7, _approval_note(win_k, win_fp))
+    ok, why = rv()
+    assert ok and "0007" in why
+    assert not proofs.other_machine_reviewed(".", FULL, {}, link_home=tmp_path, own_key=own_fp, reviewers={})[0]
 
 
-def test_the_suite_must_show_a_pass_not_only_exit_0(tmp_path, monkeypatch):
-    import subprocess
-    from fieldkit.mandate import proofs
-    monkeypatch.setattr(proofs, "head", lambda rp: "abc")
-    monkeypatch.setattr(proofs, "_git", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
-    run = lambda out, rc=0: (lambda *a, **k: subprocess.CompletedProcess(a, rc, out, ""))
-    cfg = {"test": {"cmd": "python -m pytest -q"}}
-    assert not proofs.full_tests_pass_here(".", "abc", cfg, run=run("no tests ran"))[0]
-    assert not proofs.full_tests_pass_here(".", "abc", cfg, run=run("3 failed, 9 passed", 1))[0]
-    assert not proofs.full_tests_pass_here(".", "abc", {}, run=run("9 passed"))[0]        # no command in the mandate
-    assert proofs.full_tests_pass_here(".", "abc", cfg, run=run("9 passed in 2.1s"))[0]
+def test_sign_review_signs_only_a_full_sha(tmp_path, monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    monkeypatch.setattr(M, "home", lambda: tmp_path / "h")
+    with pytest.raises(ValueError):
+        M.sign_review("Gorilla.Opencode", "6cff573")
+    a = M.sign_review("Gorilla.Opencode", FULL)
+    raw = bytes.fromhex(M._review_paths()[1].read_text().strip())
+    Ed25519PublicKey.from_public_bytes(raw).verify(bytes.fromhex(a["sig"]), f"APPROVE Gorilla.Opencode {FULL}".encode())
+    assert a["key"] == M.fingerprint(raw) == M.review_key()[1]                  # made once, the same key after
 
 
-def test_a_note_stored_by_the_link_keeps_its_signature_for_the_prover(tmp_path, monkeypatch):
-    # the inbox kept only the text: nothing could check later that the other computer sent it
+def test_a_note_stored_by_the_link_keeps_the_approval_for_the_prover(tmp_path, monkeypatch):
     from fieldkit.mandate import proofs
     from fieldkit.peers import link
     monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path))
-    k = b"k" * 32
-    link.store("message", _signed_note(k, "reviewed 6cff573: 120 passed")["signed"])
-    assert proofs.other_machine_reviewed(".", "6cff5731234", {}, link_key=k, my_os="LINUX")[0]
+    monkeypatch.setattr(proofs, "where", lambda rp: ("Gorilla.Opencode", "feat/x"))
+    k, fp, raw = _reviewer()
+    link.store("message", _approval_note(k, fp)["signed"])
+    assert proofs.other_machine_reviewed(".", FULL, {}, own_key="mine", reviewers={fp: raw})[0]
+
+
+def _suite_env(monkeypatch, deleted=""):
+    import subprocess
+    from fieldkit.mandate import proofs
+    monkeypatch.setattr(proofs, "head", lambda rp: "abc")
+    monkeypatch.setattr(proofs, "_git", lambda *a, **k: subprocess.CompletedProcess(
+        a, 0, deleted if "--diff-filter=D" in a else "", ""))
+    return proofs
+
+
+def _runs(here, base, rc=0):
+    """The suite's output on the commit (here) and on origin/main (base, run in the temporary worktree)."""
+    import subprocess
+    return lambda cmd, cwd, **k: subprocess.CompletedProcess(cmd, rc, base if "mandate-base-" in cwd else here, "")
+
+
+def test_the_suite_must_show_a_pass_not_only_exit_0(monkeypatch):
+    proofs = _suite_env(monkeypatch)
+    cfg = {"test": {"cmd": "python -m pytest -q"}}
+    assert not proofs.full_tests_pass_here(".", "abc", cfg, run=_runs("no tests ran", "9 passed"))[0]
+    assert not proofs.full_tests_pass_here(".", "abc", cfg, run=_runs("3 failed, 9 passed", "9 passed", 1))[0]
+    assert not proofs.full_tests_pass_here(".", "abc", {}, run=_runs("9 passed", "9 passed"))[0]   # no command
+    assert proofs.full_tests_pass_here(".", "abc", cfg, run=_runs("9 passed in 2.1s", "9 passed in 2.0s"))[0]
+
+
+def test_a_commit_that_guts_the_suite_is_not_proven(monkeypatch):
+    # M1.2, the Windows review's point C: the commit being merged ran its OWN suite, so '1 passed' was a pass
+    proofs = _suite_env(monkeypatch)
+    cfg = {"test": {"cmd": "python -m pytest -q"}}
+    ok, why = proofs.full_tests_pass_here(".", "abc", cfg, run=_runs("1 passed", "2933 passed, 71 skipped"))
+    assert not ok and "fewer tests" in why
+    assert not proofs.full_tests_pass_here(".", "abc", cfg, run=_runs("2933 passed, 90 skipped",
+                                                                         "2933 passed, 71 skipped"))[0]
+    assert proofs.full_tests_pass_here(".", "abc", cfg, run=_runs("2940 passed, 71 skipped",
+                                                                     "2933 passed, 71 skipped"))[0]
+    proofs = _suite_env(monkeypatch, deleted="tests/test_mandate.py\nREADME.md\n")
+    ok, why = proofs.full_tests_pass_here(".", "abc", cfg, run=_runs("9 passed", "9 passed"))
+    assert not ok and "tests/test_mandate.py" in why
 
 
 # ---- M3: the callers --------------------------------------------------------------------------------------------------
@@ -305,6 +407,17 @@ def repos(tmp_path):
     return origin, work
 
 
+@pytest.mark.parametrize("url", ["https://github.com/o/Gorilla.Opencode.git", "github.com:o/Gorilla.Opencode.git",
+                                 "C:\\work\\t\\Gorilla.Opencode.git", "/tmp/t/Gorilla.Opencode.git",
+                                 "file:///C:/t/Gorilla.Opencode"])
+def test_the_repository_name_from_any_origin(url, monkeypatch):
+    import subprocess
+    from fieldkit.mandate import proofs
+    monkeypatch.setattr(proofs, "_git", lambda repo, *a, **k: subprocess.CompletedProcess(
+        a, 0, url if "get-url" in a else "feat/x", ""))
+    assert proofs.where(".") == ("Gorilla.Opencode", "feat/x")
+
+
 def test_ship_merge_refuses_without_a_mandate(repos):
     from fieldkit.method import ship
     origin, work = repos
@@ -333,7 +446,7 @@ def test_ship_merge_under_a_mandate_fast_forwards_main_and_logs_it(repos, owner,
                                             for w in ("full_tests_pass_here", "other_machine_reviewed")})
     monkeypatch.setattr(M, "verify", lambda p, today=None: (True, "in force"))      # the clock: DAY is in the past soon
     r = ship.merge(work)
-    assert r["ok"] and r["state"] == "merged", r
+    assert r["ok"] and r["state"] == "merged", f"state {r.get('state')}: {r.get('error')} / {r.get('next')}"
     assert _git(origin, "rev-parse", "main") == head                               # the artefact: main moved
     assert seen == {"full_tests_pass_here": head, "other_machine_reviewed": head}
     assert [e["commit"] for e in M.read_log(owner) if e["what"] == "merge_main"] == [head]

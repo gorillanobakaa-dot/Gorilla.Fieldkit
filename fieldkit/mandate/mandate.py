@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-23-11-10
+# Version: 1.3.0 · updated 26-10-23-12-12
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -9,6 +9,11 @@
     fieldkit mandate allows FILE.yaml ACTION [k=v ...]   a PREVIEW: allow | ask | deny and the clause (gates nothing)
     fieldkit mandate stop FILE.yaml               the owner's stop: nothing is allowed by it any more
     fieldkit mandate share FILE.yaml              the mandate, its seal and the public key to the other computer
+    fieldkit mandate review-key                   this computer's review key (made once; its public half is carried
+                                                  to the other computer)
+    fieldkit mandate trust-reviewer PUBFILE       the owner pins the OTHER computer's review key (guarded store)
+    fieldkit mandate sign-review REPO SHA         the reviewing session: "APPROVE REPO SHA", signed with this
+                                                  computer's review key, sent over the cable
     fieldkit mandate status                       every mandate here and whether it is in force
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
 
@@ -53,14 +58,9 @@ ACTIONS = ("push", "merge_main", "install", "mac", "release", "approval")
 NEVER_GRANTED = re.compile(r"\bmandate\b|gorilla_owner_approved", re.I)
 
 
-def _under_test():
-    return "pytest" in sys.modules
-
-
 def home():
-    # the review's point 2: `FIELDKIT_MANDATE_HOME=<dir> fieldkit ship push` would bring its own trust store
-    if _under_test() and os.environ.get("FIELDKIT_MANDATE_HOME"):
-        return Path(os.environ["FIELDKIT_MANDATE_HOME"])
+    # No environment override (M1.2: `import pytest` satisfied the M1.1 test guard). Tests replace this function.
+    # What decides trust is not here at all: guarded.py (owner keys, reviewer keys, stops), where this user cannot write.
     return Path.home() / ".fieldkit" / "mandate"
 
 
@@ -91,25 +91,21 @@ def keygen(passphrase: str):
     os.chmod(priv_p, 0o600)
     raw = k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     pub_p.write_text(raw.hex() + "\n", encoding="utf-8")
-    trust_raw(raw)                                      # this computer trusts its own owner key
     return pub_p, fingerprint(raw)
 
 
-def trusted_dir():
-    return home() / "trusted"
+def trust_raw(raw: bytes, folder="trusted"):
+    """Pin a public key in the guarded store, as the owner (a password prompt) -> (ok, message)."""
+    from . import guarded
+    if len(raw) != 32:
+        return False, "not an Ed25519 public key (32 bytes)"
+    return guarded.write(f"{folder}/{fingerprint(raw)}.pub", raw.hex())
 
 
-def trust_raw(raw: bytes):
-    d = trusted_dir()
-    d.mkdir(parents=True, exist_ok=True)
-    (d / f"{fingerprint(raw)}.pub").write_text(raw.hex() + "\n", encoding="utf-8")
-    return fingerprint(raw)
-
-
-def trusted_keys():
-    d = trusted_dir()
+def _pinned(folder):
+    from . import guarded
     out = {}
-    for p in d.glob("*.pub") if d.is_dir() else []:
+    for p in guarded.listing(folder):
         try:
             raw = bytes.fromhex(p.read_text(encoding="utf-8").strip())
         except (OSError, ValueError):
@@ -117,6 +113,52 @@ def trusted_keys():
         if fingerprint(raw) == p.stem:                  # the review's point 3: the name alone proves nothing
             out[p.stem] = raw
     return out
+
+
+def trusted_keys():
+    return _pinned("trusted")
+
+
+def reviewer_keys():
+    return _pinned("reviewers")
+
+
+# ---- this computer's REVIEW key: what makes "APPROVE <sha>" the other computer's word (M1.2, review point B) -----------
+def _review_paths():
+    return home() / "machine_review.pem", home() / "machine_review.pub"
+
+
+def review_key():
+    """-> (private key, fingerprint). Made once per computer, unencrypted (a reviewing session signs unattended); it
+    lives on this computer only, and only the OTHER computer pins its public half, so it proves which computer
+    reviewed, never that the owner did."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    priv_p, pub_p = _review_paths()
+    if priv_p.is_file():
+        k = serialization.load_pem_private_key(priv_p.read_bytes(), password=None)
+    else:
+        k = Ed25519PrivateKey.generate()
+        priv_p.parent.mkdir(parents=True, exist_ok=True)
+        priv_p.write_bytes(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                           serialization.NoEncryption()))
+        os.chmod(priv_p, 0o600)
+    raw = k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    if not pub_p.is_file():
+        pub_p.write_text(raw.hex() + "\n", encoding="utf-8")
+    return k, fingerprint(raw)
+
+
+def approval_text(repo, commit):
+    return f"APPROVE {repo} {commit}"
+
+
+def sign_review(repo, commit):
+    """-> the approval as it travels: {repo, commit, key, sig}. Only a full 40-character sha is ever signed."""
+    if not re.fullmatch(r"[0-9a-f]{40}", commit or ""):
+        raise ValueError("APPROVE needs the full 40-character commit sha")
+    k, fp = review_key()
+    return {"repo": repo, "commit": commit, "key": fp, "sig": k.sign(approval_text(repo, commit).encode()).hex()}
 
 
 # ---- the mandate ----------------------------------------------------------------------------------------------------
@@ -194,18 +236,15 @@ def stop_path(path):
     return Path(path).with_suffix(".STOP")
 
 
-def _stopped_list():
-    return home() / "stopped.txt"
-
-
 def stopped(path):
-    """The .STOP beside it, or its sha256 in the mandate home's list of stopped mandates (a deleted .STOP does not
-    lift a stop; the review's point 5)."""
+    """The .STOP beside it, or its sha256 in the guarded stop list (a deleted .STOP does not lift a stop, and the list
+    is where this user cannot write; the review's points 5 and A)."""
+    from . import guarded
     if stop_path(path).exists():
         return True
     try:
         sha = _sha(path)
-        lst = _stopped_list().read_text(encoding="utf-8") if _stopped_list().is_file() else ""
+        lst = guarded.read("stopped.txt")
     except OSError:
         return True                                     # unreadable: fail closed
     return any(line.split()[:1] == [sha] for line in lst.splitlines())
@@ -370,12 +409,14 @@ def install(gb, what, cmd, run=subprocess.run, used=_disk_used):
 
 
 def stop(path):
+    """The .STOP beside the file at once (anyone may stop; it only closes), then the permanent entry in the guarded
+    stop list, as the owner -> (stop file, guarded ok, message)."""
+    from . import guarded
     stop_path(path).write_text(time.strftime("%Y-%m-%d %H:%M:%S") + "\n", encoding="utf-8")
-    _stopped_list().parent.mkdir(parents=True, exist_ok=True)
-    with open(_stopped_list(), "a", encoding="utf-8") as f:
-        f.write(f"{_sha(path)} {Path(path).name} {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-    log(path, "stopped", "by the owner")
-    return stop_path(path)
+    name = re.sub(r"[^\w.-]", "_", Path(path).name)[:80]
+    ok, msg = guarded.write("stopped.txt", f"{_sha(path)} {name} {time.strftime('%Y-%m-%d_%H:%M:%S')}", append=True)
+    log(path, "stopped", f"by the owner; guarded list: {msg}")
+    return stop_path(path), ok, msg
 
 
 def _log_path(path):
@@ -409,8 +450,8 @@ def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="fieldkit mandate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["keygen", "trust", "approve", "verify", "allows", "stop", "share", "status",
-                                       "install"])
+    ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
+                                       "share", "status", "install", "review-key", "sign-review"])
     ap.add_argument("rest", nargs="*")
     a = ap.parse_args(argv)
     r = a.rest
@@ -427,19 +468,50 @@ def main(argv=None):
         except (FileExistsError, ValueError) as e:
             print(f"REFUSED: {e}")
             return 2
-        print(f"KEY MADE: {pub}  fingerprint {fp}. The other computer: fieldkit mandate trust {pub.name} (after share)")
-        return 0
-    if a.action == "trust":
+        print(f"KEY MADE: {pub}  fingerprint {fp}")
+        print("Pinning it in the guarded store (your password, once):")
+        ok, msg = trust_raw(bytes.fromhex(pub.read_text(encoding="utf-8").strip()))
+        print(("TRUSTED " if ok else "NOT TRUSTED YET ") + msg)
+        print(f"The other computer: fieldkit mandate trust {pub.name} (after share)")
+        return 0 if ok else 3
+    if a.action in ("trust", "trust-reviewer"):
         if not r:
-            print("trust PUBFILE")
+            print(f"{a.action} PUBFILE")
             return 2
         raw = bytes.fromhex(Path(r[0]).read_text(encoding="utf-8").strip())
-        print(f"owner key fingerprint {fingerprint(raw)}: compare it with the screen of the computer that made it")
-        if not _typed_yes("Trust this key for mandates on this computer? Type yes: "):
+        what = "owner signing key" if a.action == "trust" else "the OTHER computer's review key"
+        print(f"{what}, fingerprint {fingerprint(raw)}: compare it with the screen of the computer that made it")
+        if a.action == "trust-reviewer" and len(raw) == 32 and fingerprint(raw) == review_key()[1]:
+            print("REFUSED: that is THIS computer's own review key; a computer never approves its own work")
+            return 2
+        if not _typed_yes(f"Pin this {what} on this computer? Type yes: "):
             print("not trusted")
             return 1
-        print(f"TRUSTED {trust_raw(raw)}")
+        ok, msg = trust_raw(raw, "trusted" if a.action == "trust" else "reviewers")
+        print(("TRUSTED " if ok else "NOT TRUSTED ") + msg)
+        return 0 if ok else 3
+    if a.action == "review-key":
+        _k, fp = review_key()
+        print(f"REVIEW KEY {fp}: {_review_paths()[1]}. The other computer pins it: fieldkit mandate trust-reviewer "
+              f"{_review_paths()[1].name} (the owner, once, after it is carried over)")
         return 0
+    if a.action == "sign-review":
+        # the reviewing session's own act: after its review passed, it signs "APPROVE <repo> <sha>" with this
+        # computer's review key and sends it over the cable; a review with findings sends findings, never this
+        if len(r) < 2:
+            print("sign-review REPO SHA  (the full 40-character sha the review tested)")
+            return 2
+        try:
+            ap_ = sign_review(r[0], r[1])
+        except ValueError as e:
+            print(f"REFUSED: {e}")
+            return 2
+        from ..peers import link
+        res = link.call({"verb": "message", "done": True, "evidence": approval_text(r[0], r[1]), "approval": ap_,
+                         "text": f"{approval_text(r[0], r[1])} (review key {ap_['key']})"})
+        print(("SENT " if res.get("ok") else "NOT SENT ") + approval_text(r[0], r[1]) +
+              ("" if res.get("ok") else f": {res.get('error')}"))
+        return 0 if res.get("ok") else 1
     if a.action == "status":
         d = home() / "mandates"
         for p in sorted(d.glob("*.yaml")) if d.is_dir() else []:
@@ -503,12 +575,13 @@ def main(argv=None):
         print(f"PREVIEW {verdict.upper()}  {why}")
         return 0
     if a.action == "stop":
-        print(f"STOPPED: {stop(path)}")
-        return 0
+        sp, ok, msg = stop(path)
+        print(f"STOPPED: {sp}" + ("" if ok else f"; the permanent entry is NOT written yet ({msg})"))
+        return 0 if ok else 3
     if a.action == "share":
         from ..peers import link
         sent = []
-        for f in (path, _seal_path(path), _key_paths()[1]):
+        for f in (path, _seal_path(path), _key_paths()[1], _review_paths()[1]):
             if f.is_file():
                 res = link.put(f)
                 sent.append(f"{f.name}: {'ok' if res.get('ok') else res.get('error')}")

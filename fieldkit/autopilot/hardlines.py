@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-23-11-10
+# Version: 1.2.0 · updated 26-10-23-12-12
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -81,6 +81,8 @@ PROTECTED = [
 # 2026-10-23, the Windows review of the mandate (M1): a model that can write here can pin its own key, sign its own
 # mandate, delete a stop or truncate the install budget's log. Models may read it; a command that names it and
 # writes anything is refused as a whole (not per statement: `cd ~/.fieldkit && cp k.pub mandate/trusted/`).
+# This is the SECOND layer: text cannot see a write by indirection (M1.2). What decides trust (owner keys, reviewer
+# keys, stops) is in fieldkit/mandate/guarded.py, where this OS user cannot write at all.
 MANDATE_STORE = re.compile(r"\.fieldkit/mandate\b|(^|[/\s\"'])mandate/(trusted|mandates)\b|owner_signing\.|"
                            r"(^|[/\s\"'])stopped\.txt\b|(^|[/\s\"'])local/mandates\b")
 MANDATE_ENV = re.compile(r"fieldkit_mandate_home", re.I)
