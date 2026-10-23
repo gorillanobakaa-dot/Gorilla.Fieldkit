@@ -1659,6 +1659,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers.py"]
 
 # -- the cable link's own operations (fieldkit/peers/link_relay.py, link_ops.py; 2026-10-22 night, Linux side) ----
+- id: mandate
+  title: "A project mandate: the owner's ONE approval for a whole project, valid on both computers: keygen (passphrase-protected Ed25519), trust (the other computer pins the public key), approve (every door shown, typed yes, passphrase), verify, allows (allow/ask/deny with the clause), stop, share"
+  harness: core
+  entry: [python, -m, fieldkit, mandate]
+  path: ${FIELDKIT}/fieldkit/mandate/mandate.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [keygen, trust, approve, verify, allows, stop, share, status], help: "status first; keygen, trust and approve are the owner's, at a real terminal"}
+    - {name: rest, flag: null, type: str, required: false, help: "FILE.yaml; allows: FILE.yaml ACTION key=value ..."}
+  effects: [writes-files, network]
+  safety: reversible             # a seal is voided by any change, a stop, or the date; nothing outside ~/.fieldkit/mandate
+  scope: [file]
+  output: own
+  exits: {1: "not approved / not trusted", 2: "bad input or no key", 3: "not in force (verify) or ask (allows)", 4: "deny"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate.py"]
+  notes: "Owner, 2026-10-23: one approval per project, valid for both sessions, same SOPs. Plan local/PROJECT-MANDATE-PLAN.md. The seal is an Ed25519 signature over the mandate's sha256, made with the owner's passphrase-protected key; the other computer holds only the public key (verify, never sign) - the Windows side's review replaced the first idea (an HMAC with the cable key, which any key holder could mint). Fail closed: no seal, a changed byte, an untrusted key, a stop or the expiry date and nothing is allowed by the mandate. Callers (push, merge, install, autopilot hard lines) are stage M3."
+
 - id: peers-link-relay
   title: "One session per computer that only listens on the cable: listen until a note comes (no time limit), the brief a relay follows, status, doctor (PRECHECK: exit 3 when nobody listens)"
   harness: peers

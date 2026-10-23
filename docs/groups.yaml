@@ -191,6 +191,10 @@ groups:
     title: "Messages between AI sessions on this computer, in Gorilla OpenCode's protocol: list, send, wait"
     sources: ["peers/*.py"]
 
+  - name: mandate
+    title: "A project mandate: the owner's one approval for a whole project, valid and checkable on both computers"
+    sources: ["mandate/*.py"]
+
   - name: evidence
     title: "Research evidence that can be checked later: pages kept by hash, every claim of a run against its page"
     sources: ["evidence/*.py"]

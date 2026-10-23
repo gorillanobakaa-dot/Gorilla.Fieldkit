@@ -1331,6 +1331,7 @@ def build_parser():
                              "elevated) (fieldkit hdmi)")
     hd.add_argument("args", nargs=argparse.REMAINDER)
     hd.set_defaults(fn=lambda a: __import__("fieldkit.hdmi.cli", fromlist=["main"]).main(a.args))
+    sub.add_parser("mandate", add_help=False, help="one owner approval per project, valid on both computers")
     pe = sub.add_parser("peers", add_help=False,
                         help="messages between AI sessions on this computer, in Gorilla OpenCode's protocol: list, "
                              "send, wait (fieldkit peers --help)")
@@ -2399,6 +2400,9 @@ def main(argv=None):
     if args[:1] == ["hdmi"]:                          # the HDMI Harness, elevated and waited for (fieldkit/hdmi)
         from .hdmi import cli as hdmi_cli
         return hdmi_cli.main(args[1:])
+    if args[:1] == ["mandate"]:                       # one owner approval per project, both computers (fieldkit/mandate)
+        from .mandate import mandate as mandate_cli
+        return mandate_cli.main(args[1:])
     if args[:1] == ["peers"]:                         # messages between sessions on this computer (fieldkit/peers)
         from .peers import peers as peers_cli
         return peers_cli.main(args[1:])
