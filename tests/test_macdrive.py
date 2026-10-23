@@ -278,3 +278,24 @@ def test_watch_dialogs_answers_each_dialog_once_counts_and_stops_at_the_report(t
 
 def test_watch_dialogs_refuses_an_unknown_answer():
     assert D.watch_dialogs(fn, "/dev/ttys001", "maybe", runner=Mac(), sleep=lambda s: None)[0] == 2
+
+
+def test_tui_start_waits_out_a_google_sign_in_that_finishes_alone():
+    # 2026-10-23 on the Air: Enter on the provider screen started a Google sign-in that finished by itself in ~60 s;
+    # tui-start's 90 s ran out at a ready prompt (and an earlier run was stopped by hand, wrongly, as "needs a person")
+    clock, mac = {"t": 0.0}, Mac(screen="folder: /Users/gorilla/Stranger-Test\nStarting Google sign-in (Antigravity)...")
+    def runner(argv, stdin, _orig=mac.__call__):
+        if clock["t"] >= 120 and "Signed in" not in mac.screen:
+            mac.screen += "\nSigned in as someone@example.com.\nReady. Plan: Google AI Pro.\n >\n ? help   AUTO"
+        return _orig(argv, stdin)
+    code, lines = D.tui_start(fn, "/dev/ttys001", seconds=90, every=10, runner=runner,
+                              now=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    assert code == 0 and lines[0].startswith("Google sign-in started") and lines[-1].startswith("at the prompt"), lines
+    assert not any(c[1] == D.KEY_SCRIPT for c in mac.calls)          # nothing typed into a sign-in
+
+
+def test_tui_start_names_a_sign_in_that_never_finishes():
+    clock, mac = {"t": 0.0}, Mac(screen="Starting Google sign-in (Antigravity)...\nOpening your browser")
+    code, lines = D.tui_start(fn, "/dev/ttys001", seconds=30, every=10, sign_in_seconds=60, runner=mac,
+                              now=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    assert code == 3 and "a person must finish it in the browser" in lines[-1], lines

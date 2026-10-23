@@ -1,5 +1,5 @@
 #!/bin/sh
-# Version: 1.0.0 · updated 26-10-23-01-35
+# Version: 1.1.0 · updated 26-10-23-16-30
 # Fieldkit on a computer WITHOUT git (macOS or Linux): no Homebrew, no Xcode, no admin password needed.
 #
 #   sh install.sh [--yes] [--full] [--branch NAME] [FOLDER]
@@ -85,9 +85,36 @@ else
   fi
   ask "Download Fieldkit (about 4 MB, branch $BRANCH) into $DEST?" || { say "Nothing downloaded."; exit 3; }
   TMP=$(mktemp -d 2>/dev/null || mktemp -d -t fieldkit)
-  if ! curl -fL --retry 3 -o "$TMP/fieldkit.zip" "$URL"; then
-    say "The download failed ($URL). On a weak connection try again; or download it in a browser and run install.sh inside the unzipped folder."
+  # A dropped connection resumes from where it stopped, not from zero (the people this is for are on single-digit
+  # KB/s). Stops when a try makes no progress, after 6 tries, or when the server cannot resume twice in a row.
+  fetch() {
+    PART="$TMP/fieldkit.zip.part"; TRY=0; LAST=-1; NORESUME=0
+    while [ "$TRY" -lt 6 ]; do
+      TRY=$((TRY + 1))
+      curl -fL --retry 3 --retry-delay 5 -C - -o "$PART" "$URL"; RC=$?
+      [ "$RC" -eq 0 ] && { mv "$PART" "$TMP/fieldkit.zip"; return 0; }
+      if [ "$RC" -eq 33 ]; then                 # the server does not do ranges: start again from zero, once
+        NORESUME=$((NORESUME + 1)); rm -f "$PART"
+        [ "$NORESUME" -ge 2 ] && { say "The server cannot resume a download and it broke twice."; return 1; }
+        say "The server cannot resume; downloading again from the start."; continue
+      fi
+      NOW=$(wc -c < "$PART" 2>/dev/null | tr -d ' '); NOW=${NOW:-0}
+      if [ "$NOW" -le "$LAST" ]; then say "No progress since the last try ($NOW bytes): stopping."; return 1; fi
+      LAST=$NOW
+      say "The download stopped at $NOW bytes (curl $RC); resuming, try $TRY of 6."
+      sleep "${FIELDKIT_RETRY_WAIT:-10}"
+    done
+    return 1
+  }
+  zip_ok() { "$PY" -c 'import sys, zipfile; z = sys.argv[1]; sys.exit(0 if zipfile.is_zipfile(z) and zipfile.ZipFile(z).testzip() is None else 1)' "$1"; }
+  if ! fetch; then
+    say "The download failed ($URL). On a weak connection try again later; or download it in a browser and run install.sh inside the unzipped folder."
     exit 3
+  fi
+  if ! zip_ok "$TMP/fieldkit.zip"; then          # a resumed file can be damaged: one clean download, then stop
+    say "The downloaded zip is damaged; downloading it once more from the start."
+    rm -f "$TMP/fieldkit.zip"
+    fetch && zip_ok "$TMP/fieldkit.zip" || { say "The zip is still damaged ($URL). Download it in a browser instead."; exit 3; }
   fi
   SIZE=$(wc -c < "$TMP/fieldkit.zip" | tr -d ' ')
   if command -v unzip >/dev/null 2>&1; then unzip -q "$TMP/fieldkit.zip" -d "$TMP/x"

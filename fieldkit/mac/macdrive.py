@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-23-16-05
+# Version: 1.3.0 · updated 26-10-23-16-30
 """macdrive.py - drive a Mac's screen from another computer, the way a person would, and check each step took.
 
     fieldkit mac keep-awake NAME [--minutes N | --stop]    caffeinate on the Mac for a long job (display, disk, network)
@@ -220,10 +220,19 @@ def _last(rows, pattern):
     return max((i for i, r in enumerate(rows) if re.search(pattern, r)), default=-1)
 
 
-def tui_start(ssh_argv_fn, tty, seconds=180, every=4, now=time.time, sleep=time.sleep, **kw):
+# A Google sign-in started by the provider screen finishes on its own when the Mac's browser is already signed in
+# (2026-10-23: ~60 s, then the model list refresh); until "Signed in" shows, the start-up is waiting, not stuck.
+SIGN_IN_START = r"Starting Google sign-in"
+SIGN_IN_DONE = r"^Signed in as |^Ready\. Plan:"
+
+
+def tui_start(ssh_argv_fn, tty, seconds=180, every=4, sign_in_seconds=180, now=time.time, sleep=time.sleep, **kw):
     """-> (code, lines). Walks the start-up screens to the prompt, pressing a key ONLY on a screen it has
-    identified; 0 at the prompt, 3 stuck or timed out (the lines say on what)."""
-    lines, end, last = [], now() + seconds, None
+    identified; 0 at the prompt, 3 stuck or timed out (the lines say on what). A Google sign-in in progress
+    extends the wait once by sign_in_seconds and, if it never finishes, is named as the reason (a person must
+    finish it in the browser), never typed into."""
+    lines, end, last, extended = [], now() + seconds, None, False
+    rows = None
     while now() < end:
         rows, err = screen_text(ssh_argv_fn, tty, 40, **kw)
         if rows is None:
@@ -231,6 +240,12 @@ def tui_start(ssh_argv_fn, tty, seconds=180, every=4, now=time.time, sleep=time.
             sleep(every)
             continue
         tail = rows[-30:]
+        if _last(rows, SIGN_IN_START) > _last(rows, SIGN_IN_DONE):
+            if not extended:
+                end, extended = max(end, now() + sign_in_seconds), True
+                lines.append("Google sign-in started: waiting for it (a browser already signed in finishes alone)")
+            sleep(every)
+            continue
         heads = {name: _last(tail, pat) for name, pat, _ in TUI_SCREENS}
         newest = max(heads.values())
         if _last(tail, TUI_READY) > newest:
@@ -249,6 +264,8 @@ def tui_start(ssh_argv_fn, tty, seconds=180, every=4, now=time.time, sleep=time.
         lines.append(f"{name}: {key} ({msg})")
         last = (name, key)
         sleep(every)
+    if rows and _last(rows, SIGN_IN_START) > _last(rows, SIGN_IN_DONE):
+        return 3, lines + ["stuck at the Google sign-in: a person must finish it in the browser on the Mac"]
     return 3, lines + [f"not at the prompt within {seconds:g} s"]
 
 
