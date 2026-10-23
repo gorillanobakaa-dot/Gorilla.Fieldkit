@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-15-10
+# Version: 1.0.0 · updated 26-10-23-15-30
 """Jobs between one orchestrator and its workers, under the owner's mandate (local/PROJECT-MANDATE-PLAN.md 16.4).
 
     fieldkit mandate job send REPO SHA [--kind test]   the orchestrator: give the paired worker a job (once per job)
@@ -59,6 +59,46 @@ def _save(led):
     ledger_path().write_text(json.dumps(led, indent=1), encoding="utf-8")
 
 
+def events_path():
+    return _link().home() / "ledger.jsonl"
+
+
+def event(what, **data):
+    """The project ledger (plan 17.2 item 1): append-only, one JSON line per thing that happened, on the boss. jobs.json
+    is the state worked out from it; a restarted boss reads both (resume)."""
+    events_path().parent.mkdir(parents=True, exist_ok=True)
+    n = sum(1 for _ in events_path().open(encoding="utf-8")) + 1 if events_path().is_file() else 1
+    with open(events_path(), "a", encoding="utf-8") as f:
+        f.write(json.dumps(dict(n=n, at=time.strftime("%Y-%m-%d %H:%M:%S"), what=what, **data),
+                           ensure_ascii=False) + "\n")
+    return n
+
+
+def events(since=0):
+    out = []
+    for line in events_path().read_text(encoding="utf-8").splitlines() if events_path().is_file() else []:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("n", 0) > since:
+            out.append(e)
+    return out
+
+
+def resume(call=None):
+    """A restarted boss (plan 17.2 item 2): the jobs still open, and each worker asked once to resend results it could
+    not deliver while the boss was down. -> {open: [ids], last: the last event, asked: what the worker said}."""
+    led = _ledger()
+    open_ = [j for j, e in led.items() if e.get("status") in (None, "sent")]
+    last = (events() or [{}])[-1]
+    asked = None
+    if open_:
+        asked = (call or _link().call)({"verb": "resend"})
+        event("boss-resumed", open=open_, worker=asked.get("error") or asked.get("resent"))
+    return {"open": open_, "last": last, "asked": asked}
+
+
 def job_id(kind, repo, commit, mandate_sha):
     return f"{kind}-{repo}-{commit[:12]}-{mandate_sha[:8]}"
 
@@ -95,6 +135,7 @@ def send(kind, repo, commit, mandate_path, call=None):
     led[jid] = {"kind": kind, "repo": repo, "commit": commit, "mandate": msha, "status": "sent",
                 "sent": time.strftime("%Y-%m-%d %H:%M:%S"), "worker_said": res.get("error") or "started"}
     _save(led)
+    event("job-sent", id=jid, kind=kind, repo=repo, commit=commit)
     return jid, "sent"
 
 
@@ -139,6 +180,8 @@ def handle_result(req):
     e.update(status=r.get("status"), evidence=str(r.get("evidence", ""))[:300], concerns=r.get("concerns") or [],
              worker=r.get("host"), at=r.get("at"))
     _save(led)
+    event("result", id=r["id"], status=r.get("status"), worker=r.get("host"),
+          concerns=[c.get("text") for c in r.get("concerns") or []])
     return {"ok": True, "stored": r["id"]}
 
 
@@ -180,6 +223,10 @@ def handle_job(req, popen=subprocess.Popen, repos=None, lock=None, find_mandate=
     if mpath is None:
         return {"ok": False, "error": f"no mandate with sha {msha[:12]} in force here naming {repo} "
                                       "(fix: fieldkit mandate share it to this computer)"}
+    boss = _bosses(mpath)
+    if boss and str(req.get("from_host") or "") not in boss:   # plan 17.1: workers obey the boss the mandate names
+        return {"ok": False, "error": f"this job came from {req.get('from_host')}, not the mandate's orchestrator "
+                                      f"({', '.join(boss)}): not taken"}
     path = V.find_repo(repo, repos)
     if path is None:
         return {"ok": False, "error": f"{repo} is not checked out here (fix: add it to sync.repos on this computer)"}
@@ -195,6 +242,44 @@ def handle_job(req, popen=subprocess.Popen, repos=None, lock=None, find_mandate=
     return {"ok": True, "started": jid}
 
 
+def _bosses(mpath):
+    """The device names the sealed mandate gives as orchestrator and backup ([] when it names none)."""
+    try:
+        from . import mandate as M
+        m = M.load(mpath)
+    except (OSError, ValueError):
+        return []
+    return [str(m[k]["device"]) for k in ("orchestrator", "backup")
+            if isinstance(m.get(k), dict) and m[k].get("device")]
+
+
+def outbox():
+    return _link().home() / "outbox"
+
+
+def deliver(r, call=None):
+    """Send a result to the boss; one that cannot be delivered (the boss is down) waits in the outbox."""
+    res = (call or _link().call)({"verb": "result", "result": r,
+                                  "text": f"RESULT {r['repo']} {r['commit'][:10]} {r['status']}"
+                                          + (f" with {len(r['concerns'])} concern(s)" if r.get("concerns") else "")})
+    if not res.get("ok"):
+        outbox().mkdir(parents=True, exist_ok=True)
+        (outbox() / f"{r['id']}.json").write_text(json.dumps(r, indent=1, ensure_ascii=False), encoding="utf-8")
+    return res
+
+
+def flush(call=None):
+    """Resend every result waiting in the outbox (asked by a restarted boss: verb resend). -> how many went."""
+    sent = 0
+    for p in sorted(outbox().glob("*.json")) if outbox().is_dir() else []:
+        r = json.loads(p.read_text(encoding="utf-8"))
+        res = (call or _link().call)({"verb": "result", "result": r, "text": f"RESULT {r['repo']} (resent)"})
+        if res.get("ok"):
+            p.unlink()                                    # delivered: the boss holds it now
+            sent += 1
+    return sent
+
+
 def sign_result(r):
     from . import mandate as M
     k, fp = M.review_key()
@@ -203,20 +288,26 @@ def sign_result(r):
     return r
 
 
-def run_job(jid, repo_path, commit, mandate_path, verdict_fn=None, call=None):
-    """The job itself (a detached process on the worker): run, sign the RESULT, send it back. -> the result."""
+def run_job(jid, repo_path, commit, mandate_path, verdict_fn=None, call=None, health_fn=None):
+    """The job itself (a detached process on the worker): check the device's health, run awake, sign the RESULT, send
+    it back. -> the result. Health problems travel as concerns; the job is not run only when it cannot be."""
     import socket
+    from . import health
     from . import mandate as M
     from . import proofs, verdict as V
     name = proofs.where(repo_path)[0]
     branches = ((M.load(mandate_path).get("repos") or {}).get(name) or {}).get("push") or []
-    v = (verdict_fn or V.verdict)(repo_path, commit, name=name, branches=branches)
+    can_run, sick, said = (health_fn or health.check)(repo_path)
+    if can_run:
+        with health.awake(f"fieldkit job {jid}"):
+            v = (verdict_fn or V.verdict)(repo_path, commit, name=name, branches=branches)
+    else:
+        v = {"status": "not-run", "evidence": "the device cannot run it now: " + "; ".join(said), "concerns": []}
+    v["concerns"] = sick + v["concerns"]
     r = sign_result({"id": jid, "kind": "test", "repo": name, "commit": commit, "status": v["status"],
                      "evidence": str(v["evidence"])[:1900], "concerns": v["concerns"], "os": _link().os_tag(),
                      "host": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S")})
-    (call or _link().call)({"verb": "result", "result": r,
-                            "text": f"RESULT {name} {commit[:10]} {v['status']}"
-                                    + (f" with {len(v['concerns'])} concern(s)" if v["concerns"] else "")})
+    deliver(r, call=call)
     return r
 
 

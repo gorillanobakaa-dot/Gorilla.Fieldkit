@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-15-10
+# Version: 1.4.0 · updated 26-10-23-15-30
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -16,6 +16,9 @@
                                                   main): printed, nothing sent or signed
     fieldkit mandate job send|status|wait ...     one orchestrator, many workers (jobs.py): a job to the worker, the
                                                   ledger, one blocking wait for a result
+    fieldkit mandate boss                         the devices seen and the proposed boss (always on > memory > cable)
+    fieldkit mandate ledger [N]                   the project ledger, append-only, from event N
+    fieldkit mandate resume                       a restarted boss: open jobs, workers asked to resend missed results
     fieldkit mandate status                       every mandate here and whether it is in force
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
 
@@ -195,6 +198,11 @@ def doors(m):
         out.append(f"sessions have full read/write access to the Mac '{name}'")
     for a in m.get("owner_approvals") or []:
         out.append(f"sessions may run, as if you approved it: {a}")
+    for role in ("orchestrator", "backup"):
+        b = m.get(role)
+        if isinstance(b, dict) and b.get("device"):
+            out.append(f"the {'BOSS (orchestrator)' if role == 'orchestrator' else 'backup boss'} is {b['device']} "
+                       f"(key {b.get('key', '?')}): every other device takes jobs only from it, and asks nobody")
     rel = m.get("release", "ask")
     if isinstance(rel, dict) and isinstance(rel.get("cycle"), dict) and rel["cycle"]:
         out.append("sessions may RELEASE, the whole cycle (build every system, checksums, screenshots, both tracks, "
@@ -520,7 +528,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit mandate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
-                                       "share", "status", "install", "review-key", "verdict", "job"])
+                                       "share", "status", "install", "review-key", "verdict", "job", "boss",
+                                       "ledger", "resume"])
     ap.add_argument("rest", nargs="*")
     a = ap.parse_args(argv)
     r = a.rest
@@ -581,6 +590,24 @@ def main(argv=None):
         return 0 if res["status"] == "pass" else 3
     if a.action == "job":
         return _job_cli(r, argv)
+    if a.action == "boss":
+        from . import boss
+        devs = boss.devices()
+        print("\n".join(boss.lines(devs, boss.propose(devs))))
+        return 0
+    if a.action == "ledger":
+        from . import jobs
+        since = int(r[0]) if r and r[0].isdigit() else 0
+        for e in jobs.events(since):
+            print(f"  #{e['n']} {e['at']} {e['what']}: " + ", ".join(f"{k}={v}" for k, v in e.items()
+                                                                  if k not in ("n", "at", "what")))
+        return 0
+    if a.action == "resume":
+        from . import jobs
+        res = jobs.resume()
+        print(f"OPEN JOBS: {', '.join(res['open']) or 'none'}; last event: #{res['last'].get('n', 0)} "
+              f"{res['last'].get('what', '')}" + (f"; worker: {res['asked']}" if res["asked"] else ""))
+        return 0
     if not r:
         print(f"{a.action} FILE.yaml ...")
         return 2

@@ -652,6 +652,15 @@ def toolset():
         return None
 
 
+def _device():
+    """What the boss rule weighs about this device (fieldkit/mandate/boss.py); never fails a hello."""
+    try:
+        from ..mandate import boss
+        return boss.device_facts(cable=True)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset):
     bad = verifier.check(req)
     if bad:
@@ -664,7 +673,7 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # toolset: the peer diffs it against its own (owner, 2026-10-22: the same tools on both); time: the asking
         # side measures the clock skew the Verifier would refuse (link_checks clock)
         return {"ok": True, "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
-                "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time()}
+                "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time(), "device": _device()}
     if verb == "message":
         item = store("message", req)
         handed = ""
@@ -677,6 +686,11 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
                 handed = f"; no session {req['to']} ({e})"
         _log(f"message #{item['n']} from {req.get('from_host')}{handed}")
         return {"ok": True, "stored": item["n"], "note": handed.strip("; ")}
+    if verb == "resend":                                  # a restarted boss asks for results it missed
+        from ..mandate import jobs as mandate_jobs
+        n = mandate_jobs.flush()
+        _log(f"resend from {req.get('from_host')}: {n} result(s) sent again")
+        return {"ok": True, "resent": n}
     if verb in ("job", "result"):
         # one orchestrator, many workers (fieldkit/mandate/jobs.py, 2026-10-23): a job is run by a tool here, no
         # session is asked; a result is kept for the orchestrator. Every refusal is the answer, and logged.
