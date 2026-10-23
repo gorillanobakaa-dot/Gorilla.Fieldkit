@@ -178,13 +178,15 @@ tools:
   entry: [python, -m, fieldkit, eta]
   path: ${FIELDKIT}/fieldkit/core/eta.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [leakgate, build, history, delete, copy, record], help: "what to estimate"}
+    - {name: action, flag: null, type: str, required: true, choices: [leakgate, build, history, delete, copy, record, calibrate], help: "what to estimate; calibrate measures this machine"}
     - {name: args, flag: null, type: str, required: false, help: "leakgate RUN_DIR; build [build|package] [OBJDIR]; history [STEP]; delete PATH; copy SRC DEST_DIR; record STEP SECONDS"}
-  effects: [reads-files, writes-files]
+    - {name: minutes, flag: --minutes, type: float, required: false, help: "calibrate: longest thermal load (it stops at 70 C first; default 10)"}
+    - {name: quick, flag: --quick, type: bool, required: false, help: "calibrate: no thermal load"}
+  effects: [reads-files, writes-files, processes]
   safety: reversible
-  notes: 'delete and copy time a trial on scratch files they create and remove in a .fieldkit-eta-trial folder on the measured disk; nothing else is touched'
+  notes: 'delete and copy time a trial on scratch files they create and remove in a .fieldkit-eta-trial folder on the measured disk; nothing else is touched. calibrate (fieldkit/core/calibrate.py) runs fixed workloads (workload fk-cal-1: CPU single + one process per thread, disk fsync writes, RAM copy, every thread busy until 70 C or --minutes) INSIDE the build guard (fan check fails closed on Windows, governor above thermal.build_target + 3) and stores state/machines/<host>.json (previous run kept under "previous"); the ratio of two machines'' scores decides delegation (DESIGN-MULTI-MACHINE.md)'
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py", "${FIELDKIT}/tests/test_calibrate.py"]
 
 - id: inbox
   title: The owner inbox - every approval an unattended run needs, collected for one sitting
@@ -2639,6 +2641,25 @@ tools:
   platforms_why: "wpr/ETW, the GPU Engine counters and the Windows Performance Toolkit exist only on Windows; Linux has intel_gpu_top, macOS gets its own backend (DTrace on the Intel decoder bundle + a VideoToolbox hardware-only session), planned"
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_gpudecode.py", -p, "no:cacheprovider"]
   notes: "Evidence from Microsoft's own tools: wpr.exe (ships with Windows) records the kernel graphics scheduler's work packets; wpaexporter.exe (Windows Performance Toolkit, Windows ADK) exports them, one CSV row per packet, through kits/gpudecode/gpu-packets.wpaProfile. Hardware decoding = the browser's packets on a VideoDecode engine at about the video's frame rate (measured 2026-10-22, Gorilla on Iris Xe: 16,803 packets, steady 60/s on a 60 fps clip). Traces are ~40 MB per requested second (30 s = 1.2 GB) and record ALL GPU work on the machine: keep them local. NEVER tracerpt a trace to XML (30 s -> 43+ GB). trace refuses while another wpr session runs and never cancels it. Old Intel (HD 4000 and older): drivers are pre-WDDM 2.0, so live has no counters - use trace; they hardware-decode H.264 only. Procedure: skill fieldkit-gpudecode."
+
+- id: linkcheck
+  title: "A direct cable between two computers: setup (a private address, no gateway, no DNS; idempotent, read back), serve (the other end: TCP sink/source + UDP echo bound to one address, one allowed peer, idle stop), check PEER (speed, duplex, Energy Efficient Ethernet, RTT p50/p99/jitter/loss, TCP throughput both ways with its own sender, path MTU; one LINK line), status, doctor; Windows + Linux, standard library"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/linkcheck/linkcheck.py"]
+  path: ${FIELDKIT}/kits/linkcheck/linkcheck.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "setup --ip A/P --iface NAME [--undo] | serve --bind A [--allow PEER] [--idle S] [--once] | check PEER [--count N] [--seconds S] | status [PEER] [--iface NAME] | doctor"}
+    - {name: peer, flag: null, type: str, required: false, help: "check/status: the other end's cable address"}
+    - {name: ip, flag: --ip, type: str, required: false, help: "setup: this end's private address with prefix, e.g. 10.77.0.1/30"}
+    - {name: iface, flag: --iface, type: str, required: false, help: "the cable's card (Windows 'Ethernet'; Linux enp0s25)"}
+    - {name: bind, flag: --bind, type: str, required: false, help: "serve: this end's cable address (never 0.0.0.0)"}
+    - {name: allow, flag: --allow, type: str, required: false, help: "serve: the only peer answered"}
+    - {name: json, flag: --json, type: bool, required: false, help: "check/status: machine output"}
+  effects: [reads-files, writes-files, network, admin]   # network: the cable only; admin: setup only (one UAC prompt via the elevate kit / pkexec)
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_linkcheck.py", -p, "no:cacheprovider"]
+  notes: "Built for two machines sharing one goal over a direct cable (state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md, step A). No iperf3: its own sender/receiver (6 Gbit/s on loopback on an i7-1255U, so Python is not the limit at 1 Gbit/s). RTT is application level (both stacks) from UDP echoes, one outstanding. A Wi-Fi card is not failed for half duplex and its PHY rate is not judged as capacity. setup never adds a gateway or DNS and refuses a public address; undo only removes what it set. serve is a foreground process, never a service: it binds one address, answers one peer, echoes only its own 12-byte packets, stops when idle. Results kept as JSON in state/linkcheck (LINKCHECK_RESULTS). Admin on Windows through local/kits/Elevate (LINKCHECK_ELEVATE); without it, setup writes the script and says to run it elevated."
 
 - id: catchup
   title: "Machine catch-up handover: repos (ahead/behind, token-free remotes), collect (memory, instructions, private tools, unpushed diffs/patches/untracked, bundles for repos with no remote), check (secrets fail it), public-check (Romanian text and private names before anything goes public), pack (verified zip to a stick, never overwrites)"
