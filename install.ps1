@@ -1,4 +1,4 @@
-# Version: 1.0.0 - updated 26-10-23-02-00
+# Version: 1.0.1 - updated 26-10-23-19-00
 <#
 .SYNOPSIS
 Install Fieldkit on a Windows computer that has no git: the GitHub zip, a private Python
@@ -222,7 +222,11 @@ try {
         catch { Write-Host "STOPPED at step 1: the download failed: $($_.Exception.Message)"; exit 3 }
     }
     $zipBytes = (Get-Item -LiteralPath $zipPath).Length
-    $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()
+    # .NET, not Get-FileHash: a Windows PowerShell 5.1 started from PowerShell 7 inherits its module path and cannot
+    # load Get-FileHash (the windows-latest CI runner, 2026-10-23); the hash class is always there
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $fs = [System.IO.File]::OpenRead($zipPath)
+    try { $zipHash = (-join ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') })) } finally { $fs.Dispose(); $sha.Dispose() }
     $why = Test-ZipFile $zipPath
     if ($why) { Write-Host "REFUSED: $why"; exit 3 }
 
