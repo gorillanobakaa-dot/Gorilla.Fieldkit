@@ -48,6 +48,22 @@ There are two ways, and they reach the same tools.
 2. **Your AI helper uses it for you,** through the "agent door" described in part 1. You stay in
    charge: anything risky waits for you.
 
+### Installing it on a computer without git (an old Mac, a small Linux box)
+
+You do not need git, Homebrew, Xcode or an administrator password. In a terminal:
+
+```sh
+curl -fLO https://raw.githubusercontent.com/gorillanobakaa-dot/Gorilla.Fieldkit/main/install.sh
+sh install.sh
+```
+
+It asks before each download or install, puts everything in one folder (`Fieldkit`), and at the end
+writes `Fieldkit/INSTALLED.txt`: what it downloaded and installed, and how to remove it (delete the
+folder). No `curl`? Download the zip from GitHub in your browser, unzip it, and run `sh install.sh`
+inside the unzipped folder. On a computer with less than 8 GB of memory or no compiler it installs only
+the two small packages the core needs; the others come when a tool that needs them is wanted. First
+tried on a 2011 MacBook Air (macOS 10.13, 4 GB) on 2026-10-23.
+
 Every command ends with a fixed number that programs can read: `0` all fine, `1` something broke,
 `2` the command was typed wrongly, `3` it found problems you should look at. Add `--json` to any
 command for an answer a program can read.
