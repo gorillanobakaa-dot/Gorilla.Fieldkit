@@ -218,16 +218,24 @@ def install(zip_path, name="macair"):
             f'N=/tmp/macair-new-$$; rm -rf "$N"; mkdir -p "$N/prof"; ditto -x -k "{remote}" "$N"; '
             f'( "$N/Gorilla Unleashed.app/Contents/MacOS/firefox" -no-remote -profile "$N/prof" > "$N/start.log" 2>&1 & '
             f'P=$!; sleep 25; if ps -p $P >/dev/null; then kill $P; sleep 2; echo START-OK; else echo START-FAILED; fi ) | tee "$N/verdict"; '
+            # Every copy started once is registered with LaunchServices under the same bundle ID, and `open -a` may
+            # then start an OLD copy (2026-10-23: /tmp/ct ran instead of /Applications and verify passed on it).
+            f'{LSREGISTER} -u "$N/Gorilla Unleashed.app" || true; '
             f'grep -q START-OK "$N/verdict" || {{ echo "REFUSED: the new app did not stay up 25 s on a throwaway profile; '
             f'nothing replaced. Its output: $N/start.log"; head -5 "$N/start.log"; exit 5; }}; '
             f'pgrep -x firefox >/dev/null && {{ echo "Gorilla is running: quit it first"; exit 4; }}; '
             f'T=/Users/{mac["user"]}/Agents.Work.Trash-user/gorilla-app-$(date +%y-%m-%d-%H-%M); mkdir -p "$T"; '
-            f'[ -d "/Applications/Gorilla Unleashed.app" ] && mv "/Applications/Gorilla Unleashed.app" "$T/"; '
-            f'mv "$N/Gorilla Unleashed.app" /Applications/; ls "/Applications/Gorilla Unleashed.app/Contents/Resources/fonts" | wc -l; '
+            f'[ -d "/Applications/Gorilla Unleashed.app" ] && mv "/Applications/Gorilla Unleashed.app" "$T/" && '
+            f'{{ {LSREGISTER} -u "$T/Gorilla Unleashed.app" || true; }}; '
+            f'mv "$N/Gorilla Unleashed.app" /Applications/; {LSREGISTER} -f "/Applications/Gorilla Unleashed.app" || true; ls "/Applications/Gorilla Unleashed.app/Contents/Resources/fonts" | wc -l; '
             f'echo "previous app kept in $T"')
     rc, out = m._run(m.ssh_argv(mac, address, line), timeout=600)
     return rc, out
 
+
+LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/"
+              "lsregister")
+APP_BIN = "/Applications/Gorilla Unleashed.app/Contents/MacOS/firefox"
 
 VERIFY_PAGE = ("<!doctype html><title>macair verify</title><body style='margin:0;background:#2a2a2a'>"
                "<div id=v style='background:#2a2a2a;color:#fbfbfe;padding:30px;font:15px sans-serif'>"
@@ -265,8 +273,12 @@ def verify(name="macair", out_dir=None, thin_max=2.5, colour_max=5.0):
     m, mac, address = mac_target(name)
     rows = []
     line = ("P=$(pgrep -x firefox | head -1); [ -n \"$P\" ] || { echo NOT-RUNNING; exit 4; }; "
-            "lsof -p $P 2>/dev/null | grep -c 'Resources/fonts/'")
+            "ps -o command= -p $P; lsof -p $P 2>/dev/null | grep -c 'Resources/fonts/'")
     rc, outp = m._run(m.ssh_argv(mac, address, line), timeout=60)
+    # The installed app, by path: an old test copy with the same bundle ID once ran instead (2026-10-23).
+    running = outp.strip().splitlines()[0] if rc == 0 and outp.strip() else ""
+    rows.append((running.startswith(APP_BIN), f"running app: {running or outp.strip()}" +
+                 ("" if running.startswith(APP_BIN) else f" (expected {APP_BIN}; quit it, open the installed one)")))
     n = int(outp.split()[-1]) if rc == 0 and outp.split() and outp.split()[-1].isdigit() else 0
     rows.append((n >= 7, f"bundled fonts open in the browser: {n} (7 or more expected)" if rc == 0 else f"browser: {outp}"))
     page = f"/tmp/macair-verify.html"
