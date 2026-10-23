@@ -276,8 +276,11 @@ def doctor(name, mac, runner=None, ping=None, ssh_config=SSH_CONFIG):
     rows.append((rc == 0, f"login as {mac['user']}: macOS {out}" if rc == 0 else f"login failed: {out.splitlines()[-1] if out else rc}"))
     if Path(ssh_config).exists() and alias_block(Path(ssh_config).read_text(), name):
         rc, out = _run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", name, "true"], timeout=20, runner=runner)
+        # A name the network cannot resolve (mDNS off on this Linux, 2026-10-23) is not fixed by writing the same
+        # name again: point at today's address instead.
+        ip = " --ip --apply" if "resolve hostname" in (out or "") else ""
         rows.append((rc == 0, f"alias 'ssh {name}' works" if rc == 0 else
-                     f"alias 'ssh {name}' fails ({out.splitlines()[-1] if out else rc}): {self_cmd()} mac fix-alias {name}"))
+                     f"alias 'ssh {name}' fails ({out.splitlines()[-1] if out else rc}): {self_cmd()} mac fix-alias {name}{ip}"))
     else:
         rows.append((False, f"no 'Host {name}' in {ssh_config}: {self_cmd()} mac fix-alias {name} --apply"))
     if mac.get("last_ip") and mac["last_ip"] != address:

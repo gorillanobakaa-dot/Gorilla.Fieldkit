@@ -156,3 +156,20 @@ def test_sensors_refuses_without_python_on_the_mac_and_copies_only_when_changed(
     assert S.sensors(mac, "1.2.3.4", json_out=True, runner=same_file) == 0
     assert not any(a[0] == "scp" for a in calls)                     # unchanged file: nothing copied
     assert "--json" in calls[-1][-1]
+
+
+def test_doctor_points_at_the_address_when_the_name_does_not_resolve(tmp_path, monkeypatch):
+    cfg = tmp_path / "config"
+    cfg.write_text("Host macair\n    HostName Old-Mac.local\n")
+    key = tmp_path / "k"
+    key.write_text("")
+    key.chmod(0o600)
+    mac = dict(MAC, key=str(key))
+    monkeypatch.setattr(M, "find", lambda mac, runner=None, ping=None: ("1.2.3.4", "found"))
+
+    def runner(argv, **kw):
+        if "macair" in argv:
+            return 255, "ssh: Could not resolve hostname old-mac.local: Name or service not known"
+        return 0, "10.13.6"
+    rows = M.doctor("macair", mac, runner=runner, ssh_config=cfg)
+    assert any(not ok and "fix-alias macair --ip --apply" in line for ok, line in rows)
