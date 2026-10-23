@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-23-03-40
 """Go applications built the same way every time: Gorilla OpenCode, and any other Go program.
 
     fieldkit pipeline run gorilla-opencode --var version=v0.1.146          (src from goapps.gorilla-opencode)
@@ -462,6 +463,138 @@ def _runs_here(rec):
     return None
 
 
+
+# ---- every target from one machine (owner, 2026-10-23): the Mac 10.13 binary and the packages --------------------
+# "va trebui sa modificam comanda de build ca sa le putem crea intr-o singura etapa ca sa nu mai trebuiasca sa sar
+# intre 3 calculatoare, si trei modele". Linux and Windows come from stage_build; these add the legacy Mac binary
+# (the project's own script: a patched GOROOT, since stock Go needs macOS 11) and the packages the project's own
+# scripts make from the Linux binary. Both are driven by vars, so a Go app without them skips them.
+MACHO = (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf")    # 64-bit Mach-O, either byte order
+
+
+def _plain(version):
+    """The scripts take 0.1.149 and check the binary prints v0.1.149."""
+    return version[1:] if version.startswith("v") else version
+
+
+def stage_mac(ctx):
+    """vars.mac_script: the project's legacy-Mac build script (empty: skipped). Its output is checked to be a
+    64-bit Mach-O binary."""
+    src = _src(ctx)
+    v = ctx.vars
+    script = (v.get("mac_script") or "").strip()
+    if not script:
+        return _save(ctx, src, "mac", {"ok": True, "skipped": True, "detail": "no mac_script: skipped"})
+    rec = _load(ctx, src, "build")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "run the build stage first (the version comes from it)"}
+    version = rec["version"]
+    out = _out(ctx, src)
+    f = out / f"{v.get('name') or 'app'}-{version}-darwin-amd64-{v.get('mac_suffix') or 'legacy'}"
+    if not (src / script).is_file():
+        return {"ok": False, "detail": f"{script} is not in {src}"}
+    from ..thermal import buildguard
+    say = getattr(ctx, "say", None) or (lambda m: print(m, file=sys.stderr))
+    try:
+        with buildguard.guard(say, label=f"go-{v.get('name') or 'app'}-mac"):
+            r = _run(ctx, ["bash", script, str(f)], src, "mac-build", env={"VERSION": _plain(version)}, timeout=7200)
+    except buildguard.BuildRefused as e:
+        return {"ok": False, "detail": f"not built: {e}"}
+    if not r.ok or not f.is_file():
+        last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
+        return {"ok": False, "detail": f"{script} failed: " + " | ".join(last)[:400], "log": r.log}
+    if f.read_bytes()[:4] not in MACHO:
+        return {"ok": False, "detail": f"{f.name} is not a 64-bit Mach-O binary"}
+    rec = {"ok": True, "version": version, "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size,
+           "detail": f"{f.name} ({f.stat().st_size:,} bytes)", "package": []}
+    # the installer's folder (Install/Undo .command, the .tar.gz it checks, SHA256SUMS, a .zip for the release page),
+    # by the project's own packager (the Windows side's build_mac_legacy_package.py, 2026-10-23 PR #3)
+    pkg = (v.get("mac_package") or "").strip()
+    if pkg and (src / pkg).is_file():
+        pdir = out / "mac-package"
+        shutil.rmtree(pdir, ignore_errors=True)
+        r = _run(ctx, [sys.executable, str(src / pkg), str(src), str(f), _plain(version), str(pdir)], src,
+                 "mac-package", timeout=1800)
+        made = sorted(p for p in pdir.rglob("*") if p.is_file() and p.suffix in (".zip", ".gz"))
+        if not r.ok or not made:
+            last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
+            return {"ok": False, "detail": f"{pkg} failed: " + " | ".join(last)[:300], "log": r.log}
+        for m in made:
+            dst = out / m.name
+            shutil.copy2(m, dst)
+            rec["package"].append({"file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
+        rec["detail"] += "; package: " + ", ".join(Path(x["file"]).name for x in rec["package"])
+    elif pkg:
+        rec["detail"] += f"; no Mac package: {pkg} is not in this checkout"
+    return _save(ctx, src, "mac", rec)
+
+
+def verify_mac(ctx):
+    src = _src(ctx)
+    rec = _load(ctx, src, "mac")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "no Mac binary yet"}
+    if rec.get("skipped"):
+        return {"ok": True, "detail": rec["detail"]}
+    f = Path(rec["file"])
+    if not f.is_file() or _sha(f) != rec["sha256"]:
+        return {"ok": False, "detail": f"{f.name} is missing or changed"}
+    return {"ok": True, "detail": rec["detail"]}
+
+
+def stage_packages(ctx):
+    """vars.packages: comma list of the project's package scripts (e.g. scripts/build-deb.sh), each run as
+    `sh SCRIPT <version>` with the Linux binary at <src>/<name> (their documented input); every file a script leaves
+    in vars.package_dir (default Compiled.Builds) while it ran is copied into the output folder. A new file, not a
+    version in the name: the portable tarball keeps one fixed name on purpose (the install script fetches it), and
+    the first run refused it for lacking the version (2026-10-23)."""
+    src = _src(ctx)
+    v = ctx.vars
+    scripts = [x.strip() for x in (v.get("packages") or "").split(",") if x.strip()]
+    if not scripts:
+        return _save(ctx, src, "packages", {"ok": True, "skipped": True, "files": [], "detail": "no packages: skipped"})
+    rec = _load(ctx, src, "build")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "run the build stage first"}
+    version = rec["version"]
+    linux = next((b["file"] for b in rec["built"] if b["target"].startswith("linux/")), None)
+    if not linux:
+        return {"ok": False, "detail": "no linux binary in the build: add linux/amd64 to targets"}
+    name = v.get("name") or "app"
+    staged = src / name
+    shutil.copy2(linux, staged)                         # the scripts package whatever sits at <src>/<name>
+    pkgdir = src / (v.get("package_dir") or "Compiled.Builds")
+    out = _out(ctx, src)
+    files, start = [], time.time() - 1
+    for script in scripts:
+        if not (src / script).is_file():
+            return {"ok": False, "detail": f"{script} is not in {src}"}
+        r = _run(ctx, ["sh", script, _plain(version)], src, "pkg-" + Path(script).stem, timeout=1800)
+        made = [p for p in pkgdir.glob("*") if p.is_file() and p.stat().st_mtime >= start
+                and p.name not in {Path(f["file"]).name for f in files}] if pkgdir.is_dir() else []
+        if not r.ok or not made:
+            last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
+            return {"ok": False, "detail": f"{script}: {'failed' if not r.ok else 'made no new file'}: "
+                                           + " | ".join(last)[:300], "log": r.log}
+        for m in made:
+            dst = out / m.name
+            shutil.copy2(m, dst)
+            files.append({"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
+    return _save(ctx, src, "packages", {"ok": True, "version": version, "files": files,
+                                        "detail": ", ".join(f"{Path(f['file']).name}" for f in files)})
+
+
+def verify_packages(ctx):
+    src = _src(ctx)
+    rec = _load(ctx, src, "packages")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "no packages yet"}
+    for f in rec.get("files", []):
+        p = Path(f["file"])
+        if not p.is_file() or _sha(p) != f["sha256"]:
+            return {"ok": False, "detail": f"{p.name} is missing or changed"}
+    return {"ok": True, "detail": rec["detail"]}
+
 def stage_checksums(ctx):
     src = _src(ctx)
     rec = _load(ctx, src, "build")
@@ -470,6 +603,11 @@ def stage_checksums(ctx):
     out = _out(ctx, src)
     f = out / f"SHA256SUMS-{rec['version']}.txt"
     lines = [f"{b['sha256']}  {Path(b['file']).name}" for b in rec["built"]]
+    mac = _load(ctx, src, "mac") or {}                   # the Mac binary and the packages, when those stages ran
+    if mac.get("ok") and mac.get("file"):
+        lines.append(f"{mac['sha256']}  {Path(mac['file']).name}")
+        lines += [f"{x['sha256']}  {Path(x['file']).name}" for x in mac.get("package", [])]
+    lines += [f"{f['sha256']}  {Path(f['file']).name}" for f in (_load(ctx, src, "packages") or {}).get("files", [])]
     f.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"ok": True, "file": str(f), "detail": f"{f.name}: {len(lines)} file(s)"}
 

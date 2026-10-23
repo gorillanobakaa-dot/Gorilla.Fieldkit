@@ -49,6 +49,20 @@ Then read `Documents/Firefox.158.Macbook.air.Sierra.Legacy/BUILD-LOG-legacy-mac.
    grey page (<= 2.5 px; Linux reference 2.12) and LCD colour <= 5 %. `VERDICT VERIFIED` or it is not done.
 7. Record in BUILD-LOG (WORKS / FAILED / UNTESTED, the numbers).
 
+## Heat and memory runs (`fieldkit macair heat`)
+
+```bash
+fieldkit macair heat idle-blank --url blank --minutes 3
+fieldkit macair heat youtube-1080p60 --url "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --minutes 4 --warmup 60
+fieldkit macair heat-report
+```
+
+Gorilla must be running on the Air first (the profile is read from it). Each run stops Macs Fan Control (owner
+2026-10-23: tests measure a normal Air), reads sensors.gorilla `--json` every 15 s (CPU, die, fan, who controls the
+fan), stops early at a CPU die of 95 C, and starts Macs Fan Control again afterwards if it had been running. A run
+whose report says anything but `fan ctl off` does not describe a normal Air. `--url` takes http(s) or `blank`:
+`open -a App about:blank` is read as a file name and the browser never came back (2026-10-23).
+
 ## The 11-inch budget (`fieldkit macair budget`)
 
 1366x768 minus menu bar 22, Dock 35 (measured: its top at y 733), title bar 22, margin 20 = 669 px for the About
