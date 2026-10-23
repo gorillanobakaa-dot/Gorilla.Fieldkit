@@ -106,3 +106,14 @@ def test_the_elevated_script_sets_the_acl_before_writing_and_shows_what_it_pins(
     assert acl < write and "*S-1-5-32-544:(OI)(CI)F" in s and "*S-1-5-32-545:(OI)(CI)RX" in s
     assert "trusted\\0123-4567-89ab-cdef.pub" in s and KEY[:16] in s and s.endswith("FIELDKIT-GUARDED-DONE'\r\n")
     assert "Add-Content" in G.ps1_for("C:\\x", "stopped.txt", KEY, True)
+
+
+def test_the_elevate_kit_is_found_where_it_was_adopted(tmp_path):
+    # 2026-10-23, the Windows worker: the kit moved to local/kits/Elevate on 2026-10-19, and the old place alone made
+    # `fieldkit mandate trust` answer "the elevate kit is not on this computer"
+    adopted, old = tmp_path / "local" / "elevate.py", tmp_path / "old" / "elevate.py"
+    assert G._elevate_kit([adopted, old]) == old                     # neither there: the last place is named
+    adopted.parent.mkdir()
+    adopted.write_text("")
+    assert G._elevate_kit([adopted, old]) == adopted
+    assert any("local" in str(k) and "kits" in str(k) for k in G._elevate_kits())

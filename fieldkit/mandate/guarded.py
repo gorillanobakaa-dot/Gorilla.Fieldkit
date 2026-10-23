@@ -163,8 +163,18 @@ def ps1_for(target_root, name, line, append):
         ""])
 
 
-def _elevate_kit():
-    return Path.home() / "Documents" / "Scripts" / "Elevate" / "elevate.py"
+def _elevate_kits():
+    # Elevate was adopted into the owner's kits on 2026-10-19 and Documents\Scripts\Elevate recycled (as in
+    # leakgate/sensors.py, link_setup.py): this checkout's local/, the main checkout's (a worktree has no local/), the
+    # old place last.
+    return (Path(__file__).resolve().parents[2] / "local" / "kits" / "Elevate" / "elevate.py",
+            Path.home() / "Documents" / "Scripts" / "Fieldkit" / "local" / "kits" / "Elevate" / "elevate.py",
+            Path.home() / "Documents" / "Scripts" / "Elevate" / "elevate.py")
+
+
+def _elevate_kit(candidates=None):
+    kits = [Path(k) for k in (candidates or _elevate_kits())]
+    return next((k for k in kits if k.is_file()), kits[-1])
 
 
 def _write_windows(name, line, append, run=subprocess.run):
