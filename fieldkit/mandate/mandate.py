@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-19-20
+# Version: 1.4.0 · updated 26-10-23-19-38
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -22,6 +22,8 @@
     fieldkit mandate tasks init|list|pass ...     the task list, all failing at first; passing only with evidence
     fieldkit mandate start                        a session's startup check: ledger, mandate, link, the next thing
     fieldkit mandate report [--since N]           the one morning report, from the ledger
+    fieldkit mandate ask "..." [--why "..."]      what truly needs the owner, queued for that report (never asked live)
+    fieldkit mandate quiet --install              while a mandate is in force no session asks the owner (two hooks)
     fieldkit mandate status                       every mandate here and whether it is in force
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
 
@@ -532,7 +534,7 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
                                        "share", "status", "install", "review-key", "verdict", "job", "boss",
-                                       "ledger", "resume", "tasks", "start", "report"])
+                                       "ledger", "resume", "tasks", "start", "report", "ask", "quiet"])
     ap.add_argument("rest", nargs="*")
     # the flags after the command (--kind, --seconds, --evidence, --since, --lock, --send) are read from argv by each
     # command: parse_args refused them all, and the worker's own job process (job run ... --lock) died at start
@@ -636,6 +638,19 @@ def main(argv=None):
         for e in jobs.events(since):
             print(f"  #{e['n']} {e['at']} {e['what']}: " + ", ".join(f"{k}={v}" for k, v in e.items()
                                                                   if k not in ("n", "at", "what")))
+        return 0
+    if a.action == "quiet":                               # the owner is not asked while a mandate is in force
+        from . import quiet
+        return quiet.main(list(argv if argv is not None else sys.argv[1:]))
+    if a.action == "ask":
+        from . import quiet
+        args = list(argv if argv is not None else sys.argv[1:])
+        why = args[args.index("--why") + 1] if "--why" in args else ""
+        if not r:
+            print('ask "the question" [--why "..."]')
+            return 2
+        n = quiet.queue(" ".join(r), why)
+        print(f"QUEUED for the owner's morning report (ledger #{n}); carry on with what does not depend on it")
         return 0
     if a.action in ("tasks", "start", "report"):
         from . import project
