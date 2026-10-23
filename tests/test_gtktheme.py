@@ -5,6 +5,7 @@ last tests read the real libraries when they are installed and are skipped elsew
 import os
 
 import pytest
+from conftest import needs_symlinks
 
 from fieldkit.gtktheme import gtkcheck as g
 
@@ -114,6 +115,7 @@ def _desktop(d, name, exec_line, extra=""):
         f.write(f"[Desktop Entry]\nType=Application\nExec={exec_line}\n{extra}")
 
 
+@needs_symlinks
 def test_leftover_launcher_through_a_symlink_is_one_program(tmp_path):
     prog = tmp_path / "bin" / "black-gorilla-theme"
     prog.parent.mkdir()

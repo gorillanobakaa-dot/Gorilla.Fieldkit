@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-15-10
+# Version: 1.1.0 · updated 26-10-23-18-59
 """fieldkit mandate: one owner approval per project, valid on both computers, checkable by each (2026-10-23).
 Every test closes a way a false approval could get in: a changed byte, another key, no passphrase, a stop, a date."""
 from datetime import date
@@ -415,3 +415,16 @@ def test_a_run_on_a_granted_mac_is_logged(owner):
     assert macssh._mandate_log_run("air", ["ls"], 0, decide=lambda *a, **k: ("allow", "mac access to air", owner))
     assert not macssh._mandate_log_run("other", ["ls"], 0, decide=lambda *a, **k: ("ask", "no", None))
     assert [e["mac"] for e in M.read_log(owner) if e["what"] == "mac-run"] == ["air"]
+
+
+def test_every_command_the_help_names_answers(owner, capsys, monkeypatch):
+    # 2026-10-23: `status` and `install` were cut out of main() by a block replacement and nothing noticed, while the
+    # hard lines kept sending installs to `fieldkit mandate install`
+    M.approve(owner, "correct horse battery", True)
+    assert M.main(["status"]) == 0 and "IN FORCE" in capsys.readouterr().out
+    monkeypatch.setattr(M, "install", lambda gb, what, cmd: (0, f"INSTALLED {what} {gb} {cmd}"))
+    assert M.main(["install", "0.5", "tool", "--", "true"]) == 0
+    assert "INSTALLED tool 0.5 ['true']" in capsys.readouterr().out
+    for word in ("keygen", "trust", "approve", "verify", "allows", "stop", "share", "status", "install", "verdict",
+                 "job", "boss", "ledger", "resume", "tasks", "start", "report", "review-key", "trust-reviewer"):
+        assert f'"{word}"' in open(M.__file__).read(), word

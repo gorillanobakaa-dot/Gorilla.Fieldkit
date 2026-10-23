@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-15-41
+# Version: 1.4.0 · updated 26-10-23-18-59
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -576,6 +576,31 @@ def main(argv=None):
         print(f"REVIEW KEY {fp}: {_review_paths()[1]}. The other computer pins it: fieldkit mandate trust-reviewer "
               f"{_review_paths()[1].name} (the owner, once, after it is carried over)")
         return 0
+    # status and install were cut out by mistake on 2026-10-23 (a block replacement that ran to the next marker);
+    # restored the same evening, with tests that call them
+    if a.action == "status":
+        d = home() / "mandates"
+        for p in sorted(d.glob("*.yaml")) if d.is_dir() else []:
+            ok, why = verify(p)
+            print(f"  {'IN FORCE' if ok else 'not in force':12} {p.stem}: {why}")
+        return 0
+    if a.action == "install":
+        if "--" not in (argv if argv is not None else sys.argv):
+            print("install GB WHAT -- COMMAND ...")
+            return 2
+        argv_all = list(argv if argv is not None else sys.argv[1:])
+        cmd = argv_all[argv_all.index("--") + 1:]
+        try:
+            gb = float(r[0])
+        except (IndexError, ValueError):
+            print("install GB WHAT -- COMMAND ...  (GB: what it will take, a number)")
+            return 2
+        if len(r) < 2 or not cmd:
+            print("install GB WHAT -- COMMAND ...")
+            return 2
+        code, msg = install(gb, r[1], cmd)
+        print(msg)
+        return code
     if a.action == "verdict":
         # the worker's test run, by hand: printed here, nothing sent, nothing signed
         if len(r) < 2:
