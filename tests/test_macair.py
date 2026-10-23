@@ -225,3 +225,39 @@ def test_scp_upload_reverses_the_ends():
     mac = {"host_key_alias": "h", "key": "~/k", "user": "u"}
     assert macssh.scp_argv(mac, "1.2.3.4", "/tmp/r", "/l")[-2:] == ["u@1.2.3.4:/tmp/r", "/l"]
     assert macssh.scp_argv(mac, "1.2.3.4", "/tmp/r", "/l", upload=True)[-2:] == ["/l", "u@1.2.3.4:/tmp/r"]
+
+
+def test_heat_puts_prefs_js_back_so_test_prefs_do_not_stay_in_the_profile(tmp_path, monkeypatch):
+    # The browser copies user.js prefs into prefs.js on start; restoring only user.js left every Stage D test pref
+    # set in the owner's profile (2026-10-23).
+    sent = []
+
+    class FakeMac:
+        @staticmethod
+        def ssh_argv(mac, address, cmd):
+            return ["ssh", cmd]
+
+        @staticmethod
+        def scp_argv(*a, **k):
+            return ["scp"]
+
+        @staticmethod
+        def _run(argv, timeout=None):
+            sent.append(argv[-1])
+            if "lsof" in argv[-1]:
+                return 0, "/Users/u/Library/Application Support/Firefox/Profiles/x.default\n"
+            return 0, ""
+
+    sensors = tmp_path / "sensors.gorilla"
+    sensors.write_text("")
+    monkeypatch.setattr(M, "SENSORS", sensors)
+    monkeypatch.setattr(M, "mac_target", lambda name: (FakeMac, {}, "1.2.3.4"))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    M.heat("t", "blank", minutes=0, prefs=[("a.b", "false")], warmup=0, out_dir=tmp_path)
+    setup = next(c for c in sent if "user.js.heat-" in c and "printf" in c)
+    restore = next(c for c in sent if c.startswith("osascript") and "mv " in c)
+    assert "prefs.js.heat-" in setup and "cp -p" in setup
+    assert "prefs.js.heat-" in restore and restore.index("pgrep") < restore.index("prefs.js")
+    sent.clear()
+    M.heat("t", "blank", minutes=0, prefs=[], warmup=0, out_dir=tmp_path)
+    assert not any("prefs.js" in c for c in sent)          # no test prefs: the profile is not touched

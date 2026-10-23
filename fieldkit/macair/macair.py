@@ -304,8 +304,8 @@ HEAT_LOG = WORK / "heat-runs.jsonl"
 
 def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, out_dir=None, keep_fan_control=False):
     """One measured run of the browser on the Mac, with Macs Fan Control off unless keep_fan_control. Test prefs go
-    into the profile's user.js for this run only (the original is copied first and put back after). -> summary dict,
-    also appended to heat-runs.jsonl."""
+    into the profile's user.js for this run only. The browser copies every user.js pref into prefs.js on start, so
+    both files are copied first and both are put back after. -> summary dict, also appended to heat-runs.jsonl."""
     import time
     m, mac, address = mac_target(name)
     out_dir = Path(out_dir or WORK)
@@ -329,8 +329,10 @@ def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, 
         open_page = f"open -a '/Applications/Gorilla Unleashed.app' {q(url)}"
     else:
         raise SystemExit(f"REFUSED: --url must be http(s) or 'blank' (macOS opens {url!r} as a file name)")
-    setup = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; sleep 6; "
-             f"cp -p {q(prof + '/user.js')} {q(prof + '/user.js.heat-' + stamp)} 2>/dev/null; "
+    setup = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; "
+             f"for i in $(seq 30); do pgrep -x firefox >/dev/null || break; sleep 1; done; "
+             + (f"cp -p {q(prof + '/prefs.js')} {q(prof + '/prefs.js.heat-' + stamp)}; " if lines else "")
+             + f"cp -p {q(prof + '/user.js')} {q(prof + '/user.js.heat-' + stamp)} 2>/dev/null; "
              + (f"printf '%b' {q(lines)} >> {q(prof + '/user.js')}; " if lines else "")
              + open_page)
     if not SENSORS.exists():
@@ -375,7 +377,11 @@ def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, 
     finally:
         if mfc_was_on and not keep_fan_control:
             m._run(m.ssh_argv(mac, address, f"open -a {q(MFC)}"), timeout=60)
-    restore = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; sleep 6; "
+    # Without the prefs.js copy the test prefs stayed in the owner's profile after every run (found 2026-10-23:
+    # four Stage D test prefs still set, so later "baseline" runs were not baselines).
+    restore = (f"osascript -e 'tell application \"Gorilla Unleashed\" to quit'; "
+               f"for i in $(seq 30); do pgrep -x firefox >/dev/null || break; sleep 1; done; "
+               f"mv {q(prof + '/prefs.js.heat-' + stamp)} {q(prof + '/prefs.js')}; "
                f"if [ -f {q(prof + '/user.js.heat-' + stamp)} ]; then mv {q(prof + '/user.js.heat-' + stamp)} {q(prof + '/user.js')}; "
                f"else mkdir -p ~/Agents.Work.Trash-user && mv {q(prof + '/user.js')} ~/Agents.Work.Trash-user/user.js.heat-{stamp} 2>/dev/null; fi; "
                f"open -a '/Applications/Gorilla Unleashed.app'")
