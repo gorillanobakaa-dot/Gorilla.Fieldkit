@@ -73,8 +73,10 @@ def publish_plan(repo, release=None, notes=None, assets=()):
     repo = Path(repo)
     lines_, blockers = [], []
     br = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    ahead = _git(repo, "log", "--oneline", "@{u}..HEAD").stdout.strip().splitlines()
-    lines_.append(f"repository {repo} branch {br}: {len(ahead)} commit(s) to push")
+    rng, new = push_range(repo)
+    ahead = _git(repo, "log", "--oneline", rng).stdout.strip().splitlines()
+    lines_.append(f"repository {repo} branch {br}: {len(ahead)} commit(s) to push"
+                  + (f" (a NEW branch: compared with {rng.split('..')[0]})" if new else ""))
     lines_ += [f"    {c}" for c in ahead[:20]]
     if _git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip():
         blockers.append("uncommitted changes: commit or set them aside first")
@@ -86,7 +88,18 @@ def publish_plan(repo, release=None, notes=None, assets=()):
         if notes and not Path(notes).is_file():
             blockers.append(f"release notes missing: {notes}")
         blockers += sums_blockers(assets)
-    return {"lines": lines_, "blockers": blockers, "branch": br, "ahead": ahead}
+    if new and br in ("main", "master", "HEAD"):
+        blockers.append(f"{br} has no upstream: publish pushes branches, never a new main")
+    return {"lines": lines_, "blockers": blockers, "branch": br, "ahead": ahead, "range": rng, "new": new}
+
+
+def push_range(repo):
+    """-> (git range of the commits that would leave, is_new_branch). A branch never pushed has no upstream
+    (2026-10-22: publish refused all three of the day's new branches): it is compared with origin's default branch."""
+    if _git(repo, "rev-parse", "--abbrev-ref", "@{u}").returncode == 0:
+        return "@{u}..HEAD", False
+    head = _git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").stdout.strip() or "origin/main"
+    return f"{head}..HEAD", True
 
 
 def _sha256(path):
@@ -147,7 +160,7 @@ def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=No
         say(f"  BLOCKER: {b}")
     if plan["blockers"]:
         return 3
-    chk = run([sys.executable, "-m", "fieldkit", "privacy", "push-check", str(repo), "--range", "@{u}..HEAD"],
+    chk = run([sys.executable, "-m", "fieldkit", "privacy", "push-check", str(repo), "--range", plan["range"]],
               capture_output=True, text=True)
     say((chk.stdout or chk.stderr).strip()[-800:])
     if chk.returncode != 0:
@@ -164,7 +177,8 @@ def publish(repo, release=None, notes=None, assets=(), dry_run=False, confirm=No
     if not confirm:
         say("not sent")
         return 1
-    r = run(["git", "-C", str(repo), "push", "origin", plan["branch"]], capture_output=True, text=True)
+    r = run(["git", "-C", str(repo), "push", *(["-u"] if plan["new"] else []), "origin", plan["branch"]],
+            capture_output=True, text=True)
     say((r.stdout + r.stderr).strip()[-600:])
     if r.returncode != 0:
         return r.returncode

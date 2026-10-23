@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18-17-00
+# Version: 1.1.0 · updated 26-10-22-14-00
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -63,6 +63,10 @@ PROTECTED = [
     (r"leakgate/(allow|dispositions)[^/\s\"']*\.json|proposed-dispositions", "the leak-gate allowlist or dispositions"),
     (r"product-decisions\.yaml|gorilla_decisions\.json|claims/claims\.yaml|decisions/theme\.yaml", "the owner's decision register"),
     (r"(^|/)\.gitignore\b", "a .gitignore (a decision, not a default)"),
+    # 2026-10-22, long horizon goals: a worker or the planner never edits what it is judged by, nor its own meter
+    (r"state/goals/[^\s\"']*(goal\.json|goal\.md|state\.json|verdicts\.jsonl|spend\.jsonl|\.supervisor|preapprovals\.yaml|approval\.json)|"
+     r"state/(goals|jobs)/[^\s\"']*(checkpoint\.json|budget\.json|meter\.json)",
+     "a goal's criteria, verdicts, spend, pre-approvals or a job's budget meter"),
 ]
 WRITE = re.compile(
     r"(set-content|add-content|out-file|new-item|copy-item|move-item|rename-item|remove-item|clear-content|"
