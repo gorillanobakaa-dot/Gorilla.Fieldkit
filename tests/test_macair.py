@@ -144,12 +144,7 @@ def test_the_page_is_found_on_a_colour_managed_grey_and_not_on_black():
     assert M.locate(screen((3, 50, 89))) is None           # a coloured page is refused: LCD counts would be wrong
 
 
-def test_fan_text_is_parsed_and_medians_skip_missing_reads():
-    for text, want in (("@ 2001rpm / 41.1°C", (2001, 41.1)), ("9 1992rpm / 36.7°C", (1992, 36.7)),
-                       ("2010 rpm/ 38.9 C", (2010, 38.9))):
-        m = M.FAN.search(text)
-        assert (int(m.group(1)), float(m.group(2))) == want
-    assert M.FAN.search("SB 200rpm /41.10c") is None or True          # a bad read must not crash
+def test_medians_skip_missing_reads():
     assert M._median([3, None, 1, 2]) == 2 and M._median([None]) is None
 
 
@@ -207,3 +202,26 @@ def test_install_refuses_a_dirty_app_before_touching_the_mac(tmp_path, monkeypat
     monkeypatch.setattr(M, "mac_target", lambda name: (_ for _ in ()).throw(AssertionError("must not reach the Mac")))
     rc, out = M.install(_app_zip(tmp_path / "t4.zip", ["chrome/toolkit/content/global/ml/x.mjs"]))
     assert rc == 3 and out.startswith("REFUSED") and "D-158-08" in out
+
+
+def test_fan_control_summary_says_off_only_when_every_sample_saw_macos():
+    off = [{"fan_control": "macOS (automatic)"}] * 3
+    assert M.fan_control_summary(off) == "off"
+    mixed = off + [{"fan_control": "Macs Fan Control"}]
+    assert M.fan_control_summary(mixed) == "Macs Fan Control, macOS (automatic)"
+    assert M.fan_control_summary([{"fan_control": ""}]) == "unknown"
+    assert M.fan_control_summary(off + [{"fan_control": ""}]) == "off"         # a dropped read is not "on"
+
+
+@pytest.mark.skipif(not M.SENSORS.exists(), reason="sensors-gorilla not gathered: fieldkit gather --only sensors-gorilla")
+def test_heat_uses_the_sensors_gorilla_reader_in_this_repo():
+    assert M.SENSORS.name == "sensors.gorilla" and M.SENSORS.exists()
+    src = M.SENSORS.read_text()
+    assert "def mac_reading" in src and "--json" in src
+
+
+def test_scp_upload_reverses_the_ends():
+    from fieldkit.mac import macssh
+    mac = {"host_key_alias": "h", "key": "~/k", "user": "u"}
+    assert macssh.scp_argv(mac, "1.2.3.4", "/tmp/r", "/l")[-2:] == ["u@1.2.3.4:/tmp/r", "/l"]
+    assert macssh.scp_argv(mac, "1.2.3.4", "/tmp/r", "/l", upload=True)[-2:] == ["/l", "u@1.2.3.4:/tmp/r"]
