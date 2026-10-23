@@ -405,6 +405,54 @@ TECHNIQUES.append({
     ],
 })
 
+TECHNIQUES.append({
+    "id": "T-158-22-A",
+    "title": "No Learn more and no link to Mozilla a person can click",
+    "decision": "D-158-22",
+    "found": ("2026-10-23, Linux 158.0-2: 83 preferences with a Mozilla address and about 555 Mozilla addresses in "
+              "pages and strings; every Learn more opened support.mozilla.org"),
+    "problem": ("Firefox points its help, feedback, info, report, privacy and terms links at Mozilla's sites, through "
+                "link preferences, the moz-support-link widget, older .learnMore anchors and addresses hard-coded in "
+                "pages. Each new release adds more, so a list of patched lines goes stale; the idea must be carried."),
+    "concept": ("A person never meets a link to Mozilla. Link preferences are empty and locked; moz-support-link hides "
+                "itself; one rule in global-shared.css and in-content/common-shared.css hides .learnMore anchors and "
+                "any html link or text-link whose address is a Mozilla site; the About window names Mozilla as plain "
+                "text and drops donate, get involved, Terms of Use and Privacy Notice. Kept by the owner's choice: "
+                "about:license (the MPL notice) and the developer tools' MDN links. Service endpoints are not links."),
+    "apply": ["A new link preference with a Mozilla address (this watch): set it to \"\" and locked where it is defined.",
+              "A new support widget or anchor class: hide it the way moz-support-link is hidden, or add it to the CSS rule.",
+              "Prove with post-install --only mozlinks (probe mozilla-links): 0 links, 0 link preferences."],
+    "verify": ["this technique in the build gate and check-change", "post-install mozlinks", "decisions D-158-22"],
+    "signals": [
+        {"name": "support-link-hidden", "kind": "must_have",
+         "path": "toolkit/content/widgets/moz-support-link/moz-support-link.mjs", "text": "GORILLA D-158-22"},
+        {"name": "chrome-rule", "kind": "must_have", "path": "toolkit/themes/shared/global-shared.css",
+         "text": "GORILLA D-158-22"},
+        {"name": "in-content-rule", "kind": "must_have", "path": "toolkit/themes/shared/in-content/common-shared.css",
+         "text": "GORILLA D-158-22"},
+        {"name": "about-dialog", "kind": "must_have", "path": "browser/base/content/aboutDialog.js",
+         "text": "GORILLA D-158-22"},
+        {"name": "mozilla-link-prefs", "kind": "watch",
+         "pathspec": ["browser/app/profile/firefox.js", "modules/libpref/init/all.js",
+                      "toolkit/components/pdfjs/PdfJsDefaultPrefs.js", "browser/branding/gorilla/pref"],
+         "regex": (r'pref\("[A-Za-z0-9_.-]*(support|feedback|[Ll]earn[Mm]ore|learn_more|infoURL|privacy|terms|report\.[A-Za-z0-9_-]*\.url|'
+                   r'firstRun|blocklist\.(details|item|addonItem)|getAddons\.(link|search)|[Rr]ecommendation|mobilepromo|'
+                   r'sendtab|fallback-download|uitour\.url|abuse|reportPhish|reportURL|manage_url|how_it_works|sign_in_url|'
+                   r'home_page_url|preferences_url|vpn|proxy_extension|breachAlert)[A-Za-z0-9_.-]*",\s*"https?://[^"]*(mozilla\.(org|com|net)|firefox\.com)'),
+         "guard_lines": 0, "allow": {
+             "toolkit/components/pdfjs/PdfJsDefaultPrefs.js": "generated from pdf.js: upstream's lines stay, the GORILLA "
+                                                              "D-158-22 block at the end of the file sets them empty and "
+                                                              "locked (T-157-34-A)"}},
+        # git grep reads one line at a time: a definition split as pref("name",\n "https://...") has its address alone
+        # on the second line (2026-10-23: toolkit.datacollection.infoURL and breachAlertUrl escaped the first watch)
+        {"name": "mozilla-link-prefs-split", "kind": "watch",
+         "pathspec": ["browser/app/profile/firefox.js", "modules/libpref/init/all.js",
+                      "toolkit/components/pdfjs/PdfJsDefaultPrefs.js", "browser/branding/gorilla/pref"],
+         "regex": r'^[ \t]+"https?://[^"]*(mozilla\.(org|com|net)|firefox\.com)[^"]*"\);',
+         "guard_lines": 0, "allow": {}},
+    ],
+})
+
 GUARD = re.compile(r"GORILLA (TECHNIQUE|UNLEASHED)")
 
 

@@ -151,6 +151,7 @@ groups:
       - buildh/recorder.py
       - buildh/releasepage.py
       - buildh/installertest.py
+      - buildh/mozlinks.py
       - buildh/releasepublish.py
       - buildh/nightpack.py
       - buildh/releaseshots.py

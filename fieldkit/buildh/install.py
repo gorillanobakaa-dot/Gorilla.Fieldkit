@@ -535,7 +535,7 @@ POST_INSTALL = (
 )
 # the production proof rows post-install runs before the owner's scripts (names usable with --only)
 PROOF_CHECKS = frozenset({"profile", "prefs", "excised", "startup", "egress", "adblock", "leaks", "decisions", "visual", "claims", "ui",
-                          "about", "stamp", "satellite", "search"})
+                          "about", "stamp", "satellite", "search", "mozlinks"})
 # checks that take the keyboard / foreground: never run unless asked with --drive, and announced with a countdown first
 DRIVES_WINDOW = {"verify_address_bar"}
 DRIVE_COUNTDOWN = 20
@@ -619,6 +619,12 @@ def _stamp_rows(task_id, target, say=print, carried=None):
     return buildstamp.about_rows(target, recorded=recorded, say=say)
 
 
+def _mozlinks_rows(target):
+    """D-158-22 on the installed build: no Learn more and no link to Mozilla a person can click (mozlinks.py)."""
+    from . import mozlinks
+    return mozlinks.rows(target)
+
+
 def _search_rows(target, say=print):
     """D-158-13 on the browser as people run it: Google is the only engine on a fresh profile AND on a copy of the
     profile this install opens (2026-10-18: a profile carried over from 157 still offered Perplexity, and every
@@ -693,6 +699,7 @@ def post_install(task_id, install_dir=None, only=None, say=print, timeout=900, d
         runs = {"visual": lambda: _visual_row(t, target, say), "ui": lambda: _ui_rows(t, target, say),
                 "about": lambda: _about_rows(t, target, say), "satellite": lambda: _satellite_rows(target, say),
                 "search": lambda: _search_rows(target, say),
+                "mozlinks": lambda: _mozlinks_rows(target),
                 "stamp": lambda: _stamp_rows(task_id, target, say, carried=carry.get("stamp"))}
         # every group post-install knows, not only the package groups build-run carries (2026-10-18: "search" was
         # in runs and PROOF_CHECKS but never planned, so D-158-13 on the real-profile copy never ran)

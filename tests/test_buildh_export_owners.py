@@ -103,3 +103,20 @@ def test_a_file_a_later_group_writes_sends_the_step_to_the_final_group(tmp_path,
     export.export("t", root, "158", say=lambda *_: None, policy=pol)
     assert list(port.glob("*.patch")) == []
     assert [p.name for p in (root / "24.FINAL.158").glob("*.patch")] == ["001-theme.patch"]
+
+
+def test_a_later_edit_to_a_file_already_in_the_final_group_follows_it_there(tmp_path, monkeypatch):
+    # 2026-10-23, D-158-22: the first edit of PdfJsDefaultPrefs.js went to 24.FINAL (another file of that step is
+    # written by 23.REBASE); the two follow-ups went to 22, which applies BEFORE 24, and replay failed
+    root, port, priv = _setup(tmp_path, monkeypatch,
+                              [("c1", ["m.css", "p.js"], "first", "now", "privacy"),
+                               ("c2", ["p.js"], "follow up", "now", "privacy")],
+                              {"c1": "diff --git a/m.css b/m.css\n+2\ndiff --git a/p.js b/p.js\n+1\n",
+                               "c2": "diff --git a/p.js b/p.js\n+2\n"})
+    (root / "23.REBASE.158").mkdir()
+    (root / "23.REBASE.158" / "0164-m.patch").write_text("# r\n\ndiff --git a/m.css b/m.css\n+1\n", encoding="utf-8")
+    pol = {"groups": {g: {"status": "enabled"} for g in ("21.PORT.FIXES.158", "22.EGRESS.LOCKDOWN.158", "23.REBASE.158",
+                                                         "24.FINAL.158")}}
+    export.export("t", root, "158", say=lambda *_: None, policy=pol)
+    assert list(priv.glob("*.patch")) == []
+    assert sorted(p.name for p in (root / "24.FINAL.158").glob("*.patch")) == ["001-first.patch", "002-follow-up.patch"]

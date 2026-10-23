@@ -99,6 +99,7 @@ def test_post_install_carries_package_groups_and_runs_the_rest(tmp_path, monkeyp
     monkeypatch.setattr(inst, "_claims_row", lambda t, target: [{"check": "claims: ran", "ok": True, "evidence": ""}])
     # not a package group: it runs on the install every time (2026-10-18: it was declared and never planned)
     monkeypatch.setattr(inst, "_search_rows", lambda target, say=print: [{"check": "search: ran", "ok": True, "evidence": ""}])
+    monkeypatch.setattr(inst, "_mozlinks_rows", lambda target: [{"check": "mozlinks: ran", "ok": True, "evidence": ""}])
     monkeypatch.setattr(inst, "running", lambda d: [])
     monkeypatch.setattr(task, "STATE", tmp_path / "state")
     monkeypatch.setattr(task, "load", lambda tid: {"id": tid, "meta": {}, "workdir": str(tmp_path)})
