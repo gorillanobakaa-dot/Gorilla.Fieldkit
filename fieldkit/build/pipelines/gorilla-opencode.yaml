@@ -4,9 +4,11 @@ description: >-
   -X github.com/opencode-ai/opencode/internal/version.Version), for Linux and Windows, after
   verifying every dependency and running vet and the whole test suite. The Windows .exe keeps
   its committed icon and version resources (rsrc_windows_*.syso). Each binary is built a second time
-  elsewhere and must be byte for byte identical (repro). Then SHA256SUMS. Give the
-  version (--var version=v0.1.146) or let git describe name it. Packages (.deb/.rpm/Arch) are
-  made from these binaries by the project's own scripts.
+  elsewhere and must be byte for byte identical (repro). Then the macOS 10.13 binary (the project's
+  build-darwin-legacy.sh: a patched GOROOT, since stock Go needs macOS 11) and the packages (.deb, Arch,
+  the portable tarball, .rpm) from the project's own scripts, and SHA256SUMS over everything: every
+  release file from ONE Linux machine (owner, 2026-10-23: no more jumping between three computers).
+  Give the version (--var version=v0.1.146) or let git describe name it.
 vars:
   src: ""                  # the module folder (holds go.mod); or goapps.<name> in fieldkit.local.json
   name: gorilla-opencode
@@ -19,6 +21,10 @@ vars:
   tests: all               # all | short
   out: ""                  # empty: <src>/dist
   windows_name: gorilla-opencode.exe   # the name the releases use
+  mac_script: scripts/build-darwin-legacy.sh   # empty: no Mac binary
+  mac_suffix: macos10.13
+  packages: "scripts/build-deb.sh,scripts/build-arch.sh,scripts/build-tarball.sh,scripts/build-rpm.sh"
+  package_dir: Compiled.Builds   # where the package scripts leave their files
 stages:
   - id: toolchain
     run: {python: "fieldkit.build.goapp:stage_toolchain"}
@@ -62,6 +68,19 @@ stages:
     verify:
       - {python: {target: "fieldkit.build.goapp:verify_repro"}}
     triage: go
+
+  - id: mac
+    timeout: 7200
+    run: {python: "fieldkit.build.goapp:stage_mac"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_mac"}}
+    triage: go
+
+  - id: packages
+    timeout: 3600
+    run: {python: "fieldkit.build.goapp:stage_packages"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_packages"}}
 
   - id: checksums
     run: {python: "fieldkit.build.goapp:stage_checksums"}

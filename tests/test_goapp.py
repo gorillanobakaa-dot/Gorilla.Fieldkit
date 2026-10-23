@@ -120,7 +120,11 @@ def test_the_gorilla_opencode_preset_matches_how_releases_are_built():
     assert p.vars["version_var"] == "github.com/opencode-ai/opencode/internal/version.Version"
     assert p.vars["windows_name"] == "gorilla-opencode.exe" and p.vars["cgo"] == "0"
     assert [s["id"] for s in p.stages] == ["toolchain", "modules", "vet", "test", "build", "repro",
-                                            "checksums"]
+                                            "mac", "packages", "checksums"]
+    # every release file from one Linux machine (owner, 2026-10-23): the Mac 10.13 binary and the four packages
+    assert p.vars["mac_script"] == "scripts/build-darwin-legacy.sh"
+    assert p.vars["packages"].split(",") == ["scripts/build-deb.sh", "scripts/build-arch.sh",
+                                             "scripts/build-tarball.sh", "scripts/build-rpm.sh"]
 
 
 def test_every_go_signature_compiles_and_names_a_fix():
@@ -198,3 +202,75 @@ def test_repeated_var_options_are_all_kept():
     assert a.var == ["src=/x", "version=v1"]
     a = build_parser().parse_args(["next", "go-app", "--var", "src=/x", "version=v1"])
     assert a.var == ["src=/x", "version=v1"]
+
+
+# -- the Mac binary and the packages (no Go needed: the project's scripts are stand-ins) ---------------------------
+def _built(tmp_path, **vars_):
+    src = _module(tmp_path)
+    p = _pipeline(tmp_path, src, **vars_)
+    ctx = _ctx(p)
+    out = goapp._out(ctx, src)
+    out.mkdir(parents=True, exist_ok=True)
+    linux = out / "hello-v1.2.3-linux-amd64"
+    linux.write_bytes(b"ELF stand-in")
+    goapp._save(ctx, src, "build", {"ok": True, "version": "v1.2.3", "built": [
+        {"target": "linux/amd64", "file": str(linux), "sha256": goapp._sha(linux), "bytes": 12}]})
+    return src, ctx, out
+
+
+def _script(src, rel, body):
+    f = src / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("#!/bin/sh\nset -e\n" + body, encoding="utf-8")
+    return rel
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in scripts are POSIX sh")
+def test_mac_stage_runs_the_script_with_the_plain_version_and_wants_a_mach_o(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    ctx.vars["mac_script"] = _script(src, "scripts/mac.sh",
+                                     'printf "\\317\\372\\355\\376$VERSION" > "$1"\n')
+    r = goapp.stage_mac(ctx)
+    assert r["ok"], r
+    f = Path(r["file"])
+    assert f.name == "hello-v1.2.3-darwin-amd64-legacy" and f.read_bytes()[4:] == b"1.2.3"   # VERSION without "v"
+    assert goapp.verify_mac(ctx)["ok"]
+    ctx.vars["mac_script"] = _script(src, "scripts/notmac.sh", 'echo "not a mach-o" > "$1"\n')
+    assert not goapp.stage_mac(ctx)["ok"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in scripts are POSIX sh")
+def test_packages_are_made_from_the_linux_binary_and_counted_in_the_checksums(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    deb = _script(src, "scripts/deb.sh", 'cmp -s hello "$OUTBIN" || true; mkdir -p Compiled.Builds; '
+                                         'cp hello "Compiled.Builds/hello_${1}_amd64.deb"\n')
+    rpm = _script(src, "scripts/rpm.sh", 'cp "Compiled.Builds/hello_${1}_amd64.deb" '
+                                         '"Compiled.Builds/hello-${1}-1.x86_64.rpm"\n')
+    tar = _script(src, "scripts/tar.sh", 'cp hello Compiled.Builds/hello-linux-x86_64.tar.gz\n')   # a fixed name
+    ctx.vars["packages"] = f"{deb},{rpm},{tar}"
+    r = goapp.stage_packages(ctx)
+    assert r["ok"], r
+    assert (src / "hello").read_bytes() == b"ELF stand-in"                  # the scripts' documented input
+    names = sorted(Path(f["file"]).name for f in r["files"])
+    assert names == ["hello-1.2.3-1.x86_64.rpm", "hello-linux-x86_64.tar.gz", "hello_1.2.3_amd64.deb"]
+    assert goapp.verify_packages(ctx)["ok"]
+    goapp.stage_checksums(ctx)
+    sums = (out / "SHA256SUMS-v1.2.3.txt").read_text()
+    assert all(n in sums for n in names) and "hello-v1.2.3-linux-amd64" in sums
+    assert goapp.verify_checksums(ctx)["ok"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in scripts are POSIX sh")
+def test_a_package_script_that_makes_nothing_fails_by_name(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    ctx.vars["packages"] = _script(src, "scripts/silent.sh", "true\n")
+    r = goapp.stage_packages(ctx)
+    assert not r["ok"] and "scripts/silent.sh" in r["detail"] and "made no new file" in r["detail"]
+
+
+def test_without_mac_script_or_packages_both_stages_skip(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    ctx.vars["mac_script"] = ""
+    ctx.vars["packages"] = ""
+    assert goapp.stage_mac(ctx)["skipped"] and goapp.stage_packages(ctx)["skipped"]
+    assert goapp.verify_mac(ctx)["ok"] and goapp.verify_packages(ctx)["ok"]
