@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.2.0 · updated 26-10-23-02-51
+# Version: 1.2.0 · updated 26-10-23-11-02
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -452,8 +452,26 @@ def main(argv=None, prog="macssh.py"):
         if not address:
             print(f"NOT FOUND: {how}", file=sys.stderr)
             return 1
-        return subprocess.run(ssh_argv(mac, address, remote_line(cmd), batch=False)).returncode
+        return run_retry(ssh_argv(mac, address, remote_line(cmd), batch=False))
     return 2
+
+
+def run_retry(argv, tries=4, wait=6, runner=None, sleep=None):
+    """Run an ssh command, retrying ONLY a Wi-Fi drop (exit 255 with a connection error). 2026-10-23: the Air dropped
+    off Wi-Fi again and again; `mac run` was the one Mac command without a retry (the screen commands had one)."""
+    import time
+    from .macdrive import DROP
+    sleep = sleep or time.sleep
+    for attempt in range(1, tries + 1):
+        r = (runner or (lambda a: subprocess.run(a, capture_output=True, text=True)))(argv)
+        out, err = r.stdout or "", r.stderr or ""
+        if r.returncode == 255 and any(d in err for d in DROP) and attempt < tries:
+            sleep(wait)
+            continue
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+        return r.returncode
+    return 255
 
 
 if __name__ == "__main__":

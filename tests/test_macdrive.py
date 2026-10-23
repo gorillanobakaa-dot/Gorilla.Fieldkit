@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-02-51
+# Version: 1.0.0 · updated 26-10-23-11-02
 """fieldkit mac keep-awake|open-app|screen-text|keys|wait-text: driving a Mac's screen like a person, with every lesson
 of 2026-10-23 (the 2011 MacBook Air) as a rule. A fake Mac answers the ssh lines and AppleScripts."""
 import pytest
@@ -199,3 +199,17 @@ def test_old_screens_above_do_not_get_a_second_key_and_the_help_bar_means_ready(
         return _orig(argv, stdin)
     code, lines = D.tui_start(fn, "/dev/ttys000", runner=after, sleep=lambda s: None)
     assert code == 0 and mac.keys_sent == 1 and lines[0].startswith("speed: enter"), lines
+
+
+def test_mac_run_retries_only_a_wifi_drop(capsys):
+    from fieldkit.mac import macssh
+    seq = [(255, "", "ssh: connect to host 1.2.3.4 port 22: Connection timed out"), (0, "hello\n", "")]
+    R = lambda rc, o, e: type("R", (), {"returncode": rc, "stdout": o, "stderr": e})()
+    calls = []
+    def runner(argv):
+        calls.append(argv)
+        return R(*seq[len(calls) - 1])
+    assert macssh.run_retry(["ssh", "x"], runner=runner, sleep=lambda s: None) == 0
+    assert len(calls) == 2 and "hello" in capsys.readouterr().out
+    refused = lambda argv: R(255, "", "Permission denied (publickey)")
+    assert macssh.run_retry(["ssh", "x"], runner=refused, sleep=lambda s: None) == 255
