@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-01-35
+# Version: 1.0.0 · updated 26-10-23-02-32
 """macdrive.py - drive a Mac's screen from another computer, the way a person would, and check each step took.
 
     fieldkit mac keep-awake NAME [--minutes N | --stop]    caffeinate on the Mac for a long job (display, disk, network)
@@ -158,7 +158,14 @@ def keys(ssh_argv_fn, tty, key=None, paste_text=None, settle=4, sleep=time.sleep
     if rc != 0 or out != "SENT":
         return 1, out
     sleep(settle)
-    after, err = screen_text(ssh_argv_fn, tty, 60, **kw)
+    after, err = screen_text(ssh_argv_fn, tty, 400 if paste_text is not None else 60, **kw)
+    if paste_text is not None:
+        # "the screen changed" is not proof for a paste: on 2026-10-23 a quota line vanished while the paste itself was
+        # swallowed by a TUI still redrawing. The proof is the start of the text on the screen.
+        probe = one_line(paste_text)[:40]
+        if not any(probe in r for r in after or []):
+            return 3, f"pasted, but '{probe}' is not on the screen: the program did not take it (still starting?)"
+        return 0, "pasted; the text is on the screen"
     if after == before:
         return 3, "sent, but the screen text did not change: the key may not have landed (a moved window?)"
     return 0, "sent; the screen changed"

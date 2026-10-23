@@ -1073,6 +1073,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_install_sh.py"]
   notes: "Born 2026-10-23 on the 2011 MacBook Air (macOS 10.13, 4 GB), cleaned of Homebrew, Xcode and git to save memory: git clone could not work there. Zip 3.7 MB; lean install about 2 MB plus pip's own build tools."
 
+- id: fk-aliases
+  title: "fk: short plain-English names for long Fieldkit commands (fk machine, fk ready, fk mac ...); prints the full command before running it, so a person always sees what runs"
+  harness: core
+  entry: [python, -m, fieldkit.aliases]
+  path: ${FIELDKIT}/fieldkit/aliases.py
+  inputs:
+    - {name: name, flag: null, type: str, required: false, help: "a short name; none lists them all"}
+    - {name: show, flag: --show, type: flag, required: false, help: "print the full command only"}
+    - {name: json, flag: --json, type: flag, required: false, help: "the list as JSON (Gorilla OpenCode /commands)"}
+  effects: [processes]           # runs the fieldkit command the name stands for, nothing else
+  safety: reversible             # the command it runs carries its own card and safety
+  output: own
+  exits: {2: "unknown name, or a value it needs was not given"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_aliases.py"]
+  notes: "Owner, 2026-10-23: commands so long that typing them takes longer than letting the AI do the job; short names in English, the full command always shown. Names are data (fieldkit/desk/aliases.yaml; local/aliases.yaml for a person's own names and defaults such as which Mac). The test runs every name's command with --help, so a renamed command breaks the test, not a person."
+
 - id: fieldkit-mac
   title: 'Reach an old Mac over SSH (a MacBook Air 2011 on macOS 10.13 and the like): find it when its address changes, check key, login and alias, read what it is, run a command on it'
   harness: fieldkit

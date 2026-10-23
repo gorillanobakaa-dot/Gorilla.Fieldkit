@@ -123,7 +123,7 @@ def test_lean_asks_only_for_the_lean_packages(tmp_path):
     req.write_text(json.dumps(data))
     r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: None, which=lambda n: "/x", h=DEB, lean=True)
     names = [x["name"] for x in r["rows"] if x["kind"] == "python-package"]
-    assert names == ["pyyaml"] and "--no-deps" in r["install"][0]          # lxml (a full dependency) is not asked for
+    assert names == ["pyyaml"] and "--no-deps" in r["install"][-1]          # lxml (a full dependency) is not asked for
 
 
 def test_the_real_lean_set_is_what_the_core_was_measured_with():
@@ -164,3 +164,14 @@ def test_a_linux_check_never_runs_this_machines_git(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor, "git_state", boom)
     r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: "1.0", which=lambda n: "/usr/bin/" + n, h=DEB)
     assert r["ok"]
+
+
+def test_no_install_line_joins_commands_with_ampersands(tmp_path):
+    # PowerShell 5.1 refuses "a && b" (found on Windows, 2026-10-23): the lean line comes out as two lines
+    pp, req = _files(tmp_path)
+    data = json.loads(req.read_text())
+    data["lean"] = {"packages": ["pyyaml>=6"]}
+    req.write_text(json.dumps(data))
+    r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: None, which=lambda n: "/x", h=DEB, lean=True)
+    assert len(r["install"]) == 2 and not any("&&" in line for line in r["install"])
+    assert "--no-deps" in r["install"][1]

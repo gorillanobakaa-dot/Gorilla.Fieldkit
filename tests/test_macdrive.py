@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-01-35
+# Version: 1.0.0 · updated 26-10-23-02-32
 """fieldkit mac keep-awake|open-app|screen-text|keys|wait-text: driving a Mac's screen like a person, with every lesson
 of 2026-10-23 (the 2011 MacBook Air) as a rule. A fake Mac answers the ssh lines and AppleScripts."""
 import pytest
@@ -24,9 +24,11 @@ class Mac:
             return 255, "ssh: connect to host mac port 22: Connection timed out"
         if line.startswith("osascript -") and stdin == D.TAB_SCRIPT:
             return 0, self.screen
+        if line == "pbcopy":
+            self.clip = stdin
         if line.startswith("osascript -") and stdin == D.KEY_SCRIPT:
-            if self.change_on_key:
-                self.screen += "\nchanged"
+            if self.change_on_key:                       # a real TUI shows what was pasted (or reacts to the key)
+                self.screen += "\n> " + (getattr(self, "clip", None) or "changed")
             return 0, "SENT"
         if line.startswith("osascript -") and stdin == D.WINDOWS_SCRIPT:
             return 0, self.windows_seq.pop(0) if self.windows_seq else ""
@@ -113,3 +115,22 @@ def test_keep_awake_records_its_pid_and_stop_kills_only_that():
     assert "caffeinate -dimsu -t 5400" in mac.calls[-1][0] and "fieldkit-keep-awake.pid" in mac.calls[-1][0]
     D.keep_awake(fn, stop=True, runner=mac, sleep=lambda s: None)
     assert "kill $(cat /tmp/fieldkit-keep-awake.pid)" in mac.calls[-1][0] and "pkill" not in mac.calls[-1][0]
+
+
+def test_a_paste_is_proven_by_its_text_not_by_any_change():
+    class Swallow(Mac):          # the screen changes (a quota line goes), the paste itself is lost (2026-10-23)
+        def __call__(self, argv, stdin):
+            if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
+                self.screen = "> "
+                return 0, "SENT"
+            return super().__call__(argv, stdin)
+    code, msg = D.keys(fn, "/dev/ttys000", paste_text="I'm a new user on this Mac", runner=Swallow(screen="quota\n> "),
+                       sleep=lambda s: None)
+    assert code == 3 and "not on the screen" in msg
+    class Takes(Mac):
+        def __call__(self, argv, stdin):
+            if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
+                self.screen += "\n> I'm a new user on this Mac"
+                return 0, "SENT"
+            return super().__call__(argv, stdin)
+    assert D.keys(fn, "/dev/ttys000", paste_text="I'm a new user on this Mac", runner=Takes(), sleep=lambda s: None)[0] == 0
