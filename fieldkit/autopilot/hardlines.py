@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-23-12-12
+# Version: 1.3.0 · updated 26-10-23-14-36
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -19,7 +19,8 @@ one file:
 A project mandate in force (fieldkit/mandate, M3, 2026-10-23) opens two of these and nothing else, each logged in
 the mandate's log: hard line 1 for `fieldkit ship push` on a branch the mandate lets sessions push (fast-forward,
 checked here) and `fieldkit ship merge` (which proves the merge's conditions itself and refuses without them); hard
-line 4 for an owner approval listed in the mandate's owner_approvals. Only as ONE plain statement: no `;`, `&&`,
+line 4 for an owner approval listed in the mandate's owner_approvals; and its release door (release: {cycle: [..]})
+opens hard line 1 for `fieldkit release-cycle PROJECT run --var version=vX.Y.Z` of a project it lists. Only as ONE plain statement: no `;`, `&&`,
 pipe or substitution around it, so what was checked is what runs. `git push` stays denied: the tool is the door.
 `fieldkit mac run NAME -- ...` on a Mac the mandate grants is judged as the Mac's business (hard lines 2 and 3 are
 about this computer); publishing and credentials still apply. While a mandate is in force, installs go through
@@ -59,6 +60,8 @@ PUBLISH = [
     (r"\bgit\b[^\n]*\bremote\b[^\n]*\b(add|set-url)\b", "changing where git pushes"),
     # 2026-10-23: ship push/merge/release/prune push through git inside the tool, which the line above never saw
     (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune)\b", "publishing through fieldkit ship"),
+    # 2026-10-23: release-cycle run publishes a GitHub release inside the tool (plan, next and reset only read)
+    (r"\bfieldkit\b[^\n]*\brelease-cycle\s+\S+\s+run\b", "publishing a release (fieldkit release-cycle run)"),
 ]
 
 DELETE = re.compile(
@@ -139,6 +142,8 @@ def _statements(cmd):
 
 FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python3?(?:\.exe)?\s+-m\s+fieldkit)"
 SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base)(?:\s+|=)[^\s;&|`$<>]+)*)\s*$", re.I)
+RELEASE_RUN = re.compile(r"^\s*" + FIELDKIT + r"\s+release-cycle\s+([\w.-]+)\s+run\s+--var(?:\s+|=)version=(v\d+\.\d+\.\d+)"
+                         r"(?:\s+--(?:only|from)(?:\s+|=)[\w-]+)?\s*$", re.I)
 MAC_RUN = re.compile(r"^\s*" + FIELDKIT + r"\s+mac\s+run\s+([\w.-]+)\s+--\s", re.I)
 INSTALL_WRAP = re.compile(r"^\s*" + FIELDKIT + r"\s+mandate\s+install\s", re.I)
 INSTALLER = re.compile(r"\b(apt(-get)?|dnf|yum|pacman|zypper|brew|snap|flatpak|winget|choco|scoop)\s+(-\S+\s+)*install\b|"
@@ -193,6 +198,13 @@ def _mandated(cmd, cwd, door):
         v, why, path = door.decide("push", repo_path=repo_path)
         if v == "allow":
             door.log(path, "push-allowed", f"{why}: {cmd.strip()[:200]}")
+            return "allow", f"HARD LINE 1 opened by the mandate: {why}"
+        return None
+    m = RELEASE_RUN.match(cmd)
+    if m:                                                 # the mandate's release door; never with another release file
+        v, why, path = door.decide("release", project=m.group(1), version=m.group(2))
+        if v == "allow":
+            door.log(path, "release-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
         return None
     if any(re.search(pat, cmd, re.I) for pat, _ in OWNER_ONLY):

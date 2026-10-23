@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-13-17
+# Version: 1.1.0 · updated 26-10-23-14-36
 """fieldkit mandate: one owner approval per project, valid on both computers, checkable by each (2026-10-23).
 Every test closes a way a false approval could get in: a changed byte, another key, no passphrase, a stop, a date."""
 from datetime import date
@@ -174,7 +174,7 @@ def test_the_install_budget_is_counted_from_the_log(owner):
 def test_the_owner_reads_every_door_before_yes(owner):
     lines = "\n".join(M.doors(M.load(owner)))
     assert "PUSH" in lines and "feat/*" in lines and "MERGE" in lines and "5 GB" in lines and "never" in lines
-    assert "WHICH COMPUTER approved" in lines and "never that a person read the diff" in lines
+    assert "NO PERSON READS A DIFF BEFORE MAIN" in lines and "did not shrink" in lines
 
 
 def test_a_second_key_is_refused(owner):

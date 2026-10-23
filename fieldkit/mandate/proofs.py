@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-12-12
+# Version: 1.1.0 · updated 26-10-23-14-36
 """What a mandate's conditions mean, proven by the tool itself: never taken from the caller's word.
 
 The Windows side's review of M1 (2026-10-23, point 4): allows(merge_main) took its proofs as keyword arguments, so
@@ -63,6 +63,8 @@ def _suite(cwd, cmd, t, run):
         return False, 0, 0, f"exit {r.returncode}: {last}"
     if not re.search(expect, out) or re.search(r"\b\d+ (failed|errors?)\b", out):
         return False, 0, 0, f"exit 0 but no pass shown ({expect}): {last}"              # an exit code lies
+    if t.get("count"):                                    # a runner that prints no "N passed" (go test: one ok per package)
+        return True, len(re.findall(t["count"], out)), 0, last
     p, k = PASSED.findall(out), SKIPPED.findall(out)
     return True, int(p[-1]) if p else 0, int(k[-1]) if k else 0, last
 

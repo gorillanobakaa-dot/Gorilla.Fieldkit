@@ -1,4 +1,4 @@
-# Version: 1.3.0 · updated 26-10-23-13-17
+# Version: 1.4.0 · updated 26-10-23-14-36
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -12,8 +12,9 @@
     fieldkit mandate review-key                   this computer's review key (made once; its public half is carried
                                                   to the other computer)
     fieldkit mandate trust-reviewer PUBFILE       the owner pins the OTHER computer's review key (guarded store)
-    fieldkit mandate sign-review REPO SHA         the reviewing session: "APPROVE REPO SHA", signed with this
-                                                  computer's review key, sent over the cable
+    fieldkit mandate verdict REPO SHA [--send]    this computer runs the suite on SHA (temporary worktree, measured
+                                                  against main) and, on a pass only, signs "APPROVE REPO SHA" with
+                                                  its review key; started by the link listener on a verdict-request
     fieldkit mandate status                       every mandate here and whether it is in force
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
 
@@ -182,15 +183,23 @@ def doors(m):
                        f"{', '.join(mm.get('when', []))}")
             if "other_machine_reviewed" in (mm.get("when") or []):
                 # the Windows review of 804f28b: say what the proof is, and what it is not
-                out.append("  other_machine_reviewed proves WHICH COMPUTER approved (its review key), never that a "
-                           "person read the diff: a session on that computer signs it unattended")
+                out.append("  other_machine_reviewed: the other computer ran the full suite on that exact commit, on "
+                           "its own OS, measured against main, and its review key signed the pass. NO PERSON READS "
+                           "A DIFF BEFORE MAIN under this gate: it proves the other OS ran the tests and they did "
+                           "not shrink, nothing more. A commit that changes how its tests run is sent to you")
     if m.get("install"):
         out.append(f"sessions may INSTALL software up to {m['install'].get('budget_gb', 0)} GB, each logged")
     for name in (m.get("mac") or {}).values() if isinstance(m.get("mac"), dict) else []:
         out.append(f"sessions have full read/write access to the Mac '{name}'")
     for a in m.get("owner_approvals") or []:
         out.append(f"sessions may run, as if you approved it: {a}")
-    out.append("release (tags, published assets): " + str(m.get("release", "ask")))
+    rel = m.get("release", "ask")
+    if isinstance(rel, dict) and isinstance(rel.get("cycle"), dict) and rel["cycle"]:
+        out.append("sessions may RELEASE, the whole cycle (build every system, checksums, screenshots, both tracks, "
+                   "publish on GitHub, clean up), exactly these: " + "; ".join(
+                       f"{p_} {', '.join(map(str, v_ or []))}" for p_, v_ in rel["cycle"].items()))
+    else:
+        out.append("release (tags, published assets): " + str(rel))
     out.append("never: " + ", ".join(m.get("never") or []))
     out.append(f"ends: {m['expires']}")
     return out
@@ -357,7 +366,17 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
                 return "allow", f"owner_approvals: {a}"
         return "ask", "this owner approval is not in the mandate's owner_approvals"
     if action == "release":
-        return ("allow", "release: allow") if str(m.get("release", "ask")) == "allow" else ("ask", "release: ask")
+        # the release door (2026-10-23): release: {cycle: [project, ...]} lets sessions run the whole release cycle
+        # (fieldkit release-cycle) of the projects it names, and nothing else
+        # (the Windows review, point 4) the owner writes the exact versions: release: {cycle: {project: [vX.Y.Z]}}
+        rel = m.get("release", "ask")
+        if isinstance(rel, dict):
+            proj, ver = p.get("project"), p.get("version")
+            cyc = rel.get("cycle") if isinstance(rel.get("cycle"), dict) else {}
+            if proj in cyc and ver and ver in [str(v) for v in (cyc.get(proj) or [])]:
+                return "allow", f"release.cycle.{proj} lists {ver}"
+            return "ask", f"release.cycle does not list {proj} {ver or '(no version)'}: the owner writes the version"
+        return "ask", "release: the owner's (only release.cycle with exact versions opens it)"
     return "ask", f"'{action}' is not something a mandate grants ({', '.join(ACTIONS)})"
 
 
@@ -455,7 +474,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit mandate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
-                                       "share", "status", "install", "review-key", "sign-review"])
+                                       "share", "status", "install", "review-key", "verdict"])
     ap.add_argument("rest", nargs="*")
     a = ap.parse_args(argv)
     r = a.rest
@@ -499,46 +518,30 @@ def main(argv=None):
         print(f"REVIEW KEY {fp}: {_review_paths()[1]}. The other computer pins it: fieldkit mandate trust-reviewer "
               f"{_review_paths()[1].name} (the owner, once, after it is carried over)")
         return 0
-    if a.action == "sign-review":
-        # the reviewing session's own act: after its review passed, it signs "APPROVE <repo> <sha>" with this
-        # computer's review key and sends it over the cable; a review with findings sends findings, never this
+    if a.action == "verdict":
+        # this computer's OS runs the suite on that commit and a tool signs the result; no model approves (2026-10-23)
         if len(r) < 2:
-            print("sign-review REPO SHA  (the full 40-character sha the review tested)")
+            print("verdict REPO SHA [--send]  (REPO: the repository's name or its folder; SHA: 40 characters)")
             return 2
+        from . import verdict as V
+        repo = Path(r[0]) if Path(r[0]).is_dir() else V.find_repo(r[0])
+        if repo is None:
+            print(f"REFUSED: {r[0]} is not a folder nor one of this computer's repositories (sync.repos)")
+            return 2
+        from . import proofs
+        name = proofs.where(repo)[0]
+        args = list(argv if argv is not None else sys.argv[1:])
+        lock = Path(args[args.index("--lock") + 1]) if "--lock" in args else None
         try:
-            ap_ = sign_review(r[0], r[1])
-        except ValueError as e:
-            print(f"REFUSED: {e}")
-            return 2
-        from ..peers import link
-        res = link.call({"verb": "message", "done": True, "evidence": approval_text(r[0], r[1]), "approval": ap_,
-                         "text": f"{approval_text(r[0], r[1])} (review key {ap_['key']})"})
-        print(("SENT " if res.get("ok") else "NOT SENT ") + approval_text(r[0], r[1]) +
-              ("" if res.get("ok") else f": {res.get('error')}"))
-        return 0 if res.get("ok") else 1
-    if a.action == "status":
-        d = home() / "mandates"
-        for p in sorted(d.glob("*.yaml")) if d.is_dir() else []:
-            ok, why = verify(p)
-            print(f"  {'IN FORCE' if ok else 'not in force':12} {p.stem}: {why}")
-        return 0
-    if a.action == "install":
-        if "--" not in (argv if argv is not None else sys.argv):
-            print("install GB WHAT -- COMMAND ...")
-            return 2
-        argv_all = list(argv if argv is not None else sys.argv[1:])
-        cmd = argv_all[argv_all.index("--") + 1:]
-        try:
-            gb = float(r[0])
-        except (IndexError, ValueError):
-            print("install GB WHAT -- COMMAND ...  (GB: what it will take, a number)")
-            return 2
-        if len(r) < 2 or not cmd:
-            print("install GB WHAT -- COMMAND ...")
-            return 2
-        code, msg = install(gb, r[1], cmd)
-        print(msg)
-        return code
+            passed, ev = V.verdict(repo, r[1], name=name)
+            print(("PASS " if passed else "FAIL ") + f"{name} {r[1]}: {ev}")
+            if "--send" in args:
+                res = V.send(name, r[1], passed, ev)
+                print(("SENT" if res.get("ok") else f"NOT SENT: {res.get('error')}"))
+        finally:
+            if lock is not None and lock.is_file():
+                lock.unlink()                             # the listener's own lock for this run: one at a time
+        return 0 if passed else 3
     if not r:
         print(f"{a.action} FILE.yaml ...")
         return 2

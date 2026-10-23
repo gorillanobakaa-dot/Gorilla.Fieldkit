@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-14-10
+# Version: 1.0.0 · updated 26-10-23-14-36
 """One release, the whole cycle, the same way every time: the pipeline engine driven by a project's release file.
 
     fieldkit release-cycle PROJECT plan  --var version=vX.Y.Z    the stages and where each runs
@@ -281,6 +281,17 @@ def _files(r):
     return [Path(r["out"]) / a for a in r["assets"]] + [Path(r["out"]) / r["checksums"]]
 
 
+def _mandate_log(r, what, detail):
+    """A release the mandate's release door covers is written to its log (the owner reads one log)."""
+    try:
+        from ..mandate import mandate as M
+        v, why, path = M.decide("release", project=r["project"], version=r["version"])
+        if v == "allow" and path is not None:
+            M.log(path, what, f"{why}: {detail}", project=r["project"], version=r["version"])
+    except Exception:  # noqa: BLE001 - logging never changes what the stage did
+        pass
+
+
 def publish(ctx, gh=None):
     gh = gh or _gh
     r = _r(ctx)
@@ -288,6 +299,8 @@ def publish(ctx, gh=None):
     if have is None:
         code, out, err = gh(["release", "create", r["version"], "-R", slug, "--target", r["base"], "--title",
                              r["version"], "--notes-file", str(_page(r))] + [str(f) for f in _files(r)])
+        if code == 0:
+            _mandate_log(r, "release-published", f"{len(_files(r))} file(s)")
         return {"ok": code == 0, "detail": "published" if code == 0 else err.strip()[-300:]}
     names = {a["name"] for a in have.get("assets") or []}
     lacking = [str(f) for f in _files(r) if f.name not in names]

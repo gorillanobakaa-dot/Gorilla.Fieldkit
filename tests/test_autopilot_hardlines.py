@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-11-10
+# Version: 1.0.0 · updated 26-10-23-14-36
 """The hard lines of an autopilot run, held against what an unattended model actually did on 2026-10-17/18."""
 import pytest
 
@@ -214,3 +214,19 @@ def test_under_a_mandate_installs_go_through_the_budget(nostop):
     assert dm("bash ./install.sh", door, nostop) == "deny"
     assert dm("fieldkit mandate install 0.2 ffmpeg -- sudo apt-get -y install ffmpeg", door, nostop) == "allow"
     assert dm("sudo apt-get -y install ffmpeg", Door(force=False), nostop) == "allow"         # no mandate: as before
+
+
+def test_release_cycle_run_is_publishing_and_the_release_door_opens_only_it(nostop):
+    # 2026-10-23: release-cycle run makes a GitHub release inside the tool, which no hard line saw
+    assert dm("fieldkit release-cycle gorilla-opencode run --var version=v0.1.151", Door(), nostop) == "deny"
+    assert dm("fieldkit release-cycle gorilla-opencode next --var version=v0.1.151", Door(), nostop) == "allow"
+    door = Door(allow={"release"})
+    assert dm("fieldkit release-cycle gorilla-opencode run --var version=v0.1.151", door, nostop) == "allow"
+    assert door.asked[-1] == ("release", {"project": "gorilla-opencode", "version": "v0.1.151"})
+    assert door.logged == ["release-allowed"]
+    assert dm("fieldkit release-cycle gorilla-opencode run --var version=v0.1.151 --only publish", door, nostop) == "allow"
+    for cmd in ("fieldkit release-cycle gorilla-opencode run --var version=v0.1.151 --release-file /tmp/mine.yaml",
+                "fieldkit release-cycle gorilla-opencode run --var version=v0.1.151; gh release delete v0.1.150",
+                "cd /tmp && fieldkit release-cycle gorilla-opencode run --var version=v0.1.151",
+                "fieldkit release-cycle gorilla-opencode run"):                           # no version: nothing to check
+        assert dm(cmd, door, nostop) == "deny", cmd
