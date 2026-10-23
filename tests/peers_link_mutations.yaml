@@ -1,0 +1,166 @@
+# Rules tests/test_peers_link.py must hold. Every one CAUGHT:
+#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py tests/test_peers_link_find.py
+- file: fieldkit/peers/link.py
+  swap: ['    if a.is_unspecified:', '    if False:']
+  why: a wildcard address (listen everywhere) is refused
+- file: fieldkit/peers/link.py
+  swap: ['    if a.is_loopback or a.is_multicast or not (a.is_private or a.is_link_local):', '    if False:']
+  why: only a private or link-local cable address
+- file: fieldkit/peers/link.py
+  swap: ['    if fingerprint(k) != d.get("fingerprint"):', '    if False:']
+  why: a pairing file whose key does not match its fingerprint is refused
+- file: fieldkit/peers/link.py
+  swap: ['        if not hmac.compare_digest(want, str(req.get("mac"))):', '        if False:']
+  why: an altered or wrongly keyed request is refused
+- file: fieldkit/peers/link.py
+  swap: ['        if abs(self.now() - int(req.get("ts", 0))) > SKEW:', '        if False:']
+  why: a stale request is refused
+- file: fieldkit/peers/link.py
+  swap: ['        if not n or n in self.seen:', '        if not n:']
+  why: a replayed request is refused
+- file: fieldkit/peers/link.py
+  swap: ['                if ipaddress.ip_address(addr[0]) != peer:', '                if False:']
+  why: only the paired peer's address is answered
+- file: fieldkit/peers/link.py
+  swap: ['"text": local_peers.sanitize(str(req.get("text") or req.get("brief") or ""))[:16000]}', '"text": str(req.get("text") or req.get("brief") or "")[:16000]}']
+  why: received text is cleaned of escape sequences and bidi overrides before anyone reads it
+- file: fieldkit/peers/link.py
+  swap: ['    if agent not in (reg.get("allow_start") or []):', '    if False:']
+  why: nothing is started that this computer's owner did not allow
+- file: fieldkit/peers/link.py
+  swap: ['    if json.loads(a.read_text(encoding="utf-8")).get("sha256") != hashlib.sha256(p.read_bytes()).hexdigest():', '    if False:']
+  why: link.yaml changed after its approval is void
+- file: fieldkit/peers/link.py
+  swap: ['        if not (isatty if isatty is not None else sys.stdin.isatty()):', '        if False:']
+  why: approving needs a real terminal
+- file: fieldkit/peers/link.py
+  swap: ['    if os.environ.get("FIELDKIT_AUTOPILOT") == "1":', '    if False:']
+  why: an autopilot run never approves
+- file: fieldkit/peers/link.py
+  swap: ['    tmpl = (reg.get("start_commands") or {}).get(agent) or DEFAULT_START.get(agent)', '    tmpl = (reg.get("start_commands") or {}).get(agent) or DEFAULT_START.get(agent) or ["codex", "{brief}"]']
+  why: a start command is never guessed
+- file: fieldkit/peers/link.py
+  swap: ['    text = (f"--- {FENCE.format(host=from_host)} ---\n', '    text = (f"\n']
+  why: a started session sees the brief fenced as text from the other computer
+# link setup (link_setup.py); run the plan with BOTH test files:
+#   fieldkit mutate --plan tests/peers_link_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link.py tests/test_peers_link_setup.py tests/test_peers_link_find.py
+- file: fieldkit/peers/link_setup.py
+  swap: ['    cands = [c for c in cards if c.get("wired") and c.get("up") and c.get("name") != internet_iface]', '    cands = [c for c in cards if c.get("wired") and c.get("up")]']
+  why: the card carrying the internet is never taken for the cable
+- file: fieldkit/peers/link_setup.py
+  swap: ['    if len(cands) > 1:', '    if False:']
+  why: two candidate cards are never guessed between
+- file: fieldkit/peers/link_setup.py
+  swap: ['"Where-Object { $_.PrefixOrigin -ne ''WellKnown'' } | Remove-NetIPAddress -Confirm:$false",', '"Remove-NetIPAddress -Confirm:$false",']
+  why: only a manual address is replaced
+- file: fieldkit/peers/link_setup.py
+  swap: ['"ipv4.never-default", "yes",', '']
+  why: the cable never becomes a default route on Linux
+- file: fieldkit/peers/link_setup.py
+  swap: ['    elif not (cfg and k and cfg.get("me") == me and cfg.get("peer") == peer):', '    elif True:']
+  why: a second run keeps the key already carried on the stick
+- file: fieldkit/peers/link_setup.py
+  swap: ['        if need_ip or need_rule:', '        if True:']
+  why: nothing missing = no admin prompt
+- file: fieldkit/peers/link_setup.py
+  swap: ['            if "LINKSETUP: FAILED" in log or rc != 0:', '            if False:']
+  why: a failed admin step is a failure, said so
+- file: fieldkit/peers/link_setup.py
+  swap: ['        if r.returncode != 0 and re.search(', '        if False and re.search(']
+  why: root is asked through pkexec only when refused
+- file: fieldkit/peers/link_setup.py
+  swap: ['sha256sum -c SHA256SUMS || {', 'true || {']
+  why: the Linux script checks every file on the stick first
+# link find (link_find.py); tests/test_peers_link_find.py
+- file: fieldkit/peers/link_find.py
+  swap: ["    if f.get(\"cable_received\") == 0:\n        v = (", "    if False:\n        v = ("]
+  why: a cable that received nothing says the other side is not using its port
+- file: fieldkit/peers/link_find.py
+  swap: ['    return [e for e in entries if norm(e.get("mac")) not in ("", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff")', '    return [e for e in entries if True']
+  why: an all-zero or broadcast neighbor entry is not a device
+- file: fieldkit/peers/link_find.py
+  swap: ['    lan = [e for e in live(raw.get("lan") or []) if e.get("ip") != raw.get("gw")]', '    lan = list(live(raw.get("lan") or []))']
+  why: the gateway is not counted as the other computer
+- file: fieldkit/peers/link_find.py
+  swap: ['    return "randomized MAC (a phone or a privacy setting)" if randomized(m) else "unknown maker"', '    return "unknown maker"']
+  why: a made-up MAC is said to be made up
+- file: fieldkit/peers/link_find.py
+  swap: ['    if f["cable_peer"] and raw.get("scope"):', '    if False:']
+  why: the cable peer is probed by itself, on its link-local address with its scope
+- file: fieldkit/peers/link_find.py
+  swap: ['    if kind == "ConnectionRefusedError":', '    if False:']
+  why: refused (a live host, nothing listening) is told apart from timed out
+- file: fieldkit/peers/link_find.py
+  swap: ["    if probes and not any(r.get(\"banner\") is not None for ports in probes.values() for r in ports.values()):\n        code = max(code, 2)", "    if False:\n        code = max(code, 2)"]
+  why: no open door is said, with the two ways that are left
+- file: fieldkit/peers/link_find.py
+  swap: ['        out.append(ROADBLOCKS["no_remote_list"])', '        pass']
+  why: the person is told the app cannot see the other computer's session, and what to paste there
+# put: files over the cable
+- file: fieldkit/peers/link.py
+  swap: ['    n = os.path.basename(str(name).replace("\\", "/"))', '    n = str(name)']
+  why: a received file name never carries a folder (no ../ escape)
+- file: fieldkit/peers/link.py
+  swap: ['    if size < 0 or size > MAX_FILE:', '    if size < 0:']
+  why: files over the size cap are refused
+- file: fieldkit/peers/link.py
+  swap: ['        if int(req.get("n", -1)) != u["next"]:', '        if False:']
+  why: chunks out of order are refused
+- file: fieldkit/peers/link.py
+  swap: ['        if u["path"].stat().st_size != u["size"] or got != u["sha256"]:', '        if False:']
+  why: a file whose checksum does not match is discarded
+- file: fieldkit/peers/link.py
+  swap: ['            if reg.get("accept_to_desktop") is True:', '            if True:']
+  why: the Desktop only when that computer's owner approved it
+- file: fieldkit/peers/link.py
+  swap: ['    while p.exists():', '    while False:']
+  why: nothing is ever overwritten
+- file: fieldkit/peers/link.py
+  swap: ['    if rc is not None:', '    if False:']
+  why: a session that died at start is reported dead, never "started"
+- file: fieldkit/peers/link.py
+  swap: ['        if a in OPTIONAL_START_FLAGS and a not in known:', '        if False:']
+  why: options this computer's autopilot does not offer are dropped, never passed blind
+- file: fieldkit/peers/link.py
+  swap: ['DEFAULT_START = {"claude": [sys.executable, "-P", "-m",', 'DEFAULT_START = {"claude": [sys.executable, "-m",']
+  why: a started session never puts its working folder (another checkout) ahead of the link's own code
+- file: fieldkit/peers/link.py
+  swap: ['creationflags=flags, env=link_env())', 'creationflags=flags)']
+  why: a started session gets PYTHONPATH = this link's own root
+# the note convention (owner, 2026-10-22: "deterministic checks and deterministic tools to enforce this")
+- file: fieldkit/peers/link.py
+  swap: ['    if done and not evidence:', '    if False:']
+  why: '[DONE] is refused without evidence'
+- file: fieldkit/peers/link.py
+  swap: ['    body = TAG_RE.sub("", str(text)).strip()', '    body = str(text).strip()']
+  why: tags a model typed are stripped and replaced by the tool's own
+- file: fieldkit/peers/link.py
+  swap: ['                if r.get("ok"):', '                if True:']
+  why: the sender's counter advances only after the peer answered ok
+- file: fieldkit/peers/link.py
+  swap: ['out = {**req, "text": text, "seq": seq, "os": me}', 'out = {**req, "text": text, "os": me}']
+  why: the number travels as a signed field
+- file: fieldkit/peers/link.py
+  swap: ['        elif st["last"] and seq > st["last"] + 1:', '        elif False:']
+  why: a gap in the signed numbers is flagged
+- file: fieldkit/peers/link.py
+  swap: ['        if seq in st["seen"]:', '        if False:']
+  why: a repeated number is flagged
+- file: fieldkit/peers/link.py
+  swap: ['        elif seq < st["last"]:', '        elif False:']
+  why: a number arriving out of order is flagged
+- file: fieldkit/peers/link.py
+  swap: ['    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1:', '    if False:']
+  why: a note without a signed number is flagged
+- file: fieldkit/peers/link.py
+  swap: ['    if m and isinstance(seq, int) and', '    if False and']
+  why: a typed tag that disagrees with the signed number is flagged
+- file: fieldkit/peers/link.py
+  swap: ['    if re.search(r"\[\s*DONE\s*\]", text or "", re.I) and not str(evidence or "").strip():', '    if False:']
+  why: a received [DONE] without evidence is flagged
+- file: fieldkit/peers/link.py
+  swap: ['            flags.append("[DONE] without evidence")', '            pass']
+  why: the inbox flags an old [DONE] note with no evidence too
+- file: fieldkit/peers/link.py
+  swap: ['        L += [f"!! LINK CHECK: {f}" for f in flags]', '        pass']
+  why: the inbox shows every flag above its note

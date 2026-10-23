@@ -119,6 +119,18 @@ The owner runs Fieldkit on a Windows laptop and a Linux machine, each with its o
   Declare it with `platforms` on the group or `exclude_on.<system>`. rebase-set writes these declarations for its
   own group.
 
+## Notes between the two computers (`fieldkit peers link send`)
+
+The tool keeps the convention, not the model (owner, 2026-10-22: "we both know the models wont remember it").
+- The sending link stamps every note `[FROM WINDOWS|LINUX|OSX #N]`, N this computer's own counter
+  (`~/.fieldkit/link/sent-seq.json`), sent as a signed field and advanced only after the peer answered ok. Tags you
+  type are stripped and replaced: do not number notes yourself.
+- `[NEEDS YOU]` and `[DONE]` come from flags (`--needs-you`, `--done`). `[DONE]` is refused without `--evidence`
+  (a commit, a VERDICT line, a test count); the evidence travels signed and is shown as `EVIDENCE: ...`.
+- The receiving link prints `!! LINK CHECK: ...` above a note when signed numbers have a gap ("#a-#b never arrived"),
+  a number repeats or arrives out of order, a tag in the text disagrees with the signed number, or `[DONE]` has no
+  evidence. Treat a LINK CHECK as a fact to resolve with the other side, never as noise.
+
 ## Working with a small model
 
 - **Let the harness plan.** Ask `fieldkit next`, do the one `DO:` line or pick one

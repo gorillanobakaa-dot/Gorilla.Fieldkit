@@ -41,6 +41,7 @@ def host():
         "system": system,                     # Windows | Linux | Darwin
         "is_windows": system == "Windows",
         "is_linux": system == "Linux",
+        "is_mac": system == "Darwin",         # 2026-10-23: the first Mac (a 2011 Air, 10.13) met the harness
         "release": platform.release(),
         "machine": platform.machine(),
         "python": sys.version.split()[0],

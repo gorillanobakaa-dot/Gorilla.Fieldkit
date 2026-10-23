@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-18-17-30
+# Version: 1.2.0 · updated 26-10-23-18-02
 """Autopilot: an unattended agent run with no approval prompts, held by the hard lines and by what it cannot reach.
 
 Owner, 2026-10-18: "we need both Gemini Antigravity and Claude to work automatically and unattended". Two layers:
@@ -10,6 +10,8 @@ Everything else runs without asking.
     fieldkit autopilot on | off | status       the switch Antigravity's guard reads (on.json)
     fieldkit autopilot stop [why] | resume     the owner's STOP file: only reads until resume
     fieldkit autopilot claude PROMPT [--cwd D] [--max-turns N]   one headless Claude Code run, bypass + hook
+        [--job DIR --wall-minutes M --cost-usd X]   (or FIELDKIT_JOB_DIR set): a budgeted job that checkpoints,
+                                                    resumes, and exits 75 when paused-resumable (job.py)
 """
 import glob
 import json
@@ -60,7 +62,10 @@ def settings(path=None):
                      "PowerShell(git push:*)", "PowerShell(gh release:*)"],
         },
         "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
-            {"type": "command", "command": hook, "timeout": 30, "onFailure": "block"}]}]},
+            {"type": "command", "command": hook, "timeout": 30, "onFailure": "block"}]}],
+                  # the budget messages at 50 / 80 / 95 % (budget.py); silent outside a job (no FIELDKIT_JOB_DIR)
+                  "PostToolUse": [{"matcher": "*", "hooks": [
+                      {"type": "command", "command": hook + " --post", "timeout": 30}]}]},
     }
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return path
@@ -151,24 +156,80 @@ def login(popen=subprocess.Popen):
     return {"ok": True, "pid": p.pid, "exe": exe, "command": paste_command(exe), "say": say}
 
 
-def claude(prompt, cwd=None, max_turns=40, run=subprocess.run, timeout=7200):
+def claude_cmd():
+    """The command that starts Claude Code: FIELDKIT_CLAUDE_EXE (a test's fake claude; a .py runs under this
+    Python) or the real executable."""
+    fake = os.environ.get("FIELDKIT_CLAUDE_EXE")
+    if fake:
+        return [sys.executable, fake] if fake.endswith(".py") else [fake]
     exe = claude_exe()
-    if not exe:
+    return [exe] if exe else None
+
+
+def kill_tree(pid, psutil=None):
+    """Stop a process and every process it started, by PID (never by name: the owner runs the same programs)."""
+    if psutil is None:
+        import psutil
+    try:
+        root = psutil.Process(pid)
+        procs = root.children(recursive=True) + [root]
+    except psutil.Error:
+        return []
+    for p in procs:
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
+    psutil.wait_procs(procs, timeout=10)
+    return [p.pid for p in procs]
+
+
+def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resume=None, model=None,
+           popen=subprocess.Popen):
+    """One headless Claude Code run in autopilot (bypass mode + the hard-line hook, no credential).
+    max_turns 10000 (owner 2026-10-22; 40 ended the first night run's job 2 mid-mutate). timeout = the job's wall
+    budget in seconds (None: no limit; the hidden 7200 s is gone): on expiry the whole process tree is killed by
+    PID and the result says timed_out. resume = a session id to continue (claude --resume). A long prompt goes on
+    stdin (the Windows command line holds 32k characters)."""
+    cmd = claude_cmd()
+    if not cmd:
         return {"ok": False, "why": "no Claude Code executable found"}
     fk_root = str(Path(__file__).resolve().parents[2])
     env = isolated_env()
     env["PYTHONPATH"] = fk_root + os.pathsep + env.get("PYTHONPATH", "")
-    args = [exe, "-p", prompt, "--settings", str(settings()), "--permission-mode", "bypassPermissions",
-            "--max-turns", str(max_turns), "--output-format", "json"]
+    env.update(env_extra or {})
+    # The prompt always goes on stdin, never argv: a prompt starting with "-" (a link brief opens with its "---" fence)
+    # was read by claude as an unknown option and the run died at once (2026-10-22, funny.gorilla); argv also caps it
+    # at Windows' 32k command line. (Kept when the long-horizon runner, which sent short prompts in argv, merged in.)
+    via_stdin = True
+    args = cmd + ["-p"] + ([] if via_stdin else [prompt]) + [
+        "--settings", str(settings()), "--permission-mode", "bypassPermissions",
+        "--max-turns", str(max_turns), "--output-format", "json"]
+    if resume:
+        args += ["--resume", resume]
+    if model:
+        args += ["--model", model]
     t0 = time.time()
-    r = run(args, cwd=cwd or os.getcwd(), env=env, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=timeout)
-    out = {"ok": r.returncode == 0, "rc": r.returncode, "seconds": round(time.time() - t0)}
+    p = popen(args, cwd=cwd or os.getcwd(), env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    timed_out = False
     try:
-        out["result"] = json.loads(r.stdout)
-    except ValueError:
-        out["stdout"] = r.stdout[-2000:]
-    out["stderr"] = r.stderr[-1000:]
+        so, se = p.communicate(prompt if via_stdin else None, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        kill_tree(p.pid)
+        try:
+            so, se = p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:   # a process that escaped the tree still holds the pipes: never hang on it
+            p.kill()
+            so, se = "", "killed; a process outside its tree kept the output pipes open"
+    out = {"ok": p.returncode == 0 and not timed_out, "rc": 124 if timed_out else p.returncode,
+           "seconds": round(time.time() - t0), "timed_out": timed_out}
+    try:
+        out["result"] = json.loads(so)
+    except (ValueError, TypeError):
+        out["stdout"] = (so or "")[-2000:]
+    out["stderr"] = (se or "")[-1000:]
     return out
 
 

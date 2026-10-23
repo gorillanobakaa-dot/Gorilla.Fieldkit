@@ -12,7 +12,10 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 # "first interpreter found": on 2026-10-13 an earlier attempt fell back to a
 # pytest-less interpreter and made the behaviour worse than the bug it fixed.
 PY=""
-for c in "${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}" ./.venv/bin/python python3 python; do
+# 2026-10-22: a commit from a git WORKTREE (Fieldkit-agent-link) was refused here: a worktree has no .venv of its
+# own. The main checkout's venv sits beside the shared git folder, so it is a candidate too (still pytest-checked).
+MAIN_VENV="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")/.venv/bin/python"
+for c in "${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}" ./.venv/bin/python "$MAIN_VENV" python3 python; do
   [ -n "$c" ] || continue
   if command -v "$c" >/dev/null 2>&1 && "$c" -c "import pytest" >/dev/null 2>&1; then PY="$c"; break; fi
 done

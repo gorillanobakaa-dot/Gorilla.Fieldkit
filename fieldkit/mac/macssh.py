@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.2.0 · updated 26-10-23-16-39
+# Version: 1.4.0 · updated 26-10-23-18-17
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -10,6 +10,7 @@
     fieldkit mac fix-alias NAME [--ip] [--apply]       the "Host NAME" entry in ~/.ssh/config (old one kept in Trash)
     fieldkit mac run NAME -- COMMAND ...               run a command on the Mac; its exit code is this tool's
     fieldkit mac shot NAME [--out FILE]                the Mac's screen now (screencapture), fetched to this machine
+    fieldkit mac keep-awake|open-app|screen-text|keys|wait-text|tui-start|watch-dialogs NAME ...   drive its screen like a person (macdrive.py)
     fieldkit mac sensors NAME [--json | --open]        temperatures, fan, battery, memory (sensors.gorilla, SMC, no
                                                        password); --open starts it live in a Terminal on the Mac
     fieldkit mac release-install NAME [--tag vX.Y.Z|latest] [--launch] [--plan]
@@ -286,6 +287,20 @@ def doctor(name, mac, runner=None, ping=None, ssh_config=SSH_CONFIG):
 
 # ── command line ────────────────────────────────────────────────────────────
 
+def _mandate_log_run(name, cmd, rc, decide=None):
+    """A command run on a Mac a project mandate grants (mac: {full_access: NAME}) is written to that mandate's log
+    (2026-10-23, M3): the owner reads one log, not the session. No mandate, or one that does not grant it: nothing."""
+    try:
+        from ..mandate import mandate as M
+        v, why, path = (decide or M.decide)("mac", name=name)
+        if v == "allow" and path is not None:
+            M.log(path, "mac-run", why, mac=name, cmd=" ".join(cmd)[:300], rc=rc)
+            return True
+    except Exception:  # noqa: BLE001 - logging must never change what the command returned
+        pass
+    return False
+
+
 # sensors.gorilla (github gorillanobakaa-dot/sensors-gorilla, gathered into toolbox/) has a macOS side since 2.2.0
 # (2026-10-23): the SMC read through IOKit, no password and nothing installed. One source for a person's dashboard and
 # for the harness. The Air has no python3 on the SSH PATH, so the full path is used.
@@ -377,6 +392,45 @@ def main(argv=None, prog="macssh.py"):
     r = sp.add_parser("run", help="run a command on the Mac")
     r.add_argument("name")
     r.add_argument("command", nargs=argparse.REMAINDER)
+    # 2026-10-23: driving the Mac's screen like a person (fieldkit/mac/macdrive.py)
+    ka = sp.add_parser("keep-awake", help="caffeinate on the Mac for a long job")
+    ka.add_argument("name")
+    ka.add_argument("--minutes", type=float, default=120)
+    ka.add_argument("--stop", action="store_true")
+    oa = sp.add_parser("open-app", help="open an app, answer its folder dialog, close only new idle windows")
+    oa.add_argument("name")
+    oa.add_argument("app", help="an app name or path, e.g. '~/Applications/Gorilla OpenCode.app'")
+    oa.add_argument("--folder", help="answer its 'choose folder' dialog with this folder")
+    oa.add_argument("--process", help="the program it starts, to report its PID, tty and working folder")
+    st = sp.add_parser("screen-text", help="the text in the Terminal tab on a tty (no picture)")
+    st.add_argument("name")
+    st.add_argument("--tty", required=True)
+    st.add_argument("--lines", type=int, default=40)
+    ky = sp.add_parser("keys", help="raise the tab on a tty and type a key or paste a file (checks it landed)")
+    ky.add_argument("name")
+    ky.add_argument("--tty", required=True)
+    ky.add_argument("--key", help="enter, esc, up, down, tab, or one letter")
+    ky.add_argument("--paste", help="a text file, sent as one line then Enter")
+    ky.add_argument("--expect", help="type only if this pattern is on the screen first (never into an unknown screen)")
+    ts = sp.add_parser("tui-start", help="walk Gorilla OpenCode's start-up screens to the prompt, a key only on a known screen")
+    ts.add_argument("name")
+    ts.add_argument("--tty", required=True)
+    ts.add_argument("--seconds", type=float, default=180)
+    wt = sp.add_parser("wait-text", help="wait until the tab shows a pattern")
+    wt.add_argument("name")
+    wt.add_argument("--tty", required=True)
+    wt.add_argument("--for", dest="pattern", required=True)
+    wt.add_argument("--seconds", type=float, default=120)
+    wd = sp.add_parser("watch-dialogs", help="answer, count and log every permission dialog of a running Gorilla OpenCode")
+    wd.add_argument("name")
+    wd.add_argument("--tty", required=True)
+    wd.add_argument("--answer", choices=["allow", "session", "deny"], default="allow")
+    wd.add_argument("--until-file", help="stop when this file exists on the Mac (a report the run writes)")
+    wd.add_argument("--seconds", type=float, default=3600)
+    wd.add_argument("--every", type=float, default=15)
+    wd.add_argument("--log", help="append one JSON line per dialog to this file")
+    wd.add_argument("--nudges", type=int, default=2, help="type 'continue' after a turn that ended in an error, at most N times")
+    wd.add_argument("--idle-seconds", type=float, default=900, help="stop when the screen has not changed this long")
     o = ap.parse_args(argv)
 
     if o.cmd == "add":
@@ -445,6 +499,37 @@ def main(argv=None, prog="macssh.py"):
         remote = f"/tmp/fieldkit-shot-{datetime.datetime.now():%y%m%d%H%M%S}.png"
         out = o.out or f"{o.name}-screen-{datetime.datetime.now():%y-%m-%d-%H-%M-%S}.png"
         return take_shot(mac, address, remote, out)
+    if o.cmd in ("keep-awake", "open-app", "screen-text", "keys", "wait-text", "tui-start", "watch-dialogs"):
+        from . import macdrive
+        address, how = find(mac)
+        if not address:
+            print(f"NOT FOUND: {how}")
+            return 1
+        fn = lambda line: ssh_argv(mac, address, line)
+        if o.cmd == "keep-awake":
+            code, msg = macdrive.keep_awake(fn, o.minutes, o.stop)
+        elif o.cmd == "open-app":
+            code, rows = macdrive.open_app(fn, o.app, o.folder, o.process)     # "~" is the Mac's home, kept for it
+            msg = "\n".join(rows)
+        elif o.cmd == "screen-text":
+            rows, err = macdrive.screen_text(fn, o.tty, o.lines)
+            code, msg = (0, "\n".join(rows)) if rows is not None else (1, err)
+        elif o.cmd == "keys":
+            if bool(o.key) == bool(o.paste):
+                print("keys: give --key or --paste")
+                return 2
+            text = Path(o.paste).read_text(encoding="utf-8") if o.paste else None
+            code, msg = macdrive.keys(fn, o.tty, o.key, text, expect=o.expect)
+        elif o.cmd == "tui-start":
+            code, rows = macdrive.tui_start(fn, o.tty, o.seconds)
+            msg = "\n".join(rows)
+        elif o.cmd == "watch-dialogs":
+            code, rows = macdrive.watch_dialogs(fn, o.tty, o.answer, o.until_file, o.seconds, o.every, o.log, o.nudges, o.idle_seconds)
+            msg = "\n".join(rows)
+        else:
+            code, msg = macdrive.wait_text(fn, o.tty, o.pattern, o.seconds)
+        print(msg)
+        return code
     if o.cmd == "sensors":
         address, how = find(mac)
         if not address:
@@ -469,8 +554,28 @@ def main(argv=None, prog="macssh.py"):
         if not address:
             print(f"NOT FOUND: {how}", file=sys.stderr)
             return 1
-        return subprocess.run(ssh_argv(mac, address, remote_line(cmd), batch=False)).returncode
+        rc = run_retry(ssh_argv(mac, address, remote_line(cmd), batch=False))   # a Wi-Fi drop retried (main)
+        _mandate_log_run(o.name, cmd, rc)                 # under a mandate's mac grant: in its log (this branch)
+        return rc
     return 2
+
+
+def run_retry(argv, tries=4, wait=6, runner=None, sleep=None):
+    """Run an ssh command, retrying ONLY a Wi-Fi drop (exit 255 with a connection error). 2026-10-23: the Air dropped
+    off Wi-Fi again and again; `mac run` was the one Mac command without a retry (the screen commands had one)."""
+    import time
+    from .macdrive import DROP
+    sleep = sleep or time.sleep
+    for attempt in range(1, tries + 1):
+        r = (runner or (lambda a: subprocess.run(a, capture_output=True, text=True)))(argv)
+        out, err = r.stdout or "", r.stderr or ""
+        if r.returncode == 255 and any(d in err for d in DROP) and attempt < tries:
+            sleep(wait)
+            continue
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+        return r.returncode
+    return 255
 
 
 if __name__ == "__main__":
