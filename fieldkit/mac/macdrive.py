@@ -204,7 +204,14 @@ TUI_SCREENS = [
     ("provider", r"Choose a provider for this session", "enter"),
     ("speed", r"How fast is your connection", "enter"),
 ]
-TUI_READY = r"^model .+\|\s+in \S+"                       # the status line: the prompt is ready for text
+# the prompt is ready: the old status line ("model ... | in FOLDER") or, from the layout fixes on, only the help bar
+TUI_READY = r"^model .+\|\s+in \S+|ctrl\+\? help"
+
+
+def _last(rows, pattern):
+    """Index of the last row matching pattern, or -1. The tab's text keeps OLD screens above the current one
+    (2026-10-23: the provider screen was 'seen' again after Enter and got a second Enter)."""
+    return max((i for i, r in enumerate(rows) if re.search(pattern, r)), default=-1)
 
 
 def tui_start(ssh_argv_fn, tty, seconds=180, every=4, now=time.time, sleep=time.sleep, **kw):
@@ -218,14 +225,15 @@ def tui_start(ssh_argv_fn, tty, seconds=180, every=4, now=time.time, sleep=time.
             sleep(every)
             continue
         tail = rows[-30:]
-        if any(re.search(TUI_READY, r) for r in tail[-6:]) and not any(re.search(p, " ".join(tail))
-                                                                         for _, p, _ in TUI_SCREENS):
+        heads = {name: _last(tail, pat) for name, pat, _ in TUI_SCREENS}
+        newest = max(heads.values())
+        if _last(tail, TUI_READY) > newest:
             return 0, lines + ["at the prompt: ready for text"]
-        hit = next(((name, key) for name, pat, key in TUI_SCREENS if re.search(pat, " ".join(tail))), None)
-        if not hit:
+        if newest < 0:
             sleep(every)
             continue
-        name, key = hit
+        name = max(heads, key=heads.get)                     # the screen whose title is lowest is the current one
+        key = dict((n, k) for n, _, k in TUI_SCREENS)[name]
         if name == "folder":
             first = next((r for r in tail if re.match(r"^[\s│|]*(>\s*)?1\.\s", r)), "")
             key = "enter" if re.match(r"^[\s│|]*>\s*1\.", first) else "up"

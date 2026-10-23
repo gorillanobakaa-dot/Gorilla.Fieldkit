@@ -184,3 +184,18 @@ def test_tui_start_never_presses_on_a_screen_it_does_not_know():
     code, lines = D.tui_start(fn, "/dev/ttys000", seconds=20, runner=mac, now=lambda: clock["t"],
                               sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
     assert code == 3 and not any(c[1] == D.KEY_SCRIPT for c in mac.calls)
+
+
+def test_old_screens_above_do_not_get_a_second_key_and_the_help_bar_means_ready():
+    # the tab's text keeps the provider screen above the speed screen; only the LOWEST title is current, and the
+    # layout-fixed build shows only "ctrl+? help" at the bottom (2026-10-23, live on the Air)
+    rows = "Choose a provider for this session\n> Google\nHow fast is your connection?\n> Unconstrained"
+    mac = Mac(screen=rows)
+    def after(argv, stdin, _orig=mac.__call__):
+        if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
+            mac.keys_sent = getattr(mac, "keys_sent", 0) + 1
+            mac.screen = rows + "\nKeeping your model\n > \n ctrl+? help    Gemini 3.8 Flash"
+            return 0, "SENT"
+        return _orig(argv, stdin)
+    code, lines = D.tui_start(fn, "/dev/ttys000", runner=after, sleep=lambda s: None)
+    assert code == 0 and mac.keys_sent == 1 and lines[0].startswith("speed: enter"), lines
