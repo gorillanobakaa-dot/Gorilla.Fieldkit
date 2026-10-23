@@ -4970,7 +4970,7 @@ tools:
   notes: "Read-only without --keys-from; --keys-from runs that command (its safety). Exit 2 bad input."
 
 - id: ship
-  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), push, merge (into main only under a project mandate, every condition proven by the tool), audit, release, prune; never forces
+  title: The git side of shipping - status, sync a squash-merged branch (merge -s ours), push, merge (into main only under a project mandate, every condition proven by the tool), audit (remote branches, open PRs, and since 2026-10-23 local worktrees and local branches left behind), release, prune; never forces
   harness: method
   entry: [python, -m, fieldkit, ship]
   path: ${FIELDKIT}/fieldkit/method/ship.py
