@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.1.0 · updated 26-10-22-18-40
+# Version: 1.1.0 · updated 26-10-23-13-27
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -10,6 +10,10 @@
     fieldkit mac fix-alias NAME [--ip] [--apply]       the "Host NAME" entry in ~/.ssh/config (old one kept in Trash)
     fieldkit mac run NAME -- COMMAND ...               run a command on the Mac; its exit code is this tool's
     fieldkit mac shot NAME [--out FILE]                the Mac's screen now (screencapture), fetched to this machine
+    fieldkit mac release-install NAME [--tag vX.Y.Z|latest] [--launch] [--plan]
+                                                       install from the GitHub release page as a new user: older
+                                                       copies quarantined, download, checksum, installer, version
+                                                       check (releaseinstall.py)
 
 Born 2026-10-22. The owner's MacBook Air 4,1 (2011, macOS 10.13.6, no longer supported by Apple) is a test target
 of the Gorilla browser, reached from the Linux box over SSH. The way to reach it lived only in handover notes, and one
@@ -314,6 +318,12 @@ def main(argv=None, prog="macssh.py"):
     sh = sp.add_parser("shot", help="the Mac's screen now, fetched here (then fieldkit shot crop/stack/text-compare)")
     sh.add_argument("name")
     sh.add_argument("--out", help="where to put it (default: ./NAME-screen-<time>.png)")
+    ri = sp.add_parser("release-install", help="install from the GitHub release page as a new user (old copies quarantined)")
+    ri.add_argument("name")
+    ri.add_argument("--product", default="opencode", help="which program (default: opencode)")
+    ri.add_argument("--tag", default="latest", help="vX.Y.Z, or latest (default)")
+    ri.add_argument("--launch", action="store_true", help="then double-click the Desktop icon and fetch the screen")
+    ri.add_argument("--plan", action="store_true", help="print the script the Mac would run, run nothing")
     r = sp.add_parser("run", help="run a command on the Mac")
     r.add_argument("name")
     r.add_argument("command", nargs=argparse.REMAINDER)
@@ -385,6 +395,15 @@ def main(argv=None, prog="macssh.py"):
         remote = f"/tmp/fieldkit-shot-{datetime.datetime.now():%y%m%d%H%M%S}.png"
         out = o.out or f"{o.name}-screen-{datetime.datetime.now():%y-%m-%d-%H-%M-%S}.png"
         return take_shot(mac, address, remote, out)
+    if o.cmd == "release-install":
+        from . import releaseinstall
+        if o.plan:
+            return releaseinstall.main(o, mac, None, ssh_argv, take_shot)
+        address, how = find(mac)
+        if not address:
+            print(f"NOT FOUND: {how}")
+            return 1
+        return releaseinstall.main(o, mac, address, ssh_argv, take_shot)
     if o.cmd == "run":
         cmd = o.command[1:] if o.command[:1] == ["--"] else o.command
         if not cmd:

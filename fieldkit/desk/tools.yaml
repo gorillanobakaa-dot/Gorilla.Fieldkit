@@ -1040,7 +1040,10 @@ tools:
   entry: [python, -m, fieldkit, mac]
   path: ${FIELDKIT}/fieldkit/mac/macssh.py
   inputs:
-    - {name: command, type: choice, choices: [list, add, doctor, find, info, fix-alias, run], required: true, help: "doctor first; fix-alias and add change files"}
+    - {name: command, type: choice, choices: [list, add, doctor, find, info, fix-alias, shot, run, release-install], required: true, help: "doctor first; fix-alias and add change files; release-install installs from the GitHub release page"}
+    - {name: tag, flag: --tag, type: str, required: false, help: "release-install: vX.Y.Z or latest (default)"}
+    - {name: launch, flag: --launch, type: flag, required: false, help: "release-install: then open the Desktop icon and fetch the screen"}
+    - {name: plan, flag: --plan, type: flag, required: false, help: "release-install: print the script the Mac would run, run nothing"}
     - {name: apply, flag: --apply, type: flag, required: false, help: "fix-alias: write ~/.ssh/config (the old file is kept in Trash)"}
     - {name: save, flag: --save, type: flag, required: false, help: "find: record today's address"}
     - {name: json, flag: --json, type: flag, required: false, help: "info as JSON"}
@@ -1050,8 +1053,8 @@ tools:
   exits: {1: "a fault, or the Mac not found", 2: "refused (nothing to run, bad hardware address)"}
   platforms: [linux]
   platforms_why: 'finds the Mac with avahi-resolve and ip neigh (Linux); the Mac end needs only Remote Login (sshd), which macOS has had since 10.0'
-  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macssh.py"]
-  notes: "Born 2026-10-22: the owner's MacBook Air 4,1 (macOS 10.13.6, out of Apple support) is the Gorilla Mac browser's test target, and the way to reach it lived only in handover notes, one of them wrong. Tests the connection every time; finds the Mac by mDNS name, else hardware address in the neighbour table, else after a ping sweep (all three proven live). Names, addresses and keys live in local/macs.json (git-ignored), never in code."
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_macssh.py", "${FIELDKIT}/tests/test_mac_releaseinstall.py"]
+  notes: "release-install (2026-10-23, owner: behave like a new user, take the Mac program from the release page, old versions must not stay installed): older copies MOVED to ~/Agents.Work.Trash-linux/<product>-old-versions-<time>/ with a MANIFEST, download only from github.com/<repo>/releases/download/<tag>/, shasum -c, ditto, the release's own installer, version and single-copy check; --launch opens the Desktop icon and fetches the screen. First run by hand that day: v0.1.150 on the Air. Born 2026-10-22: the owner's MacBook Air 4,1 (macOS 10.13.6, out of Apple support) is the Gorilla Mac browser's test target, and the way to reach it lived only in handover notes, one of them wrong. Tests the connection every time; finds the Mac by mDNS name, else hardware address in the neighbour table, else after a ping sweep (all three proven live). Names, addresses and keys live in local/macs.json (git-ignored), never in code."
 
 - id: fieldkit-firmware-check
   title: A device plugged in that does not work because its firmware is missing (USB Wi-Fi sticks, network cards), built-in kernel drivers included
