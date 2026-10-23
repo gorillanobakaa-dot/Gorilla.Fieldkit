@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-12-12
+# Version: 1.1.0 · updated 26-10-23-18-38
 """The mandate's trust store and stop list, where the agent's own OS user cannot write.
 
 The Windows review of M1.1 (2026-10-23): the hard lines read COMMAND TEXT, and a model runs code as the same OS user,
@@ -86,17 +86,101 @@ def write(name, line, append=False, run=subprocess.run):
     return ok, (f"written: {target}" if ok else f"{target} does not hold the line, or is not guarded")
 
 
+# ---- Windows: %ProgramData%\Fieldkit\mandate-trust, Administrators-only write (owner, 2026-10-23: "construieste
+# partea windows a folderului protejat"; the Windows side's facts, link note #67) ------------------------------------
+ADMINS, SYSTEM_ = ("BUILTIN\\Administrators", "S-1-5-32-544"), ("NT AUTHORITY\\SYSTEM", "S-1-5-18")
+WIDE = ("BUILTIN\\Users", "S-1-5-32-545", "NT AUTHORITY\\Authenticated Users", "S-1-5-11", "Everyone", "S-1-1-0",
+        "NT AUTHORITY\\INTERACTIVE", "S-1-5-4")
+WRITE_RIGHTS = ("FullControl", "Modify", "Write", "CreateFiles", "CreateDirectories", "AppendData", "Delete",
+                "ChangePermissions", "TakeOwnership")
+
+
+def acl_verdict(acl, me=None):
+    """acl: {"owner": str, "access": ["IDENTITY|RIGHTS|Allow or Deny", ...]} (Get-Acl, as the reader returns it).
+    -> (ok, why). os.access(W_OK) on Windows sees only the read-only attribute, never the ACL (Windows, #67), so the
+    ACL itself decides: owned by Administrators or SYSTEM, and no Allow entry giving write to this user, Users,
+    Authenticated Users, Everyone or INTERACTIVE."""
+    owner = str(acl.get("owner") or "")
+    if not any(owner.lower() == x.lower() for x in ADMINS + SYSTEM_):
+        return False, f"owned by {owner or 'nobody known'}, not Administrators or SYSTEM"
+    who = [w.lower() for w in WIDE + ((me,) if me else ())]
+    for entry in acl.get("access") or []:
+        ident, _, rest = str(entry).partition("|")
+        rights, _, kind = rest.partition("|")
+        if kind.strip().lower() != "allow" or ident.strip().lower() not in who:
+            continue
+        if any(r.lower() in rights.lower() for r in WRITE_RIGHTS):
+            return False, f"{ident.strip()} may write ({rights.strip()})"
+    return True, "Administrators-only write"
+
+
+def _read_acl(p, run=subprocess.run):
+    ps = ("$a = Get-Acl -LiteralPath $env:FK_PATH; [pscustomobject]@{owner=$a.Owner; access=@($a.Access | "
+          "ForEach-Object { $_.IdentityReference.Value + '|' + $_.FileSystemRights + '|' + $_.AccessControlType })} | "
+          "ConvertTo-Json -Compress")
+    import json
+    import os
+    r = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True, text=True,
+            env=dict(os.environ, FK_PATH=str(p)), timeout=60)
+    return json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
+
+
 def _guarded_windows(p, acl_reader=None):
-    # The Windows side's part (elevate kit). What it must check (Windows, link note #67): os.access(W_OK) sees only
-    # the read-only attribute, never the ACL, so read the DACL (GetNamedSecurityInfo via ctypes, or icacls): owner
-    # BUILTIN\Administrators or SYSTEM, and no ACE granting write/modify/full to the current user, Users,
-    # Authenticated Users, Everyone or INTERACTIVE. acl_reader(path) -> the ACL, a seam for tests. Until it lands, a
-    # Windows trust store is never treated as guarded: fail closed.
-    return False, "the Windows guarded store is not built yet (the Windows side, M1.2): nothing in it counts"
+    import os
+    me = f"{os.environ.get('USERDOMAIN', '')}\\{os.environ.get('USERNAME', '')}".strip("\\")
+    for q in [p] + ([] if p == root() else [root()]):
+        if not Path(q).exists():
+            return False, f"{q} does not exist (the owner sets it up: fieldkit mandate trust, one UAC click)"
+        try:
+            acl = (acl_reader or _read_acl)(q)
+        except Exception as e:  # noqa: BLE001 - unreadable: fail closed
+            return False, f"the ACL of {q} could not be read ({e}): nothing in it counts"
+        if not acl:
+            return False, f"the ACL of {q} could not be read: nothing in it counts"
+        ok, why = acl_verdict(acl, me)
+        if not ok:
+            return False, f"{q} can be changed without elevation: {why}: nothing in it counts"
+    return True, "guarded"
 
 
-def _write_windows(name, line, append):
-    # The elevated step creates the folder with its ACL in one go (icacls /inheritance:r /grant:r Administrators:F
-    # SYSTEM:F Users:RX; nothing written there unelevated, not even the first mkdir) and shows the fingerprint it pins:
-    # the UAC prompt is the owner's act.
-    raise NotImplementedError("the Windows guarded store is the Windows side's part (elevate kit), M1.2")
+def ps1_for(target_root, name, line, append):
+    """The elevated script: creates the folder WITH its ACL before anything is written (nothing unelevated touches
+    it, not even the first mkdir; Windows, #67), shows what it pins (the UAC prompt is the owner's act), writes one
+    validated line. SIDs, not names, so a Windows in another language works."""
+    return "\r\n".join([
+        "$ErrorActionPreference = 'Stop'",
+        f"$root = '{target_root}'",
+        "if (-not (Test-Path -LiteralPath $root)) {",
+        "  New-Item -ItemType Directory -Path $root -Force | Out-Null",
+        "  icacls $root /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' "
+        "'*S-1-5-32-545:(OI)(CI)RX' | Out-Null",
+        "}",
+        f"$t = Join-Path $root '{name.replace('/', chr(92))}'",
+        "New-Item -ItemType Directory -Path (Split-Path $t) -Force | Out-Null",
+        f"Write-Host 'Fieldkit pins into the protected store: {name} = {line[:16]}...'",
+        ("Add-Content" if append else "Set-Content") + f" -LiteralPath $t -Value '{line}' -Encoding ascii",
+        "Write-Host 'FIELDKIT-GUARDED-DONE'",
+        ""])
+
+
+def _elevate_kit():
+    return Path.home() / "Documents" / "Scripts" / "Elevate" / "elevate.py"
+
+
+def _write_windows(name, line, append, run=subprocess.run):
+    """Through the elevate kit: one UAC Yes from the owner, then read back and checked like Linux."""
+    import tempfile
+    kit = _elevate_kit()
+    if not kit.is_file():
+        return False, f"the elevate kit is not on this computer ({kit})"
+    d = Path(tempfile.mkdtemp(prefix="fk-guarded-"))
+    ps1, log = d / "pin.ps1", d / "pin.log"
+    ps1.write_text(ps1_for(str(root()), name, line, append), encoding="utf-8")
+    run([sys.executable, str(kit), "run", str(ps1), "--log", str(log)])
+    w = run([sys.executable, str(kit), "wait", str(log), "--marker", "FIELDKIT-GUARDED-DONE", "--timeout", "15"])
+    if getattr(w, "returncode", 1) != 0:
+        return False, f"not written: the elevated step did not finish (UAC declined, or see {log})"
+    target = root() / name
+    text = target.read_text(encoding="utf-8") if target.is_file() else ""
+    ok = line in text.splitlines() and guarded(target)[0]
+    return ok, (f"written: {target}" if ok else f"{target} does not hold the line, or is not guarded")
