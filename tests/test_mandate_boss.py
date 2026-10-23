@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-16-17
+# Version: 1.0.0 · updated 26-10-23-19-20
 """Plan section 17 (owner: "Yes for everything", 2026-10-23): the boss is proposed by a fixed rule and named in the
 sealed mandate; workers take jobs only from it; the boss keeps an append-only ledger and resumes from it; a result the
 boss could not receive waits in the worker's outbox."""
@@ -281,3 +281,31 @@ def test_the_watchdog_timer_on_linux(tmp_path):
         return
     unit = (tmp_path / ".config/systemd/user/fieldkit-link-watchdog.service").read_text()
     assert code == 0 and "peers link watchdog --once" in unit and ran[-1][-1] == "fieldkit-link-watchdog.timer"
+
+
+def test_the_flags_reach_every_command(tmp_path, linkhome, monkeypatch, capsys):
+    # 2026-10-23: the first real job found that `fieldkit mandate` refused every flag after the command; the worker's
+    # own process (job run ... --lock) would have died at start. Through main(), the way a person and the worker call it.
+    from fieldkit.mandate import project
+    spec = tmp_path / "t.yaml"
+    spec.write_text("tasks:\n  - {id: build-all, what: every system builds}\n")
+    assert M.main(["tasks", "init", str(spec)]) == 0
+    assert M.main(["tasks", "pass", "build-all", "--evidence", "6 assets made"]) == 0
+    assert "6 assets made" in project._load()["build-all"]["evidence"]
+    assert M.main(["report", "--since", "0"]) == 0
+    monkeypatch.setattr(jobs, "mandate_for", lambda name, sha=None: tmp_path / "m.yaml")
+    (tmp_path / "m.yaml").write_text("x")
+    sent = []
+    monkeypatch.setattr(jobs, "send", lambda kind, repo, commit, mp, call=None: sent.append((kind, repo, commit))
+                        or ("test-1", "sent"))
+    assert M.main(["job", "send", "Gorilla.Fieldkit", "a" * 40, "--kind", "test"]) == 0
+    assert sent == [("test", "Gorilla.Fieldkit", "a" * 40)]
+    jobs.handle_result({"result": {"id": "test-1", "status": "pass", "evidence": "9 passed"}})
+    assert M.main(["job", "wait", "test-1", "--seconds", "1"]) == 0
+    ran = []
+    lock = tmp_path / "job.lock"
+    lock.write_text("x")
+    monkeypatch.setattr(jobs, "run_job", lambda jid, rp, c, mp: ran.append((jid, str(rp), c, str(mp)))
+                        or {"status": "pass", "evidence": "ok"})
+    assert M.main(["job", "run", "test-1", str(tmp_path), "a" * 40, str(tmp_path / "m.yaml"), "--lock", str(lock)]) == 0
+    assert ran == [("test-1", str(tmp_path), "a" * 40, str(tmp_path / "m.yaml"))] and not lock.exists()
