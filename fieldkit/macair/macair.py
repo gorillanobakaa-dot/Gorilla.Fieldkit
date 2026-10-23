@@ -90,7 +90,12 @@ def preflight(tree=TREE, mozconfig=None, screen=None):
     for name, val, dec in (("font.name.sans-serif.x-western", "Segoe UI", "D-158-12"),
                            ("font.name.monospace.x-western", "Consolas", "D-158-21"),
                            ("gorilla.ui.font-family", "Segoe UI", "Mac UI font"),
-                           ("gorilla.mac.thin-text", "true", "Mac thin text")):
+                           ("gorilla.mac.thin-text", "true", "Mac thin text"),
+                           ("fission.autostart", "false", "Air fission off"),
+                           # Stage D memory cuts, measured on the Air (BUILD-LOG T55): 661 -> 497 MB at idle
+                           ("browser.startup.homepage", "about:blank", "Stage D memory"),
+                           ("browser.newtabpage.enabled", "false", "Stage D memory"),
+                           ("dom.ipc.processPrelaunch.enabled", "false", "Stage D memory")):
         vals = re.findall(rf'pref\("{re.escape(name)}",\s*"?([^")]*)"?\)', fjs)
         bad = [v for v in vals if v not in ("", val)]
         need(val in vals and not bad, dec, f"{name} = {val}" + (f" (also set to {bad})" if bad else ""))
@@ -311,7 +316,8 @@ def heat(label, url, minutes=3.0, prefs=(), name="macair", warmup=45, every=15, 
     out_dir = Path(out_dir or WORK)
     out_dir.mkdir(parents=True, exist_ok=True)
     rc, prof = m._run(m.ssh_argv(mac, address, "P=$(pgrep -x firefox | head -1); [ -n \"$P\" ] && lsof -p $P 2>/dev/null "
-                                 "| grep -o '/Users/[^ ]*/Profiles/[^/]*' | head -1"), timeout=60)
+                                 "| grep -o '/Users/.*/Profiles/[^/]*' | head -1"), timeout=60)
+    # The default macOS profile sits under "Application Support": a pattern that stops at a space never matched it.
     prof = prof.strip().splitlines()[-1] if rc == 0 and prof.strip() else ""
     if not prof.startswith("/Users/"):
         raise SystemExit("REFUSED: start Gorilla on the Mac first (the profile is read from the running browser): "

@@ -16,7 +16,11 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Linux-only tool
 
 GOOD = {
     "browser/app/profile/firefox.js": 'pref("font.name.sans-serif.x-western", "Segoe UI");\n'
-                                      'pref("gorilla.ui.font-family", "Segoe UI");\npref("gorilla.mac.thin-text", true);\n',
+                                      'pref("gorilla.ui.font-family", "Segoe UI");\npref("gorilla.mac.thin-text", true);\n'
+                                      'pref("fission.autostart",                           false);\n'
+                                      'pref("browser.startup.homepage",            "about:blank");\n'
+                                      'pref("browser.newtabpage.enabled",          false);\n'
+                                      'pref("dom.ipc.processPrelaunch.enabled", false);\n',
     "modules/libpref/init/all.js": 'pref("font.name.monospace.x-western", "");\npref("font.name.monospace.x-western", "Consolas");\n',
     "widget/cocoa/nsLookAndFeel.mm": 'Preferences::GetCString("gorilla.ui.font-family", family)',
     "layout/style/res/ua.css": '@media -moz-pref("gorilla.mac.thin-text") {\n  :root {\n    -moz-osx-font-smoothing: grayscale;\n  }\n}\n',
@@ -245,7 +249,7 @@ def test_heat_puts_prefs_js_back_so_test_prefs_do_not_stay_in_the_profile(tmp_pa
         def _run(argv, timeout=None):
             sent.append(argv[-1])
             if "lsof" in argv[-1]:
-                return 0, "/Users/u/Library/Application Support/Firefox/Profiles/x.default\n"
+                return 0, "/Users/u/Library/Application Support/Firefox/Profiles/x.default\n"  # a space in the path
             return 0, ""
 
     sensors = tmp_path / "sensors.gorilla"
@@ -256,6 +260,8 @@ def test_heat_puts_prefs_js_back_so_test_prefs_do_not_stay_in_the_profile(tmp_pa
     M.heat("t", "blank", minutes=0, prefs=[("a.b", "false")], warmup=0, out_dir=tmp_path)
     setup = next(c for c in sent if "user.js.heat-" in c and "printf" in c)
     restore = next(c for c in sent if c.startswith("osascript") and "mv " in c)
+    lookup = next(c for c in sent if "lsof" in c)
+    assert "[^ ]*/Profiles" not in lookup          # the default profile is under "Application Support"
     assert "prefs.js.heat-" in setup and "cp -p" in setup
     assert "prefs.js.heat-" in restore and restore.index("pgrep") < restore.index("prefs.js")
     sent.clear()
