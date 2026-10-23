@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.2.0 · updated 26-10-23-01-35
+# Version: 1.2.0 · updated 26-10-23-02-51
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -10,7 +10,7 @@
     fieldkit mac fix-alias NAME [--ip] [--apply]       the "Host NAME" entry in ~/.ssh/config (old one kept in Trash)
     fieldkit mac run NAME -- COMMAND ...               run a command on the Mac; its exit code is this tool's
     fieldkit mac shot NAME [--out FILE]                the Mac's screen now (screencapture), fetched to this machine
-    fieldkit mac keep-awake|open-app|screen-text|keys|wait-text NAME ...   drive its screen like a person (macdrive.py)
+    fieldkit mac keep-awake|open-app|screen-text|keys|wait-text|tui-start NAME ...   drive its screen like a person (macdrive.py)
 
 Born 2026-10-22. The owner's MacBook Air 4,1 (2011, macOS 10.13.6, no longer supported by Apple) is a test target
 of the Gorilla browser, reached from the Linux box over SSH. The way to reach it lived only in handover notes, and one
@@ -337,6 +337,11 @@ def main(argv=None, prog="macssh.py"):
     ky.add_argument("--tty", required=True)
     ky.add_argument("--key", help="enter, esc, up, down, tab, or one letter")
     ky.add_argument("--paste", help="a text file, sent as one line then Enter")
+    ky.add_argument("--expect", help="type only if this pattern is on the screen first (never into an unknown screen)")
+    ts = sp.add_parser("tui-start", help="walk Gorilla OpenCode's start-up screens to the prompt, a key only on a known screen")
+    ts.add_argument("name")
+    ts.add_argument("--tty", required=True)
+    ts.add_argument("--seconds", type=float, default=180)
     wt = sp.add_parser("wait-text", help="wait until the tab shows a pattern")
     wt.add_argument("name")
     wt.add_argument("--tty", required=True)
@@ -410,7 +415,7 @@ def main(argv=None, prog="macssh.py"):
         remote = f"/tmp/fieldkit-shot-{datetime.datetime.now():%y%m%d%H%M%S}.png"
         out = o.out or f"{o.name}-screen-{datetime.datetime.now():%y-%m-%d-%H-%M-%S}.png"
         return take_shot(mac, address, remote, out)
-    if o.cmd in ("keep-awake", "open-app", "screen-text", "keys", "wait-text"):
+    if o.cmd in ("keep-awake", "open-app", "screen-text", "keys", "wait-text", "tui-start"):
         from . import macdrive
         address, how = find(mac)
         if not address:
@@ -430,7 +435,10 @@ def main(argv=None, prog="macssh.py"):
                 print("keys: give --key or --paste")
                 return 2
             text = Path(o.paste).read_text(encoding="utf-8") if o.paste else None
-            code, msg = macdrive.keys(fn, o.tty, o.key, text)
+            code, msg = macdrive.keys(fn, o.tty, o.key, text, expect=o.expect)
+        elif o.cmd == "tui-start":
+            code, rows = macdrive.tui_start(fn, o.tty, o.seconds)
+            msg = "\n".join(rows)
         else:
             code, msg = macdrive.wait_text(fn, o.tty, o.pattern, o.seconds)
         print(msg)

@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-02-32
+# Version: 1.0.0 · updated 26-10-23-02-51
 """fieldkit mac keep-awake|open-app|screen-text|keys|wait-text: driving a Mac's screen like a person, with every lesson
 of 2026-10-23 (the 2011 MacBook Air) as a rule. A fake Mac answers the ssh lines and AppleScripts."""
 import pytest
@@ -134,3 +134,53 @@ def test_a_paste_is_proven_by_its_text_not_by_any_change():
                 return 0, "SENT"
             return super().__call__(argv, stdin)
     assert D.keys(fn, "/dev/ttys000", paste_text="I'm a new user on this Mac", runner=Takes(), sleep=lambda s: None)[0] == 0
+
+
+def test_expect_refuses_to_type_into_an_unidentified_screen():
+    # 2026-10-23: a wait timed out, the loop typed anyway, and a prompt landed in the "somewhere else" folder field
+    mac = Mac(screen="Which folder are you working in?\n  1. /Users/u/x\n> somewhere else:")
+    code, msg = D.keys(fn, "/dev/ttys000", paste_text="hello", expect=r"^model .+\| +in ", runner=mac,
+                       sleep=lambda s: None)
+    assert code == 3 and "refused" in msg
+    assert not any(c[0] == "pbcopy" for c in mac.calls) and not any(c[1] == D.KEY_SCRIPT for c in mac.calls)
+
+
+class Startup(Mac):
+    """Gorilla OpenCode's start-up screens in order; each accepted key moves to the next."""
+    SCREENS = [
+        "Which folder are you working in?\n  1. /Users/u/x\n     where this was started\n> somewhere else:\n    >",
+        "Which folder are you working in?\n> 1. /Users/u/x\n     where this was started\n  somewhere else:",
+        "Choose a provider for this session\n> Google Antigravity",
+        "How fast is your connection?\n> Unconstrained",
+        "Keeping your model\n >\nmodel Gemini 3.8 Flash  |  in x  |  context 11K",
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.i = 0
+        self.screen = self.SCREENS[0]
+        self.keys = []
+
+    def __call__(self, argv, stdin):
+        if argv[-1].startswith("osascript -") and stdin == D.KEY_SCRIPT:
+            self.keys.append(argv[-1].split()[-1])
+            self.i = min(self.i + 1, len(self.SCREENS) - 1)
+            self.screen = self.SCREENS[self.i]
+            return 0, "SENT"
+        return super().__call__(argv, stdin)
+
+
+def test_tui_start_moves_the_folder_cursor_to_entry_1_before_enter_then_reaches_the_prompt():
+    mac = Startup()
+    code, lines = D.tui_start(fn, "/dev/ttys000", runner=mac, sleep=lambda s: None)
+    assert code == 0, lines
+    assert mac.keys == ["code:126", "code:36", "code:36", "code:36"]      # up, then enter on entry 1, enter, enter
+    assert lines[-1] == "at the prompt: ready for text"
+
+
+def test_tui_start_never_presses_on_a_screen_it_does_not_know():
+    clock = {"t": 0}
+    mac = Mac(screen="some new screen nobody described\n> choose")
+    code, lines = D.tui_start(fn, "/dev/ttys000", seconds=20, runner=mac, now=lambda: clock["t"],
+                              sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    assert code == 3 and not any(c[1] == D.KEY_SCRIPT for c in mac.calls)

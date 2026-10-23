@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-02-32
+# Version: 1.1.0 · updated 26-10-23-02-51
 """macdrive.py - drive a Mac's screen from another computer, the way a person would, and check each step took.
 
     fieldkit mac keep-awake NAME [--minutes N | --stop]    caffeinate on the Mac for a long job (display, disk, network)
@@ -11,6 +11,9 @@
                                                            raise THAT tab's window, then type; a multi-line FILE is sent
                                                            as one line so Enter does not split it; exit 3 when the
                                                            screen text did not change (the key did not land)
+    fieldkit mac tui-start NAME --tty TTY [--seconds S]  walk Gorilla OpenCode's start-up screens (folder, provider,
+                                                           speed) to the prompt; a key only on a screen it identified
+    fieldkit mac keys ... --expect REGEX                   type only if REGEX is on the screen first
     fieldkit mac wait-text NAME --tty TTY --for REGEX [--seconds S]
                                                            wait until the tab shows REGEX (a dialog, a prompt, READY)
 
@@ -25,6 +28,8 @@ those operations becomes a tool. What was learned, each now a rule here:
     the same script as the keystroke
   - macOS opens an extra empty Terminal window when Terminal starts: open-app closes the idle windows that were not
     there before (never one that was, never a busy one)
+  - a wait that timed out did not stop the typing after it: a test prompt went into the "somewhere else" folder
+    field of the picker (2026-10-23, 02:47). keys --expect and tui-start refuse to type into a screen not identified
   - a key can be "sent" and not arrive (the window moved under the owner's hand): keys reads the screen text before
     and after, and says so when nothing changed
   - Terminal's "contents" clashes with AppleScript's own word; "history" of the tab is the text, and it showed the
@@ -139,11 +144,18 @@ def one_line(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def keys(ssh_argv_fn, tty, key=None, paste_text=None, settle=4, sleep=time.sleep, **kw):
-    """-> (code, message). 0 sent and the screen changed, 3 sent but nothing changed, 1 failed."""
+def keys(ssh_argv_fn, tty, key=None, paste_text=None, settle=4, sleep=time.sleep, expect=None, **kw):
+    """-> (code, message). 0 sent and the screen changed, 3 sent but nothing changed (or refused: the expected
+    screen is not there), 1 failed.
+
+    expect: a regex that must be on the screen BEFORE anything is typed. 2026-10-23: a wait timed out, the loop typed
+    anyway, and a test prompt landed in Gorilla OpenCode's "somewhere else" folder field. Never type into a screen
+    that was not identified."""
     before, err = screen_text(ssh_argv_fn, tty, 60, **kw)
     if before is None:
         return 1, err
+    if expect and not any(re.search(expect, r, re.I) for r in before[-40:]):
+        return 3, f"refused: '{expect}' is not on the screen, so nothing was typed (wrong screen?)"
     if paste_text is not None:
         rc, out, _ = remote(ssh_argv_fn, "pbcopy", stdin=one_line(paste_text), **kw)
         if rc != 0:
@@ -182,6 +194,48 @@ def wait_text(ssh_argv_fn, tty, pattern, seconds=120, every=5, now=time.time, sl
         if now() >= end:
             return 3, f"not seen in {seconds:g} s: {pattern}"
         sleep(every)
+
+
+# Gorilla OpenCode's start-up screens, as data: what identifies each one, and the key that accepts its default.
+# The folder picker is accepted only when its cursor is on the first entry (the folder it was started in): a cursor
+# on "somewhere else" means typing goes into a path field.
+TUI_SCREENS = [
+    ("folder", r"Which folder are you working in", None),
+    ("provider", r"Choose a provider for this session", "enter"),
+    ("speed", r"How fast is your connection", "enter"),
+]
+TUI_READY = r"^model .+\|\s+in \S+"                       # the status line: the prompt is ready for text
+
+
+def tui_start(ssh_argv_fn, tty, seconds=180, every=4, now=time.time, sleep=time.sleep, **kw):
+    """-> (code, lines). Walks the start-up screens to the prompt, pressing a key ONLY on a screen it has
+    identified; 0 at the prompt, 3 stuck or timed out (the lines say on what)."""
+    lines, end, last = [], now() + seconds, None
+    while now() < end:
+        rows, err = screen_text(ssh_argv_fn, tty, 40, **kw)
+        if rows is None:
+            lines.append(f"could not read the screen ({err[:80]}); retrying")
+            sleep(every)
+            continue
+        tail = rows[-30:]
+        if any(re.search(TUI_READY, r) for r in tail[-6:]) and not any(re.search(p, " ".join(tail))
+                                                                         for _, p, _ in TUI_SCREENS):
+            return 0, lines + ["at the prompt: ready for text"]
+        hit = next(((name, key) for name, pat, key in TUI_SCREENS if re.search(pat, " ".join(tail))), None)
+        if not hit:
+            sleep(every)
+            continue
+        name, key = hit
+        if name == "folder":
+            first = next((r for r in tail if re.match(r"^[\s│|]*(>\s*)?1\.\s", r)), "")
+            key = "enter" if re.match(r"^[\s│|]*>\s*1\.", first) else "up"
+        if (name, key) == last and key == "up":
+            return 3, lines + ["the folder picker's cursor does not move to entry 1: stopped, nothing typed"]
+        code, msg = keys(ssh_argv_fn, tty, key, sleep=sleep, **kw)
+        lines.append(f"{name}: {key} ({msg})")
+        last = (name, key)
+        sleep(every)
+    return 3, lines + [f"not at the prompt within {seconds:g} s"]
 
 
 def windows(ssh_argv_fn, **kw):
