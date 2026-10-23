@@ -5064,6 +5064,25 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Read-only on the project; with --binary it starts that program once. Born 2026-10-19 (TPFanControl installer gorilla.3 vs program gorilla.4)."
 
+- id: release-cycle
+  title: One release, the whole cycle, each stage DONE only by its artefact - audit, build, checksums, screenshots, notes, on-base, publish, verify-page, leftovers - driven by a project's release file
+  harness: method
+  entry: [python, -m, fieldkit, release-cycle]
+  path: ${FIELDKIT}/fieldkit/method/releasecycle.py
+  inputs:
+    - {name: project, flag: null, type: str, required: true, help: "the project; its release file is local/releases/PROJECT.yaml"}
+    - {name: action, flag: null, type: str, required: true, help: "plan | next | run | reset"}
+    - {name: version, flag: --var, type: str, required: true, help: "version=vX.Y.Z"}
+    - {name: release_file, flag: --release-file, type: str, required: false, help: "another release file"}
+  effects: [reads-files, writes-files, processes, network, git]
+  safety: irreversible             # publish makes a GitHub release; every other stage only builds and checks
+  output: own
+  exits: {2: "no release file, or it lacks project/repo/assets/notes, or the version is not vX.Y.Z", 3: "a stage failed: next says which and why"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_release_cycle.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-10-23 (owner: a release took 80 minutes once and now takes days, with about 20 projects and the owner routing every step; 'release means the full cycle'). Design: local/PROJECT-MANDATE-PLAN.md section 15. Chains existing tools on the pipeline engine (resumable, verified, a JSON report, `next` gives one line): ship audit at the start and as the last step (no stray branch, open PR, extra worktree or local branch), the release file's build commands, an asset older than this build refused (gorilla-opencode.exe has no version in its name), SHA256SUMS, screenshots as real PNGs in the gallery, the page composed by release-page and checked again on GitHub with releasepage.check, publish never clobbers. Not built yet: capture commands for screenshots, the cross-machine build (M4), the mandate's release door."
+
 - id: stranger
   title: The stranger test - download a project the way someone else would (fresh clone, fresh environment, empty home folder, the documented install) and see whether its tests and cards pass
   harness: method

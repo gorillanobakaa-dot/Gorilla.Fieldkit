@@ -2106,6 +2106,16 @@
    "release-check"
   ]
  },
+ "release-cycle": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-cycle"
+  ]
+ },
  "repro compare": {
   "platforms": [
    "linux",

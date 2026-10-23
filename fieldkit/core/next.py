@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-23-14-08
 """next - the one next thing to do. A small model never has to plan.
 
 Harvested from two document harnesses that were built to be driven by an agent
@@ -38,8 +39,9 @@ def _decide(p):
     # the options the caller gave are part of every command: a DO line without them runs the pipeline's defaults
     # (2026-10-10: asked for version 7.2.9, next said `--only fetch` alone; the default was still 7.1.2)
     ov = getattr(p, "overrides", {}) or {}
-    run = f"fieldkit pipeline run {p.name}" + (" --var " + " ".join(shlex.quote(f"{k}={v}") for k, v in ov.items())
-                                                if ov else "")
+    run = getattr(p, "run_command", None) or (   # a pipeline built by a tool names that tool's own command
+        f"fieldkit pipeline run {p.name}" + (" --var " + " ".join(shlex.quote(f"{k}={v}") for k, v in ov.items())
+                                             if ov else ""))
     for s in p.stages:
         sid = s["id"]
         rec = st.get(sid, {})
@@ -80,6 +82,8 @@ def _decide(p):
 
 def _again(p):
     """The exact `fieldkit next` to ask again, with the same options."""
+    if getattr(p, "next_command", None):
+        return p.next_command
     ov = getattr(p, "overrides", {}) or {}
     return f"fieldkit next {p.name}" + (" --var " + " ".join(shlex.quote(f"{k}={v}") for k, v in ov.items())
                                         if ov else "")
