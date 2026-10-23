@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.2.0 · updated 26-10-23-11-02
+# Version: 1.3.0 · updated 26-10-23-18-05
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -11,6 +11,12 @@
     fieldkit mac run NAME -- COMMAND ...               run a command on the Mac; its exit code is this tool's
     fieldkit mac shot NAME [--out FILE]                the Mac's screen now (screencapture), fetched to this machine
     fieldkit mac keep-awake|open-app|screen-text|keys|wait-text|tui-start|watch-dialogs NAME ...   drive its screen like a person (macdrive.py)
+    fieldkit mac sensors NAME [--json | --open]        temperatures, fan, battery, memory (sensors.gorilla, SMC, no
+                                                       password); --open starts it live in a Terminal on the Mac
+    fieldkit mac release-install NAME [--tag vX.Y.Z|latest] [--launch] [--plan]
+                                                       install from the GitHub release page as a new user: older
+                                                       copies quarantined, download, checksum, installer, version
+                                                       check (releaseinstall.py)
 
 Born 2026-10-22. The owner's MacBook Air 4,1 (2011, macOS 10.13.6, no longer supported by Apple) is a test target
 of the Gorilla browser, reached from the Linux box over SSH. The way to reach it lived only in handover notes, and one
@@ -24,6 +30,7 @@ PRIVATE DATA: names, addresses, hardware addresses and key paths live in local/m
 holds none of them.
 """
 import argparse
+import hashlib
 import datetime
 import ipaddress
 import json
@@ -161,9 +168,11 @@ def remote_line(words):
     return words[0] if len(words) == 1 else shlex.join(words)
 
 
-def scp_argv(mac, address, remote, local):
+def scp_argv(mac, address, remote, local, upload=False):
+    """Fetch remote -> local, or with upload=True send local -> remote."""
+    ends = [f"{mac['user']}@{address}:{remote}", local]
     return ["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", f"HostKeyAlias={mac['host_key_alias']}",
-            "-o", "IdentitiesOnly=yes", "-i", os.path.expanduser(mac["key"]), f"{mac['user']}@{address}:{remote}", local]
+            "-o", "IdentitiesOnly=yes", "-i", os.path.expanduser(mac["key"])] + (ends[::-1] if upload else ends)
 
 
 def take_shot(mac, address, remote, out, runner=None, tries=3):
@@ -278,6 +287,47 @@ def doctor(name, mac, runner=None, ping=None, ssh_config=SSH_CONFIG):
 
 # ── command line ────────────────────────────────────────────────────────────
 
+# sensors.gorilla (github gorillanobakaa-dot/sensors-gorilla, gathered into toolbox/) has a macOS side since 2.2.0
+# (2026-10-23): the SMC read through IOKit, no password and nothing installed. One source for a person's dashboard and
+# for the harness. The Air has no python3 on the SSH PATH, so the full path is used.
+SENSORS = Path(__file__).resolve().parents[2] / "toolbox" / "sensors-gorilla" / "sensors.gorilla"
+MAC_PYTHON = "/usr/local/bin/python3"
+MAC_SENSORS = "bin/sensors.gorilla"            # relative to the Mac user's home
+
+
+def sensors(mac, address, json_out=False, open_live=False, runner=None):
+    """Put sensors.gorilla on the Mac (only when it differs), then one reading here, or the live view there."""
+    if not SENSORS.exists():
+        print(f"REFUSED: {SENSORS} is missing; get it with: {self_cmd()} gather --only sensors-gorilla")
+        return 2
+    want = hashlib.sha256(SENSORS.read_bytes()).hexdigest()
+    rc, have = _run(ssh_argv(mac, address, f"shasum -a 256 {MAC_SENSORS} 2>/dev/null | cut -c1-64; "
+                                           f"test -x {MAC_PYTHON} || echo NO-PYTHON"), timeout=30, runner=runner)
+    if "NO-PYTHON" in have:
+        print(f"REFUSED: no {MAC_PYTHON} on the Mac (python.org installer for macOS)")
+        return 2
+    if have.strip() != want:
+        _run(ssh_argv(mac, address, "mkdir -p bin"), timeout=30, runner=runner)
+        rc, out = _run(scp_argv(mac, address, MAC_SENSORS, str(SENSORS), upload=True), timeout=60, runner=runner)
+        if rc != 0:
+            print(f"could not copy sensors.gorilla to the Mac: {out}")
+            return 1
+    if open_live:
+        # A new Terminal window sized to the screen; the 11-inch Air's maximised Terminal is 169 x 33 to 40 rows
+        script = (f"osascript -e 'tell application \"Terminal\"' -e 'do script \"clear; {MAC_PYTHON} ~/{MAC_SENSORS}\"' "
+                  f"-e 'activate' -e 'end tell'")
+        rc, out = _run(ssh_argv(mac, address, script), timeout=60, runner=runner)
+        print("live on the Mac's screen (Ctrl+C there to stop)" if rc == 0 else f"could not open Terminal: {out}")
+        return rc
+    cmd = f"{MAC_PYTHON} {MAC_SENSORS} --json" if json_out else f"stty cols 169 rows 33; {MAC_PYTHON} {MAC_SENSORS} --once"
+    argv = ssh_argv(mac, address, cmd)
+    if not json_out:
+        argv[1:1] = ["-tt"]
+    if runner:
+        return runner(argv)[0]
+    return subprocess.run(argv).returncode
+
+
 def self_cmd():
     try:
         from fieldkit.core.settings import self_cmd as sc
@@ -315,6 +365,16 @@ def main(argv=None, prog="macssh.py"):
     sh = sp.add_parser("shot", help="the Mac's screen now, fetched here (then fieldkit shot crop/stack/text-compare)")
     sh.add_argument("name")
     sh.add_argument("--out", help="where to put it (default: ./NAME-screen-<time>.png)")
+    se = sp.add_parser("sensors", help="the Mac's sensors now (sensors.gorilla); --open: live on the Mac's screen")
+    se.add_argument("name", nargs="?", default="macair")
+    se.add_argument("--json", action="store_true")
+    se.add_argument("--open", action="store_true")
+    ri = sp.add_parser("release-install", help="install from the GitHub release page as a new user (old copies quarantined)")
+    ri.add_argument("name")
+    ri.add_argument("--product", default="opencode", help="which program (default: opencode)")
+    ri.add_argument("--tag", default="latest", help="vX.Y.Z, or latest (default)")
+    ri.add_argument("--launch", action="store_true", help="then double-click the Desktop icon and fetch the screen")
+    ri.add_argument("--plan", action="store_true", help="print the script the Mac would run, run nothing")
     r = sp.add_parser("run", help="run a command on the Mac")
     r.add_argument("name")
     r.add_argument("command", nargs=argparse.REMAINDER)
@@ -456,6 +516,21 @@ def main(argv=None, prog="macssh.py"):
             code, msg = macdrive.wait_text(fn, o.tty, o.pattern, o.seconds)
         print(msg)
         return code
+    if o.cmd == "sensors":
+        address, how = find(mac)
+        if not address:
+            print(f"NOT FOUND: {how}")
+            return 1
+        return sensors(mac, address, json_out=o.json, open_live=o.open)
+    if o.cmd == "release-install":
+        from . import releaseinstall
+        if o.plan:
+            return releaseinstall.main(o, mac, None, ssh_argv, take_shot)
+        address, how = find(mac)
+        if not address:
+            print(f"NOT FOUND: {how}")
+            return 1
+        return releaseinstall.main(o, mac, address, ssh_argv, take_shot)
     if o.cmd == "run":
         cmd = o.command[1:] if o.command[:1] == ["--"] else o.command
         if not cmd:
