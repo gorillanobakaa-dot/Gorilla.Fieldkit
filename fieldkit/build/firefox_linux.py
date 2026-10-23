@@ -56,6 +56,41 @@ def mach_env(base=None):
     return env
 
 
+def build_env(base=None, now=None):
+    """mach_env plus one MOZ_BUILD_DATE for the whole build (kept when the caller set one).
+    2026-10-23, Linux 158.0-2: without it the make backend wrote buildid.h at the start (20261023183213, linked into
+    libxul and the browser binary) and AGAIN in the last tier (20261023185344, into application.ini), so Help > About
+    showed one Build ID and application.ini another, and post-install's stamp rows failed."""
+    env = mach_env(base)
+    env.setdefault("MOZ_BUILD_DATE", time.strftime("%Y%m%d%H%M%S", time.localtime(now)))
+    return env
+
+
+def buildid_split(dist):
+    """'' when application.ini's BuildID is in the browser binary (or nothing can be read), else why not."""
+    ini = Path(dist) / "application.ini"
+    m = re.search(r"^BuildID=(\d{14})", ini.read_text(encoding="utf-8"), re.M) if ini.is_file() else None
+    if not m:
+        return ""
+    wrong = {k: [x for x in v if x[:8] == m.group(1)[:8]] for k, v in binary_build_ids(dist).items()
+             if m.group(1) not in v}
+    return ("application.ini BuildID " + m.group(1) + " is not in " + ", ".join(
+        f"{k} (carries {', '.join(v) or 'none'})" for k, v in wrong.items()) + ": rebuild with one MOZ_BUILD_DATE") if wrong else ""
+
+
+def binary_build_ids(dist):
+    """{file: [14-digit build ids found in it]} for the browser binary, read from the bytes."""
+    out = {}
+    # libxul is left out on purpose: its own id (gToolkitBuildID) is refreshed only when libxul is relinked
+    # (toolkit/library/moz.build, "The buildid is refreshed on every (incremental) build. But we want to avoid ..."),
+    # so an incremental build keeps the last link's id there by design. Help > About reads the binary's app id.
+    for name in ("firefox",):
+        f = Path(dist) / name
+        if f.is_file():
+            out[name] = sorted(set(m.decode() for m in re.findall(rb"(?<!\d)(20\d{12})(?!\d)", f.read_bytes())))
+    return out
+
+
 def _free_gb(path):
     try:
         st = os.statvfs(path)
@@ -238,6 +273,9 @@ def build_mode(src, objdir=None):
     if r.returncode != 0:
         return "full", f"cannot compare with the last built commit {last[:12]}"
     changed = [f for f in r.stdout.split() if not f.startswith("build_logs/")]
+    split = buildid_split(od / "dist" / "bin")
+    if split:
+        return "full", split          # 2026-10-23: a build with two BuildIDs is not done, whatever the tree says
     if not changed:
         return "nothing", f"no change since the last build ({last[:12]})"
     compiled = [f for f in changed if COMPILED.search(f)]
@@ -264,7 +302,7 @@ def stage_build(ctx, run=_run, env=None):
     if mode == "faster":
         logs = src / "build_logs"
         logs.mkdir(exist_ok=True)
-        rc, out = run(["./mach", "build", "faster"], cwd=str(src), env=mach_env(env), timeout=7200)
+        rc, out = run(["./mach", "build", "faster"], cwd=str(src), env=build_env(env), timeout=7200)
         (logs / "latest_faster.log").write_text(out, encoding="utf-8")
         if rc == 0:
             _record_built(src, run)
@@ -273,7 +311,7 @@ def stage_build(ctx, run=_run, env=None):
     script = harness / "scripts" / "run_build_and_capture.sh"
     if not script.is_file():
         return {"ok": False, "detail": f"no build wrapper at {script}"}
-    rc, out = run(["bash", str(script), str(src)], cwd=str(harness), env=mach_env(env), timeout=43200)
+    rc, out = run(["bash", str(script), str(src)], cwd=str(harness), env=build_env(env), timeout=43200)
     if rc == 0:
         _record_built(src, run)
     detail = (f"build wrapper exited 0 (full build: {why})" if rc == 0 else f"build wrapper exited {rc}")
@@ -308,7 +346,13 @@ def verify_build(ctx, run=_run):
         return {"ok": False, "detail": f"no binary at {fx}"}
     rc, out = run([str(fx), "--version"], env=mach_env())
     said = out.strip().splitlines()[-1] if out.strip() else ""
-    return {"ok": rc == 0 and version in said, "said": said, "detail": f"{fx.name} --version: {said or '(nothing)'}"}
+    ok, detail = rc == 0 and version in said, f"{fx.name} --version: {said or '(nothing)'}"
+    # the BuildID the binaries carry is the one application.ini says (2026-10-23: two IDs in one build, see build_env);
+    # only ids of the same day are named: libxul holds hundreds of unrelated 14-digit numbers
+    split = buildid_split(dist_bin(ctx))
+    if split:
+        ok, detail = False, detail + "; " + split
+    return {"ok": ok, "said": said, "detail": detail}
 
 
 # ---------------------------------------------------------------- package

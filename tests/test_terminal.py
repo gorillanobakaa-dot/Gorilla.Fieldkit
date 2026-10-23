@@ -134,3 +134,13 @@ def test_the_spoken_words_are_the_owners_setting_and_always_say_is_a_setting():
     assert always and words == "Yo. Pay attention to the terminal window."
     always, words = T.say_settings({})
     assert not always and words == T.DEFAULT_SAY
+
+
+def test_an_option_is_never_opened_as_the_command(monkeypatch):
+    # 2026-10-23: `fieldkit terminal ask --help` opened a window in front of the owner that ran "--help"
+    import pytest
+    from types import SimpleNamespace
+    from fieldkit import cli
+    monkeypatch.setattr(T, "open_window", lambda *a, **k: pytest.fail("no window may open"))
+    with pytest.raises(SystemExit):
+        cli.cmd_terminal(SimpleNamespace(action="ask", command=["--help"], title=None, say=False, json=False))

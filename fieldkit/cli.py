@@ -1849,7 +1849,7 @@ def build_parser():
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
                                        "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "installer-test", "release-publish", "night-pack", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
-                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page"])
+                                       "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page", "release-shots"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
     bh.add_argument("--since", help="stats: only journal events from this date or time on (2026-10-02, 2026-10-02 08:00)")
     bh.add_argument("--until", help="stats: only journal events up to this date (the whole day) or time")
@@ -2163,8 +2163,10 @@ def cmd_terminal(a):
         _emit({"windows": rows}, a.json, lambda x: print("\n".join(terminal.history_lines(x["windows"]))))
         return 0
     cmd, title = terminal.split_args(a.command, a.title)
-    if not cmd:
-        raise SystemExit(f"fieldkit terminal {a.action} [--title T] -- COMMAND ...")
+    # 2026-10-23: `terminal ask --help` opened a window in front of the owner that ran "--help" (and the voice told
+    # them to read it); a command is a program, never an option
+    if not cmd or cmd[0].startswith("-"):
+        raise SystemExit(f"fieldkit terminal {a.action} [--title T] -- /full/path/PROGRAM ARGS ...")
     d = terminal.open_window(cmd, mode=a.action, title=title, say=a.say)
     _emit(d, a.json, lambda x: print("\n".join(terminal.lines(x))))
     return 0 if d["ok"] else 3

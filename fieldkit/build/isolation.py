@@ -277,7 +277,10 @@ def warn(what, seconds=DRIVE_COUNTDOWN, out=print, speak=True, sleep=time.sleep)
     try:
         subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path",
                         "/org/freedesktop/Notifications", "--method", "org.freedesktop.Notifications.Notify",
-                        "Fieldkit", "0", "dialog-warning", "Hands off: test starting", words, "[]", "{}", "20000"],
+                        "Fieldkit", "0", "dialog-warning", "Hands off: test starting", words, "[]",
+                        # transient: GNOME keeps a normal banner up until the person is back at the keyboard, so on an
+                        # idle laptop it stayed over the screen for good (2026-10-23: over every release picture)
+                        "{'transient': <true>}", "20000"],
                        capture_output=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         pass

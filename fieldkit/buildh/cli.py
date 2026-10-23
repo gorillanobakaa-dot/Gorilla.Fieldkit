@@ -1011,8 +1011,8 @@ def run(a, emit):
     if act == "hidden-pages-doc":
         # hidden-pages-doc TASK [write=1]: the hidden about: pages explained page by page, English (public, both
         # tracks) and Romanian (private, plain words), rendered from the owner's source and checked (hiddendocs.py)
-        from . import hiddendocs as hd, ownercheck, changecheck
-        owner = ownercheck._owner_root(task.load(tid))
+        from . import hiddendocs as hd, ownercheck, changecheck, releasecheck
+        owner = releasecheck.owner_of(task.load(tid))      # the patch-set repo on Linux (2026-10-23)
         if not owner:
             raise task.Refused("this task has no owner repo")
         _root, repo = changecheck.patchset_repo(owner)
@@ -1037,6 +1037,20 @@ def run(a, emit):
             print(f"  [{'ok' if row['ok'] else 'FAIL'}] {row['check']}: {row['evidence']}")
         print("HIDDEN-PAGES DOC " + ("OK" if all(r["ok"] for r in rows) else "NOT OK"))
         return 0 if all(r["ok"] for r in rows) else 3
+    if act == "release-shots":
+        # release-shots TASK out=DIR [prefix=158.0-2-] [--install-dir DIR]: the release page's pictures from the real
+        # screen, the installed build in a visible window on a fresh profile (releaseshots.py; 2026-10-23)
+        from . import releaseshots, install as _inst
+        opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        if not opts.get("out"):
+            raise task.Refused("usage: build-harness release-shots TASK out=DIR [prefix=...]")
+        inst = a.install_dir or _inst.find_install()
+        if not inst:
+            raise task.Refused("no installed build found: give --install-dir")
+        r = releaseshots.run(inst, opts["out"], opts.get("prefix", ""), say=lambda m: print(m, flush=True))
+        print(json.dumps(r, indent=1) if a.json else
+              f"RELEASE-SHOTS {'OK' if r['ok'] else 'NOT OK'}: {len(r['shots'])} picture(s), {len(r['skipped'])} skipped")
+        return 0 if r["ok"] else 3
     if act == "release-page":
         # release-page TASK dir=<releases-draft/<release>>: RELEASE-BODY.md from <dir>/PAGE.parts, then release-cover on
         # it (releasepage.py; 2026-10-19: the page had been assembled by a script nobody kept)

@@ -31,8 +31,19 @@ COLOUR_PROPS = re.compile(r"(^|[\s;{])(-?-?[a-z-]*colou?r[a-z-]*|background|fill
                           r"--[a-z0-9-]+)\s*:", re.I)
 
 
+def _local_places():
+    """The patch-set repository named in fieldkit.local.json (firefox.root): where Linux keeps decisions/THEME.yaml.
+    2026-10-23, Linux 158.0-2 post-install: only the Windows layout was searched, so 'theme spec present' failed."""
+    try:
+        from ..core import settings
+        root = (settings.local_settings().get("firefox") or {}).get("root")
+        return [str(Path(settings.expand(root)) / "decisions" / "THEME.yaml")] if root else []
+    except Exception:              # a missing or half-written local file: the fixed places still apply
+        return []
+
+
 def find_spec(places=None):
-    for p in places or SPEC_PLACES:
+    for p in places or SPEC_PLACES + _local_places():
         if p and Path(p).is_file():
             return Path(p)
     return None

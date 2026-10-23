@@ -69,7 +69,13 @@ def master_for(rel, allow, owner_root=None, tree=None):
     optional region/flip (geometry())."""
     for m in allow.get("masters") or []:
         if fnmatch.fnmatch(rel, m["files"]):
-            raw = str(m["master"]).replace("{owner}", str(owner_root or "")).replace("{tree}", str(tree or ""))
+            master = str(m["master"])
+            # Windows: the patch set sits inside the owner repo ({owner}/gorilla-patchset); Linux: the owner root IS
+            # the patch-set repo (config/patch_policy.json at its root, no gorilla-patchset folder), 2026-10-23
+            if owner_root and "{owner}/gorilla-patchset/" in master and not (Path(owner_root) / "gorilla-patchset").is_dir() \
+                    and (Path(owner_root) / "config" / "patch_policy.json").is_file():
+                master = master.replace("{owner}/gorilla-patchset/", "{owner}/")
+            raw = master.replace("{owner}", str(owner_root or "")).replace("{tree}", str(tree or ""))
             if "{owner}" in str(m["master"]) and not owner_root:
                 return None, m
             return Path(raw), m

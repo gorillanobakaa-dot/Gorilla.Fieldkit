@@ -92,3 +92,15 @@ def test_tree_since_maps_an_unpacked_build_by_content(tmp_path):
     obj = _dist(tmp_path)
     got, skipped = probe.tree_since(w, head, obj / "dist" / "bin", tmp_path / "out")
     assert list(got) == ["@browser/chrome/browser/skin/m.css"] and skipped == []
+
+
+def test_the_theme_spec_is_found_in_the_patch_set_repo_named_locally(tmp_path, monkeypatch):
+    # 2026-10-23, Linux: the spec lives in <firefox.root>/decisions/THEME.yaml, not in the Windows Gorilla.firefox folder
+    from fieldkit.buildh import themecheck
+    from fieldkit.core import settings
+    spec = tmp_path / "decisions" / "THEME.yaml"
+    spec.parent.mkdir()
+    spec.write_text("colours: {}\n")
+    monkeypatch.setattr(themecheck, "SPEC_PLACES", [str(tmp_path / "absent.yaml")])
+    monkeypatch.setattr(settings, "local_settings", lambda: {"firefox": {"root": str(tmp_path)}})
+    assert themecheck.find_spec() == spec

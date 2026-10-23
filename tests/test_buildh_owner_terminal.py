@@ -42,3 +42,31 @@ def test_owner_terminal_is_false_whenever_agent_shell_names_a_reason(monkeypatch
     monkeypatch.setattr(t, "agent_shell", lambda: "agent environment (CLAUDECODE)")
     monkeypatch.setattr(t.sys.stdin, "isatty", lambda: True, raising=False)
     assert t.owner_terminal() is False
+
+
+def test_a_linux_person_terminal_passes_and_a_detached_screen_does_not():
+    # 2026-10-23: only the Windows chain was known; on Linux even the owner's own terminal stopped at bash
+    linux = [("bash", "bash"), ("gnome-terminal-server", "/usr/libexec/gnome-terminal-server"),
+             ("systemd", "/usr/lib/systemd/systemd --user")]
+    assert t.agent_shell(env={}, ancestors=linux) == ""
+    assert t.agent_shell(env={}, ancestors=[("zsh", ""), ("konsole", ""), ("plasmashell", "")]) == ""
+    assert t.agent_shell(env={}, ancestors=[("bash", ""), ("screen", "SCREEN -dmS x"), ("systemd", "")]) != ""
+    assert "agent ancestor" in t.agent_shell(env={}, ancestors=[("bash", ""), ("claude", ""), ("systemd", "")])
+
+
+def test_an_ask_window_drops_the_agent_markers_only_after_the_persons_enter(tmp_path):
+    # 2026-10-23: release-publish send refused the owner's own Enter in a window an agent session had opened
+    import os
+    import subprocess
+    import sys
+    from fieldkit import terminal
+    probe = [sys.executable, "-c", "from fieldkit.buildh import task; import sys; "
+             "print('REASON=' + task.agent_shell(ancestors=[('bash', ''), ('gnome-terminal-server', ''), ('systemd', '')]))"]
+    env = {**os.environ, "CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"}
+    for mode, want in (("ask", "REASON=\n"), ("run", "REASON=agent environment (CLAUDECODE)\n")):
+        script = terminal.bash_script(probe, mode, tmp_path / f"{mode}.log")
+        out = subprocess.run(["bash", "-c", script], input="\n\n", env=env, capture_output=True, text=True,
+                             timeout=60, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).stdout
+        assert want in out, (mode, out[-400:])
+    ask = terminal.bash_script(["x"], "ask", tmp_path / "a.log")
+    assert ask.index("read -r _") < ask.index("unset CLAUDECODE") < ask.index("command started")

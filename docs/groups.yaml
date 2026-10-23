@@ -152,6 +152,7 @@ groups:
       - buildh/installertest.py
       - buildh/releasepublish.py
       - buildh/nightpack.py
+      - buildh/releaseshots.py
       - buildh/repair.py
       - buildh/setproof.py
       - buildh/stats.py

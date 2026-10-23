@@ -11,6 +11,7 @@
 Gorilla-touched CSS = every .css added or modified since the upstream release commit (git diff), every .css that
 says GORILLA, the branding CSS, the files the allowlist adds; minus the allowlist's exclusions (with reasons).
 """
+import re
 import subprocess
 from pathlib import Path
 
@@ -138,11 +139,24 @@ def check(tree, branding_rel, owner_root=None, upstream_commit=None, allow=None)
     for rel in files:
         items += css.check_file(tree / rel, rel, index, tree)
     items += leftovers.check(branding, tree)
+    items, foreign = other_platform_items(items)
     res = allowmod.summarise(items, allow, "static")
     res["problems"] += problems
     res["ok"] = res["ok"] and not problems
+    if foreign:
+        how = how + [f"{foreign} item(s) on files only another operating system builds, not judged here"]
     res.update(css_files=files, how=how)
     return res
+
+
+def other_platform_items(items, platform=None):
+    """(items this platform builds, how many were left out). 2026-10-23, Linux 158.0-2: the 11 Windows msix tiles and
+    branding.nsi, which the Linux policy leaves pristine and the .deb never ships, failed BRAND-001/003 on Linux."""
+    from ..buildh.firefox import this_platform
+    from ..buildh.setproof import platform_of
+    here = platform or this_platform()
+    keep = [it for it in items if platform_of(re.split(r"[#\[:]", str(it.get("item", "")))[0]) in (None, here)]
+    return keep, len(items) - len(keep)
 
 
 def _item(rule, item, verdict, evidence):

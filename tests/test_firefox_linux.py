@@ -1,5 +1,6 @@
 """Firefox on Linux: the stages, run against fakes (no mach, no build, nothing on the machine touched)."""
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
 from fieldkit.build import firefox_linux as fl
@@ -96,3 +97,22 @@ def test_the_deb_revision_is_the_trees_gorilla_build_number(tmp_path):
     assert fl.deb_version(c) == ""                                    # no branding prefs: build_deb.sh decides, as before
     f.parent.mkdir(parents=True); f.write_text('pref("gorilla.build.number", 2);\n')
     assert fl.build_number(src) == 2 and fl.deb_version(c) == "158.0-2"
+
+
+def test_one_build_date_for_the_whole_build_and_the_binaries_agree_with_application_ini(tmp_path):
+    # 2026-10-23: buildid.h was written twice in one build; libxul said 20261023183213, application.ini 20261023185344
+    assert fl.build_env({"CLAUDECODE": "1"}, now=0)["MOZ_BUILD_DATE"] == time.strftime("%Y%m%d%H%M%S", time.localtime(0))
+    assert fl.build_env({"MOZ_BUILD_DATE": "20260101000000"})["MOZ_BUILD_DATE"] == "20260101000000"
+    c = ctx(tmp_path)
+    d = fl.dist_bin(c); d.mkdir(parents=True)
+    (d / "firefox").write_bytes(b"\0x20261023183213\0")
+    (d / "libxul.so").write_bytes(b"\0" + b"20261023183213" + b"\0")
+    (d / "application.ini").write_text("[App]\nBuildID=20261023185344\n")
+    run = lambda cmd, **k: (0, "Mozilla Firefox 158.0\n")
+    r = fl.verify_build(c, run=run)
+    assert not r["ok"] and "20261023185344" in r["detail"] and "firefox (carries 20261023183213)" in r["detail"]
+    assert "rebuild" in fl.buildid_split(d)                  # build_mode reads the same: a split build is built again
+    (d / "application.ini").write_text("[App]\nBuildID=20261023183213\n")
+    assert fl.verify_build(c, run=run)["ok"]
+    (d / "libxul.so").write_bytes(b"\0" + b"20261023170000" + b"\0")   # libxul not relinked: its id may be older
+    assert fl.verify_build(c, run=run)["ok"]
