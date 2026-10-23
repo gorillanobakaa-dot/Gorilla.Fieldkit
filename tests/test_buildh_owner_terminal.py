@@ -54,6 +54,7 @@ def test_a_linux_person_terminal_passes_and_a_detached_screen_does_not():
     assert "agent ancestor" in t.agent_shell(env={}, ancestors=[("bash", ""), ("claude", ""), ("systemd", "")])
 
 
+@pytest.mark.skipif(__import__("sys").platform == "win32", reason="the bash window script is Linux and macOS; Windows uses powershell_script")
 def test_an_ask_window_drops_the_agent_markers_only_after_the_persons_enter(tmp_path):
     # 2026-10-23: release-publish send refused the owner's own Enter in a window an agent session had opened
     import os
