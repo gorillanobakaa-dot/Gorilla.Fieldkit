@@ -88,3 +88,69 @@ def test_a_ready_machine_for_a_command_points_at_the_command(tmp_path, monkeypat
     monkeypatch.setattr(doctor, "is_debian_family", lambda: True)
     r = doctor.check("audio", pp, req, have_dist=lambda n: "1.0", which=lambda n: f"/usr/bin/{n}", h=DEB)
     assert r["ok"] and r["next"] == "fieldkit audio"
+
+
+# ---- 2026-10-23: the first Mac (2011 MacBook Air, macOS 10.13, 4 GB, no Homebrew, Xcode or git) ------------------
+MAC = dict(DEB, system="Darwin", is_linux=False, is_mac=True, distro=None, distro_like=[])
+STUB = "xcode-select: error: no developer tools were found at '/Applications/Xcode.app', and no install could be requested"
+
+
+def test_apples_git_stub_is_not_git():
+    assert doctor.git_state("/usr/bin/git", run=lambda argv, **k: (1, STUB), system="darwin") == "stub"
+    assert doctor.git_state("/usr/bin/git", run=lambda argv, **k: (0, "git version 2.47.3"), system="linux") == "real"
+    assert doctor.git_state(None, run=lambda argv, **k: (0, "")) in ("missing", "real")   # no path given: looks it up
+
+
+def test_a_mac_is_a_family_with_its_own_lines_and_the_stub_counts_as_missing(tmp_path, monkeypatch):
+    pp, req = _files(tmp_path)
+    data = json.loads(req.read_text())
+    data["tools"]["git"]["install"]["mac"] = "not needed: install Fieldkit from the zip"
+    data["tools"]["git"]["optional_when"] = "zip"
+    req.write_text(json.dumps(data))
+    monkeypatch.setattr(doctor, "git_state", lambda path=None, **k: "stub")
+    r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: "1.0", which=lambda n: "/usr/bin/git", h=MAC)
+    git = next(x for x in r["rows"] if x["name"] == "git")
+    assert r["family"] == "mac" and not git["ok"] and "zip" in git["install"]
+    r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: "1.0", which=lambda n: "/usr/bin/git", h=MAC,
+                     way="zip")
+    assert r["ok"] and "not needed" in next(x for x in r["rows"] if x["name"] == "git")["detail"]
+
+
+def test_lean_asks_only_for_the_lean_packages(tmp_path):
+    pp, req = _files(tmp_path)
+    data = json.loads(req.read_text())
+    data["lean"] = {"packages": ["pyyaml>=6"]}
+    req.write_text(json.dumps(data))
+    r = doctor.check(pyproject=pp, requirements=req, have_dist=lambda n: None, which=lambda n: "/x", h=DEB, lean=True)
+    names = [x["name"] for x in r["rows"] if x["kind"] == "python-package"]
+    assert names == ["pyyaml"] and "--no-deps" in r["install"][0]          # lxml (a full dependency) is not asked for
+
+
+def test_the_real_lean_set_is_what_the_core_was_measured_with():
+    req = json.loads(doctor.REQUIREMENTS.read_text(encoding="utf-8"))
+    assert [doctor._dist_name(s) for s in req["lean"]["packages"]] == ["pyyaml", "psutil"]
+
+
+def test_python2_does_not_break_the_search(tmp_path, monkeypatch):
+    # macOS 10.13's /usr/bin/python is Python 2: print(a, b) gives "(2, 7)" and broke int() (2026-10-23, on the Air)
+    py2, py3 = tmp_path / "python", tmp_path / "python3"
+    for p in (py2, py3):
+        p.write_text("#!/bin/sh\n")
+    outs = {str(py2): (0, "(2, 7)\n"), str(py3): (0, "3 13\n")}
+    monkeypatch.setattr(doctor, "_run", lambda argv, **k: outs[argv[0]])
+    monkeypatch.setattr(doctor.shutil, "which", lambda n: None)
+    found = doctor.pythons([str(py2), str(py3)])
+    assert [v for _, v in found] == [(3, 13), (2, 7)]
+
+
+def test_probe_picks_zip_and_lean_on_the_air(monkeypatch):
+    monkeypatch.setattr(doctor, "pythons", lambda places=None: [("/usr/local/bin/python3", (3, 13)), ("/usr/bin/python", (2, 7))])
+    monkeypatch.setattr(doctor, "memory_gb", lambda: 4.0)
+    monkeypatch.setattr(doctor.shutil, "which", lambda n: {"git": "/usr/bin/git", "cc": "/usr/bin/cc", "curl": "/usr/bin/curl",
+                                                         "unzip": "/usr/bin/unzip"}.get(n))
+    run = lambda argv, **k: (0, "SIP status: disabled.") if argv[0] == "csrutil" else (1, STUB)
+    r = doctor.probe(run=run, h=MAC)
+    assert r["way"] == "zip" and r["lean"] and r["facts"]["git"] == "stub" and not r["facts"]["compiler"]
+    assert r["facts"]["python_to_use"] == "/usr/local/bin/python3" and r["facts"]["sip"] == "disabled"
+    assert any("full path" in w for w in r["why"])                      # python3 is not on this PATH
+    assert doctor.probe_lines(r)[-1].endswith("-m fieldkit.core.doctor --lean")

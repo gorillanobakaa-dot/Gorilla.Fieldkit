@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Version: 1.1.0 · updated 26-10-22-18-40
+# Version: 1.2.0 · updated 26-10-23-01-35
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
@@ -10,6 +10,7 @@
     fieldkit mac fix-alias NAME [--ip] [--apply]       the "Host NAME" entry in ~/.ssh/config (old one kept in Trash)
     fieldkit mac run NAME -- COMMAND ...               run a command on the Mac; its exit code is this tool's
     fieldkit mac shot NAME [--out FILE]                the Mac's screen now (screencapture), fetched to this machine
+    fieldkit mac keep-awake|open-app|screen-text|keys|wait-text NAME ...   drive its screen like a person (macdrive.py)
 
 Born 2026-10-22. The owner's MacBook Air 4,1 (2011, macOS 10.13.6, no longer supported by Apple) is a test target
 of the Gorilla browser, reached from the Linux box over SSH. The way to reach it lived only in handover notes, and one
@@ -317,6 +318,30 @@ def main(argv=None, prog="macssh.py"):
     r = sp.add_parser("run", help="run a command on the Mac")
     r.add_argument("name")
     r.add_argument("command", nargs=argparse.REMAINDER)
+    # 2026-10-23: driving the Mac's screen like a person (fieldkit/mac/macdrive.py)
+    ka = sp.add_parser("keep-awake", help="caffeinate on the Mac for a long job")
+    ka.add_argument("name")
+    ka.add_argument("--minutes", type=float, default=120)
+    ka.add_argument("--stop", action="store_true")
+    oa = sp.add_parser("open-app", help="open an app, answer its folder dialog, close only new idle windows")
+    oa.add_argument("name")
+    oa.add_argument("app", help="an app name or path, e.g. '~/Applications/Gorilla OpenCode.app'")
+    oa.add_argument("--folder", help="answer its 'choose folder' dialog with this folder")
+    oa.add_argument("--process", help="the program it starts, to report its PID, tty and working folder")
+    st = sp.add_parser("screen-text", help="the text in the Terminal tab on a tty (no picture)")
+    st.add_argument("name")
+    st.add_argument("--tty", required=True)
+    st.add_argument("--lines", type=int, default=40)
+    ky = sp.add_parser("keys", help="raise the tab on a tty and type a key or paste a file (checks it landed)")
+    ky.add_argument("name")
+    ky.add_argument("--tty", required=True)
+    ky.add_argument("--key", help="enter, esc, up, down, tab, or one letter")
+    ky.add_argument("--paste", help="a text file, sent as one line then Enter")
+    wt = sp.add_parser("wait-text", help="wait until the tab shows a pattern")
+    wt.add_argument("name")
+    wt.add_argument("--tty", required=True)
+    wt.add_argument("--for", dest="pattern", required=True)
+    wt.add_argument("--seconds", type=float, default=120)
     o = ap.parse_args(argv)
 
     if o.cmd == "add":
@@ -385,6 +410,31 @@ def main(argv=None, prog="macssh.py"):
         remote = f"/tmp/fieldkit-shot-{datetime.datetime.now():%y%m%d%H%M%S}.png"
         out = o.out or f"{o.name}-screen-{datetime.datetime.now():%y-%m-%d-%H-%M-%S}.png"
         return take_shot(mac, address, remote, out)
+    if o.cmd in ("keep-awake", "open-app", "screen-text", "keys", "wait-text"):
+        from . import macdrive
+        address, how = find(mac)
+        if not address:
+            print(f"NOT FOUND: {how}")
+            return 1
+        fn = lambda line: ssh_argv(mac, address, line)
+        if o.cmd == "keep-awake":
+            code, msg = macdrive.keep_awake(fn, o.minutes, o.stop)
+        elif o.cmd == "open-app":
+            code, rows = macdrive.open_app(fn, o.app, o.folder, o.process)     # "~" is the Mac's home, kept for it
+            msg = "\n".join(rows)
+        elif o.cmd == "screen-text":
+            rows, err = macdrive.screen_text(fn, o.tty, o.lines)
+            code, msg = (0, "\n".join(rows)) if rows is not None else (1, err)
+        elif o.cmd == "keys":
+            if bool(o.key) == bool(o.paste):
+                print("keys: give --key or --paste")
+                return 2
+            text = Path(o.paste).read_text(encoding="utf-8") if o.paste else None
+            code, msg = macdrive.keys(fn, o.tty, o.key, text)
+        else:
+            code, msg = macdrive.wait_text(fn, o.tty, o.pattern, o.seconds)
+        print(msg)
+        return code
     if o.cmd == "run":
         cmd = o.command[1:] if o.command[:1] == ["--"] else o.command
         if not cmd:
