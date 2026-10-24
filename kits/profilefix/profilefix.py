@@ -29,7 +29,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 IS_WINDOWS = sys.platform == "win32"
 if IS_WINDOWS:
@@ -51,7 +51,7 @@ END_RE = r"(?=[\\/\"'\x00,;|]|$)"
 # -- pure functions (tested without a registry) ------------------------------------------------------------------
 def users_segment(profiles_dir):
     """'C:\\Users' -> 'Users': the folder name that precedes a profile name in every path form."""
-    return Path(profiles_dir).name or "Users"
+    return PureWindowsPath(profiles_dir).name or "Users"
 
 
 def name_pattern(seg, name):
@@ -116,7 +116,7 @@ def name_variants(display_name, install_dir):
     base = re.sub(r"\s+v?\d+(\.\d+)+.*$", "", display_name or "").strip()
     out = {base.lower()} if base else set()
     if install_dir:
-        out.add(Path(install_dir).name.lower())
+        out.add(PureWindowsPath(install_dir).name.lower())  # Windows path on any system (CI runs on Linux)
     return sorted(o for o in out if o)
 
 

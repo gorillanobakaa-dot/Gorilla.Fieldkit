@@ -58,6 +58,11 @@ def test_names_and_choice():
     assert pf.choose_old([("old", 3)], ["newuser"], None)[0] == "old"   # one left after the cache was fixed
 
 
+def test_windows_paths_on_any_system():
+    assert pf.users_segment(r"C:\Users") == "Users"
+    assert pf.users_segment(r"D:\Profiles") == "Profiles"
+
+
 def test_uninstall_parsing():
     assert pf.uninstall_target(r'"C:\a b\Uninstall X.exe" /currentuser /S') == r"C:\a b\Uninstall X.exe"
     assert pf.uninstall_target(r"C:\x\unins000.exe /SILENT") == r"C:\x\unins000.exe"
