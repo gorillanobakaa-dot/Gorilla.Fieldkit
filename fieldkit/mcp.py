@@ -38,8 +38,11 @@ TOOLS = [
     # 2026-10-19, Gemma 4 E2B through Gorilla OpenCode: asked about the TV, an Office file and the cooling profile,
     # it read these ten names, decided Fieldkit "is focused on build harnesses" and answered "no such tool" three
     # times without searching. The catalogue is behind discover; the description must say so, first.
-    {"name": "discover", "description": "START HERE. Fieldkit has hundreds of tools on this computer that are NOT "
-                                        "listed as separate tools: the TV and HDMI, fans and cooling profiles, Word, "
+    # 2026-10-24, Gemma 4 12B: asked "how many tools", it repeated "hundreds" from this text (a typed figure, never
+    # measured) and dismissed readiness as "for verified tools". The count is readiness's job; this text says so.
+    {"name": "discover", "description": "START HERE. Fieldkit has many tools on this computer that are NOT "
+                                        "listed as separate tools (to COUNT them, call readiness): the TV and HDMI, "
+                                        "fans and cooling profiles, Word, "
                                         "Excel and PDF files, privacy checks, disk sizes, Wi-Fi and the network, "
                                         "backups, icons, builds and more. Search them here with the person's own "
                                         "words BEFORE you ever say Fieldkit cannot do something. Returns up to 8 "
@@ -63,7 +66,9 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]}},
     {"name": "next", "description": "For a pipeline (e.g. debian-kernel): the one next thing to do.",
      "inputSchema": {"type": "object", "properties": {"pipeline": {"type": "string"}}, "required": ["pipeline"]}},
-    {"name": "readiness", "description": "How many tools are verified / tested / carded / draft.",
+    {"name": "readiness", "description": "COUNTS Fieldkit's tools, measured now: the total on this computer and how "
+                                         "many are verified / tested / carded / only gathered. Use it to answer "
+                                         "'how many tools do I have'.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "build_harness_status", "description": "Where the current build job stands: steps done, the "
      "current step, checkpoints. Call this first in a new chat.",

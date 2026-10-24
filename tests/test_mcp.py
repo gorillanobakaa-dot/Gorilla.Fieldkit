@@ -40,6 +40,16 @@ def test_run_has_no_approve_argument_and_refusals_are_answers():
     assert text.startswith("REFUSED:") and "NEXT:" in text and err is False
 
 
+def test_the_count_is_measured_and_the_way_to_it_is_named():
+    # 2026-10-24: Gemma 4 12B answered "hundreds" from discover's text and never called readiness.
+    desc = {t["name"]: t["description"] for t in mcp.TOOLS}
+    assert "readiness" in desc["discover"] and "hundreds" not in desc["discover"]
+    assert "how many tools" in desc["readiness"]
+    text, err = mcp.call_tool("readiness", {})
+    first = text.splitlines()[0]
+    assert not err and first.split()[0].isdigit() and first.split()[1] == "tools:"
+
+
 def test_describe_a_real_card():
     text, err = mcp.call_tool("describe", {"tool": "office-scrub"})
     assert not err and "safety: reversible" in text and "file (str, required)" in text
