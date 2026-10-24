@@ -2900,6 +2900,20 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_photokit.py", -p, "no:cacheprovider"]
   notes: "Writes only into the OUT folder named; never moves or deletes originals. dupes only proposes: decide duplicates by looking (compare). Procedure: skill fieldkit-property-inventory."
 
+- id: profilefix
+  title: "Windows profile repair + program purge: registry still pointing at a renamed profile folder (installers writing into C:\\Users\\<OLD>), and the Windows apt-get purge"
+  harness: desk
+  entry: [python, -I, "${FIELDKIT}/kits/profilefix/profilefix.py"]
+  path: ${FIELDKIT}/kits/profilefix/profilefix.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, choices: [doctor, scan, fix, undo, purge-app], help: "doctor | scan [--old NAME] [--key K] | fix [--old NAME] [--apply] | undo MANIFEST | purge-app REGEX [--apply]"}
+  effects: [reads-files, writes-files, deletes-files, registry, processes, admin]
+  safety: reversible
+  platforms: [windows]
+  platforms_why: "repairs the Windows registry and Windows uninstall entries; Linux has neither (a renamed home is usermod -d -m), and the tool prints not-this-platform there"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_profilefix.py", -p, "no:cacheprovider"]
+  notes: "Dry run unless --apply. fix: every change in a manifest (undo puts it back), keys exported to .reg first; HKLM needs an elevated shell (the elevate tool). purge-app: files to the Recycle Bin (checked gone), keys exported; never touches ~\\.<name> dot folders. Standalone: copy the one file. Skill fieldkit-profile-repair."
+
 - id: videokit
   title: "Phone video: doctor (check/install + per-video VFR/HDR/rotation), analyse (cached, real timestamps), events/draft, shake/shakecompare (phase-correlation jitter), flow (freezes, hard joins), lock (OpenCV gimbal/tripod/similarity, streamed), render (best-second waits, per-segment stabiliser by measured jitter, dissolves, gamma, sharpen)"
   harness: desk

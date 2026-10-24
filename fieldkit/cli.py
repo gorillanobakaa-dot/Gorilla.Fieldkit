@@ -371,6 +371,16 @@ def cmd_gtk_theme(a):
     return gtkcheck.main(a.args, prog="fieldkit gtk-theme")
 
 
+def cmd_profile(a):
+    # the kit is one standalone file (copied to machines without Fieldkit); load it from kits/, do not duplicate it
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / "kits" / "profilefix" / "profilefix.py"
+    spec = importlib.util.spec_from_file_location("profilefix", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.main(a.args, prog="fieldkit profile")
+
+
 def cmd_size(a):
     from .desk import size
     return size.main(a.args)
@@ -1405,6 +1415,11 @@ def build_parser():
                              "read-only; doctor --install builds it; fieldkit size --help)")
     sz.add_argument("args", nargs=argparse.REMAINDER)
     sz.set_defaults(fn=cmd_size)
+    pr = sub.add_parser("profile", add_help=False,
+                        help="Windows: repair a renamed user profile (registry still pointing at the old folder, "
+                             "installers writing into it) and purge a program completely (fieldkit profile --help)")
+    pr.add_argument("args", nargs=argparse.REMAINDER)
+    pr.set_defaults(fn=cmd_profile)
 
     for name, (_, text) in METHODS.items():
         mp = sub.add_parser(name, add_help=False, help=text)

@@ -1,0 +1,26 @@
+# Rules tests/test_profilefix.py must hold. Every one must be CAUGHT:
+#   fieldkit mutate --plan kits/profilefix/mutations.yaml -- python -m pytest -q tests/test_profilefix.py -p no:cacheprovider
+- file: kits/profilefix/profilefix.py
+  swap: ['END_RE = r"(?=[\\/\"''\x00,;|]|$)"', 'END_RE = r""']
+  why: C:\Users\<OLDX> is another profile, never rewritten
+- file: kits/profilefix/profilefix.py
+  swap: ['return re.compile(r"(?i)(?<=[\\/])(" + re.escape(seg)', 'return re.compile(r"(?i)(?<=.)(" + re.escape(seg)']
+  why: only a path segment named like the profiles folder counts
+- file: kits/profilefix/profilefix.py
+  swap: ['out = [rewrite(s, seg, old, new) for s in data]', 'out = list(data)']
+  why: REG_MULTI_SZ values are rewritten item by item
+- file: kits/profilefix/profilefix.py
+  swap: ['and not re.search(r"[%$]", n)]', ']']
+  why: "%USERNAME% placeholders are not stale profiles"
+- file: kits/profilefix/profilefix.py
+  swap: ['    if len(hits) == 1:', '    if len(hits) >= 1:']
+  why: two stale names in the cache are never guessed between
+- file: kits/profilefix/profilefix.py
+  swap: ['if any(m.end() > path.rfind("\\") for m in pat.finditer(path)):', 'if pat.search(path.split("\\")[-1]):']
+  why: keys named by a path (W~C:\Users\<OLD>) are split by the registry into Users\<OLD>
+- file: kits/profilefix/profilefix.py
+  swap: ['                if op.get("created"):', '                if False:']
+  why: undo removes the value fix created under the new name
+- file: kits/profilefix/profilefix.py
+  swap: ['    if old.lower() == new.lower():', '    if False:']
+  why: rewriting a name onto itself is refused
