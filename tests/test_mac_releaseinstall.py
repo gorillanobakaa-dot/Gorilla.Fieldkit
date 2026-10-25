@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-13-45
+# Version: 1.1.0 · updated 26-10-25-16-05
 """fieldkit mac release-install: older copies of the program are MOVED (never deleted) with a manifest, the data and
 other programs are left alone, and the download comes from the release page and nowhere else."""
 import os
@@ -13,7 +13,22 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the script is b
 
 
 def step1(text):
-    return text.split('step "2 ')[0]
+    """The script's definitions plus its quarantine step, nothing downloaded."""
+    head = text.split('step "1 ')[0]
+    quarantine = text.split('step "3 quarantine')[1].split("\nmkdir -p \"$DL\"")[0]
+    return head + 'step "3 quarantine' + quarantine
+
+
+def fake_bin(tmp_path, sums_text, asset_bytes=b"zip"):
+    """curl that writes a given asset and checksum file, so steps 1-2 run off the Mac."""
+    b = tmp_path / "bin"
+    b.mkdir()
+    (b / "sums").write_text(sums_text, newline="")
+    (b / "asset").write_bytes(asset_bytes)
+    (b / "curl").write_text('#!/bin/sh\nout=$3; case "$out" in SHA256SUMS*) cp "%s/sums" "$out";; *) cp "%s/asset" "$out";; esac\n'
+                            % (b, b))
+    (b / "curl").chmod(0o755)
+    return b
 
 
 def test_older_copies_are_moved_with_a_manifest_and_nothing_else_is_touched(tmp_path):
@@ -78,3 +93,38 @@ def test_latest_reads_the_release_page():
     seen = []
     assert R.latest_tag("o/r", opener=lambda u, timeout: seen.append(u) or Resp(json.dumps({"tag_name": "v9"}).encode())) == "v9"
     assert seen == ["https://api.github.com/repos/o/r/releases/latest"]
+
+
+@pytest.mark.skipif(not __import__("shutil").which("shasum"), reason="needs shasum (perl)")
+def test_a_bad_download_leaves_the_installed_version_where_it_was(tmp_path):
+    """2026-10-25: the Air lost v0.1.151 because quarantine ran before the checksum failed."""
+    home = tmp_path / "home"
+    (home / ".local/bin").mkdir(parents=True)
+    (home / "Downloads").mkdir()
+    (home / ".local/bin/gorilla-opencode").write_text("old")
+    b = fake_bin(tmp_path, "0" * 64 + "  gorilla-opencode-0.1.152-mac-10.13-x86_64.zip\r\n")
+    r = subprocess.run(["bash", "-c", R.script("opencode", "v0.1.152", "x")], capture_output=True, text=True,
+                       env={**os.environ, "HOME": str(home), "TMPDIR": str(tmp_path), "PATH": f"{b}:{os.environ['PATH']}"})
+    assert r.returncode == 1 and "nothing older was moved" in r.stdout, r.stdout + r.stderr
+    assert (home / ".local/bin/gorilla-opencode").read_text() == "old"
+    assert not (home / "Agents.Work.Trash-linux").exists()
+
+
+@pytest.mark.skipif(not __import__("shutil").which("shasum"), reason="needs shasum (perl)")
+def test_a_checksum_file_with_windows_line_ends_is_read(tmp_path):
+    """v0.1.152's SHA256SUMS was written on Windows (CRLF); macOS 10.13's shasum refused every line."""
+    import hashlib
+    asset = b"the zip"
+    b = fake_bin(tmp_path, hashlib.sha256(asset).hexdigest() + "  gorilla-opencode-0.1.152-mac-10.13-x86_64.zip\r\n",
+                 asset)
+    text = R.script("opencode", "v0.1.152", "x").split('ditto -x -k')[0] + "echo VERIFIED\n"
+    home = tmp_path / "home"
+    home.mkdir()
+    r = subprocess.run(["bash", "-c", text], capture_output=True, text=True,
+                       env={**os.environ, "HOME": str(home), "TMPDIR": str(tmp_path), "PATH": f"{b}:{os.environ['PATH']}"})
+    assert r.returncode == 0 and "VERIFIED" in r.stdout, r.stdout + r.stderr
+
+
+def test_quarantine_comes_after_the_checksum():
+    text = R.script("opencode", "v0.1.152", "x")
+    assert text.index("shasum -a 256 -c") < text.index('step "3 quarantine') < text.index("for p in ")
