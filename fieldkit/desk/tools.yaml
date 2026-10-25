@@ -5317,6 +5317,23 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Read-only on the project; with --binary it starts that program once. Born 2026-10-19 (TPFanControl installer gorilla.3 vs program gorilla.4)."
 
+- id: xzcheck
+  title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)
+  harness: method
+  entry: [python, -m, fieldkit, xzcheck]
+  path: ${FIELDKIT}/fieldkit/method/xzcheck.py
+  inputs:
+    - {name: files, flag: null, type: list, required: true, help: ".xz / .tar.xz / .txz files or .deb packages"}
+    - {name: cap_mib, flag: --cap-mib, type: int, required: false, help: "most memory unpacking may need, MiB (128)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "unreadable input", 3: "a dictionary too big or too small for the content, or unpacking over the cap"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_xzcheck.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Reads the finished file, never the command that made it: dictionary per block from the xz headers, memory proven by unpacking under the cap. Owner 2026-10-25: maximum compression, but people must still be able to unpack it. Measured on Gorilla OpenCode v0.1.152's .deb: 64 MiB dict = 17.6 MB, 96/128 MiB the same bytes with 97/129 MiB to unpack."
+
 - id: release-cycle
   title: One release, the whole cycle, each stage DONE only by its artefact - audit, build, checksums, screenshots, notes, on-base, publish, verify-page, leftovers - driven by a project's release file
   harness: method
