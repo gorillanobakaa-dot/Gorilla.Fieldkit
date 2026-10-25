@@ -116,7 +116,7 @@ def run(repo=None, ref=None, extras="test", keep=False, say=print, runner=subpro
 def _end(rows, base, keep, say, runner):
     ok = bool(rows) and all(r["ok"] for r in rows)
     if not keep and base.exists():                                # the Recycle Bin, never a permanent delete
-        runner([sys.executable, "-m", "fieldkit", "size", "recycle", str(base), "--plan-files", "200000",
+        runner([sys.executable, "-m", "fieldkit", "size", "recycle", str(base), "--whole-folder", "--plan-files", "200000",
                 "--plan-bytes", "20G", "--json"], capture_output=True, text=True)
         say(f"  work folder to the Recycle Bin: {base}" if not base.exists() else f"  work folder kept (recycle failed): {base}")
     say("STRANGER TEST PASS: a fresh download works here" if ok else "STRANGER TEST FAIL: a fresh download does not work (rows above)")

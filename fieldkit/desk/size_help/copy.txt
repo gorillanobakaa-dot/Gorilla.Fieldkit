@@ -25,7 +25,11 @@ ACT (verified, journalled, undoable; never a permanent delete)
                                            or with --overwrite moved aside first (<name>.gorilla-bak-<time>)
   gorilla-size move SRC ... --to DIR       same drive: rename; other drive: verified copy + recycle
   gorilla-size recycle PATH ...            to the Recycle Bin / trash; refused when Windows would destroy instead;
-                                           verified in the bin's own records
+                                           verified in the bin's own records. A folder that holds files is refused
+                                           unless --whole-folder (the answer names how many and which)
+  PATH patterns (copy, move, recycle): DIR\*.png = the files in DIR (not below), DIR\** = every file under DIR,
+                                           DIR\**\*.png = every PNG under DIR; ? = one character. Files only, never
+                                           folders; a pattern that matches nothing is refused, nothing touched
   gorilla-size undo JOURNAL                reverse what a journal records
   gorilla-size trash [list]                what is in the Recycle Bin / trash: original place, size, date
   gorilla-size trash restore NAME|PATH ... put items back (by original path, or by name when it is unique)

@@ -810,14 +810,15 @@ tools:
   path: ${FIELDKIT}/fieldkit/desk/size.py
   repo: gorillanobakaa-dot/gorilla-size
   inputs:
-    - {name: paths, flag: null, type: list, required: true, help: "files or folders"}
+    - {name: paths, flag: null, type: list, required: true, help: "files, folders, or wildcard patterns. Wildcards work: C:\\dir\\* = every file directly in dir (not below), C:\\dir\\*.png = the PNG files in dir, C:\\dir\\**\\*.png = every PNG under dir, ? = one character. A pattern matches files only, never folders. To empty a folder but keep it, give C:\\dir\\* - not the folder"}
+    - {name: whole_folder, flag: --whole-folder, type: flag, required: false, help: "needed to recycle a folder that holds files: the folder and EVERYTHING in it goes. Only when the person asked for the folder itself; for some of its files use a pattern instead"}
     - {name: plan, flag: --plan, type: flag, required: false, help: "always write a plan and stop"}
   effects: [deletes-files]
   safety: reversible
   modes:
     preview: ["+", --plan]
     undo: [python, -m, fieldkit, size, undo]
-  exits: {3: "refused or failed", 4: "held for a plan"}
+  exits: {3: "refused or failed (a pattern that matched nothing; a folder holding files without whole_folder: the answer says how many files and which; a folder in use)", 4: "held for a plan"}
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_desk_size.py"]
   notes: "Never a permanent delete; emptying the bin is gorilla-trash empty, which asks the person."

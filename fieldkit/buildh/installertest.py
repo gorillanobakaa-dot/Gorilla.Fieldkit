@@ -175,7 +175,7 @@ def run(task_id, say=print, runner=subprocess.run, work=None):
     row("the uninstall entries are as before", not new_keys and not gone_keys, f"added {new_keys} removed {gone_keys}")
     row("the shortcuts are as before", not new_links and not gone_links, f"added {new_links[:3]} removed {gone_links[:3]}")
     if base.exists():                                      # leftovers to the Recycle Bin, never a permanent delete
-        rr = runner([sys.executable, "-m", "fieldkit", "size", "recycle", str(base), "--json"], capture_output=True,
+        rr = runner([sys.executable, "-m", "fieldkit", "size", "recycle", str(base), "--whole-folder", "--json"], capture_output=True,
                     text=True, errors="replace", timeout=600)
         row("the test folder is in the Recycle Bin", rr.returncode == 0, str(base))
     ok = all(x["ok"] for x in rows)

@@ -433,7 +433,7 @@ def _recycle(path):
     if not exe:
         return False, "gorilla-size is not built here (fieldkit size doctor --install): nothing removed"
     # the adopt plan was the review, so the size tool's own plan threshold does not hold this one back
-    r = subprocess.run([str(exe), "recycle", str(path), "--plan-files", "100000000", "--plan-bytes", "100T", "--json"],
+    r = subprocess.run([str(exe), "recycle", str(path), "--whole-folder", "--plan-files", "100000000", "--plan-bytes", "100T", "--json"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         d = json.loads(r.stdout)
