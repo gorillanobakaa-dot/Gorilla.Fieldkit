@@ -14,6 +14,7 @@ import pytest
 
 from fieldkit.build import goapp
 from fieldkit.core.pipeline import Pipeline
+from tests.test_goapp_windows_release import DEB, GOOD_DICT
 
 PIPE = Path(goapp.__file__).parent / "pipelines" / "go-app.yaml"
 HAS_GO = goapp.find_go() is not None
@@ -248,8 +249,13 @@ def test_mac_stage_runs_the_script_with_the_plain_version_and_wants_a_mach_o(tmp
 @pytest.mark.skipif(sys.platform == "win32", reason="the stand-in scripts are POSIX sh")
 def test_packages_are_made_from_the_linux_binary_and_counted_in_the_checksums(tmp_path):
     src, ctx, out = _built(tmp_path)
+    # a real .deb (data.tar.xz, the right dictionary): the packages stage passes every .deb through xzcheck
+    (src / "scripts").mkdir(parents=True, exist_ok=True)
+    (src / "scripts" / "mkdeb.py").write_text(
+        DEB + f"import sys, pathlib\npathlib.Path(sys.argv[2]).write_bytes(deb(pathlib.Path(sys.argv[1]).read_bytes(), "
+              f"{GOOD_DICT}))\n", encoding="utf-8")
     deb = _script(src, "scripts/deb.sh", 'cmp -s hello "$OUTBIN" || true; mkdir -p Compiled.Builds; '
-                                         'cp hello "Compiled.Builds/hello_${1}_amd64.deb"\n')
+                                         f'"{sys.executable}" scripts/mkdeb.py hello "Compiled.Builds/hello_${{1}}_amd64.deb"\n')
     rpm = _script(src, "scripts/rpm.sh", 'cp "Compiled.Builds/hello_${1}_amd64.deb" '
                                          '"Compiled.Builds/hello-${1}-1.x86_64.rpm"\n')
     tar = _script(src, "scripts/tar.sh", 'cp hello Compiled.Builds/hello-linux-x86_64.tar.gz\n')   # a fixed name
