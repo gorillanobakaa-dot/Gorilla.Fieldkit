@@ -104,6 +104,7 @@ groups:
       - buildh/vault.py
       - buildh/worker.py
       - lmstudio.py
+      - orchestrate.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

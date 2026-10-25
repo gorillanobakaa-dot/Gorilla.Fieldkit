@@ -1,0 +1,56 @@
+# Rules the big transfer (stage O2) and the household (stage O1) must hold. Every one CAUGHT:
+#   fieldkit mutate --plan tests/peers_link_transfer_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link_transfer.py tests/test_orchestrate.py tests/test_peers_link.py
+- file: fieldkit/peers/link_transfer.py
+  swap: ['        if err or got != sent:', '        if err:']
+  why: a file whose sha256 does not match is discarded, never kept
+- file: fieldkit/peers/link_transfer.py
+  swap: ['        o = fp.stat().st_size if fp.is_file() else 0', '        o = 0']
+  why: a dropped transfer resumes from what already arrived, it does not start again
+- file: fieldkit/peers/link_transfer.py
+  swap: ['    dest = _free(received, name)', '    dest = received / name']
+  why: received/ is never overwritten
+- file: fieldkit/peers/link_transfer.py
+  swap: ['            if low in seen and seen[low] != rel:', '            if False:']
+  why: names differing only by case are refused on a case-insensitive disk, never merged
+- file: fieldkit/peers/link_transfer.py
+  swap: ['        if windows and (WINDOWS_RESERVED.match(part)', '        if False and (WINDOWS_RESERVED.match(part)']
+  why: names Windows reserves (aux.c in the kernel) are refused on Windows, never renamed
+- file: fieldkit/peers/link_transfer.py
+  swap: ['        if part in ("", ".", ".."):', '        if part in ("",):']
+  why: a path from the other computer never climbs out of received/
+- file: fieldkit/peers/link_transfer.py
+  swap: ['    if hashlib.sha256(raw).hexdigest() != str(req.get("manifest_sha256", "")).lower() or tid_of(raw) != tid:', '    if False:']
+  why: the manifest must match the sha256 in the signed first line
+- file: fieldkit/peers/link_transfer.py
+  swap: ['            r["verified_both_ends"] = r.get("digest") == mine', '            r["verified_both_ends"] = True']
+  why: the sender checks the receiver's digest against its own sha256 list, never the word ok
+- file: fieldkit/peers/link_transfer.py
+  swap: ["                for blk in iter(lambda: f.read(BLOCK), b\"\"):\n                    if off + n", "                for blk in [f.read()]:\n                    if off + n"]
+  why: a file is streamed in blocks, never read whole into memory
+- file: fieldkit/peers/link_transfer.py
+  swap: ["    finally:\n        _save_done(part, done)\n    return _finish", "    finally:\n        pass\n    return _finish"]
+  why: what already arrived is recorded even when the connection breaks
+- file: fieldkit/peers/link_transfer.py
+  swap: ['    for attempt in range(1, retries + 2):', '    for attempt in range(1, 2):']
+  why: put reconnects and resumes by itself after a drop
+- file: fieldkit/peers/link.py
+  swap: ['    if verb in JOB_VERBS and via != "cable":', '    if False:']
+  why: jobs, results and session starts are answered on the cable only
+- file: fieldkit/peers/link.py
+  swap: ['    if req.get("verb") in JOB_VERBS and dev.get("link") != "cable":', '    if False:']
+  why: a job is never sent to a device on the LAN
+- file: fieldkit/peers/link.py
+  swap: ['                if dev is None:', '                if False:']
+  why: only devices of the household are answered
+- file: fieldkit/peers/link.py
+  swap: ['    if role == "boss" and boss:', '    if False:']
+  why: one boss per household
+- file: fieldkit/peers/link.py
+  swap: ['        raise ValueError("the household file''s key does not match its fingerprint: damaged or altered")', '        pass']
+  why: a household file whose key does not match its fingerprint is refused
+- file: fieldkit/peers/link.py
+  swap: ['    if dev is None or dev.get("legacy_peer") or dev.get("first_peer"):', '    if True:']
+  why: each device has its own note counter, so no receiver sees a false gap
+- file: fieldkit/peers/link.py
+  swap: ['    h.setdefault("removed", []).append(', '    h.setdefault("unused", []).append(']
+  why: a removed device is kept, dated, never deleted

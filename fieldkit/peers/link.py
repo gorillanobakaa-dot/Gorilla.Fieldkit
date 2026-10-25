@@ -187,8 +187,196 @@ def check_address(ip, allow_loopback=False):
     return a
 
 
-def config():
+def _legacy():
     return json.loads((home() / "link.json").read_text(encoding="utf-8")) if (home() / "link.json").is_file() else {}
+
+
+def config():
+    """The one-peer view {me, peer, port, host, peer_host} the older steps read (setup, watchdog, checks). With a
+    household, `peer` is the default device (household_default) and `me` this device's first address."""
+    h = household()
+    if not h or h.get("legacy"):
+        return _legacy()
+    mine = device(h, h.get("me")) or {}
+    try:
+        peer = household_default(h)
+    except ValueError:
+        peer = None
+    return {"me": (mine.get("address") or [None])[0], "peer": (peer or {}).get("address", [None])[0],
+            "port": int((peer or {}).get("port") or h.get("port", PORT)), "host": h.get("me"),
+            "peer_host": (peer or {}).get("name")}
+
+
+# ---- the household: every device (stage O1, local/PROJECT-MANDATE-PLAN.md section 19) -----------------------------
+# Owner, 2026-10-25: one boss with a model, many workers, any OS, air-gapped. Before this, link.json held exactly ONE
+# peer. household.json lists every device: name, addresses, role (boss or worker, at most one boss), OS, the brain it
+# serves (an OpenAI-compatible URL, or empty), and how it is reached (cable or lan). One household key for now
+# (link.key; security is for later). Jobs, results and session starts are answered over the cable only, until the
+# mandate gate covers the LAN (rule of 2026-10-25); notes and files go over either.
+ROLES = ("boss", "worker", "")
+LINKS = ("cable", "lan")
+JOB_VERBS = ("job", "result", "resend", "ask")
+
+
+def household_path():
+    return home() / "household.json"
+
+
+def household():
+    """-> {me, port, devices: [{name, address: [..], role, os, brain, link, port?}]}; from household.json, or made
+    from link.json's one paired peer (marked legacy, nothing written); {} when not paired at all."""
+    p = household_path()
+    if p.is_file():
+        return json.loads(p.read_text(encoding="utf-8"))
+    cfg = _legacy()
+    if not cfg:
+        return {}
+    me = cfg.get("host") or socket.gethostname()
+    return {"legacy": True, "me": me, "port": int(cfg.get("port", PORT)), "devices": [
+        {"name": me, "address": [cfg["me"]], "role": "", "os": platform.system(), "brain": "", "link": "cable"},
+        {"name": cfg.get("peer_host") if cfg.get("peer_host") not in (None, "", me) else "peer", "address": [cfg["peer"]], "role": "", "os": "", "brain": "",
+         "link": "cable", "legacy_peer": True}]}
+
+
+def device(h, name):
+    return next((d for d in h.get("devices", []) if d.get("name") == name), None)
+
+
+def others(h):
+    return [d for d in h.get("devices", []) if d.get("name") != h.get("me")]
+
+
+def household_default(h):
+    """The device a call goes to when none is named: the only other one, else (on a worker) the boss."""
+    o = others(h)
+    if len(o) == 1:
+        return o[0]
+    boss = next((d for d in o if d.get("role") == "boss"), None)
+    if boss and (device(h, h.get("me")) or {}).get("role") != "boss":
+        return boss
+    raise ValueError(f"{len(o)} other devices in the household: name one (--device NAME); "
+                     f"{', '.join(d['name'] for d in o) or 'none'}")
+
+
+def save_household(h):
+    h = {k: v for k, v in h.items() if k != "legacy"}
+    for d in h.get("devices", []):
+        d.pop("legacy_peer", None)
+    home().mkdir(parents=True, exist_ok=True)
+    tmp = household_path().with_suffix(".tmp")
+    tmp.write_text(json.dumps(h, indent=1, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, household_path())
+    return h
+
+
+def device_add(name, address, role="worker", os_name="", brain="", via="lan", port=None, me=False,
+               allow_loopback=False):
+    """Add or update one device. -> the household as saved. ValueError on a bad row."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", str(name or "")):
+        raise ValueError(f"{name!r}: a device name is letters, digits, . _ - (at most 64)")
+    addrs = [a.strip() for a in (address if isinstance(address, list) else str(address or "").split(",")) if a.strip()]
+    if not addrs:
+        raise ValueError("a device needs at least one address")
+    for a in addrs:
+        check_address(a, allow_loopback)
+    if role not in ROLES:
+        raise ValueError(f"role {role!r}: boss or worker")
+    if via not in LINKS:
+        raise ValueError(f"link {via!r}: cable or lan")
+    if brain and not re.match(r"^https?://", brain):
+        raise ValueError(f"brain {brain!r}: an http(s) URL of an OpenAI-compatible endpoint, or empty")
+    h = household() or {"me": "", "port": PORT, "devices": []}
+    boss = next((d for d in h["devices"] if d.get("role") == "boss" and d.get("name") != name), None)
+    if role == "boss" and boss:
+        raise ValueError(f"{boss['name']} is already the boss: one boss per household (owner, 2026-10-23)")
+    row = {"name": name, "address": addrs, "role": role, "os": os_name, "brain": brain or "", "link": via}
+    if port:
+        row["port"] = int(port)
+    old = device(h, name)
+    if old:
+        old.clear()
+        old.update(row)
+    else:
+        h["devices"].append(row)
+    if me:
+        h["me"] = name
+        if key() is None:                    # a new household: its one key is made here, carried by `export`
+            _write_key(secrets.token_bytes(32))
+    return save_household(h)
+
+
+def device_remove(name):
+    """Never deleted (house rule): the row moves to `removed` with the date, and is no longer answered or called."""
+    h = household()
+    d = device(h, name)
+    if not d or name == h.get("me"):
+        raise ValueError(f"{name}: not another device of this household")
+    h["devices"].remove(d)
+    h.setdefault("removed", []).append(dict(d, removed_at=time.strftime("%Y-%m-%d %H:%M:%S")))
+    return save_household(h)
+
+
+def household_export(out):
+    """The household file to carry to a new device by hand: every device and the household key (like a pairing
+    file, so it is named *.key and the hard lines keep models off it)."""
+    h, k = household(), key()
+    if not h or not k:
+        raise ValueError("no household and key here yet: pair or add devices first")
+    out = Path(out)
+    if out.suffix != ".key":
+        out = out.with_suffix(".key")
+    body = {k2: v for k2, v in h.items() if k2 not in ("me", "legacy")}
+    out.write_text(json.dumps({"household": body, "key": k.hex(), "fingerprint": fingerprint(k)}, indent=1),
+                   encoding="utf-8")
+    return out, fingerprint(k)
+
+
+def household_import(path, me):
+    d = json.loads(Path(path).read_text(encoding="utf-8"))
+    k = bytes.fromhex(d["key"])
+    if fingerprint(k) != d.get("fingerprint"):
+        raise ValueError("the household file's key does not match its fingerprint: damaged or altered")
+    h = dict(d["household"], me=me)
+    if not device(h, me):
+        raise ValueError(f"{me}: not a device in that household ({', '.join(x['name'] for x in h['devices'])})")
+    _write_key(k)
+    save_household(h)
+    return fingerprint(k)
+
+
+def _source_for(h, addr):
+    """This device's own address on the same /24 as addr (the cable or the LAN it shares), or None."""
+    try:
+        net = ipaddress.ip_network(f"{addr}/{24 if ':' not in addr else 64}", strict=False)
+    except ValueError:
+        return None
+    for a in (device(h, h.get("me")) or {}).get("address", []):
+        try:
+            if ipaddress.ip_address(a) in net:
+                return a
+        except ValueError:
+            continue
+    return None
+
+
+def connect_device(name=None, timeout=15):
+    """-> (an open socket to that device, the household key). Tries each of its addresses in turn."""
+    h, k = household(), key()
+    if not h or not k:
+        raise ConnectionError("not paired: fieldkit peers link pair init | import, or devices import, first")
+    d = device(h, name) if name else household_default(h)
+    if not d or d.get("name") == h.get("me"):
+        raise ConnectionError(f"{name}: not another device of this household")
+    last = None
+    for a in d.get("address", []):
+        src = _source_for(h, a)
+        try:
+            return socket.create_connection((a, int(d.get("port") or h.get("port", PORT))), timeout=timeout,
+                                            source_address=(src, 0) if src else None), k
+        except OSError as e:
+            last = e
+    raise ConnectionError(f"{d['name']} ({', '.join(d.get('address', []))}) did not answer ({last}): is `fieldkit "
+                          "peers link serve` running there?")
 
 
 def key():
@@ -326,11 +514,29 @@ def _seq_file():
     return home() / "sent-seq.json"
 
 
-def last_sent():
+def last_sent(dev=None):
+    """The last number sent to that device. Each receiver checks the numbers it sees for gaps, so every device has
+    its own counter; `last` is the one paired peer's (kept, so its receiver sees no false gap after the change)."""
     try:
-        return int(json.loads(_seq_file().read_text(encoding="utf-8")).get("last", 0))
+        d = json.loads(_seq_file().read_text(encoding="utf-8"))
     except (OSError, ValueError, AttributeError):
         return 0
+    if dev and (dev.get("name") in (d.get("by_device") or {})):
+        return int(d["by_device"][dev["name"]])
+    return int(d.get("last", 0)) if (dev is None or dev.get("legacy_peer") or dev.get("first_peer")) else 0
+
+
+def _save_sent(dev, seq):
+    try:
+        d = json.loads(_seq_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError, AttributeError):
+        d = {}
+    if dev is None or dev.get("legacy_peer") or dev.get("first_peer"):
+        d["last"] = seq
+    if dev is not None:
+        d.setdefault("by_device", {})[dev["name"]] = seq
+    d["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    _seq_file().write_text(json.dumps(d), encoding="utf-8")
 
 
 def seq_flags(host, seq, text, os_name, evidence, state):
@@ -568,6 +774,18 @@ def _free(folder, name):
     return p
 
 
+def to_desktop_copy(dest, name, desktop=None):
+    """-> [where it went] : a copy on the Desktop only when this computer's owner approved accept_to_desktop."""
+    reg, why = approvals()
+    if reg.get("accept_to_desktop") is True:
+        d = Path(desktop or (Path.home() / "Desktop"))
+        d.mkdir(parents=True, exist_ok=True)
+        tgt = _free(d, name)
+        shutil.copy2(dest, tgt)
+        return [str(tgt)]
+    return [f"not on the Desktop: {why if not reg else 'accept_to_desktop is not approved in link.yaml'}"]
+
+
 def receive(req, desktop=None):
     """put-begin / put-chunk / put-end on the receiving side."""
     import base64
@@ -606,25 +824,36 @@ def receive(req, desktop=None):
             return {"ok": False, "error": "checksum or size mismatch: the file was discarded"}
         dest = _free(home() / "received", u["name"])
         os.replace(u["path"], dest)
-        where = [str(dest)]
-        if u["desktop"]:
-            reg, why = approvals()
-            if reg.get("accept_to_desktop") is True:
-                d = Path(desktop or (Path.home() / "Desktop"))
-                d.mkdir(parents=True, exist_ok=True)
-                tgt = _free(d, u["name"])
-                shutil.copy2(dest, tgt)
-                where.append(str(tgt))
-            else:
-                where.append(f"not on the Desktop: {why if not reg else 'accept_to_desktop is not approved in link.yaml'}")
+        where = [str(dest)] + (to_desktop_copy(dest, u["name"], desktop) if u["desktop"] else [])
         _log(f"file {u['name']} ({u['size']} bytes, sha256 {got[:12]}) from {u['from']}: {'; '.join(where)}")
         store("file", {"from_host": u["from"], "text": f"file {u['name']} ({u['size']} bytes) saved: {'; '.join(where)}"})
         return {"ok": True, "saved": where, "sha256": got}
     return {"ok": False, "error": f"unknown verb {verb!r}"}
 
 
-def put(path, to_desktop=False, call_fn=None):
-    """Send one file. -> the receiver's last answer."""
+def put(path, to_desktop=False, call_fn=None, device=None, retries=3, progress=None):
+    """Send a file or a whole folder, any size, streamed on one connection and resumable (link_transfer.py).
+    -> the receiver's answer. A receiver with an older link (no put-stream) still takes a file of up to 50 MB the
+    old way."""
+    if call_fn is None:
+        from . import link_transfer
+        try:
+            r = link_transfer.put_stream(path, device=device, retries=retries, progress=progress,
+                                         to_desktop=to_desktop)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if r.get("ok") or "unknown verb" not in str(r.get("error", "")):
+            return r
+        if not Path(path).is_file():
+            return {"ok": False, "error": "the other computer runs an older link (no put-stream): it takes single "
+                                          "files of up to 50 MB only; update it (fieldkit sync) and restart its "
+                                          "listener to send folders"}
+        call_fn = lambda req: call(req, device=device)        # noqa: E731
+    return put_chunked(path, to_desktop, call_fn)
+
+
+def put_chunked(path, to_desktop=False, call_fn=None):
+    """The 2026-10-22 way: one file, read whole, 40 KB base64 chunks, one connection each, at most 50 MB."""
     import base64
     import hashlib
     call_fn = call_fn or call
@@ -661,12 +890,15 @@ def _device():
         return None
 
 
-def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset):
+def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset, via="cable"):
     bad = verifier.check(req)
     if bad:
         _log(f"REFUSED from {req.get('from_host') if isinstance(req, dict) else '?'}: {bad}")
         return {"ok": False, "error": bad}
     verb = req.get("verb")
+    if verb in JOB_VERBS and via != "cable":
+        _log(f"REFUSED {verb} from {req.get('from_host')} over the {via}: jobs travel on the cable only")
+        return {"ok": False, "error": f"{verb} is answered on the cable only, until the mandate gate covers the LAN"}
     if verb in ("put-begin", "put-chunk", "put-end"):
         return receive(req)
     if verb == "hello":
@@ -710,32 +942,61 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     return {"ok": False, "error": f"unknown verb {verb!r}"}
 
 
+def _stream_thread(c, req, pre):
+    from . import link_transfer
+    try:
+        with c:
+            link_transfer.receive_stream(c, req, pre)
+    except Exception as e:  # noqa: BLE001 - a dropped transfer is logged; the next put resumes it
+        _log(f"stream {req.get('tid')} from {req.get('from_host')} stopped: {type(e).__name__}: {e}")
+
+
 def serve(seconds=None, allow_loopback=False, ready=None, **kw):
-    cfg, k = config(), key()
-    if not cfg or not k:
+    import selectors
+    h, k = household(), key()
+    if not h or not k:
         raise SystemExit("not paired: fieldkit peers link pair init | import first")
-    check_address(cfg["me"], allow_loopback)
-    peer = ipaddress.ip_address(cfg["peer"])
+    mine = (device(h, h.get("me")) or {})
+    port = int(mine.get("port") or h.get("port", PORT))
+    answered = {}                                    # address -> the device it belongs to
+    for d in others(h):
+        for a in d.get("address", []):
+            answered[ipaddress.ip_address(a)] = d
     v = Verifier(k)
-    s = socket.socket(socket.AF_INET6 if ":" in cfg["me"] else socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((cfg["me"], int(cfg.get("port", PORT))))
-    s.listen(4)
-    s.settimeout(1.0)
-    _log(f"serving on {cfg['me']}:{cfg.get('port', PORT)} for {cfg['peer']} only")
+    sel, socks = selectors.DefaultSelector(), []
+    for me in mine.get("address", []):
+        check_address(me, allow_loopback)
+        s = socket.socket(socket.AF_INET6 if ":" in me else socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((me, port))
+        s.listen(8)
+        s.setblocking(False)
+        sel.register(s, selectors.EVENT_READ)
+        socks.append(s)
+    if not socks:
+        raise SystemExit(f"this device ({h.get('me')}) has no address in the household")
+    _log(f"serving on {', '.join(x.getsockname()[0] for x in socks)}:{port} for "
+         f"{', '.join(sorted(str(a) for a in answered))} only")
     if ready:
-        ready(s.getsockname())
+        ready(socks[0].getsockname())
     end = time.time() + seconds if seconds else None
     try:
         while end is None or time.time() < end:
-            try:
-                c, addr = s.accept()
-            except socket.timeout:
+            ev = sel.select(timeout=1.0)
+            if not ev:
                 continue
-            with c:
-                if ipaddress.ip_address(addr[0]) != peer:
-                    _log(f"REFUSED a connection from {addr[0]} (only {peer} is answered)")
+            try:
+                c, addr = ev[0][0].fileobj.accept()
+            except (BlockingIOError, InterruptedError):
+                continue
+            c.setblocking(True)
+            keep = False
+            try:
+                dev = answered.get(ipaddress.ip_address(addr[0].split("%")[0]))
+                if dev is None:
+                    _log(f"REFUSED a connection from {addr[0]} (not a device of this household)")
                     continue
+                via = dev.get("link") or "lan"       # as the household file declares it (loopback tests: cable)
                 c.settimeout(10)
                 buf = b""
                 while b"\n" not in buf and len(buf) <= MAX_REQUEST:
@@ -746,46 +1007,87 @@ def serve(seconds=None, allow_loopback=False, ready=None, **kw):
                 if len(buf) > MAX_REQUEST:
                     c.sendall(json.dumps({"ok": False, "error": "too large"}).encode() + b"\n")
                     continue
+                first, _, pre = buf.partition(b"\n")
                 try:
-                    req = json.loads(buf.split(b"\n", 1)[0].decode("utf-8"))
+                    req = json.loads(first.decode("utf-8"))
                 except ValueError:
                     req = None
-                c.sendall(json.dumps(handle(req, v, **kw), ensure_ascii=False).encode("utf-8") + b"\n")
+                if isinstance(req, dict) and req.get("verb") == "put-stream":
+                    # a big transfer: verified here, then read on its own thread so notes still get through
+                    bad = v.check(req)
+                    if bad:
+                        _log(f"REFUSED from {req.get('from_host')}: {bad}")
+                        c.sendall(json.dumps({"ok": False, "error": bad}).encode() + b"\n")
+                        continue
+                    c.settimeout(120)
+                    threading.Thread(target=_stream_thread, args=(c, req, pre), daemon=True).start()
+                    keep = True
+                    continue
+                c.sendall(json.dumps(handle(req, v, via=via, **kw), ensure_ascii=False).encode("utf-8") + b"\n")
+            except OSError as e:
+                _log(f"connection from {addr[0]} failed: {e}")
+            finally:
+                if not keep:
+                    c.close()
     finally:
-        s.close()
+        for s in socks:
+            s.close()
 
 
 # ---- the asking side ----------------------------------------------------------------------------------------------
-def call(req, timeout=15):
-    cfg, k = config(), key()
-    if not cfg or not k:
+def call(req, timeout=15, device=None):
+    """One signed request to a device of the household (by name; none named: household_default)."""
+    h, k = household(), key()
+    if not h or not k:
         return {"ok": False, "error": "not paired"}
+    try:
+        dev = device_named(h, device)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    if req.get("verb") in JOB_VERBS and dev.get("link") != "cable":
+        return {"ok": False, "error": f"{req.get('verb')} goes on the cable only; {dev['name']} is on the "
+                                      f"{dev.get('link')} (until the mandate gate covers the LAN)"}
     if req.get("verb") == "message":
         try:
             with _Lock(home() / "sent-seq.lock"):
-                seq, me = last_sent() + 1, os_tag()
+                seq, me = last_sent(dev) + 1, os_tag()
                 text = stamp(req.get("text", ""), seq, me, bool(req.get("needs_you")), bool(req.get("done")),
                              req.get("evidence", ""))
                 out = {**req, "text": text, "seq": seq, "os": me}
                 out = {x: v for x, v in out.items() if v not in (None, False, "") or x == "text"}
-                r = _call(out, cfg, k, timeout)
+                r = _call(out, dev, k, timeout)
                 if r.get("ok"):
-                    _seq_file().write_text(json.dumps({"last": seq, "at": time.strftime("%Y-%m-%d %H:%M:%S")}),
-                                           encoding="utf-8")
+                    _save_sent(dev, seq)
                     r["seq"] = seq
                 return r
         except (ValueError, TimeoutError) as e:
             return {"ok": False, "error": f"not sent: {e}"}
-    return _call(req, cfg, k, timeout)
+    return _call(req, dev, k, timeout)
 
 
-def _call(req, cfg, k, timeout):
+def device_named(h, name=None):
+    """-> the device row a call goes to; marks the household's first other device (the old paired peer, whose
+    receiver already counts our notes on `last`)."""
+    d = device(h, name) if name else household_default(h)
+    if not d or d.get("name") == h.get("me"):
+        raise ValueError(f"{name}: not another device of this household "
+                         f"({', '.join(x['name'] for x in others(h)) or 'none'})")
+    o = others(h)
+    if o and o[0] is d:
+        d = dict(d, first_peer=True)
+    return d
+
+
+def _call(req, dev, k, timeout):
     data = json.dumps(sign(req, k), ensure_ascii=False).encode("utf-8") + b"\n"
     if len(data) > MAX_REQUEST:
         return {"ok": False, "error": f"too large ({len(data)} bytes, at most {MAX_REQUEST})"}
     try:
-        with socket.create_connection((cfg["peer"], int(cfg.get("port", PORT))), timeout=timeout,
-                                      source_address=(cfg["me"], 0)) as c:
+        c, _k = connect_device(dev["name"], timeout=timeout)
+    except (ConnectionError, ValueError) as e:
+        return {"ok": False, "error": str(e)}
+    try:
+        with c:
             c.sendall(data)
             buf = b""
             while b"\n" not in buf:
@@ -795,7 +1097,7 @@ def _call(req, cfg, k, timeout):
                 buf += chunk
         return json.loads(buf.split(b"\n", 1)[0].decode("utf-8"))
     except (OSError, ValueError) as e:
-        return {"ok": False, "error": f"the peer {cfg['peer']} did not answer ({e}): is `fieldkit peers link serve` "
+        return {"ok": False, "error": f"{dev['name']} did not answer ({e}): is `fieldkit peers link serve` "
                                       "running there, and the cable address set?"}
 
 
@@ -881,7 +1183,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor",
-                                       "put"])
+                                       "put", "devices"])
+    ap.add_argument("--device", help="hello/send/ask/put: which device of the household (fieldkit peers link devices)")
+    ap.add_argument("--bundle", help="put: a git bundle of every ref of this repository")
+    ap.add_argument("--retries", type=int, default=3, help="put: reconnect and resume this many times after a drop")
+    ap.add_argument("--address", help="devices add: its address(es), comma separated (cable and LAN)")
+    ap.add_argument("--role", default="worker", help="devices add: boss or worker (one boss per household)")
+    ap.add_argument("--os", default="", help="devices add: Linux, Windows, Darwin, FreeBSD, Android ...")
+    ap.add_argument("--brain", default="", help="devices add: the OpenAI-compatible URL it serves, if any")
+    ap.add_argument("--link", default="lan", choices=list(LINKS), help="devices add: reached over the cable or the lan")
+    ap.add_argument("--port", type=int, help="devices add: its port, when not the household's")
+    ap.add_argument("--this", action="store_true", help="devices add: this row is THIS device")
     ap.add_argument("--to-desktop", action="store_true", help="put: also onto the other computer's Desktop (if its owner allowed it)")
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--me")
@@ -933,8 +1245,10 @@ def main(argv=None):
     if a.action == "serve":
         serve(a.seconds, allow_loopback=lb)
         return 0
+    if a.action == "devices":
+        return devices_main(a)
     if a.action == "hello":
-        r = call({"verb": "hello"})
+        r = call({"verb": "hello"}, device=a.device)
         if a.json or not r.get("ok"):
             print(json.dumps(r, indent=1, ensure_ascii=False))
         else:
@@ -942,27 +1256,110 @@ def main(argv=None):
         return 0 if r.get("ok") else 3
     if a.action == "send":
         r = call({"verb": "message", "text": " ".join(a.rest), "to": a.to, "needs_you": a.needs_you, "done": a.done,
-                  "evidence": a.evidence})
+                  "evidence": a.evidence}, device=a.device)
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") else 3
     if a.action == "ask":
         if not a.brief:
             print("ask --agent claude --brief FILE (what the new session is for; it is shown fenced as your text)")
             return 2
-        r = call({"verb": "ask", "agent": a.agent, "brief": Path(a.brief).read_text(encoding="utf-8")})
+        r = call({"verb": "ask", "agent": a.agent, "brief": Path(a.brief).read_text(encoding="utf-8")}, device=a.device)
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") and r.get("started") else 2 if r.get("ok") else 3
     if a.action == "inbox":
         print("\n".join(fenced(inbox(a.wait, a.since))))
         return 0
     if a.action == "put":
-        if not a.rest:
-            print("put FILE [FILE ...] [--to-desktop]")
-            return 2
-        code = 0
-        for f in a.rest:
-            r = put(f, a.to_desktop)
-            print(f"{'SENT' if r.get('ok') else 'NOT SENT'}  {f}: " + ("; ".join(r.get("saved", [])) if r.get("ok") else r.get("error", "")))
-            code = code or (0 if r.get("ok") else 3)
-        return code
+        return put_main(a)
     return doctor()
+
+
+def _progress(sent, total):
+    print(f"  ... {sent / 1e6:,.0f} of {total / 1e6:,.0f} MB", file=sys.stderr, flush=True)
+
+
+def put_main(a):
+    items, tmp = list(a.rest), None
+    if a.bundle:
+        from . import link_transfer
+        try:
+            tmp = link_transfer.make_bundle(a.bundle)
+        except ValueError as e:
+            print(f"NOT SENT  {a.bundle}: {e}")
+            return 3
+        items.append(str(tmp))
+    if not items:
+        print("put FILE|FOLDER [...] [--bundle REPO] [--device NAME] [--to-desktop] [--retries N]")
+        return 2
+    code = 0
+    try:
+        for f in items:
+            r = put(f, a.to_desktop, device=a.device, retries=a.retries, progress=None if a.json else _progress)
+            if a.json:
+                print(json.dumps(r, ensure_ascii=False))
+            elif r.get("ok"):
+                extra = (f"; {r['files']} file(s), {r['bytes'] / 1e6:,.1f} MB, every sha256 checked"
+                         + (f", both ends' digest {r['digest'][:12]}" if r.get("verified_both_ends") else "")
+                         + (f"; {r['seconds']} s, {r['mb_per_s']} MB/s" if "seconds" in r else "")
+                         + (f"; resumed {r['resumed_bytes'] / 1e6:,.1f} MB" if r.get("resumed_bytes") else "")
+                         + (f"; bundle: {r['bundle']}" if r.get("bundle") else "")
+                         + (f"; {r['skipped_count']} link(s) not sent" if r.get("skipped_count") else "")
+                         if "files" in r else "")
+                print(f"SENT  {f}: " + "; ".join(r.get("saved", [])) + extra)
+            else:
+                more = r.get("cannot_hold") or r.get("bad") or []
+                print(f"NOT SENT  {f}: {r.get('error', '')}")
+                for m in more[:10]:
+                    print(f"  - {m[0]}: {m[1]}" if isinstance(m, list) else f"  - {m}")
+            code = code or (0 if r.get("ok") else 3)
+    finally:
+        if tmp:                                   # the bundle made for this put: this run's own temporary file
+            shutil.rmtree(tmp.parent, ignore_errors=True)
+    return code
+
+
+def device_lines(h):
+    L = [f"HOUSEHOLD  {len(h.get('devices', []))} device(s), this one: {h.get('me') or '?'}"
+         + ("  (from link.json's one paired peer; `devices add` writes household.json)" if h.get("legacy") else "")]
+    for d in h.get("devices", []):
+        L.append(f"  {'*' if d['name'] == h.get('me') else ' '} {d['name']:<22} {d.get('role') or '-':<7} "
+                 f"{d.get('os') or '?':<9} {d.get('link'):<6} {','.join(d.get('address', [])):<30} "
+                 f"brain {d.get('brain') or 'none'}")
+    return L
+
+
+def devices_main(a):
+    sub = a.rest[0] if a.rest else "list"
+    name = a.rest[1] if len(a.rest) > 1 else None
+    try:
+        if sub == "list":
+            h = household()
+            if not h:
+                print("HOUSEHOLD  none: pair (fieldkit peers link setup) or devices import FILE --device MY-NAME")
+                return 2
+            print(json.dumps(h, indent=1) if a.json else "\n".join(device_lines(h)))
+            return 0
+        if sub == "add" and name:
+            h = device_add(name, a.address, a.role, a.os, a.brain, a.link, a.port, me=a.this,
+                           allow_loopback=a.loopback_test)
+            print(f"SAVED  {household_path()}\n" + "\n".join(device_lines(h)))
+            return 0
+        if sub == "remove" and name:
+            device_remove(name)
+            print(f"MOVED  {name} to `removed` in {household_path()} (kept, dated; no longer answered or called)")
+            return 0
+        if sub == "export" and name:
+            out, fp = household_export(name)
+            print(f"WRITTEN  {out} (fingerprint {fp}). Carry it BY HAND to the new device and run there: "
+                  f"{PY} peers link devices import {out.name} --device THAT-DEVICE-NAME")
+            return 0
+        if sub == "import" and name and a.device:
+            print(f"JOINED  as {a.device}. Fingerprint {household_import(name, a.device)}: compare it with the "
+                  "exporting screen")
+            return 0
+    except (ValueError, KeyError, OSError) as e:
+        print(f"DEVICES: REFUSED - {e}")
+        return 2
+    print("devices [list] | add NAME --address IP[,IP] [--role worker|boss] [--os OS] [--brain URL] [--link cable|lan] "
+          "[--this] | remove NAME | export FILE | import FILE --device MY-NAME")
+    return 2

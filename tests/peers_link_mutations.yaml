@@ -7,7 +7,7 @@
   swap: ['    if a.is_loopback or a.is_multicast or not (a.is_private or a.is_link_local):', '    if False:']
   why: only a private or link-local cable address
 - file: fieldkit/peers/link.py
-  swap: ['    if fingerprint(k) != d.get("fingerprint"):', '    if False:']
+  swap: ['        raise ValueError("the pairing file''s key does not match its fingerprint: damaged or altered")', '        pass']
   why: a pairing file whose key does not match its fingerprint is refused
 - file: fieldkit/peers/link.py
   swap: ['        if not hmac.compare_digest(want, str(req.get("mac"))):', '        if False:']
@@ -19,8 +19,8 @@
   swap: ['        if not n or n in self.seen:', '        if not n:']
   why: a replayed request is refused
 - file: fieldkit/peers/link.py
-  swap: ['                if ipaddress.ip_address(addr[0]) != peer:', '                if False:']
-  why: only the paired peer's address is answered
+  swap: ['                if dev is None:', '                if False:']
+  why: "only the paired peer's address is answered (since 2026-10-25, only a device of the household)"
 - file: fieldkit/peers/link.py
   swap: ['"text": local_peers.sanitize(str(req.get("text") or req.get("brief") or ""))[:16000]}', '"text": str(req.get("text") or req.get("brief") or "")[:16000]}']
   why: received text is cleaned of escape sequences and bidi overrides before anyone reads it
@@ -110,7 +110,7 @@
   swap: ['        if u["path"].stat().st_size != u["size"] or got != u["sha256"]:', '        if False:']
   why: a file whose checksum does not match is discarded
 - file: fieldkit/peers/link.py
-  swap: ['            if reg.get("accept_to_desktop") is True:', '            if True:']
+  swap: ['    if reg.get("accept_to_desktop") is True:', '    if True:']
   why: the Desktop only when that computer's owner approved it
 - file: fieldkit/peers/link.py
   swap: ['    while p.exists():', '    while False:']
