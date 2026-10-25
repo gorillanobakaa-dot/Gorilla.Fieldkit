@@ -52,6 +52,28 @@ def test_python_with_backslashes_in_a_heredoc_goes_to_the_write_tool():
 # -- 2026-10-19: the hand-rolled habits each Fieldkit tool replaces. Every row: commands it must refuse, and the
 #    look-alikes it must let through (a router that refuses ordinary work is switched off, then it teaches nothing).
 HABITS = {
+    "release-sums-by-hand": (
+        ["sha256sum *.deb *.exe > SHA256SUMS-v0.1.152.txt",
+         "python -m fieldkit size hash a b | python -c \"...\" > SHA256SUMS-v0.1.152.txt",
+         "Get-FileHash x.exe >> 'SHA256SUMS.txt'"],
+        ["sha256sum -c SHA256SUMS-v0.1.152.txt --ignore-missing", "cat SHA256SUMS-v0.1.152.txt",
+         "python -m fieldkit release table SHA256SUMS-v0.1.152.txt"]),
+    "packages-by-hand": (
+        ["nfpm package -f nfpm.yaml -p deb -t out.deb", "dpkg-deb --build pkg out.deb", "dpkg-deb -b pkg",
+         "rpmbuild -bb gorilla.spec"],
+        ["nfpm --version", "dpkg-deb -c x.deb", "dpkg-deb --info x.deb", "rpm -qlp x.rpm",
+         "python -m fieldkit pipeline run gorilla-opencode"]),
+    "release-check-by-hand": (
+        ["gh release download v0.1.152 -R o/r -D dl", "gh workflow run linux-install.yml -R o/r -f tag=v1"],
+        ["gh release view v0.1.152 -R o/r", "gh workflow run arch-package.yml -f tag=v1",
+         "python -m fieldkit release verify v0.1.152 --repo o/r"]),
+    "lmstudio-log-by-hand": (
+        ["grep -n 'eval time' ~/.cache/lm-studio/server-logs/2026-10/2026-10-25.1.log",
+         "tail -50 /c/Users/x/.cache/lm-studio/server-logs/2026-10/2026-10-25.1.log",
+         "Get-Content $HOME\\.cache\\lm-studio\\server-logs\\2026-10\\a.log -Tail 40"],
+        ["python -m fieldkit lmstudio-log --day 2026-10-25",
+         "python -m fieldkit lmstudio-log ~/.cache/lm-studio/server-logs/2026-10/2026-10-25.1.log",
+         "ls ~/.cache/lm-studio/server-logs/"]),
     "hash-by-hand": (
         ["Get-FileHash C:\\gfobj\\dist\\x.exe -Algorithm SHA256",
          "certutil -hashfile setup.exe SHA256",

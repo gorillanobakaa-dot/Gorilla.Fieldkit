@@ -37,6 +37,29 @@ ROUTES = [
      FK + " size find --ext py --grep vctip <folder>"),
     # -- 2026-10-19: every hand-rolled habit a Fieldkit tool replaces (worker session, job 2). Each row has a test that
     #    it fires and a test that its look-alike does not (tests/test_autopilot_toolrouter.py).
+    # -- 2026-10-25: the hand steps of the Gorilla OpenCode v0.1.152 release from Windows, each now a tool
+    ("release-sums-by-hand",
+     # before hash-by-hand: `sha256sum ... > SHA256SUMS` is the hand-typed checksum file, not a one-off hash
+     re.compile(r">>?\s*['\"]?[^|;\n\s]*SHA256SUMS", re.I),
+     "fieldkit pipeline run gorilla-opencode (its checksums stage lists exactly the published files and writes the "
+     "page's table, measured); for another folder: fieldkit release table SHA256SUMS --dir DIR",
+     FK + " release table SHA256SUMS-v0.1.152.txt --dir dist"),
+    ("packages-by-hand",
+     re.compile(r"\bnfpm\s+(package|pkg)\b|\bdpkg-deb\s+(-b|--build)\b|\brpmbuild\s+-b[abps]?\b", re.I),
+     "fieldkit pipeline run gorilla-opencode (packages stage: the project's scripts on Linux, nfpm on Windows, the "
+     ".deb compared with the last release's, the tarball checked by its bytes)",
+     FK + " pipeline run gorilla-opencode --var version=v0.1.153"),
+    ("release-check-by-hand",
+     re.compile(r"\bgh\s+release\s+download\b|\bgh\s+workflow\s+run\s+linux-install\b", re.I),
+     "fieldkit release verify TAG --repo OWNER/NAME (into a new empty folder: every asset against SHA256SUMS and "
+     "GitHub's digest, the page's table, then linux-install.yml run and its jobs read)",
+     FK + " release verify v0.1.152 --repo gorillanobakaa-dot/Gorilla.Opencode"),
+    ("lmstudio-log-by-hand",
+     re.compile(r"\b(grep|rg|cat|tail|head|less|type|Get-Content|gc|Select-String|sls)\b[^|;\n]*lm-studio[\\/]+server-logs",
+                re.I),
+     "fieldkit lmstudio-log (per request: prompt tokens, prefill and generation tok/s, n_tokens; Vulkan device lost "
+     "with the fix)",
+     FK + " lmstudio-log --day 2026-10-25 --last 10"),
     ("hash-by-hand",
      re.compile(r"\bGet-FileHash\b|\bcertutil(\.exe)?\s+-hashfile\b|(^|[;&|]\s*)sha(1|256|512)sum\s+(?!-c\b|--check\b)",
                 re.I),

@@ -8,6 +8,10 @@ description: >-
   build-darwin-legacy.sh: a patched GOROOT, since stock Go needs macOS 11) and the packages (.deb, Arch,
   the portable tarball, .rpm) from the project's own scripts, and SHA256SUMS over everything: every
   release file from ONE Linux machine (owner, 2026-10-23: no more jumping between three computers).
+  On Windows (v0.1.152, 2026-10-25) the same run makes every file too: .deb and .rpm by the project's
+  build-packages-nfpm.py, compared with the last release's .deb; the tarball packed here and checked by
+  its bytes (Windows cannot run the Linux binary); the Mac binary with a cached go1.24 toolchain. SHA256SUMS
+  lists exactly the published files, and RELEASE-FILES-<version>.md is the page's table, measured.
   Give the version (--var version=v0.1.146) or let git describe name it.
 vars:
   src: ""                  # the module folder (holds go.mod); or goapps.<name> in fieldkit.local.json
@@ -26,6 +30,14 @@ vars:
   mac_package: scripts/packaging/build_mac_legacy_package.py   # the installer's folder + .zip (skipped if absent)
   packages: "scripts/build-deb.sh,scripts/build-arch.sh,scripts/build-tarball.sh,scripts/build-rpm.sh"
   package_dir: Compiled.Builds   # where the package scripts leave their files
+  mac_go: "1.24"           # the series build-darwin-legacy.sh is patched for and the MacBook Air builds used
+  mac_zip: "<name>-<version>-mac-10.13-x86_64.zip"   # <version> without v; the published zip; the bare Mac binary is not published
+  packager: auto           # scripts where dpkg-deb + rpmbuild exist (not Windows), else nfpm
+  nfpm_script: scripts/build-packages-nfpm.py
+  previous_deb: auto       # nfpm: the last release's .deb from GitHub (checked by its SHA256SUMS) | PATH | none
+  repo: gorillanobakaa-dot/Gorilla.Opencode
+  tarball: gorilla-opencode-linux-x86_64.tar.gz    # nfpm: packed here, one member, 0755, gzip -9
+  tarball_member: gorilla-opencode
 stages:
   - id: toolchain
     run: {python: "fieldkit.build.goapp:stage_toolchain"}

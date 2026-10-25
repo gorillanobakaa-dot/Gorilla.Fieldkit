@@ -59,6 +59,8 @@
     fieldkit docs guide                          how to write for a reader who has never opened a terminal
     fieldkit docs philosophy                     why: the Gorilla Open Source Philosophy
     fieldkit release-page compose|check          a release page with both tracks in full on it, plain language first
+    fieldkit release table|verify                the page's file table measured from SHA256SUMS; a published tag checked
+    fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
     fieldkit build-harness latest|vault|start|approve|next|status|submit|unblock|log ...
@@ -766,6 +768,8 @@ def cmd_agent(a):
 
 def cmd_release(a):
     from . import release
+    if a.action in ("table", "verify"):
+        return _release_files(a)
     if a.action == "prove":
         ev, path = release.prove(a.spec)
         _emit({"evidence": str(path)} | ev, a.json, lambda e: print(
@@ -776,6 +780,36 @@ def cmd_release(a):
     r = release.before_publish(a.spec) if a.before_publish else release.check(a.spec)
     _emit(r, a.json, lambda r: print(chr(10).join(release.lines(r))))
     return 0 if r["clear"] else 3
+
+
+def _release_files(a):
+    from pathlib import Path
+    from .build import relfiles
+    from .core import settings
+    try:
+        if a.action == "table":
+            if a.check:
+                folder = Path(a.dir) if a.dir else Path(a.spec).parent
+                sums = relfiles.parse_sums(Path(a.spec))
+                bad = relfiles.check_table(Path(a.check).read_text(encoding="utf-8"), sums,
+                                           {n: (folder / n).stat().st_size for n in sums if (folder / n).is_file()})
+                _emit({"ok": not bad, "problems": bad}, a.json, lambda r: print(
+                    "OK  the page's table matches " + Path(a.spec).name if not bad else
+                    chr(10).join(["FAILED  the page's table is not the measured one:"] + ["  " + x for x in bad])))
+                return 0 if not bad else 3
+            print(relfiles.table(a.spec, a.dir), end="")
+            return 0
+        if not a.repo:
+            print("REFUSED: verify needs --repo OWNER/NAME")
+            return 2
+        folder = Path(a.dir) if a.dir else (settings.ROOT / "state" / "release-verify" /
+                                            f"{a.repo.replace('/', '_')}-{a.spec}-{time.strftime('%Y%m%d-%H%M%S')}")
+        r = relfiles.verify(a.spec, a.repo, folder, dispatch=not a.no_dispatch, run_id=a.run_id, wait=a.wait)
+    except (ValueError, RuntimeError, OSError) as e:
+        print(f"REFUSED: {e}")
+        return 2
+    _emit(r, a.json, lambda r: print(chr(10).join(relfiles.lines(r))))
+    return 0 if r["ok"] else 3
 
 
 def cmd_mcp(a):
@@ -1447,6 +1481,10 @@ def build_parser():
                               "safely (fieldkit win11)")
     w11.add_argument("args", nargs=argparse.REMAINDER)
     w11.set_defaults(fn=lambda a: __import__("fieldkit.win11.cli", fromlist=["main"]).main(a.args))
+    lm = sub.add_parser("lmstudio-log", add_help=False,
+                        help="why a local model is slow: LM Studio's server log per request, Vulkan device lost "
+                             "and its fix (fieldkit lmstudio-log)")
+    lm.add_argument("args", nargs=argparse.REMAINDER)
     ev = sub.add_parser("evidence", add_help=False,
                         help="research evidence that can be checked later: fetch pages into a store, import a run's "
                              "findings, check every claim (fieldkit evidence)")
@@ -1534,8 +1572,18 @@ def build_parser():
     ag.set_defaults(fn=cmd_agent)
 
     rl = sub.add_parser("release", parents=[common])
-    rl.add_argument("action", choices=["check", "prove"])
-    rl.add_argument("spec", help="release spec YAML (see fieldkit/release.py)")
+    rl.add_argument("action", choices=["check", "prove", "table", "verify"],
+                    help="table: the page's File|Bytes|SHA-256 table measured from SHA256SUMS; verify: download a "
+                         "published tag, check it, run linux-install.yml (fieldkit/build/relfiles.py)")
+    rl.add_argument("spec", help="check/prove: release spec YAML (see fieldkit/release.py); table: a SHA256SUMS "
+                                 "file; verify: the tag, e.g. v0.1.152")
+    rl.add_argument("--dir", help="table: the folder with the files (default: next to SHA256SUMS); verify: a new "
+                                  "empty folder for the downloads (default: state/release-verify/<repo>-<tag>-<time>)")
+    rl.add_argument("--check", metavar="PAGE", help="table: check this page's table instead of printing one")
+    rl.add_argument("--repo", help="verify: OWNER/NAME on GitHub")
+    rl.add_argument("--no-dispatch", action="store_true", help="verify: do not run the linux-install workflow")
+    rl.add_argument("--run-id", type=int, help="verify: read this workflow run instead of dispatching a new one")
+    rl.add_argument("--wait", type=float, default=1800, help="verify: seconds to wait for the workflow")
     rl.add_argument("--before-publish", action="store_true",
                     help="check: only the gates that need nothing published (privacy, tests) - run it before publishing")
     rl.set_defaults(fn=cmd_release)
@@ -2533,6 +2581,9 @@ def main(argv=None):
     if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
         from .win11 import cli as win11_cli
         return win11_cli.main(args[1:])
+    if args[:1] == ["lmstudio-log"]:                  # why a local model is slow: LM Studio's server log
+        from . import lmstudio
+        return lmstudio.main(args[1:])
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])
