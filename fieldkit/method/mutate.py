@@ -16,6 +16,9 @@ Exit 0 when every mutation was caught, 3 when one survived, 2 for bad input or a
 """
 import argparse
 import hashlib
+import os
+import re
+import shutil
 import signal
 import subprocess
 from pathlib import Path
@@ -27,6 +30,54 @@ from . import emit
 
 def _sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def _msys_roots():
+    """Where Git for Windows lives, as Git Bash writes it into a rewritten argument (C:/Program Files/Git)."""
+    roots = set()
+    for exe in ("git", "bash"):
+        w = shutil.which(exe)
+        if w:
+            p = Path(w).resolve()
+            for up in (p.parent, p.parent.parent, p.parent.parent.parent):
+                if (up / "usr" / "bin").is_dir():
+                    roots.add(str(up).replace("\\", "/"))
+    if os.name == "nt":
+        roots.add("C:/Program Files/Git")
+    return sorted(roots, key=len, reverse=True)
+
+
+def msys_rewritten(arg, text, roots=None, guess=True):
+    """Git Bash rewrites an argument that starts with / into a Windows path before Python sees it:
+    '"/usr/share/x.sh", 0o755' arrives as '"C:/Program Files/Git/usr/share/x.sh", 0o755' (2026-10-25: a swap
+    refused as 'occurs 0 times', fixed by MSYS_NO_PATHCONV=1). -> the argument as it was typed, when it holds a Git
+    root the file does not (or, with guess, when cutting a drive path's first folders gives text the file holds);
+    else None."""
+    if arg in text:
+        return None
+    for root in (roots if roots is not None else _msys_roots()):
+        for r in {root, root.replace("/", "\\")}:
+            if r in arg and r not in text:
+                return arg.replace(r, "")
+    if guess:                                             # a Git installed somewhere else: try each folder cut
+        for m in re.finditer(r"[A-Za-z]:/", arg):
+            rest = arg[m.start():]
+            for k, c in enumerate(rest):
+                if c == "/" and k > 2 and (arg[:m.start()] + rest[k:]) in text:
+                    return arg[:m.start()] + rest[k:]
+    return None
+
+
+def msys_refusal(m, text, roots=None):
+    """-> a refused result when Git Bash rewrote the OLD or the NEW text of a swap, else None."""
+    for which, arg, guess in (("OLD", m["swap"][0], True), ("NEW", m["swap"][1], False)):
+        typed = msys_rewritten(arg, text, roots, guess)
+        if typed is not None:
+            return {"verdict": "refused", "file": str(m["file"]), "msys": True,
+                    "detail": f"Git Bash rewrote the {which} text: typed {typed!r}, arrived as {arg!r}. Run it "
+                              "again with MSYS_NO_PATHCONV=1 in front (MSYS_NO_PATHCONV=1 fieldkit mutate ...), "
+                              "from PowerShell, or with the swaps in a --plan file"}
+    return None
 
 
 def run_test(test, cwd=None, timeout=1800):
@@ -77,7 +128,14 @@ def mutate_once(file, old, new, test, count=1, cwd=None, timeout=1800):
             "test_output": "" if not passed else out[-600:]}
 
 
-def mutate(plan, test, cwd=None, timeout=1800):
+def mutate(plan, test, cwd=None, timeout=1800, roots=None):
+    # a swap Git Bash rewrote is refused before anything runs: the test result would be about text nobody typed.
+    # Only swaps from the command line: a --plan file is read by Python, never rewritten.
+    rewritten = [r for r in (msys_refusal(m, Path(m["file"]).read_text(encoding="utf-8"), roots)
+                             for m in plan if m.get("from_argv")) if r]
+    if rewritten:
+        return {"ok": False, "baseline": "not run", "results": rewritten, "caught": 0, "survived": 0,
+                "refused": len(rewritten), "next": "MSYS_NO_PATHCONV=1 in front of the command"}
     ok, out = run_test(test, cwd, timeout)
     if not ok:
         return {"ok": False, "baseline": "failed", "detail": out[-800:], "results": [],
@@ -104,7 +162,8 @@ def _lines(d):
     out = []
     for r in d["results"]:
         tag = {"caught": "CAUGHT  ", "survived": "SURVIVED", "refused": "REFUSED "}[r["verdict"]]
-        what = r.get("why") or (f"{r['swap'][0]!r} -> {r['swap'][1]!r}" if r.get("swap") else r.get("detail", ""))
+        what = r["detail"] if r.get("msys") else r.get("why") or (
+            f"{r['swap'][0]!r} -> {r['swap'][1]!r}" if r.get("swap") else r.get("detail", ""))
         out.append(f"{tag} {Path(r['file']).name}: {what}")
     out.append(f"{d['caught']} caught, {d['survived']} survived, {d['refused']} refused")
     return out
@@ -135,7 +194,7 @@ def main(argv=None, prog="fieldkit mutate"):
     if a.plan:
         plan = yaml.safe_load(Path(a.plan).read_text(encoding="utf-8")) or []
     elif a.file and a.swap:
-        plan = [{"file": a.file, "swap": a.swap, "count": a.count}]
+        plan = [{"file": a.file, "swap": a.swap, "count": a.count, "from_argv": True}]
     else:
         print("REFUSED: give FILE --swap OLD NEW, or --plan FILE")
         return 2
@@ -145,4 +204,4 @@ def main(argv=None, prog="fieldkit mutate"):
             return 2
     r = mutate(plan, test, a.cwd, a.timeout)
     emit(r, a.json, _lines)
-    return 0 if r["ok"] else (2 if r.get("baseline") == "failed" else 3)
+    return 0 if r["ok"] else (2 if r.get("baseline") in ("failed", "not run") else 3)

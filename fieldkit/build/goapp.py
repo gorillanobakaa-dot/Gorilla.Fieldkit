@@ -477,9 +477,45 @@ def _plain(version):
     return version[1:] if version.startswith("v") else version
 
 
+def cached_toolchains(want, modcache=None):
+    """Go toolchains the go command itself left in the module cache (GOTOOLCHAIN=go1.24.13 once fetched one):
+    <GOMODCACHE>/golang.org/toolchain@v0.0.1-go<want>.*.<os>-<arch>/bin/go, newest first."""
+    import platform
+    goos = "windows" if os.name == "nt" else ("darwin" if sys.platform == "darwin" else "linux")
+    arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower(),
+                                                                                         platform.machine().lower())
+    base = Path(modcache) if modcache else Path.home() / "go" / "pkg" / "mod"
+    exe = "go.exe" if goos == "windows" else "go"
+    found = []
+    for d in (base / "golang.org").glob(f"toolchain@v0.0.1-go{want}.*.{goos}-{arch}"):
+        m = re.search(r"-go(\d+\.\d+(?:\.\d+)?)\.", d.name)
+        if m and (d / "bin" / exe).is_file():
+            found.append((_ver(m.group(1)), m.group(1), d / "bin" / exe))
+    return [(ver, str(go)) for _, ver, go in sorted(found, reverse=True)]
+
+
+def mac_go(ctx, src):
+    """The go for the Mac 10.13 build. vars.mac_go (e.g. 1.24): the patch in build-darwin-legacy.sh is written for
+    that series and the builds tested on the MacBook Air used it. The system go when it is that series, else the
+    newest cached toolchain of it; none: refused with the line that fetches one (2026-10-25: the first Windows run
+    built the Mac program with go 1.27, untested on the Air). -> (go, version) or raises ValueError."""
+    want = str(ctx.vars.get("mac_go") or "").strip()
+    go = _go(ctx, src)
+    have = go_version(go) or ""
+    if not want or have == want or have.startswith(want + "."):
+        return go, have
+    modcache = subprocess.run([go, "env", "GOMODCACHE"], capture_output=True, text=True, timeout=60).stdout.strip()
+    for ver, cand in cached_toolchains(want, modcache or None):
+        if go_version(cand) == ver:
+            return cand, ver
+    raise ValueError(f"the Mac build wants go {want}.x; the system go is {have} and no go{want}.x toolchain is "
+                     f"cached under {modcache or '~/go/pkg/mod'}/golang.org. Fetch one (the go command downloads "
+                     f"and checks it against sum.golang.org): GOTOOLCHAIN=go{want}.0 go version - then run again")
+
+
 def stage_mac(ctx):
     """vars.mac_script: the project's legacy-Mac build script (empty: skipped). Its output is checked to be a
-    64-bit Mach-O binary."""
+    64-bit Mach-O binary built by the go of vars.mac_go."""
     src = _src(ctx)
     v = ctx.vars
     script = (v.get("mac_script") or "").strip()
@@ -493,11 +529,17 @@ def stage_mac(ctx):
     f = out / f"{v.get('name') or 'app'}-{version}-darwin-amd64-{v.get('mac_suffix') or 'legacy'}"
     if not (src / script).is_file():
         return {"ok": False, "detail": f"{script} is not in {src}"}
+    try:
+        go, gover = mac_go(ctx, src)
+    except ValueError as e:
+        return {"ok": False, "detail": str(e)}
+    # the script calls `go` from PATH: the chosen one goes first
+    env = {"VERSION": _plain(version), "PATH": str(Path(go).parent) + os.pathsep + os.environ.get("PATH", "")}
     from ..thermal import buildguard
     say = getattr(ctx, "say", None) or (lambda m: print(m, file=sys.stderr))
     try:
         with buildguard.guard(say, label=f"go-{v.get('name') or 'app'}-mac"):
-            r = _run(ctx, ["bash", script, str(f)], src, "mac-build", env={"VERSION": _plain(version)}, timeout=7200)
+            r = _run(ctx, ["bash", script, str(f)], src, "mac-build", env=env, timeout=7200)
     except buildguard.BuildRefused as e:
         return {"ok": False, "detail": f"not built: {e}"}
     if not r.ok or not f.is_file():
@@ -505,8 +547,10 @@ def stage_mac(ctx):
         return {"ok": False, "detail": f"{script} failed: " + " | ".join(last)[:400], "log": r.log}
     if f.read_bytes()[:4] not in MACHO:
         return {"ok": False, "detail": f"{f.name} is not a 64-bit Mach-O binary"}
+    if v.get("mac_go") and gover and f"go{gover}".encode() not in f.read_bytes():
+        return {"ok": False, "detail": f"{f.name} does not carry go{gover} in its build info: built by another go"}
     rec = {"ok": True, "version": version, "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size,
-           "detail": f"{f.name} ({f.stat().st_size:,} bytes)", "package": []}
+           "go": gover, "detail": f"{f.name} ({f.stat().st_size:,} bytes, go {gover})", "package": []}
     # the installer's folder (Install/Undo .command, the .tar.gz it checks, SHA256SUMS, a .zip for the release page),
     # by the project's own packager (the Windows side's build_mac_legacy_package.py, 2026-10-23 PR #3)
     pkg = (v.get("mac_package") or "").strip()
@@ -519,8 +563,19 @@ def stage_mac(ctx):
         if not r.ok or not made:
             last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
             return {"ok": False, "detail": f"{pkg} failed: " + " | ".join(last)[:300], "log": r.log}
+        # vars.mac_zip: the name the release page uses for the zip (v0.1.151 and v0.1.152 published
+        # ...-mac-10.13-x86_64.zip; the packager writes ...-mac-10.13.zip). Set: only that zip is published, the
+        # .tar.gz travels inside it and the bare binary is not a release file.
+        zip_name = (v.get("mac_zip") or "").replace("<name>", v.get("name") or "app").replace("<version>",
+                                                                                           _plain(version))
+        if zip_name:
+            zips = [m for m in made if m.suffix == ".zip"]
+            if len(zips) != 1:
+                return {"ok": False, "detail": f"{pkg} made {len(zips)} .zip file(s), expected one"}
+            made = [zips[0]]
+            rec["publish_binary"] = False
         for m in made:
-            dst = out / m.name
+            dst = out / (zip_name or m.name)
             shutil.copy2(m, dst)
             rec["package"].append({"file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
         rec["detail"] += "; package: " + ", ".join(Path(x["file"]).name for x in rec["package"])
@@ -560,6 +615,8 @@ def stage_packages(ctx):
     linux = next((b["file"] for b in rec["built"] if b["target"].startswith("linux/")), None)
     if not linux:
         return {"ok": False, "detail": "no linux binary in the build: add linux/amd64 to targets"}
+    if packager(v) == "nfpm":
+        return _packages_nfpm(ctx, src, rec, linux)
     name = v.get("name") or "app"
     staged = src / name
     shutil.copy2(linux, staged)                         # the scripts package whatever sits at <src>/<name>
@@ -593,36 +650,239 @@ def verify_packages(ctx):
         p = Path(f["file"])
         if not p.is_file() or _sha(p) != f["sha256"]:
             return {"ok": False, "detail": f"{p.name} is missing or changed"}
+    tb = rec.get("tarball")
+    if tb:
+        problem = check_tarball(Path(tb["file"]), tb["member"], Path(tb["binary"]), tb["binary_sha256"], tb["stamp"])
+        if problem:
+            return {"ok": False, "detail": problem}
     return {"ok": True, "detail": rec["detail"]}
 
+
+# ---- packages on a machine without dpkg-deb or rpmbuild (Windows, 2026-10-25) ------------------------------------
+# v0.1.152 was released from the Windows laptop: build-deb.sh/build-rpm.sh need dpkg-deb and rpmbuild, and every
+# package script runs the Linux binary to read its version, which Windows cannot. By hand it took nfpm (the
+# project's scripts/build-packages-nfpm.py, checked against the last release's .deb), a tarball packed in Python and
+# checked by bytes instead of by running it, and the Arch package from the arch-package workflow on GitHub.
+def packager(v):
+    """vars.packager: scripts (the project's shell scripts), nfpm, or auto: scripts where dpkg-deb and rpmbuild
+    exist and this is not Windows, else nfpm."""
+    want = (v.get("packager") or "auto").strip()
+    if want != "auto":
+        return want
+    return "scripts" if os.name != "nt" and shutil.which("dpkg-deb") and shutil.which("rpmbuild") else "nfpm"
+
+
+def _source_epoch(src):
+    if os.environ.get("SOURCE_DATE_EPOCH", "").isdigit():
+        return int(os.environ["SOURCE_DATE_EPOCH"])
+    try:
+        r = subprocess.run(["git", "-C", str(src), "log", "-1", "--format=%ct"], capture_output=True, text=True,
+                           timeout=60)
+        return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip().isdigit() else 0
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+
+
+def make_tarball(binary, dest, member, mtime=0):
+    """The layout of scripts/build-tarball.sh without running the binary: ONE member at the root, a regular file,
+    mode 0755, owner root, gzip level 9. mtime fixed (the commit time), gzip header without name or time: the same
+    binary gives the same bytes."""
+    import gzip
+    import io
+    import tarfile
+    data = Path(binary).read_bytes()
+    ti = tarfile.TarInfo(member)
+    ti.size, ti.mode, ti.mtime, ti.type = len(data), 0o755, int(mtime), tarfile.REGTYPE
+    ti.uid = ti.gid = 0
+    ti.uname = ti.gname = "root"
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as t:
+        t.addfile(ti, io.BytesIO(data))
+    with open(dest, "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as g:
+        g.write(buf.getvalue())
+    return Path(dest)
+
+
+def check_tarball(tarball, member, binary, binary_sha, stamp):
+    """-> None, or what is wrong. The packed file must be byte for byte the binary the build and repro stages
+    proved, carry the version stamp, be the only member, and be 0755."""
+    import tarfile
+    try:
+        with tarfile.open(tarball, "r:gz") as t:
+            ms = t.getmembers()
+            if [m.name for m in ms] != [member]:
+                return f"{Path(tarball).name} holds {[m.name for m in ms]}, expected only {member!r}"
+            m = ms[0]
+            if not m.isfile() or m.mode & 0o7777 != 0o755:
+                return f"{member} in {Path(tarball).name} is mode {oct(m.mode & 0o7777)}, expected 0o755"
+            data = t.extractfile(m).read()
+    except (OSError, tarfile.TarError, EOFError) as e:
+        return f"{Path(tarball).name} is not a readable .tar.gz: {e}"
+    if hashlib.sha256(data).hexdigest() != binary_sha:
+        return f"{member} in {Path(tarball).name} is not byte for byte {Path(binary).name}"
+    if stamp.encode() not in data:
+        return f"{member} in {Path(tarball).name} does not carry the version stamp {stamp}"
+    return None
+
+
+def previous_release_deb(repo, version, dest, gh="gh"):
+    """The .deb of the release before `version` on GitHub, downloaded into dest/<tag>/ and checked against that
+    release's SHA256SUMS. -> (path, tag). Raises ValueError (no earlier release, no .deb, a checksum mismatch)."""
+    from . import relfiles
+    r = subprocess.run([gh, "release", "list", "-R", repo, "--limit", "40", "--json", "tagName,isDraft"],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise ValueError(f"gh release list -R {repo} failed: {(r.stderr or r.stdout).strip()[:200]}")
+    tags = [x["tagName"] for x in json.loads(r.stdout or "[]")
+            if not x.get("isDraft") and re.fullmatch(r"v\d+\.\d+\.\d+", x["tagName"])
+            and _ver(x["tagName"]) < _ver(version)]
+    if not tags:
+        raise ValueError(f"no release of {repo} older than {version}")
+    tag = max(tags, key=_ver)
+    d = Path(dest) / tag
+    for attempt in (0, 1):
+        debs = sorted(d.glob("*_amd64.deb")) if d.is_dir() else []
+        sums = sorted(d.glob("SHA256SUMS-*.txt")) if d.is_dir() else []
+        if len(debs) == 1 and len(sums) == 1:
+            want = relfiles.parse_sums(sums[0]).get(debs[0].name)
+            if want and _sha(debs[0]) == want:
+                return debs[0], tag
+            if attempt:
+                raise ValueError(f"{debs[0].name} of {tag} does not match its SHA256SUMS")
+        if attempt:
+            raise ValueError(f"{tag} has {len(debs)} .deb file(s) and {len(sums)} SHA256SUMS file(s), expected one each")
+        shutil.rmtree(d, ignore_errors=True)
+        d.mkdir(parents=True)
+        g = subprocess.run([gh, "release", "download", tag, "-R", repo, "-D", str(d), "-p", "*_amd64.deb",
+                            "-p", "SHA256SUMS-*.txt"], capture_output=True, text=True, timeout=1800)
+        if g.returncode != 0:
+            raise ValueError(f"gh release download {tag} failed: {(g.stderr or g.stdout).strip()[:200]}")
+    raise ValueError("unreachable")
+
+
+def _packages_nfpm(ctx, src, rec, linux):
+    v = ctx.vars
+    version = rec["version"]
+    out = _out(ctx, src)
+    rp = _load(ctx, src, "repro") or {}
+    target = next(b for b in rec["built"] if b["file"] == linux)
+    proved = next((x for x in rp.get("results", []) if x.get("target") == target["target"]), None)
+    if not (rp.get("ok") and proved and proved["identical"] and proved["second_sha256"] == _sha(linux)):
+        return {"ok": False, "detail": f"{Path(linux).name} is not the binary the repro stage reproduced: run repro"}
+    files, notes = [], []
+    # the tarball: bytes, not a run of the binary (Windows cannot run it)
+    tname = (v.get("tarball") or "").strip()
+    tb = None
+    if tname:
+        member = (v.get("tarball_member") or v.get("name") or "app").strip()
+        dst = make_tarball(linux, out / tname, member, _source_epoch(src))
+        tb = {"file": str(dst), "member": member, "binary": linux, "binary_sha256": target["sha256"], "stamp": version}
+        problem = check_tarball(dst, member, Path(linux), target["sha256"], version)
+        if problem:
+            return {"ok": False, "detail": problem}
+        files.append({"script": "fieldkit make_tarball", "file": str(dst), "sha256": _sha(dst),
+                      "bytes": dst.stat().st_size})
+    script = (v.get("nfpm_script") or "scripts/build-packages-nfpm.py").strip()
+    if not (src / script).is_file():
+        return {"ok": False, "detail": f"{script} is not in {src}: no way to make the .deb and .rpm here"}
+    cmd = [sys.executable, "-I", str(src / script), _plain(version), linux]
+    prev = (v.get("previous_deb") or "auto").strip()
+    if prev == "auto":
+        if not v.get("repo"):
+            return {"ok": False, "detail": "previous_deb=auto needs --var repo=OWNER/NAME (or previous_deb=PATH|none)"}
+        try:
+            prev_path, prev_tag = previous_release_deb(v["repo"], version, _reports(ctx, src) / "previous")
+        except ValueError as e:
+            return {"ok": False, "detail": f"the last release's .deb to compare with: {e}"}
+        notes.append(f"layout compared with {prev_tag}'s {prev_path.name}")
+    elif prev == "none":
+        prev_path = None
+        notes.append("NOT compared with an earlier .deb (previous_deb=none)")
+    else:
+        prev_path = Path(settings.expand(prev)).expanduser()
+        if not prev_path.is_file():
+            return {"ok": False, "detail": f"previous_deb {prev_path} is not a file"}
+        notes.append(f"layout compared with {prev_path.name}")
+    stage = _reports(ctx, src) / "nfpm-out"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True)
+    cmd += [str(stage)] + (["--compare", str(prev_path)] if prev_path else [])
+    r = _run(ctx, cmd, src, "pkg-nfpm", timeout=1800)
+    made = sorted(p for p in stage.iterdir() if p.is_file() and p.suffix in (".deb", ".rpm"))
+    if not r.ok or sorted(p.suffix for p in made) != [".deb", ".rpm"]:
+        last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
+        return {"ok": False, "detail": f"{script}: {'failed' if not r.ok else 'did not make one .deb and one .rpm'}: "
+                                       + " | ".join(last)[:400], "log": r.log}
+    said = [l.strip() for l in r.stdout.splitlines() if l.startswith(("deb:", "rpm:", "same layout"))]
+    for m in made:
+        dst = out / m.name
+        shutil.copy2(m, dst)
+        files.append({"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
+    others = [s for s in (x.strip() for x in (v.get("packages") or "").split(",")) if s and
+              not any(k in s for k in ("deb", "rpm", "tarball"))]
+    if others:
+        notes.append("not made here: " + ", ".join(others) + " (needs its own system; Arch: the arch-package workflow)")
+    data = {"ok": True, "version": version, "packager": "nfpm", "files": files, "tarball": tb, "nfpm_said": said,
+            "notes": notes, "log": r.log,
+            "detail": ", ".join(Path(f["file"]).name for f in files) + (f"; {'; '.join(notes)}" if notes else "")}
+    return _save(ctx, src, "packages", data)
+
+
+def published(ctx, src):
+    """[(path, sha256)] of every file the release publishes, from the stage records: the builds, the Mac zip (or
+    the Mac binary and its package files when no mac_zip name is set), the packages."""
+    rec = _load(ctx, src, "build") or {}
+    files = [(Path(b["file"]), b["sha256"]) for b in rec.get("built", [])]
+    mac = _load(ctx, src, "mac") or {}
+    if mac.get("ok") and mac.get("file"):
+        if mac.get("publish_binary", True):
+            files.append((Path(mac["file"]), mac["sha256"]))
+        files += [(Path(x["file"]), x["sha256"]) for x in mac.get("package", [])]
+    files += [(Path(f["file"]), f["sha256"]) for f in (_load(ctx, src, "packages") or {}).get("files", [])]
+    return files
+
+
 def stage_checksums(ctx):
+    from . import relfiles
     src = _src(ctx)
     rec = _load(ctx, src, "build")
     if not rec or not rec.get("ok"):
         return {"ok": False, "detail": "run the build stage first"}
     out = _out(ctx, src)
     f = out / f"SHA256SUMS-{rec['version']}.txt"
-    lines = [f"{b['sha256']}  {Path(b['file']).name}" for b in rec["built"]]
-    mac = _load(ctx, src, "mac") or {}                   # the Mac binary and the packages, when those stages ran
-    if mac.get("ok") and mac.get("file"):
-        lines.append(f"{mac['sha256']}  {Path(mac['file']).name}")
-        lines += [f"{x['sha256']}  {Path(x['file']).name}" for x in mac.get("package", [])]
-    lines += [f"{f['sha256']}  {Path(f['file']).name}" for f in (_load(ctx, src, "packages") or {}).get("files", [])]
-    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {"ok": True, "file": str(f), "detail": f"{f.name}: {len(lines)} file(s)"}
+    files = published(ctx, src)
+    for p, sha in files:
+        if not p.is_file() or _sha(p) != sha:
+            return {"ok": False, "detail": f"{p.name} is missing or changed since its stage made it"}
+    f.write_text("".join(f"{sha}  {p.name}\n" for p, sha in files), encoding="utf-8", newline="\n")
+    # the release page's table of files, sizes and checksums, measured here (v0.1.152's was typed by hand)
+    t = out / f"RELEASE-FILES-{rec['version']}.md"
+    t.write_text(relfiles.table(f, out), encoding="utf-8", newline="\n")
+    return {"ok": True, "file": str(f), "table": str(t), "detail": f"{f.name}: {len(files)} file(s); table {t.name}"}
 
 
 def verify_checksums(ctx):
+    from . import relfiles
     src = _src(ctx)
     rec = _load(ctx, src, "build")
     if not rec:
         return {"ok": False, "detail": "nothing built"}
-    f = _out(ctx, src) / f"SHA256SUMS-{rec['version']}.txt"
+    out = _out(ctx, src)
+    f = out / f"SHA256SUMS-{rec['version']}.txt"
     if not f.is_file():
         return {"ok": False, "detail": f"{f.name} missing"}
-    for line in f.read_text(encoding="utf-8").splitlines():
-        sha, _, name = line.partition("  ")
-        p = _out(ctx, src) / name
+    sums = relfiles.parse_sums(f)
+    want = {p.name for p, _ in published(ctx, src)}
+    if set(sums) != want:
+        return {"ok": False, "detail": f"{f.name} does not list exactly the published files: missing "
+                                       f"{sorted(want - set(sums))}, extra {sorted(set(sums) - want)}"}
+    for name, sha in sums.items():
+        p = out / name
         if not p.is_file() or _sha(p) != sha:
             return {"ok": False, "detail": f"{name} does not match {f.name}"}
-    return {"ok": True, "detail": f"{f.name} matches every file"}
+    t = out / f"RELEASE-FILES-{rec['version']}.md"
+    bad = relfiles.check_table(t.read_text(encoding="utf-8") if t.is_file() else "", sums,
+                               {n: (out / n).stat().st_size for n in sums})
+    if bad:
+        return {"ok": False, "detail": f"{t.name}: " + "; ".join(bad[:3])}
+    return {"ok": True, "detail": f"{f.name} lists every published file and matches it; {t.name} agrees"}

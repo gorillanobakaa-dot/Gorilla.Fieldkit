@@ -103,6 +103,7 @@ groups:
       - buildh/upstream.py
       - buildh/vault.py
       - buildh/worker.py
+      - lmstudio.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

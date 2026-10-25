@@ -1,6 +1,6 @@
 ---
 name: fieldkit-build
-description: Run or resume staged build pipelines (Gorilla Firefox on Windows and on Debian, custom Debian kernel packages) and diagnose a failed build from its log with the fieldkit command. Use when asked to build Firefox or the kernel, when a build or packaging step failed, or to find out which stage a build is at.
+description: Run or resume staged build pipelines (Gorilla Firefox on Windows and on Debian, custom Debian kernel packages, every Gorilla OpenCode release file from Linux or Windows - .deb/.rpm with nfpm, the tarball, the Mac 10.13 zip on go1.24, SHA256SUMS and the page's measured file table), check a published release (release verify - download, checksums, the linux-install workflow), find out why a local LM Studio model is slow (lmstudio-log), and diagnose a failed build from its log with the fieldkit command. Use when asked to build Firefox, the kernel or a Gorilla OpenCode release, when a build or packaging step failed, before typing a checksum table or downloading release files by hand, when a local model is slow or says device lost, or to find out which stage a build is at.
 ---
 
 # Builds with fieldkit
@@ -42,6 +42,32 @@ The verdict is one of:
 
 A failed stage in `pipeline run` is triaged automatically; the report carries the
 result.
+
+## Gorilla OpenCode releases (Linux or Windows)
+
+```
+fieldkit pipeline run gorilla-opencode --var version=v0.1.153        # every release file, one run
+fieldkit release verify v0.1.153 --repo gorillanobakaa-dot/Gorilla.Opencode   # after publishing
+fieldkit release table dist/SHA256SUMS-v0.1.153.txt --check PAGE.md            # the page's table is the measured one
+fieldkit lmstudio-log --day 2026-10-25 --last 10                     # a local model is slow: why
+```
+
+- One run makes the .exe, the Linux binary, the tarball, the .deb, the .rpm, the Mac 10.13 zip
+  (`...-mac-10.13-x86_64.zip`), `SHA256SUMS-<v>.txt` (exactly the published files) and
+  `RELEASE-FILES-<v>.md` (the page's File | Bytes | SHA-256 table, measured: paste it, never type it).
+- On Windows (no dpkg-deb, no rpmbuild, no exec bits, the Linux binary cannot run) the packages
+  stage uses the project's `scripts/build-packages-nfpm.py` and compares the .deb with the last
+  release's .deb from GitHub. The tarball is packed in Python and checked by its bytes. The Arch
+  package comes from the `arch-package` workflow.
+- The Mac stage builds with go1.24.x, the series the 10.13 patch and the MacBook Air builds use:
+  the system go if it is 1.24, otherwise the newest `~/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.*`.
+  If neither exists, the stage stops and prints the command that fetches one.
+- A binary built from an exported folder (no `.git`) carries no `vcs.*` build info, so its bytes
+  differ from a release built from the git checkout, even when the source is the same
+  (`go version -m` shows it). To reproduce a published binary, build from a checkout of its commit.
+- `release verify` downloads into a new empty folder, checks every asset against SHA256SUMS and
+  GitHub's digest, checks the page's table, runs `linux-install.yml`, and reports deb-ubuntu and
+  rpm-fedora (`--no-dispatch` skips the workflow; `--run-id N` reads an existing run).
 
 ## Kernel helpers
 
