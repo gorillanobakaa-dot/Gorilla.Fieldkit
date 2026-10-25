@@ -24,6 +24,13 @@ fieldkit mutate --plan mutations.yaml -- TEST COMMAND          [{file, swap: [OL
 ```
 CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fails. The file is always restored.
 
+## An xz archive you made or ship (.xz, .tar.xz, a .deb)
+```
+fieldkit xzcheck FILE... [--cap-mib 128]     dictionary = what the content needs (not more, not less); unpacks within the cap
+```
+Never "improve" compression with a bigger `dict=`: past the content's size it adds no bytes saved, only memory every
+installing machine must have. `xz -9e` (64 MiB) is the most for anything up to 64 MiB of content.
+
 ## A check (a scanner, a gate row, an audit): prove it can fail, and get a second witness
 ```
 fieldkit canary run [ID ...]        each check on a planted input it must flag and a clean control it must pass

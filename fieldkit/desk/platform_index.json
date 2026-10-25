@@ -2907,5 +2907,15 @@
   "ids": [
    "win11-xbox-services-check"
   ]
+ },
+ "xzcheck": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "xzcheck"
+  ]
  }
 }
