@@ -242,3 +242,75 @@ def test_doctor_runs_and_answers():
     code, outp = run("doctor")
     assert code in (0, 3), outp
     assert "VERDICT:" in outp and "wpr.exe" in outp
+
+
+# ── macOS backend (kits/gpudecode/gpudecode_mac.py), from REAL logs ─────────────────────────────────────────────
+# testdata/mac-air-log-hw.txt and -sw.txt: `gpudecode.py mac-ab macair` on 2026-10-25, MacBook Air 4,1, macOS 10.13.6,
+# Gorilla 158 for the Air, 1080p60 H.264, 30 s each. On: 21 of 1,800 dropped, Apple's decoder driver in the rdd
+# process. Off: 1,505 of 1,511 dropped, no process with the driver.
+mspec = importlib.util.spec_from_file_location("gpudecode_mac", KIT / "gpudecode_mac.py")
+gm = importlib.util.module_from_spec(mspec)
+mspec.loader.exec_module(gm)
+HW = (DATA / "mac-air-log-hw.txt").read_text(encoding="utf-8")
+SW = (DATA / "mac-air-log-sw.txt").read_text(encoding="utf-8")
+
+
+def test_mac_real_ab_is_hardware_decode_in_the_rdd_process():
+    r = gm.judge(gm.parse_log(HW), gm.parse_log(SW))
+    assert r["verdict"].startswith("HARDWARE DECODE"), r["verdict"]
+    assert [p["role"] for p in r["hw"]["decoder_procs"]] == ["rdd"]
+    assert r["hw"]["decoder_procs"][0]["drivers"]["AppleIntelSNBVA"] == 6
+    assert (r["hw"]["total"], r["hw"]["dropped"], r["sw"]["total"], r["sw"]["dropped"]) == (1800, 21, 1511, 1505)
+    assert "DTrace" in r["not_done"]
+
+
+def test_mac_videotoolbox_alone_is_not_the_decoder():
+    """VideoToolbox is the API, mapped in every browser process; only the Intel/GVA driver counts."""
+    hw = gm.parse_log(HW)
+    hw["procs"] = [dict(p, drivers={"VideoToolbox": 4}) for p in hw["procs"]]
+    assert gm.judge(hw, gm.parse_log(SW))["verdict"].startswith("NO HARDWARE DECODE")
+
+
+def test_mac_driver_with_decoding_off_is_incomplete_never_a_yes():
+    assert gm.judge(gm.parse_log(HW), gm.parse_log(HW))["verdict"].startswith("INCOMPLETE: the decoder driver")
+
+
+def test_mac_a_run_without_frames_is_incomplete_never_a_no():
+    sw = gm.parse_log(SW)
+    sw["result"] = None
+    assert gm.judge(gm.parse_log(HW), sw)["verdict"].startswith("INCOMPLETE: a run reported no frames")
+    hw = gm.parse_log(HW)
+    hw["procs"] = []
+    hw["result"] = {"total": 0, "dropped": 0}
+    assert gm.judge(hw, gm.parse_log(SW))["verdict"].startswith("INCOMPLETE")
+
+
+def test_mac_verdict_command_reads_saved_logs(tmp_path):
+    (tmp_path / "log-hw.txt").write_text(HW, encoding="utf-8")
+    (tmp_path / "log-sw.txt").write_text(SW, encoding="utf-8")
+    code, text = run("mac-verdict", str(tmp_path))
+    assert code == 0 and "VERDICT: HARDWARE DECODE" in text
+    assert json.loads((tmp_path / "verdict.json").read_text())["hw"]["dropped"] == 21
+
+
+def test_mac_ssh_retries_only_a_lost_connection():
+    calls = []
+
+    class R:
+        def __init__(self, rc):
+            self.returncode, self.stdout, self.stderr = rc, "", ""
+
+    def fake(argv, **kw):
+        calls.append(argv)
+        return R(255 if len(calls) < 2 else 0)
+    assert gm.ssh("m", "true", run=fake, sleep=lambda s: None)[0] == 0 and len(calls) == 2
+    calls.clear()
+    assert gm.ssh("m", "false", run=lambda a, **k: calls.append(a) or R(1), sleep=lambda s: None)[0] == 1
+    assert len(calls) == 1
+
+
+def test_mac_run_script_measures_before_vmmap_and_stops_only_its_own():
+    s = gm.RUN
+    assert s.index('RESULT:') < s.index("vmmap $p")      # vmmap suspends the process: never during the measurement
+    assert "BEFORE=" in s and "comm -13" in s and "killall" not in s and "pkill" not in s
+    assert '-profile "$P"' in s                          # a fresh test profile, never the person's own

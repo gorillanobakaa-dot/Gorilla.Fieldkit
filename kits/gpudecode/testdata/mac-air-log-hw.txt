@@ -1,0 +1,10 @@
+PIDS: 1829 1831 1833 1834 1835 1836
+CPU-END: 1829=26.1 1831=0.0 1833=34.0 1834=14.0 1835=10.3 1836=0.0 
+RESULT: {"label":"hw","seconds":30,"total":1800,"dropped":21,"per_second":[{"total":60,"dropped":0},{"total":60,"dropped":0},{"total":61,"dropped":3},{"total":60,"dropped":0},{"total":60,"dropped":0},{"total":61,"dropped":0},{"total":60,"dropped":0},{"total":60,"dropped":0},{"total":60,"dropped":3},{"total":60,"dropped":1},{"total":60,"dropped":0},{"total":60,"dropped":0},{"total":60,"dropped":0},{"total":61,"dropped":0},{"total":60,"dropped":0},{"total":61,"dropped":5},{"total":60,"dropped":0},{"total":59,"dropped":0},{"total":61,"dropped":0},{"total":60,"dropped":0},{"total":60,"dropped":0},{"total":60,"dropped":1},{"total":62,"dropped":5},{"total":60,"dropped":0},{"total":61,"dropped":0},{"total":60,"dropped":0},{"total":59,"dropped":0},{"total":60,"dropped":0},{"total":61,"dropped":3}],"ua":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:157.0) Gecko/20100101 Firefox/157.0","w":1920,"h":1080}
+PROC 1829 http://127.0 maps:    4 VideoToolbox 
+PROC 1831 socket maps:    4 VideoToolbox 
+PROC 1833 tab maps:    4 VideoToolbox 
+PROC 1834 rdd maps:    4 AppleGVA    3 AppleIntelHD3000GraphicsVADriver    6 AppleIntelSNBVA    4 VideoToolbox 
+PROC 1835 tab maps:    4 VideoToolbox 
+PROC 1836 utility maps:    4 VideoToolbox 
+END
