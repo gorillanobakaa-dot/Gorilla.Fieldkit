@@ -314,3 +314,38 @@ def test_mac_run_script_measures_before_vmmap_and_stops_only_its_own():
     assert s.index('RESULT:') < s.index("vmmap $p")      # vmmap suspends the process: never during the measurement
     assert "BEFORE=" in s and "comm -13" in s and "killall" not in s and "pkill" not in s
     assert '-profile "$P"' in s                          # a fresh test profile, never the person's own
+
+
+# DTrace per frame (2026-10-25, after the owner added a sudoers rule for /usr/sbin/dtrace only). Real output, 20 s
+# each: on 1,213 kernel IDCT calls (Gen6DVDContext::process_idct_command_buffer) for 1,213 VideoToolbox frames;
+# off 0 IDCT for 999 frames (Apple's software decoder; the GPU only converts colour).
+DT_HW = (DATA / "mac-air-dtrace-hw.txt").read_text(encoding="utf-8")
+DT_SW = (DATA / "mac-air-dtrace-sw.txt").read_text(encoding="utf-8")
+
+
+def test_mac_dtrace_counts_the_gpu_decode_step_per_frame():
+    hw, sw = gm.parse_dtrace(DT_HW), gm.parse_dtrace(DT_SW)
+    assert (hw["frames"], hw["idct"], sw["frames"], sw["idct"]) == (1213, 1213, 999, 0)
+    assert sw["kernel"]["_ZN14Gen6DVDContext34patchColorSpaceConversionCmdBufferEPj"] == 998
+    r = gm.judge(gm.parse_log(HW), gm.parse_log(SW), hw, sw)
+    assert r["verdict"].startswith("HARDWARE DECODE: the GPU's video engine decoded every frame")
+    assert "on 1213 kernel IDCT decode calls for 1213" in r["verdict"] and not r["not_done"]
+
+
+def test_mac_dtrace_decode_step_with_decoding_off_is_incomplete():
+    """The kernel probes see the whole machine: a second video playing would put IDCT calls in the off run."""
+    hw = gm.parse_dtrace(DT_HW)
+    assert gm.judge(gm.parse_log(HW), gm.parse_log(SW), hw, hw)["verdict"].startswith("INCOMPLETE: the GPU's decode step")
+
+
+def test_mac_dtrace_without_the_decode_step_is_not_a_yes():
+    sw = gm.parse_dtrace(DT_SW)
+    hw = dict(gm.parse_dtrace(DT_HW), idct=0)
+    hwlog = gm.parse_log(HW)
+    hwlog["procs"] = [dict(p, drivers={"VideoToolbox": 4}) for p in hwlog["procs"]]
+    assert gm.judge(hwlog, gm.parse_log(SW), hw, sw)["verdict"].startswith("NO HARDWARE DECODE")
+
+
+def test_mac_no_dtrace_output_is_none_and_named_not_done():
+    assert gm.parse_dtrace("") is None and gm.parse_dtrace("NO RDD") is None
+    assert "DTrace" in gm.judge(gm.parse_log(HW), gm.parse_log(SW))["not_done"]

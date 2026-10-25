@@ -1,0 +1,14 @@
+rdd=3677
+
+K _ZN14Gen6DVDContext12get_tex_dataEP19Gen575TextureBufferPjS2_          26686
+K _ZN14Gen6DVDContext12texture_mainEiPjS0_ji                             4852
+K _ZN14Gen6DVDContext13texture_mediaEiPjS0_ji                            21834
+K _ZN14Gen6DVDContext18get_iosurface_dataEiPjS0_                         26686
+K _ZN14Gen6DVDContext19submitContextBufferEv                             1196
+K _ZN14Gen6DVDContext20processCommandBufferEP23VendorCommandDescriptor   1213
+K _ZN14Gen6DVDContext26getTargetAndMethodForIndexEPP9IOServicej          2426
+K _ZN14Gen6DVDContext27process_idct_command_bufferEP23VendorCommandDescriptor 1213
+K _ZN14Gen6DVDContext30query_time_stamp_with_durationEP24IntelDVDQueryTimeStampInP25IntelDVDQueryTimeStampOutyPy 1213
+K _ZN14Gen6DVDContext34patchColorSpaceConversionCmdBufferEPj             1213
+K _ZN14Gen6DVDContext35query_idct_time_stamp_with_durationEP24IntelDVDQueryTimeStampInP25IntelDVDQueryTimeStampOutyPy 1213
+VideoToolbox frames handed to the decoder (rdd)              1213

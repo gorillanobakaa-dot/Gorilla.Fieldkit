@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-25-18-40
+# Version: 1.1.0 · updated 26-10-25-20-05
 """gpudecode on an old Mac, driven from Linux over SSH: does the browser decode H.264 on the Intel GPU?
 
 Built 2026-10-25 on the MacBook Air 4,1 (macOS 10.13.6, Intel HD 3000). The same question as the Windows
@@ -16,8 +16,15 @@ Verdict, three outcomes, never two:
   NO HARDWARE DECODE  the driver is not mapped in any browser process with hardware decoding on
   INCOMPLETE          a run reported no frames, or the driver was mapped with hardware decoding off (the switch did
                       not take): the recording proves nothing either way
-The dropped-frame counts of both runs are printed beside it. Not done here: a per-frame count of calls into the
-driver (DTrace needs root; sudo asks for a password over SSH). Measured 2026-10-25, Gorilla 158 for the Air:
+The dropped-frame counts of both runs are printed beside it.
+
+Per frame, when `sudo -n /usr/sbin/dtrace` works on the Mac (a sudoers rule for dtrace only; the owner adds it):
+for 20 s in the middle of each run DTrace counts VideoToolbox's VTDecompressionSessionDecodeFrame in the rdd process
+and every kernel call into the HD 3000 driver's video decode context (Gen6DVDContext). The hardware decoder's own
+step is process_idct_command_buffer (the inverse DCT of H.264, done by the GPU's video engine): measured 2026-10-25,
+on 1,213 calls for 1,213 frames in 20 s (60.6 per second); off 0, while VideoToolbox still got 999 frames (Apple's
+SOFTWARE decoder; the GPU then only converts colour, patchColorSpaceConversionCmdBuffer 998). The kernel probes see
+the whole machine, so the two runs never overlap. Measured 2026-10-25, Gorilla 158 for the Air:
 on 1,800 frames dropped 16 and 4, driver mapped in the rdd process; off 1,476 of 1,482 and 1,490 of 1,497
 dropped, driver not mapped.
 
@@ -114,6 +121,46 @@ echo "END"
 """.replace("__REMOTE__", REMOTE).replace("__PORT__", str(PORT))
 
 
+IDCT = "process_idct_command_buffer"
+
+DTRACE = r"""#!/bin/bash
+# On the Mac: LABEL. Waits for the test browser's rdd, then counts for 20 s: VideoToolbox frames in rdd and every
+# kernel call into the HD 3000 driver's video decode context (Gen6DVDContext), per function.
+L=$1; for i in $(seq 1 40); do R=$(pgrep -f "prof-$L.* rdd$" | head -1); [ -n "$R" ] && break; sleep 1; done
+[ -n "$R" ] || { echo "NO RDD"; exit 1; }
+echo "rdd=$R"; sleep 12
+sudo -n /usr/sbin/dtrace -q -p "$R" -n '
+pid$target:VideoToolbox:VTDecompressionSessionDecodeFrame*:entry { @vt["VideoToolbox frames handed to the decoder (rdd)"] = count(); }
+fbt:com.apple.driver.AppleIntelHD3000Graphics:_ZN14Gen6DVDContext*:entry { @k[probefunc] = count(); }
+tick-20s { printa("%-60s %@d\n", @vt); printa("K %-70s %@d\n", @k); exit(0); }' 2>&1 | sort -k2 | tail -25
+"""
+
+
+def parse_dtrace(text):
+    """-> {frames: VideoToolbox frames or None, idct: kernel IDCT calls, kernel: {func: n}} or None (no output)."""
+    if not text or "rdd=" not in text:
+        return None
+    out = {"frames": None, "idct": 0, "kernel": {}}
+    for line in text.splitlines():
+        m = re.match(r"K\s+(\S+)\s+(\d+)\s*$", line)
+        if m:
+            out["kernel"][m.group(1)] = int(m.group(2))
+            if IDCT in m.group(1):
+                out["idct"] += int(m.group(2))
+        m = re.match(r"VideoToolbox frames.*?\s(\d+)\s*$", line)
+        if m:
+            out["frames"] = int(m.group(1))
+    return out
+
+
+def dtrace_sentence(hw, sw):
+    """The per-frame line for the verdict, or "" when DTrace did not run in both runs."""
+    if not hw or not sw:
+        return ""
+    return (f"; DTrace 20 s: on {hw['idct']} kernel IDCT decode calls for {hw['frames'] or 0} VideoToolbox frames, "
+            f"off {sw['idct']} for {sw['frames'] or 0}")
+
+
 def parse_log(text):
     """-> {pids, cpu: {pid: %}, result: dict|None, procs: [{pid, role, drivers: {name: n}}]}"""
     out = {"pids": [], "cpu": {}, "result": None, "procs": []}
@@ -142,8 +189,10 @@ def decoder_procs(run):
     return [p for p in run["procs"] if any(DRIVER_RE.fullmatch(d) and d != "VideoToolbox" for d in p["drivers"])]
 
 
-def judge(hw, sw):
-    """hw, sw: parse_log() of the run with hardware decoding on / off -> {verdict, ...}."""
+def judge(hw, sw, dt_hw=None, dt_sw=None):
+    """hw, sw: parse_log() of the run with hardware decoding on / off; dt_*: parse_dtrace() or None -> {verdict, ...}.
+    With DTrace from both runs, the per-frame count decides: the GPU's IDCT step at least once per 2 frames with
+    decoding on and never with it off is HARDWARE DECODE even without the vmmap evidence."""
     def frames(run):
         r = run.get("result") or {}
         return r.get("total", 0), r.get("dropped", 0)
@@ -152,8 +201,21 @@ def judge(hw, sw):
     facts = (f"on: {hd} of {ht} frames dropped, driver in "
              f"{', '.join(p['role'] + ' ' + p['pid'] for p in hp) or 'no process'}; "
              f"off: {sd} of {st} dropped, driver in {', '.join(p['role'] + ' ' + p['pid'] for p in sp) or 'no process'}")
+    facts += dtrace_sentence(dt_hw, dt_sw)
+    per_frame = None
+    if dt_hw and dt_sw:
+        if dt_sw["idct"] > 0:
+            per_frame = "incomplete"
+        elif dt_hw["frames"] and dt_hw["idct"] * 2 >= dt_hw["frames"]:
+            per_frame = "yes"
+        else:
+            per_frame = "no"
     if not ht or not st:
         v = "INCOMPLETE: a run reported no frames (the page did not play or did not report); " + facts
+    elif per_frame == "incomplete":
+        v = "INCOMPLETE: the GPU's decode step ran with hardware decoding OFF (another video playing?); " + facts
+    elif per_frame == "yes" and not sp:
+        v = "HARDWARE DECODE: the GPU's video engine decoded every frame (DTrace) only with hardware decoding on; " + facts
     elif sp:
         v = "INCOMPLETE: the decoder driver was mapped with hardware decoding OFF, so the switch did not take; " + facts
     elif hp:
@@ -162,7 +224,8 @@ def judge(hw, sw):
         v = "NO HARDWARE DECODE: no browser process mapped Apple's decoder driver with hardware decoding on; " + facts
     return {"verdict": v, "hw": {"total": ht, "dropped": hd, "decoder_procs": hp},
             "sw": {"total": st, "dropped": sd, "decoder_procs": sp},
-            "not_done": "per-frame count of driver calls (DTrace needs root on the Mac)"}
+            "dtrace": {"hw": dt_hw, "sw": dt_sw},
+            "not_done": "" if dt_hw and dt_sw else "per-frame DTrace count (needs sudo -n /usr/sbin/dtrace on the Mac)"}
 
 
 def ssh(mac, cmd, timeout=180, input_text=None, tries=3, pause=10.0, run=subprocess.run, sleep=None):
@@ -197,7 +260,7 @@ def stage(mac, clip):
         raise RuntimeError(f"cannot reach {mac} over ssh")
     if have.strip() != want:
         subprocess.run(["scp", "-q", str(clip), f"{mac}:{REMOTE}/{CLIP}"], check=True, timeout=1800)
-    for name, text in (("play.html", PAGE), ("serve.py", SERVER), ("run-ab.sh", RUN)):
+    for name, text in (("play.html", PAGE), ("serve.py", SERVER), ("run-ab.sh", RUN), ("dtrace-count.sh", DTRACE)):
         ssh(mac, f"cat > ~/{REMOTE}/{name}", input_text=text)
 
 
@@ -205,9 +268,19 @@ def cmd_mac_ab(a):
     out = Path(a.out or Path.cwd() / f"gpudecode-mac-{a.mac}")
     out.mkdir(parents=True, exist_ok=True)
     stage(a.mac, make_clip())
+    can_dt = ssh(a.mac, "sudo -n /usr/sbin/dtrace -V")[0] == 0
+    secs = max(a.seconds, 40) if can_dt else a.seconds          # DTrace counts 20 s from second 12 of playback
     for label, hw in (("hw", "true"), ("sw", "false")):
-        code, so, se = ssh(a.mac, f"bash ~/{REMOTE}/run-ab.sh {label} {hw} {a.seconds} '{a.app}' < /dev/null",
-                           timeout=a.seconds + 120)
+        run_cmd = f"bash ~/{REMOTE}/run-ab.sh {label} {hw} {secs} '{a.app}' < /dev/null"
+        if can_dt:
+            run_cmd = (f"cd ~/{REMOTE} && (nohup {run_cmd} > log-{label}.txt 2>&1 &) ; bash dtrace-count.sh {label}; "
+                       f"while pgrep -f 'run-ab.sh {label}' >/dev/null; do sleep 2; done")
+            code, so, se = ssh(a.mac, run_cmd, timeout=secs + 180)
+            (out / f"dtrace-{label}.txt").write_text(so, encoding="utf-8")
+            so = ssh(a.mac, f"cat ~/{REMOTE}/log-{label}.txt")[1]
+            se = ""
+        else:
+            code, so, se = ssh(a.mac, run_cmd, timeout=secs + 120)
         (out / f"log-{label}.txt").write_text(so + (("\nSTDERR: " + se) if se.strip() else ""), encoding="utf-8")
     ssh(a.mac, f"pkill -f 'serve.py {PORT}'")
     return cmd_mac_verdict(type("A", (), {"dir": str(out), "json": a.json})())
@@ -219,10 +292,14 @@ def cmd_mac_verdict(a):
     for label in ("hw", "sw"):
         f = d / f"log-{label}.txt"
         runs[label] = parse_log(f.read_text(encoding="utf-8")) if f.is_file() else {"procs": [], "result": None}
-    r = judge(runs["hw"], runs["sw"])
+    dts = {}
+    for label in ("hw", "sw"):
+        f = d / f"dtrace-{label}.txt"
+        dts[label] = parse_dtrace(f.read_text(encoding="utf-8")) if f.is_file() else None
+    r = judge(runs["hw"], runs["sw"], dts["hw"], dts["sw"])
     (d / "verdict.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
     if a.json:
         print(json.dumps(r, indent=1))
     else:
-        print(f"VERDICT: {r['verdict']}\nNOT DONE: {r['not_done']}\nlogs: {d}")
+        print(f"VERDICT: {r['verdict']}" + (f"\nNOT DONE: {r['not_done']}" if r["not_done"] else "") + f"\nlogs: {d}")
     return 0 if r["verdict"].startswith("HARDWARE DECODE") else 3
