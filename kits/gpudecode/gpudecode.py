@@ -19,6 +19,10 @@ does not. Procedure: skill fieldkit-gpudecode.
                                                the answer: VideoDecode packets per process, rate, timing
   gpudecode.py adk plan | adk install --yes    the Windows Performance Toolkit only (download, signature, UAC)
   gpudecode.py explain                         the whole procedure, step by step, for a person or a small model
+  gpudecode.py mac-ab MAC [--seconds 30] [--app PATH] [--out DIR] [--json]
+                                               an old Mac over SSH, from Linux: A/B playback, Apple's decoder
+                                               driver per process, dropped frames (gpudecode_mac.py)
+  gpudecode.py mac-verdict DIR [--json]        judge the logs an earlier mac-ab saved
 
 The engine map matters: WPA numbers the engines of a GPU from 1 (its A/N/E column, "node"), the
 Windows counters from 0. Node N is counter engine N-1. Measured 2026-10-22 on Intel Iris Xe:
@@ -645,6 +649,15 @@ Never convert the .etl with tracerpt to XML: it is gigabytes. Never delete the p
 """
 
 
+def _mac():
+    """The macOS backend, beside this file (python -I does not put this folder on sys.path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gpudecode_mac", HERE / "gpudecode_mac.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -666,6 +679,11 @@ def main(argv=None):
     p = sub.add_parser("adk"); p.add_argument("action", choices=["plan", "install"])
     p.add_argument("--yes", action="store_true"); p.set_defaults(fn=cmd_adk)
     p = sub.add_parser("explain"); p.set_defaults(fn=lambda a: print(EXPLAIN) or 0)
+    p = sub.add_parser("mac-ab"); p.add_argument("mac"); p.add_argument("--seconds", type=int, default=30)
+    p.add_argument("--app", default="/Applications/Gorilla Unleashed.app"); p.add_argument("--out")
+    p.add_argument("--json", action="store_true"); p.set_defaults(fn=lambda a: _mac().cmd_mac_ab(a))
+    p = sub.add_parser("mac-verdict"); p.add_argument("dir"); p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=lambda a: _mac().cmd_mac_verdict(a))
     a = ap.parse_args(argv)
     if a.cmd == "trace" and not 5 <= a.seconds <= 120:
         ap.error("--seconds must be 5..120 (about 40 MB per second)")

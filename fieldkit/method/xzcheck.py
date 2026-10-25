@@ -146,6 +146,22 @@ def streams_in(path: Path) -> list:
     return [(path.name, raw)]
 
 
+CHECKED = (".deb", ".xz", ".txz")       # what the release pipeline and `release verify` pass through check_file
+
+
+def check_file(path, cap_mib=128) -> dict:
+    """One file, every xz stream in it -> {file, ok, streams, problems}. An unreadable file is a problem, never a
+    pass: the gorilla-opencode pipeline's packages stage and `release verify` call this on every file they ship
+    that ends in CHECKED."""
+    path = Path(path)
+    try:
+        streams = [check_stream(data, cap_mib * MiB, name) for name, data in streams_in(path)]
+    except (OSError, BadXz, IndexError, struct.error, ValueError) as e:
+        return {"file": path.name, "ok": False, "streams": [], "problems": [f"{path.name}: not checked: {e}"]}
+    problems = [f"{s['name']}: {p}" for s in streams for p in s["problems"]]
+    return {"file": path.name, "ok": not problems, "streams": streams, "problems": problems}
+
+
 def main(argv=None, prog="fieldkit xzcheck"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="+")

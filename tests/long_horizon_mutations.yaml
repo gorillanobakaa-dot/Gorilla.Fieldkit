@@ -147,3 +147,13 @@
 - file: fieldkit/autopilot/inbox.py
   swap: ['    if new and br in ("main", "master", "HEAD"):', '    if False:']
   why: publish never pushes a new main
+# Linux supervisor (2026-10-25)
+- file: fieldkit/autopilot/goal.py
+  swap: ['OnCalendar=*:0/15', 'OnUnitActiveSec=15min']
+  why: a monotonic timer does not count suspended time; the wall clock fires after resume
+- file: fieldkit/autopilot/goal.py
+  swap: ['Persistent=true', 'Persistent=false']
+  why: a start missed while asleep or off runs at once
+- file: fieldkit/autopilot/goal.py
+  swap: ['ExecStart={python} -m fieldkit goal run', 'ExecStart={python} -m fieldkit goal status']
+  why: the unit runs the supervisor

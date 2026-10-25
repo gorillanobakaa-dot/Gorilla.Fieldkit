@@ -18,16 +18,21 @@ import pytest
 from fieldkit import lmstudio
 from fieldkit.build import relfiles
 from fieldkit.method import mutate
+from tests.test_goapp_windows_release import DEB, GOOD_DICT
 
 
-def _release(tmp_path):
+exec(DEB)                                       # deb(payload, dict_size): a real .deb with data.tar.xz
+
+
+def _release(tmp_path, dict_size=GOOD_DICT):
     d = tmp_path / "rel"
     d.mkdir()
-    files = {"app.exe": b"MZ program", "app_1.0_amd64.deb": b"!<arch>\ndeb"}
+    files = {"app.exe": b"MZ program", "app_1.0_amd64.deb": deb(b"ELF app", dict_size)}
     for n, b in files.items():
         (d / n).write_bytes(b)
     sums = "".join(f"{hashlib.sha256(b).hexdigest()}  {n}\n" for n, b in files.items())
-    (d / "SHA256SUMS-v1.0.txt").write_text(sums, encoding="utf-8")
+    # LF as published: on Windows write_text would write CRLF, which check_download names as a problem (bef462c)
+    (d / "SHA256SUMS-v1.0.txt").write_text(sums, encoding="utf-8", newline="\n")
     return d, files
 
 
@@ -80,6 +85,16 @@ def test_a_download_is_checked_against_sums_and_github_digests(tmp_path):
     assert "GitHub's digest" in relfiles.check_download(d, assets)["problems"][0]
     (d / "app.exe").write_bytes(b"other")
     assert any("do not match" in p for p in relfiles.check_download(d, assets)["problems"])
+
+
+def test_a_checksum_file_with_windows_line_ends_is_a_problem(tmp_path):
+    """v0.1.152's SHA256SUMS had CRLF: verify passed it, the Mac's shasum -c refused it."""
+    d, files = _release(tmp_path)
+    assets = [{"name": n, "digest": "sha256:" + hashlib.sha256(b).hexdigest()} for n, b in files.items()]
+    sums = d / "SHA256SUMS-v1.0.txt"
+    sums.write_bytes(sums.read_bytes().replace(b"\n", b"\r\n"))
+    r = relfiles.check_download(d, assets)
+    assert not r["ok"] and any("Windows line ends" in p for p in r["problems"])
 
 
 def _fake_gh(tmp_path, files, jobs):
@@ -135,6 +150,25 @@ def test_verify_fails_when_a_linux_install_job_failed(tmp_path):
     assert not r["ok"] and r["problems"] == ["linux-install.yml job rpm-fedora: failure"]
     r = relfiles.verify("v1.0", "o/r", tmp_path / "dl2", gh=gh, dispatch=False)
     assert r["ok"] and r["workflow"] is None and "not run" in r["problems_not_checked"]
+
+
+def test_verify_passes_every_published_deb_through_xzcheck(tmp_path):
+    """v0.1.152's .deb (dict 8 MiB for 59.7 MiB) is what this catches; here the same at a small scale."""
+    d, files = _release(tmp_path, dict_size=8 << 20)                 # 8 MiB for a 10 KiB tar: memory for nothing
+    files["SHA256SUMS-v1.0.txt"] = (d / "SHA256SUMS-v1.0.txt").read_bytes()
+    gh = _fake_gh(tmp_path, files, {})
+    r = relfiles.verify("v1.0", "o/r", tmp_path / "dl", gh=gh, dispatch=False)
+    assert not r["ok"] and len(r["problems"]) == 1
+    assert r["problems"][0].startswith("xzcheck: app_1.0_amd64.deb:data.tar.xz: dictionary 8 MiB is bigger")
+    assert [x["file"] for x in r["xz"]] == ["app_1.0_amd64.deb"]
+    assert any("xz FAIL app_1.0_amd64.deb:data.tar.xz: dict 8 MiB" in l for l in relfiles.lines(r))
+    good = tmp_path / "good"
+    good.mkdir()
+    (good / "a.deb").write_bytes(deb(b"ELF app", GOOD_DICT))
+    (good / "b.deb").write_bytes(b"!<arch>\nnot a deb")               # unreadable is a problem, never a pass
+    res, bad = relfiles.check_xz(good, ["a.deb", "b.deb", "app.exe"])
+    assert [x["file"] for x in res] == ["a.deb", "b.deb"] and [x["ok"] for x in res] == [True, False]
+    assert bad == ["xzcheck: " + res[1]["problems"][0]] and "not checked" in bad[0]
 
 
 # -- the LM Studio log -----------------------------------------------------------------------------------------

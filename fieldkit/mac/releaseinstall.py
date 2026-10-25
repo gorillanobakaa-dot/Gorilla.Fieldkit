@@ -1,16 +1,19 @@
-# Version: 1.0.0 · updated 26-10-23-13-40
+# Version: 1.1.0 · updated 26-10-25-16-05
 """releaseinstall.py - install a program on an old Mac the way a new user would: from the GitHub release page.
 
     fieldkit mac release-install NAME [--tag vX.Y.Z|latest] [--launch] [--plan]
 
 What it does on the Mac, in order, and it stops at the first step that fails:
-  1. quarantine  every older copy of the program (the program, the app in ~/Applications AND /Applications, the
-                 Desktop icon, old installer folders and archives in Downloads, Documents and the home folder) is
-                 MOVED to ~/Agents.Work.Trash-linux/<product>-old-versions-<time>/ with a MANIFEST.txt saying where
-                 each came from. Nothing is deleted. Settings, sign-in and conversations are data, not versions: kept.
-  2. download    the release asset and its SHA256SUMS from github.com/<repo>/releases/download/<tag>/, nothing else:
-                 no copy from this machine, no build folder, the same bytes a person anywhere gets.
-  3. verify      the asset against SHA256SUMS (shasum -a 256 -c), then unpack with ditto, as Archive Utility does.
+  1. download    the release asset and its SHA256SUMS from github.com/<repo>/releases/download/<tag>/, nothing else,
+                 into a fresh mktemp folder: no copy from this machine, no build folder, the same bytes a person
+                 anywhere gets.
+  2. verify      the asset against SHA256SUMS (shasum -a 256 -c, Windows line ends read as well), then unpack it
+                 with ditto, as Archive Utility does, still in the mktemp folder.
+  3. quarantine  only now, with a good download in hand: every older copy of the program (the program, the app in
+                 ~/Applications AND /Applications, the Desktop icon, old installer folders and archives in Downloads,
+                 Documents and the home folder) is MOVED to ~/Agents.Work.Trash-linux/<product>-old-versions-<time>/
+                 with a MANIFEST.txt saying where each came from. Nothing is deleted. Settings, sign-in and
+                 conversations are data, not versions: kept. The checked files then move to Downloads.
   4. install     the release's own installer, as a double-click runs it.
   5. check       the installed program reports <tag>, the app's Info.plist says the same version, and no second
                  copy of the program or the app is left anywhere it looked in step 1.
@@ -20,6 +23,10 @@ Born 2026-10-23. The owner, after a night of sessions tested builds copied by ha
 release page had no Mac file at all: "learn the harness to behave like a new user: go to GitHub, take the new Mac
 program from the release page, download it, install it and test it. Old versions must not stay installed on this
 computer." Every earlier test on the Air ran a binary that no user could have got.
+
+2026-10-25: the order was quarantine, download, verify. v0.1.152's SHA256SUMS was written on Windows with CRLF line
+ends, macOS 10.13's shasum refused every line, and the Air was left with the old version moved away and nothing
+installed. Now a failed download or checksum leaves the installed version where it was, and CR is stripped.
 
 Not covered here: Gatekeeper's "unidentified developer" prompt on first open. A file fetched by curl over SSH has
 no quarantine attribute, so the prompt a Safari download raises is not exercised; say so in any report.
@@ -69,9 +76,18 @@ def script(product, tag, stamp, launch=False):
 step() {{ printf '\\n== %s\\n' "$1"; }}
 fail() {{ printf 'FAILED: %s\\n' "$1"; exit 1; }}
 Q="{q}"; DL="$HOME/Downloads"
-step "1 quarantine older copies into $Q"
-mkdir -p "$Q" || fail "cannot create $Q"
 qmove() {{ d="$Q/$(printf '%s' "${{1#/}}" | tr / _)"; mv "$1" "$d" && printf '%s\\t<- %s\\n' "$d" "$1" >> "$Q/MANIFEST.txt"; }}
+step "1 download {asset} and {sums} from the release page"
+ST="$(mktemp -d "${{TMPDIR:-/tmp}}/release-install.XXXXXX")" || fail "cannot create a staging folder"
+cd "$ST" || fail "cannot enter $ST"
+curl -fsSL -o "{asset}" "{url}/{asset}" || fail "download of {asset}; nothing older was moved"
+curl -fsSL -o "{sums}" "{url}/{sums}" || fail "download of {sums}; nothing older was moved"
+step "2 verify and unpack"
+tr -d '\\r' < "{sums}" | grep " {asset}$" | shasum -a 256 -c || fail "{asset} does not match {sums}; nothing older was moved"
+ditto -x -k "{asset}" . || fail "unpack; nothing older was moved"
+[ -x "{folder}/{p['installer']}" ] || fail "the installer is missing or not executable in the zip; nothing older was moved"
+step "3 quarantine older copies into $Q"
+mkdir -p "$Q" || fail "cannot create $Q"
 for p in {paths}; do [ -e "$p" ] || [ -L "$p" ] && qmove "$p"; done
 for d in {dirs}; do
   for g in {globs}; do
@@ -79,16 +95,9 @@ for d in {dirs}; do
       -print 2>/dev/null
   done
 done | sort -u | while IFS= read -r p; do [ -e "$p" ] && qmove "$p"; done
+[ -e "$DL/{sums}" ] && qmove "$DL/{sums}"   # an earlier download of the same checksum file
 if [ -f "$Q/MANIFEST.txt" ]; then sed "s#$HOME#~#g" "$Q/MANIFEST.txt"; else echo "nothing older was installed"; rmdir "$Q"; fi
-step "2 download {asset} and {sums} from the release page"
-cd "$DL" || fail "no Downloads folder"
-[ -e "{sums}" ] && qmove "$DL/{sums}"   # an earlier download of the same files went to quarantine in step 1 or here
-curl -fsSL -o "{asset}" "{url}/{asset}" || fail "download of {asset}"
-curl -fsSL -o "{sums}" "{url}/{sums}" || fail "download of {sums}"
-step "3 verify and unpack"
-grep " {asset}$" "{sums}" | shasum -a 256 -c || fail "{asset} does not match {sums}"
-ditto -x -k "{asset}" . || fail "unpack"
-[ -x "{folder}/{p['installer']}" ] || fail "the installer is missing or not executable in the zip"
+mkdir -p "$DL" && mv "{asset}" "{sums}" "{folder}" "$DL/" && cd "$DL" && rmdir "$ST" || fail "move the checked download into $DL"
 step "4 install with the release's own installer"
 ( cd "{folder}" && echo | bash "./{p['installer']}" ) || fail "the installer stopped"
 step "5 check"

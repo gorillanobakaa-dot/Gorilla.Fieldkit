@@ -77,7 +77,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/autopilot/goal.py
   inputs:
     - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, supervisor-script], help: "status first; run = the supervisor"}
-    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1]"}
+    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
     - {name: from_file, flag: --from, type: str, required: false, help: "new: the goal spec (goal.json shape)"}
     - {name: objective, flag: --objective, type: str, required: false, help: "new: the objective (without --from)"}
     - {name: criterion, flag: --criterion, type: str, required: false, help: "new: a command that must exit 0 (repeatable)"}
@@ -85,8 +85,8 @@ tools:
     - {name: force, flag: --force, type: bool, required: false, help: "new: overwrite an existing goal"}
     - {name: all, flag: --all, type: bool, required: false, help: "stop: every unfinished goal"}
     - {name: once, flag: --once, type: bool, required: false, help: "run: one round per goal, then exit"}
-  platforms: [windows]
-  platforms_why: 'proven on Windows only (tests + one real goal, 2026-10-22); the supervisor is a Windows scheduled task. Linux needs the systemd user unit and a Linux run of tests/test_long_horizon.py first (state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md step B)'
+  platforms: [windows, linux]
+  platforms_why: 'Windows: a scheduled task at logon and on resume (one real goal, 2026-10-22). Linux (2026-10-25, step B of state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md): systemd USER units fieldkit-goal.service + .timer (after boot, every 15 min by the wall clock so after resume too; linger), tests/test_long_horizon.py passes on Linux; the supervisor holds idle sleep off with systemd-inhibit. macOS: no supervisor (launchd not written)'
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_long_horizon.py"]
   notes: "State in state/goals/<id>/ (goal.json, GOAL.md, state.json, verdicts.jsonl, events.log, REPORT.md, jobs/<job>/HANDOFF.md + CHECKPOINT.json). Models may not edit goal.json, state.json, verdicts, PREAPPROVALS.yaml or APPROVAL.json (hard line 3). approve needs the owner at a real terminal and pins the register's sha256; any later change voids it. push_branch/open_pr are done by the harness only under an approved register, never to main/master, after the privacy push-check. The scheduled task is written by supervisor-script and registered by the owner, never by a model. Mutation plan: tests/long_horizon_mutations.yaml."
@@ -459,16 +459,16 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_release.py"]
 
 - id: gorilla-opencode-release-build
-  title: Every Gorilla OpenCode release file in one run, on Linux or Windows - exe, Linux binary, tarball, .deb, .rpm (nfpm where dpkg-deb is missing, compared with the last release's .deb), Mac 10.13 zip on go1.24, SHA256SUMS of exactly the published files and the page's measured file table
+  title: Every Gorilla OpenCode release file in one run, on Linux or Windows - exe, Linux binary, tarball, .deb (through xzcheck), .rpm (nfpm where dpkg-deb is missing, compared with the last release's .deb), Mac 10.13 zip on go1.24, SHA256SUMS of exactly the published files and the page's measured file table; optionally from a clean clone of one commit and compared byte for byte with the published files
   harness: build
   entry: [python, -m, fieldkit, pipeline, run, gorilla-opencode]
   path: ${FIELDKIT}/fieldkit/build/goapp.py
   inputs:
-    - {name: var, flag: --var, type: list, required: true, help: "version=v0.1.153 (and src=PATH unless goapps.gorilla-opencode is set; previous_deb=PATH|none; out=PATH)"}
+    - {name: var, flag: --var, type: list, required: true, help: "version=v0.1.153 (and src=PATH unless goapps.gorilla-opencode is set; previous_deb=PATH|none; out=PATH; xz_cap_mib=128; git_ref=COMMIT builds from a clean clone of it; compare_with=FOLDER|release compares each binary with the published one)"}
   effects: [reads-files, writes-files, processes, network]
   safety: changes
   output: own
-  notes: "Born 2026-10-25 from the v0.1.152 release done by hand on Windows. Network: go mod download (checked against go.sum) and, with previous_deb=auto, gh release download of the last .deb (checked against its SHA256SUMS). Arch comes from the arch-package workflow. A folder without .git builds without vcs.* info: bytes differ from a git-checkout build of the same source."
+  notes: "Born 2026-10-25 from the v0.1.152 release done by hand on Windows. Network: go mod download (checked against go.sum) and, with previous_deb=auto, gh release download of the last .deb (checked against its SHA256SUMS); compare_with=release downloads the release's binaries (checked against its SHA256SUMS). Arch comes from the arch-package workflow. A folder without .git builds without vcs.* info: bytes differ from a git-checkout build of the same source; git_ref=COMMIT clones the commit (never git worktree add: nothing is written into the source repository). Every .deb/.xz made must pass fieldkit xzcheck or the packages stage fails. The build stage refuses a tree with CRLF files under eol=lf (v0.1.152 was built from one: 574 files, published bytes reproducible only from that folder). Byte equality only: --only toolchain modules build repro published."
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_goapp_windows_release.py", "${FIELDKIT}/tests/test_goapp.py"]
 
@@ -489,7 +489,7 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "table or sums"]
 
 - id: release-verify
-  title: A published GitHub release checked - every asset downloaded into a new empty folder and compared with SHA256SUMS and GitHub's digest, the page's table, then linux-install.yml run and deb-ubuntu / rpm-fedora reported
+  title: A published GitHub release checked - every asset downloaded into a new empty folder and compared with SHA256SUMS and GitHub's digest, the page's table, every .deb/.xz through xzcheck, then linux-install.yml run and deb-ubuntu / rpm-fedora reported
   harness: build
   entry: [python, -m, fieldkit, release, verify]
   path: ${FIELDKIT}/fieldkit/build/relfiles.py
@@ -500,10 +500,11 @@ tools:
     - {name: no_dispatch, flag: --no-dispatch, type: flag, required: false, help: "do not run the workflow"}
     - {name: run_id, flag: --run-id, type: int, required: false, help: "read this workflow run instead of starting one"}
     - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait for the workflow (1800)"}
+    - {name: xz_cap_mib, flag: --xz-cap-mib, type: int, required: false, help: "most memory unpacking a .deb/.xz may need (128)"}
   effects: [network, writes-files]
   safety: reversible
   output: own
-  exits: {2: "refused (folder not empty, gh failed)", 3: "a file, the page table or a workflow job failed"}
+  exits: {2: "refused (folder not empty, gh failed)", 3: "a file, the page table, xzcheck or a workflow job failed"}
   notes: "Starts a GitHub Actions run (workflow_dispatch, read-only permissions) unless --no-dispatch or --run-id."
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "verify or download"]
@@ -2995,18 +2996,18 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_videokit.py", -p, "no:cacheprovider"]
   notes: "Writes the output named plus an analysis cache in ~/.cache/videokit (VIDEOKIT_CACHE; safe to delete); the source is never touched. Needs numpy, Pillow, opencv-python and a full ffmpeg build (doctor checks; NOT the PyPI vidstab package). Long-video proof: kits/videokit/bench_long.py. Procedure: skill fieldkit-video-edit."
 - id: gpudecode
-  title: "Prove a browser decodes video on the GPU's video engine (Windows): doctor (GPUs, drivers, the no-driver trap, which methods work), engines (engine number -> type; WPA node = engine + 1), live (built-in counters, no admin), trace (wpr, one UAC prompt) + export (wpaexporter) + verdict (VideoDecode packets per process, steady rate), adk plan/install (Windows Performance Toolkit only, Microsoft-signed, CEIP off)"
+  title: "Prove a browser decodes video on the GPU's video engine (Windows; an old Mac over SSH from Linux: mac-ab, mac-verdict): doctor (GPUs, drivers, the no-driver trap, which methods work), engines (engine number -> type; WPA node = engine + 1), live (built-in counters, no admin), trace (wpr, one UAC prompt) + export (wpaexporter) + verdict (VideoDecode packets per process, steady rate), adk plan/install (Windows Performance Toolkit only, Microsoft-signed, CEIP off)"
   harness: desk
   entry: [python, -I, "${FIELDKIT}/kits/gpudecode/gpudecode.py"]
   path: ${FIELDKIT}/kits/gpudecode/gpudecode.py
   inputs:
-    - {name: command, flag: null, type: str, required: true, help: "doctor [--json] | engines [--save F] | live [--seconds N] [--process P] | trace [--seconds N] [--out DIR] --yes | export ETL [--out DIR] | verdict CSV --engines F [--process P] | adk plan | adk install --yes | explain"}
-  effects: [reads-files, writes-files, processes, admin, network]   # admin: trace and adk install (one UAC prompt each); network: adk install only
+    - {name: command, flag: null, type: str, required: true, help: "doctor [--json] | engines [--save F] | live [--seconds N] [--process P] | trace [--seconds N] [--out DIR] --yes | export ETL [--out DIR] | verdict CSV --engines F [--process P] | adk plan | adk install --yes | explain | mac-ab MAC [--seconds N] [--app PATH] [--out DIR] | mac-verdict DIR"}
+  effects: [reads-files, writes-files, processes, admin, network]   # admin: trace and adk install (one UAC prompt each); network: adk install only, and mac-ab's SSH to a Mac on the local network
   safety: reversible
-  platforms: [windows]
-  platforms_why: "wpr/ETW, the GPU Engine counters and the Windows Performance Toolkit exist only on Windows; Linux has intel_gpu_top, macOS gets its own backend (DTrace on the Intel decoder bundle + a VideoToolbox hardware-only session), planned"
+  platforms: [windows, linux]
+  platforms_why: "Windows: wpr/ETW, the GPU Engine counters and the Windows Performance Toolkit exist only there. Linux: only mac-ab/mac-verdict, which drive an old Mac over SSH (ssh, scp, ffmpeg here; vmmap, open, /usr/bin/python 2.7 on the Mac); Linux's own GPU has intel_gpu_top, not built here"
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_gpudecode.py", -p, "no:cacheprovider"]
-  notes: "Evidence from Microsoft's own tools: wpr.exe (ships with Windows) records the kernel graphics scheduler's work packets; wpaexporter.exe (Windows Performance Toolkit, Windows ADK) exports them, one CSV row per packet, through kits/gpudecode/gpu-packets.wpaProfile. Hardware decoding = the browser's packets on a VideoDecode engine at about the video's frame rate (measured 2026-10-22, Gorilla on Iris Xe: 16,803 packets, steady 60/s on a 60 fps clip). Traces are ~40 MB per requested second (30 s = 1.2 GB) and record ALL GPU work on the machine: keep them local. NEVER tracerpt a trace to XML (30 s -> 43+ GB). trace refuses while another wpr session runs and never cancels it. Old Intel (HD 4000 and older): drivers are pre-WDDM 2.0, so live has no counters - use trace; they hardware-decode H.264 only. Procedure: skill fieldkit-gpudecode."
+  notes: "Evidence from Microsoft's own tools: wpr.exe (ships with Windows) records the kernel graphics scheduler's work packets; wpaexporter.exe (Windows Performance Toolkit, Windows ADK) exports them, one CSV row per packet, through kits/gpudecode/gpu-packets.wpaProfile. Hardware decoding = the browser's packets on a VideoDecode engine at about the video's frame rate (measured 2026-10-22, Gorilla on Iris Xe: 16,803 packets, steady 60/s on a 60 fps clip). Traces are ~40 MB per requested second (30 s = 1.2 GB) and record ALL GPU work on the machine: keep them local. NEVER tracerpt a trace to XML (30 s -> 43+ GB). trace refuses while another wpr session runs and never cancels it. Old Intel (HD 4000 and older): drivers are pre-WDDM 2.0, so live has no counters - use trace; they hardware-decode H.264 only. Procedure: skill fieldkit-gpudecode. macOS (2026-10-25, gpudecode_mac.py, run from Linux): an A/B with one build and a fresh test profile, hardware decoding on then off; after each 30 s of a 1080p60 H.264 clip (its own page reports getVideoPlaybackQuality), vmmap shows which browser process maps Apple's decoder driver (AppleIntelSNBVA, AppleIntelHD3000GraphicsVADriver, AppleGVA; VideoToolbox alone is the API, everywhere). Measured on the MacBook Air 4,1 (10.13.6, HD 3000), Gorilla 158 for the Air, three times: on 16, 4 and 21 of 1,800 frames dropped with the driver in the rdd process; off 1,476 of 1,482, 1,490 of 1,497, 1,505 of 1,511 dropped, driver in no process. vmmap suspends the process it reads: run during playback it dropped 618 of 1,800 frames, so it runs after. Per frame with DTrace when sudo -n /usr/sbin/dtrace works (2026-10-25): 20 s of the kernel's Gen6DVDContext::process_idct_command_buffer (the GPU's H.264 IDCT) against VideoToolbox frames in rdd: on 1,213 for 1,213 (60.6/s), off 0 for 999 (VideoToolbox decodes in software then). The SSH-started browser window does not show on the Mac's screen."
 
 - id: wintrace
   title: "Inspect your own Windows computer for intrusion, read-only, with Windows' own APIs (the Linux reflexes Windows lacks): ss (sockets + process + signer + hosted services; flags network-reachable listeners whose binary is not validly signed), fuser (who holds a file open, Restart Manager), modules (every DLL/EXE/.node mapped into a process and its signer), svc (services in a process), whodraws (windows in Z order; which windows of other processes lie over a process's window or sit at a point; no screenshots), opensnoop (files opened per process for N <= 120 s: Kernel-File ETW via logman, tracerpt to CSV, one UAC click), doctor"

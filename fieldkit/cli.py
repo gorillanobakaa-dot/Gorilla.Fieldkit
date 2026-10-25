@@ -804,7 +804,8 @@ def _release_files(a):
             return 2
         folder = Path(a.dir) if a.dir else (settings.ROOT / "state" / "release-verify" /
                                             f"{a.repo.replace('/', '_')}-{a.spec}-{time.strftime('%Y%m%d-%H%M%S')}")
-        r = relfiles.verify(a.spec, a.repo, folder, dispatch=not a.no_dispatch, run_id=a.run_id, wait=a.wait)
+        r = relfiles.verify(a.spec, a.repo, folder, dispatch=not a.no_dispatch, run_id=a.run_id, wait=a.wait,
+                            xz_cap_mib=a.xz_cap_mib)
     except (ValueError, RuntimeError, OSError) as e:
         print(f"REFUSED: {e}")
         return 2
@@ -1137,6 +1138,12 @@ def cmd_goal(a):
         print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
         return 0
     if a.action == "supervisor-script":
+        if sys.platform != "win32":
+            out = Path(x[0] if x else goal.GOALS / "register-goal-supervisor.sh")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            sh, svc, tmr = goal.supervisor_script_linux(out)
+            print(f"written: {sh}, {svc}, {tmr}\n  the owner runs it once: sh \"{sh}\"")
+            return 0
         out = Path(x[0] if x else goal.GOALS / "register-goal-supervisor.ps1")
         ps, xml = goal.supervisor_script(out)
         print(f"written: {ps} and {xml}\n  the owner runs it once: powershell -NoProfile -ExecutionPolicy Bypass -File \"{ps}\"")
@@ -1585,6 +1592,8 @@ def build_parser():
     rl.add_argument("--no-dispatch", action="store_true", help="verify: do not run the linux-install workflow")
     rl.add_argument("--run-id", type=int, help="verify: read this workflow run instead of dispatching a new one")
     rl.add_argument("--wait", type=float, default=1800, help="verify: seconds to wait for the workflow")
+    rl.add_argument("--xz-cap-mib", type=int, default=128,
+                    help="verify: most memory unpacking a published .deb/.xz may need (fieldkit xzcheck)")
     rl.add_argument("--before-publish", action="store_true",
                     help="check: only the gates that need nothing published (privacy, tests) - run it before publishing")
     rl.set_defaults(fn=cmd_release)

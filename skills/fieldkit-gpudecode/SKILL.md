@@ -1,6 +1,6 @@
 ---
 name: fieldkit-gpudecode
-description: Prove whether a browser (Gorilla Firefox, Firefox, any program) really decodes video on the graphics chip's video engine on Windows, with Microsoft's own tools - wpr.exe (built into Windows) records every GPU work packet, the Windows Performance Toolkit's wpaexporter reads them, and the gpudecode kit gives one VERDICT line. Also checks the machine first (GPU, driver, the "Microsoft Basic Display Adapter" no-driver trap, old Intel GPUs such as HD 4000), installs only the Windows Performance Toolkit when asked (Microsoft-signed, CEIP off), and gives a no-admin quick check from the built-in counters. Use when asked "does my browser use hardware decoding", "is the GPU decoding the video", "prove hardware acceleration", "video stutters / CPU high while watching", "check this user's computer", for a release page proof, or when a .etl GPU trace must be read. Windows only; the macOS side is planned (DTrace + VideoToolbox).
+description: Prove whether a browser (Gorilla Firefox, Firefox, any program) really decodes video on the graphics chip's video engine on Windows, with Microsoft's own tools - wpr.exe (built into Windows) records every GPU work packet, the Windows Performance Toolkit's wpaexporter reads them, and the gpudecode kit gives one VERDICT line. Also checks the machine first (GPU, driver, the "Microsoft Basic Display Adapter" no-driver trap, old Intel GPUs such as HD 4000), installs only the Windows Performance Toolkit when asked (Microsoft-signed, CEIP off), and gives a no-admin quick check from the built-in counters. Use when asked "does my browser use hardware decoding", "is the GPU decoding the video", "prove hardware acceleration", "video stutters / CPU high while watching", "check this user's computer", for a release page proof, or when a .etl GPU trace must be read. Also an old Mac (MacBook Air 2011, macOS 10.13) from Linux over SSH: `mac-ab` plays an H.264 clip with hardware decoding on and off and shows which process maps Apple's decoder driver.
 ---
 
 # Proving hardware video decoding on Windows (gpudecode)
@@ -74,3 +74,29 @@ Manager engine + 1, from `engines.json`). The release page text with screenshots
 6.3 GB; wpaexporter read it in under a minute. `trace` must open a NORMAL visible admin window: launched
 minimized with -NoProfile, three traces held 2-5 GPU packets while the video was decoding (2026-10-22);
 if `trace` says INCOMPLETE with the video visibly playing, use the pasted command it prints, then `read`.
+
+## An old Mac, from Linux (added 2026-10-25)
+
+Run on the Linux machine, with the Mac reachable as `ssh NAME` (`fieldkit mac doctor NAME` first). It takes the
+Mac's screen for about 2 minutes: say so in chat before running it.
+
+```
+python3 -I kits/gpudecode/gpudecode.py mac-ab macair [--seconds 30] [--app "/Applications/Gorilla Unleashed.app"]
+python3 -I kits/gpudecode/gpudecode.py mac-verdict DIR      (judge the logs mac-ab saved)
+```
+
+What it does: copies a 1080p60 H.264 clip (made once by ffmpeg, kept in ~/.cache/fieldkit/gpudecode), a playback
+page and a tiny Python 2.7 server to ~/gpudecode-test on the Mac; starts the browser twice with a NEW test profile
+(hardware decoding on, then off), never the person's own profile; after each 30 s reads which process has Apple's
+decoder driver mapped (vmmap) and the dropped frames the page counted; stops only the PIDs it started.
+
+Read the VERDICT line:
+- HARDWARE DECODE: the driver (AppleIntelSNBVA, AppleIntelHD3000GraphicsVADriver, AppleGVA) is mapped in a browser
+  process (rdd on Gorilla 158) only with hardware decoding on. The dropped-frame numbers are printed beside it.
+- NO HARDWARE DECODE: no browser process mapped it with hardware decoding on. Check the clip is H.264.
+- INCOMPLETE: a run reported no frames, or the driver was mapped with decoding off. Proves nothing either way.
+
+Never run vmmap on the browser during playback: it suspends the process (618 of 1,800 frames dropped, measured).
+Per frame (2026-10-25): when `sudo -n /usr/sbin/dtrace` works on the Mac (the owner's double-click PERMITE-DTRACE.command + PERMITE-DTRACE-2.command add a sudoers rule for dtrace ONLY; 10.13's /etc/sudoers did not read /etc/sudoers.d until the second one), mac-ab also counts for 20 s VideoToolbox frames in rdd and the kernel's Gen6DVDContext::process_idct_command_buffer, the GPU's own H.264 decode step: on 1,213 for 1,213 frames, off 0 for 999 (VideoToolbox then decodes in SOFTWARE; frames reaching VideoToolbox prove nothing). Never run two videos at once: the kernel count sees the whole Mac. VideoToolbox is mapped in every browser process: it is the API, not the proof. The browser started over SSH plays and counts frames but its window does NOT appear on the Mac's screen (tried: open -n, System Events frontmost; 2026-10-25), so `fieldkit mac shot` shows the desktop: a picture of the playing video needs a person to start it. Measured on the Air 2026-10-25, Gorilla 158: on 16 / 4 / 21 of 1,800 dropped, driver in
+rdd; off 1,476 of 1,482 / 1,490 of 1,497 / 1,505 of 1,511 dropped, driver in no process.
+

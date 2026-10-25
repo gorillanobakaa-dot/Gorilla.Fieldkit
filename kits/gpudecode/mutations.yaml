@@ -54,3 +54,28 @@
 - file: kits/gpudecode/gpudecode.py
   swap: ['"avg": round(s / c, 2) if c else 0.0', '"avg": round(s, 2) if c else 0.0']
   why: live utilization is an average per sample
+# macOS backend (2026-10-25)
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['and d != "VideoToolbox"', 'and d != "never"']
+  why: VideoToolbox is the API in every process, never the proof of a hardware decoder
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['    elif sp:', '    elif False:']
+  why: the driver mapped with decoding off makes the A/B worthless (INCOMPLETE), never a yes
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['    if not ht or not st:', '    if False:']
+  why: a run that reported no frames is INCOMPLETE, never a no
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['if r.returncode != 255 or i == tries - 1:', 'if True:']
+  why: a lost Wi-Fi connection is retried
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['if r.returncode != 255 or i == tries - 1:', 'if r.returncode == 0 or i == tries - 1:']
+  why: a command that ran and failed is not run again
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['            if IDCT in m.group(1):', '            if "never" in m.group(1):']
+  why: the GPU's own decode step (IDCT) is what is counted per frame
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['        if dt_sw["idct"] > 0:', '        if False:']
+  why: the decode step with decoding off makes the A/B worthless (INCOMPLETE)
+- file: kits/gpudecode/gpudecode_mac.py
+  swap: ['elif dt_hw["frames"] and dt_hw["idct"] * 2 >= dt_hw["frames"]:', 'elif dt_hw["frames"]:']
+  why: frames handed to VideoToolbox are not hardware decoding (VideoToolbox also decodes in software)

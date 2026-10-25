@@ -1,8 +1,9 @@
-# Version: 1.0.0 · updated 26-10-25
+# Version: 1.2.0 · updated 26-10-25-18-40
 """Release files as evidence: the page's table measured from SHA256SUMS, and the published release checked.
 
     fieldkit release table SHA256SUMS-v0.1.152.txt [--dir DIR] [--check PAGE.md]
     fieldkit release verify v0.1.152 --repo OWNER/NAME [--dir EMPTY_DIR] [--no-dispatch | --run-id N] [--wait 1800]
+                            [--xz-cap-mib 128]
 
 WHY (2026-10-25, Gorilla OpenCode v0.1.152, released from Windows)
     The release page's "File | Bytes | SHA-256" table was typed by hand from a terminal; between two builds of the
@@ -16,8 +17,9 @@ table   every line of SHA256SUMS -> a markdown row with the file's size, after t
         in SHA256SUMS must have a row.
 verify  into a NEW empty folder: download every asset of the tag (gh), check each against the published
         SHA256SUMS (every listed file present and equal; GitHub's own digest of each asset too), check the page's
-        table against them, then dispatch linux-install.yml for the tag (or read --run-id N), wait for it, and
-        report each job (deb-ubuntu, rpm-fedora). Exit 0 only when everything passed.
+        table against them, every .deb/.xz through fieldkit xzcheck (the dictionary fits the content; unpacking
+        proven within --xz-cap-mib), then dispatch linux-install.yml for the tag (or read --run-id N), wait for
+        it, and report each job (deb-ubuntu, rpm-fedora). Exit 0 only when everything passed.
 """
 import hashlib
 import json
@@ -106,6 +108,9 @@ def check_download(folder, assets):
     if len(sumfiles) != 1:
         return {"ok": False, "sums": {}, "rows": [], "problems": [f"{len(sumfiles)} SHA256SUMS file(s), expected one"]}
     sums = parse_sums(sumfiles[0])
+    # 2026-10-25: v0.1.152's SHA256SUMS had CRLF line ends; parse_sums reads them, macOS 10.13's shasum -c does not
+    if b"\r" in sumfiles[0].read_bytes():
+        problems.append(f"{sumfiles[0].name}: Windows line ends (CR); macOS 10.13's shasum -c refuses every such line")
     by_name = {a["name"]: a for a in assets}
     for name, sha in sums.items():
         p = folder / name
@@ -150,8 +155,17 @@ def wait_run(repo, run_id, timeout=1800, gh="gh", pause=20.0, clock=time.monoton
         sleep(pause)
 
 
+def check_xz(folder, names, cap_mib=128):
+    """-> (results, problems): every published .deb/.xz/.txz through fieldkit xzcheck (dictionary = what the
+    content needs; unpacking proven within cap_mib)."""
+    from ..method import xzcheck
+    results = [xzcheck.check_file(Path(folder) / n, cap_mib) for n in sorted(names)
+               if n.lower().endswith(xzcheck.CHECKED) and (Path(folder) / n).is_file()]
+    return results, [f"xzcheck: {p}" for r in results for p in r["problems"]]
+
+
 def verify(tag, repo, folder, dispatch=True, run_id=None, wait=1800, workflow="linux-install.yml", gh="gh",
-           want_jobs=("deb-ubuntu", "rpm-fedora")):
+           want_jobs=("deb-ubuntu", "rpm-fedora"), xz_cap_mib=128):
     folder = Path(folder)
     if folder.exists() and any(folder.iterdir()):
         raise ValueError(f"{folder} is not empty: downloads go into a new empty folder")
@@ -161,8 +175,10 @@ def verify(tag, repo, folder, dispatch=True, run_id=None, wait=1800, workflow="l
     _gh(["release", "download", tag, "-R", repo, "-D", str(folder)], gh, timeout=3600)
     d = check_download(folder, assets)
     page = check_table(view.get("body") or "", d["sums"], {r["file"]: r["bytes"] for r in d["rows"]}) if d["sums"] else []
+    xz, xz_bad = check_xz(folder, d["sums"], xz_cap_mib)
     out = {"tag": tag, "repo": repo, "folder": str(folder), "draft": view.get("isDraft"), "files": d["rows"],
-           "problems": d["problems"] + [f"page table: {x}" for x in page], "workflow": None}
+           "xz": xz, "xz_cap_mib": xz_cap_mib,
+           "problems": d["problems"] + [f"page table: {x}" for x in page] + xz_bad, "workflow": None}
     if dispatch or run_id:
         if not run_id:
             since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 5))
@@ -185,6 +201,10 @@ def verify(tag, repo, folder, dispatch=True, run_id=None, wait=1800, workflow="l
 def lines(r):
     out = [f"{'OK' if r['ok'] else 'FAILED'}  {r['repo']} {r['tag']}: {len(r['files'])} file(s) checked in {r['folder']}"]
     out += [f"  {'=' if f['match'] else 'X'} {f['file']}  {f['bytes']:,} bytes" for f in r["files"]]
+    for x in r.get("xz") or []:
+        out += [f"  xz {'OK  ' if s['ok'] else 'FAIL'} {s['name']}: dict {s['dict_mib']:g} MiB for "
+                f"{s['content_bytes'] / (1 << 20):.1f} MiB, unpacks within {r['xz_cap_mib']} MiB: "
+                f"{'yes' if s['fits_cap'] else 'NO'}" for s in x["streams"]]
     w = r.get("workflow")
     if w:
         out.append(f"  workflow run {w['run_id']}: {w['status']} {w.get('conclusion') or ''}  {w.get('url') or ''}")

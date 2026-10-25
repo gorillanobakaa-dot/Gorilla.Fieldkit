@@ -631,6 +631,40 @@ def test_the_supervisor_registration_script(tmp_path):
         assert chk.stdout.strip() == "0"
 
 
+def test_status_names_a_goal_copied_without_its_state(tmp_path, monkeypatch):
+    """2026-10-25: forensics-2-8 came from Windows as goal.json only; status crashed on st["criteria"]."""
+    monkeypatch.setattr(goal, "GOALS", tmp_path)
+    (tmp_path / "copied").mkdir()
+    (tmp_path / "copied" / "goal.json").write_text('{"objective": "x"}', encoding="utf-8")
+    assert any("not started on this machine" in x for x in goal.status_lines())
+    assert goal.unfinished() == []
+
+
+def test_the_linux_supervisor_units_and_script(tmp_path):
+    """2026-10-25: the Linux twin of the scheduled task, systemd USER units (no root)."""
+    sh, svc, tmr = goal.supervisor_script_linux(tmp_path / "reg.sh", python="/usr/bin/python3", fieldkit_root="/fk")
+    service, timer, text = svc.read_text(), tmr.read_text(), sh.read_text()
+    assert "ExecStart=/usr/bin/python3 -m fieldkit goal run" in service and "WorkingDirectory=/fk" in service
+    assert "User=" not in service and "root" not in service                       # the owner's own user, never root
+    assert "OnBootSec=" in timer and "OnCalendar=*:0/15" in timer                 # boot, and wall clock: fires after resume
+    assert "Persistent=true" in timer and "WantedBy=timers.target" in timer
+    assert "OnUnitActiveSec" not in timer                                        # monotonic: would not count sleep
+    assert text.index("goal status ||") < text.index("systemctl --user daemon-reload")   # checks before it installs
+    assert "REGISTER: OK" in text and "Undo:" in text and "sudo" not in text
+    assert "\r" not in text and os.access(sh, os.X_OK)
+    if sys.platform != "win32" and subprocess.run(["sh", "-n", str(sh)]).returncode != 0:
+        pytest.fail("the register script does not parse")
+
+
+def test_supervisor_script_on_linux_writes_the_linux_script(tmp_path, monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip("the Linux door")
+    from fieldkit import cli
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "goal", "supervisor-script", str(tmp_path / "r.sh")],
+                       capture_output=True, text=True, cwd=str(Path(cli.__file__).resolve().parents[1]))
+    assert r.returncode == 0 and (tmp_path / "fieldkit-goal.timer").is_file(), r.stdout + r.stderr
+
+
 # ---- hard lines for goals ---------------------------------------------------------------------------------------
 @pytest.mark.parametrize("path", ["state/goals/g1/goal.json", "state/goals/g1/GOAL.md", "state/goals/g1/state.json",
                                   "state/goals/g1/verdicts.jsonl", "state/goals/g1/PREAPPROVALS.yaml",

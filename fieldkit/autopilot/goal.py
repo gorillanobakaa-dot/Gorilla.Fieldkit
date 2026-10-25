@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-22-16-00
+# Version: 1.1.0 · updated 26-10-25-18-33
 """Long horizon goals: a goal handed over and worked toward for days, not a queue a person writes each night.
 
 Owner, 2026-10-22: "by Long Horizon Tasks we really mean Long Horizon Tasks" and "eliminate THE MAIN BOTTLENECK, THE
@@ -22,7 +22,7 @@ loop of arXiv 2608.01964 (AMAP-ML LongHorizon-Harness): a planner (manager) issu
 
     fieldkit goal new ID --from SPEC.json | --objective TEXT     fieldkit goal status [ID]
     fieldkit goal run [ID] [--once]   (the supervisor: every unfinished goal, lock + heartbeat)
-    fieldkit goal stop ID|--all [why]    fieldkit goal approve ID    fieldkit goal supervisor-script [OUT.ps1]
+    fieldkit goal stop ID|--all [why]    fieldkit goal approve ID    fieldkit goal supervisor-script [OUT.ps1|OUT.sh]
 
 Loop (one round): STOP? -> paused / budget / usage window? -> plan when due (after every verified result, failure
 and owner answer) -> planner says done: the verifier runs every criterion and wins -> next runnable job -> worker
@@ -897,6 +897,10 @@ def status_lines(gid=None):
         if not goal:
             out.append(f"GOAL {g}: missing")
             continue
+        if not st:      # 2026-10-25: a goal folder copied between machines without its state.json crashed status
+            out.append(f"GOAL {g}: not started on this machine (goal.json without state.json); the supervisor "
+                       "leaves it alone")
+            continue
         passed = sum(1 for c in st["criteria"].values() if c.get("state") == "completed")
         _, reg_why = preapprovals(g)
         out.append(f"GOAL {g}: {st['status']} - criteria {passed}/{len(st['criteria'])} PASS, ${spent(st):.2f} spent, "
@@ -948,6 +952,77 @@ def task_xml(python, fieldkit_root, user=None):
   <Actions Context="Author"><Exec><Command>{escape(python)}</Command><Arguments>-m fieldkit goal run</Arguments><WorkingDirectory>{escape(str(fieldkit_root))}</WorkingDirectory></Exec></Actions>
 </Task>
 """
+
+
+UNIT = "fieldkit-goal"
+
+
+def systemd_units(python, fieldkit_root):
+    """Linux (2026-10-25): systemd USER units, no root. The service runs the supervisor once; the timer starts it 2 min
+    after boot (with linger, before anyone logs in) and on the quarter hour by the wall clock, so it also fires after a
+    resume from sleep (a monotonic timer does not count suspended time) and a missed one runs at once (Persistent).
+    A second start while one runs exits at the lock. The supervisor holds idle sleep off itself (hold_awake:
+    systemd-inhibit), so the unit does not wrap it."""
+    service = f"""[Unit]
+Description=Fieldkit goal supervisor: resumes every unfinished goal (fieldkit goal run)
+Documentation=file://{fieldkit_root}/fieldkit/autopilot/goal.py
+
+[Service]
+Type=simple
+WorkingDirectory={fieldkit_root}
+ExecStart={python} -m fieldkit goal run
+Nice=10
+"""
+    timer = f"""[Unit]
+Description=Start the Fieldkit goal supervisor after boot and every 15 minutes (after resume too)
+
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/15
+Persistent=true
+Unit={UNIT}.service
+
+[Install]
+WantedBy=timers.target
+"""
+    return service, timer
+
+
+def supervisor_script_linux(out, python=None, fieldkit_root=None):
+    """The Linux twin of the scheduled task: one bash script that checks first, installs the two user units, enables
+    the timer and linger, and ends with a REGISTER line. -> (script, service, timer) paths."""
+    python = python or sys.executable
+    fieldkit_root = fieldkit_root or ROOT
+    out = Path(out)
+    service, timer = systemd_units(python, fieldkit_root)
+    svc_p, tmr_p = out.with_name(f"{UNIT}.service"), out.with_name(f"{UNIT}.timer")
+    svc_p.write_text(service, encoding="utf-8")
+    tmr_p.write_text(timer, encoding="utf-8")
+    sh = f"""#!/bin/sh
+# Registers the Fieldkit goal supervisor on Linux (written by: fieldkit goal supervisor-script). Run once, as yourself.
+# What it does: systemd USER units {UNIT}.service + {UNIT}.timer in ~/.config/systemd/user (no root, not system-wide)
+#   that run "{python} -m fieldkit goal run" in {fieldkit_root}
+#   2 minutes after boot and every 15 minutes (a missed start, e.g. while asleep, runs at once).
+# loginctl enable-linger lets it start after a reboot before you log in; if it is refused, it starts at your login.
+# Who can act through it: only code already in that folder.
+# Undo: systemctl --user disable --now {UNIT}.timer; rm ~/.config/systemd/user/{UNIT}.service ~/.config/systemd/user/{UNIT}.timer
+set -u
+cd "{fieldkit_root}" || {{ echo "REGISTER: REFUSED - {fieldkit_root} is missing"; exit 3; }}
+"{python}" -m fieldkit goal status || {{ echo "REGISTER: REFUSED - fieldkit goal does not run from this folder"; exit 3; }}
+command -v systemctl >/dev/null || {{ echo "REGISTER: REFUSED - no systemctl (not a systemd system)"; exit 3; }}
+D="${{XDG_CONFIG_HOME:-$HOME/.config}}/systemd/user"
+mkdir -p "$D" && cp "{svc_p}" "{tmr_p}" "$D/" || {{ echo "REGISTER: FAILED - cannot write $D"; exit 1; }}
+systemctl --user daemon-reload && systemctl --user enable --now {UNIT}.timer || {{ echo "REGISTER: FAILED - systemctl --user"; exit 1; }}
+loginctl enable-linger "$(id -un)" 2>/dev/null || echo "  linger: refused here (starts at your login instead)"
+echo "  linger: $(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)"
+systemctl --user list-timers {UNIT}.timer --no-pager | head -3
+systemctl --user is-enabled {UNIT}.timer >/dev/null && systemctl --user is-active {UNIT}.timer >/dev/null \\
+  && echo "REGISTER: OK - the supervisor starts after boot and every 15 minutes, after resume too" \\
+  || {{ echo "REGISTER: FAILED - the timer is not enabled and active"; exit 1; }}
+"""
+    out.write_text(sh, encoding="utf-8", newline="\n")
+    out.chmod(0o755)
+    return out, svc_p, tmr_p
 
 
 def supervisor_script(out, python=None, fieldkit_root=None):

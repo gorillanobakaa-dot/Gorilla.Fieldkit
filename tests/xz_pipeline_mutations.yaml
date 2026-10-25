@@ -1,0 +1,54 @@
+# Rules the 2026-10-25 additions must hold (xzcheck in the gorilla-opencode pipeline and release verify, a build from
+# a git checkout, byte equality with the published files). Every one must be CAUGHT:
+#   fieldkit mutate --plan tests/xz_pipeline_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_goapp_windows_release.py tests/test_v0152_release_tools.py
+- file: fieldkit/build/goapp.py
+  swap: ["    xz, bad = xz_checked(ctx, files)\n    if bad:\n        return bad\n    data = {", "    xz, bad = xz_checked(ctx, files)\n    data = {"]
+  why: nfpm path - a .deb that fails xzcheck fails the packages stage
+- file: fieldkit/build/goapp.py
+  swap: ["    xz, bad = xz_checked(ctx, files)\n    if bad:\n        return bad\n    return _save(", "    xz, bad = xz_checked(ctx, files)\n    return _save("]
+  why: scripts path - a .deb that fails xzcheck fails the packages stage too
+- file: fieldkit/build/goapp.py
+  swap: ['if str(f["file"]).lower().endswith(xzcheck.CHECKED)]', 'if str(f["file"]).lower().endswith(".xz")]']
+  why: every .deb made is checked, not only bare .xz files
+- file: fieldkit/build/goapp.py
+  swap: ['        if p.name.lower().endswith(xzcheck.CHECKED) and (p.name, f["sha256"]) not in checked:', '        if False:']
+  why: a package record without a passing xzcheck of these bytes is not up to date
+- file: fieldkit/build/relfiles.py
+  swap: ['"problems": d["problems"] + [f"page table: {x}" for x in page] + xz_bad,', '"problems": d["problems"] + [f"page table: {x}" for x in page],']
+  why: release verify fails on a published .deb that fails xzcheck
+- file: fieldkit/build/relfiles.py
+  swap: ['    return results, [f"xzcheck: {p}" for r in results for p in r["problems"]]', '    return results, [f"xzcheck: {p}" for r in results if r["streams"] for p in r["problems"]]']
+  why: an unreadable .deb is a problem, never a pass
+- file: fieldkit/build/goapp.py
+  swap: ['    return checkout(src, ref, v.get("out") or "") if ref else src', '    return src']
+  why: git_ref builds from the clone of that commit, not from the shared checkout as it is
+- file: fieldkit/build/goapp.py
+  swap: ['    if dirty.returncode != 0 or dirty.stdout.strip():', '    if dirty.returncode != 0:']
+  why: a dirty clone is refused (go would record vcs.modified=true)
+- file: fieldkit/build/goapp.py
+  swap: ['    if head.stdout.strip() != sha:', '    if False:']
+  why: a folder holding another commit is refused, never built from
+- file: fieldkit/build/goapp.py
+  swap: ['    return src.parent if (ctx.vars.get("git_ref") or "").strip() else src / "dist"', '    return src / "dist"']
+  why: with git_ref the output sits beside the clone, never inside it (it would make the clone dirty)
+- file: fieldkit/build/goapp.py
+  swap: ['        row["identical"] = row["sha256"] == row["published_sha256"]', '        row["identical"] = row["bytes"][0] == row["bytes"][1]']
+  why: byte equality is the hash of every byte, not the size
+- file: fieldkit/build/goapp.py
+  swap: ['            results.append({"file": mine.name, "identical": False, "problem": f"not in {folder}"})', '            continue']
+  why: a binary missing from the published files is a difference, not skipped
+- file: fieldkit/build/goapp.py
+  swap: ['    if not rec or sorted(b["sha256"] for b in rec["built"]) != pb.get("built_sha256"):', '    if not rec:']
+  why: a comparison is stale once the build changed
+- file: fieldkit/build/goapp.py
+  swap: ["        if (ctx.vars.get(\"compare_with\") or \"\").strip():\n            return {\"ok\": False, \"detail\": \"compare_with is set now: compare again\"}", "        pass"]
+  why: a skipped comparison is not up to date once compare_with is set
+- file: fieldkit/build/goapp.py
+  swap: ['        if len(f) >= 3 and f[1] == "w/crlf" and "eol=lf" in meta:', '        if len(f) >= 3 and f[1] == "w/crlf" and "eol=crlf" in meta:']
+  why: a working-tree file with CRLF under eol=lf is drift (v0.1.152's 574 files)
+- file: fieldkit/build/goapp.py
+  swap: ['    if drift:', '    if False:']
+  why: the build stage refuses a tree whose embedded files would go in with other line ends
+- file: fieldkit/build/goapp.py
+  swap: ['            row["crlf"] = [mine.read_bytes().count(b"\r\n"), theirs.read_bytes().count(b"\r\n")]', '            row["crlf"] = [0, 0]']
+  why: a bytes-only difference reports the CRLF counts of both files
