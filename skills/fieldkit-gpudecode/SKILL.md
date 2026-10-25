@@ -97,7 +97,7 @@ Read the VERDICT line:
 - INCOMPLETE: a run reported no frames, or the driver was mapped with decoding off. Proves nothing either way.
 
 Never run vmmap on the browser during playback: it suspends the process (618 of 1,800 frames dropped, measured).
-VideoToolbox is mapped in every browser process: it is the API, not the proof. Not done: a per-frame DTrace count
+VideoToolbox is mapped in every browser process: it is the API, not the proof. The browser started over SSH plays and counts frames but its window does NOT appear on the Mac's screen (tried: open -n, System Events frontmost; 2026-10-25), so `fieldkit mac shot` shows the desktop: a picture of the playing video needs a person to start it. Not done: a per-frame DTrace count
 (needs root on the Mac). Measured on the Air 2026-10-25, Gorilla 158: on 16 / 4 / 21 of 1,800 dropped, driver in
 rdd; off 1,476 of 1,482 / 1,490 of 1,497 / 1,505 of 1,511 dropped, driver in no process.
 

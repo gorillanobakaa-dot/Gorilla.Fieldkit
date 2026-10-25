@@ -1137,6 +1137,12 @@ def cmd_goal(a):
         print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
         return 0
     if a.action == "supervisor-script":
+        if sys.platform != "win32":
+            out = Path(x[0] if x else goal.GOALS / "register-goal-supervisor.sh")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            sh, svc, tmr = goal.supervisor_script_linux(out)
+            print(f"written: {sh}, {svc}, {tmr}\n  the owner runs it once: sh \"{sh}\"")
+            return 0
         out = Path(x[0] if x else goal.GOALS / "register-goal-supervisor.ps1")
         ps, xml = goal.supervisor_script(out)
         print(f"written: {ps} and {xml}\n  the owner runs it once: powershell -NoProfile -ExecutionPolicy Bypass -File \"{ps}\"")

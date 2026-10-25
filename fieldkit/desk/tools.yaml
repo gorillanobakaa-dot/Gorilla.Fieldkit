@@ -77,7 +77,7 @@ tools:
   path: ${FIELDKIT}/fieldkit/autopilot/goal.py
   inputs:
     - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, supervisor-script], help: "status first; run = the supervisor"}
-    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1]"}
+    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
     - {name: from_file, flag: --from, type: str, required: false, help: "new: the goal spec (goal.json shape)"}
     - {name: objective, flag: --objective, type: str, required: false, help: "new: the objective (without --from)"}
     - {name: criterion, flag: --criterion, type: str, required: false, help: "new: a command that must exit 0 (repeatable)"}
@@ -85,8 +85,8 @@ tools:
     - {name: force, flag: --force, type: bool, required: false, help: "new: overwrite an existing goal"}
     - {name: all, flag: --all, type: bool, required: false, help: "stop: every unfinished goal"}
     - {name: once, flag: --once, type: bool, required: false, help: "run: one round per goal, then exit"}
-  platforms: [windows]
-  platforms_why: 'proven on Windows only (tests + one real goal, 2026-10-22); the supervisor is a Windows scheduled task. Linux needs the systemd user unit and a Linux run of tests/test_long_horizon.py first (state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md step B)'
+  platforms: [windows, linux]
+  platforms_why: 'Windows: a scheduled task at logon and on resume (one real goal, 2026-10-22). Linux (2026-10-25, step B of state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md): systemd USER units fieldkit-goal.service + .timer (after boot, every 15 min by the wall clock so after resume too; linger), tests/test_long_horizon.py passes on Linux; the supervisor holds idle sleep off with systemd-inhibit. macOS: no supervisor (launchd not written)'
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_long_horizon.py"]
   notes: "State in state/goals/<id>/ (goal.json, GOAL.md, state.json, verdicts.jsonl, events.log, REPORT.md, jobs/<job>/HANDOFF.md + CHECKPOINT.json). Models may not edit goal.json, state.json, verdicts, PREAPPROVALS.yaml or APPROVAL.json (hard line 3). approve needs the owner at a real terminal and pins the register's sha256; any later change voids it. push_branch/open_pr are done by the harness only under an approved register, never to main/master, after the privacy push-check. The scheduled task is written by supervisor-script and registered by the owner, never by a model. Mutation plan: tests/long_horizon_mutations.yaml."

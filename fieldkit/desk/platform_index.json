@@ -1560,9 +1560,10 @@
  },
  "goal": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "proven on Windows only (tests + one real goal, 2026-10-22); the supervisor is a Windows scheduled task. Linux needs the systemd user unit and a Linux run of tests/test_long_horizon.py first (state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md step B)",
+  "why": "Windows: a scheduled task at logon and on resume (one real goal, 2026-10-22). Linux (2026-10-25, step B of state/proposed/long-horizon-2026-10-22/DESIGN-MULTI-MACHINE.md): systemd USER units fieldkit-goal.service + .timer (after boot, every 15 min by the wall clock so after resume too; linger), tests/test_long_horizon.py passes on Linux; the supervisor holds idle sleep off with systemd-inhibit. macOS: no supervisor (launchd not written)",
   "ids": [
    "goal"
   ]
