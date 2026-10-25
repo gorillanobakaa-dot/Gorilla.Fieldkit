@@ -22,6 +22,9 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND
 fieldkit mutate --plan mutations.yaml -- TEST COMMAND          [{file, swap: [OLD, NEW], why}]
 ```
+In Git Bash, a swap argument that starts with `/` reaches Python already rewritten: `/usr/share/x` arrives as
+`C:/Program Files/Git/usr/share/x`. mutate refuses such a swap and runs nothing. Put `MSYS_NO_PATHCONV=1` in
+front of the command, or use a `--plan` file (2026-10-25).
 CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fails. The file is always restored.
 
 ## An xz archive you made or ship (.xz, .tar.xz, a .deb)

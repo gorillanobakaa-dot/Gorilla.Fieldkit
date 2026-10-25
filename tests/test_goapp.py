@@ -125,6 +125,10 @@ def test_the_gorilla_opencode_preset_matches_how_releases_are_built():
     assert p.vars["mac_script"] == "scripts/build-darwin-legacy.sh"
     assert p.vars["packages"].split(",") == ["scripts/build-deb.sh", "scripts/build-arch.sh",
                                              "scripts/build-tarball.sh", "scripts/build-rpm.sh"]
+    # and from Windows (v0.1.152, 2026-10-25): nfpm, the Mac on go1.24, the page's zip name, the last .deb compared
+    assert p.vars["packager"] == "auto" and p.vars["mac_go"] == "1.24" and p.vars["previous_deb"] == "auto"
+    assert p.vars["mac_zip"] == "<name>-<version>-mac-10.13-x86_64.zip" and p.vars["repo"]
+    assert p.vars["tarball"] == "gorilla-opencode-linux-x86_64.tar.gz" and p.vars["tarball_member"] == "gorilla-opencode"
 
 
 def test_every_go_signature_compiles_and_names_a_fix():

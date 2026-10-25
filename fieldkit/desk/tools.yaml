@@ -458,6 +458,73 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_release.py"]
 
+- id: gorilla-opencode-release-build
+  title: Every Gorilla OpenCode release file in one run, on Linux or Windows - exe, Linux binary, tarball, .deb, .rpm (nfpm where dpkg-deb is missing, compared with the last release's .deb), Mac 10.13 zip on go1.24, SHA256SUMS of exactly the published files and the page's measured file table
+  harness: build
+  entry: [python, -m, fieldkit, pipeline, run, gorilla-opencode]
+  path: ${FIELDKIT}/fieldkit/build/goapp.py
+  inputs:
+    - {name: var, flag: --var, type: list, required: true, help: "version=v0.1.153 (and src=PATH unless goapps.gorilla-opencode is set; previous_deb=PATH|none; out=PATH)"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: changes
+  output: own
+  notes: "Born 2026-10-25 from the v0.1.152 release done by hand on Windows. Network: go mod download (checked against go.sum) and, with previous_deb=auto, gh release download of the last .deb (checked against its SHA256SUMS). Arch comes from the arch-package workflow. A folder without .git builds without vcs.* info: bytes differ from a git-checkout build of the same source."
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_goapp_windows_release.py", "${FIELDKIT}/tests/test_goapp.py"]
+
+- id: release-table
+  title: The release page's File | Bytes | SHA-256 table measured from SHA256SUMS (each file hashed again), or a page's table checked row by row
+  harness: build
+  entry: [python, -m, fieldkit, release, table]
+  path: ${FIELDKIT}/fieldkit/build/relfiles.py
+  inputs:
+    - {name: sums, flag: null, type: str, required: true, help: "SHA256SUMS-<v>.txt"}
+    - {name: dir, flag: --dir, type: str, required: false, help: "the folder with the files (default: next to SHA256SUMS)"}
+    - {name: check, flag: --check, type: str, required: false, help: "a page (markdown) whose table must match"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "a file is missing or differs from SHA256SUMS", 3: "--check: the page's table differs"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "table or sums"]
+
+- id: release-verify
+  title: A published GitHub release checked - every asset downloaded into a new empty folder and compared with SHA256SUMS and GitHub's digest, the page's table, then linux-install.yml run and deb-ubuntu / rpm-fedora reported
+  harness: build
+  entry: [python, -m, fieldkit, release, verify]
+  path: ${FIELDKIT}/fieldkit/build/relfiles.py
+  inputs:
+    - {name: tag, flag: null, type: str, required: true, help: "the tag, e.g. v0.1.152"}
+    - {name: repo, flag: --repo, type: str, required: true, help: "OWNER/NAME"}
+    - {name: dir, flag: --dir, type: str, required: false, help: "a new empty folder (default under state/release-verify/)"}
+    - {name: no_dispatch, flag: --no-dispatch, type: flag, required: false, help: "do not run the workflow"}
+    - {name: run_id, flag: --run-id, type: int, required: false, help: "read this workflow run instead of starting one"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait for the workflow (1800)"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: own
+  exits: {2: "refused (folder not empty, gh failed)", 3: "a file, the page table or a workflow job failed"}
+  notes: "Starts a GitHub Actions run (workflow_dispatch, read-only permissions) unless --no-dispatch or --run-id."
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "verify or download"]
+
+- id: lmstudio-log
+  title: Why a local model is slow - LM Studio's server log per request (prompt tokens, prefill and generation tok/s, n_tokens) and every Vulkan device lost with the fix
+  harness: build
+  entry: [python, -m, fieldkit, lmstudio-log]
+  path: ${FIELDKIT}/fieldkit/lmstudio.py
+  inputs:
+    - {name: files, flag: null, type: list, required: false, help: "log files (default: the newest under ~/.cache/lm-studio/server-logs/)"}
+    - {name: day, flag: --day, type: str, required: false, help: "every log of YYYY-MM-DD"}
+    - {name: last, flag: --last, type: int, required: false, help: "only the last N requests"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "no log", 3: "the log holds a Vulkan device lost"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "log"]
+
 - id: harvest-find
   title: Which of the owner's scripts does this job? Search every script by what it does
   harness: desk
@@ -5072,7 +5139,7 @@ tools:
   output: own
   exits: {3: "a mutation SURVIVED"}
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", -k, mutat]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "mutat or git_bash"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "The file is changed for the length of one test run and restored also on Ctrl+C or a crash (a hard kill of the process would leave it mutated). Exit 2 also when the test fails on the untouched file. Runs the given test command."
 

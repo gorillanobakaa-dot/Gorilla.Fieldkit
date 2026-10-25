@@ -1805,6 +1805,16 @@
    "lifecycle"
   ]
  },
+ "lmstudio-log": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "lmstudio-log"
+  ]
+ },
  "mac": {
   "platforms": [
    "linux"
@@ -2094,6 +2104,16 @@
    "pipeline-plan"
   ]
  },
+ "pipeline run gorilla-opencode": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "gorilla-opencode-release-build"
+  ]
+ },
  "privacy scan": {
   "platforms": [
    "linux",
@@ -2142,6 +2162,26 @@
   "why": "",
   "ids": [
    "release-check"
+  ]
+ },
+ "release table": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-table"
+  ]
+ },
+ "release verify": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-verify"
   ]
  },
  "release-cycle": {
