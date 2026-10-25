@@ -119,8 +119,10 @@ def test_the_gorilla_opencode_preset_matches_how_releases_are_built():
     p = Pipeline.load(PIPE.parent / "gorilla-opencode.yaml", state_dir="/tmp/x-unused", strict=False)
     assert p.vars["version_var"] == "github.com/opencode-ai/opencode/internal/version.Version"
     assert p.vars["windows_name"] == "gorilla-opencode.exe" and p.vars["cgo"] == "0"
-    assert [s["id"] for s in p.stages] == ["toolchain", "modules", "vet", "test", "build", "repro",
+    assert [s["id"] for s in p.stages] == ["toolchain", "modules", "vet", "test", "build", "repro", "published",
                                             "mac", "packages", "checksums"]
+    # 2026-10-25: byte equality with the published files is opt-in; packages pass xzcheck within 128 MiB
+    assert p.vars["compare_with"] == "" and p.vars["git_ref"] == "" and p.vars["xz_cap_mib"] == "128"
     # every release file from one Linux machine (owner, 2026-10-23): the Mac 10.13 binary and the four packages
     assert p.vars["mac_script"] == "scripts/build-darwin-legacy.sh"
     assert p.vars["packages"].split(",") == ["scripts/build-deb.sh", "scripts/build-arch.sh",

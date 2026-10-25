@@ -459,16 +459,16 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_release.py"]
 
 - id: gorilla-opencode-release-build
-  title: Every Gorilla OpenCode release file in one run, on Linux or Windows - exe, Linux binary, tarball, .deb, .rpm (nfpm where dpkg-deb is missing, compared with the last release's .deb), Mac 10.13 zip on go1.24, SHA256SUMS of exactly the published files and the page's measured file table
+  title: Every Gorilla OpenCode release file in one run, on Linux or Windows - exe, Linux binary, tarball, .deb (through xzcheck), .rpm (nfpm where dpkg-deb is missing, compared with the last release's .deb), Mac 10.13 zip on go1.24, SHA256SUMS of exactly the published files and the page's measured file table; optionally from a clean clone of one commit and compared byte for byte with the published files
   harness: build
   entry: [python, -m, fieldkit, pipeline, run, gorilla-opencode]
   path: ${FIELDKIT}/fieldkit/build/goapp.py
   inputs:
-    - {name: var, flag: --var, type: list, required: true, help: "version=v0.1.153 (and src=PATH unless goapps.gorilla-opencode is set; previous_deb=PATH|none; out=PATH)"}
+    - {name: var, flag: --var, type: list, required: true, help: "version=v0.1.153 (and src=PATH unless goapps.gorilla-opencode is set; previous_deb=PATH|none; out=PATH; xz_cap_mib=128; git_ref=COMMIT builds from a clean clone of it; compare_with=FOLDER|release compares each binary with the published one)"}
   effects: [reads-files, writes-files, processes, network]
   safety: changes
   output: own
-  notes: "Born 2026-10-25 from the v0.1.152 release done by hand on Windows. Network: go mod download (checked against go.sum) and, with previous_deb=auto, gh release download of the last .deb (checked against its SHA256SUMS). Arch comes from the arch-package workflow. A folder without .git builds without vcs.* info: bytes differ from a git-checkout build of the same source."
+  notes: "Born 2026-10-25 from the v0.1.152 release done by hand on Windows. Network: go mod download (checked against go.sum) and, with previous_deb=auto, gh release download of the last .deb (checked against its SHA256SUMS); compare_with=release downloads the release's binaries (checked against its SHA256SUMS). Arch comes from the arch-package workflow. A folder without .git builds without vcs.* info: bytes differ from a git-checkout build of the same source; git_ref=COMMIT clones the commit (never git worktree add: nothing is written into the source repository). Every .deb/.xz made must pass fieldkit xzcheck or the packages stage fails. The build stage refuses a tree with CRLF files under eol=lf (v0.1.152 was built from one: 574 files, published bytes reproducible only from that folder). Byte equality only: --only toolchain modules build repro published."
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_goapp_windows_release.py", "${FIELDKIT}/tests/test_goapp.py"]
 
@@ -489,7 +489,7 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "table or sums"]
 
 - id: release-verify
-  title: A published GitHub release checked - every asset downloaded into a new empty folder and compared with SHA256SUMS and GitHub's digest, the page's table, then linux-install.yml run and deb-ubuntu / rpm-fedora reported
+  title: A published GitHub release checked - every asset downloaded into a new empty folder and compared with SHA256SUMS and GitHub's digest, the page's table, every .deb/.xz through xzcheck, then linux-install.yml run and deb-ubuntu / rpm-fedora reported
   harness: build
   entry: [python, -m, fieldkit, release, verify]
   path: ${FIELDKIT}/fieldkit/build/relfiles.py
@@ -500,10 +500,11 @@ tools:
     - {name: no_dispatch, flag: --no-dispatch, type: flag, required: false, help: "do not run the workflow"}
     - {name: run_id, flag: --run-id, type: int, required: false, help: "read this workflow run instead of starting one"}
     - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait for the workflow (1800)"}
+    - {name: xz_cap_mib, flag: --xz-cap-mib, type: int, required: false, help: "most memory unpacking a .deb/.xz may need (128)"}
   effects: [network, writes-files]
   safety: reversible
   output: own
-  exits: {2: "refused (folder not empty, gh failed)", 3: "a file, the page table or a workflow job failed"}
+  exits: {2: "refused (folder not empty, gh failed)", 3: "a file, the page table, xzcheck or a workflow job failed"}
   notes: "Starts a GitHub Actions run (workflow_dispatch, read-only permissions) unless --no-dispatch or --run-id."
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "verify or download"]

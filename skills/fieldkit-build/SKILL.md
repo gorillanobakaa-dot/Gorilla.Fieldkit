@@ -48,6 +48,7 @@ result.
 ```
 fieldkit pipeline run gorilla-opencode --var version=v0.1.153        # every release file, one run
 fieldkit release verify v0.1.153 --repo gorillanobakaa-dot/Gorilla.Opencode   # after publishing
+fieldkit pipeline run gorilla-opencode --only toolchain modules build repro published --var version=v0.1.152 git_ref=71d8223 compare_with=release out=PATH   # a published binary rebuilt byte for byte
 fieldkit release table dist/SHA256SUMS-v0.1.153.txt --check PAGE.md            # the page's table is the measured one
 fieldkit lmstudio-log --day 2026-10-25 --last 10                     # a local model is slow: why
 ```
@@ -64,10 +65,20 @@ fieldkit lmstudio-log --day 2026-10-25 --last 10                     # a local m
   If neither exists, the stage stops and prints the command that fetches one.
 - A binary built from an exported folder (no `.git`) carries no `vcs.*` build info, so its bytes
   differ from a release built from the git checkout, even when the source is the same
-  (`go version -m` shows it). To reproduce a published binary, build from a checkout of its commit.
+  (`go version -m` shows it). To reproduce a published binary, build with `git_ref=<its commit>`
+  (the vcs.revision in `go version -m` of the published file): a clean clone of that commit, nothing
+  written into the source repository. `compare_with=release` (or a folder) then compares each binary
+  with the published one and names what differs (bytes, build info, CRLF counts).
+- The build stage refuses a working tree with CRLF files that `.gitattributes` says are LF
+  (`git ls-files --eol`: w/crlf + eol=lf). Git calls such a tree clean, but go:embed takes the
+  CRLF bytes: v0.1.152 was built from the shared checkout with 574 such files, so its published
+  binaries equal 71d8223 + those CRLF files, not a clean clone of 71d8223.
+- Every .deb/.xz the packages stage makes goes through `fieldkit xzcheck` (dictionary = what the
+  content needs, unpacking proven within `xz_cap_mib`, default 128): a failing one fails the stage.
 - `release verify` downloads into a new empty folder, checks every asset against SHA256SUMS and
-  GitHub's digest, checks the page's table, runs `linux-install.yml`, and reports deb-ubuntu and
-  rpm-fedora (`--no-dispatch` skips the workflow; `--run-id N` reads an existing run).
+  GitHub's digest, checks the page's table, passes every .deb/.xz through xzcheck, runs
+  `linux-install.yml`, and reports deb-ubuntu and rpm-fedora (`--no-dispatch` skips the workflow;
+  `--run-id N` reads an existing run).
 
 ## Kernel helpers
 

@@ -23,13 +23,30 @@ from fieldkit.core.pipeline import Context, Pipeline
 PIPE = Path(goapp.__file__).parent / "pipelines" / "go-app.yaml"
 STAMP = b"\x7fELF stand-in v1.2.3 go1.27.0"
 
-NFPM = '''import sys, pathlib
+DEB = r'''import io, lzma, tarfile
+def deb(payload, dict_size):
+    """A real .deb: ar with debian-binary and data.tar.xz (one LZMA2 block, the given dictionary)."""
+    def member(name, data):
+        head = f"{name:<16}{0:<12}{0:<6}{0:<6}{'100644':<8}{len(data):<10}`\n".encode()
+        return head + data + (b"\n" if len(data) % 2 else b"")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as t:
+        ti = tarfile.TarInfo("usr/bin/hello")
+        ti.size = len(payload)
+        t.addfile(ti, io.BytesIO(payload))
+    xz = lzma.compress(buf.getvalue(), format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64,
+                       filters=[{"id": lzma.FILTER_LZMA2, "preset": 6, "dict_size": dict_size}])
+    return b"!<arch>\n" + member("debian-binary", b"2.0\n") + member("data.tar.xz", xz)
+'''
+GOOD_DICT = 16 << 10        # a 10 KiB tar: the smallest power of two that holds it
+NFPM = DEB + r'''import sys, pathlib
 v, binary, out = sys.argv[1:4]
 rest = sys.argv[4:]
 out = pathlib.Path(out)
 data = pathlib.Path(binary).read_bytes()
 assert ("v" + v).encode() in data, "no stamp"
-(out / f"hello_{v}_amd64.deb").write_bytes(b"!<arch>\\n" + data)
+d = pathlib.Path(__file__).with_name("dict.txt")
+(out / f"hello_{v}_amd64.deb").write_bytes(deb(data, int(d.read_text()) if d.is_file() else 16 << 10))
 (out / f"hello-{v}-1.x86_64.rpm").write_bytes(b"rpm" + data)
 (out.parent / "nfpm-args.json").write_text(__import__("json").dumps(rest))
 print(f"deb: hello_{v}_amd64.deb  3 files, modes as planned")
@@ -256,3 +273,165 @@ def test_the_release_table_is_checked_with_the_checksums(tmp_path):
     assert "| `hello.exe` | 9 |" in t.read_text() and goapp.verify_checksums(ctx)["ok"]
     t.write_text(t.read_text().replace("| `hello.exe` | 9 |", "| `hello.exe` | 10 |"))
     assert "10 bytes" in goapp.verify_checksums(ctx)["detail"]
+
+
+# -- xzcheck on every package made, a build from a git checkout, byte equality with the published files (2026-10-25)
+def test_every_deb_made_passes_xzcheck_or_the_stage_fails(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    prev = tmp_path / "prev.deb"
+    prev.write_bytes(b"!<arch>\n")
+    _nfpm_vars(src, ctx, prev)
+    r = goapp.stage_packages(ctx)
+    assert r["ok"], r
+    assert [x["file"] for x in r["xz"]] == ["hello_1.2.3_amd64.deb"] and r["xz"][0]["ok"]
+    assert "xzcheck passed: hello_1.2.3_amd64.deb" in r["detail"] and goapp.verify_packages(ctx)["ok"]
+    (src / "scripts" / "dict.txt").write_text(str(8 << 20))         # nfpm's own xz: 8 MiB for a 10 KiB tar
+    r = goapp.stage_packages(ctx)
+    assert not r["ok"] and r["detail"].startswith("fieldkit xzcheck: hello_1.2.3_amd64.deb:data.tar.xz: dictionary 8")
+    assert "bigger than the content needs" in r["detail"]
+    (src / "scripts" / "dict.txt").write_text(str(4 << 10))         # too small: compression left on the table
+    r = goapp.stage_packages(ctx)
+    assert not r["ok"] and "smaller than the content" in r["detail"]
+
+
+def test_a_package_record_without_a_passing_xzcheck_is_not_up_to_date(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    prev = tmp_path / "prev.deb"
+    prev.write_bytes(b"!<arch>\n")
+    _nfpm_vars(src, ctx, prev)
+    assert goapp.stage_packages(ctx)["ok"]
+    rec = goapp._load(ctx, src, "packages")
+    rec.pop("xz")                                                    # a record from before the check
+    goapp._save(ctx, src, "packages", rec)
+    r = goapp.verify_packages(ctx)
+    assert not r["ok"] and "hello_1.2.3_amd64.deb has no passing fieldkit xzcheck" in r["detail"]
+
+
+def test_the_scripts_packager_checks_its_debs_too(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    (src / "scripts").mkdir()
+    maker = src / "scripts" / "make.py"
+    maker.write_text(DEB + "import sys, pathlib\npathlib.Path('Compiled.Builds').mkdir(exist_ok=True)\n"
+                     "pathlib.Path('Compiled.Builds/hello_' + sys.argv[1] + '_amd64.deb').write_bytes("
+                     "deb(b'ELF', int(sys.argv[2])))\n", encoding="utf-8")
+    py = sys.executable.replace("\\", "/")
+    for name, size in (("good.sh", GOOD_DICT), ("bad.sh", 8 << 20)):
+        (src / "scripts" / name).write_text(f'"{py}" scripts/make.py "$1" {size}\n', encoding="utf-8", newline="\n")
+    ctx.vars.update({"packager": "scripts", "packages": "scripts/good.sh"})
+    r = goapp.stage_packages(ctx)
+    assert r["ok"] and r["xz"][0]["ok"], r
+    ctx.vars["packages"] = "scripts/bad.sh"
+    r = goapp.stage_packages(ctx)
+    assert not r["ok"] and "fieldkit xzcheck" in r["detail"] and "bigger than the content needs" in r["detail"]
+
+
+def _git(repo, *args):
+    import subprocess
+    r = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "-c", "commit.gpgsign=false", *args], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def test_git_ref_builds_from_a_clean_clone_of_that_commit(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "go.mod").write_text("module example.com/hello\n\ngo 1.21\n", encoding="utf-8")
+    (repo / "main.go").write_text("package main\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "one")
+    first = _git(repo, "rev-parse", "HEAD")
+    (repo / "main.go").write_text("package main\n// two\n", encoding="utf-8")
+    _git(repo, "commit", "-qam", "two")
+    (repo / "untracked.txt").write_text("the shared checkout may be dirty", encoding="utf-8")
+    p = Pipeline.load(PIPE, state_dir=tmp_path / "state", overrides={"src": str(repo), "git_ref": first[:7]},
+                      strict=False)
+    ctx = Context(p)
+    src = goapp._src(ctx)
+    assert src == repo / "dist" / f"git-{first[:12]}" / f"source-{first[:12]}"
+    assert _git(src, "rev-parse", "HEAD") == first and "// two" not in (src / "main.go").read_text()
+    assert goapp._out(ctx, src) == src.parent and not (src / "untracked.txt").exists()
+    assert _git(repo, "worktree", "list").count("\n") == 0            # nothing written into the source repository
+    assert goapp._src(ctx) == src                                     # reused, not cloned again
+    ctx.vars["out"] = str(tmp_path / "out")
+    assert goapp._src(ctx) == tmp_path / "out" / f"source-{first[:12]}"
+    (tmp_path / "out" / f"source-{first[:12]}" / "main.go").write_text("changed", encoding="utf-8")
+    with pytest.raises(ValueError, match="not clean.*vcs.modified"):
+        goapp._src(ctx)
+    _git(tmp_path / "out" / f"source-{first[:12]}", "checkout", "-q", "--", "main.go")
+    _git(tmp_path / "out" / f"source-{first[:12]}", "fetch", "-q", "origin")
+    _git(tmp_path / "out" / f"source-{first[:12]}", "checkout", "-q", "--detach", "origin/HEAD")
+    with pytest.raises(ValueError, match="is not a checkout of"):     # another commit there: refused, not deleted
+        goapp._src(ctx)
+    ctx.vars["git_ref"] = "no-such-ref"
+    with pytest.raises(ValueError, match="not a commit"):
+        goapp._src(ctx)
+
+
+def test_the_published_stage_proves_byte_equality_or_names_the_difference(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    assert goapp.stage_published(ctx)["skipped"] and goapp.verify_published(ctx)["ok"]   # opt-in
+    pub = tmp_path / "published"
+    pub.mkdir()
+    for f in ("hello-v1.2.3-linux-amd64", "hello.exe"):
+        (pub / f).write_bytes((out / f).read_bytes())
+    ctx.vars["compare_with"] = str(pub)
+    assert not goapp.verify_published(ctx)["ok"]                      # compare_with set after a skipped run
+    r = goapp.stage_published(ctx)
+    assert r["ok"] and r["detail"] == "byte for byte the published files: hello-v1.2.3-linux-amd64, hello.exe"
+    assert goapp.verify_published(ctx)["ok"]
+    (pub / "hello.exe").write_bytes(b"MZ v1.2.4")                     # one byte differs
+    r = goapp.stage_published(ctx)
+    assert not r["ok"] and "hello.exe" in r["detail"] and "hello-v1.2.3-linux-amd64" not in r["detail"]
+    bad = next(x for x in r["results"] if x["file"] == "hello.exe")
+    assert not bad["identical"] and bad["findings"] and bad["bytes"] == [9, 9]
+    (pub / "hello.exe").unlink()
+    r = goapp.stage_published(ctx)
+    assert not r["ok"] and "hello.exe: not in" in r["detail"]
+    (pub / "hello.exe").write_bytes((out / "hello.exe").read_bytes())
+    assert goapp.stage_published(ctx)["ok"]
+    rec = goapp._load(ctx, src, "build")
+    rec["built"][1]["sha256"] = "0" * 64                              # rebuilt since: compare again
+    goapp._save(ctx, src, "build", rec)
+    assert "changed since it was compared" in goapp.verify_published(ctx)["detail"]
+    ctx.vars["compare_with"] = str(tmp_path / "missing")
+    assert "not a folder" in goapp.stage_published(ctx)["detail"]
+
+
+def test_a_tree_with_crlf_against_its_gitattributes_is_not_built(tmp_path, monkeypatch):
+    """v0.1.152: 574 files CRLF in the working tree under eol=lf; git called it clean, the binaries embedded CRLF."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / ".gitattributes").write_bytes(b"*.md text eol=lf\n")
+    (repo / "go.mod").write_bytes(b"module example.com/hello\n\ngo 1.21\n")
+    (repo / "prompt.md").write_bytes(b"line one\nline two\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "one")
+    assert goapp.eol_drift(repo) == [] and goapp.eol_drift(tmp_path / "not-git") == []
+    (repo / "prompt.md").write_bytes(b"line one\r\nline two\r\n")
+    _git(repo, "add", "-u")                                          # git normalizes: status is clean again
+    assert _git(repo, "status", "--porcelain") == ""
+    assert goapp.eol_drift(repo) == ["prompt.md"]
+    p = Pipeline.load(PIPE, state_dir=tmp_path / "state", overrides={"src": str(repo), "version": "v1.0.0"},
+                      strict=False)
+    ctx = Context(p)
+    monkeypatch.setattr(goapp, "_go", lambda ctx, src: "go-must-not-run")
+    r = goapp.stage_build(ctx)
+    assert not r["ok"] and r["detail"].startswith("1 file(s) have CRLF") and "prompt.md" in r["detail"]
+    assert "git_ref=HEAD" in r["detail"]
+    ctx.vars["git_ref"] = "HEAD"                                      # a clean clone has LF: no drift
+    assert goapp.eol_drift(goapp._src(ctx)) == []
+
+
+def test_the_published_stage_counts_line_ends_when_only_the_bytes_differ(tmp_path):
+    src, ctx, out = _built(tmp_path)
+    pub = tmp_path / "published"
+    pub.mkdir()
+    (pub / "hello-v1.2.3-linux-amd64").write_bytes((out / "hello-v1.2.3-linux-amd64").read_bytes())
+    (pub / "hello.exe").write_bytes(b"MZ\r\nv1.2.3")
+    ctx.vars["compare_with"] = str(pub)
+    r = goapp.stage_published(ctx)
+    bad = next(x for x in r["results"] if x["file"] == "hello.exe")
+    assert bad["crlf"] == [0, 1] and "CRLF pairs 0 built vs 1 published" in r["detail"]
