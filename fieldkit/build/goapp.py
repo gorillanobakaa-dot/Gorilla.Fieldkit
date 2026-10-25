@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-03-40
+# Version: 1.1.0 · updated 26-10-25-18-40
 """Go applications built the same way every time: Gorilla OpenCode, and any other Go program.
 
     fieldkit pipeline run gorilla-opencode --var version=v0.1.146          (src from goapps.gorilla-opencode)
@@ -15,7 +15,13 @@ Stages (pipelines/go-app.yaml, gorilla-opencode.yaml):
     repro       each target built AGAIN from a copy of the source in another folder (own build cache and temp folder,
                 another time zone and locale) and compared byte for byte: the binary is proven, not only the source;
                 a difference is named, inside archives too (fieldkit/build/repro.py)
+    published   (gorilla-opencode, --var compare_with=FOLDER|release) each binary compared byte for byte with the
+                published file of the same name; a difference names the bytes and go's build info (vcs.*, flags)
+    packages    (gorilla-opencode) .deb/.rpm/tarball; every .deb/.xz made passes fieldkit xzcheck (--var xz_cap_mib)
     checksums   SHA256SUMS-<version>.txt for what was built
+
+--var git_ref=COMMIT builds from a clean clone of that commit (<out>/source-<sha12>), so go records the same vcs.*
+build info as the release build made in a git checkout; an export of a tag has no .git and records none.
 
 A stage is up to date when its report matches the CURRENT source (a fingerprint of every Go file, go.mod and go.sum)
 and, for builds, when every file still has the checksum and the version stamp it was built with. Changing one .go
@@ -72,12 +78,75 @@ def _src(ctx):
     src = Path(settings.expand(src)).expanduser()
     if not (src / "go.mod").is_file():
         raise ValueError(f"{src} has no go.mod: not a Go module")
-    return src
+    ref = (v.get("git_ref") or "").strip()
+    return checkout(src, ref, v.get("out") or "") if ref else src
+
+
+# ---- a build from a git checkout of one commit (2026-10-25) ------------------------------------------------------
+# v0.1.152 rebuilt from an export of its tag differed from the published files only by the vcs.* build info
+# (`go version -m`): an export has no .git, so go records no vcs.revision/vcs.time/vcs.modified. A clone of the
+# commit gives the same build info as the checkout the release was built in. A clone, not `git worktree add`: it
+# writes nothing into the source repository (a shared checkout other sessions use).
+def checkout(repo, ref, out=""):
+    """A clean clone of `ref` (any commit-ish) of the repository at `repo`, at <out>/source-<sha12> (out empty:
+    <repo>/dist/git-<sha12>/source-<sha12>). Made once, then reused while its HEAD is that commit and it is
+    clean; anything else there is refused, never deleted. Raises ValueError."""
+    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                       capture_output=True, text=True, timeout=60)
+    sha = r.stdout.strip()
+    if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError(f"git_ref {ref!r} is not a commit in {repo}")
+    base = Path(settings.expand(out)).expanduser() if out else Path(repo) / "dist" / f"git-{sha[:12]}"
+    dest = base / f"source-{sha[:12]}"
+    if not dest.exists():
+        base.mkdir(parents=True, exist_ok=True)
+        c = subprocess.run(["git", "clone", "--quiet", "--no-checkout", str(repo), str(dest)], capture_output=True,
+                           text=True, timeout=1800)
+        if c.returncode == 0:
+            c = subprocess.run(["git", "-C", str(dest), "-c", "advice.detachedHead=false", "checkout", "--quiet",
+                                "--detach", sha], capture_output=True, text=True, timeout=1800)
+        if c.returncode != 0:
+            raise ValueError(f"cloning {sha[:12]} into {dest} failed: {(c.stderr or c.stdout).strip()[:300]}")
+    head = subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60)
+    if head.stdout.strip() != sha:
+        raise ValueError(f"{dest} exists and is not a checkout of {sha[:12]} (HEAD {head.stdout.strip()[:12]!r}): "
+                         "move it away or choose another out")
+    dirty = subprocess.run(["git", "-C", str(dest), "status", "--porcelain"], capture_output=True, text=True,
+                           timeout=300)
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        raise ValueError(f"{dest} is not clean (go would record vcs.modified=true): "
+                         + (dirty.stdout.strip().splitlines() or [dirty.stderr.strip()])[0][:200])
+    if not (dest / "go.mod").is_file():
+        raise ValueError(f"{sha[:12]} has no go.mod at the top: not a Go module")
+    return dest
+
+
+def eol_drift(src):
+    """[paths] whose working-tree file has CRLF line ends although .gitattributes asks for LF (`git ls-files --eol`:
+    w/crlf with eol=lf). Measured 2026-10-25: Gorilla OpenCode v0.1.152 was built from a checkout with 574 such
+    files; git normalizes them, so `git status` and go's vcs.modified=false call the tree clean, yet every embedded
+    prompt, SQL migration and doc was compiled in with CRLF: the published binaries are reproducible only from that
+    one folder, never from git. Not a git checkout: []."""
+    try:
+        r = subprocess.run(["git", "-C", str(src), "ls-files", "--eol"], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if r.returncode != 0:
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        f = meta.split()
+        if len(f) >= 3 and f[1] == "w/crlf" and "eol=lf" in meta:
+            out.append(path)
+    return out
 
 
 def _out(ctx, src):
     o = ctx.vars.get("out") or ""
-    return Path(settings.expand(o)).expanduser() if o else src / "dist"
+    if o:
+        return Path(settings.expand(o)).expanduser()
+    return src.parent if (ctx.vars.get("git_ref") or "").strip() else src / "dist"
 
 
 def _reports(ctx, src):
@@ -332,6 +401,12 @@ def stage_build(ctx):
     out = _out(ctx, src)
     out.mkdir(parents=True, exist_ok=True)
     ld = "-s -w" + (f" -X {v['version_var']}={version}" if v.get("version_var") else "")
+    drift = eol_drift(src)
+    if drift:
+        return {"ok": False, "detail": f"{len(drift)} file(s) have CRLF in the working tree although .gitattributes "
+                                       f"says LF (e.g. {', '.join(drift[:3])}): embedded files would go in with CRLF "
+                                       "and git still calls the tree clean. Build with --var git_ref=HEAD (a clean "
+                                       "clone) or re-check out the tree"}
     fp = fingerprint(src)
     built = []
     # every compile runs guarded: the fan must be cooling, and the governor keeps the CPU near thermal.build_target
@@ -352,6 +427,7 @@ def stage_build(ctx):
         return {"ok": False, "detail": f"not built: {e}"}
     rec = {"ok": True, "version": version, "go": (_load(ctx, src, "toolchain") or {}).get("have"), "ldflags": ld,
            "fingerprint": fp, "built": built, "when": time.strftime("%Y-%m-%d %H:%M:%S"),
+           "git_ref": (v.get("git_ref") or "").strip() or None,
            "detail": f"{version}: " + ", ".join(f"{Path(b['file']).name} ({b['bytes']:,} bytes)" for b in built)}
     return _save(ctx, src, "build", rec)
 
@@ -451,6 +527,112 @@ def verify_repro(ctx):
             {x["sha256"] for x in rp["results"]} != {b["sha256"] for b in rec["built"]}:
         return {"ok": False, "detail": "the build changed since it was reproduced"}
     return {"ok": bool(rp.get("ok")), "detail": rp["detail"]}
+
+
+def _buildinfo(go, f):
+    """`go version -m` of a binary, the file name line left out: what go recorded (toolchain, vcs.*, flags)."""
+    r = subprocess.run([go, "version", "-m", str(f)], capture_output=True, text=True, timeout=120)
+    return [l.strip() for l in r.stdout.splitlines()[1:] if l.strip()] if r.returncode == 0 else []
+
+
+def _published_files(ctx, src, names):
+    """vars.compare_with: a folder holding the published files, or `release`: the files of the GitHub release
+    <version> of vars.repo, downloaded into <out>/.fieldkit/published-<version>/ and checked against that release's
+    SHA256SUMS first. -> folder. Raises ValueError."""
+    from . import relfiles
+    v = ctx.vars
+    want = (v.get("compare_with") or "").strip()
+    if want != "release":
+        folder = Path(settings.expand(want)).expanduser()
+        if not folder.is_dir():
+            raise ValueError(f"compare_with {folder} is not a folder")
+        return folder
+    rec = _load(ctx, src, "build") or {}
+    if not v.get("repo"):
+        raise ValueError("compare_with=release needs --var repo=OWNER/NAME")
+    folder = _reports(ctx, src) / f"published-{rec['version']}"
+    shutil.rmtree(folder, ignore_errors=True)       # this stage's own download folder, refilled every run
+    folder.mkdir(parents=True)
+    cmd = ["gh", "release", "download", rec["version"], "-R", v["repo"], "-D", str(folder), "-p", "SHA256SUMS-*.txt"]
+    for n in names:
+        cmd += ["-p", n]
+    g = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    if g.returncode != 0:
+        raise ValueError(f"gh release download {rec['version']} failed: {(g.stderr or g.stdout).strip()[:200]}")
+    sums = sorted(folder.glob("SHA256SUMS-*.txt"))
+    if len(sums) != 1:
+        raise ValueError(f"release {rec['version']} has {len(sums)} SHA256SUMS file(s), expected one")
+    listed = relfiles.parse_sums(sums[0])
+    for n in names:
+        p = folder / n
+        if p.is_file() and listed.get(n) != _sha(p):
+            raise ValueError(f"the downloaded {n} does not match {sums[0].name}")
+    return folder
+
+
+def stage_published(ctx):
+    """Byte equality with what was published (vars.compare_with; empty: skipped). Every binary the build stage made
+    is compared with the published file of the same name: identical, or the report names what differs - the bytes
+    (fieldkit/build/repro.py) and the build info go recorded (`go version -m`: toolchain, flags, vcs.*)."""
+    from . import repro
+    src = _src(ctx)
+    if not (ctx.vars.get("compare_with") or "").strip():
+        return _save(ctx, src, "published", {"ok": True, "skipped": True, "results": [],
+                                             "detail": "no compare_with: not compared with published files"})
+    rec = _load(ctx, src, "build")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "run the build stage first"}
+    go = _go(ctx, src)
+    try:
+        folder = _published_files(ctx, src, [Path(b["file"]).name for b in rec["built"]])
+    except ValueError as e:
+        return {"ok": False, "detail": f"published files: {e}"}
+    results = []
+    for b in rec["built"]:
+        mine, theirs = Path(b["file"]), folder / Path(b["file"]).name
+        if not theirs.is_file():
+            results.append({"file": mine.name, "identical": False, "problem": f"not in {folder}"})
+            continue
+        row = {"file": mine.name, "sha256": b["sha256"], "published_sha256": _sha(theirs),
+               "bytes": [mine.stat().st_size, theirs.stat().st_size]}
+        row["identical"] = row["sha256"] == row["published_sha256"]
+        if not row["identical"]:
+            a, p = _buildinfo(go, mine), _buildinfo(go, theirs)
+            row["buildinfo_only_built"] = [l for l in a if l not in p]
+            row["buildinfo_only_published"] = [l for l in p if l not in a]
+            c = repro.compare(mine, theirs, roots=[src])
+            row["findings"] = [x for d in c["differ"] for x in d["findings"]][:10]
+            # v0.1.152: same build info, other bytes = embedded files with other line ends (see eol_drift)
+            row["crlf"] = [mine.read_bytes().count(b"\r\n"), theirs.read_bytes().count(b"\r\n")]
+        results.append(row)
+    ok = all(r["identical"] for r in results)
+    same = [r["file"] for r in results if r["identical"]]
+    data = {"ok": ok, "version": rec["version"], "git_ref": rec.get("git_ref"), "published": str(folder),
+            "built_sha256": sorted(b["sha256"] for b in rec["built"]), "results": results,
+            "detail": (f"byte for byte the published files: {', '.join(same)}" if ok else
+                       "NOT the published bytes: " + "; ".join(
+                           f"{r['file']}: " + (r.get("problem") or ", ".join(
+                               (r.get("buildinfo_only_built") or []) + ["published " + x for x in
+                                                                        r.get("buildinfo_only_published") or []])
+                               or ("same build info, bytes differ" + (
+                                   f"; CRLF pairs {r['crlf'][0]:,} built vs {r['crlf'][1]:,} published: embedded files "
+                                   "with other line ends" if r.get("crlf") and r["crlf"][0] != r["crlf"][1] else "")))
+                           for r in results if not r["identical"])[:600])}
+    return _save(ctx, src, "published", data)
+
+
+def verify_published(ctx):
+    src = _src(ctx)
+    rec, pb = _load(ctx, src, "build"), _load(ctx, src, "published")
+    if not pb:
+        return {"ok": False, "detail": "not compared yet"}
+    if pb.get("skipped"):
+        if (ctx.vars.get("compare_with") or "").strip():
+            return {"ok": False, "detail": "compare_with is set now: compare again"}
+        return {"ok": True, "detail": pb["detail"]}
+    if not rec or sorted(b["sha256"] for b in rec["built"]) != pb.get("built_sha256"):
+        return {"ok": False, "detail": "the build changed since it was compared with the published files"}
+    return {"ok": bool(pb.get("ok")), "detail": pb["detail"]}
 
 
 def _runs_here(rec):
@@ -637,8 +819,30 @@ def stage_packages(ctx):
             dst = out / m.name
             shutil.copy2(m, dst)
             files.append({"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
-    return _save(ctx, src, "packages", {"ok": True, "version": version, "files": files,
-                                        "detail": ", ".join(f"{Path(f['file']).name}" for f in files)})
+    xz, bad = xz_checked(ctx, files)
+    if bad:
+        return bad
+    return _save(ctx, src, "packages", {"ok": True, "version": version, "files": files, "xz": xz,
+                                        "detail": ", ".join(f"{Path(f['file']).name}" for f in files)
+                                        + _xz_note(xz)})
+
+
+def xz_checked(ctx, files):
+    """Every .deb/.xz/.txz among the made files through fieldkit xzcheck (the dictionary fits the content, not
+    bigger, not smaller; unpacking proven within vars.xz_cap_mib, default 128). -> (results, None), or
+    (results, a failed stage result naming each problem). Owner, 2026-10-25: maximum compression, not crazy."""
+    from ..method import xzcheck
+    cap = int(str(ctx.vars.get("xz_cap_mib") or 128))
+    xz = [dict(xzcheck.check_file(f["file"], cap), sha256=f["sha256"]) for f in files
+          if str(f["file"]).lower().endswith(xzcheck.CHECKED)]
+    problems = [p for r in xz for p in r["problems"]]
+    if problems:
+        return xz, {"ok": False, "xz": xz, "detail": "fieldkit xzcheck: " + "; ".join(problems)[:600]}
+    return xz, None
+
+
+def _xz_note(xz):
+    return f"; xzcheck passed: {', '.join(r['file'] for r in xz)}" if xz else ""
 
 
 def verify_packages(ctx):
@@ -650,6 +854,13 @@ def verify_packages(ctx):
         p = Path(f["file"])
         if not p.is_file() or _sha(p) != f["sha256"]:
             return {"ok": False, "detail": f"{p.name} is missing or changed"}
+    # every xz file made must carry a passing xzcheck of exactly these bytes (a record from before the check: rerun)
+    from ..method import xzcheck
+    checked = {(r["file"], r.get("sha256")) for r in rec.get("xz") or [] if r.get("ok")}
+    for f in rec.get("files", []):
+        p = Path(f["file"])
+        if p.name.lower().endswith(xzcheck.CHECKED) and (p.name, f["sha256"]) not in checked:
+            return {"ok": False, "detail": f"{p.name} has no passing fieldkit xzcheck: run the packages stage again"}
     tb = rec.get("tarball")
     if tb:
         problem = check_tarball(Path(tb["file"]), tb["member"], Path(tb["binary"]), tb["binary_sha256"], tb["stamp"])
@@ -822,9 +1033,13 @@ def _packages_nfpm(ctx, src, rec, linux):
               not any(k in s for k in ("deb", "rpm", "tarball"))]
     if others:
         notes.append("not made here: " + ", ".join(others) + " (needs its own system; Arch: the arch-package workflow)")
+    xz, bad = xz_checked(ctx, files)
+    if bad:
+        return bad
     data = {"ok": True, "version": version, "packager": "nfpm", "files": files, "tarball": tb, "nfpm_said": said,
-            "notes": notes, "log": r.log,
-            "detail": ", ".join(Path(f["file"]).name for f in files) + (f"; {'; '.join(notes)}" if notes else "")}
+            "notes": notes, "log": r.log, "xz": xz,
+            "detail": ", ".join(Path(f["file"]).name for f in files) + (f"; {'; '.join(notes)}" if notes else "")
+            + _xz_note(xz)}
     return _save(ctx, src, "packages", data)
 
 

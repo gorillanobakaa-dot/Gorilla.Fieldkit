@@ -38,6 +38,9 @@ vars:
   repo: gorillanobakaa-dot/Gorilla.Opencode
   tarball: gorilla-opencode-linux-x86_64.tar.gz    # nfpm: packed here, one member, 0755, gzip -9
   tarball_member: gorilla-opencode
+  xz_cap_mib: "128"        # packages: every .deb/.xz made passes fieldkit xzcheck (dictionary fits the content, unpacks within this)
+  git_ref: ""              # a commit-ish: build from a clean clone of it, so go records vcs.* as the release build did
+  compare_with: ""         # published stage: a folder of published files, or `release` (GitHub release <version> of repo)
 stages:
   - id: toolchain
     run: {python: "fieldkit.build.goapp:stage_toolchain"}
@@ -81,6 +84,14 @@ stages:
     verify:
       - {python: {target: "fieldkit.build.goapp:verify_repro"}}
     triage: go
+
+  - id: published
+    # byte equality with the published files (compare_with; empty: skipped); a difference names the bytes and the
+    # build info go recorded (2026-10-25: the export-of-tag build differed only by vcs.*)
+    timeout: 3600
+    run: {python: "fieldkit.build.goapp:stage_published"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_published"}}
 
   - id: mac
     timeout: 7200
