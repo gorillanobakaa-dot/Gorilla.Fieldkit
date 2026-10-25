@@ -82,6 +82,16 @@ def test_a_download_is_checked_against_sums_and_github_digests(tmp_path):
     assert any("do not match" in p for p in relfiles.check_download(d, assets)["problems"])
 
 
+def test_a_checksum_file_with_windows_line_ends_is_a_problem(tmp_path):
+    """v0.1.152's SHA256SUMS had CRLF: verify passed it, the Mac's shasum -c refused it."""
+    d, files = _release(tmp_path)
+    assets = [{"name": n, "digest": "sha256:" + hashlib.sha256(b).hexdigest()} for n, b in files.items()]
+    sums = d / "SHA256SUMS-v1.0.txt"
+    sums.write_bytes(sums.read_bytes().replace(b"\n", b"\r\n"))
+    r = relfiles.check_download(d, assets)
+    assert not r["ok"] and any("Windows line ends" in p for p in r["problems"])
+
+
 def _fake_gh(tmp_path, files, jobs):
     """A gh stand-in: release view/download from `files`, workflow run, run list/view with `jobs`."""
     store = tmp_path / "published"

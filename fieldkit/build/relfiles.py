@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-25
+# Version: 1.1.0 · updated 26-10-25-17-55
 """Release files as evidence: the page's table measured from SHA256SUMS, and the published release checked.
 
     fieldkit release table SHA256SUMS-v0.1.152.txt [--dir DIR] [--check PAGE.md]
@@ -106,6 +106,9 @@ def check_download(folder, assets):
     if len(sumfiles) != 1:
         return {"ok": False, "sums": {}, "rows": [], "problems": [f"{len(sumfiles)} SHA256SUMS file(s), expected one"]}
     sums = parse_sums(sumfiles[0])
+    # 2026-10-25: v0.1.152's SHA256SUMS had CRLF line ends; parse_sums reads them, macOS 10.13's shasum -c does not
+    if b"\r" in sumfiles[0].read_bytes():
+        problems.append(f"{sumfiles[0].name}: Windows line ends (CR); macOS 10.13's shasum -c refuses every such line")
     by_name = {a["name"]: a for a in assets}
     for name, sha in sums.items():
         p = folder / name
