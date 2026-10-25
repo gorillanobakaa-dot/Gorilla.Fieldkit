@@ -1,0 +1,16 @@
+# fieldkit mutate --plan tests/mutations-size-recycle.yaml --cwd . -- python -m pytest -q -p no:cacheprovider tests/test_size_recycle_whole_folder.py
+- file: fieldkit/buildh/installertest.py
+  swap: ['"recycle", str(base), "--whole-folder", "--json"]', '"recycle", str(base), "--json"]']
+  why: "installer-test leaves its test folder behind (refused without --whole-folder)"
+- file: fieldkit/desk/adopt.py
+  swap: ['"recycle", str(path), "--whole-folder",', '"recycle", str(path),']
+  why: "adopt cannot retire a scratch folder"
+- file: fieldkit/method/stranger.py
+  swap: ['"recycle", str(base), "--whole-folder",', '"recycle", str(base),']
+  why: "the stranger test leaves its work folder behind"
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['old-tree --whole-folder --json', 'old-tree --json']
+  why: "the router tells an agent a command that is refused"
+- file: fieldkit/desk/tools.yaml
+  swap: ['"files, folders, or wildcard patterns. Wildcards work:', '"files, folders, or patterns:']
+  why: "the card no longer tells a small model that wildcards work"

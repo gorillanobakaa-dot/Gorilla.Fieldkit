@@ -73,7 +73,7 @@ ROUTES = [
                 r"[^\n]*?(Remove-Item|\bri\b|(?<!git\s)\brm\b|\bdel\b|\brmdir\b|\brd\b)[^|;\n]*(-Recurse\b|\s-rf?\b|\s-fr\b|/s\b)",
                 re.I | re.M),
      "fieldkit size recycle (to the Recycle Bin, verified in the bin's records, undo with fieldkit size undo)",
-     FK + r" size recycle D:\Build.Work\old-tree --json"),
+     FK + r" size recycle D:\Build.Work\old-tree --whole-folder --json"),
     ("tree-copy-by-hand",
      re.compile(r"\brobocopy\b(?![^|;\n]*/L\b)|\bxcopy\b[^|;\n]*/[sSeE]\b", re.I),
      "fieldkit size copy / move (every byte compared after, journalled, undo; a plan above 1000 files or 10 GiB)",
