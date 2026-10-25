@@ -135,6 +135,63 @@ def ci_green_both(repo_path, commit, cfg):
     return sync.ci_green(sync._slug(repo_path), commit)
 
 
+def ci_green(repo_path, commit, cfg, run=subprocess.run):
+    """Every check run GitHub has for `commit` completed with success (or skipped), at least one ran, and every system
+    in the repository's `ci_os:` (none by default: a repository with one CI job) had a job. Read with gh."""
+    import json
+    from ..core import sync
+    slug = sync._slug(repo_path)
+    r = run(["gh", "api", f"repos/{slug}/commits/{commit}/check-runs", "--jq",
+             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True)
+    if r.returncode:
+        return False, f"CI unreadable (gh): {(r.stderr or '').strip()[:160]}"
+    runs = json.loads(r.stdout or "[]")
+    if not runs:
+        return False, f"no CI run for {commit[:10]}: a repository without CI never merges or releases unattended"
+    bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]
+    if bad:
+        return False, f"CI not green for {commit[:10]}: {', '.join(bad[:4])}"
+    missing = [o for o in (cfg or {}).get("ci_os") or [] if not any(o in x["name"].lower() for x in runs)]
+    if missing:
+        return False, f"CI for {commit[:10]} has no {', '.join(missing)} job"
+    return True, f"CI green for {commit[:10]} ({len(runs)} check runs)"
+
+
+def _origin_has(repo_path, commit):
+    """The commit is on a branch GitHub already has (refs/remotes/origin/*, fetched)."""
+    r = _git(repo_path, "branch", "-r", "--contains", commit)
+    return r.returncode == 0 and any(ln.strip().startswith("origin/") for ln in r.stdout.splitlines())
+
+
+def tag_new_on_pushed_commit(repo_path, tag):
+    """A tag to push: it exists here, GitHub does not have it yet (a tag is never moved), and its commit is already on
+    a branch GitHub has (so the tag publishes nothing the branch gate has not seen)."""
+    commit = _git(repo_path, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}").stdout.strip()
+    if not commit:
+        return False, f"no local tag {tag}"
+    remote = _git(repo_path, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", timeout=120)
+    if remote.returncode != 0:
+        return False, f"origin unreadable: {(remote.stderr or '').strip()[:160]}"
+    if remote.stdout.strip():
+        return False, f"{tag} already exists on origin: a tag is never moved or replaced"
+    _git(repo_path, "fetch", "--quiet", "origin")
+    if not _origin_has(repo_path, commit):
+        return False, f"{tag}'s commit {commit[:10]} is on no branch of origin: push the branch first"
+    return True, f"{tag} is new on origin; its commit {commit[:10]} is on origin"
+
+
+def tag_on_origin(repo_path, tag):
+    """-> (ok, '... <commit>'): the tag as GitHub has it (ls-remote, peeled), its commit the last word."""
+    r = _git(repo_path, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}", timeout=120)
+    if r.returncode != 0:
+        return False, f"origin unreadable: {(r.stderr or '').strip()[:160]}"
+    rows = dict((ln.split()[1], ln.split()[0]) for ln in r.stdout.splitlines() if len(ln.split()) == 2)
+    commit = rows.get(f"refs/tags/{tag}^{{}}") or rows.get(f"refs/tags/{tag}")
+    if not commit:
+        return False, f"{tag} is not on origin: push it first (fieldkit ship push --tag {tag})"
+    return True, f"{tag} on origin at {commit}"
+
+
 PROVERS = {"full_tests_pass_here": full_tests_pass_here, "other_machine_reviewed": other_machine_reviewed,
            "tests_on": tests_on,
-           "ci_green_both": ci_green_both}
+           "ci_green_both": ci_green_both, "ci_green": ci_green}

@@ -1,0 +1,46 @@
+# The OWNER-WIDE mandate, as proposed 2026-10-25 (owner: "the approval has to come once, at the beginning" and "the
+# approval has to cover all our projects we are working on"). The owner's paste copies it to
+# ~/.fieldkit/mandate/mandates/owner-wide.yaml and approves it there (typed yes + passphrase); a session never does.
+# Every repository of github.com/gorillanobakaa-dot (gh repo list, 2026-10-25), each under the defaults below.
+# `fieldkit mandate approve` shows, before the yes: every door per repository, what is NOT covered, the threat model.
+project: owner-wide
+scope: owner-wide
+goal: >
+  One approval for a week of work on every project: sessions push their working branches and new version tags,
+  merge into main through a pull request only after CI is green, and publish a GitHub release of a tag on GitHub.
+  Nothing else changes: the owner-only list stays the owner's.
+expires: 2026-11-01
+defaults:
+  push: ["feat/*", "fix/*", "release-*", "night/*"]
+  tags: ["v*"]
+  merge_to_main: {when: [ci_green], how: pull-request}
+  release: from_tag
+repos:
+  Gorilla.Opencode: {}
+  Gorilla.Fieldkit: {ci_os: [windows, ubuntu]}
+  gorilla-size: {}
+  gorilla-firefox: {}
+  Gorilla.Portable.Network.Hub: {}
+  TPFanCtrl2: {}
+  pfind: {}
+  sensors-gorilla: {}
+  black-gorilla-theme: {}
+  Windows.11.tweaks.optimisation: {}
+  code-review-toolkit: {}
+  dual-track-doc-generator: {}
+  Gorilla.HDMI.Harness: {}
+  speaker-loudness-fix: {}
+  searchfox-tools: {}
+  respect-your-llms: {}
+  model-eval: {}
+  apple-superdrive-enabler: {}
+  gorillanobakaa-dot: {}
+  debian-kernel: {kernel: true}
+  kernel-6.19.13-ultimate: {kernel: true}
+  kernel-7.0.9-unleashed: {kernel: true}
+  kernel-7.0.5-release: {kernel: true}
+install: {budget_gb: 0}
+release: ask
+never: [force_push, delete_outside_scratch, credentials, change_hard_lines, change_this_mandate, spend_money,
+        kernel_install_or_boot]
+ask_when: [outside_mandate]

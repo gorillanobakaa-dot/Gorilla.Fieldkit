@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-18-02
+# Version: 1.5.0 · updated 26-10-25-23-40
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -14,7 +14,11 @@ one file:
   4. owner approvals                leak-gate approve/dispositions, record_decisions.py, GORILLA_OWNER_APPROVED,
                                     fieldkit mandate keygen / trust / approve
   5. credential files               read or write: .env, keys, gh hosts.yml, .git-credentials, tokens
-  and: the owner's STOP file (fieldkit autopilot stop) denies everything that is not a read.
+  and: the owner's STOP file (fieldkit autopilot stop) denies everything that is not a read; installing or booting
+  a kernel (linux-image, grub, initramfs, kexec, reboot) is denied whatever a mandate says (2026-10-25).
+
+The owner-wide mandate (2026-10-25) adds two plain commands to hard line 1: `fieldkit ship push --tag vX` (a NEW tag
+matching the mandate's tags:) and `fieldkit ship gh-release vX -- ...` (a release of a tag on origin, CI green).
 
 A project mandate in force (fieldkit/mandate, M3, 2026-10-23) opens two of these and nothing else, each logged in
 the mandate's log: hard line 1 for `fieldkit ship push` on a branch the mandate lets sessions push (fast-forward,
@@ -59,7 +63,7 @@ PUBLISH = [
     (r"\b(twine|npm|pnpm|yarn|cargo|poetry|flit)\b[^\n]*\bpublish\b|\btwine\b[^\n]*\bupload\b", "publishing a package"),
     (r"\bgit\b[^\n]*\bremote\b[^\n]*\b(add|set-url)\b", "changing where git pushes"),
     # 2026-10-23: ship push/merge/release/prune push through git inside the tool, which the line above never saw
-    (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune)\b", "publishing through fieldkit ship"),
+    (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune|gh-release)\b", "publishing through fieldkit ship"),
     # 2026-10-23: release-cycle run publishes a GitHub release inside the tool (plan, next and reset only read)
     (r"\bfieldkit\b[^\n]*\brelease-cycle\s+\S+\s+run\b", "publishing a release (fieldkit release-cycle run)"),
 ]
@@ -145,7 +149,16 @@ def _statements(cmd):
 
 
 FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python3?(?:\.exe)?\s+-m\s+fieldkit)"
-SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base)(?:\s+|=)[^\s;&|`$<>]+)*)\s*$", re.I)
+SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base|tag)(?:\s+|=)[^\s;&|`$<>]+)*)\s*$",
+                  re.I)
+# the owner-wide mandate (2026-10-25): a release of a tag already on origin, once CI is green (the mandate proves it)
+GH_RELEASE = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+gh-release\s+(v[\w.+-]+)((?:\s+--repo(?:\s+|=)[^\s;&|`$<>]+)?)"
+                        r"(\s+--\s[^;&|`$<>]*)?\s*$", re.I)
+# a kernel on this machine: never installed or booted by a model, mandate or not (owner, 2026-10-25)
+KERNEL_BOOT = re.compile(r"\blinux-(image|headers|modules)\b|\bdpkg\b[^\n]*\s-i\b[^\n]*(kernel|linux)|"
+                         r"\b(update-grub|grub-(install|mkconfig|reboot|set-default)|update-initramfs|mkinitcpio|"
+                         r"dracut|kexec|bootctl|efibootmgr)\b|\bsystemctl\s+reboot\b|(^|[;&|]\s*|\bsudo\s+)reboot\b|"
+                         r"\bshutdown\b[^\n]*\s-r\b", re.I)
 RELEASE_RUN = re.compile(r"^\s*" + FIELDKIT + r"\s+release-cycle\s+([\w.-]+)\s+run\s+--var(?:\s+|=)version=(v\d+\.\d+\.\d+)"
                          r"(?:\s+--(?:only|from)(?:\s+|=)[\w-]+)?\s*$", re.I)
 MAC_RUN = re.compile(r"^\s*" + FIELDKIT + r"\s+mac\s+run\s+([\w.-]+)\s+--\s", re.I)
@@ -195,13 +208,24 @@ def _mandated(cmd, cwd, door):
     if m:
         repo = re.search(r"--repo(?:\s+|=)(\S+)", m.group(2) or "")
         repo_path = repo.group(1) if repo else (cwd or os.getcwd())
+        tag = re.search(r"--tag(?:\s+|=)(\S+)", m.group(2) or "")
         if m.group(1).lower() == "merge":
             # ship merge refuses by itself without a mandate that allows it; let it through only while one is in force
             return ("allow", "HARD LINE 1 opened: fieldkit ship merge proves the mandate's conditions itself") \
-                if door.in_force() else None
-        v, why, path = door.decide("push", repo_path=repo_path)
+                if door.in_force() and not tag else None
+        v, why, path = door.decide("tag", repo_path=repo_path, tag=tag.group(1)) if tag else \
+            door.decide("push", repo_path=repo_path)
         if v == "allow":
             door.log(path, "push-allowed", f"{why}: {cmd.strip()[:200]}")
+            return "allow", f"HARD LINE 1 opened by the mandate: {why}"
+        return None
+    m = GH_RELEASE.match(cmd)
+    if m:                                                 # owner-wide: release of a tag on origin, CI green
+        repo = re.search(r"--repo(?:\s+|=)(\S+)", m.group(2) or "")
+        v, why, path = door.decide("release_tag", repo_path=repo.group(1) if repo else (cwd or os.getcwd()),
+                                   tag=m.group(1))
+        if v == "allow":
+            door.log(path, "release-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
         return None
     m = RELEASE_RUN.match(cmd)
@@ -239,6 +263,9 @@ def decide(tool, args, stop_file=None, cwd=None, door=None):
     cmd = next((v for k, v in args.items() if k.lower() in COMMAND_KEYS and isinstance(v, str)), None)
     if cmd is not None and MANDATE_STORE.search(_norm(cmd)) and WRITE.search(cmd):
         return "deny", "HARD LINE 3: this would change the owner's mandate store; models may only read it"
+    if cmd is not None and KERNEL_BOOT.search(cmd):
+        return "deny", ("HARD LINE 4: installing or booting a kernel (or rebooting) on this machine is the owner's "
+                        "alone, mandate or not; build, push and publish it, then put the install in the owner inbox")
     if cmd is not None:
         published = next((why for pat, why in PUBLISH if re.search(pat, cmd, re.I)), None)
         owner = next((why for pat, why in OWNER_ONLY if re.search(pat, cmd, re.I)), None)

@@ -230,3 +230,33 @@ def test_release_cycle_run_is_publishing_and_the_release_door_opens_only_it(nost
                 "cd /tmp && fieldkit release-cycle gorilla-opencode run --var version=v0.1.151",
                 "fieldkit release-cycle gorilla-opencode run"):                           # no version: nothing to check
         assert dm(cmd, door, nostop) == "deny", cmd
+
+
+# ---- the owner-wide mandate (2026-10-25): tags, releases of a tag, never a kernel on this machine ---------------------
+def test_a_mandated_tag_push_asks_the_tag_door(nostop):
+    door = Door(allow={"tag"}, force=True)
+    assert dm("fieldkit ship push --tag v1.2.3", door, nostop) == "allow"
+    assert door.asked[-1] == ("tag", {"repo_path": "/w/repo", "tag": "v1.2.3"})
+    assert dm("fieldkit ship push --tag v1.2.3", Door(allow={"push"}, force=True), nostop) == "deny"
+
+
+def test_a_release_of_a_tag_opens_only_through_the_release_tag_door(nostop):
+    door = Door(allow={"release_tag"}, force=True)
+    cmd = "fieldkit ship gh-release v0.1.155 -- --title v0.1.155 --notes-file notes.md dist/a.zip"
+    assert dm(cmd, door, nostop) == "allow"
+    assert door.asked[-1] == ("release_tag", {"repo_path": "/w/repo", "tag": "v0.1.155"})
+    assert dm(cmd, Door(allow={"push"}, force=True), nostop) == "deny"
+    assert dm("fieldkit ship gh-release v1 -- --notes x; git push origin main", door, nostop) == "deny"
+    assert dm("fieldkit ship gh-release v1", Door(), nostop) == "deny"
+
+
+@pytest.mark.parametrize("cmd", ["sudo dpkg -i linux-image-7.0.9_amd64.deb", "sudo update-grub",
+                                 "sudo grub-reboot 2", "sudo kexec -l /boot/vmlinuz", "sudo reboot",
+                                 "systemctl reboot", "sudo shutdown -r now", "sudo update-initramfs -u",
+                                 "fieldkit mandate install 0.1 kernel -- sudo dpkg -i linux-image-x.deb"])
+def test_a_kernel_is_never_installed_or_booted_mandate_or_not(cmd, nostop):
+    assert dm(cmd, Door(allow={"install", "push", "approval"}, force=True), nostop) == "deny"
+
+
+def test_the_word_reboot_in_a_message_is_not_a_reboot(nostop):
+    assert dm('git commit -m "fix the reboot loop"', Door(), nostop) == "allow"
