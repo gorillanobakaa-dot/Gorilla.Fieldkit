@@ -1855,6 +1855,46 @@
    "mandate"
   ]
  },
+ "mandate doctor": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate-doctor"
+  ]
+ },
+ "mandate gate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate-gate"
+  ]
+ },
+ "mandate install-hooks": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate-install-hooks"
+  ]
+ },
+ "mandate renew": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate-renew"
+  ]
+ },
  "mcp-probe": {
   "platforms": [
    "linux",
@@ -2234,6 +2274,26 @@
   "why": "",
   "ids": [
    "ship"
+  ]
+ },
+ "ship gh-release": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-gh-release"
+  ]
+ },
+ "ship push": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-push-tag"
   ]
  },
  "shot": {

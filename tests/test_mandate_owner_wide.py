@@ -291,9 +291,9 @@ def test_the_gate_command_fails_closed_when_it_breaks(monkeypatch, capsys):
 
 
 # ---- end to end: the real Gorilla.Opencode hook, the real fieldkit ship push, a separate gate process -------------------
+# 2026-10-26: the template lives in Fieldkit (fieldkit/mandate/hooks/gorilla-opencode), so this runs everywhere
 HOOKS = [Path(os.environ["FK_OPENCODE_HOOKS"])] if os.environ.get("FK_OPENCODE_HOOKS") else [
-    Path.home() / "Documents" / "Scripts" / "Fieldkit" / "state" / "proposed" / "owner-mandate-2026-10-25" /
-    "gorilla-opencode",
+    Path(M.__file__).with_name("hooks") / "gorilla-opencode",
     Path.home() / "Documents" / "Gorilla.Opencode" / "scripts" / "git-hooks"]
 HOOKDIR = next((h for h in HOOKS if (h / "hooks.py").is_file() and "mandate_gate" in (h / "hooks.py").read_text()), None)
 SITE = """import os
@@ -307,12 +307,15 @@ if os.environ.get("FK_E2E_HOME"):
 
 
 @pytest.mark.skipif(HOOKDIR is None or shutil.which("sh") is None,
-                    reason="the Gorilla.Opencode hooks with the mandate gate are private: this computer only")
+                    reason="no sh to run the Gorilla.Opencode hook with")
 def test_end_to_end_a_real_push_through_ship_and_the_opencode_hook(home, clone, tmp_path):
     hooks = clone / "scripts" / "git-hooks"
     hooks.mkdir(parents=True)
     shutil.copy(HOOKDIR / "hooks.py", hooks / "hooks.py")
-    shutil.copy(HOOKDIR / "pre-push", clone / ".git" / "hooks" / "pre-push")
+    shutil.copy(HOOKDIR / "pre-push", clone / ".git" / "hooks" / "pre-push")    # keeps the template's own mode
+    # git on Linux and macOS skips a hook that is not executable, in silence (2026-10-26: Ubuntu CI pushed through)
+    assert sys.platform == "win32" or os.access(clone / ".git" / "hooks" / "pre-push", os.X_OK), \
+        "the template pre-push is not executable: git update-index --chmod=+x it"
     site = tmp_path / "site"
     site.mkdir()
     (site / "sitecustomize.py").write_text(SITE, encoding="utf-8")

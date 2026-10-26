@@ -65,6 +65,20 @@ no pre-approval covers goes to the inbox WITH a default, and every job that does
 - A hard-line DENY is final: report it in the inbox; never look for another route (2026-10-18: a blocked
   `git push` was followed by `gh release create` - that is exactly what the hard lines and the missing credential
   now stop).
+- Clean up after yourself, always, without asking (owner, 2026-10-26: "do you wanna delete over 8 GB of crap left
+  behind? yes of course i do ... make it a permanent record / decision. is always yes"). Before a job ends, remove what
+  ITS OWN steps left behind - test copies, `.partial` resume state, scratch and test worktrees, playground folders,
+  temporary builds, probe output - with `fieldkit size recycle PATH ...` (`--whole-folder` when the whole folder is
+  this job's), check that each one arrived in the Recycle Bin, and report it in ONE line (what, how many GB). Never
+  touched: the owner's own files and originals, other sessions' work, release artifacts, evidence a PLAN row cites,
+  and branches or tags on GitHub. Not sure a thing is yours? It is not: leave it and name it in the report.
+- Pushing under the owner-wide mandate (owner, 2026-10-26): the ONE door is `fieldkit ship push` (a feat/ fix/
+  release- night/ branch), `fieldkit ship push --tag vX` (a new tag) and `fieldkit ship gh-release vX -- ARGS`; the
+  hard lines open exactly these, the repository's pre-push hook asks `fieldkit mandate gate`, and the tool router
+  refuses a hand-typed `git push` in a covered clone. Never put a per-push GORILLA_OWNER_APPROVED line in the inbox:
+  that flag is the owner's own manual path for what the mandate does not cover. No mandate in force
+  (`fieldkit mandate doctor`)? One inbox item for the whole run, not one per push. `mandate renew` and
+  `mandate install-hooks --yes` are hard line 4 here: the owner's.
 - Measuring runs: the leak gate quiets the machine by itself for its whole run (quiet.log in its run folder).
   By hand: `fieldkit autopilot quiet` lists, `--apply --hold PID` or `--apply --minutes N` keeps it quiet.
   Every app outside Windows that holds an internet socket is stopped by PID (the netstat -ano + kill the owner

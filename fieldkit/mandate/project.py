@@ -102,6 +102,10 @@ def start(smoke=None, health_fn=None):
                f"at {last.get('at', '-')}")
     force = M.in_force()
     out.append("MANDATE: " + (", ".join(p.stem for p in force) + " in force" if force else "none in force here"))
+    from . import upkeep
+    w = upkeep.warning()
+    if w:
+        out.append(w)                                     # the expiry warning, WARN_DAYS before the end (one line)
     if smoke is None:
         try:
             smoke = _link().call({"verb": "hello"})
