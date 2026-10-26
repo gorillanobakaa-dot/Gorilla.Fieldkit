@@ -1347,6 +1347,8 @@ METHODS = {
     "mutate": ("mutate", "prove a test can fail: break a rule, run the test, restore the file (FILE --swap A B -- TEST)"),
     "regress": ("regress", "test failures by name before and after a change (record LABEL -- CMD; compare A B)"),
     "drift": ("drift", "does a committed generated file still match its generator? reports, never rewrites"),
+    "merge-driver": ("mergedriver", "cards and generated indexes merged entry by entry, so two branches adding cards "
+                                    "never conflict (check | install)"),
     "mcp-probe": ("mcp_probe", "speak MCP to a server as a client does: handshake, tools and their size, one call"),
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "
