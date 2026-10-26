@@ -20,6 +20,7 @@
   "sample_keep_min": 120,
   "sample_top": 40,
   "hook_fresh_min": 15,
+  "preflight_min_free_pct": 10,
   "act_unload_idle_models": true,
   "act_kill_orphans": true,
   "ollama_url": "http://127.0.0.1:11434",

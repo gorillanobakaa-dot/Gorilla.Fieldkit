@@ -199,7 +199,10 @@ def disks(platform=None):
     return out
 
 
-def temp():
+def temp(platform=None):
+    if (platform or sys.platform) == "darwin":
+        # powermetrics needs root and SMC readers are third-party: say so, never guess (owner, 2026-10-26)
+        return {"c": None, "sensor": None, "why": "not readable on macOS without root (powermetrics)"}
     try:
         from ..thermal import sensors
         name, fn, _why = sensors.best(prove=False)

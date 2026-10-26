@@ -140,8 +140,60 @@
   - '        if proc.name().lower() in SHELLS:'
   - '        if False:'
   why: a shell is not classed by the command text it carries
+- file: fieldkit/hog/__init__.py
+  swap:
+  - '    if free_pct < cfg["preflight_min_free_pct"]:'
+  - '    if free_pct <= cfg["preflight_min_free_pct"] - 1:'
+  why: the preflight stops under the free-RAM floor (10%)
+- file: fieldkit/hog/__init__.py
+  swap:
+  - '    done = act(cfg, facts, found, settle=1.0, do=do)'
+  - '    done = []'
+  why: the preflight reclaims before it measures the floor
+# the ONE run guard; run with tests/test_preflight.py too:
+#   fieldkit mutate --plan tests/hog_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_hog.py tests/test_preflight.py
 - file: fieldkit/core/preflight.py
   swap:
-  - '            out[s] = None'
+  - '            st, line = WARN, f"{name}: not run ({str(e)[:120]})"'
   - '            raise'
-  why: a failing preflight step never stops the others
+  why: a broken check is a warning, never a stop of the run (fail open for the guard)
+- file: fieldkit/core/preflight.py
+  swap:
+  - '            st = st if st in RANK else WARN'
+  - '            pass'
+  why: an unknown status is a warning
+- file: fieldkit/core/preflight.py
+  swap:
+  - '        if status == STOP and clock() - t0 < wait_s:'
+  - '        if False:'
+  why: a STOP waits up to wait_s, re-checking
+- file: fieldkit/core/preflight.py
+  swap:
+  - '    if r["status"] == STOP:'
+  - '    if False:'
+  why: a STOP refuses the guarded run
+- file: fieldkit/core/preflight.py
+  swap:
+  - '    if (steps is None and skipped()) or os.environ.get(NESTED):'
+  - '    if steps is None and skipped():'
+  why: a guard inside a guard is no second guard
+- file: fieldkit/core/preflight.py
+  swap:
+  - '        if g is not None and getattr(g, "cap", None) is not None and g.cap < (getattr(g, "start_cap", None) or 100):'
+  - '        if g is not None:'
+  why: only seconds under the start cap count as throttled
+- file: fieldkit/core/preflight.py
+  swap:
+  - '    _REGISTERED[:] = [r for r in _REGISTERED if r[0] != name] + [(name, fn)]'
+  - '    _REGISTERED.append((name, fn))'
+  why: registering the same name twice replaces it
+- file: fieldkit/thermal/buildguard.py
+  swap:
+  - '        raise BuildRefused(f"preflight: {e}") from e'
+  - '        pass'
+  why: a preflight STOP refuses the build
+- file: fieldkit/autopilot/job.py
+  swap:
+  - '    return preflight.call(f"job {kw.get(''job_id'') or Path(job_dir).name}", "job",'
+  - '    return (lambda *a, **k: _run_job(job_dir, brief, cwd, say=say, **kw))(f"job", "job",'
+  why: every autopilot job runs under the guard

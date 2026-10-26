@@ -581,8 +581,21 @@ def previous_cargo_lock(n_minus_1_tree, workdir_tree=None):
     return None
 
 
-def run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
-        previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
+def run(*args, say=print, **kw):
+    """The gate under the one run guard (2026-10-26): observation and the safe reclaim only, before and during; it
+    changes no allowlist, judgment or verdict. A STOP (free RAM under the floor after reclaiming) waits up to 10 min,
+    then refuses the run with why; a broken guard is a warning and the gate runs."""
+    import functools
+    from ..core import preflight
+
+    def refused(why):
+        raise RuntimeError(f"leakgate: the preflight refused the run: {why}")
+    return preflight.call("leak gate", "gate", functools.partial(_run, *args, say=say, **kw), say=say, wait_s=600,
+                          refused=refused)
+
+
+def _run(zip_path, owner_root, workdir_tree, upstream, workroot, repeat=1, quick=True, only=None, release=False,
+         previous_zip=None, n_minus_1_tree=None, say=print, soak=None, firewall=False):
     owner_root = Path(owner_root)
     allow_path = al.path_for(owner_root)
     disp_path = owner_root / "leakgate" / "dispositions.json"

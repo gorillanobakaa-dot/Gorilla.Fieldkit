@@ -53,7 +53,22 @@ if [ -f docs/groups.yaml ]; then
     git add docs/groups.yaml
   fi
 fi
-if ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
+# 2026-10-26: the suite runs under the one run guard (fieldkit/core/preflight.py): idle local models unloaded and dead
+# sessions' orphans stopped first, RAM and temperature sampled during it, one end line after it. A checkout without
+# the guard runs the suite bare.
+guarded() {
+  if "$PY" -c "import fieldkit.core.preflight" >/dev/null 2>&1; then
+    "$PY" -m fieldkit.core.preflight --label pre-commit --kind test -- "$@"
+  else
+    "$@"
+  fi
+}
+if ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
+  if grep -q '^REFUSED by the preflight' "$OUT"; then
+    grep -E '^REFUSED by the preflight|preflight' "$OUT"
+    echo "pre-commit: the preflight refused the suite (free RAM under the floor) - commit refused, nothing was tested"
+    exit 1
+  fi
   # A failure must reproduce before it refuses the commit (2026-10-09: a timing test failed once under load, then
   # passed 3 of 3 on its own). Only the failed tests run again, once, in a fresh folder. A failure that does not
   # reproduce is written to state/flaky-tests.log (time and test) so it gets fixed, never silently forgotten.
@@ -69,6 +84,7 @@ if ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; t
   for t in $FAILED; do echo "$(date '+%Y-%m-%d %H:%M:%S') failed once, passed when run again: $t" >> state/flaky-tests.log; done
   echo "pre-commit: WARNING - failed once and passed when run again (logged in state/flaky-tests.log): $FAILED"
 fi
+grep -E '^  (preflight|run guard) ' "$OUT" | sed 's/^  /pre-commit: /'
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
   "$PY" -m fieldkit privacy scan . --git; exit 1

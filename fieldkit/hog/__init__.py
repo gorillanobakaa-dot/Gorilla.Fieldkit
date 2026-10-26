@@ -4,7 +4,7 @@
     fieldkit hog check [--json]           one pass: the findings, one summary line; exit 0 OK, 1 WARN, 2 ACT
     fieldkit hog act [--dry-run]          one pass, then the safe actions (unload idle models, stop registered orphans)
     fieldkit hog watch                    what the schedule runs every 5 minutes: sample, act, log, exit
-    fieldkit hog preflight                one act pass before heavy work (fieldkit guard and thermal monitor run it)
+    fieldkit hog preflight                the ONE preflight's checks now (every guarded run does this first; exit 2 = stop)
     fieldkit hog register PID [--cap 3h] [--why TEXT]   a process this harness started (the orphan rule may stop it)
     fieldkit hog log [N]                  the last N actions
     fieldkit hog doctor                   psutil, lms, the schedule, the room hook, the state folder
@@ -209,23 +209,32 @@ def act(cfg=None, facts=None, found=None, dry=False, settle=3.0, do=None):
     return done
 
 
-def preflight(say=print, label="heavy work"):
-    """Before a build, compile or test run (buildguard.guard, thermal monitor): one act pass, so the heavy run does
-    not start next to an idle 43 GB model or a dead session's test runners. Says one line; never refuses and never
-    raises (the fan check and the governor are the guards). Skipped inside pytest and with FIELDKIT_HOG_PREFLIGHT=0."""
-    if os.environ.get("FIELDKIT_HOG_PREFLIGHT") == "0" or os.environ.get("PYTEST_CURRENT_TEST"):
-        return None
-    try:
-        cfg = config()
-        facts, found = check(cfg, sample=True)
-        done = act(cfg, facts, found)
-        say(f"  hog preflight ({label}): {rules.summary(found)}"
-            + "".join(f"; {d['action']['kind']} {'OK' if d['ok'] else 'FAILED'}, RAM "
-                      f"{d['ram_before'] / 2**30:.1f} -> {d['ram_after'] / 2**30:.1f} GB" for d in done))
-        return found
-    except Exception as e:
-        say(f"  hog preflight: not run ({str(e)[:120]})")
-        return None
+def preflight_check(ctx=None, cfg=None, facts=None, ram_fn=None, do=None):
+    """The hog's check in the ONE preflight (fieldkit/core/preflight.py STEPS) before every guarded run: one pass
+    without the temperature (the run guard samples it), the safe actions (idle models unloaded, dead sessions'
+    orphans stopped), then the free-RAM floor. -> (status, one line); "stop" only when free RAM is still under
+    preflight_min_free_pct AFTER reclaiming. Raising is left to the preflight, which turns it into a WARN."""
+    from . import probe, registry
+    cfg = cfg or config()
+    if facts is None:
+        reg = registry.load()
+        facts = probe.gather(cfg, keep={(e["pid"], e["ctime"]) for e in reg}, with_temp=False)
+    facts, found = check(cfg, facts=facts, sample=True)
+    done = act(cfg, facts, found, settle=1.0, do=do)
+    used, total = (ram_fn or _ram_now)()
+    free_pct = (total - used) * 100.0 / total
+    freed = sum(max(0, d["ram_before"] - d["ram_after"]) for d in done if d.get("ok"))
+    line = f"hog: RAM {used / 2**30:.1f}/{total / 2**30:.1f} GB ({100 - free_pct:.0f}%)"
+    if done:
+        line += f", {len(done)} action(s), reclaimed {freed / 2**30:.1f} GB"
+    if free_pct < cfg["preflight_min_free_pct"]:
+        top = ", ".join(rules._top(facts.get("procs", []), 3))
+        return "stop", (f"{line}: {free_pct:.0f}% free is under the floor of {cfg['preflight_min_free_pct']}% "
+                        f"after reclaiming what is safe; top: {top}")
+    rest = [f for f in found if f["check"] not in ("ram", "commit") and not f.get("action")]
+    if rules.worst(rest) or any(f["severity"] != "ok" for f in found if f["check"] in ("ram", "commit")):
+        return "warn", line + "; " + rules.summary(found)[len("hog: "):]
+    return "ok", line
 
 
 # ---- the prompt hook's one line ----------------------------------------------------------------------------------
@@ -311,7 +320,8 @@ def main(argv=None, prog="fieldkit hog"):
                 print(f"  {d['action']['kind']}: {d['result']} ({'OK' if d['ok'] else 'dry run' if d['ok'] is None else 'FAILED'})")
         return rules.worst(found)
     if cmd == "preflight":
-        return rules.worst(preflight() or [])
+        from ..core import preflight
+        return preflight.RANK[preflight.run("fieldkit hog preflight", steps=preflight.STEPS)["status"]]
     if cmd == "register":
         import psutil
         from . import registry

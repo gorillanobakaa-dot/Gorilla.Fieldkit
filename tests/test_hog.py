@@ -393,38 +393,32 @@ def test_local_thresholds_override(tmp_path):
     assert hog.config()["model_idle_min"] == 30 and hog.config()["ram_warn_pct"] == 80
 
 
-def test_preflight_skipped_inside_pytest():
-    assert hog.preflight(say=lambda s: None) is None
+def _pf(free_gb, total_gb=64, found_lms=False):
+    f = facts(ram={"total": total_gb * GB, "used": (total_gb - free_gb) * GB},
+              procs=[{"pid": 9, "ctime": 1.0, "name": "llama-server.exe", "rss": 43 * GB, "cpu_s": 1.0}],
+              **(_lms(60) if found_lms else {}))
+    return f, (lambda: ((total_gb - free_gb) * GB, total_gb * GB))
 
 
-def test_one_preflight_runs_every_step_and_survives_a_failing_one():
-    from fieldkit.core import preflight
-    said = []
-    assert preflight.STEPS[0] == "fieldkit.hog:preflight"
-    assert preflight.run(said.append, "t") == {}                  # inside pytest, the default steps do not run
-    import types
-    fake = types.ModuleType("fake_step")
-    fake.go = lambda say, label: f"ran {label}"
-    sys.modules["fake_step"] = fake
-    try:
-        out = preflight.run(said.append, "t", steps=["fieldkit.nope:x", "fake_step:go"])
-    finally:
-        del sys.modules["fake_step"]
-    assert out == {"fieldkit.nope:x": None, "fake_step:go": "ran t"}
-    assert "preflight fieldkit.nope:x: not run" in said[0]
+def test_preflight_check_ok_warn_stop(cfg):
+    f, ram = _pf(40)
+    assert hog.preflight_check({}, cfg, facts=f, ram_fn=ram) == ("ok", "hog: RAM 24.0/64.0 GB (38%)")
+    f, ram = _pf(10)                                      # 84% used: warn, runs
+    st, line = hog.preflight_check({}, cfg, facts=f, ram_fn=ram)
+    assert st == "warn" and "RAM 54.0/64.0 GB" in line
+    f, ram = _pf(6.3)                                     # 9.8% free after reclaiming: under the 10% floor
+    st, line = hog.preflight_check({}, cfg, facts=f, ram_fn=ram)
+    assert st == "stop" and "under the floor of 10%" in line and "llama-server.exe 9 43.0 GB" in line
+    f, ram = _pf(6.5)
+    assert hog.preflight_check({}, cfg, facts=f, ram_fn=ram)[0] != "stop"
 
 
-@pytest.mark.real_build_guard
-def test_buildguard_calls_the_one_preflight(monkeypatch):
-    from fieldkit.core import preflight
-    from fieldkit.thermal import buildguard
-    seen = []
-    monkeypatch.setattr(preflight, "run", lambda say, label: seen.append(label))
-    monkeypatch.setattr(buildguard, "fan_check", lambda: (False, "fan check refused (test)"))
-    with pytest.raises(buildguard.BuildRefused):
-        with buildguard.guard(say=lambda s: None, label="cargo", check_fan=True) as _g:
-            pass
-    assert seen == ["cargo"]
+def test_preflight_check_reclaims_first(cfg):
+    f, _ = _pf(5, found_lms=True)
+    freed = []
+    st, line = hog.preflight_check({}, cfg, facts=f, ram_fn=lambda: (24 * GB, 64 * GB),
+                                   do=lambda a: (freed.append(a) or True, "unloaded"))
+    assert freed == [{"kind": "unload_lms", "id": "qwen3.6-35b-a3b"}] and st != "stop" and "1 action(s)" in line
 
 
 def test_parse_meminfo():

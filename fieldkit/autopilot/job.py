@@ -99,9 +99,19 @@ def _sleep_until(t, sleep, now, stop_file, say):
     return True
 
 
-def run_job(job_dir, brief, cwd, budget=None, job_id=None, max_continuations=3, fallback=None, model=None,
-            claude=None, sleep=time.sleep, now=time.time, say=print, inbox_add=None, stop_file=None,
-            max_sleep=MAX_SLEEP, on_spend=None):
+def run_job(job_dir, brief, cwd, say=print, **kw):
+    """One job (a runbook step, a goal's job) under the one run guard (2026-10-26): observation and the safe reclaim
+    only; a STOP (free RAM under the floor after reclaiming) waits up to 10 minutes, then fails the job with why."""
+    import functools
+    from ..core import preflight
+    return preflight.call(f"job {kw.get('job_id') or Path(job_dir).name}", "job",
+                          functools.partial(_run_job, job_dir, brief, cwd, say=say, **kw), say=say, wait_s=600,
+                          refused=lambda why: {"status": "failed", "rc": 2, "why": f"preflight: {why}"})
+
+
+def _run_job(job_dir, brief, cwd, budget=None, job_id=None, max_continuations=3, fallback=None, model=None,
+             claude=None, sleep=time.sleep, now=time.time, say=print, inbox_add=None, stop_file=None,
+             max_sleep=MAX_SLEEP, on_spend=None):
     """Run (or resume) one job to done, paused-resumable or failed. Every attempt is recorded in CHECKPOINT.json."""
     from . import hardlines
     if claude is None:

@@ -25,5 +25,20 @@ What it does on its own (`watch`, `act`, and the preflight before `fieldkit guar
 Everything else (RAM, leaks, pinned CPU, heat, disk) is reported, not acted on. Each action is one line in the ROOM
 log, so every session sees it, and the prompt hook shows one line when the last watch found something.
 
-Do not unload or kill by hand when the hog covers it: `fieldkit hog act`. Before heavy work, nothing to do: the one
-preflight (`fieldkit/core/preflight.py`) runs it.
+Do not unload or kill by hand when the hog covers it: `fieldkit hog act`.
+
+## The one run guard (fieldkit/core/preflight.py)
+
+Every Fieldkit-managed heavy run goes through it, so nothing is started by hand: `fieldkit guard -- CMD` and go
+builds (with the thermal governor), `fieldkit mutate`, `fieldkit pipeline run`, autopilot jobs (runbook steps,
+goals), the leak gate, and the pre-commit suite. Before: the checks (the hog reclaims, then refuses below 10% free
+RAM; a job or the gate waits up to 10 min first). During: RAM and CPU temperature sampled, the hog's safe actions
+every 5 min. After: ONE line, e.g. `run guard cargo: 12.0 min, peak RAM 30.1/63.7 GB, peak CPU 71 C, reclaimed
+21.0 GB, 40 s capped`.
+
+```
+python -m fieldkit.core.preflight --label "my build" -- CMD ...    any other heavy command under the guard
+fieldkit hog preflight                                           the checks alone, now
+```
+A new check (e.g. a test budget): `preflight.register("name", fn)` or a `"module:function"` in `preflight.STEPS`;
+`fn(ctx) -> ("ok"|"warn"|"stop", "one line")`, ctx = {label, kind}. A check that raises is a warning, never a stop.
