@@ -118,6 +118,7 @@ groups:
       - lmstudio.py
       - orchestrate.py
       - orchestrate_work.py
+      - overhead.py
       - testcost.py
 
   - name: verify-and-build

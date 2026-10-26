@@ -1,0 +1,35 @@
+# Rules fieldkit overhead must hold (owner 2026-10-26: the job measured against the bare pre-AI build script):
+#   fieldkit mutate --plan tests/overhead_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_overhead.py
+- file: fieldkit/overhead.py
+  swap: ['top = next((i for i, n in enumerate(active) if n > 0), rank["idle"])', 'top = max((i for i, n in enumerate(active) if n > 0), default=rank["idle"])']
+  why: where sources overlap the first bucket in priority wins (bare before rework before ... idle)
+- file: fieldkit/overhead.py
+  swap: ['keep[stage] = rs[0]', 'keep[stage] = rs[-1]']
+  why: only the first migration burst is bare; later bursts are fixes after a build
+- file: fieldkit/overhead.py
+  swap: ['keep[stage] = max(ok or rs, key=lambda r: r["end"] - r["start"])', 'keep[stage] = max(rs, key=lambda r: r["end"] - r["start"])']
+  why: the bare compile is the longest SUCCESSFUL one; a failed compile is rework
+- file: fieldkit/overhead.py
+  swap: ['level = "NOBASE" if ratio is None else "WARN" if ratio > cfg["max_ratio"] else "OK"', 'level = "NOBASE" if ratio is None else "WARN" if ratio > 2 * cfg["max_ratio"] else "OK"']
+  why: WARN exactly over overhead.max_ratio
+- file: fieldkit/overhead.py
+  swap: ['if cur and e["_t"] - cur[-1]["_t"] > SILENCE_S:', 'if False:']
+  why: a journal silent for 24 h ends a job; the follow-up is its own job
+- file: fieldkit/overhead.py
+  swap: ['redo = bool(r.get("key")) and key in passed', 'redo = False']
+  why: a check re-run on a tree that already passed it is rework
+- file: fieldkit/overhead.py
+  swap: ['if name in FILE_TOOLS and secs > PROMPT_S:', 'if name in FILE_TOOLS and secs > 10 * PROMPT_S:']
+  why: a file tool that waited over 60 s waited on an approval prompt (owner time)
+- file: fieldkit/overhead.py
+  swap: ['if not pat or not any(m in hay for m in pat) or not it.get("added"):', 'if not it.get("added"):']
+  why: only inbox items that name the job count as that job's owner wait
+- file: fieldkit/overhead.py
+  swap: ['            end = min(end, nxt)', '            end = end']
+  why: a leak gate run never outlasts the next run's start (a later re-judge touches its files)
+- file: fieldkit/overhead.py
+  swap: ['return ("tools" if journal else "bare"), "compile call"', 'return "bare", "compile call"']
+  why: with a stage log the journal is the compile's authority; a transcript compile call is not a second bare run
+- file: fieldkit/overhead.py
+  swap: ['            if str(prev_end).startswith("failed"):', '            if False:']
+  why: a goal job attempt after a failed one is rework

@@ -34,7 +34,7 @@ def test_the_watch_catches_a_new_link_pref_and_not_an_endpoint():
     assert rx.search('pref("browser.newfeature.learnMoreUrl", "https://www.mozilla.org/x");')
     assert not rx.search('pref("app.support.baseURL", "", locked);')
     assert not rx.search('pref("identity.fxaccounts.remote.root", "https://accounts.firefox.com/");')
-    assert not rx.search('pref("toolkit.telemetry.server", "https://incoming.telemetry.mozilla.org");')
+    assert not rx.search('pref("toolkit.telemetry.server", "https://incoming.telemetry.mozilla.org");')  # telemetry-ok: test fixture
 
 
 def test_post_install_knows_the_group():

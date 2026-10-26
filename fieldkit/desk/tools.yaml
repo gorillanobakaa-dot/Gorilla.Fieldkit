@@ -5678,6 +5678,26 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
 
+- id: overhead
+  title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
+  harness: core
+  entry: [python, -m, fieldkit, overhead]
+  path: ${FIELDKIT}/fieldkit/overhead.py
+  inputs:
+    - {name: job, flag: null, type: str, required: false, help: "a build-harness task (firefox-158.0, 'firefox-158.0 #2'), goal:<id>, or baselines; none = one line per known job"}
+    - {name: session, flag: --session, type: str, required: false, help: "a Claude Code session id (prefix) of this job, repeatable; splits LLM / tools / owner time"}
+    - {name: bare, flag: --bare, type: float, required: false, help: "the bare minutes when no stage log gives them"}
+    - {name: state, flag: --state, type: path, required: false, help: "Fieldkit state folder (default: this checkout's state/)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {0: "every job within overhead.max_ratio (or no baseline)", 1: "a job took more than overhead.max_ratio x its bare build (WARN)", 2: "unknown job or bad arguments"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_overhead.py"]
+  skill: skills/fieldkit-overhead/SKILL.md
+  notes: "Owner 2026-10-26: the bar is Gentoo Portage / his pre-AI script, a 90-minute compile + package, unattended. Baseline = the build-harness journal's own stage runs (first migration burst + longest successful compile + its package). Every second of the wall clock in exactly one bucket by priority bare > rework > tests > tools > llm > owner > idle. Sources: journal.jsonl, leak gate run folders, testcost runs.jsonl, autopilot inbox, goal events.log/CHECKPOINT.json/verdicts.jsonl, Claude Code transcripts given by --session or overhead.sessions (never guessed). Budget overhead.max_ratio (default 1.5) in fieldkit.local.json; goal status + REPORT.md show the line; board_line() is the zero-net Board's hook. Read-only, no network, no model. First real run: Firefox 158 = bare 2 h 49 min, took 62 h 55 min = 22.4x."
+
 - id: skills
   title: "Agent Skills (agentskills.io, the standard Anthropic gave the Agentic AI Foundation) - every spec rule checked on every skill, network doors in adopted third-party skills, installed copies against the sources, license/compatibility aligned, third-party skills rebuilt from a pinned upstream; plus the adopted skill-creator scripts (package, benchmark, eval)"
   harness: core
