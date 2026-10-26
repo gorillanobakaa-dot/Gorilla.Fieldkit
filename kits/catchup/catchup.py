@@ -1,3 +1,4 @@
+# Version: 1.0.0 · updated 26-10-26-11-11
 """catchup - bring another machine's AI session up to date with this one: a machine catch-up handover.
 
 Built 2026-10-12: a month of work happened on a Windows laptop while the owner's Debian machine (and its
@@ -400,8 +401,14 @@ RO_LETTERS = re.compile("[ăĂșȘțȚşŞţŢ]")  # Romanian-only (â/î are al
 RO_WORDS = re.compile(r"\b(pentru|este|sunt|acest|aceasta|această|ghid|porneste|pornește|opreste|"  # privacy-scan: allow
                       r"oprește|anulare|imprimarea|multumesc|mulțumesc|foarte|trebuie|fisier|fișier|"  # privacy-scan: allow
                       r"dupa|după|inainte|înainte|acum|toate|daca|dacă|lucru|salut|nimic|doar|unde|"  # privacy-scan: allow
-                      r"bine|frate|adica|adică|deci|vreau|poti|poți|facem|nu-i|asta|aici|acolo)\b",  # privacy-scan: allow
+                      r"bine|frate|adica|adică|deci|vreau|poti|poți|facem|nu-i|asta|aici|acolo|"  # privacy-scan: allow
+                      # 2026-10-25: Romanian typed WITHOUT diacritics slipped through (one listed word per line).
+                      # Words common in such text that are not English words:  privacy-scan: allow
+                      r"cand|când|nici|apoi|trebui|deasupra|dreapta|stanga|stânga|fereastra|fereastră|aproape|"  # privacy-scan: allow
+                      r"deschide|deschida|deschidă|cadrul|iasa|iasă|jos|altfel|niciodata|niciodată|mereu|"  # privacy-scan: allow
+                      r"impreuna|împreună|calculator|calculatorul|ecranul|ecranului|fisierul|fișierul)\b",  # privacy-scan: allow
                       re.I)  # two distinct words on one line count; one alone does not
+RO_STEM = re.compile(r"\b[a-z]+-?ului\b", re.I)  # Romanian genitive (ecranului, dock-ului): counts as one word privacy-scan: allow
 
 
 def public_findings(paths, terms=()):
@@ -436,7 +443,7 @@ def line_findings(line, terms):
     if ALLOW_MARK in line:
         return []
     found = []
-    words = {w.lower() for w in RO_WORDS.findall(line)}
+    words = {w.lower() for w in RO_WORDS.findall(line)} | {w.lower() for w in RO_STEM.findall(line)}
     if RO_LETTERS.search(line) or len(words) >= 2:
         found.append({"kind": "romanian", "excerpt": line.strip()[:70]})
     low = line.lower()
