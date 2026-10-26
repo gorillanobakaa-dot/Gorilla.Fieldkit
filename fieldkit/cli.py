@@ -62,6 +62,9 @@
     fieldkit release table|verify                the page's file table measured from SHA256SUMS; a published tag checked
     fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
     fieldkit testcost plan|run --fast|report     the cheapest test set that is enough; a passed tree is never re-tested
+    fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
+    fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
+    fieldkit rotate check|handover|finished      OK / WARN / ROTATE per session; hand a monster session over to a fresh one
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
     fieldkit build-harness latest|vault|start|approve|next|status|submit|unblock|log ...
@@ -1504,6 +1507,13 @@ def build_parser():
                         help="the scratch root: marked job folders, deleted fast and only when yours or stale; "
                              "report, doctor, the owner's Defender exclusion script (fieldkit scratch)")
     sc.add_argument("args", nargs=argparse.REMAINDER)
+    for name, text in (("session-cost", "what an AI coding session costs in dollars, live or afterwards (Claude Code, "
+                                        "Antigravity; fieldkit session-cost)"),
+                       ("token-audit", "where the tokens of Claude Code sessions went: context per call, cache reads, "
+                                       "hook text (fieldkit token-audit)"),
+                       ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
+                                  "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
+        sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -2635,6 +2645,10 @@ def main(argv=None):
     if args[:1] == ["lmstudio-log"]:                  # why a local model is slow: LM Studio's server log
         from . import lmstudio
         return lmstudio.main(args[1:])
+    if args[:1] in (["session-cost"], ["token-audit"], ["rotate"]):   # what sessions cost; rotate the monsters
+        import importlib
+        mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
+        return mod.main(args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])

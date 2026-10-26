@@ -224,6 +224,40 @@ def test_public_check_two_words_needed_without_letters(tmp_path):
     assert code == 3, out
 
 
+# 2026-10-25: this quote went into Gorilla.Opencode/MACOS-AIR-LAYOUT-PLAN.md and public-check said 0 Romanian:
+# written without diacritics, it had only one of the listed words per line. Caught by eye before the push.
+QUOTE_WITHOUT_DIACRITICS = [  # privacy-scan: allow
+    "Owner, 2026-10-23: \"cand se deschide fereastra, va trebui calculata sa se deschida aproape la maxim 167x39 ca sa",  # privacy-scan: allow
+    "stea deasupra dock-ului si SA FIE CENTRATA cum trebuie sa nu iasa din cadrul ecranului nici pe sus, nici pe jos,",  # privacy-scan: allow
+    "nici in stanga nici in dreapta. apoi, toate screenshots cu erorile de layout pe care le-am documentat pe desktop la",  # privacy-scan: allow
+]
+
+
+def test_public_check_finds_romanian_written_without_diacritics(tmp_path):
+    f = tmp_path / "plan.md"
+    f.write_text("\n".join(QUOTE_WITHOUT_DIACRITICS) + "\n", encoding="utf-8")
+    code, out = run("public-check", "--no-terms", f)
+    assert code == 3, out
+    assert all(f"plan.md:{n}" in out for n in (1, 2, 3)), out
+
+
+def test_public_check_genitive_ului_counts_as_a_romanian_word(tmp_path):
+    f = tmp_path / "n.md"
+    f.write_text("Butonul din coltul dock-ului e mic, nici nu se vede.\n", encoding="utf-8")  # privacy-scan: allow
+    code, out = run("public-check", "--no-terms", f)
+    assert code == 3, out  # nici + dock-ului: two words only because -ului counts
+
+
+def test_public_check_plain_english_about_the_same_thing_stays_clean(tmp_path):
+    f = tmp_path / "plan.md"
+    f.write_text("When the window opens it is sized near the maximum, 167x39, centred above the Dock.\n"
+                 "Nothing may leave the screen at the top, the bottom, the left or the right.\n"
+                 "Then every layout screenshot is analysed and fixed. The status bar shows the module.\n",
+                 encoding="utf-8")
+    code, out = run("public-check", "--no-terms", f)
+    assert code == 0, out
+
+
 # -- verify and the question ledger (2026-10-19) ------------------------------------------------------------------
 def _bundle(tmp_path):
     """A packed bundle without git: a folder with README-FIRST.txt, two files and MANIFEST.json, then `pack`."""

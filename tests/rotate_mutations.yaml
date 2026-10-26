@@ -1,0 +1,104 @@
+# fieldkit rotate: every line of the rule, the hook, the handover and the autopilot restart broken once; all CAUGHT.
+#   python -m fieldkit mutate --plan tests/rotate_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_rotate.py
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if value >= rot:", "        if value > rot:"]
+  why: "ROTATE at the line, not above it"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        elif value >= warn:", "        elif value > warn:"]
+  why: "WARN at the line, not above it"
+- file: fieldkit/tokens/rotate.py
+  swap: ["            level = max(level, 2)", "            level = max(level, 1)"]
+  why: "over the ROTATE line is ROTATE"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if not c.get(\"sub\"):", "        if True:"]
+  why: "a subagent's small call does not hide the session's own context"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        m[\"usd\"] += c[\"usd\"]", "        m[\"usd\"] = c[\"usd\"]"]
+  why: "the bill is the sum of the calls"
+- file: fieldkit/tokens/rotate.py
+  swap: ["(adapter.name == \"claude-code\" and size < m.get(\"size\", 0))", "False"]
+  why: "a rewritten transcript is measured from the start"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    if use_cache:\n        _save_meter(path, m)", "    if False:\n        _save_meter(path, m)"]
+  why: "the meter is kept: the hook re-reads only new lines"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    return REMINDER.sub(\"\", c).strip()", "    return c.strip()"]
+  why: "the brief's task has no system-reminder noise"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if d.get(\"isSidechain\"):\n            continue", "        if False:\n            continue"]
+  why: "where the session works comes from its own lines, not a subagent's"
+- file: fieldkit/tokens/rotate.py
+  swap: ["                if now - p.stat().st_mtime <= hours * 3600:", "                if True:"]
+  why: "check looks only at sessions active in the last N hours"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if os.environ.get(\"FIELDKIT_JOB_DIR\") or os.environ.get(\"FIELDKIT_ROTATE\") == \"off\":", "        if os.environ.get(\"FIELDKIT_ROTATE\") == \"off\":"]
+  why: "inside an autopilot job the budget hook enforces rotation, the room hook stays quiet"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if not prompt and now - said.get(\"t\", 0) < cfg[\"hook_every_s\"]:", "        if False:"]
+  why: "mid-turn the transcript is measured at most once a minute"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if row[\"level\"] == \"ROTATE\" and (prompt or changed):", "        if row[\"level\"] == \"ROTATE\" and changed:"]
+  why: "ROTATE is repeated at every prompt until the session hands over"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if row[\"level\"] == \"ROTATE\" and (prompt or changed):", "        if row[\"level\"] == \"ROTATE\":"]
+  why: "mid-turn ROTATE is said once, not after every tool call"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if row[\"level\"] == \"WARN\" and changed:", "        if row[\"level\"] == \"WARN\":"]
+  why: "WARN is said once"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if changed:\n            log(row, \"hook\")", "        if True:\n            log(row, \"hook\")"]
+  why: "the hook logs a verdict when it changes, not on every call"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    desktop = (row.get(\"entrypoint\") or \"\").startswith(\"claude-desktop\")", "    desktop = True"]
+  why: "a CLI session is told to start claude, not to call the desktop's archive_session"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    if written:                                       # never creates the plan", "    if True:                                       # never creates the plan"]
+  why: "a missing PLAN.md is said, never created"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    return \" \".join(str(s or \"-\").split()).replace(\"|\", \"/\")", "    return \" \".join(str(s or \"-\").split())"]
+  why: "a | in the text cannot break the PLAN.md table"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if r[\"stop_reason\"] not in (\"end_turn\", \"stop_sequence\"):", "        if False:"]
+  why: "a session still in its turn is not finished"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if idle_h is None or idle_h * 60 < cfg[\"idle_minutes\"]:", "        if idle_h is None:"]
+  why: "a session active minutes ago is not finished"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if unknown:\n", "        if False:\n"]
+  why: "a PR of unknown state holds the session (fail closed)"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if open_:\n", "        if False:\n"]
+  why: "an open PR holds the session"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if p.stem in exclude:", "        if False:"]
+  why: "the asking session leaves itself out"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        return max([EXIT[r[\"level\"]] for r in rows] or [0])", "        return 0"]
+  why: "check exits 1 WARN / 2 ROTATE"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                calls[-1][\"sub\"] = f != path", "                calls[-1][\"sub\"] = False"]
+  why: "subagent calls are marked so the session's own context is known"
+- file: fieldkit/autopilot/room.py
+  swap: ["        ctx = _rotate(call, event, ctx)", "        pass"]
+  why: "the room hook carries the rotation line"
+- file: fieldkit/autopilot/budget.py
+  swap: ["        if row and row[\"level\"] == \"ROTATE\":", "        if row and row[\"level\"] == \"never\":"]
+  why: "a job over the ROTATE line is stopped"
+- file: fieldkit/autopilot/budget.py
+  swap: ["        if m.get(\"exhausted\") == \"rotate\":\n            why =", "        if False:\n            why ="]
+  why: "over the ROTATE line only the checkpoint is allowed"
+- file: fieldkit/autopilot/budget.py
+  swap: ["    if (meter or {}).get(\"exhausted\") == \"rotate\":", "    if False:"]
+  why: "the run ends as rotate, not budget"
+- file: fieldkit/autopilot/job.py
+  swap: ["        if cp.get(\"fixing\") or cp.pop(\"rotate_next\", None):", "        if cp.get(\"fixing\"):"]
+  why: "a rotated session is never resumed by id"
+- file: fieldkit/autopilot/job.py
+  swap: ["            if cp[\"rotations\"] <= max_rotations:", "            if True:"]
+  why: "past max_rotations the job goes to the owner's inbox"
+- file: fieldkit/desk/registry.py
+  swap: ["            if t.get(\"id\") in shipped and \"/local/kits/\" in", "            if t.get(\"id\") in shipped and \"/never/\" in"]
+  why: "a moved local kit's card is superseded, not a duplicate"
+- file: fieldkit/desk/registry.py
+  swap: ["            if t.get(\"id\") in shipped and", "            if True and"]
+  why: "only a card whose id is shipped is superseded"

@@ -1,0 +1,8 @@
+# Rules tests/test_catchup.py must hold (2026-10-25, Romanian without diacritics). Every one CAUGHT:
+#   fieldkit mutate --plan kits/catchup/mutations.yaml -- python -m pytest -q -p no:cacheprovider tests/test_catchup.py
+- file: kits/catchup/catchup.py
+  swap: ['r"cand|când|nici|apoi|trebui|deasupra|dreapta|stanga|stânga|fereastra|fereastră|aproape|"', 'r"never1|"']
+  why: Romanian typed without diacritics is still Romanian (2026-10-25, a quote reached a public plan)
+- file: kits/catchup/catchup.py
+  swap: ['| {w.lower() for w in RO_STEM.findall(line)}', '| set()']
+  why: the -ului genitive counts as a Romanian word

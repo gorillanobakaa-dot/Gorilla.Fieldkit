@@ -2304,6 +2304,17 @@
    "repro-compare"
   ]
  },
+ "rotate": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "rotate"
+  ]
+ },
  "runbook": {
   "platforms": [
    "linux",
@@ -2323,6 +2334,17 @@
   "why": "",
   "ids": [
    "scratch"
+  ]
+ },
+ "session-cost": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "session-cost"
   ]
  },
  "ship": {
@@ -2704,6 +2726,17 @@
   "why": "",
   "ids": [
    "thermal-profile"
+  ]
+ },
+ "token-audit": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "token-audit"
   ]
  },
  "triage": {
