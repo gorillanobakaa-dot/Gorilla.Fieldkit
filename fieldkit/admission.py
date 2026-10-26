@@ -207,7 +207,7 @@ def state(root=None, local=None, temp_c=None, base=None):
 
 
 @contextmanager
-def admitted(kind="other", label="", wait=None, root=None, say=print, sleep=time.sleep, now=time.monotonic,
+def admitted(kind="other", label="", wait=None, root=None, say=lambda s: print(s, flush=True), sleep=time.sleep, now=time.monotonic,
              temp_fn=temperature, local=None):
     """Hold one slot for the body. Queues (one line said, then silence) until a slot is offered; `wait` seconds
     at most (None: no limit), then TimeoutError. Never asks anyone. Inside a job that already holds a slot (NESTED in
@@ -245,11 +245,11 @@ def admitted(kind="other", label="", wait=None, root=None, say=print, sleep=time
             slot.release()
 
 
-def run(cmd, kind="other", label="", wait=None, root=None, call=subprocess.call):
+def run(cmd, kind="other", label="", wait=None, root=None, call=subprocess.call, cwd=None):
     """-> CMD's exit code, run inside one slot; 75 (EX_TEMPFAIL) when `wait` ran out with no slot."""
     try:
         with admitted(kind, label or " ".join(cmd)[:80], wait, root):
-            return call(cmd)
+            return call(cmd, cwd=cwd) if cwd else call(cmd)
     except TimeoutError as e:
         print(f"ADMISSION  NOT RUN: {e}; nothing was started")
         return 75

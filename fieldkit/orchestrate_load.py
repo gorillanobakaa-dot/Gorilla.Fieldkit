@@ -172,16 +172,19 @@ def export_tree(repo, out_dir=None):
 
 
 def place(repo=".", paths=(), any_os=False, wait=3600.0, project="Gorilla.Fieldkit", rows=None, send=None,
-          wait_fn=None, result_fn=None, run_here=None, record=None, say=print):
+          wait_fn=None, result_fn=None, run_here=None, record=None, say=None):
     """-> {where, how, status, rc, note}. The rules are in this module's docstring."""
     from . import orchestrate_work as W
     from . import testcost
     from .mandate import jobs
     from .peers import link
+    say = say or (lambda s: print(s, flush=True))     # before the suite's own output, in order
+    name_here = Path(repo).resolve().name
     record = record or testcost.record
-    run_here = run_here or (lambda: admission.run(admission.suite_cmd(paths), "test", f"suite {Path(repo).name}"))
+    run_here = run_here or (lambda: admission.run(admission.suite_cmd(paths), "test", f"suite {name_here}",
+                                                  cwd=str(repo)))
     me = link.os_tag()
-    slot = admission.try_take(admission.state()["offered"], "test", f"place {Path(repo).name}")
+    slot = admission.try_take(admission.state()["offered"], "test", f"place {name_here}")
     if slot:                                          # rule 1: room here now
         slot.release()
         say("PLACE  a slot is free here: the suite runs on this computer")
