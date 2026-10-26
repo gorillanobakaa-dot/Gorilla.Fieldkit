@@ -621,7 +621,8 @@ fieldkit/leakgate the fail-closed leak and telemetry release gate
 fieldkit/gdocs    Gorilla.Documentation.IBM.Style: fieldkit docs plan/prep/fill/render/check/index/guide
 docs/             groups.yaml, dual-track/<group>/ layman and developer tracks, MEASUREMENTS.md
 fieldkit/agent.py, mcp.py, release.py, gather.py, harvest.py
-skills/           short SKILL.md pointers; install_skills.py puts them where agents look
+skills/           Agent Skills folders (agentskills.io); install_skills.py puts them where agents look
+third_party/      adopted third-party skills, pinned, with their licenses (anthropic-skills/ADOPTION.yaml)
 tests/            python -m pytest
 AGENTS.md         instructions for AI agents working on this code
 ```

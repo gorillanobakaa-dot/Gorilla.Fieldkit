@@ -1,6 +1,8 @@
 ---
 name: fieldkit-sitrep
 description: Write the end-of-session status report in the shape a reader with ADHD, dyslexia or autism can take in a few seconds at a time, and have it checked against written rules before it is shown. Use at the end of any session, after any long run, when asked for a sitrep, a status, "where are we", "what happened", or "what do you need from me", and whenever the reader is a student working with the academic harness. Works the same on Windows and Linux.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS, freebsd. Works offline; no network access unless a step says so."
 ---
 
 # The sitrep (fieldkit/sitrep)

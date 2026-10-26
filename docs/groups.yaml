@@ -24,6 +24,9 @@ groups:
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
+  - name: skills
+    title: Agent Skills - every agentskills.io rule checked, network doors in adopted skills, the same skills installed on every machine, and the adopted Anthropic skills' scripts as commands
+    sources: [skills/*.py]
   - name: terminal
     title: A terminal window opened in front of a person, with the command ready
     sources: [terminal/*.py]

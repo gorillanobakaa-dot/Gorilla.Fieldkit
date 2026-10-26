@@ -5572,3 +5572,69 @@ tools:
   exits: {0: "done (seen: this exact tree already passed)", 1: "seen: not passed on this tree / docs-only: suite must run"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
+
+- id: skills
+  title: "Agent Skills (agentskills.io, the standard Anthropic gave the Agentic AI Foundation) - every spec rule checked on every skill, network doors in adopted third-party skills, installed copies against the sources, license/compatibility aligned, third-party skills rebuilt from a pinned upstream; plus the adopted skill-creator scripts (package, benchmark, eval)"
+  harness: core
+  entry: [python, -m, fieldkit, skills]
+  path: ${FIELDKIT}/fieldkit/skills/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [validate, doors, installed, align, vendor, package, benchmark, eval], help: "validate (default roots, or PATHs; --installed, --staged, --json) | doors [PATH] | installed | align [--apply] | vendor UPSTREAM --apply | package SKILL_DIR [OUT] | benchmark DIR | eval --eval-set F --skill-path P --yes"}
+    - {name: json, flag: --json, type: flag, required: false, help: "validate/doors/installed: JSON"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "clean", 1: "spec errors, unaccepted doors, missing/outdated installs, or changes still to apply", 2: "bad arguments, or an opt-in refused (eval without --yes)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py"]
+  skill: skills/fieldkit-skills/SKILL.md
+  notes: "Owner 2026-10-26: 'align our standard with theirs for maximum compatibility and interoperability'. Rules: fieldkit/skills/spec.py (parity with skills-ref validator.py at agentskills/agentskills 69ef37e, read not run; compared once with skill-creator quick_validate.py: 30/31 same, the one difference made a warning). Pre-commit runs validate ONLY when a staged path is under skills/, third_party/anthropic-skills/, fieldkit/skills/ or is install_skills.py. Adopted: third_party/anthropic-skills/ADOPTION.yaml (pin dbd4588f, owner approval and narrowing verbatim). fieldkit sync --apply installs the skills on every machine (an 'agent skills' row). Mutations: tests/skills_mutations.yaml."
+
+- id: webtest
+  title: "Start local web servers, wait for their ports, run a test command (Playwright, pytest, anything), then stop every server's whole process tree - the adopted webapp-testing skill's with_server.py job, without its orphaned servers"
+  harness: core
+  entry: [python, -m, fieldkit, webtest]
+  path: ${FIELDKIT}/fieldkit/skills/adopted.py
+  inputs:
+    - {name: args, flag: null, type: str, required: true, help: "--server CMD --port N [--server CMD --port N ...] [--timeout S] [--log-dir DIR] -- COMMAND..."}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: "a server never opened its port (or COMMAND's own exit code)", 2: "bad arguments"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py", -k, webtest]
+  skill: skills/fieldkit-skills/SKILL.md
+  notes: "Upstream with_server.py (vendored, unchanged) terminates only the shell it started: measured 2026-10-26, python -m http.server kept listening on Windows after the run; and it pipes server output into a pipe nobody reads. Here: new process group, taskkill /T (Windows) or killpg (POSIX), output to server-N.log. Loopback only."
+
+- id: prefix-diff
+  title: "Offline: what changed between consecutive Messages API request bodies in the parts the prompt cache and thinking blocks bind to (system, tools, earlier messages), or --scan a repository for the code that usually causes it - the adopted claude-api skill's prefix_diff.py"
+  harness: core
+  entry: [python, -m, fieldkit, prefix-diff]
+  path: ${FIELDKIT}/third_party/anthropic-skills/skills/claude-api/shared/preserved-thinking-migration/prefix_diff.py
+  inputs:
+    - {name: paths, flag: null, type: str, required: true, help: "capture.jsonl | reqA.json reqB.json | a folder of captures | --scan REPO"}
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "no arguments"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py", -k, prefix_diff]
+  skill: skills/fieldkit-skills/SKILL.md
+  notes: "Dependency-free, no network. Its sibling drop_block_probe.py (replays against api.anthropic.com with the caller's key) was removed when vendoring (ADOPTION.yaml strip). Use on Gorilla OpenCode captures to find what breaks the cached prefix (cost)."
+
+- id: mcp-eval
+  title: "Evaluate an MCP server: a model answers the questions of an evaluation XML through the server's tools - the adopted mcp-builder skill's evaluation.py, explicit opt-in (no default endpoint)"
+  harness: core
+  entry: [python, -m, fieldkit, mcp-eval]
+  path: ${FIELDKIT}/third_party/anthropic-skills/skills/mcp-builder/scripts/evaluation.py
+  inputs:
+    - {name: args, flag: null, type: str, required: true, help: "EVAL.xml --api-base URL [-t stdio|sse|http] [-c CMD -a ARGS | -u URL] [-m MODEL] [-o OUT]"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  output: own
+  exits: {2: "refused: no --api-base, or no ANTHROPIC_API_KEY in the environment"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py", -k, opt_in]
+  skill: skills/fieldkit-skills/SKILL.md
+  notes: "A model API is a door opened on purpose, per run (owner 2026-10-26: anything that calls an API is explicit opt-in with no default endpoint): --api-base becomes ANTHROPIC_BASE_URL, the key comes only from the environment. Needs pip install anthropic mcp. For a check without a model, use fieldkit mcp-probe."

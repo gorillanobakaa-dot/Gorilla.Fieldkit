@@ -1,6 +1,8 @@
 ---
 name: fieldkit-academic
 description: Academic work for a student in the UK, US, Spain, Portugal, Italy, Germany or Romania - set up an assignment (ask the deadline and the plagiarism-checker upload date), read the study materials into a searchable library, check citations against the reference list (any of six languages), the shape APA 7, Harvard (Cite Them Right) or ISO 690 gives each entry, that the work is all in the language the course asks for (and British or American spelling), the word count, long dashes and copied runs of words, and say the one next step. Use when a student asks "when is it due", "check my references", "is this plagiarism", "what do I do next", or "tema", "bibliografie", "referinte".
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Academic work (fieldkit academic)

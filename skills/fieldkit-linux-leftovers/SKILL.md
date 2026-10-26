@@ -1,6 +1,8 @@
 ---
 name: fieldkit-linux-leftovers
 description: Find and clean what removed packages, other desktops (KDE, XFCE, Cinnamon...), virtual machines and old installs left behind on a Linux desktop - packages removed but not purged, two login launchers starting one program, launchers and menu entries whose program is gone, VM guest helpers on real hardware, dead user services and login-screen sessions - show the person first, then clean without touching the running session, and undo a clean; and find a plugged-in device (USB Wi-Fi stick, antenna, network card) that does not work because its firmware failed to load, built-in kernel drivers included. Use when an antenna or USB Wi-Fi stick is detected but stays down, when something starts at login that should not, a theme or setting changes after a login, menu icons open nothing, after trying several desktops or VMs, or when asked for a "clean install" without reinstalling.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Desktop leftovers on Linux

@@ -1,6 +1,8 @@
 ---
 name: fieldkit-macair-browser
 description: Build, check, ship and verify Gorilla Unleashed for the MacBook Air and other old Intel Macs (macOS 10.13 High Sierra), the same way every time - status, preflight of every Mac decision in the source before a two-hour build, the 11-inch screen budget, exporting the Mac patch series, the public one-click recreate script, installing on the Mac over SSH and verifying there by measurement. Use when a Mac build is due, when a Mac fix may have gone missing, when something does not fit the Air's 1366x768 screen, when text looks thick on the Mac, or before publishing the Mac release.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Gorilla for the MacBook Air

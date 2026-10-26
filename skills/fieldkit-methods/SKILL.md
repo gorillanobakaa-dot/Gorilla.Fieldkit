@@ -1,6 +1,9 @@
 ---
 name: fieldkit-methods
-description: How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
+description: >-
+  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux. Works offline; no network access unless a step says so."
 ---
 
 # Methods as tools (docs/METHODS.md)

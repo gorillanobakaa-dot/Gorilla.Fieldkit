@@ -1,6 +1,8 @@
 ---
 name: fieldkit-voice
 description: Set up or repair the spoken voice on a Linux machine so alerts are worth listening to. Use when a Linux machine sounds robotic or metallic, when speech is too quiet, when a tool speaks in a different voice from the rest of the desktop, or when setting up a new Debian-family machine. Windows is deliberately out of scope.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Linux. Works offline; no network access unless a step says so."
 ---
 
 # A voice worth listening to, on Linux

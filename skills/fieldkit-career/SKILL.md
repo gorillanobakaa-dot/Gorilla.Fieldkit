@@ -1,6 +1,8 @@
 ---
 name: fieldkit-career
 description: A CV and a UK job hunt for one candidate, in English, Spanish, Portuguese, Italian, German or Romanian, any trade - check the CV against fixed rules and ask what is missing, write UK-style CVs (.docx and .pdf) from verified facts only, search official job-board APIs (Reed, Adzuna), score vacancies, build application packs with cover letters made only of approved sentences, track every application, and back the harness up. Use when asked to check or rewrite a CV, find jobs, refresh the shortlist, prepare an application, or "currículum y búsqueda de empleo" / "currículo e procura de emprego" / "curriculum e ricerca di lavoro" / "Lebenslauf und Jobsuche" / "CV și căutare joburi" / "cv si joburi". Never submits an application.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # CV and job hunt (fieldkit cv, fieldkit jobs)
