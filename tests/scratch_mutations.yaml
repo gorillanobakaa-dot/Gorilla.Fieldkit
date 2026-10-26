@@ -1,0 +1,107 @@
+# fieldkit scratch + the shared long-path delete + mandate machine prerequisites: every rule must be CAUGHT (2026-10-26):
+#   fieldkit mutate --plan tests/scratch_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_scratch.py tests/test_longpath.py tests/test_mandate_machine.py
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    if _norm(d.parent) != _norm(r) or not JOB_RE.match(d.name):'
+  - '    if not JOB_RE.match(d.name):'
+  why: a job is a direct child of the root, nothing else
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    if not isinstance(m, dict) or m.get("schema") != SCHEMA or m.get("job") != d.name or m.get("root") != _norm(r):'
+  - '    if not isinstance(m, dict) or m.get("schema") != SCHEMA:'
+  why: the marker must name this job in this root
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    if is_link(d):'
+  - '    if False:'
+  why: a job folder that is a junction is refused
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    return "stale" if age_h(m, now) >= (stale_hours() if hours is None else hours) else "young"'
+  - '    return "stale"'
+  why: stale needs the age as well as a dead owner
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    if m.get("keep"):'
+  - '    if False:'
+  why: a kept job is never stale
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    if alive_fn(m.get("owner")):'
+  - '    if False:'
+  why: a live owner's job is never stale or claimable
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    if how == "claim" and (state in ("stale", "young", "kept") or m.get("kind") in CLAIMABLE_KINDS):'
+  - '    if how == "claim":'
+  why: --claim only for a gone owner or a hand-over job
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '        if not names and state != how:              # --mine takes only mine, --stale only stale'
+  - '        if False:'
+  why: --mine and --stale take only their own kind
+- file: fieldkit/scratch/__init__.py
+  swap:
+  - '    if m2 != m:'
+  - '    if False:'
+  why: the marker is re-read right before the first delete
+- file: fieldkit/core/longpath.py
+  swap:
+  - '                if path == top and e.name in keep_top:'
+  - '                if False:'
+  why: the marker (keep_top) goes last
+- file: fieldkit/core/longpath.py
+  swap:
+  - '                    if e.is_symlink() or getattr(st, "st_file_attributes", 0) & REPARSE:'
+  - '                    if False:'
+  why: links inside a tree are removed as links, never followed (Windows)
+- file: fieldkit/core/longpath.py
+  swap:
+  - '    return "\\\\?\\UNC\\" + s[2:] if s.startswith("\\\\") else "\\\\?\\" + s'
+  - '    return s'
+  why: the extended-length form, paths up to 32,767 characters
+- file: fieldkit/core/longpath.py
+  swap:
+  - '    if is_link(d):'
+  - '    if False:'
+  why: a tree that is itself a link is never deleted through
+- file: fieldkit/core/longpath.py
+  swap:
+  - '        for lv in reversed(levels):                 # the deepest folders first, each level in parallel'
+  - '        for lv in levels:'
+  why: folders are removed deepest first
+- file: fieldkit/core/longpath.py
+  swap:
+  - '        os.chmod(p, stat.S_IWRITE | stat.S_IREAD)'
+  - '        raise'
+  why: read-only files are made writable, then deleted
+- file: fieldkit/peers/link_transfer.py
+  swap:
+  - '    return bool(os.environ.get("FIELDKIT_SCRATCH_ROOT")) or not os.environ.get("FIELDKIT_LINK_HOME")'
+  - '    return False'
+  why: transfers land in a scratch job
+- file: fieldkit/mandate/machine.py
+  swap:
+  - '    if h != str(e.get("sha256", "")).lower():'
+  - '    if False:'
+  why: a script runs only when it hashes to its pin
+- file: fieldkit/mandate/machine.py
+  swap:
+  - '    if not in_force:'
+  - '    if False:'
+  why: nothing is applied without a mandate in force
+- file: fieldkit/mandate/machine.py
+  swap:
+  - '        elif _attempted_recently(now) and not force:'
+  - '        elif False:'
+  why: the UAC prompt at most twice a day
+- file: fieldkit/mandate/machine.py
+  swap:
+  - '            present, why = None, f"check failed: {x}"'
+  - '            present, why = True, f"check failed: {x}"'
+  why: a broken check is never present
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '    out += machine.door_lines(m)                       # machine prerequisites: approved here, applied at a start'
+  - '    pass'
+  why: the approve screen shows every prerequisite

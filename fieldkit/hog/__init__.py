@@ -88,10 +88,17 @@ def check(cfg=None, facts=None, hist=None, reg=None, sample=False):
     from . import probe, registry
     cfg = cfg or config()
     reg = registry.load() if reg is None else reg
+    live = facts is None
     if facts is None:
         facts = probe.gather(cfg, keep={(e["pid"], e["ctime"]) for e in reg})
     hist = history(cfg, facts["t"]) if hist is None else hist
     found = rules.evaluate(facts, hist, reg, cfg)
+    if live:                        # stale scratch jobs: reported with the orphans, never deleted by the hog
+        try:
+            from .. import scratch
+            found += scratch.hog_findings()
+        except Exception:
+            pass
     if sample:
         save_sample(facts, hist, cfg)
         reg = registry.prune(facts["alive"])

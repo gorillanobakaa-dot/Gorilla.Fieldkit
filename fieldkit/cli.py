@@ -1500,6 +1500,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    sc = sub.add_parser("scratch", add_help=False,
+                        help="the scratch root: marked job folders, deleted fast and only when yours or stale; "
+                             "report, doctor, the owner's Defender exclusion script (fieldkit scratch)")
+    sc.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -2616,6 +2620,9 @@ def main(argv=None):
     if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
         from .win11 import cli as win11_cli
         return win11_cli.main(args[1:])
+    if args[:1] == ["scratch"]:                       # the scratch root has its own parser (fieldkit/scratch)
+        from . import scratch
+        return scratch.main(args[1:])
     if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
         from . import hog
         return hog.main(args[1:])

@@ -174,6 +174,11 @@ The tool keeps the convention, not the model (owner, 2026-10-22: "we both know t
    YOUR jobs made go with `fieldkit size recycle` (`--whole-folder` when the whole folder is yours); check the bin;
    report it in one line. Never the owner's own files or originals, other sessions' work, release artifacts,
    evidence a PLAN row cites, or GitHub branches and tags. Not sure it is yours? Leave it and name it.
+   **The one exception: the scratch root** (owner, 2026-10-26: "Defender exclusion folder for scratch. Go.").
+   Big fixtures, test copies and transfers go in a job made with `fieldkit scratch new`; they go with
+   `fieldkit scratch clean --mine` (or `JOB --claim` for a received transfer), which deletes DIRECTLY, not through
+   the bin, and only marked jobs inside that root that are yours or stale (skill fieldkit-scratch). Nothing is ever
+   executed from the scratch root: Defender does not scan it.
 3. **Do not probe a script that runs on load.** Check `fieldkit tools check` first.
 4. **Nothing personal is published.** Run `fieldkit privacy scan REPO --git` before
    any commit, push or release. Nothing is pushed without the owner's yes: the signed owner-wide mandate is that

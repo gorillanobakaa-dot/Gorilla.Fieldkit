@@ -420,9 +420,10 @@ def doctor_ok(f):
 
 
 # ---- renew ------------------------------------------------------------------------------------------------------------
-def renewed_text(path, days, today=None):
-    """The mandate's text with `expires:` moved to today + days; every other byte the same."""
-    text = Path(path).read_text(encoding="utf-8")
+def renewed_text(path, days, today=None, source=None):
+    """The mandate's text with `expires:` moved to today + days; every other byte the same. With source: the text of
+    that file instead (a changed mandate the owner reads on the renew screen, e.g. new machine prerequisites)."""
+    text = Path(source or path).read_text(encoding="utf-8")
     new = (today or date.today()) + timedelta(days=int(days))
     out, n = re.subn(r"(?m)^expires:\s*\S+\s*$", f"expires: {new.isoformat()}", text)
     if n != 1:
@@ -430,7 +431,7 @@ def renewed_text(path, days, today=None):
     return out, new
 
 
-def renew(path, passphrase, confirmed, days=7, today=None):
+def renew(path, passphrase, confirmed, days=7, today=None, source=None):
     """-> (code, message). The passphrase is checked before the file changes; a failed seal restores the old one."""
     from cryptography.hazmat.primitives import serialization
     from . import mandate as M
@@ -446,7 +447,7 @@ def renew(path, passphrase, confirmed, days=7, today=None):
         serialization.load_pem_private_key(priv.read_bytes(), password=passphrase.encode())
     except (ValueError, TypeError):
         return 3, "wrong passphrase: not renewed, nothing changed"
-    text, new = renewed_text(path, days, today)
+    text, new = renewed_text(path, days, today, source)
     seal = M._seal_path(path)
     old_text = path.read_bytes()
     old_seal = seal.read_bytes() if seal.is_file() else None
@@ -494,22 +495,30 @@ def main(action, r, argv):
         return 0 if bad == 0 else 3
     if action == "renew":
         if not r:
-            print("renew FILE.yaml [--days 7]")
+            print("renew FILE.yaml [--days 7] [--from CHANGED.yaml]")
             return 2
         path = Path(r[0])
         days = int(args[args.index("--days") + 1]) if "--days" in args else 7
+        source = Path(args[args.index("--from") + 1]) if "--from" in args and args.index("--from") + 1 < len(args) \
+            else None
         try:
-            m = M.load(path)
-            text, new = renewed_text(path, days)
+            m = M.load(source or path)
+            text, new = renewed_text(path, days, source=source)
+            old_doors = M.doors(M.load(path)) if source and path.is_file() else None
         except (OSError, ValueError) as e:
             print(f"REFUSED: {e}")
             return 2
         ok, why = M.verify(path)
         print(f"RENEW {m['project']}: now {'in force' if ok else 'not in force'} ({why}); the new period ends {new}.")
-        print("Only the date changes. The same doors as before, for every session on every computer that trusts "
-              "your key:")
+        if source is None:
+            print("Only the date changes. The same doors as before, for every session on every computer that trusts "
+                  "your key:")
+        else:
+            print(f"The mandate CHANGES to {source}. Doors marked NEW were not in the one you approved before; every "
+                  "door, for every session on every computer that trusts your key:")
         for line in M.doors(m):
-            print(f"  - {line}")
+            fresh = old_doors is not None and line not in old_doors and not line.startswith("ends:")
+            print(f"  - {'NEW ' if fresh else ''}{line}")
         print("NOT COVERED: these stay yours, whatever the mandate says (and what enforces each):")
         for line in M.not_covered():
             print(f"  - {line}")
@@ -520,7 +529,7 @@ def main(action, r, argv):
             print("REFUSED: renewing needs the owner typing yes at a real terminal" if not sys.stdin.isatty()
                   else "not renewed")
             return 3
-        code, msg = renew(path, getpass.getpass("Owner key passphrase: "), True, days)
+        code, msg = renew(path, getpass.getpass("Owner key passphrase: "), True, days, source=source)
         print(msg)
         if code == 0:
             print(f"The other computer: fieldkit mandate share {path} (it verifies with the key it already trusts)")

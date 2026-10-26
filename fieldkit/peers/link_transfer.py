@@ -25,7 +25,8 @@ Resume: tid is the sha256 of the manifest (paths, sizes, mtimes), so running the
 the half-received folder and the receiver says how far each file got. The sender re-reads (hashes) what is already
 there without sending it. A file that changed in between gets a new tid, so it starts clean.
 
-Never overwrites: the finished file or folder is moved into received/ under a free name (x, x-1, x-2...).
+Never overwrites: the finished file or folder is moved into its landing folder under a free name (x, x-1, x-2...):
+the scratch job link-<tid> (fieldkit scratch, see landing()), or received/ when there is no scratch root.
 Not authenticated yet (security is for later, owner 2026-10-25): the first line and the manifest are signed with the
 household key; the data bytes are checked by sha256 against damage, not against a forger.
 """
@@ -40,6 +41,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+
+from ..core import longpath
 
 BLOCK = 1024 * 1024                 # read, hash and send in 1 MiB blocks: memory stays flat at any size
 MAX_MANIFEST = 256 * 1024 * 1024    # about 2.5 million files
@@ -208,6 +211,31 @@ def _free(folder, name):
     return link._free(folder, name)
 
 
+def use_scratch():
+    """Arriving transfers go to the scratch root unless a test or a caller set its own link home (and no scratch
+    root): FIELDKIT_SCRATCH_ROOT set, or FIELDKIT_LINK_HOME unset."""
+    return bool(os.environ.get("FIELDKIT_SCRATCH_ROOT")) or not os.environ.get("FIELDKIT_LINK_HOME")
+
+
+def landing(tid, man, req, link):
+    """-> (the folder the finished transfer lands in, its resume folder .partial/...).
+    2026-10-26 (Queue 14): two test copies (956,000 files, 8.3 GB) in ~/.fieldkit/link/received could not go to the
+    Recycle Bin (paths over 259 characters inside it). A put-stream now lands in its own scratch job link-<tid>
+    (fieldkit scratch: short root, Defender exclusion, deleted directly with `fieldkit scratch clean link-<tid>
+    --claim`); kind link (a hand-over: whoever asked for it may claim it), keep (never stale on its own). The same tid
+    is the same job, so a resumed transfer finds its .partial there. Without a usable scratch root: the old place."""
+    if use_scratch():
+        try:
+            from .. import scratch
+            job = scratch.ensure(f"link-{tid}", kind="link", keep=True, owner_pid=os.getpid(),
+                                 purpose=f"link put-stream {str(man.get('name'))[:80]} from {req.get('from_host')}")
+            return job, job / ".partial"
+        except Exception as e:      # no scratch root here, or a folder of that name that is not a job
+            link._log(f"stream {tid}: scratch root not used ({e}); landing in {link.home() / 'received'}")
+    received = link.home() / "received"
+    return received, received / ".partial" / tid
+
+
 def _save_done(part, done):
     tmp = part / "done.json.tmp"
     tmp.write_text(json.dumps(done), encoding="utf-8")
@@ -262,10 +290,9 @@ def _receive(w, req, tid, msize, windows, case_insensitive, link):
         w.send(ans)
         return ans
     man = json.loads(raw.decode("utf-8"))
-    received = link.home() / "received"
-    part = received / ".partial" / tid
+    received, part = landing(tid, man, req, link)
     tree = part / "tree"
-    ci = disk_ignores_case(received / ".partial") if case_insensitive is None else case_insensitive
+    ci = disk_ignores_case(part.parent) if case_insensitive is None else case_insensitive
     problems = cannot_hold(man, ci, windows)
     if problems:
         ans = {"ok": False, "count": len(problems), "cannot_hold": [list(x) for x in problems[:50]],
@@ -282,7 +309,7 @@ def _receive(w, req, tid, msize, windows, case_insensitive, link):
     files = man["files"]
     have = []
     for i, (rel, size, _x, _mt) in enumerate(files):
-        fp = tree / rel
+        fp = Path(longpath.extended(tree / rel))      # \\?\ on Windows: a deep tree arrives whatever its depth
         o = fp.stat().st_size if fp.is_file() else 0
         if o > size:                                  # longer than the file can be: start that one again
             fp.unlink()
@@ -302,8 +329,8 @@ def _files(w, files, tree, have, done, part, windows):
     """Each file's bytes from its offset, then its sha256. -> (bad, rows, bytes received)."""
     bad, rows, last_save, total = [], [], time.time(), 0
     for i, (rel, size, exe, mtime) in enumerate(files):
-        fp = tree / rel
-        known = done.get(str(i)) if have[i] == size else None
+        fp = Path(longpath.extended(tree / rel))
+        known =done.get(str(i)) if have[i] == size else None
         h = hashlib.sha256()
         out, err = None, None
         try:
@@ -357,7 +384,7 @@ def _finish(w, req, tid, man, files, rows, bad, resumed, total, received, part, 
         w.send(ans)
         return ans
     for d in man.get("dirs", []):
-        (tree / d).mkdir(parents=True, exist_ok=True)
+        Path(longpath.extended(tree / d)).mkdir(parents=True, exist_ok=True)
     name = link.safe_name(man.get("name"))
     dest = _free(received, name)
     os.replace(tree / files[0][0] if man["kind"] == "file" else tree, dest)
