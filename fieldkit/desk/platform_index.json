@@ -1828,6 +1828,17 @@
    "lifecycle"
   ]
  },
+ "liveness": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "liveness"
+  ]
+ },
  "lmstudio-log": {
   "platforms": [
    "linux",

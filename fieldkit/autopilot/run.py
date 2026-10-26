@@ -167,7 +167,9 @@ def claude_cmd():
 
 
 def kill_tree(pid, psutil=None):
-    """Stop a process and every process it started, by PID (never by name: the owner runs the same programs)."""
+    """Stop a process and every process it started, by PID (never by name: the owner runs the same programs).
+    It sees LIVE children only: a grandchild whose parent already died is invisible here (FM-1). New code starts
+    processes in a container (fieldkit/core/contain.py), which also stops those."""
     if psutil is None:
         import psutil
     try:
@@ -184,8 +186,32 @@ def kill_tree(pid, psutil=None):
     return [p.pid for p in procs]
 
 
+IDLE_MINUTES = 10                     # FM-9: no output and no CPU for this long = a silent stall, stopped
+
+
+def parse_result(text):
+    """Claude Code's answer: one JSON object (--output-format json) or the "result" event of stream-json."""
+    try:
+        r = json.loads(text)
+        if isinstance(r, dict) and r.get("type") in (None, "result"):
+            return r
+    except (ValueError, TypeError):
+        pass
+    for line in reversed((text or "").splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and r.get("type") == "result":
+            return r
+    return None
+
+
 def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resume=None, model=None,
-           popen=subprocess.Popen):
+           popen=subprocess.Popen, idle_minutes=None):
     """One headless Claude Code run in autopilot (bypass mode + the hard-line hook, no credential).
     max_turns 10000 (owner 2026-10-22; 40 ended the first night run's job 2 mid-mutate). timeout = the job's wall
     budget in seconds (None: no limit; the hidden 7200 s is gone): on expiry the whole process tree is killed by
@@ -204,30 +230,41 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
     via_stdin = True
     args = cmd + ["-p"] + ([] if via_stdin else [prompt]) + [
         "--settings", str(settings()), "--permission-mode", "bypassPermissions",
-        "--max-turns", str(max_turns), "--output-format", "json"]
+        "--max-turns", str(max_turns), "--output-format", "stream-json", "--verbose"]
     if resume:
         args += ["--resume", resume]
     if model:
         args += ["--model", model]
+    # In a container (fieldkit/core/contain.py): the timeout stops the WHOLE tree, orphans included, output goes to
+    # files (a leftover child can never hold a pipe open), and what the run leaves behind is stopped when it ends.
+    # stream-json makes progress visible: no output and no CPU for idle_minutes is a STALL (FM-9, 2026-10-26: a relief
+    # run sat 90 min and returned rc 124 with empty output); it is stopped, its tail kept, the ROOM told.
+    from ..core import contain, liveness
+    idle = float(os.environ.get("FIELDKIT_IDLE_MINUTES") or idle_minutes or IDLE_MINUTES) * 60
+    label = f"claude {Path(cwd or os.getcwd()).name}"
     t0 = time.time()
-    p = popen(args, cwd=cwd or os.getcwd(), env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-              stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
-    timed_out = False
+    own = liveness.beacon("autopilot", Path(cwd or os.getcwd()).name, label).start() if liveness.current() is None \
+        else None
     try:
-        so, se = p.communicate(prompt if via_stdin else None, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        kill_tree(p.pid)
-        try:
-            so, se = p.communicate(timeout=30)
-        except subprocess.TimeoutExpired:   # a process that escaped the tree still holds the pipes: never hang on it
-            p.kill()
-            so, se = "", "killed; a process outside its tree kept the output pipes open"
-    out = {"ok": p.returncode == 0 and not timed_out, "rc": 124 if timed_out else p.returncode,
+        o = contain.run(args, label=label, deadline_s=timeout, cwd=cwd or os.getcwd(), env=env,
+                        stdin_text=prompt if via_stdin else None, popen=popen, idle_s=idle)
+    finally:
+        if own:
+            own.close()
+    so, se, timed_out = o.out, o.err, o.timed_out
+    out = {"ok": o.rc == 0 and not timed_out, "rc": 124 if timed_out else o.rc,
            "seconds": round(time.time() - t0), "timed_out": timed_out}
-    try:
-        out["result"] = json.loads(so)
-    except (ValueError, TypeError):
+    if o.stalled:
+        out["stalled"] = True
+        out["why"] = o.why
+    if o.tail_file:
+        out["tail_file"] = o.tail_file
+    if o.leftovers:
+        out["leftovers_stopped"] = o.leftovers
+    r = parse_result(so)
+    if r is not None:
+        out["result"] = r
+    if r is None or not out["ok"]:
         out["stdout"] = (so or "")[-2000:]
     out["stderr"] = (se or "")[-1000:]
     return out

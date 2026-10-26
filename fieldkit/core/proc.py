@@ -210,42 +210,38 @@ class Runner:
         cmd = [str(c) for c in cmd]
         log = self.log_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-{name or Path(cmd[0]).stem}.log"
         t0 = time.monotonic()
-        extra = {} if os.name == "nt" else {"start_new_session": True}   # own group: the tree can be stopped
+        # in a container (contain.py): a timeout stops the whole tree, orphans whose parent died included; output
+        # goes to files, so a leftover child can never hold a pipe open; what the stage leaves running is stopped
+        from . import contain, liveness
+        started = []
+
+        def _rec():
+            if c.root is not None and not started:
+                started.append(c.root)
+                self._record_pid(c.root, cmd)
+        c = contain.Container(name or Path(cmd[0]).stem, timeout, liveness.current())
         try:
-            p = subprocess.Popen(cmd, cwd=cwd, env=clean_env(env, strip_agent),
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 stdin=subprocess.PIPE if check_input is not None else subprocess.DEVNULL,
-                                 text=True, encoding="utf-8", errors="replace", **extra)
-        except FileNotFoundError as e:
-            return Result(cmd, 127, "", str(e), 0.0)
-        self._record_pid(p.pid, cmd)
-        try:
-            try:
-                out, err = p.communicate(input=check_input, timeout=timeout)
-            except subprocess.TimeoutExpired:
-                # p is not reaped yet, so p.pid is still our child: safe to stop it and its descendants
-                _kill_tree(p.pid)
-                p.kill()
-                try:
-                    out, err = p.communicate(timeout=30)
-                except subprocess.TimeoutExpired:      # something still holds the pipes
-                    for s in (p.stdout, p.stderr):
-                        if s:
-                            s.close()
-                    p.wait()
-                    out, err = "", ""
-                err = (err or "") + f"\n[fieldkit] timed out after {timeout} s; it and its child processes were stopped"
-                p.returncode = 124
-            except BaseException:                      # Ctrl+C etc.: do not leave our tree running
-                _kill_tree(p.pid)
-                p.kill()
-                raise
+            o = c.run(cmd, cwd=cwd, env=clean_env(env, strip_agent), stdin_text=check_input, deadline_s=timeout,
+                      on_tick=_rec)
+        except BaseException:                          # Ctrl+C etc.: do not leave our tree running
+            c.kill("interrupted")
+            raise
         finally:
-            self._forget(p.pid)
+            c.close()
+            for pid in started:
+                self._forget(pid)
+        if o.status == "error":
+            return Result(cmd, 127, "", o.why, 0.0)
+        out, err = o.out, o.err
+        if o.timed_out:
+            err = (err or "") + (f"\n[fieldkit] timed out after {timeout} s; it and its child processes were stopped "
+                                 f"({len(o.killed)})")
+        elif o.leftovers:
+            err = (err or "") + f"\n[fieldkit] {o.why}"
         secs = time.monotonic() - t0
-        log.write_text(f"$ {' '.join(cmd)}\n# cwd={cwd} rc={p.returncode} {secs:.1f}s\n"
+        log.write_text(f"$ {' '.join(cmd)}\n# cwd={cwd} rc={o.rc} {secs:.1f}s\n"
                        f"--- stdout ---\n{out}\n--- stderr ---\n{err}\n", encoding="utf-8")
-        return Result(cmd, p.returncode, out, err, secs, str(log), p.pid)
+        return Result(cmd, o.rc, out, err, secs, str(log), o.pid)
 
     def stop(self, pid):
         """Stop a process (and its descendants) only if this Runner started it and it is still that process.

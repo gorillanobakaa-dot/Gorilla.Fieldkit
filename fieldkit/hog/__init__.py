@@ -216,6 +216,18 @@ def act(cfg=None, facts=None, found=None, dry=False, settle=3.0, do=None):
     return done
 
 
+def _liveness(watch):
+    """The scheduled pass also runs `fieldkit liveness check --act`: the harness's own orphans and overdue steps
+    (registered in liveness beacons, by PID + creation time) are stopped here, headless. -> its summary line."""
+    if not watch:
+        return ""
+    try:
+        from ..core import liveness
+        return liveness.summary(liveness.check(act=True))
+    except Exception as e:  # noqa: BLE001 - the hog's own pass never fails on it
+        return f"liveness: error {type(e).__name__}: {e}"
+
+
 def preflight_check(ctx=None, cfg=None, facts=None, ram_fn=None, do=None):
     """The hog's check in the ONE preflight (fieldkit/core/preflight.py STEPS) before every guarded run: one pass
     without the temperature (the run guard samples it), the safe actions (idle models unloaded, dead sessions'
@@ -319,12 +331,15 @@ def main(argv=None, prog="fieldkit hog"):
         cfg = config()
         facts, found = check(cfg, sample=True)
         done = act(cfg, facts, found, dry=getattr(ns, "dry_run", False))
+        live = _liveness(cmd == "watch")
         if getattr(ns, "json", False):
-            print(json.dumps({"summary": rules.summary(found), "actions": done}, indent=1))
+            print(json.dumps({"summary": rules.summary(found), "actions": done, "liveness": live}, indent=1))
         else:
             print(rules.summary(found))
             for d in done:
                 print(f"  {d['action']['kind']}: {d['result']} ({'OK' if d['ok'] else 'dry run' if d['ok'] is None else 'FAILED'})")
+            if live:
+                print(live)
         return rules.worst(found)
     if cmd == "preflight":
         from ..core import preflight
