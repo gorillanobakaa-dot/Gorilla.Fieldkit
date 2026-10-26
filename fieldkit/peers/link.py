@@ -1163,6 +1163,9 @@ def doctor():
     from . import link_keepalive
     mine = link_keepalive.summary(link_keepalive.status())
     print(f"  keep-alive here: {'installed' if mine['ok'] else 'MISSING ' + ', '.join(mine['missing'])}")
+    lp = link_keepalive.listener_python()
+    if lp:
+        print(f"  listener python here: {lp[1]}")
     if cfg and k:
         r = call({"verb": "hello"}, timeout=8)
         ka = r.get("keepalive") if r.get("ok") else None
