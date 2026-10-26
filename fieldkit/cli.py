@@ -1504,6 +1504,17 @@ def build_parser():
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    sk = sub.add_parser("skills", add_help=False,
+                        help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
+                             "copies, align, vendor third-party skills (fieldkit skills)")
+    sk.add_argument("args", nargs=argparse.REMAINDER)
+    for name, text in (("webtest", "start local servers, wait for their ports, run a (Playwright) test, stop them "
+                                   "(adopted webapp-testing skill)"),
+                       ("prefix-diff", "offline: what changed between consecutive Messages API requests (prompt-cache "
+                                       "and thinking-prefix breaks), or --scan a repo (adopted claude-api skill)"),
+                       ("mcp-eval", "a model answers evaluation questions through an MCP server; opt-in, --api-base "
+                                    "required (adopted mcp-builder skill)")):
+        sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     ev = sub.add_parser("evidence", add_help=False,
                         help="research evidence that can be checked later: fetch pages into a store, import a run's "
                              "findings, check every claim (fieldkit evidence)")
@@ -2608,6 +2619,12 @@ def main(argv=None):
     if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
         from . import hog
         return hog.main(args[1:])
+    if args[:1] == ["skills"]:                        # Agent Skills: spec checks, doors, installs (fieldkit/skills)
+        from . import skills
+        return skills.main(args[1:])
+    if args[:1] in (["webtest"], ["prefix-diff"], ["mcp-eval"]):   # adopted Anthropic skills' scripts
+        from .skills import adopted
+        return getattr(adopted, args[0].replace("-", "_"))(args[1:])
     if args[:1] == ["lmstudio-log"]:                  # why a local model is slow: LM Studio's server log
         from . import lmstudio
         return lmstudio.main(args[1:])

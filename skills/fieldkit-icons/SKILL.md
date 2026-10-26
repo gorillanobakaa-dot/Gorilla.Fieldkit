@@ -1,6 +1,8 @@
 ---
 name: fieldkit-icons
 description: Sharp desktop icons on any computer - find out why desktop icons look blurry or soft, rebuild the icon cache (Windows Explorer, GTK, KDE) with a backup, install a one-click "Fix blurry icons" button, read and check the frames inside .ico/.exe/.dll files, and build crisp recoloured .ico files from one big picture. Use when icons look blurry, soft or pixelated, after installs or display changes, or when making icons.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Sharp icons (fieldkit icons)

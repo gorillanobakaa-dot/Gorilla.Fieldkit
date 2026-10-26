@@ -1,6 +1,8 @@
 ---
 name: fieldkit-screen-compare
 description: Compare two screenshots the way a person does and measure what differs - find the place with a pixel grid, crop it, enlarge it without smoothing, stack two side by side, make a contact sheet of many, and measure the text inside a box (stroke width, ink, blur, coloured LCD smoothing, extent); fetch an old Mac's screen first with fieldkit mac shot. Use when text looks thin and crisp on one machine and thick, bold or blurry on another, when someone asks "is that anti-aliasing or the font?", when a font or theme change must be proven on screen, or when screenshots from two machines or two builds must be compared.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Comparing screens and fonts

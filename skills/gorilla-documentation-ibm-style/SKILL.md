@@ -1,6 +1,8 @@
 ---
 name: gorilla-documentation-ibm-style
 description: Write or refresh Fieldkit's dual-track documentation (a layman track for someone who has never opened a terminal and a developer track for auditors) with the fieldkit docs workflow, DualTrackAgent's dual_track.py and the Gorilla writer brief. Use when asked to document a Fieldkit module group, when fieldkit docs check or the gorilla-documentation-ibm-style pipeline fails or reports a stale group, or when a .filled.json must be written.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Gorilla.Documentation.IBM.Style

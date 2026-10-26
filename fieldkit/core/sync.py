@@ -16,6 +16,7 @@ GitHub would close that, and are not set up. Private files (local/, memory) are 
 catchup.
 
     fieldkit sync [--apply] [--repo DIR ...]     report, or take the verified upstream commits (exit 3 when not in sync)
+                                                 and install the agent skills of this checkout (an "agent skills" row)
 """
 import json
 import subprocess
@@ -125,6 +126,34 @@ def repos(extra=()):
     return uniq
 
 
+def skills_row(do_apply=False, installer=None):
+    """The agent skills on this machine against this checkout (2026-10-26, owner: "align our standard with theirs for
+    maximum compatibility and interoperability"): every agent folder that reads the Agent Skills standard
+    (~/.claude/skills, ~/.agents/skills, ~/.gemini/skills) holds the same set on every machine. --apply installs
+    from the checkout just verified (install_skills.py: only Fieldkit's own names and receipted third-party ones)."""
+    if installer is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("install_skills", ROOT / "install_skills.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+    stale = [r for r in installer.status() if r[2] in ("missing", "outdated")]
+    row = {"repo": "agent skills", "ok": True, "verdict": "IN-SYNC", "why": "every installed copy matches"}
+    if stale and do_apply:
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer.main([])
+        left = [r for r in installer.status() if r[2] in ("missing", "outdated")]
+        row.update(verdict="INSTALLED" if not left else "ERROR", ok=not left,
+                   why=f"{len(stale) - len(left)} copy(ies) installed" + (f", {len(left)} still stale" if left else ""))
+    elif stale:
+        row.update(verdict="STALE", ok=False, why=f"{len(stale)} copy(ies) missing or outdated: fieldkit sync --apply")
+    foreign = [f"{t.parent.name}/{n}" for t, n, s in installer.status() if s == "foreign"]
+    if foreign:
+        row["why"] += "; name taken by someone else's folder, left alone: " + ", ".join(foreign)
+    return row
+
+
 def run(do_apply=False, extra=(), fetch=True):
     rows = []
     for r in repos(extra):
@@ -133,6 +162,13 @@ def run(do_apply=False, extra=(), fetch=True):
             rows.append(apply(row) if do_apply else row)
         except RuntimeError as e:
             rows.append({"repo": str(r), "ok": False, "verdict": "ERROR", "why": str(e)})
+    if (ROOT / "install_skills.py").is_file():
+        here = next((x for x in rows if Path(x["repo"]).resolve() == ROOT.resolve()), None)
+        if here is None or here.get("verdict") in ("IN-SYNC", "TAKEN", "AHEAD", "NO-UPSTREAM"):
+            try:
+                rows.append(skills_row(do_apply))
+            except Exception as e:  # noqa: BLE001 - a broken installer is reported as a row, never a crash
+                rows.append({"repo": "agent skills", "ok": False, "verdict": "ERROR", "why": str(e)})
     return rows
 
 

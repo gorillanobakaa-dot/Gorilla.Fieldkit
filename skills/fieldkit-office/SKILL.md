@@ -1,6 +1,8 @@
 ---
 name: fieldkit-office
 description: Read, create, check or remove personal metadata from Word (.docx), Excel (.xlsx), PowerPoint (.pptx) and PDF files, offline, with the fieldkit command. Use when a task involves reading an Office/PDF file's content, producing one from data, checking a file is not corrupt before sending it, or removing author names from file properties.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Office documents with fieldkit

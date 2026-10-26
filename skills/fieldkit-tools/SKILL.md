@@ -1,6 +1,8 @@
 ---
 name: fieldkit-tools
 description: Find out which of the owner's tools already exist for a job (icons, JSON/PowerShell validation, encoding repair, duplicate files, Firefox patch helpers, thermal watch, prompt audit and more), whether a tool is safe to probe, and scan files for secrets or personal data before anything is published. Use before writing a new script, before running an unfamiliar script, and before any commit, push or release.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Tools registry and privacy scan

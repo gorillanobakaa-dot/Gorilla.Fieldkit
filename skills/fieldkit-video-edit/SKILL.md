@@ -1,6 +1,8 @@
 ---
 name: fieldkit-video-edit
 description: Shorten and clean up a phone video, offline and repeatably, with the videokit tool and ffmpeg. Covers cutting dead time, replacing waiting with its steadiest real second (never a frozen still), cross-dissolving every join, gimbal- or tripod-like stabilisation of a filmed screen (OpenCV optical-flow camera path and homography warp), chosen per segment only where it measurably helps, sharpening, brightening dark parts, and measuring real camera shake (pixel shift per frame by phase correlation) to compare the source, a cut-only version and a stabilised version segment by segment. Use when the owner gives a video file and asks to cut, trim, shorten, speed up the boring parts, stabilise, unblur, sharpen, brighten or "tidy up" a recording, when an edited video looks shakier or wobblier than the original, or has sudden stops, freezes or jumpy transitions, or to document a session from a screen recording. Also use to make contact sheets of a video's frames.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Editing a phone video with videokit

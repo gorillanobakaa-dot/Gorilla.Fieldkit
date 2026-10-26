@@ -106,6 +106,18 @@ if [ -z "$SKIP" ]; then
   grep -E '^  (preflight|run guard) ' "$OUT" | sed 's/^  /pre-commit: /'
   "$PY" -m fieldkit.testcost record full-suite pass "$(( $(date +%s) - T0 ))" --key "$KEY" >/dev/null 2>&1 || true
 fi
+# 2026-10-26 (owner: "align our standard with theirs for maximum compatibility"): every Agent Skills spec rule and the
+# doors check of the adopted third-party skills (fieldkit skills validate), ONLY when the commit changes a skill, the
+# adopted tree, the installer or the validator - the staged-file question fieldkit/testcost.py asks, answered in the
+# shell, so every other commit pays nothing (not even a Python start). The paths mirror fieldkit/skills WATCHED.
+if git diff --cached --name-only | grep -qE '^(skills/|third_party/anthropic-skills/|install_skills\.py$|fieldkit/skills/)'; then
+  if ! "$PY" -m fieldkit skills validate >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: a skill breaks the Agent Skills spec or an adopted skill has an unaccepted door - commit refused"
+    exit 1
+  fi
+  tail -1 "$OUT" | sed 's/^/pre-commit: /'
+fi
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
   "$PY" -m fieldkit privacy scan . --git; exit 1

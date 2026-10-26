@@ -1,6 +1,8 @@
 ---
 name: fieldkit-peers
 description: Talk to the other AI sessions on this computer, or on the other computer of a direct cable (fieldkit peers link - which agents it has, pair, send, ask it to start a session) - list them, send one a short note, wait for a reply or for "my turn is done" - in Gorilla OpenCode's own session-messaging protocol, so an OpenCode session (0.1.145 or later) hears it. Use when asked to tell, ask, warn or hand over to another session on the same machine, or to wait until another session has finished.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Sessions that talk (fieldkit peers)

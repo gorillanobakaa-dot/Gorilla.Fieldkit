@@ -1,6 +1,8 @@
 ---
 name: fieldkit-size
 description: How big folders are, where the disk space went, and what can go, on Windows or Linux, with gorilla-size (Gorilla Size Calculation) through `fieldkit size` - every core, read-only, junctions and symlinks never followed, hard links counted once; find files or folders by size, age, name or extension; compare two measurements; on Windows read a whole NTFS drive from its master file table (--mft, one UAC click). Use whenever you need the size of a folder or drive, the biggest folders or files, "disk full", "what takes the space", before and after a cleanup, before deleting build trees, or when about to type du, dir /s, robocopy /L, Get-ChildItem -Recurse | Measure-Object, or ncdu.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Folder sizes (fieldkit size)

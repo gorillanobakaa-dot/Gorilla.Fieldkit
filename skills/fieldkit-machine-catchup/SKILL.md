@@ -1,6 +1,8 @@
 ---
 name: fieldkit-machine-catchup
 description: Bring another machine's AI session up to date with this one, and keep identifying text off GitHub, with the catchup tool. Covers listing every git repository with what is ahead, behind, uncommitted or never pushed; gathering the context GitHub does not carry (memory files, CLAUDE.md, GEMINI.md, AGENTS.md, skills, private tools, local tool registry, notes, earlier handovers) plus unpushed work as diffs, patches and git bundles; checking the bundle for secrets; zipping it to a USB stick with a verified checksum; and the public-check that finds Romanian text and the owner's private names and places before a push. Use when the owner says another laptop, the Linux machine, Debian, the other Claude, Codex or Gemini is behind, "catch it up", "sync the machines", "handover", "spoonfeed", "put it on the flash drive", "what is not on GitHub", or before publishing anything when the owner asks that nothing personal, Romanian or identifying reaches GitHub.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Machine catch-up handover with catchup
@@ -11,6 +13,11 @@ First used 2026-10-12: a month of work on the Windows laptop carried to the Debi
 GitHub carries pushed code. It does **not** carry what makes a session useful: memory, instruction files,
 private tools, the local registry, internal notes, earlier handovers, and work never pushed. That is what the
 handover carries. **The handover is internal documentation: hand-carried only, never committed or uploaded.**
+
+Skills: the public ones (skills/, third_party/anthropic-skills/) arrive by git. On the other machine run
+`fieldkit sync --apply` (verified fast-forward, then the `agent skills` row installs them into every agent folder that
+reads the Agent Skills standard); private local/skills/ come in the handover, then `python install_skills.py`. Check
+with `fieldkit skills installed`.
 
 ## 0. Machine check
 

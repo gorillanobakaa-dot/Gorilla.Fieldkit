@@ -1,6 +1,8 @@
 ---
 name: fieldkit-property-inventory
 description: Compare a tenant's own photos of a rented room or flat with the letting agent's inventory / check-in / check-out report (InventoryBase "generate/task" pages and similar), sort every photo under the report item it belongs to, drop duplicates, draft a short dispute comment per item, and prepare per-item folders for upload. Use when the owner gives an inventory report link plus a folder of photos, says "do the inventory", "compare my photos with their report", "label and upload my photos", or asks to repeat this for another property. Also use for contact sheets of any large photo folder.
+license: AGPL-3.0-or-later
+compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
 
 # Tenant photos against an inventory report

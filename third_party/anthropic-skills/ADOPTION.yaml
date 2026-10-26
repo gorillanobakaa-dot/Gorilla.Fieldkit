@@ -1,0 +1,85 @@
+# Anthropic's open skills, adopted into Fieldkit (read by `fieldkit skills vendor|doors|validate` and install_skills.py)
+#
+# Owner approvals, verbatim, 2026-10-26 (relayed by the command post):
+#   "approved: vendor all 14 Apache-2.0 skills, pinned to dbd4588f, with telemetry scan and network review"
+#   then narrowed: "I am more interested in automatization, software engineering and coding tools. not moron
+#   influencer crap" ... "I need tools. not suggestions for an LM." - a skill with no script behind it is not adopted;
+#   each adopted skill is a fieldkit command with a test; anything that calls an API is explicit opt-in with no
+#   default endpoint. (Full text: the command post's notes, agent-skills-owner-corrections-2026-10-26.md.)
+#
+# Rebuild after a new pin (deterministic): extract the upstream tarball at `commit` into an empty folder, then
+#   python -m fieldkit skills vendor <extracted>/anthropics-skills-<sha> --apply
+# which copies the skills below, applies `strip`, writes CHANGES.md and runs the doors check (exit 0 = clean).
+upstream: https://github.com/anthropics/skills
+commit: dbd4588f9e1033efb41dad4bef2f7947c8993d44
+commit_date: "2026-10-09"
+# Each adopted skill keeps its own LICENSE.txt (Apache-2.0). Upstream's THIRD_PARTY_NOTICES.md is not kept: every
+# component it lists (imageio, imageio-ffmpeg, FFmpeg, Pillow, the canvas-design fonts) belongs to skills not adopted.
+keep_files: []
+
+# Each adopted skill and the fieldkit command that runs its scripts (cards in fieldkit/desk/tools.yaml).
+# skip_targets: agent skill folders it is NOT installed into (a name the agent already ships).
+skills:
+  mcp-builder: {install: true, command: "fieldkit mcp-eval", why: "building and testing MCP servers"}
+  skill-creator: {install: true, command: "fieldkit skills package | benchmark | eval", why: "writing, packaging and testing skills in the standard Fieldkit follows"}
+  webapp-testing: {install: true, command: "fieldkit webtest", why: "start local servers, run a (Playwright) test, stop them"}
+  claude-api: {install: true, command: "fieldkit prefix-diff", skip_targets: [.claude], why: "prefix_diff.py: offline diff of consecutive Messages API requests (prompt-cache and thinking-prefix breaks), and a repository scan for their causes; Claude Code ships its own claude-api skill, so not installed there"}
+
+# Not vendored: the license forbids it. Referenced only: https://github.com/anthropics/skills/tree/<commit>/skills/<name>
+reference_only:
+  docx: "source-available, all rights reserved (LICENSE.txt); fieldkit office covers .docx offline"
+  pdf: "source-available, all rights reserved (LICENSE.txt); fieldkit office covers PDF offline"
+  pptx: "source-available, all rights reserved (LICENSE.txt); fieldkit office covers .pptx offline"
+  xlsx: "source-available, all rights reserved (LICENSE.txt); fieldkit office covers .xlsx offline"
+refused:
+  doc-coauthoring: "no LICENSE.txt and no repository license: all rights reserved"
+dropped:   # Apache-2.0 and approved for vendoring, then dropped by the owner's narrowing (not automation or coding)
+  academy-guide: "steers answers to the vendor's learning site"
+  algorithmic-art: "generative art"
+  brand-guidelines: "Anthropic's own brand colors"
+  canvas-design: "posters and art (5.3 MB of fonts)"
+  discernment-nudge: "answer-style nudge"
+  frontend-design: "visual design prose"
+  internal-comms: "company communications templates"
+  slack-gif-creator: "GIFs for Slack"
+  theme-factory: "color themes"
+  web-artifacts-builder: "owner's drop list; its scripts also run unpinned npm/pnpm installs (a supply-chain door)"
+
+# Changes to the vendored copy (Apache-2.0 4(b): CHANGES.md lists every changed file). Fail closed: a strip that
+# matches nothing stops the rebuild, so an upstream change is seen, never silently skipped.
+strip:
+  - file: skills/claude-api/shared/preserved-thinking-migration/drop_block_probe.py
+    remove: true
+    why: "replays captured conversations against api.anthropic.com with the caller's key (a paid vendor channel); prefix_diff.py does the offline half"
+  - file: skills/claude-api/SKILL.md
+    replace: ["; generate/summarize/extract/classify/rewrite/converse over NL", ""]
+    why: "upstream description is 1068 characters, over the spec's 1024 (fieldkit skills validate); cut to 1008"
+  - file: skills/claude-api/php/claude-api/tool-use.md
+    replace: ["john@co.com", "john@example.com"]  # privacy-scan: allow (the upstream placeholder this strip replaces)
+    why: "placeholder address at a real domain (co.com); RFC 2606 example.com, which the privacy gate accepts"
+  - file: skills/claude-api/python/claude-api/tool-use.md
+    replace: ["jane@co.com", "jane@example.com"]  # privacy-scan: allow (the upstream placeholder this strip replaces)
+    why: "placeholder address at a real domain (co.com); RFC 2606 example.com, which the privacy gate accepts"
+  - file: skills/claude-api/typescript/claude-api/tool-use.md
+    replace: ["jane@co.com", "jane@example.com"]  # privacy-scan: allow (the upstream placeholder this strip replaces)
+    why: "placeholder address at a real domain (co.com); RFC 2606 example.com, which the privacy gate accepts"
+  - file: skills/skill-creator/eval-viewer/viewer.html
+    delete_lines: 'fonts\.(googleapis|gstatic)\.com'
+    why: "Google Fonts on every page view; the CSS falls back to the system fonts"
+  - file: skills/skill-creator/eval-viewer/viewer.html
+    replace: ['src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"', 'src="xlsx.full.min.js"']
+    why: "remote script from a CDN; a local copy (pulled and checked by the owner) is used, the SRI hash still checks it"
+  - file: skills/skill-creator/assets/eval_review.html
+    delete_lines: 'fonts\.(googleapis|gstatic)\.com'
+    why: "Google Fonts on every page view; the CSS falls back to the system fonts"
+  - file: skills/skill-creator/scripts/generate_report.py
+    delete_lines: 'fonts\.(googleapis|gstatic)\.com'
+    why: "Google Fonts in every generated report; the CSS falls back to the system fonts"
+
+# Doors that stay, each with its reason (fieldkit skills doors fails on any other door in code).
+accepted:
+  - {file: skills/skill-creator/scripts/, what: vendor-api, match: "claude", why: "runs `claude -p`: the agent the owner already runs (agent traffic is out of scope, owner 2026-10-19), never a key of its own"}
+  - {file: skills/skill-creator/, what: net-api, match: "webbrowser.open", why: "opens a local report file or the loopback review server in the browser"}
+  - {file: skills/mcp-builder/scripts/evaluation.py, what: vendor-api, match: "anthropic", why: "explicit opt-in only: fieldkit mcp-eval refuses without --api-base (no default endpoint) and a key in the environment"}
+  - {file: skills/mcp-builder/scripts/evaluation.py, what: url, match: "https://example.com/mcp", why: "usage example in the help text"}
+  - {file: skills/webapp-testing/scripts/with_server.py, what: net-api, match: "socket.create_connection", why: "waits for the local server under test on localhost"}

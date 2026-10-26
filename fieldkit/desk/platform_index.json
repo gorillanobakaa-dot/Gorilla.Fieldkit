@@ -1900,6 +1900,17 @@
    "mandate-renew"
   ]
  },
+ "mcp-eval": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mcp-eval"
+  ]
+ },
  "mcp-probe": {
   "platforms": [
    "linux",
@@ -2179,6 +2190,17 @@
   "why": "",
   "ids": [
    "gorilla-opencode-release-build"
+  ]
+ },
+ "prefix-diff": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "prefix-diff"
   ]
  },
  "privacy scan": {
@@ -2547,6 +2569,17 @@
    "gorilla-size-watch"
   ]
  },
+ "skills": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skills"
+  ]
+ },
  "snapshot diff": {
   "platforms": [
    "linux",
@@ -2782,6 +2815,17 @@
   "why": "",
   "ids": [
    "watchdog-test"
+  ]
+ },
+ "webtest": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "webtest"
   ]
  },
  "wifi": {

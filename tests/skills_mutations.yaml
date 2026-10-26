@@ -1,0 +1,92 @@
+# fieldkit skills: every spec limit, door rule, installer guard and opt-in refusal must be CAUGHT (2026-10-26):
+#   fieldkit mutate --plan tests/skills_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_skills.py
+- file: fieldkit/skills/spec.py
+  swap:
+  - '    elif len(d) > MAX_DESCRIPTION:'
+  - '    elif len(d) > MAX_DESCRIPTION + 1:'
+  why: description max 1024
+- file: fieldkit/skills/spec.py
+  swap:
+  - '        elif len(c) > MAX_COMPATIBILITY:'
+  - '        elif len(c) >= MAX_COMPATIBILITY:'
+  why: compatibility max 500 (500 itself is valid)
+- file: fieldkit/skills/spec.py
+  swap:
+  - '    if "--" in n:'
+  - '    if "---" in n:'
+  why: no consecutive hyphens
+- file: fieldkit/skills/spec.py
+  swap:
+  - '    if folder is not None and unicodedata.normalize("NFKC", folder) != n:'
+  - '    if False:'
+  why: name equals the folder
+- file: fieldkit/skills/spec.py
+  swap:
+  - '    extra = sorted(set(meta) - set(ALLOWED))'
+  - '    extra = []'
+  why: only the spec's keys
+- file: fieldkit/skills/spec.py
+  swap:
+  - '            bad = [k for k, v in m.items() if not isinstance(k, str) or not isinstance(v, str)]'
+  - '            bad = []'
+  why: metadata is string to string
+- file: fieldkit/skills/spec.py
+  swap:
+  - '    if n >= MAX_LINES:'
+  - '    if n > MAX_LINES:'
+  why: SKILL.md under 500 lines
+- file: fieldkit/skills/spec.py
+  swap:
+  - '    return names.get("SKILL.md") or names.get("skill.md")'
+  - '    return Path(skill_dir) / "SKILL.md" if (Path(skill_dir) / "SKILL.md").is_file() else names.get("skill.md")'
+  why: the stored name, not the case-insensitive lookup
+- file: fieldkit/skills/doors.py
+  swap:
+  - '        host = host.split(":")[0]                    # the port, or a placeholder such as {port}'
+  - '        pass'
+  why: localhost with a port is not a door
+- file: fieldkit/skills/doors.py
+  swap:
+  - '        if not (finding["file"] == f or (f.endswith("/") and finding["file"].startswith(f))):'
+  - '        if not finding["file"].startswith(f):'
+  why: a rule without a slash accepts one file only
+- file: install_skills.py
+  swap:
+  - '            if s in third and dest.exists() and s.name not in mine:'
+  - '            if False:'
+  why: someone else's folder with a third-party name is left alone
+- file: install_skills.py
+  swap:
+  - '    return t.parent.name not in skip'
+  - '    return True'
+  why: skip_targets keeps claude-api out of ~/.claude/skills
+- file: install_skills.py
+  swap:
+  - '    if any((a / f).read_bytes() != (b / f).read_bytes() for f in cmp.common_files):'
+  - '    if cmp.diff_files:'
+  why: bytes, not the size+mtime cache
+- file: fieldkit/skills/adopted.py
+  swap:
+  - '    if "--api-base" not in args or args.index("--api-base") + 1 >= len(args):'
+  - '    if False:'
+  why: mcp-eval has no default endpoint
+- file: fieldkit/skills/adopted.py
+  swap:
+  - '    if "--yes" not in args:'
+  - '    if False:'
+  why: skills eval costs tokens, opt-in only
+- file: fieldkit/skills/adopted.py
+  swap:
+  - '        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)'
+  - '        proc.terminate()'
+  why: the whole server tree is stopped (upstream left the server running)
+- file: fieldkit/skills/adopted.py
+  swap:
+  - '            info = zipfile.ZipInfo(rel.as_posix(), EPOCH)'
+  - '            info = zipfile.ZipInfo(rel.as_posix(), __import__("time").localtime()[:6])'
+  why: same folder, same bytes
+- file: fieldkit/core/sync.py
+  swap:
+  - '    if stale and do_apply:'
+  - '    if stale and False:'
+  why: sync --apply installs the skills
