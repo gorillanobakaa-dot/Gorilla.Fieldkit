@@ -20,6 +20,27 @@ from test_mandate_owner_wide import GOOD, clone, git, home, write_mandate  # noq
 
 PW = "correct horse battery"
 TODAY = date(2026, 10, 29)
+REAL_RUNNABLE = U.runnable                                         # posix_modes replaces it on Windows
+
+
+@pytest.fixture(autouse=True)
+def posix_modes(monkeypatch):
+    """Linux and macOS rules for the executable bit, on every system (2026-10-26: #109 was green on Windows, where the
+    bit is invisible, and red on Ubuntu, where a hook written without chmod +x is skipped by git). On Windows every
+    chmod is recorded and `runnable` answers from that record, so a test that forgets chmod fails here as on Linux."""
+    if sys.platform != "win32":
+        yield
+        return
+    executable = set()
+    real_chmod = os.chmod
+
+    def chmod(p, mode, *a, **k):
+        key = str(Path(p).resolve()).lower()
+        (executable.add if mode & 0o111 else executable.discard)(key)
+        return real_chmod(p, mode, *a, **k)
+    monkeypatch.setattr(os, "chmod", chmod)
+    monkeypatch.setattr(U, "runnable", lambda p, platform=None, access=None: str(Path(p).resolve()).lower() in executable)
+    yield
 
 
 def short(home, ends="2026-11-01", name="owner-wide"):
@@ -154,6 +175,7 @@ def test_the_renew_screen_is_the_approve_screen(home, monkeypatch, capsys):
 def hook(repo, text):
     p = repo / ".git" / "hooks" / "pre-push"
     p.write_text(text, encoding="utf-8")
+    p.chmod(0o755)                                                 # a hook git runs (Linux and macOS skip 0644)
     return p
 
 
@@ -223,6 +245,8 @@ def test_the_installed_hook_is_verified_by_running_it(clone, monkeypatch):
     for src, dst in U._install_targets(clone, "Gorilla.Opencode").items():
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(U._norm(U._src(src).read_bytes()))
+        if dst.name == "pre-push":
+            dst.chmod(0o755)
     # the gate this hook calls is THIS checkout's (fieldkit on PATH imports from PYTHONPATH first)
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(Path(M.__file__).parents[2]),
                                                       os.environ.get("PYTHONPATH", "")]))
@@ -257,31 +281,30 @@ def test_the_template_hook_is_committed_executable():
 
 
 def test_git_skips_a_hook_that_is_not_executable_except_on_windows():
-    assert U.runnable("x", "win32", access=lambda *a: False)
-    assert not U.runnable("x", "linux", access=lambda *a: False)
-    assert not U.runnable("x", "darwin", access=lambda *a: False)
-    assert U.runnable("x", "linux", access=lambda *a: True)
+    assert REAL_RUNNABLE("x", "win32", access=lambda *a: False)
+    assert not REAL_RUNNABLE("x", "linux", access=lambda *a: False)
+    assert not REAL_RUNNABLE("x", "darwin", access=lambda *a: False)
+    assert REAL_RUNNABLE("x", "linux", access=lambda *a: True)
 
 
 def test_a_hook_git_would_skip_is_reported_and_never_verified(clone, monkeypatch):
     hook(clone, '#!/bin/sh\n[ "$GORILLA_OWNER_APPROVED" = "1" ] || exit 1\n')
-    monkeypatch.setattr(U, "runnable", lambda p, platform=None, access=None: False)
+    (clone / ".git" / "hooks" / "pre-push").chmod(0o644)          # as a hook written without chmod +x
     row = U.classify(clone, "pfind")
     assert row["state"] == "not-executable" and not row["ok"] and "SKIPS" in row["why"]
     assert not U._verify_installed(clone)[0]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no executable bit; git runs a hook anyway")
 def test_install_hooks_makes_the_hook_executable(clone, monkeypatch):
     old = hook(clone, "#!/bin/sh\nexit 1\n")
     old.chmod(0o644)
     monkeypatch.setattr(U, "_verify_installed", lambda repo: (True, "verified"))
     assert U.install_hooks(True, {"Gorilla.Opencode": [clone]}, {"Gorilla.Opencode": "x"}, lambda s: None) == 0
-    assert os.access(old, os.X_OK)
+    assert U.runnable(old)
     old.chmod(0o644)                                               # same bytes, not executable: installed again
     said = []
     U.install_hooks(True, {"Gorilla.Opencode": [clone]}, {"Gorilla.Opencode": "x"}, said.append)
-    assert "INSTALLED" in said[0] and os.access(old, os.X_OK)
+    assert "INSTALLED" in said[0] and U.runnable(old)
 
 
 def test_the_template_is_the_hook_that_asks_the_gate():
