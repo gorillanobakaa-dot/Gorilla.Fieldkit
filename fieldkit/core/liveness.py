@@ -306,10 +306,10 @@ def assess(rec, now=None, same=contain.same):
                         "kill": ks})
         idle, since = s.get("idle_s"), s.get("progress_at")
         if idle and since and now - since > idle + GRACE_S:
-            ks = [[p, m["ctime"]] for p, m in sorted(live.items()) if str(m.get("step")) == str(sid)]
+            quiet = [[p, m["ctime"]] for p, m in sorted(live.items()) if str(m.get("step")) == str(sid)]
             out.append({"state": "STALLED", "run": rec.get("id"),
                         "line": f"STALLED {who}: step '{s.get('label')}' made no progress (no output, no CPU) for "
-                                f"{int(now - since)} s (limit {int(idle)} s)", "kill": ks})
+                                f"{int(now - since)} s (limit {int(idle)} s)", "kill": quiet})
     ended = [(p, m) for p, m in sorted(live.items()) if m.get("step") is not None and str(m["step"]) not in steps]
     if ended:
         out.append({"state": "ORPHAN", "run": rec.get("id"),

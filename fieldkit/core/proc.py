@@ -174,6 +174,7 @@ class Runner:
         self.log_dir = Path(log_dir) if log_dir else self.state_dir / "logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.pid_file = self.state_dir / "started-pids.json"
+        self._start_ct = {}
 
     def _write(self, pids):
         self.pid_file.write_text(json.dumps(pids, indent=1), encoding="utf-8")
@@ -181,8 +182,10 @@ class Runner:
     def _record_pid(self, pid, cmd):
         pids = self.prune()
         how = _method()
+        ct = self._start_ct.pop(pid, None)       # taken right after Popen: a fast child may already have exited
+        ct = ct if ct is not None and how == "psutil" else create_time(pid, how)
         pids[str(pid)] = {"cmd": cmd, "started": time.strftime("%Y-%m-%d %H:%M:%S"),
-                          "create_time": create_time(pid, how), "how": how}
+                          "create_time": ct, "how": how}
         self._write(pids)
 
     def _forget(self, pid):
@@ -218,6 +221,7 @@ class Runner:
         def _rec():
             if c.root is not None and not started:
                 started.append(c.root)
+                self._start_ct[c.root] = c.root_ct
                 self._record_pid(c.root, cmd)
         c = contain.Container(name or Path(cmd[0]).stem, timeout, liveness.current())
         try:

@@ -93,6 +93,16 @@ def ctime(pid):
         return None
 
 
+def _start_time(pid):
+    """Creation time of our own just-started child, zombie or not (a fast child may already have exited)."""
+    if psutil is None:
+        return None
+    try:
+        return round(psutil.Process(int(pid)).create_time(), 3)
+    except (psutil.Error, ValueError, OSError):
+        return None
+
+
 def same(pid, ct):
     """True only when PID is alive AND was created at ct: a reused number is never ours."""
     now = ctime(pid)
@@ -235,7 +245,7 @@ class Container:
             kw.setdefault("start_new_session", True)
             p = subprocess.Popen(cmd, **kw)
         self.root = p.pid
-        self.root_ct = ctime(p.pid)
+        self.root_ct = _start_time(p.pid)          # our own child: its creation time even if it already exited
         self.tracked[p.pid] = self.root_ct
         self.track()
         return p
