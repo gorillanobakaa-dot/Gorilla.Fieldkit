@@ -106,7 +106,7 @@ def test_an_unknown_check_is_never_present():
 
 def test_the_runner_checks_each_sha_again_inside_the_elevated_process():
     t = machine.runner_text([lp()], root=settings.ROOT)
-    assert "Get-FileHash -Algorithm SHA256" in t and lp()["sha256"] in t and " -Action 'apply'" in t
+    assert "Security.Cryptography.SHA256" in t and lp()["sha256"] in t and " -Action 'apply'" in t
     assert "'-Action'" not in t
     assert t.rstrip().endswith('Write-Host "PREREQS: done ($failed failed)"')
 

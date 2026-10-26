@@ -145,7 +145,10 @@ def runner_text(todo, root=None, action="apply", marker="PREREQS: done"):
         p = root / e["script"]
         args = " ".join(_ps_arg(a) for a in (e.get(action) or []))
         lines += [f"Write-Host 'PREREQ {e['id']}: {action}'",
-                  f"$h = (Get-FileHash -Algorithm SHA256 -LiteralPath {_ps_quote(p)}).Hash.ToLower()",
+                  # .NET, not Get-FileHash: that cmdlet lives in a module that fails to load when powershell.exe
+                  # inherits PowerShell 7's PSModulePath (seen on the CI runner, 2026-10-26)
+                  f"$h = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash("
+                  f"[System.IO.File]::ReadAllBytes({_ps_quote(p)}))).Replace('-', '').ToLower()",
                   f"if ($h -ne {_ps_quote(str(e['sha256']).lower())}) {{ Write-Host 'PREREQ {e['id']}: FAILED sha256 "
                   f"changed, not run'; $failed++ }} else {{ try {{ & {_ps_quote(p)} {args} }} catch {{ "
                   f"Write-Host \"PREREQ {e['id']}: FAILED $_\"; $failed++ }} }}"]
