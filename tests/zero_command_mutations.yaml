@@ -1,0 +1,80 @@
+# fieldkit zero set 2 (the command layer): every rule broken once; all must be CAUGHT.
+#   python -m fieldkit mutate --plan tests/zero_command_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_zero_command.py
+- file: fieldkit/zero/claims.py
+  swap: ["if within(t, a) or (kind == \"git\" and within(a, t) and not is_mine):", "if False:"]
+  why: "ground another live station holds is refused"
+- file: fieldkit/zero/claims.py
+  swap: ["            if own and not is_mine:", "            if False:"]
+  why: "a station with an order is refused on shared ground outside its area"
+- file: fieldkit/zero/claims.py
+  swap: ["    return misses(rec, now) < 2", "    return True"]
+  why: "a MISSING holder holds nothing"
+- file: fieldkit/zero/claims.py
+  swap: ["    if rec.get(\"off\"):\n        return False", "    if False:\n        return False"]
+  why: "a station that signed off holds nothing"
+- file: fieldkit/zero/claims.py
+  swap: ["    if relief and now - relief < PENDING_TTL_S:", "    if False:"]
+  why: "a rotated station's ground waits for its relief"
+- file: fieldkit/zero/claims.py
+  swap: ["            if any(within(t, f) for f in free):\n                continue", "            if False:\n                continue"]
+  why: "free ground (coordination, temp, memory) is always writable"
+- file: fieldkit/zero/claims.py
+  swap: ["        if GIT_READ.search(cmd):", "        if False:"]
+  why: "read-only git commands are not judged"
+- file: fieldkit/zero/claims.py
+  swap: ["        if not sid or not net_open(c):", "        if not sid:"]
+  why: "a closed net enforces nothing"
+- file: fieldkit/zero/claims.py
+  swap: ["        return now - float(claim.get(\"at\") or 0) < PENDING_TTL_S", "        return False"]
+  why: "a station tasked before it checked in holds its ground"
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ["    if deny:\n        print(json.dumps(deny))", "    if False:\n        print(json.dumps(deny))"]
+  why: "the PreToolUse hook prints the claims' deny"
+- file: fieldkit/zero/command.py
+  swap: ["                    if claims.overlap(a, b):", "                    if False:"]
+  why: "two live orders never overlap"
+- file: fieldkit/zero/command.py
+  swap: ["    N.require_zero(net, me, epoch)\n    station = station if \"@\" in station else f\"{station}@{N.machine()}\"\n    paths", "    station = station if \"@\" in station else f\"{station}@{N.machine()}\"\n    paths"]
+  why: "only Zero tasks"
+- file: fieldkit/zero/command.py
+  swap: ["    new = [f for f in findings if f[\"key\"] not in seen]", "    new = list(findings)"]
+  why: "a finding wakes anyone once, never every cycle (zero tokens when quiet)"
+- file: fieldkit/zero/command.py
+  swap: ["(quiet_min > o.get(\"idle_min\", IDLE_MIN) and state not in RESTING)", "(quiet_min > o.get(\"idle_min\", IDLE_MIN))"]
+  why: "WAITING / BLOCKED / DONE are not idle"
+- file: fieldkit/zero/command.py
+  swap: ["        if zstate == \"UP\":", "        if True:"]
+  why: "a silent Zero is not messaged; the inbox names the 2IC"
+- file: fieldkit/zero/command.py
+  swap: ["                and N.state_of(orec, now) not in (\"MISSING\", \"OFF\"):", "                and False:"]
+  why: "a live station without a relief cannot be relieved unasked"
+- file: fieldkit/zero/command.py
+  swap: ["            st[\"meta\"].setdefault(\"relief\", {})[station] = {\"ts\": now, \"order\": o[\"id\"]}", "            pass"]
+  why: "rotation leaves the order for the relief"
+- file: fieldkit/zero/command.py
+  swap: ["        drift = [claims.norm(x[2]) for x in mine_room if x[1] in (\"edit\", \"commit\", \"ff\", \"rebase\")", "        drift = [claims.norm(x[2]) for x in mine_room if x[1] in ()"]
+  why: "room-log writes outside the area are DRIFT"
+- file: fieldkit/zero/command.py
+  swap: ["        if any(claims.within(r[\"top\"], a) for a in own):\n            continue", "        if False:\n            continue"]
+  why: "a repository inside the area cannot drift"
+- file: fieldkit/zero/command.py
+  swap: ["        if state == \"WORKING\" and quiet_min > o.get(\"drift_min\", DRIFT_MIN):", "        if False:"]
+  why: "WORKING with nothing moving is NO PROGRESS"
+- file: fieldkit/zero/command.py
+  swap: ["        if asked and float(rec.get(\"sitrep_at\") or 0) > float(asked.get(\"ts\") or 0):", "        if False:"]
+  why: "the idle station's answer goes on the Board"
+- file: fieldkit/zero/command.py
+  swap: ["                if sid and any(str(f.get(\"session\") or \"\").startswith(sid[:8]) for f in fin):", "                if False:"]
+  why: "DONE with no open PR goes on the archive list"
+- file: fieldkit/zero/command.py
+  swap: ["    if not any(r.get(\"order\") for r in stations.values()):", "    if False:"]
+  why: "no orders: the sweep sends nothing and writes nothing"
+- file: fieldkit/zero/net.py
+  swap: ["        command.carry(old, to, now)", "        pass"]
+  why: "Zero's order goes with handover --take"
+- file: fieldkit/zero/net.py
+  swap: ["               data={k: v for k, v in {\"sitrep\": clean, \"off\": off, \"order\": order}.items() if v}, now=now)", "               data={k: v for k, v in {\"sitrep\": clean, \"off\": off}.items() if v}, now=now)"]
+  why: "every check-in carries the order id"
+- file: fieldkit/zero/net.py
+  swap: ["        cmd = command.sweep(net, now, inbox_add=inbox_add, board=board, **(command_kw or {}))", "        cmd = {\"findings\": [], \"new\": []}"]
+  why: "the comms check runs the sweep"
