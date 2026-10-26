@@ -61,6 +61,7 @@
     fieldkit release-page compose|check          a release page with both tracks in full on it, plain language first
     fieldkit release table|verify                the page's file table measured from SHA256SUMS; a published tag checked
     fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
+    fieldkit testcost plan|run --fast|report     the cheapest test set that is enough; a passed tree is never re-tested
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
     fieldkit build-harness latest|vault|start|approve|next|status|submit|unblock|log ...
@@ -1497,6 +1498,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    tc = sub.add_parser("testcost", add_help=False,
+                        help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
+                             "budgets, refusals logged (fieldkit testcost)")
+    tc.add_argument("args", nargs=argparse.REMAINDER)
     ev = sub.add_parser("evidence", add_help=False,
                         help="research evidence that can be checked later: fetch pages into a store, import a run's "
                              "findings, check every claim (fieldkit evidence)")
@@ -2601,6 +2606,9 @@ def main(argv=None):
     if args[:1] == ["lmstudio-log"]:                  # why a local model is slow: LM Studio's server log
         from . import lmstudio
         return lmstudio.main(args[1:])
+    if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
+        from . import testcost
+        return testcost.main(args[1:])
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])

@@ -29,8 +29,8 @@ def fake_steps():
     del sys.modules["fake_steps"]
 
 
-def test_default_steps_are_the_hog():
-    assert preflight.STEPS == ["fieldkit.hog:preflight_check"]
+def test_default_steps_are_the_hog_then_the_test_cost():
+    assert preflight.STEPS == ["fieldkit.hog:preflight_check", "fieldkit.testcost:preflight_check"]
 
 
 def test_skipped_inside_pytest_without_explicit_steps():
@@ -204,4 +204,4 @@ def test_call_sites_are_guarded(monkeypatch, tmp_path):
     from pathlib import Path
     hook = (Path(__file__).resolve().parents[1] / "hooks" / "pre-commit").read_text(encoding="utf-8")
     assert '-m fieldkit.core.preflight --label pre-commit --kind test -- "$@"' in hook
-    assert 'if ! guarded "$PY" -m pytest' in hook
+    assert '! guarded "$PY" -m pytest' in hook

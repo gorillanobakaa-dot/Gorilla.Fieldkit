@@ -2542,6 +2542,17 @@
    "terminal"
   ]
  },
+ "testcost": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "testcost"
+  ]
+ },
  "thermal monitor": {
   "platforms": [
    "linux",

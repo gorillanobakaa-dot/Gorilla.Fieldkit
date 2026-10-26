@@ -58,6 +58,9 @@ for _k in [k for k in _os.environ if k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFI
 _os.environ["GIT_CONFIG_GLOBAL"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-gitconfig-"), "empty")
 open(_os.environ["GIT_CONFIG_GLOBAL"], "w").close()
 _os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+# 2026-10-26: tests that run the real pre-commit hook on a temporary repo must not write their pass/refused rows
+# into the real state/testcost log (fieldkit testcost report would count fake refusals as caught bugs).
+_os.environ["FIELDKIT_TESTCOST_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-testcost-")
 for _k in ("EMAIL", "GIT_EDITOR"):
     _os.environ.pop(_k, None)
 _os.environ["FIELDKIT_RECORDER"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-recorder-"), "mcp.jsonl")
