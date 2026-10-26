@@ -43,6 +43,7 @@ from . import mergeproof as mp
 LABEL = "fieldkit-ready"
 MARK = re.compile(r"<!-- fieldkit-(ready|not-ready) (\{.*?\}) -->")
 HOOK_FRESH_S = 2 * 3600            # a pre-commit marker younger than this is a commit still in the hook
+OLD_MARK_S = 3600                  # a marker without its checkout (an older hook) counts only this long
 STALE_H = 24
 
 FAILURE_MODES = [
@@ -221,8 +222,17 @@ def marker(kind, **data):
 def hook_running(repo, now=None):
     """Commits still inside the pre-commit hook in this clone (hooks/pre-commit writes the marker)."""
     now = now or time.time()
-    cd = mp.common_dir(repo)
-    return [p.name for p in cd.glob("pre-commit.running.*") if now - p.stat().st_mtime < HOOK_FRESH_S]
+    top = _git(repo, "rev-parse", "--show-toplevel").stdout.strip()
+    out = []
+    for p in mp.common_dir(repo).glob("pre-commit.running.*"):
+        age = now - p.stat().st_mtime
+        parts = p.read_text(encoding="utf-8", errors="replace").strip().split(" ", 2)
+        if len(parts) == 3:                              # date time checkout: only this checkout's hook counts
+            if parts[2] == top and age < HOOK_FRESH_S:
+                out.append(p.name)
+        elif age < OLD_MARK_S:                          # an older hook wrote no checkout: any clone-wide, while young
+            out.append(p.name)
+    return out
 
 
 def ready(repo, n, gh, pending=None, withdraw=False):

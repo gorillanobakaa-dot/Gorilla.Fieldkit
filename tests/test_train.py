@@ -283,9 +283,11 @@ def test_ready_refused_while_a_commit_is_in_the_hook(world):
     w, gh = world, world["gh"]
     d = session_pr(w, 1, "feat/a", "b.txt")
     marker = mp.common_dir(d) / "pre-commit.running.4242"
-    marker.write_text("2026-10-26 18:50:00")
+    marker.write_text("2026-10-26 18:50:00 " + git(d, "rev-parse", "--show-toplevel"))
     r = train.ready(d, 1, gh)
     assert r["state"] == "not-final" and "pre-commit hook" in r["error"]
+    marker.write_text("2026-10-26 18:50:00 C:/another/worktree")     # another worktree's hook does not count
+    assert train.hook_running(d) == []
     marker.unlink()
     add_card(d, "z.txt")                                    # committed but not pushed
     r = train.ready(d, 1, gh)

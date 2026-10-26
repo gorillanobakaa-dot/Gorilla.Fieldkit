@@ -38,7 +38,8 @@ OUT="$BT.out"
 # inside a waiting loop matched the loop's own command line and waited the full 10-minute timeout, several times.
 # hooks/wait-for-hook.sh waits on these markers and removes the ones whose process is gone.
 MARK="$(git rev-parse --git-common-dir)/pre-commit.running.$$"
-date '+%Y-%m-%d %H:%M:%S' > "$MARK" 2>/dev/null || true
+# 2026-10-26: the checkout too, so `fieldkit ship ready` in one worktree is not blocked by another worktree's hook
+echo "$(date '+%Y-%m-%d %H:%M:%S') $(git rev-parse --show-toplevel)" > "$MARK" 2>/dev/null || true
 trap 'rm -rf "$BT" "$OUT" "${BT2:-}" "$MARK"' EXIT
 # 2026-10-26: the merge driver for cards and generated indexes (fieldkit/method/mergedriver.py), written into the
 # clone's git folder when missing, so the next merge of two card branches does not conflict. Never refuses a commit.
