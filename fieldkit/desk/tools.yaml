@@ -5463,7 +5463,7 @@ tools:
   entry: [python, -m, fieldkit, ship]
   path: ${FIELDKIT}/fieldkit/method/ship.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [status, sync, push, audit, release, prune], help: "status and audit read; sync, push, release, prune change the repo or the remote"}
+    - {name: action, flag: null, type: str, required: true, choices: [status, sync, push, audit, release, prune, update, proof, ci-record, ready, overlap, freeze, unfreeze], help: "status, audit, proof and overlap read; the rest change the repo or the remote (train: card merge-train)"}
     - {name: tag, flag: null, type: str, required: false, help: "release: vX.Y.Z"}
     - {name: offline, flag: --offline, type: flag, required: false, help: "audit: git only, no network"}
     - {name: archive_unproven, flag: --archive-unproven, type: flag, required: false, help: "prune: save an unproven branch as tag archive/<branch>, then delete it"}
@@ -5482,6 +5482,32 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", "${FIELDKIT}/tests/test_ship_audit_release.py", -k, "ship or audit or release or prune"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune DELETES remote branches git or GitHub prove merged (with --archive-unproven, tags first). audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."
+
+- id: merge-train
+  title: "The merge train - a session declares its PR final (ship ready), Zero merges the declared PRs one at a time, dependencies first, brought up to date with main (generated files regenerated, cards entry by entry), never red, only with --match-head-commit; a merge of main proven to be only a merge skips the full pre-commit suite"
+  harness: method
+  entry: [python, -m, fieldkit, ship, train]
+  path: ${FIELDKIT}/fieldkit/method/train.py
+  inputs:
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "read only: the order, what each PR needs, stale/orphan flags"}
+    - {name: modes, flag: --modes, type: flag, required: false, help: "the failure modes this protocol closes, each with its check"}
+    - {name: doctor, flag: --doctor, type: flag, required: false, help: "git 2.38+, gh signed in, the mandate, the hook, the merge driver, generated files"}
+    - {name: only, flag: --only, type: int, required: false, help: "only these PR numbers"}
+    - {name: max_wait, flag: --max-wait, type: int, required: false, help: "minutes to wait for CI per PR (60)"}
+    - {name: base, flag: --base, type: str, required: false, help: "the base branch (main)"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "the repository folder (.)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [git, network, writes-files]
+  safety: irreversible
+  output: own
+  exits: {3: "a PR left (not declared, head moved, red, a real conflict, outside the mandate), each with why"}
+  modes:
+    preview: [python, -m, fieldkit, ship, train, --dry-run]
+    verify: [python, -m, fieldkit, ship, train, --doctor]
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_train.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "2026-10-26: #126 merged with a commit still in its session's hook; #124 CONFLICTING twice (generated index + tools.yaml), ~75 min of re-run suites; #124 merged during its windows CI re-run. Verbs on fieldkit ship: ready PR [--pending T|--withdraw], train, update (merge main the train's way), proof, ci-record, overlap, freeze/unfreeze. MERGES into main through gh pr merge only under the mandate's merge_to_main; pushes branch updates only through fieldkit ship push (the pre-push gate) or GitHub's update-branch on a mandate push pattern. State: <git common dir>/fieldkit/train.json (resumable), ci-green.jsonl, frozen.json, the train's own clone train-clone/. Generated files: fieldkit/method/generated.yaml. Never force-pushes or rebases. Mutations: tests/train_mutations.yaml."
 
 - id: handover
   title: Fixes to someone else's tool as a handover - before/after, why, test, proof; checked to apply on their copy

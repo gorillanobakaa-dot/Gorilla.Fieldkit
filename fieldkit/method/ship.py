@@ -14,6 +14,15 @@
     fieldkit ship audit  [--offline]       is the work on main, is the checkout on main, is main released (shiprelease.py)
     fieldkit ship release vX.Y.Z [--scaffold]   tag and publish, only when main, CI, version and notes all agree
     fieldkit ship prune  [--archive-unproven]   delete remote branches git or GitHub prove merged; one source of truth
+    fieldkit ship update [--base main]     merge origin/main into the branch the train's way: generated files
+                                           regenerated, cards merged entry by entry, proven only a merge (mergeproof.py)
+    fieldkit ship proof OURS THEIRS [R]    what each path of a merge is; exit 0 only a merge
+    fieldkit ship ci-record SHA            remember GitHub's green CI for SHA, for the offline pre-commit hook
+    fieldkit ship ready PR [--pending T]   the session declares its PR final (label + head sha); --pending: not yet
+    fieldkit ship train [--dry-run]        merge the declared PRs one at a time, dependencies first, never red, with
+                                           --match-head-commit; resumable (train.py); --modes lists what it prevents
+    fieldkit ship overlap [--files F...]   open PRs and live stations on the same files as this work
+    fieldkit ship freeze|unfreeze          a checkout that must not move: ff pending, then parity baseline --set
 
 The one hard case it handles: a branch whose pull request was SQUASH-merged. The remote branch still holds the old
 commits; the base holds the same tree as one new commit; the local branch was restarted from the base. A plain
@@ -267,10 +276,21 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
     return dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
 
 
+TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze")             # train.py
+PROOF = {"update": "update", "proof": "prove", "ci-record": "ci-record"}  # mergeproof.py
+
+
 def main(argv=None, prog="fieldkit ship"):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] and argv[0] in TRAIN:
+        from . import train
+        return train.main(argv, prog)
+    if argv[:1] and argv[0] in PROOF:
+        from . import mergeproof
+        return mergeproof.main([PROOF[argv[0]], *argv[1:]], f"{prog} {argv[0]}")
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune",
-                                       "gh-release"])
+                                       "gh-release", *TRAIN, *PROOF])
     ap.add_argument("--tag", dest="push_tag", help="push: this NEW tag (never moved) instead of the branch")
     ap.add_argument("--message-file", help="commit: the commit message file")
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
@@ -282,7 +302,6 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--base", default="main")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
-    argv = list(sys.argv[1:] if argv is None else argv)
     extra = argv[argv.index("--") + 1:] if "--" in argv else []      # gh-release: what gh release create gets
     a = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
     if a.action == "gh-release" or (a.action == "push" and a.push_tag):

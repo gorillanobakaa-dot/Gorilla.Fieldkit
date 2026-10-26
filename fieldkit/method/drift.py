@@ -50,12 +50,15 @@ def json_paths(a, b, path="", out=None, limit=60):
     return out
 
 
-def drift(gen, file, cwd=None, timeout=600):
+def drift(gen, file, cwd=None, timeout=600, env=None):
     f = Path(cwd or ".") / file if not Path(file).is_absolute() else Path(file)
     if not f.is_file():
         return {"ok": False, "error": f"no such file: {f}"}
     try:
-        r = subprocess.run(gen, capture_output=True, text=True, cwd=cwd, timeout=timeout)
+        # UTF-8 both ways (2026-10-26, the merge train): on Windows a pipe was decoded as cp1252, so a generator that
+        # prints non-ASCII text drifted from its own committed file
+        r = subprocess.run(gen, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd,
+                           timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"ok": False, "error": f"the generator did not run: {e}"}
     if r.returncode != 0:
