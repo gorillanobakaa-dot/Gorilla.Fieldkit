@@ -31,7 +31,7 @@ def targets(h, to="workers"):
     return [link.device(h, n) for n in names]
 
 
-def devices(check=False, call_fn=None):
+def devices(check=False, call_fn=None, why_fn=None):
     """-> [{name, role, os, link, address, brain, me, answers, host, seen_os, error}]"""
     call_fn = call_fn or link.call
     h = link.household()
@@ -43,6 +43,9 @@ def devices(check=False, call_fn=None):
             a = call_fn({"verb": "hello"}, device=d["name"])
             r.update(answers=bool(a.get("ok")), host=a.get("host", ""), seen_os=a.get("os", ""),
                      error="" if a.get("ok") else a.get("error", ""))
+            if not a.get("ok"):                      # 2026-10-26: name the broken layer before giving up
+                from .peers import link_heal
+                r["heal"] = (why_fn or link_heal.why)(d["name"])
         rows.append(r)
     return h, rows
 
@@ -84,6 +87,8 @@ def main(argv=None):
                          f"answers ({r['host']}, {r['seen_os']})" if r["answers"] else f"NO ANSWER: {r['error'][:80]}")
                 print(f"  {r['name']:<22} {r['role'] or '-':<7} {r['os'] or '?':<9} {r['link']:<6} "
                       f"{','.join(r['address']):<28} brain {r['brain'] or 'none':<10} {state}")
+                if r.get("heal"):
+                    print(f"  {'':<22} {r['heal']}")
         bad = [r for r in rows if r.get("answers") is False]
         print(f"VERDICT  {len(rows)} device(s)" + (f", {len(bad)} not answering" if bad else
                                                   ", all answer" if a.check else ""))
