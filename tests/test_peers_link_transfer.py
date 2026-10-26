@@ -199,16 +199,13 @@ def test_a_damaged_byte_is_caught_by_sha256_discarded_and_resent_next_time(here)
 
 
 def test_paths_this_computer_cannot_hold_are_refused_never_renamed(here):
-    tree = here / "t"
-    (tree / "net").mkdir(parents=True)
-    (tree / "net" / "xt_MARK.h").write_text("a")
-    (tree / "net" / "xt_mark.h").write_text("b")
-    (tree / "aux.c").write_text("c")
-    man = lt.manifest_for(tree)[0]
+    # described, not made on disk: on NTFS the two names ARE one file (found by Windows CI, 2026-10-26)
+    man = {"name": "t", "kind": "dir", "dirs": [], "files": [["net/xt_MARK.h", 1, False, 0],
+                                                             ["net/xt_mark.h", 1, False, 0], ["aux.c", 1, False, 0]]}
     assert lt.cannot_hold(man, case_insensitive=False, windows=False) == []
     probs = dict(lt.cannot_hold(man, case_insensitive=True, windows=True))
     assert "aux.c" in probs and "net/xt_mark.h" in probs
-    r = lt.put_stream(tree, retries=0, connect=receiver(windows=True, case_insensitive=True))
+    r = lt.put_stream(None, retries=0, connect=receiver(windows=True, case_insensitive=True), man=(man, here, []))
     assert not r["ok"] and r["count"] == 2 and "tarball or a git bundle" in r["error"]
     assert not list((here / "home" / "received").glob("t*"))
 
