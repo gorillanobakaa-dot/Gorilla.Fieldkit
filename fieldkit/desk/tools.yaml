@@ -5647,7 +5647,7 @@ tools:
   notes: "repeat/log run pytest n times in fresh processes, each with its own --basetemp; the tests' own effects apply. scan only reads (exit 0 always). Reachable as `fieldkit flaky` since 2026-10-18."
 
 - id: hog
-  title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
+  title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, parents hoarding children (dozens of consoles/shells) reported, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
   harness: desk
   entry: [python, -m, fieldkit, hog]
   path: ${FIELDKIT}/fieldkit/hog/__init__.py
@@ -5663,7 +5663,7 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hog.py"]
   skill: skills/fieldkit-hog/SKILL.md
-  notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Mutations: tests/hog_mutations.yaml."
+  notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Rule pileup (2026-10-26, adopted from the scratch conhost-census.ps1): the owner saw 61 Console Window Host rows in Task Manager; 33 were held by ONE Claude Desktop NodeService utility process (alive since 2026-10-25 14:44), a vendor leak of one console per shell never closed. Groups the whole process table (psutil ppid, the same field ps shows on Linux/macOS) by (parent, class: pileup_classes); > pileup_max_children (20) of one class, or >= pileup_stale_min (10) started > pileup_stale_h (12) h before the parent's newest one, is a WARN naming the parent (name, pid, start, its own parent), the count, their working set and the fix (pileup_fixes). A dead parent or a reused PID (parent younger than the child) holds nothing. Report only, never stopped. Mutations: tests/hog_mutations.yaml."
 
 - id: preflight
   title: "The ONE run guard before and during heavy work (builds, test suites, mutate, pipelines, autopilot jobs, the leak gate) - reclaim idle models and orphans, refuse under the free-RAM floor, sample RAM and CPU temperature, one end line"
