@@ -158,9 +158,25 @@ def test_desktop_rows_cards_waiting_and_mode(tmp_path):
     rows = friction.desktop_rows(desktop.sessions(), me="local_me",
                                  scan=lambda p: desktop.scan(p, now=NOW))
     kinds = sorted((r["kind"], r["key"].split(":")[1]) for r in rows)
-    assert kinds == [("card", "task_aaaa1111"), ("mode", "local_b"), ("waiting", "local_b")]
+    assert kinds == [("card", "task_aaaa1111"), ("clicked", "task_eeee5555"), ("mode", "local_b"), ("waiting", "local_b")]
     card = next(r for r in rows if r["kind"] == "card")
     assert "dismiss_task task_aaaa1111" in card["fix"] and "fieldkit task start" in card["fix"]
+
+
+def test_every_card_clicked_in_the_last_day_is_a_finding(tmp_path):
+    """Owner order 2026-10-26 20:3x: a card the owner had to click shows up at once, even from an archived session."""
+    rows = [use("u1", SS, {"title": "Relief"}), result("u1", 'Proposed "Relief" (task_id: task_aaaa1111).'),
+            use("u2", SS, {"title": "Older"}, t=NOW - 30 * 3600),
+            result("u2", 'Proposed "Older" (task_id: task_bbbb2222).', t=NOW - 30 * 3600),
+            use("u3", SS, {"title": "Pending"}), result("u3", 'Proposed "Pending" (task_id: task_cccc3333).')]
+    transcript(tmp_path, "cliA", rows)
+    store(tmp_path, rec("local_a", title="Zero", cli="cliA", archived=True, last=NOW - 600,
+                        resolved={"task_aaaa1111": "started_notified", "task_bbbb2222": "started"}),
+          rec("local_gone", archived=True, last=NOW - 3 * 86400, cli="cliA",
+              resolved={"task_aaaa1111": "started"}))
+    got = friction.desktop_rows(desktop.sessions(), scan=lambda p: desktop.scan(p, now=NOW), now=NOW)
+    assert [r["key"] for r in got] == ["clicked:task_aaaa1111"]      # archived: no pending card, no mode line
+    assert "started by a click" in got[0]["line"]
 
 
 def test_remote_control_pending_actions(tmp_path):

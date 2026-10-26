@@ -6,6 +6,7 @@ A call with 400k cache read + 1k output on Opus 5.5 = 400_000 x 0.20 / 1e6 + 1_0
 import io
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -180,6 +181,45 @@ def test_standalone_hook_prints_additional_context(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
     assert out["hookSpecificOutput"]["additionalContext"].startswith("SESSION ROTATION")
+
+
+CARD = re.compile(r"initiation \"(own_initiative|offer)\"|(?<!NEVER )propose a (new )?(session|card)|start a card", re.I)
+
+
+@pytest.mark.parametrize("entry", ["claude-desktop", "cli"])
+@pytest.mark.parametrize("owner", [True, False])
+def test_no_rotation_path_falls_back_to_a_card(tmp_path, entry, owner):
+    """2026-10-26 20:2x: a command post rotated on an event turn, the app refused start_session and the model put an
+    own_initiative card in front of the owner. No rotation text may lead to a card, on any path."""
+    row = {"why": ["x"], "context_last": 400_000, "entrypoint": entry, "cwd": "C:/w", "path": "t.jsonl"}
+    text = rotate.next_step(row, owner=owner)
+    assert not CARD.search(text)
+    if entry == "claude-desktop":
+        assert "fieldkit task start" in text
+        if not owner:
+            assert "do NOT call start_session" in text and "start_session, initiation" not in text
+        else:
+            assert "initiation \"user_asked\"" in text and "NEVER propose a card" in text
+        assert "set_remote_control off" in text
+
+
+def test_hook_knows_an_event_turn_from_the_owners_words(tmp_path):
+    p = monster(tmp_path)
+    ev = dict(call(p, "UserPromptSubmit"), prompt="<cross-session-message from=\"local_x\">rotate now")
+    assert "do NOT call start_session" in rotate.hook_line(ev, "UserPromptSubmit")
+    own = dict(call(p, "UserPromptSubmit"), prompt="carry on")
+    assert "initiation \"user_asked\"" in rotate.hook_line(own, "UserPromptSubmit")
+    # mid-turn, the line crossed during a turn keeps the kind of the prompt that started the turn
+    for prompt, want in (("carry on", "user_asked"), ("<task-notification> done", "do NOT call start_session")):
+        q = monster(tmp_path, read=300_000, name=f"mid-{len(prompt)}")
+        t = time.time()
+        rotate.hook_line(dict(call(q, "UserPromptSubmit"), prompt=prompt), "UserPromptSubmit", now=t)
+        write(q, [line(mid="y", read=400_000)], mode="a")
+        assert want in rotate.hook_line(call(q, "PostToolUse"), "PostToolUse", now=t + 120)
+    for tag in ("<task-notification>", "[SYSTEM NOTIFICATION - NOT USER INPUT]", "<side-sessions-event>",
+                "<ci-monitor-event>"):
+        assert not rotate.owner_turn({"prompt": tag + " x"})
+    assert rotate.owner_turn({"prompt": "please rotate"}) and not rotate.owner_turn({})
 
 
 def test_cli_session_is_told_to_start_claude_not_archive(tmp_path):

@@ -130,7 +130,7 @@ def scan(path, now=None):
     try:
         fh = open(path, encoding="utf-8", errors="replace")
     except OSError:
-        return {"cards": [], "waiting": ""}
+        return {"cards": [], "proposals": [], "waiting": ""}
     with fh:
         for line in fh:
             if '"tool_' not in line:                     # cheap filter: only lines with tool calls or results
@@ -162,7 +162,7 @@ def scan(path, now=None):
                             proposed[m["id"]] = {"id": m["id"], "title": m["title"], "at": _ts(d)}
     cards = [c for k, c in proposed.items() if k not in gone and (c["at"] is None or now - c["at"] < CARD_DAYS * 86400)]
     waiting = last_use[1] if last_use and last_use[0] not in answered and last_use[1] in WAITING_TOOLS else ""
-    return {"cards": cards, "waiting": waiting}
+    return {"cards": cards, "proposals": list(proposed.values()), "waiting": waiting}
 
 
 def processes(interval=0.0, psutil_mod=None):

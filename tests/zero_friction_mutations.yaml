@@ -75,3 +75,18 @@
 - file: fieldkit/tokens/rotate.py
   swap: ["    brief += protocol.brief_tail()", "    pass"]
   why: "the relief's brief carries the done protocol"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    return bool(prompt.strip()) and not EVENT_TURN.match(prompt)", "    return True"]
+  why: "an event turn is not the owner's: no start_session there"
+- file: fieldkit/tokens/rotate.py
+  swap: ["owner = owner_turn(call) if event == \"UserPromptSubmit\" else bool(said.get(\"owner\"))", "owner = owner_turn(call)"]
+  why: "mid-turn the turn keeps the kind of its prompt"
+- file: fieldkit/tokens/rotate.py
+  swap: ["return next_step(row, tp, owner)", "return next_step(row, tp, True)"]
+  why: "the hook passes the turn's kind to the step"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["            if not str(s[\"resolved\"].get(c[\"id\"]) or \"\").startswith(\"started\"):", "            if True:"]
+  why: "a card the owner clicked is a finding"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["        if s[\"archived\"] and not recent:", "        if s[\"archived\"]:"]
+  why: "a click from a session archived since still counts"

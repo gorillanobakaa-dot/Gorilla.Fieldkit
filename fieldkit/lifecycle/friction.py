@@ -50,14 +50,31 @@ def _row(kind, key, line, fix):
     return {"kind": kind, "key": key, "line": line, "fix": fix}
 
 
-def desktop_rows(sessions, scan=desktop.scan, transcript=desktop.transcript, me=None):
+CLICKED_HOURS = 24
+
+
+def desktop_rows(sessions, scan=desktop.scan, transcript=desktop.transcript, me=None, now=None):
+    """Pending cards, cards the owner had to click in the last 24 h (each one a click that should not have been
+    asked: the owner, 2026-10-26: "we really need to fix these problems once for all"), questions, modes."""
+    now = now or time.time()
     rows = []
     for s in sessions:
-        if s["archived"]:
+        recent = s["last"] and now - s["last"] < CLICKED_HOURS * 3600
+        if s["archived"] and not recent:
             continue
         name = f"{s['title'] or s['id']} ({s['id'][:14]})"
         tp = transcript(s["cli"])
-        found = scan(tp) if tp else {"cards": [], "waiting": ""}
+        found = scan(tp) if tp else {"cards": [], "proposals": [], "waiting": ""}
+        for c in found.get("proposals") or []:
+            if not str(s["resolved"].get(c["id"]) or "").startswith("started"):
+                continue
+            if c.get("at") is not None and now - c["at"] >= CLICKED_HOURS * 3600:
+                continue
+            rows.append(_row("clicked", f"clicked:{c['id']}", f"card \"{c['title']}\" ({c['id']}) from {name} was "
+                             "started by a click", "the session that proposed it must have used `fieldkit task start` "
+                             "(fieldkit sessions rule); fix the path that made the card, then ack it"))
+        if s["archived"]:
+            continue
         for c in found["cards"]:
             if c["id"] in s["resolved"]:
                 continue
