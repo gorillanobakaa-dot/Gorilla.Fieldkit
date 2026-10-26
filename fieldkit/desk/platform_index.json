@@ -2033,6 +2033,16 @@
    "orchestrate"
   ]
  },
+ "orchestrate job": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run live 2026-10-26: boss on Linux, worker on Windows over the cable (a Go build inside fieldkit guard, 412 s; an agent brief on gemini-flash-lite-latest, 102 s); a Linux worker and a Windows boss tested on loopback or not yet",
+  "ids": [
+   "orchestrate-job"
+  ]
+ },
  "peers link": {
   "platforms": [
    "linux",
