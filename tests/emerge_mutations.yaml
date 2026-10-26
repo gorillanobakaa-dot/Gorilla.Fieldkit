@@ -1,0 +1,62 @@
+# Rules fieldkit emerge must hold (owner 2026-10-26: "Be better than Portage"; recipe once, a model only on failure):
+#   fieldkit mutate --plan tests/emerge_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_emerge.py
+- file: fieldkit/emerge/runner.py
+  swap: ['cached = next((h for h, e in rec["hosts"].items() if still_there(e.get("outputs") or [])', 'cached = next((h for h, e in rec["hosts"].items() if True']
+  why: a cached key skips only when its recorded outputs are still there with the same bytes
+- file: fieldkit/emerge/runner.py
+  swap: ['or sha256_file(p) != o["sha256"]:', ':']
+  why: an output with the same size but other bytes is not the recorded output
+- file: fieldkit/emerge/recipe.py
+  swap: ['uses = s["uses"] if s.get("uses") is not None else PARTS', 'uses = s.get("uses") or PARTS']
+  why: "`uses: []` means only the needed keys: a packaging stage is not rebuilt by an unrelated commit"
+- file: fieldkit/emerge/recipe.py
+  swap: ['and not _ABS.match(value)', '']
+  why: machine paths are not part of the key, so the same inputs on two machines give the same key
+- file: fieldkit/emerge/runner.py
+  swap: ['if a["dirty"] != b.get("dirty") and a["dirty"]:', 'if False:']
+  why: a fix is a commit, never an uncommitted hand edit
+- file: fieldkit/emerge/runner.py
+  swap: ['if a["branch"] in ("main", "master"):', 'if False:']
+  why: a fix is never committed on main
+- file: fieldkit/emerge/runner.py
+  swap: ['    if not moved:', '    if False:']
+  why: a fix run that committed nothing is not a fix
+- file: fieldkit/emerge/runner.py
+  swap: ['if not (fixable and self.allow_fix and n_fix < max_fix) or', 'if not (fixable and self.allow_fix) or']
+  why: retries are bounded; past max_fix the run stops and the inbox gets it
+- file: fieldkit/emerge/runner.py
+  swap: [' or sum(fixes.values()) >= MAX_FIXES_PER_RUN:', ':']
+  why: a run never loops on model calls, whatever max_fix a recipe sets
+- file: fieldkit/emerge/runner.py
+  swap: ['failed = (sid, x["key"], f"offload to {s[''offload''].get(''device'')}: {res.get(''why'')}", False)', 'failed = (sid, x["key"], f"offload to {s[''offload''].get(''device'')}: {res.get(''why'')}", True)']
+  why: a model cannot fix the cable; an offload failure goes to the inbox without a model run
+- file: fieldkit/emerge/runner.py
+  swap: ['            if tier not in tiers:', '            if False:']
+  why: the leak gate runs once per release and the package checks once on the installed build, not every run
+- file: fieldkit/emerge/runner.py
+  swap: ['elif docs and not s.get("privacy"):', 'elif False:']
+  why: a docs-only change runs only the privacy stages
+- file: fieldkit/emerge/recipe.py
+  swap: ['            if got != want:', '            if False:']
+  why: a file source whose sha256 is not the pin refuses the run
+- file: fieldkit/emerge/recipe.py
+  swap: ['if anc.returncode != 0:', 'if False:']
+  why: the pinned upstream must stay under our own commits
+- file: fieldkit/emerge/runner.py
+  swap: ['        if not hits:', '        if False:']
+  why: a declared output that was not made fails the stage (fail closed)
+- file: fieldkit/emerge/runner.py
+  swap: ['                if st != "ok":', '                if False:']
+  why: a source fetched by a stage is checked against its pin right after that stage
+- file: fieldkit/emerge/runner.py
+  swap: ['if pl["preflight_status"] == STOP:', 'if False:']
+  why: a preflight STOP refuses before the first stage, never mid-run
+- file: fieldkit/emerge/runner.py
+  swap: ['if hardlines.STOP_FILE.exists():', 'if False:']
+  why: the owner's STOP file halts the run between stages
+- file: fieldkit/emerge/runner.py
+  swap: ['if s.get("always") and platform_ok(s.get("platforms")):', 'if False:']
+  why: an always stage (the power scheme back) runs after a failure
+- file: fieldkit/emerge/__init__.py
+  swap: ['            if changed:', '            if False:']
+  why: the manifest command never moves a recorded pin
