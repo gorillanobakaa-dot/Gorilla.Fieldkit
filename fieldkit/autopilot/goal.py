@@ -344,21 +344,60 @@ def do_action(gid, kind, repo, branch, spec, title="", body="", run=subprocess.r
 
 
 # ---- the verifier -----------------------------------------------------------------------------------------------
-def run_check(c, default_cwd, run=subprocess.run, timeout=3600):
-    """One command criterion -> {verdict PASS|FAIL, rc, evidence}. The command's exit code, or a line it printed
-    (expect.line), decides; nothing a model said does."""
+def history(gid, cid, n=10):
+    """The seconds the last n runs of criterion cid took (verdicts.jsonl), for its derived deadline."""
+    p = gdir(gid) / "verdicts.jsonl"
+    out = []
+    try:
+        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                v = json.loads(line)
+            except ValueError:
+                continue
+            if v.get("id") == cid and v.get("seconds") and v.get("verdict") != "TIMEOUT":
+                out.append(float(v["seconds"]))
+    except OSError:
+        pass
+    return out[-n:]
+
+
+def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
+    """One command criterion -> {verdict PASS|FAIL|TIMEOUT, rc, evidence, seconds}. The command's exit code, or a line
+    it printed (expect.line), decides; nothing a model said does. It runs in a container (fieldkit/core/contain.py)
+    with a WALL deadline (liveness.deadline_for: its own timeout, else 3 x its slowest measured run, capped at 1 h):
+    on expiry the whole tree, orphans included, is stopped and the verdict is TIMEOUT, never a hang (2026-10-26: an
+    orphaned go.exe held the pipes of `go test ./...` for 80 min and the supervisor sat silent)."""
+    from ..core import contain, liveness
     cwd = os.path.expandvars(c.get("cwd") or default_cwd or ".")
     shell = (["powershell", "-NoProfile", "-Command",
               "$global:LASTEXITCODE = 0; " + c["run"] + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE"] if os.name == "nt" else ["bash", "-lc", c["run"]])
-    try:
-        r = run(shell, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                timeout=c.get("timeout", timeout))
-        out, rc = (r.stdout or "") + (r.stderr or ""), r.returncode
-    except subprocess.TimeoutExpired:
-        out, rc = f"TIMEOUT after {c.get('timeout', timeout)} s", 124
-    except OSError as e:
-        out, rc = f"could not start: {e}", 127
+    deadline = liveness.deadline_for(hist, c.get("timeout") or timeout)
+    t0 = time.time()
+    extra, timed = "", False
+    if run is subprocess.run:
+        o = contain.run(shell, label=f"verify {c.get('id') or c['run'][:60]}", deadline_s=deadline, cwd=cwd)
+        out, rc = o.out + o.err, o.rc
+        if o.status == "timeout":
+            timed = True
+            out = f"TIMEOUT after {deadline:.0f} s (the container stopped {len(o.killed)} process(es))\n" + out
+        elif o.status == "error":
+            out = o.why
+        if o.leftovers:
+            extra = f"; {o.why}"
+    else:                                   # a test's fake run
+        try:
+            r = run(shell, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=deadline)
+            out, rc = (r.stdout or "") + (r.stderr or ""), r.returncode
+        except subprocess.TimeoutExpired:
+            out, rc, timed = f"TIMEOUT after {deadline:.0f} s", 124, True
+        except OSError as e:
+            out, rc = f"could not start: {e}", 127
+    secs = round(time.time() - t0, 1)
+    if timed:
+        return {"verdict": "TIMEOUT", "rc": rc, "why": f"no verdict: wall deadline {deadline:.0f} s passed{extra}",
+                "evidence": out.strip()[-1500:], "seconds": secs, "deadline": deadline}
     exp = c.get("expect") or {}
     if exp.get("line"):
         hit = re.search(exp["line"], out, re.M)
@@ -367,7 +406,8 @@ def run_check(c, default_cwd, run=subprocess.run, timeout=3600):
     else:
         ok = rc == int(exp.get("exit", 0))
         why = f"exit {rc} (expects {exp.get('exit', 0)})"
-    return {"verdict": "PASS" if ok else "FAIL", "rc": rc, "why": why, "evidence": out.strip()[-1500:]}
+    return {"verdict": "PASS" if ok else "FAIL", "rc": rc, "why": why + extra, "evidence": out.strip()[-1500:],
+            "seconds": secs, "deadline": deadline}
 
 
 VERDICT = re.compile(r"^\s*VERDICT:\s*(PASS|FAIL)\b(.*)$", re.M)
@@ -402,8 +442,12 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
             if r.get("usd"):
                 st["spend"].append({"t": time.time(), "usd": float(r["usd"]), "who": f"verifier {c['id']}"})
         else:
-            r = run_check(c, goal.get("cwd"), run=run)
+            cid = c.get("id") or c.get("run", "")[:60]
+            _progress(f"verify {cid}")
+            r = run_check(c, goal.get("cwd"), run=run, hist=history(gid, cid))
         r.update(id=c.get("id") or c.get("run", "")[:60], at=time.strftime("%Y-%m-%d %H:%M:%S"), who=who)
+        if r["verdict"] == "TIMEOUT":
+            event(gid, f"criterion {r['id']}: TIMEOUT ({r['why']}); the supervisor goes on")
         with open(gdir(gid) / "verdicts.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
         if c.get("id") in st["criteria"]:
@@ -411,6 +455,17 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
                                        "verdict": r["verdict"], "why": r["why"], "at": r["at"]}
         out.append(r)
     return out
+
+
+def _progress(note):
+    """The supervisor's progress marker: the current step in its liveness beacon and lock (read by liveness check)."""
+    from ..core import liveness
+    b = liveness.current()
+    if b is not None:
+        try:
+            b.beat(note)
+        except OSError:
+            pass
 
 
 def all_pass(st):
@@ -712,7 +767,7 @@ def _end_job(gid, goal, st, jid, claude, run):
         if all(x["verdict"] == "PASS" for x in own):
             j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
         else:
-            bad = [f"{x['id']} {x['why']}" for x in own if x["verdict"] != "PASS"]
+            bad = [f"{x['id']} {x['verdict']} {x['why']}" for x in own if x["verdict"] != "PASS"]
             j.update(status="failed-verify", why=f"the worker said done; the verifier says FAIL: {bad}")
             if j["attempts"] < 3:
                 j["status"] = "queued"          # the planner gets the gap and a better brief may follow
@@ -922,14 +977,26 @@ def _alive(pid):
         return True
 
 
+def _holder_alive(cur):
+    """The lock's holder lives only when its PID AND creation time match (FM-4/FM-7: a reused PID is not a holder).
+    A lock written before ctime was recorded falls back to the PID alone."""
+    if cur.get("ctime") is None:
+        return _alive(cur.get("pid"))
+    from ..core import contain
+    return contain.same(cur.get("pid"), cur.get("ctime"))
+
+
 def lock(now=time.time):
-    """-> (True, path) or (False, why). One supervisor at a time; a dead or silent one is taken over."""
+    """-> (True, path) or (False, why). One supervisor at a time; a dead, reused-PID or silent one is taken over.
+    Lock = PID + creation time + a heartbeat from its own thread; PROGRESS is the liveness beacon's step deadlines."""
+    from ..core import contain
     GOALS.mkdir(parents=True, exist_ok=True)
     p = GOALS / ".supervisor.lock"
     cur = _rj(p)
-    if cur and cur.get("pid") != os.getpid() and _alive(cur.get("pid")) and now() - cur.get("heartbeat", 0) < LOCK_STALE:
+    if cur and cur.get("pid") != os.getpid() and _holder_alive(cur) and now() - cur.get("heartbeat", 0) < LOCK_STALE:
         return False, f"another supervisor runs (PID {cur['pid']}, heartbeat {int(now() - cur['heartbeat'])} s ago)"
-    _wj(p, {"pid": os.getpid(), "host": socket.gethostname(), "started": now(), "heartbeat": now()})
+    _wj(p, {"pid": os.getpid(), "ctime": contain.ctime(os.getpid()), "host": socket.gethostname(), "started": now(),
+            "heartbeat": now()})
     return True, str(p)
 
 
@@ -989,6 +1056,12 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
         say(f"SUPERVISOR: {why}; this one exits")
         return 0
     beat = _heartbeat_thread(now)
+    from ..core import liveness
+    beacon = liveness.beacon("goal-supervisor", "+".join(ids or []) or "all", "fieldkit goal run").start()
+    try:                               # preflight at start: the harness's own orphans and overdue steps first
+        say("  " + liveness.summary(liveness.check(act=True)))
+    except Exception as e:  # noqa: BLE001
+        say(f"  [WARN] liveness check: {e}")
     if hold:
         try:
             from ..buildh.window import hold_awake
@@ -1033,6 +1106,7 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
                         save_state(g, s)
     finally:
         beat.set()
+        beacon.close()
         unlock()
 
 

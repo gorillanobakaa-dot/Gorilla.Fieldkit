@@ -265,6 +265,16 @@ def _no_real_quiet(monkeypatch):
 from fieldkit.autopilot.quiet import noisy as _real_noisy  # noqa: E402
 
 
+# Liveness beacons a test's supervisor writes go to the test's own folder, never the checkout's state/liveness (where
+# the real `fieldkit liveness check --act` would read them).
+@pytest.fixture(autouse=True)
+def _own_liveness_dir(tmp_path_factory, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LIVENESS_DIR", str(tmp_path_factory.mktemp("liveness")))
+    yield
+    from fieldkit.core import liveness
+    liveness._CURRENT = None
+
+
 # Tests never inherit the autopilot marker (2026-10-26: a commit made from inside an autopilot session refused 8
 # goal/peers-link tests that CI passes, because FIELDKIT_AUTOPILOT=1 leaked in). A test of the autopilot refusal sets
 # it itself with monkeypatch.setenv.

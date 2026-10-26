@@ -5691,6 +5691,25 @@ tools:
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Rule pileup (2026-10-26, adopted from the scratch conhost-census.ps1): the owner saw 61 Console Window Host rows in Task Manager; 33 were held by ONE Claude Desktop NodeService utility process (alive since 2026-10-25 14:44), a vendor leak of one console per shell never closed. Groups the whole process table (psutil ppid, the same field ps shows on Linux/macOS) by (parent, class: pileup_classes); > pileup_max_children (20) of one class, or >= pileup_stale_min (10) started > pileup_stale_h (12) h before the parent's newest one, is a WARN naming the parent (name, pid, start, its own parent), the count, their working set and the fix (pileup_fixes). A dead parent or a reused PID (parent younger than the child) holds nothing. Report only, never stopped. Mutations: tests/hog_mutations.yaml."
 
+- id: liveness
+  title: "Process liveness - every harness long run (goal supervisor, runbook, emerge, pipeline, link job) OK, STALLED or ORPHAN; --act stops the harness's own orphans and overdue steps by PID + creation time; the named failure modes and their checks"
+  harness: desk
+  entry: [python, -m, fieldkit, liveness]
+  path: ${FIELDKIT}/fieldkit/core/liveness.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, status, modes, doctor], help: "check (one pass; add --act to stop the harness's own orphans and overdue steps), status, modes (the failure modes FM-1..FM-8), doctor"}
+    - {name: act, flag: --act, type: flag, required: false, help: "check: stop registered members that are ORPHAN or in a step past its deadline"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  headline: "{summary}"
+  output: own
+  exits: {1: "error", 2: "bad arguments", 3: "findings: a run STALLED or a process ORPHAN"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_liveness.py"]
+  skill: skills/fieldkit-autopilot/SKILL.md
+  notes: "Born 2026-10-26 (goal windows-capabilities): an orphaned go.exe held the verifier's pipes for 80 min, the supervisor sat silent, the hog could not act. Containment (fieldkit/core/contain.py): Windows Job Object (KILL_ON_JOB_CLOSE, child started suspended then assigned), Linux process group + child subreaper, macOS process group; output to files, never pipes; a wall deadline on every step (TIMEOUT, not FAIL). Beacons in state/liveness/runs/ (git-ignored). Runs on hog's 5-minute schedule (`fieldkit hog watch`), at goal supervisor start, and in the one preflight. Stops only beacon members whose PID AND creation time match; never by name, never the owner process. Every stop: state/liveness/actions.jsonl + one inbox line. Also `python -m fieldkit.core.contain [--deadline S] -- CMD`. Mutations: tests/liveness_mutations.yaml."
+
 - id: preflight
   title: "The ONE run guard before and during heavy work (builds, test suites, mutate, pipelines, autopilot jobs, the leak gate) - reclaim idle models and orphans, refuse under the free-RAM floor, sample RAM and CPU temperature, one end line"
   harness: desk

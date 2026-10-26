@@ -108,6 +108,9 @@ def done_if(cond, cwd):
     return False, f"unknown done_if {cond}"
 
 
+STEP_CAP_S = 12 * 3600               # a command step with no timeout of its own still has a wall deadline
+
+
 def _run_step(step, log, say, run=subprocess.Popen, env=None):
     cmd = step["run"]
     cwd = os.path.expandvars(step.get("cwd") or os.getcwd())
@@ -125,6 +128,20 @@ def _run_step(step, log, say, run=subprocess.Popen, env=None):
         ps = ("$global:LASTEXITCODE = 0; " + cmd + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE")
         shell = ["powershell", "-NoProfile", "-Command", ps] if os.name == "nt" else ["bash", "-lc", cmd]
+        if run is subprocess.Popen:
+            # in a container with a wall deadline (none given: STEP_CAP_S): the whole tree stops on expiry, and what
+            # the step leaves running when it ends is stopped too (fieldkit/core/contain.py, FM-1/FM-2)
+            from ..core import contain, liveness
+            deadline = liveness.deadline_for((), timeout, cap=max(STEP_CAP_S, timeout or 0))
+            lf.close()
+            o = contain.run(shell, label=f"runbook step {step.get('id')}", deadline_s=deadline, cwd=cwd, env=env,
+                            stdout_path=log, merge=True)
+            with open(log, "a", encoding="utf-8") as lf2:
+                if o.timed_out:
+                    lf2.write(f"\n=== TIMEOUT after {deadline:.0f} s: the container stopped PIDs {o.killed}\n")
+                elif o.leftovers:
+                    lf2.write(f"\n=== {o.why}\n")
+            return o.rc, time.time() - t0
         p = run(shell, cwd=cwd, stdout=lf, stderr=subprocess.STDOUT, env=env)
         try:
             rc = p.wait(timeout=timeout)
@@ -144,7 +161,14 @@ def _tail(log, n=40):
 
 
 def run(path, say=print, claude=None, hold=True, job_runner=None):
-    """Run the runbook from its first unfinished step. -> {ok, done, failed, blocked, stopped}"""
+    """Run the runbook from its first unfinished step. -> {ok, done, failed, blocked, stopped}
+    Under a liveness beacon (heartbeat + open steps + their processes), so `fieldkit liveness check` sees it."""
+    from ..core import liveness
+    with liveness.beacon("runbook", Path(path).stem, str(path)):
+        return _run(path, say, claude, hold, job_runner)
+
+
+def _run(path, say=print, claude=None, hold=True, job_runner=None):
     from ..core import eta
     data = load(path)
     st = state(path)
