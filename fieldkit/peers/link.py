@@ -926,6 +926,11 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # gate's slots and heavy jobs, for the boss's placement (fieldkit/orchestrate_load.py, stage O4, 2026-10-26)
         from .. import orchestrate_load
         return {"ok": True, "load": orchestrate_load.report()}
+    if verb == "friction":
+        # read-only, like manifest: what on this computer can wait on a person (fieldkit/lifecycle, 2026-10-26), so
+        # the boss's `fieldkit friction` audits every machine of the household
+        from ..lifecycle import friction
+        return {"ok": True, "rows": friction.local_rows()}
     if verb == "message":
         item = store("message", req)
         handed = ""

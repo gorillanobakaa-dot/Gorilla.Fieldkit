@@ -432,7 +432,7 @@ tools:
   effects: [writes-files, admin, processes, deletes-files]   # installs software
   safety: irreversible
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
 
 - id: next-step
   title: The one next thing to do in a build pipeline (DO, BLOCKED, CANNOT HERE or DONE)
@@ -5518,7 +5518,7 @@ tools:
   entry: [python, -m, fieldkit, ship]
   path: ${FIELDKIT}/fieldkit/method/ship.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [status, sync, push, audit, release, prune], help: "status and audit read; sync, push, release, prune change the repo or the remote"}
+    - {name: action, flag: null, type: str, required: true, choices: [status, sync, push, audit, release, prune, update, proof, ci-record, ready, overlap, freeze, unfreeze], help: "status, audit, proof and overlap read; the rest change the repo or the remote (train: card merge-train)"}
     - {name: tag, flag: null, type: str, required: false, help: "release: vX.Y.Z"}
     - {name: offline, flag: --offline, type: flag, required: false, help: "audit: git only, no network"}
     - {name: archive_unproven, flag: --archive-unproven, type: flag, required: false, help: "prune: save an unproven branch as tag archive/<branch>, then delete it"}
@@ -5537,6 +5537,32 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", "${FIELDKIT}/tests/test_ship_audit_release.py", -k, "ship or audit or release or prune"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune DELETES remote branches git or GitHub prove merged (with --archive-unproven, tags first). audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."
+
+- id: merge-train
+  title: "The merge train - a session declares its PR final (ship ready), Zero merges the declared PRs one at a time, dependencies first, brought up to date with main (generated files regenerated, cards entry by entry), never red, only with --match-head-commit; a merge of main proven to be only a merge skips the full pre-commit suite"
+  harness: method
+  entry: [python, -m, fieldkit, ship, train]
+  path: ${FIELDKIT}/fieldkit/method/train.py
+  inputs:
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "read only: the order, what each PR needs, stale/orphan flags"}
+    - {name: modes, flag: --modes, type: flag, required: false, help: "the failure modes this protocol closes, each with its check"}
+    - {name: doctor, flag: --doctor, type: flag, required: false, help: "git 2.38+, gh signed in, the mandate, the hook, the merge driver, generated files"}
+    - {name: only, flag: --only, type: int, required: false, help: "only these PR numbers"}
+    - {name: max_wait, flag: --max-wait, type: int, required: false, help: "minutes to wait for CI per PR (60)"}
+    - {name: base, flag: --base, type: str, required: false, help: "the base branch (main)"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "the repository folder (.)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [git, network, writes-files]
+  safety: irreversible
+  output: own
+  exits: {3: "a PR left (not declared, head moved, red, a real conflict, outside the mandate), each with why"}
+  modes:
+    preview: [python, -m, fieldkit, ship, train, --dry-run]
+    verify: [python, -m, fieldkit, ship, train, --doctor]
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_train.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "2026-10-26: #126 merged with a commit still in its session's hook; #124 CONFLICTING twice (generated index + tools.yaml), ~75 min of re-run suites; #124 merged during its windows CI re-run. Verbs on fieldkit ship: ready PR [--pending T|--withdraw], train, update (merge main the train's way), proof, ci-record, overlap, freeze/unfreeze. MERGES into main through gh pr merge only under the mandate's merge_to_main; pushes branch updates only through fieldkit ship push (the pre-push gate) or GitHub's update-branch on a mandate push pattern. State: <git common dir>/fieldkit/train.json (resumable), ci-green.jsonl, frozen.json, the train's own clone train-clone/. Generated files: fieldkit/method/generated.yaml. Never force-pushes or rebases. Mutations: tests/train_mutations.yaml."
 
 - id: handover
   title: Fixes to someone else's tool as a handover - before/after, why, test, proof; checked to apply on their copy
@@ -5702,7 +5728,7 @@ tools:
   notes: "repeat/log run pytest n times in fresh processes, each with its own --basetemp; the tests' own effects apply. scan only reads (exit 0 always). Reachable as `fieldkit flaky` since 2026-10-18."
 
 - id: hog
-  title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
+  title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, parents hoarding children (dozens of consoles/shells) reported, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
   harness: desk
   entry: [python, -m, fieldkit, hog]
   path: ${FIELDKIT}/fieldkit/hog/__init__.py
@@ -5718,7 +5744,7 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hog.py"]
   skill: skills/fieldkit-hog/SKILL.md
-  notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Mutations: tests/hog_mutations.yaml."
+  notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Rule pileup (2026-10-26, adopted from the scratch conhost-census.ps1): the owner saw 61 Console Window Host rows in Task Manager; 33 were held by ONE Claude Desktop NodeService utility process (alive since 2026-10-25 14:44), a vendor leak of one console per shell never closed. Groups the whole process table (psutil ppid, the same field ps shows on Linux/macOS) by (parent, class: pileup_classes); > pileup_max_children (20) of one class, or >= pileup_stale_min (10) started > pileup_stale_h (12) h before the parent's newest one, is a WARN naming the parent (name, pid, start, its own parent), the count, their working set and the fix (pileup_fixes). A dead parent or a reused PID (parent younger than the child) holds nothing. Report only, never stopped. Mutations: tests/hog_mutations.yaml."
 
 - id: preflight
   title: "The ONE run guard before and during heavy work (builds, test suites, mutate, pipelines, autopilot jobs, the leak gate) - reclaim idle models and orphans, refuse under the free-RAM floor, sample RAM and CPU temperature, one end line"
@@ -5974,12 +6000,12 @@ tools:
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. 1.1.0 (2026-10-26): also measures OpenAI Codex, Gorilla OpenCode and the generic JSONL contract (IBM Bob: not measured, no verified format, doctor says WARN); agents with no hook get the rule block (rotate rule --install FILE: ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md) and the run guard (core/preflight.py) names any session over a line; doctor lists measured/triggered per agent. Mutations: tests/rotate_mutations.yaml, tests/rotate_agents_mutations.yaml."
 - id: zero
-  title: "The agent net, the military way - 'Zero has been established': one net control station (Zero) for every agent session, an epoch that fences a second Zero out (split-brain refused), a 2IC for failover, check-ins on a lease (comms check / radio check), roll calls answered with a fixed sitrep, LATE / SILENT / MISSING stations on the PLAN.md Board and in the owner inbox, a dead cable revived, clocks compared, an append-only hash-chained net log with acked, retried messages. Also `fieldkit net VERB`."
+  title: "The agent net, the military way - 'Zero has been established': one net control station (Zero) for every agent session, an epoch that fences a second Zero out (split-brain refused), a 2IC for failover, check-ins on a lease (comms check / radio check), roll calls answered with a fixed sitrep, LATE / SILENT / MISSING stations on the PLAN.md Board and in the owner inbox, a dead cable revived, clocks compared, an append-only hash-chained net log with acked, retried messages; the command layer: orders per station (objective, ground, done), ground claims enforced by the PreToolUse hook (a write on another station's ground or outside its own is refused), drift and idle-without-done flagged by the scheduled check, a station idle asked why, Zero woken only by a NEW finding (the 2IC through the inbox when Zero is silent), orders carried across rotation. Also `fieldkit net VERB`."
   harness: core
   entry: [python, -m, fieldkit, zero]
   path: ${FIELDKIT}/fieldkit/zero/net.py
   inputs:
-    - {name: verb, flag: null, type: str, required: false, choices: [status, open, establish, rollcall, sitrep, checkin, check, comms, time, handover, send, ack, log, close, doctor, schedule], help: "LEAVE EMPTY for status ('has Zero been established?'). Owner words: zero / zero established -> status or open; sitrep / sit rep / roll call / who is out there -> rollcall; comms check / radio check -> check; net -> status"}
+    - {name: verb, flag: null, type: str, required: false, choices: [status, open, establish, rollcall, sitrep, checkin, check, comms, time, handover, send, ack, log, close, doctor, schedule, task, release, orders], help: "LEAVE EMPTY for status ('has Zero been established?'). Owner words: zero / zero established -> status or open; sitrep / sit rep / roll call / who is out there -> rollcall; comms check / radio check -> check; net -> status; give X its orders / X works on Y -> task; who is doing what / orders -> orders"}
     - {name: as, flag: --as, type: str, required: false, help: "the station you speak for, e.g. gemini:main (agents with no CLAUDE_CODE_SESSION_ID)"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
   effects: [reads-files, writes-files, network]
@@ -5987,9 +6013,70 @@ tools:
   output: own
   exits: {1: "WARN: a station LATE or SILENT, an undelivered message, a clock over 2 s", 2: "ALARM: a station MISSING, the cable not revived, a clock over 30 s, the log chain broken", 3: "no net established", 4: "REFUSED: not Zero, stale epoch, split-brain, net discipline, an incomplete sitrep"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_net.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_net.py", "${FIELDKIT}/tests/test_zero_command.py"]
   skill: skills/fieldkit-net/SKILL.md
-  notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml."
+  notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml, tests/zero_command_mutations.yaml. Set 2 (command.py, claims.py): orders in net-stations.json, net-claims.json read by the tool router's PreToolUse hook (no subprocess, no network, no YAML; measured ~17 ms after Python start); its matcher must include Edit|Write|MultiEdit|NotebookEdit (fieldkit zero doctor prints it; the settings file is the owner's)."
+
+- id: friction
+  title: "Friction audit - everything that can wait on a person, on this computer and on every peer over the cable: desktop session cards nobody started, sessions stopped on a question or not in bypass mode, Remote Control pending actions, a link.yaml that would send a peer's job to the inbox, mandate prerequisites not yet sealed (a UAC prompt or an owner yes), [NEEDS YOU] notes, open owner-inbox items; one line each with the fix"
+  harness: core
+  entry: [python, -m, fieldkit, friction]
+  path: ${FIELDKIT}/fieldkit/lifecycle/friction.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, ack, local], help: "LEAVE EMPTY for check (this computer + every peer). ack KEY... marks a handled line; local = this computer only"}
+    - {name: here, flag: --here, type: flag, required: false, help: "this computer only"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON rows with their keys"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {1: "something can wait on a person (each line has its fix)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
+
+- id: task
+  title: "Headless tasking - start a job from a brief file with no click: a one-step autopilot runbook in its own window here, or the peer's link listener over the cable (verb ask: fieldkit autopilot claude under that computer's approved link.yaml); the done protocol appended; reports come back by themselves (here: task report, over the cable: the link inbox) to the ledger, the ROOM log and the Board"
+  harness: core
+  entry: [python, -m, fieldkit, task]
+  path: ${FIELDKIT}/fieldkit/lifecycle/tasks.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [start, status, report], help: "start BRIEF.md [--on DEVICE] | status | report ID --status done|failed|blocked"}
+    - {name: arg, flag: null, type: str, required: false, help: "start: the brief file; report: the task id"}
+    - {name: on, flag: --on, type: str, required: false, help: "start: a household device; the job runs there"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "start here: the job's folder"}
+    - {name: wall, flag: --wall, type: int, required: false, help: "start here: wall budget in minutes (120)"}
+    - {name: status, flag: --status, type: str, required: false, help: "report: done, failed or blocked"}
+    - {name: branch, flag: --branch, type: str, required: false, help: "report: the pushed branch"}
+    - {name: pr, flag: --pr, type: str, required: false, help: "report: the PR URL"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  output: own
+  exits: {2: "no brief / bad arguments", 3: "not started (the answer says why)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Replaces desktop session cards for relief and side jobs (2026-10-26: a session-started turn cannot start a desktop session, so jobs became cards the owner had to click, on the VAIO and on Windows). Proven 2026-10-26 18:57: Windows started a claude job on the VAIO over the cable; it reported back in 40 s, no click. Ledger: state/lifecycle/tasks.jsonl; runbooks: state/lifecycle/tasks/<id>/. The peer side needs allow_start: [claude] + cwd in its approved link.yaml (fieldkit friction says so when missing)."
+
+- id: sessions
+  title: "Session lifecycle - finished and idle Claude desktop sessions with the RAM and CPU their process trees hold (finished: no open PR and idle; idle: waiting on an open PR; held: working now, the command post in NET.yaml, a parent of live sessions, exempt), for the command post to archive; the done protocol every brief ends with; the standing rule block for CLAUDE.md, GEMINI.md, AGENTS.md"
+  harness: core
+  entry: [python, -m, fieldkit, sessions]
+  path: ${FIELDKIT}/fieldkit/lifecycle/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [sweep, protocol, rule, doctor], help: "LEAVE EMPTY for sweep. rule [--install PATH... | --all]; protocol [--task ID] [--headless]"}
+    - {name: idle_minutes, flag: --idle-minutes, type: int, required: false, help: "sweep: idle line (30)"}
+    - {name: keep, flag: --keep, type: str, required: false, help: "sweep: a session id never listed"}
+    - {name: json, flag: --json, type: flag, required: false, help: "sweep: JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: "sweep: a finished session is to archive / doctor: a rule file lacks the block"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Evidence 2026-10-26 18:4x: 20 claude.exe + 15 python.exe at 94 % CPU, many from idle sessions; a finished session could not be archived because Remote Control was on (its fix says: set_remote_control off, then archive_session). Lists only: archiving is the desktop app's verb. fieldkit hog check carries one row: 'idle agent sessions holding N GB'. Thresholds under 'lifecycle' in fieldkit.local.json (idle_minutes 30, busy_cpu_pct 5, hog_warn_gb 1). fieldkit rotate handover appends the done protocol to the relief's brief."
 
 - id: parity
   title: "Test parity - every machine runs the same pinned versions with the same capabilities before a test: a deterministic manifest per machine (versions + sha256 of gorilla-opencode, gorilla-size, python, go, git, gh, node; Fieldkit commit + dirty; installed skills, cards, Gorilla OpenCode provider NAMES, MCP servers, mandates in force, long paths; OS/arch), compared over the household link (SAME / PARTIAL / DRIFT, each difference named, an absent device reported, never a failure), aligned to releases/parity-pin.yaml from the release itself (asset + SHA256SUMS + GitHub digest, old binary kept, Linux/macOS get the root line), and the run guard's shared-ground check"

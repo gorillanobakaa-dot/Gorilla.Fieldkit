@@ -1,0 +1,92 @@
+# fieldkit lifecycle (friction, task, sweep, protocol): each rule broken once; all must be CAUGHT.
+#   python -m fieldkit mutate --plan tests/zero_friction_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_zero_friction.py
+- file: fieldkit/lifecycle/desktop.py
+  swap: ["if k not in gone and (c[\"at\"] is None", "if (c[\"at\"] is None"]
+  why: "a dismissed or started card is not friction"
+- file: fieldkit/lifecycle/desktop.py
+  swap: ["now - c[\"at\"] < CARD_DAYS * 86400", "True"]
+  why: "a card older than a week has expired"
+- file: fieldkit/lifecycle/desktop.py
+  swap: ["last_use[0] not in answered and", ""]
+  why: "an answered question is not waiting"
+- file: fieldkit/lifecycle/desktop.py
+  swap: ["\"archived\": bool(d.get(\"isArchived\")) or sid in arch,", "\"archived\": bool(d.get(\"isArchived\")),"]
+  why: "the archive index counts"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["            if c[\"id\"] in s[\"resolved\"]:\n                continue", "            pass"]
+  why: "a card the app resolved is not friction"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["s[\"mode\"] != \"bypassPermissions\"", "False"]
+  why: "a session not in bypass mode can stop on a prompt"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["if x.get(\"id\") in sealed or", "if"]
+  why: "a sealed prerequisite asks nobody"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["now - at > NEEDS_YOU_HOURS * 3600 or ", ""]
+  why: "an old [NEEDS YOU] is out of the window"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["return [r for r in rows if r[\"key\"] not in done]", "return rows"]
+  why: "an acknowledged line is gone"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["if cache.get(key, {}).get(\"sig\") == sig:", "if False:"]
+  why: "a seal is verified once per file version"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["elif \"unknown verb\" in str(r.get(\"error\")):", "elif False:"]
+  why: "an old peer is named as old, not down"
+- file: fieldkit/lifecycle/sweep.py
+  swap: ["quiet = idle is not None and idle >= cfg[\"idle_minutes\"]", "quiet = idle is not None and idle > cfg[\"idle_minutes\"]"]
+  why: "idle at the line, not above it"
+- file: fieldkit/lifecycle/sweep.py
+  swap: ["        elif open_:\n", "        elif False:\n"]
+  why: "a session with an open PR is never archived"
+- file: fieldkit/lifecycle/sweep.py
+  swap: ["        elif s[\"id\"] in parents:", "        elif False:"]
+  why: "a parent of live sessions is held"
+- file: fieldkit/lifecycle/sweep.py
+  swap: ["(s[\"cli\"] and s[\"cli\"][:8] in zero)", "False"]
+  why: "the command post is held by its station prefix"
+- file: fieldkit/lifecycle/sweep.py
+  swap: ["        elif busy:", "        elif False:"]
+  why: "a session working now is held"
+- file: fieldkit/lifecycle/sweep.py
+  swap: ["if s[\"remote\"]\n", "if False\n"]
+  why: "Remote Control blocks the archive: the fix says so"
+- file: fieldkit/lifecycle/sweep.py
+  swap: ["sev = \"warn\" if t[\"finished\"] and", "sev = \"warn\" if"]
+  why: "only finished sessions make the hog row a warning"
+- file: fieldkit/lifecycle/tasks.py
+  swap: ["        ok = bool(r.get(\"ok\") and r.get(\"started\"))", "        ok = bool(r.get(\"ok\"))"]
+  why: "a peer that stored but did not start the job did not start it"
+- file: fieldkit/lifecycle/tasks.py
+  swap: ["if not m or m[\"id\"] not in have or", "if not m or"]
+  why: "only reports of our own tasks are taken"
+- file: fieldkit/lifecycle/tasks.py
+  swap: ["or f\"{i.get('from_host')}:{i.get('n')}\" in seen:", ":"]
+  why: "a cable report is taken once"
+- file: fieldkit/lifecycle/tasks.py
+  swap: ["    return text.rstrip() + \"\\n\" + protocol.brief_tail(None if on else tid, headless=True) + back", "    return text.rstrip() + back"]
+  why: "every brief ends with the done protocol"
+- file: fieldkit/lifecycle/protocol.py
+  swap: ["        how = \"same\" if new == text else \"updated\"", "        how = \"updated\""]
+  why: "an unchanged rule file is not rewritten"
+- file: fieldkit/lifecycle/protocol.py
+  swap: ["    nl = \"\\r\\n\" if b\"\\r\\n\" in raw else \"\\n\"", "    nl = \"\\n\""]
+  why: "the file's line endings are kept"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    brief += protocol.brief_tail()", "    pass"]
+  why: "the relief's brief carries the done protocol"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    return bool(prompt.strip()) and not EVENT_TURN.match(prompt)", "    return True"]
+  why: "an event turn is not the owner's: no start_session there"
+- file: fieldkit/tokens/rotate.py
+  swap: ["owner = owner_turn(call) if event == \"UserPromptSubmit\" else bool(said.get(\"owner\"))", "owner = owner_turn(call)"]
+  why: "mid-turn the turn keeps the kind of its prompt"
+- file: fieldkit/tokens/rotate.py
+  swap: ["return next_step(row, tp, owner)", "return next_step(row, tp, True)"]
+  why: "the hook passes the turn's kind to the step"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["            if not str(s[\"resolved\"].get(c[\"id\"]) or \"\").startswith(\"started\"):", "            if True:"]
+  why: "a card the owner clicked is a finding"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["        if s[\"archived\"] and not recent:", "        if s[\"archived\"]:"]
+  why: "a click from a session archived since still counts"

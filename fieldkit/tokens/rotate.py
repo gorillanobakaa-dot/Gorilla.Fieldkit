@@ -340,13 +340,38 @@ def preflight_check(ctx=None, hours=2):
 
 # ---------------------------------------------------------------- the next step for the session itself
 
-def next_step(row, transcript=None):
-    """The exact instruction for a session over the ROTATE line (what the hook shows it)."""
+#: a turn the owner did not type: another session's message, a background task, a side-session or CI event. On such a
+#: turn the desktop app refuses start_session, and a model that falls back to an own_initiative card puts a click in
+#: front of the owner (2026-10-26 20:2x: the command post's rotation did exactly that; owner: "we really need to fix
+#: these problems once for all")
+EVENT_TURN = re.compile(r"^\s*(<cross-session-message|<task-notification|<side-sessions-event|<ci-monitor-event|"
+                        r"<system-reminder>|\[SYSTEM NOTIFICATION)")
+
+
+def owner_turn(call):
+    """True when the prompt of this UserPromptSubmit is the owner's own words (not an event)."""
+    prompt = str(call.get("prompt") or "")
+    return bool(prompt.strip()) and not EVENT_TURN.match(prompt)       # no prompt seen: not the owner's (fail closed)
+
+
+def next_step(row, transcript=None, owner=False):
+    """The exact instruction for a session over the ROTATE line (what the hook shows it). Never a card: on a turn the
+    owner did not type, start_session is not called at all; when the app refuses it, the successor is headless."""
     tp = transcript or row["path"]
     desktop = (row.get("entrypoint") or "").startswith("claude-desktop")
-    start = ("start a fresh session with that brief (Claude desktop: start_session, context \"fresh\", the brief as "
-             "its prompt), then archive this one (archive_session \"self\")" if desktop else
-             f"start a fresh `claude` in {row.get('cwd') or 'the same folder'} with that brief, then end this one")
+    where = row.get("cwd") or "the same folder"
+    headless = f"`fieldkit task start <the note it wrote> --cwd \"{where}\"` (a headless successor, no click)"
+    if not desktop:
+        start = f"start a fresh `claude` in {where} with that brief, then end this one"
+    elif owner:
+        start = ("start the fresh session: Claude desktop start_session, initiation \"user_asked\", context \"fresh\", "
+                 f"the brief as its prompt. If the app refuses it, NEVER propose a card: run {headless} instead. "
+                 "Then archive this one (set_remote_control off if it is on, then archive_session \"self\")")
+    else:
+        start = ("this turn was not started by the owner, and start_session here would become a card the owner must "
+                 f"click: do NOT call start_session. Run {headless}, then archive this one (set_remote_control off if "
+                 "it is on, then archive_session \"self\"); the command post the owner talks to may instead wait: "
+                 "this line comes back at the owner's next message")
     return (f"SESSION ROTATION (fieldkit rotate): this session is ROTATE - {'; '.join(row['why'])}. Every call now "
             f"re-sends {round(row['context_last'] / 1000)}k tokens. Start no new work here. At the next safe point "
             f"(work committed or written down): 1) python -m fieldkit rotate handover --transcript \"{tp}\" --title "
@@ -376,6 +401,8 @@ def hook_line(call, event, now=None):
         except (OSError, ValueError):
             said = {"level": "OK", "t": 0}
         prompt = event in ("UserPromptSubmit", "SessionStart")
+        # mid-turn the turn's kind is the one its prompt had (remembered); unknown = not the owner's (fail closed)
+        owner = owner_turn(call) if event == "UserPromptSubmit" else bool(said.get("owner"))
         if not prompt and now - said.get("t", 0) < cfg["hook_every_s"]:
             return ""
         row = judged(measure(sc.ClaudeCode(), Path(tp)), cfg)
@@ -383,9 +410,9 @@ def hook_line(call, event, now=None):
         if changed:
             log(row, "hook")
         mark.parent.mkdir(parents=True, exist_ok=True)
-        mark.write_text(json.dumps({"level": row["level"], "t": now}), encoding="utf-8")
+        mark.write_text(json.dumps({"level": row["level"], "t": now, "owner": owner}), encoding="utf-8")
         if row["level"] == "ROTATE" and (prompt or changed):
-            return next_step(row, tp)
+            return next_step(row, tp, owner)
         if row["level"] == "WARN" and changed:
             return warn_line(row)
         return ""
@@ -432,6 +459,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
              f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n")
     if row.get("task"):
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
+    from ..lifecycle import protocol                  # start side jobs headless; clean up and archive when done
+    brief += protocol.brief_tail()
     from ..zero import net as zero_net                # a rotated Zero leaves a pending handover for its relief
     brief += zero_net.on_rotate(row["session"], now)
     note.write_text(

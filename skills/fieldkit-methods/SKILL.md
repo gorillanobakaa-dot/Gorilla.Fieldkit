@@ -121,6 +121,22 @@ Windows, Linux and macOS alike (2026-10-26). The protected trust store: %Program
 Apple's developer tools /usr/bin/git is a stub and is never run (the doctor says "no clone here"); the lean set has no
 `cryptography`, so a mandate there is NOT in force until the owner installs it.
 
+### The merge train (parallel PRs, 2026-10-26)
+```
+fieldkit ship overlap             before work starts and at PR open: open PRs / live stations on the same files
+fieldkit ship update              main moved: merge it the train's way (generated files regenerated, cards entry by
+                                  entry, proven only a merge); the hook then runs only the affected tests
+fieldkit ship ready PR            the SESSION says the PR is final: refused while anything is unpushed, uncommitted
+                                  or still in the pre-commit hook. One more commit coming: `ready PR --pending TEXT`
+fieldkit ship train --dry-run     Zero: the order it would merge in, what each PR needs, stale / orphan flags
+fieldkit ship train               Zero: merge the declared PRs one at a time (gh pr merge --merge
+                                  --match-head-commit), never red, never a head nobody declared; resumable
+fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff + `fieldkit parity baseline --set`
+fieldkit ship train --modes       every failure mode this closes, with its check
+```
+Never `gh pr checks --watch && gh pr merge` by hand: the exit code of a watch is not the CI of the head (a re-run
+still running read as green). Never `git merge origin/main` by hand on a PR branch when `ship update` can do it.
+
 ## Someone else's tool
 Reproduce the bug on THEIR untouched copy; fix a scratch copy; `fieldkit regress` their own suite before and after;
 then `fieldkit handover FIXES.yaml --target THEIR_COPY --out handover.md`. Never change their copy yourself.
