@@ -312,7 +312,10 @@ def test_end_to_end_a_real_push_through_ship_and_the_opencode_hook(home, clone, 
     hooks = clone / "scripts" / "git-hooks"
     hooks.mkdir(parents=True)
     shutil.copy(HOOKDIR / "hooks.py", hooks / "hooks.py")
-    shutil.copy(HOOKDIR / "pre-push", clone / ".git" / "hooks" / "pre-push")
+    shutil.copy(HOOKDIR / "pre-push", clone / ".git" / "hooks" / "pre-push")    # keeps the template's own mode
+    # git on Linux and macOS skips a hook that is not executable, in silence (2026-10-26: Ubuntu CI pushed through)
+    assert sys.platform == "win32" or os.access(clone / ".git" / "hooks" / "pre-push", os.X_OK), \
+        "the template pre-push is not executable: git update-index --chmod=+x it"
     site = tmp_path / "site"
     site.mkdir()
     (site / "sitecustomize.py").write_text(SITE, encoding="utf-8")
