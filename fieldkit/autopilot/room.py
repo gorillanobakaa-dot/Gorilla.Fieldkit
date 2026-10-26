@@ -308,6 +308,19 @@ def _rotate(call, event, ctx):
     return ctx
 
 
+def _net(call, event, ctx):
+    """The agent net rides on this hook (2026-10-26, fieldkit/zero/net.py): every session is checked in by it, shown
+    its unseen net traffic, and told who Zero is; Zero is told which stations went quiet. Never fails the hook."""
+    try:
+        from ..zero import net
+        line = net.hook_line(call, event)
+        if line:
+            return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
 def hook(stdin=None):
     """Claude Code hook (PostToolUse and UserPromptSubmit). Never blocks, never fails the call."""
     try:
@@ -325,6 +338,7 @@ def hook(stdin=None):
                 pass
         ctx = _hog(call, event, ctx)
         ctx = _rotate(call, event, ctx)
+        ctx = _net(call, event, ctx)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
     except Exception:

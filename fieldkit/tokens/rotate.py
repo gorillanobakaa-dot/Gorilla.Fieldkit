@@ -432,6 +432,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
              f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n")
     if row.get("task"):
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
+    from ..zero import net as zero_net                # a rotated Zero leaves a pending handover for its relief
+    brief += zero_net.on_rotate(row["session"], now)
     note.write_text(
         f"# Session rotated: {title}\n\n"
         f"- when: {stamp} (local)\n- session: {row['session']} ({row['source']}, {row.get('entrypoint') or '?'})\n"
