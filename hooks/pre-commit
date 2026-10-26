@@ -81,6 +81,25 @@ elif "$PY" -m fieldkit.testcost docs-only 2>/dev/null; then
   echo "pre-commit: documentation only (owner flag docs_only_privacy_only): privacy scan only, the suite is skipped"
   SKIP=1
   "$PY" -m fieldkit.testcost record full-suite skipped 0 --key "$KEY" --note "docs-only flag" || true
+elif [ -n "$KEY" ] && [ -f fieldkit/method/mergeproof.py ] && [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+  # 2026-10-26 (the merge train, fieldkit/method/mergeproof.py): a merge of CI-green main into a tree that already
+  # passed, proven to be ONLY a merge (main's files as they are, generated files equal to their generator, cards merged
+  # entry by entry), runs the tests that cover the changed paths instead of the full suite. Any doubt: the full suite.
+  if MPT="$("$PY" -m fieldkit.method.mergeproof hook --key "$KEY" 2>"$OUT")"; then
+    sed 's/^/pre-commit: /' "$OUT"
+    if [ -n "$MPT" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" $MPT >"$OUT" 2>&1; then
+      tail -20 "$OUT"
+      echo "pre-commit: the tests covering this merge failed - commit refused"
+      "$PY" -m fieldkit.testcost record merge-proof refused "$(( $(date +%s) - T0 ))" --key "$KEY" >/dev/null 2>&1 || true
+      exit 1
+    fi
+    SKIP=1
+    "$PY" -m fieldkit.testcost record merge-proof pass "$(( $(date +%s) - T0 ))" --key "$KEY" \
+      --note "$(echo $MPT | wc -w) test file(s)" >/dev/null 2>&1 || true
+    "$PY" -m fieldkit.testcost record full-suite skipped 0 --key "$KEY" --note "saved=$("$PY" -c 'from fieldkit import testcost as t; print(t.budget("full-suite") or 0)' 2>/dev/null) merge proof" || true
+  else
+    sed 's/^/pre-commit: /' "$OUT"
+  fi
 fi
 if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
   if grep -q '^REFUSED by the preflight' "$OUT"; then

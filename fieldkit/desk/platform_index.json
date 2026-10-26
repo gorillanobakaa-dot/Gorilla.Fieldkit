@@ -2464,6 +2464,17 @@
    "ship-push-tag"
   ]
  },
+ "ship train": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "merge-train"
+  ]
+ },
  "shot": {
   "platforms": [
    "linux",

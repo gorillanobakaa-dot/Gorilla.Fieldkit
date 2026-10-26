@@ -1,0 +1,82 @@
+# fieldkit ship train / ready / update / proof: every rule must be CAUGHT (2026-10-26):
+#   fieldkit mutate --plan tests/train_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_train.py
+- file: fieldkit/method/train.py
+  swap:
+  - '    if head == declared:'
+  - '    if True:'
+  why: a head that moved after the declaration is never merged
+- file: fieldkit/method/train.py
+  swap:
+  - '    if last and last["kind"] != "ready":'
+  - '    if False:'
+  why: a pending commit announced by the session blocks the merge
+- file: fieldkit/method/train.py
+  swap:
+  - '    busy = hook_running(repo)'
+  - '    busy = []'
+  why: no declaration while a commit is still in the pre-commit hook (#126)
+- file: fieldkit/method/train.py
+  swap:
+  - '    if head != pr["headRefOid"]:'
+  - '    if False:'
+  why: no declaration of a head that is not pushed
+- file: fieldkit/method/train.py
+  swap:
+  - '    if state != "green":'
+  - '    if state == "none":'
+  why: never merged red
+- file: fieldkit/method/train.py
+  swap:
+  - '    if rerun:'
+  - '    if False:'
+  why: a re-run still running is not green (#124)
+- file: fieldkit/method/train.py
+  swap:
+  - '            made.append(pr["headRefOid"])'
+  - '            pass'
+  why: a head the train made is remembered, so a resumed train still merges it
+- file: fieldkit/method/train.py
+  swap:
+  - '        free = sorted(n for n, d in left.items() if not (d & set(left)))'
+  - '        free = sorted(left)'
+  why: dependencies first
+- file: fieldkit/method/train.py
+  swap:
+  - '        return ("update-local" if set(paths) <= special else "conflict"), paths'
+  - '        return "conflict", paths'
+  why: a conflict only in generated or card files is merged here, not left to the session
+- file: fieldkit/method/train.py
+  swap:
+  - '        st.setdefault("ff_pending", []).append({"checkout": fr["checkout"], "to": to, "pr": n, "t": _now()})'
+  - '        pass'
+  why: a frozen checkout gets an ff-pending row
+- file: fieldkit/method/train.py
+  swap:
+  - '            st["merged"] = sorted(merged)'
+  - '            st["merged"] = []'
+  why: the state file records what merged, for the resume
+- file: fieldkit/method/mergeproof.py
+  swap:
+  - '                kind = "generated" if ok else "generated-drift"'
+  - '                kind = "generated"'
+  why: a generated file must equal its generator
+- file: fieldkit/method/mergeproof.py
+  swap:
+  - '                rows.append({"path": path, "kind": "hand-edit", "why": "differs from the three-way result"})'
+  - '                rows.append({"path": path, "kind": "ours", "why": ""})'
+  why: a hand edit in a merge is not only a merge
+- file: fieldkit/method/mergeproof.py
+  swap:
+  - '    if not t_theirs:'
+  - '    if False:'
+  why: main's commit must have passed CI before the suite is skipped
+- file: fieldkit/method/mergeproof.py
+  swap:
+  - 'SKIP_KINDS = {"ours", "from-main", "generated", "entry-merged"}'
+  - 'SKIP_KINDS = {"ours", "from-main", "generated", "entry-merged", "line-merged"}'
+  why: a line-merged file both sides changed runs the full suite
+- file: fieldkit/method/mergeproof.py
+  swap:
+  - '                if regenerate(repo, path, argv) or path in conflicted:'
+  - '                if False:'
+  why: ship update regenerates the generated files

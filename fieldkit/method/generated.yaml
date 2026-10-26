@@ -1,0 +1,11 @@
+# Generated files: path in the repository -> the generator that prints it (stdout is the file). Data, not code
+# (AGENTS.md: change the data before the code). Read by fieldkit/method/mergeproof.py from the tree being merged:
+#   - a merge of main (fieldkit ship update, the merge train) regenerates these instead of merging them as text;
+#   - a merge commit is "only a merge" when each of these equals its generator output (fieldkit drift);
+#   - GitHub cannot run a local merge driver, so the train regenerates them on the branch and pushes before merging.
+# {python} is the interpreter running Fieldkit; the generator runs in the checkout of the merged tree.
+generated:
+  fieldkit/desk/platform_index.json:
+    - "{python}"
+    - "-c"
+    - "import json; from fieldkit.core import platform_gate as g; print(json.dumps(g.build_index(g.public_tools()), indent=1, ensure_ascii=False))"
