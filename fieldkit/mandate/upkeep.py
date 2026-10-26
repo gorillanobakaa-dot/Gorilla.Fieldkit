@@ -111,6 +111,25 @@ def _git(repo, *a):
     return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, timeout=60)
 
 
+def git_here(platform=None, which=shutil.which, run=subprocess.run):
+    """-> (ok, why): a real git on this computer. macOS (2026-10-26): /usr/bin/git without Apple's developer tools is a
+    stub that opens an "install the command line developer tools" dialog instead of running, and a Mac installed from
+    the zip has no git on purpose (core/requirements.json: git optional_when zip). Never run the stub."""
+    platform = platform or sys.platform
+    exe = which("git")
+    if not exe:
+        return False, "git is not installed here: no clone on this computer to push from (normal on a Mac installed " \
+                      "from the zip)"
+    if platform == "darwin" and str(exe) == "/usr/bin/git":
+        try:
+            r = run(["/usr/bin/xcode-select", "-p"], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            r = None
+        if r is None or r.returncode != 0:
+            return False, "/usr/bin/git is Apple's stub (no developer tools): no clone on this computer to push from"
+    return True, f"git: {exe}"
+
+
 def _norm(b: bytes) -> bytes:
     return b.replace(b"\r\n", b"\n")
 
@@ -135,14 +154,20 @@ def find_clones(roots=None):
     """-> {repo name: [main clone folders]} on this computer: catchup's walk (Documents and the Antigravity scratch,
     its exclusions), worktrees left out (they share the main clone's hooks)."""
     from . import proofs
+    if roots is None and not git_here()[0]:
+        return {}                                         # no real git: no clone, and never the macOS stub
     if roots is None:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "fk_catchup", Path(__file__).resolve().parents[2] / "kits" / "catchup" / "catchup.py")
-        cu = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cu)
-        cfg = cu.default_config()
-        found = cu.find_repos(cfg["roots"], cfg["repo_exclude"])
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "fk_catchup", Path(__file__).resolve().parents[2] / "kits" / "catchup" / "catchup.py")
+            cu = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cu)
+            cfg = cu.default_config()
+            found = cu.find_repos(cfg["roots"], cfg["repo_exclude"])
+        except (OSError, AttributeError, ImportError):    # an install without kits/: the sync list only
+            from ..core import sync
+            found = sync.repos()
     else:
         found = [Path(r) for r in roots]
     out = {}
@@ -346,8 +371,10 @@ def stick(out, rows=None, covered=None):
 def doctor_facts(today=None, rows=None):
     from . import mandate as M
     today = today or date.today()
+    from . import guarded
     facts = {"mandates": [], "key_here": M._key_paths()[0].is_file(), "trusted": sorted(M.trusted_keys()),
-             "reviewers": sorted(M.reviewer_keys()), "warning": warning(today)}
+             "reviewers": sorted(M.reviewer_keys()), "warning": warning(today),
+             "store": str(guarded.root()), "store_ok": guarded.guarded(), "git": git_here()}
     for p in M.mandates():
         ok, why = M.verify(p, today)
         ends = _ends(p)
@@ -375,6 +402,11 @@ def doctor_lines(f):
                + ("" if f["key_here"] else " (normal on the computer that only verifies)"))
     out.append(f"  owner key(s) trusted here: {', '.join(f['trusted']) or 'NONE (fieldkit mandate trust)'}")
     out.append(f"  other computer's review key pinned here (VAIO): {', '.join(f['reviewers']) or 'no'}")
+    if "store" in f:
+        ok, why = f["store_ok"]
+        out.append(f"  protected trust store ({sys.platform}): {f['store']}: {'guarded' if ok else why}")
+    if "git" in f and not f["git"][0]:
+        out.append(f"  {f['git'][1]}")
     for r in f["hooks"]:
         out.append(f"  {'ok   ' if r['ok'] else 'NEEDS'} hook {r['repo']}" + (f" ({r['clone']})" if r["clone"] else "")
                    + f": {r['why']}")

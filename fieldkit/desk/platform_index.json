@@ -1847,6 +1847,7 @@
  },
  "mandate": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -1857,6 +1858,7 @@
  },
  "mandate doctor": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -1867,6 +1869,7 @@
  },
  "mandate gate": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -1877,6 +1880,7 @@
  },
  "mandate install-hooks": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -1887,6 +1891,7 @@
  },
  "mandate renew": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -2007,12 +2012,22 @@
    "office-scrub"
   ]
  },
+ "orchestrate": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "stdlib sockets only; run live 2026-10-26 with the boss on Linux, one worker on Windows over the cable and one on Linux; a Windows boss not yet run",
+  "ids": [
+   "orchestrate"
+  ]
+ },
  "peers link": {
   "platforms": [
    "linux",
    "windows"
   ],
-  "why": "loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box",
+  "why": "loopback-tested on Windows with two real processes (2026-10-22); run live across the cable 2026-10-26, Linux sending, Windows receiving (put of a 158 MB file and a 473,104-file tree, resume, notes); Windows as sender not yet run",
   "ids": [
    "peers-link"
   ]
@@ -2290,6 +2305,7 @@
  },
  "ship": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -2300,6 +2316,7 @@
  },
  "ship gh-release": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -2310,6 +2327,7 @@
  },
  "ship push": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],

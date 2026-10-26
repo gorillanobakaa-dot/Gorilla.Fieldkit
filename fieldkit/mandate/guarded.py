@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-23-18-38
+# Version: 1.2.0 · updated 26-10-26-02-00
 """The mandate's trust store and stop list, where the agent's own OS user cannot write.
 
 The Windows review of M1.1 (2026-10-23): the hard lines read COMMAND TEXT, and a model runs code as the same OS user,
@@ -10,8 +10,9 @@ trust lives here:
     reviewers/<fp>.pub    the other computer's REVIEW key (it signs APPROVE)   (fieldkit mandate trust-reviewer)
     stopped.txt           sha256 of every mandate the owner stopped            (fieldkit mandate stop)
 
-Linux and macOS: /etc/fieldkit/mandate-trust, owned by root, written only through pkexec (Linux) or sudo (macOS), so
-every write is the owner typing their password. Windows: %ProgramData%\\Fieldkit\\mandate-trust with an
+Linux: /etc/fieldkit/mandate-trust; macOS: /Library/Application Support/Fieldkit/mandate-trust (2026-10-26; an older
+/etc/fieldkit/mandate-trust is still read when the new one is absent). Owned by root, written only through pkexec
+(Linux) or sudo (macOS), so every write is the owner typing their password; every folder above it must be root's too. Windows: %ProgramData%\\Fieldkit\\mandate-trust with an
 Administrators-only write ACL, written through the elevate kit (the Windows side's part, stubbed below).
 
 A reader refuses a root this user can write (`guarded()`): if the protection is not there, nothing in it counts.
@@ -27,25 +28,50 @@ HEXLINE = re.compile(r"[0-9a-f]{64}( [^\n]{0,200})?")
 NAME = re.compile(r"(trusted|reviewers)/[0-9a-f]{4}(-[0-9a-f]{4}){3}\.pub|stopped\.txt")
 
 
-def root():
-    if sys.platform == "win32":
+LINUX_ROOT = "/etc/fieldkit/mandate-trust"
+# macOS (2026-10-26, owner: "make sure that works on all the operating systems we are working with. OSX windows
+# Linux"): the Mac's place for machine-wide data, created root-owned by sudo; /etc (= /private/etc) is read as a
+# fallback only, for a Mac pinned before this existed
+MAC_ROOT = "/Library/Application Support/Fieldkit/mandate-trust"
+
+
+def root(platform=None, exists=os.path.exists):
+    platform = platform or sys.platform
+    if platform == "win32":
         return Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Fieldkit" / "mandate-trust"
-    return Path("/etc/fieldkit/mandate-trust")
+    if platform == "darwin":
+        return Path(LINUX_ROOT) if not exists(MAC_ROOT) and exists(LINUX_ROOT) else Path(MAC_ROOT)
+    return Path(LINUX_ROOT)
 
 
-def guarded(path=None):
-    """-> (ok, why): the root (or a file in it) exists and this OS user cannot change it."""
+def _parents_safe(top, stat=os.stat, access=os.access):
+    """-> (ok, why): every folder above the store is root's and not writable by this user. Otherwise this user could
+    rename the store away and put a folder of their own in its place (the store's own mode would then prove nothing)."""
+    for q in Path(top).parents:
+        try:
+            st = stat(q)
+        except OSError as e:
+            return False, f"{q} cannot be read ({e}): nothing in the store counts"
+        if st.st_uid != 0 or access(q, os.W_OK):
+            return False, f"{q} (above the store) can be changed without the owner's password (owner uid " \
+                          f"{st.st_uid}): nothing in the store counts"
+    return True, "parents guarded"
+
+
+def guarded(path=None, stat=os.stat, access=os.access, exists=os.path.exists):
+    """-> (ok, why): the root (or a file in it) exists and this OS user cannot change it, nor any folder above it.
+    stat/access/exists are replaced in tests (the macOS paths are faked on the Windows and Ubuntu CI)."""
     p = Path(path) if path else root()
     if sys.platform == "win32":
         return _guarded_windows(p)
-    if not p.exists():
+    if not exists(p):
         return False, f"{p} does not exist (the owner sets it up: fieldkit mandate trust)"
     for q in [p] + ([] if p == root() else [root()]):
-        st = q.stat()
-        if st.st_uid != 0 or os.access(q, os.W_OK) or st.st_mode & 0o022:
+        st = stat(q)
+        if st.st_uid != 0 or access(q, os.W_OK) or st.st_mode & 0o022:
             return False, f"{q} can be changed without the owner's password (owner uid {st.st_uid}, " \
                           f"mode {oct(st.st_mode & 0o777)}): nothing in it counts"
-    return True, "guarded"
+    return _parents_safe(root(), stat, access)
 
 
 def read(name):

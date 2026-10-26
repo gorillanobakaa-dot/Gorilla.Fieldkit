@@ -1775,8 +1775,18 @@ tools:
   entry: [python, -m, fieldkit, peers, link]
   path: ${FIELDKIT}/fieldkit/peers/link.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE"}
-    - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text"}
+    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put, devices], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE; put FILE|FOLDER; devices list|add|remove|export|import"}
+    - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text; put: files or folders; devices: the subcommand and NAME or FILE"}
+    - {name: device, flag: --device, type: str, required: false, help: "hello/send/ask/put: which device of the household; devices import: this device's name"}
+    - {name: bundle, flag: --bundle, type: str, required: false, help: "put: a git bundle of every ref of this repository"}
+    - {name: retries, flag: --retries, type: int, required: false, help: "put: reconnect and resume this many times after a drop (3)"}
+    - {name: address, flag: --address, type: str, required: false, help: "devices add: its address(es), comma separated"}
+    - {name: role, flag: --role, type: str, required: false, help: "devices add: boss or worker (one boss)"}
+    - {name: os, flag: --os, type: str, required: false, help: "devices add: Linux, Windows, Darwin, FreeBSD, Android"}
+    - {name: brain, flag: --brain, type: str, required: false, help: "devices add: the OpenAI-compatible URL it serves"}
+    - {name: link, flag: --link, type: str, required: false, choices: [cable, lan], help: "devices add: how it is reached; jobs go on the cable only"}
+    - {name: port, flag: --port, type: int, required: false, help: "devices add: its port when not the household's"}
+    - {name: this, flag: --this, type: bool, required: false, help: "devices add: this row is THIS device (makes the household key if none)"}
     - {name: me, flag: --me, type: str, required: false, help: "pair init: this computer's cable address (e.g. 10.77.0.1)"}
     - {name: peer, flag: --peer, type: str, required: false, help: "pair init: the other computer's cable address"}
     - {name: to, flag: --to, type: str, required: false, help: "send: a session name on the peer (fieldkit peers) to hand the note to"}
@@ -1791,9 +1801,28 @@ tools:
   safety: irreversible           # a delivered note or a started session cannot be taken back
   output: third-party            # what the peer sends is text from another computer
   platforms: [windows, linux]
-  platforms_why: 'loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box'
+  platforms_why: 'loopback-tested on Windows with two real processes (2026-10-22); run live across the cable 2026-10-26, Linux sending, Windows receiving (put of a 158 MB file and a 473,104-file tree, resume, notes); Windows as sender not yet run'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py"]
-  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14). 2026-10-22 Windows items: ask refuses to start when link_ops.startcheck(agent) fails (fail closed; the reply names each failed check); hello carries `toolset` (link_ops.toolset_local) and `time` (for check clock); the start brief names the interpreter by its full path; tests/test_peers_link_winitems.py, plan tests/peers_link_winitems_mutations.yaml (12/12)."
+  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14). 2026-10-22 Windows items: ask refuses to start when link_ops.startcheck(agent) fails (fail closed; the reply names each failed check); hello carries `toolset` (link_ops.toolset_local) and `time` (for check clock); the start brief names the interpreter by its full path; tests/test_peers_link_winitems.py, plan tests/peers_link_winitems_mutations.yaml (12/12). 2026-10-25 O2 big transfer (link_transfer.py): put sends a file, a whole folder or --bundle REPO on ONE connection in 1 MiB blocks (memory flat; no 50 MB cap), sha256 per file checked on arrival plus a digest both ends compare, resumable after a drop (transfer id = the manifest's sha256; --retries), never overwrites received/; case-only twins on a case-insensitive disk and Windows-reserved names are refused, never renamed; an older receiver still takes files up to 50 MB the old way. O1 household: ~/.fieldkit/link/household.json (name, addresses, role, OS, brain, cable|lan; one key, one boss), link.json's one peer read as a household of two and never rewritten; serve answers every household device; job/result/resend/ask on the cable only; one note counter per device. tests/test_peers_link_transfer.py, tests/test_orchestrate.py, plan tests/peers_link_transfer_mutations.yaml (21/21)."
+
+- id: orchestrate
+  title: "The boss's side of the household: every device (role, OS, cable or LAN, brain) and whether it answers now; one note to many workers"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate]
+  path: ${FIELDKIT}/fieldkit/orchestrate.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [devices, note], help: "devices first; note TEXT"}
+    - {name: rest, flag: null, type: str, required: false, help: "note: the text"}
+    - {name: check, flag: --check, type: bool, required: false, help: "devices: ask each device now (hello)"}
+    - {name: to, flag: --to, type: str, required: false, help: "note: workers (default), all, or NAME,NAME"}
+    - {name: needs_you, flag: --needs-you, type: bool, required: false, help: "note: the owner must act"}
+  effects: [network, writes-files]
+  safety: irreversible           # a delivered note cannot be taken back
+  output: third-party            # hello answers come from other computers
+  platforms: [windows, linux]
+  platforms_why: 'stdlib sockets only; run live 2026-10-26 with the boss on Linux, one worker on Windows over the cable and one on Linux; a Windows boss not yet run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate.py"]
+  notes: "Stage O1 of local/PROJECT-MANDATE-PLAN.md section 19. The registry and the wire are peers-link (household.json); this is only the fan-out. A device that does not answer is reported and does not stop the others; exit 3 when any did not answer."
 
 - id: peers-link-check
   title: "The 2026-10-22 Windows lessons as prechecks: clock skew against the peer (the link refuses > 120 s), the cable firewall rule (fix: setup, one UAC click via elevate), a stale 00-00-00-00-00-00 neighbor after a cable move, where put files land, Git Bash eating backslashes and PowerShell 5.1 refusing &&, CRLF from Python, privacy before the 16-minute commit hook, writes too big for one call, and what-you-see -> check"
@@ -1845,7 +1874,7 @@ tools:
   scope: [file]
   output: own
   exits: {1: "not approved / not trusted", 2: "bad input or no key", 3: "not in force (verify) or ask (allows)", 4: "deny"}
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate.py"]
   notes: "Owner, 2026-10-23: one approval per project, valid for both sessions, same SOPs. Plan local/PROJECT-MANDATE-PLAN.md. The seal is an Ed25519 signature over the mandate's sha256, made with the owner's passphrase-protected key; the other computer holds only the public key (verify, never sign) - the Windows side's review replaced the first idea (an HMAC with the cable key, which any key holder could mint). Fail closed: no seal, a changed byte, an untrusted key, a stop or the expiry date and nothing is allowed by the mandate. Callers (M3, 2026-10-23): ship push logs a mandated push; ship merge merges into main only when a mandate allows it, conditions proven by proofs.py, fast-forward or the pull request, the landed commit checked on origin; hard lines 1 and 4 open for a plain `fieldkit ship push` on a mandated branch, `fieldkit ship merge` while a mandate is in force, and owner_approvals entries (never the mandate key or GORILLA_OWNER_APPROVED), each logged; `fieldkit mac run` on a granted Mac is judged as the business of the Mac, and logged; while a mandate is in force raw installers are refused for `fieldkit mandate install GB WHAT -- CMD` (the larger of declared and measured disk growth is logged against budget_gb). M1.1 (the Windows review of ba40f28): every write under ~/.fieldkit/mandate is hard line 3 and keygen/trust/approve hard line 4; FIELDKIT_MANDATE_HOME counts only under pytest; a trusted key must match its file name; merge conditions and the push fast-forward are proven by the tool (fieldkit/mandate/proofs.py: the suite run, the other computer's [DONE] note re-verified with the link key, CI), so `allows` on the command line is a PREVIEW that takes no proofs; a stop is permanent for the mandate it stopped (its sha256 in stopped.txt); passphrase at least 12. M1.2 (the Windows review of a6feb1e: text-matched hard lines miss writes by indirection; the link key is shared; a commit could gut its own suite): owner keys, reviewer keys and stops live in an OS-guarded store (guarded.py: root-owned /etc/fieldkit/mandate-trust written through pkexec, sudo on macOS; Windows %ProgramData% with an Administrators-only ACL, the Windows side's part, fails closed until it lands; built 2026-10-23 on the owner's word: acl_verdict reads the DACL through Get-Acl, Administrators or SYSTEM as owner and no Allow write for the user, Users, Authenticated Users, Everyone or INTERACTIVE; the elevated script creates the folder with its ACL by SID before writing and goes through the elevate kit, one UAC Yes); a store this user can write counts for nothing; no FIELDKIT_MANDATE_HOME at all; each computer has its own Ed25519 review key and the merge proof is APPROVE <repo> <40-char sha> signed with the OTHER computer's pinned review key (sign-review / trust-reviewer); full_tests_pass_here also runs the suite on origin/main in a temporary worktree and needs no fewer passed, no more skipped, no deleted test file. Merge deadlock removed (2026-10-23, after the Windows session rightly refused to APPROVE another Claude's merge): nobody approves; `fieldkit mandate verdict REPO SHA --send` runs on the OTHER computer, started by its link listener on verb verdict-request (no session asked), only for repos and branches its owner listed in link.yaml allow_verdict (sha-pinned), one at a time, under verdict_minutes, without git or GitHub credentials, through fieldkit guard on Windows; it tests the pushed commit in a temporary worktree against main and signs APPROVE only on a pass; a commit that changes how its tests run (conftest.py, pytest settings, TestMain, the test command) gets NEEDS A PERSON. ship merge asks once and says to wait in one blocking call. Release door: release: {cycle: {project: [exact versions]}} opens hard line 1 for one plain `fieldkit release-cycle PROJECT run --var version=vX.Y.Z`; sign-review removed. Then the owner corrected the direction (plan section 16, same day): ONE orchestrator holds the mandate, the only approval; workers execute and report, concerns with a fix offered, never approve or object; 20 devices = 20 one-time setups, never 20 prompts a night. So: allow_verdict and APPROVE are gone; jobs.py carries job {id, kind test, repo, commit, mandate sha256} and result {id, status pass|fail|not-run, evidence, concerns[{text, fix_offered}], os, host, at, key, sig}; a worker accepts a job when a sealed mandate with that sha is in force there and names the repo, refusing only what it cannot do (with the fix); the result is Ed25519-signed by the worker for provenance; merge conditions other_machine_reviewed / tests_on:<system> read verified results; ask_when: [worker_concern] makes a concern stop the merge (the orchestrator decides); ship merge sends the job once and says `fieldkit mandate job wait ID`; `fieldkit mandate job send|status|wait`. Section 17 (owner: Yes for everything): `fieldkit mandate boss` lists the devices (this one and the paired one, from the link hello, which now carries device facts) and proposes a boss by a fixed rule, always on > memory > cable; the mandate names orchestrator (and backup) {device, key}, and a worker refuses a job from any other device; the project ledger is append-only (ledger.jsonl on the boss: job-sent, result, boss-resumed), `fieldkit mandate ledger` and `resume` (a restarted boss asks workers once to resend; a worker keeps undeliverable results in an outbox, verb resend flushes it); health.py checks temp space, the clock and origin (3 tries) before a job and keeps the device awake during it, problems travelling as concerns. Items 3, 5, 6 and the report (project.py): `fieldkit mandate tasks init|list|pass` (all failing at first, never removed, passing only with evidence, a needs: screenshot task only with a real PNG), `fieldkit mandate start` (ledger, mandate, link, the next thing), `fieldkit mandate report` (one page from the ledger; NEEDS YOU lists only ask events). quiet.py (2026-10-23, the owner: 'i am still getting called like a monkey ... 15 sessions ... approve this'): while a mandate is in force, a Stop hook sends back a turn that ends asking the owner, and a PreToolUse hook refuses AskUserQuestion, a next-step box question and [NEEDS YOU] notes; `fieldkit mandate ask` queues the question for the one report; `fieldkit mandate quiet --install` adds both hooks to ~/.claude/settings.json (a copy kept in the trash first)."
 
@@ -1862,7 +1891,7 @@ tools:
   exits: {3: "refused: the reasons on stderr; the hook falls back to the owner flag"}
   modes:
     verify: [python, -m, fieldkit, mandate, doctor]
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_owner_wide.py", -k, "gate or end_to_end"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-10-25 (owner: 'the approval has to come once, at the beginning ... cover all our projects'). Called by the hook, never by hand: Gorilla.Opencode's template (fieldkit/mandate/hooks/gorilla-opencode) runs it when FIELDKIT_SHIP_PUSH=1 and GORILLA_OWNER_APPROVED is not set. FIELDKIT_SHIP_PUSH is a marker any same-user program can set (said on the approve screen); what cannot be forged is the seal, the trusted key, the expiry and the stop. A broken gate refuses (exit 3). The hook's own secret and privacy scans run on every push either way."
@@ -1878,7 +1907,7 @@ tools:
   safety: read-only
   output: own
   exits: {3: "not working: no mandate in force, no trusted key, or a covered hook that needs the gate (each row says which)"}
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_upkeep.py", -k, "doctor or each_kind or covered"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-10-26 (owner: 'fa permanent 1,2,3,4'). Clones found by catchup's walk (Documents and the Antigravity scratch, its exclusions; worktrees left out, they share the main clone's hooks). Covered = every mandate here plus the packaged owner-wide.yaml list. A hook is read as text: the pre-push file and the .py it runs; GORILLA_OWNER_APPROVED without a `mandate gate` call = NEEDS-GATE, except BY_DESIGN (gorilla-firefox: the flag only for the decision register). A repository with a template must match it byte for byte (LF). 'VAIO pinned' = the other computer's review key pinned HERE; whether the VAIO trusts the owner key is its own doctor's row."
@@ -1898,7 +1927,7 @@ tools:
   modes:
     preview: [python, -m, fieldkit, mandate, install-hooks]
     verify: [python, -m, fieldkit, mandate, doctor]
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_upkeep.py", -k, "install or stick or template or verified"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-10-26: the Gorilla.Opencode hook is private to the clone (scripts/ gitignored there), so it existed on one laptop; the template now lives in Fieldkit and this puts it back. Verification runs the installed hook twice with no push lines: without the marker it must refuse for the owner flag, with FIELDKIT_SHIP_PUSH=1 it must reach the gate. It never writes a hook it has no template for (those rows say NEEDS: a hook change for the owner). --yes is hard line 4 in an unattended run. catchup collect puts the --stick folder in every handover bundle (mandate-hooks/)."
@@ -1915,7 +1944,7 @@ tools:
   safety: reversible             # the old mandate and seal are kept as *.prev; a stop ends it at any time
   output: own
   exits: {1: "not renewed", 2: "bad input or no key here", 3: "no typed yes at a real terminal, or a wrong passphrase", 4: "stopped: never renewed"}
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_upkeep.py", -k, "renew or warning or session or status"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-10-26. The OWNER's, at a real terminal (hard line 4 in every unattended run). The warning WARN_DAYS = 3 days before the end, and for 14 days after an expiry, is one line: in `fieldkit mandate status`, `fieldkit mandate start` (the command post's board check) and once per session per day in the UserPromptSubmit hook (fieldkit.autopilot.room). After renewing: `fieldkit mandate share FILE` so the other computer has the new seal."
@@ -1934,7 +1963,7 @@ tools:
   exits: {3: "refused (not a tag the mandate allows, already on origin, or the hook refused), with the reason"}
   modes:
     preview: [python, -m, fieldkit, mandate, doctor]
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_owner_wide.py", -k, "tag"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "PUBLISHES. Born 2026-10-25. Sets FIELDKIT_SHIP_PUSH=1 so the repository's hook asks the gate; a hook refusal is reported, never retried as a network error. The owner's manual path stays GORILLA_OWNER_APPROVED."
@@ -1954,7 +1983,7 @@ tools:
   exits: {3: "refused: the mandate does not allow it (CI not green, tag not on GitHub, not named) or bad input"}
   modes:
     preview: [python, -m, fieldkit, mandate, doctor]
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_owner_wide.py", -k, "gh_release"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "PUBLISHES. Born 2026-10-25. The release page rules still hold (both tracks on the page, read earlier release bodies first); this command only makes the release a session may publish under the mandate, logged in the mandate's log."
@@ -5355,7 +5384,7 @@ tools:
   modes:
     preview: [python, -m, fieldkit, ship, status]
     verify: [python, -m, fieldkit, ship, audit]
-  platforms: [windows, linux]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", "${FIELDKIT}/tests/test_ship_audit_release.py", -k, "ship or audit or release or prune"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune DELETES remote branches git or GitHub prove merged (with --archive-unproven, tags first). audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."

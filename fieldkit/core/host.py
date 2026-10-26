@@ -85,7 +85,8 @@ def this_platform():
 def platform_ok(platforms):
     """True if this host is in a stage/tool's platform list.
 
-    platforms: None/[] = anywhere; entries are 'windows', 'linux', 'debian', 'macos'.
+    platforms: None/[] = anywhere; entries are 'windows', 'linux', 'debian', 'macos' (cards write it 'darwin', the
+    word platformcheck knows; 2026-10-26: a card saying darwin was refused on every Mac, because only 'macos' was read).
     """
     if not platforms:
         return True
@@ -97,7 +98,7 @@ def platform_ok(platforms):
             return True
         if p == "debian" and is_debian_family():
             return True
-        if p == "macos" and h["system"] == "Darwin":
+        if p in ("macos", "darwin") and h["system"] == "Darwin":
             return True
     return False
 

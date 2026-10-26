@@ -71,8 +71,7 @@ The steps underneath, for repair:
   boss per household. `devices remove NAME` keeps the row under `removed`, dated.
 - A new device joins with the household file, carried BY HAND: `devices export FILE` here, then
   `devices import FILE.key --device ITS-NAME` there; both print the same fingerprint. One household key for now.
-- `python -m fieldkit.orchestrate devices --check` asks every device now (a fieldkit command once the
-  command lands in cli.py); `python -m fieldkit.orchestrate note "text" --to workers`
+- `fieldkit orchestrate devices --check` asks every device now; `fieldkit orchestrate note "text" --to workers`
   sends one note to each (one line per device; a silent device does not stop the rest).
 - Jobs, results, resend and ask go on the CABLE only, until the mandate gate covers the LAN. Notes and files may
   use the LAN.

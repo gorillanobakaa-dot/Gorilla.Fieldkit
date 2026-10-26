@@ -11,10 +11,13 @@ if [ -z "$HOOK" ]; then
     echo "  REFUSED - scripts/git-hooks/hooks.py not found." >&2
     exit 1
 fi
-for PY in python python3 py; do
-    if command -v "$PY" >/dev/null 2>&1; then
+# 2026-10-26: each candidate must BE Python 3.8 or newer before it runs the hook: macOS 10.13's /usr/bin/python is
+# Python 2 (it cannot import the hook, so every push was refused), and Windows has a python3 that is only a Store stub.
+for PY in python3 python py; do
+    if command -v "$PY" >/dev/null 2>&1 &&
+       "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
         exec "$PY" "$HOOK" pre-push
     fi
 done
-echo "  REFUSED - no python found to run the hook." >&2
+echo "  REFUSED - no Python 3.8 or newer found to run the hook." >&2
 exit 1
