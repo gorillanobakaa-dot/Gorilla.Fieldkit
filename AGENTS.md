@@ -168,7 +168,12 @@ The tool keeps the convention, not the model (owner, 2026-10-22: "we both know t
 1. **Verify the artefact, not the exit code.** A stage is done only when its verify
    checks pass.
 2. **Stop only what you started.** The runner records the PIDs it starts and refuses
-   to stop any other process. The owner runs the same programs.
+   to stop any other process. The owner runs the same programs. The same goes for files:
+   **clean up what you left behind, always, without asking** (owner, 2026-10-26: "is always yes"). Test copies,
+   `.partial` resume state, scratch and test worktrees, playground folders, temporary builds and probe output that
+   YOUR jobs made go with `fieldkit size recycle` (`--whole-folder` when the whole folder is yours); check the bin;
+   report it in one line. Never the owner's own files or originals, other sessions' work, release artifacts,
+   evidence a PLAN row cites, or GitHub branches and tags. Not sure it is yours? Leave it and name it.
 3. **Do not probe a script that runs on load.** Check `fieldkit tools check` first.
 4. **Nothing personal is published.** Run `fieldkit privacy scan REPO --git` before
    any commit, push or release. Nothing is pushed without the owner's yes: the signed owner-wide mandate is that
