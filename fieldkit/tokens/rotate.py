@@ -1,8 +1,10 @@
-# Version: 1.0.0 · updated 26-10-26
+# Version: 1.1.0 · updated 26-10-26
 """Session rotation: get rid of the monster sessions before they cost more, and start a fresh one. Deterministic.
 
     fieldkit rotate check [--hours 24] [--session ID] [--json]   every session active in the last N hours, measured,
                                                                  one verdict each: OK / WARN / ROTATE (exit 0 / 1 / 2)
+        [--source AGENT] [--cwd DIR] [--newest]                  an agent asking about itself: its newest session
+    fieldkit rotate rule [--install FILE]                        the rule for agents with no hook (AGENTS.md, GEMINI.md)
     fieldkit rotate handover --transcript PATH|--session ID --title T --next TEXT [--done TEXT] [--not-verified TEXT]
                                                                  the dated PLAN.md section + a note file + the brief
                                                                  for the fresh session; prints the exact next step
@@ -30,9 +32,15 @@ WHAT HAPPENS ON ROTATE
     fieldkit autopilot (headless): the job's PreToolUse budget hook denies everything but the checkpoint once the
     job's session is over the ROTATE line; the job ends as "rotate" and restarts from HANDOFF.md in a NEW session
     (never --resume of the monster), up to max_rotations times (job.py).
+    Any other agent (Codex, Antigravity, Gorilla OpenCode, anything writing the generic contract): no hook can reach
+    it, so the rule block (`rotate rule`, installed in its own instruction file) tells it to run `rotate check
+    --source <agent> --newest` itself and hand over on exit 2. The run guard (core/preflight.py) also names any
+    session over a line before every guarded build, test run or gate, whichever agent started it.
+    `rotate doctor` lists per agent whether it is measured and whether it is triggered.
 
 Sources: the session-cost adapters (Claude Code CLI + desktop transcripts under $CLAUDE_CONFIG_DIR or ~/.claude,
-Windows, Linux and macOS alike; Antigravity's conversation databases). Read-only on transcripts: nothing here ever
+Windows, Linux and macOS alike; Antigravity's conversation databases; OpenAI Codex rollouts; Gorilla OpenCode's
+session table; the generic JSONL contract; IBM Bob not measured yet). Read-only on transcripts: nothing here ever
 deletes or edits one. Writes only state/rotate/ (meters, verdicts.jsonl, handovers.jsonl) and, on handover,
 state/coordination/. No network, except `finished --gh`, which asks the local gh for the state of the PRs a session
 mentioned (the owner's own GitHub, where those PRs live).
@@ -49,7 +57,7 @@ from pathlib import Path
 
 from . import session_cost as sc
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DEFAULTS = {"ctx_warn": 250_000, "ctx_rotate": 350_000, "usd_warn": 40.0, "usd_rotate": 75.0,
             "hours": 24, "idle_minutes": 60, "finished_hours": 72, "max_rotations": 5, "hook_every_s": 60}
 LEVELS = ("OK", "WARN", "ROTATE")
@@ -109,7 +117,12 @@ def _fmt(v, label):
 # ---------------------------------------------------------------- measuring (incremental, cached)
 
 def _meter_file(path):
-    return state_dir() / "meters" / (Path(path).stem + ".json")
+    return state_dir() / "meters" / (_stem(path) + ".json")
+
+
+def _stem(path):
+    """The session id: a Codex rollout's thread id, a database row's id, else the file name without .jsonl."""
+    return path.stem if hasattr(path, "stem") else Path(path).stem
 
 
 def _load_meter(path):
@@ -180,7 +193,7 @@ def _facts(path, m):
 
 def measure(adapter, path, use_cache=True):
     """-> the session's facts: dollars, context of its own last call, where it works. Re-reads only new lines."""
-    path = Path(path)
+    path = path if hasattr(path, "stat") else Path(path)     # a Codex rollout or a database row keeps its type
     m = _load_meter(path) if use_cache else None
     try:
         size = path.stat().st_size
@@ -191,9 +204,12 @@ def measure(adapter, path, use_cache=True):
     m["source"] = adapter.name
     for c in adapter.read(path, m["read"]):
         sc.price_call(c, sc.prices())
-        m["calls"] += 1
-        m["usd"] += c["usd"]
-        m["unpriced"] += 0 if c["priced"] else 1
+        if c.get("aggregate"):                        # the product's own session totals: they replace, not add
+            m["calls"], m["usd"], m["unpriced"] = c["n"], c["usd"], c["n_unpriced"]
+        else:
+            m["calls"] += 1
+            m["usd"] += c["usd"]
+            m["unpriced"] += 0 if c["priced"] else 1
         if c.get("ts"):
             m["first_ts"] = min(m["first_ts"] or c["ts"], c["ts"])
             m["last_ts"] = max(m["last_ts"] or c["ts"], c["ts"])
@@ -202,6 +218,8 @@ def measure(adapter, path, use_cache=True):
             m["context_peak"] = max(m["context_peak"], c["context"])
     if adapter.name == "claude-code":
         _facts(path, m)
+    elif hasattr(adapter, "facts"):
+        m.update({k: v for k, v in adapter.facts(path, m["read"]).items() if v})
     m["size"] = size
     if use_cache:
         _save_meter(path, m)
@@ -268,9 +286,19 @@ def sessions(hours, adapters=None, now=None):
     return out
 
 
-def check(hours=None, session=None, adapters=None, cfg=None, now=None):
+def _under(cwd, folder):
+    try:
+        Path(cwd).resolve().relative_to(Path(folder).resolve())
+        return True
+    except (ValueError, OSError, TypeError):
+        return False
+
+
+def check(hours=None, session=None, adapters=None, cfg=None, now=None, source="all", cwd=None, newest=False):
+    """Every session active in the last `hours`, judged. source: one adapter's sessions only; cwd: only sessions
+    working in that folder (or under it); newest: only the most recently active one (an agent asking about itself)."""
     cfg = cfg or config()
-    adapters = adapters or sc.adapters_for("all")
+    adapters = adapters or sc.adapters_for(source)
     if session:
         a, p = sc.resolve(session, adapters)
         if a is None:
@@ -278,6 +306,7 @@ def check(hours=None, session=None, adapters=None, cfg=None, now=None):
         targets = [(a, p)]
     else:
         targets = sessions(hours or cfg["hours"], adapters, now)
+    targets.sort(key=lambda t: t[1].stat().st_mtime, reverse=True)
     rows = []
     for a, p in targets:
         try:
@@ -285,9 +314,28 @@ def check(hours=None, session=None, adapters=None, cfg=None, now=None):
         except Exception as e:  # noqa: BLE001 - one unreadable session must not hide the others
             r = {"session": p.stem, "source": a.name, "path": str(p), "level": "OK", "error": str(e),
                  "why": [f"could not be measured: {e}"], "usd": 0.0, "context_last": 0, "calls": 0, "title": ""}
+        if cwd and not _under(r.get("cwd"), cwd):
+            continue
         log(r, "check")
         rows.append(r)
+        if newest:
+            break
     return sorted(rows, key=lambda r: (-EXIT[r["level"]], -r["usd"]))
+
+
+def preflight_check(ctx=None, hours=2):
+    """The run guard's check (fieldkit/core/preflight.py STEPS): sessions of ANY agent active in the last 2 hours
+    over a line are named, with the step to take. It informs; it never stops the run (a STOP would end the work
+    the handover needs)."""
+    rows = [r for r in check(hours) if r["level"] != "OK"]
+    if not rows:
+        return "ok", "rotate: no session over the WARN line"
+    top = rows[0]
+    more = f" (+{len(rows) - 1} more)" if len(rows) > 1 else ""
+    act = ("hand over: fieldkit rotate handover --session " + top["session"][:8] if top["level"] == "ROTATE"
+           else "finish this job, the next one in a fresh session")
+    return "warn", (f"rotate: {top['level']} {top['source']} {top['session'][:8]} - {'; '.join(top['why'][:2])}; "
+                    f"{act}{more}")
 
 
 # ---------------------------------------------------------------- the next step for the session itself
@@ -451,6 +499,95 @@ def finished(hours=None, use_gh=False, cfg=None, now=None, adapters=None, exclud
     return done, held
 
 
+# ---------------------------------------------------------------- the rule for agents without a hook
+
+RULE_BEGIN, RULE_END = "<!-- fieldkit-rotate-rule v1 -->", "<!-- /fieldkit-rotate-rule -->"
+#: where each agent reads its own standing instructions for every session (its global file), so the rule reaches it
+RULE_FILES = {"antigravity": Path.home() / ".gemini" / "GEMINI.md",
+              "codex": Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "AGENTS.md"}
+#: how each agent is told: "hook" = the harness adds the line itself; "rule" = the agent runs check itself
+TRIGGER = {"claude-code": "room hook (UserPromptSubmit/PostToolUse) + autopilot budget hook",
+           "antigravity": "rule in GEMINI.md + autopilot budget hook",
+           "codex": "rule in AGENTS.md",
+           "gorilla-opencode": "rule in the project's AGENTS.md (it has no global instruction file)",
+           "generic": "rule in the agent's own instruction file (AGENTS.md is read by most)",
+           "ibm-bob": "none: not measured"}
+
+
+def rule_text():
+    return (f"{RULE_BEGIN}\n"
+            "## Session rotation (fieldkit rotate)\n\n"
+            "Every call re-sends the whole conversation, so a long session costs more with every call. At the start "
+            "of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` "
+            "(agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`).\n"
+            "- exit 0 OK: carry on.\n"
+            "- exit 1 WARN: finish the current job here; the next job starts in a fresh session.\n"
+            "- exit 2 ROTATE: start no new work. At the next safe point (work committed or written down) run "
+            "`fieldkit rotate handover --session <id from the check> --title \"<job>\" --done \"<done>\" "
+            "--next \"<left>\" --not-verified \"<not verified>\"`, start a fresh session with the brief it prints, "
+            "and end this one.\n"
+            f"{RULE_END}\n")
+
+
+def rule_present(path):
+    try:
+        return RULE_BEGIN in Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def install_rule(path):
+    """Add the rule block to an instruction file, or replace an older copy of it. Keeps the file's line endings.
+    -> "added" | "updated" | "same"."""
+    path = Path(path)
+    raw = path.read_bytes() if path.is_file() else b""
+    nl = "\r\n" if b"\r\n" in raw else "\n"
+    text = raw.decode("utf-8").replace("\r\n", "\n")
+    block = rule_text()
+    if RULE_BEGIN in text and RULE_END in text:
+        head, rest = text.split(RULE_BEGIN, 1)
+        tail = rest.split(RULE_END, 1)[1]
+        new = head + block + (tail[1:] if tail.startswith("\n") else tail)
+        how = "same" if new == text else "updated"
+    else:
+        new = text + ("" if not text or text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n") + block
+        how = "added"
+    if how != "same":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(new.replace("\n", nl).encode("utf-8"))
+    return how
+
+
+def agents_status(project_agents_md=None):
+    """Per agent: is it measured (an adapter that reads its sessions) and is it triggered (something puts the
+    verdict in front of it). -> [{agent, measured, sessions, triggered, how, note}]."""
+    out = []
+    try:
+        from ..autopilot import room
+        hook_ok = bool(room.doctor()["ok"])
+    except Exception:  # noqa: BLE001
+        hook_ok = False
+    project = Path(project_agents_md) if project_agents_md else _root() / "AGENTS.md"
+    for name, cls in sc.ADAPTERS.items():
+        a = cls()
+        verified = getattr(a, "verified", True)
+        n = len(a.sessions()) if verified else 0
+        if name == "claude-code":
+            trig, note = hook_ok, "" if hook_ok else "room hook not wired: fieldkit room doctor"
+        elif name in RULE_FILES:
+            trig = rule_present(RULE_FILES[name])
+            note = "" if trig else f"no rule in {RULE_FILES[name]}: fieldkit rotate rule --install {RULE_FILES[name]}"
+        elif name == "ibm-bob":
+            trig, note = False, (f"format not verified ({'found' if a.root.is_file() else 'not installed'}: "
+                                 f"{a.root}); see session_cost.IBMBob, or write the generic contract")
+        else:
+            trig = rule_present(project)
+            note = "" if trig else f"no rule in {project}: fieldkit rotate rule --install {project}"
+        out.append({"agent": name, "measured": verified, "sessions": n, "triggered": trig, "how": TRIGGER[name],
+                    "where": str(a.root), "note": note})
+    return out
+
+
 # ---------------------------------------------------------------- doctor and CLI
 
 def doctor():
@@ -469,9 +606,14 @@ def doctor():
     except (OSError, ValueError, KeyError) as e:
         ok = False
         print(f"  [--] prices.json: {e}")
-    for a in sc.adapters_for("all"):
-        n = len(a.sessions())
-        print(f"  [{'ok' if n else '..'}] {a.name:12} {n} session(s) under {a.root}")
+    print("  per agent: measured (its sessions are read) / triggered (the verdict reaches it):")
+    for s in agents_status():
+        mark = "ok" if s["measured"] and s["triggered"] else "WARN" if not s["measured"] or s["sessions"] else ".."
+        print(f"  [{mark}] {s['agent']:16} measured {'yes' if s['measured'] else 'NO '} ({s['sessions']} session(s), "
+              f"{s['where']}); triggered {'yes' if s['triggered'] else 'NO '}: {s['how']}")
+        if s["note"]:
+            print(f"         {s['note']}")
+    print("  every agent: the run guard (fieldkit.core.preflight) names any session over a line before heavy work")
     try:
         d = state_dir()
         (d / ".probe").write_text("x", encoding="utf-8")
@@ -512,7 +654,12 @@ def main(argv=None):
     c = sub.add_parser("check")
     c.add_argument("--hours", type=float)
     c.add_argument("--session")
+    c.add_argument("--source", choices=["all"] + list(sc.ADAPTERS), default="all", help="one agent's sessions")
+    c.add_argument("--cwd", help="only sessions working in this folder (or under it)")
+    c.add_argument("--newest", action="store_true", help="only the most recently active session (an agent's own)")
     c.add_argument("--json", action="store_true")
+    rl = sub.add_parser("rule", help="the rule for agents without a hook; --install adds it to an instruction file")
+    rl.add_argument("--install", action="append", default=[], metavar="FILE")
     h = sub.add_parser("handover")
     g = h.add_mutually_exclusive_group(required=True)
     g.add_argument("--transcript")
@@ -533,7 +680,8 @@ def main(argv=None):
     a = p.parse_args(argv)
     if a.cmd in (None, "check"):
         try:
-            rows = check(getattr(a, "hours", None), getattr(a, "session", None))
+            rows = check(getattr(a, "hours", None), getattr(a, "session", None), source=getattr(a, "source", "all"),
+                         cwd=getattr(a, "cwd", None), newest=getattr(a, "newest", False))
         except FileNotFoundError as e:
             print(f"rotate: not found: {e}", file=sys.stderr)
             return 3
@@ -574,6 +722,12 @@ def main(argv=None):
         f = state_dir() / "verdicts.jsonl"
         lines = f.read_text(encoding="utf-8").splitlines()[-a.n:] if f.is_file() else []
         print("\n".join(lines))
+        return 0
+    if a.cmd == "rule":
+        if not a.install:
+            print(rule_text(), end="")
+        for f in a.install:
+            print(f"{install_rule(f)}: {f}")
         return 0
     if a.cmd == "doctor":
         return doctor()

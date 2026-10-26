@@ -21,6 +21,9 @@ groups:
   - name: autopilot
     title: Unattended work - the hard lines no session crosses, the runbook runner, the owner's inbox and one-command publish
     sources: [autopilot/*.py]
+  - name: emerge
+    title: Compile jobs like Portage - a recipe per product, content-addressed stages, offload to the other machine, a model only when a stage fails
+    sources: [emerge/*.py]
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
@@ -120,7 +123,10 @@ groups:
       - buildh/worker.py
       - lmstudio.py
       - orchestrate.py
+      - orchestrate_work.py
+      - overhead.py
       - testcost.py
+      - parity.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

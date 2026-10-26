@@ -1427,6 +1427,17 @@
    "drift"
   ]
  },
+ "emerge": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "emerge"
+  ]
+ },
  "eta": {
   "platforms": [
    "linux",
@@ -1932,6 +1943,17 @@
    "mcp-probe"
   ]
  },
+ "merge-driver": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "merge-driver"
+  ]
+ },
  "mutate": {
   "platforms": [
    "linux",
@@ -2031,6 +2053,38 @@
   "why": "stdlib sockets only; run live 2026-10-26 with the boss on Linux, one worker on Windows over the cable and one on Linux; a Windows boss not yet run",
   "ids": [
    "orchestrate"
+  ]
+ },
+ "orchestrate job": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run live 2026-10-26: boss on Linux, worker on Windows over the cable (a Go build inside fieldkit guard, 412 s; an agent brief on gemini-flash-lite-latest, 102 s); a Linux worker and a Windows boss tested on loopback or not yet",
+  "ids": [
+   "orchestrate-job"
+  ]
+ },
+ "overhead": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "overhead"
+  ]
+ },
+ "parity": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity"
   ]
  },
  "peers link": {

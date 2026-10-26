@@ -31,6 +31,7 @@ proposal) would remove that one click; it is not built.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -140,15 +141,27 @@ def _ps_quote(s):
     return "'" + str(s).replace("'", "''") + "'"
 
 
+_PS_PARAM = re.compile(r"-[A-Za-z][A-Za-z0-9]*")
+
+
+def _ps_arg(a):
+    """A parameter name (-Action) goes bare, or PowerShell binds the quoted '-Action' as a positional VALUE
+    (2026-10-26: the first real apply failed on ValidateSet that way); every value is single-quoted."""
+    return str(a) if _PS_PARAM.fullmatch(str(a)) else _ps_quote(a)
+
+
 def runner_text(todo, root=None, action="apply", marker="PREREQS: done"):
     """The ONE elevated script: each pinned script's sha256 checked again inside the elevated process, then run."""
     root = Path(root or _root())
     lines = ["$ErrorActionPreference = 'Stop'", "$failed = 0"]
     for e in todo:
         p = root / e["script"]
-        args = " ".join(_ps_quote(a) for a in (e.get(action) or []))
+        args = " ".join(_ps_arg(a) for a in (e.get(action) or []))
         lines += [f"Write-Host 'PREREQ {e['id']}: {action}'",
-                  f"$h = (Get-FileHash -Algorithm SHA256 -LiteralPath {_ps_quote(p)}).Hash.ToLower()",
+                  # .NET, not Get-FileHash: that cmdlet lives in a module that fails to load when powershell.exe
+                  # inherits PowerShell 7's PSModulePath (seen on the CI runner, 2026-10-26)
+                  f"$h = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash("
+                  f"[System.IO.File]::ReadAllBytes({_ps_quote(p)}))).Replace('-', '').ToLower()",
                   f"if ($h -ne {_ps_quote(str(e['sha256']).lower())}) {{ Write-Host 'PREREQ {e['id']}: FAILED sha256 "
                   f"changed, not run'; $failed++ }} else {{ try {{ & {_ps_quote(p)} {args} }} catch {{ "
                   f"Write-Host \"PREREQ {e['id']}: FAILED $_\"; $failed++ }} }}"]

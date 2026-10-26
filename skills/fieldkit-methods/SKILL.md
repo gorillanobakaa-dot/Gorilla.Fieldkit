@@ -1,7 +1,7 @@
 ---
 name: fieldkit-methods
 description: >-
-  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
+  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), the same pinned versions and capabilities on every machine before a test (parity), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux. Works offline; no network access unless a step says so."
 ---
@@ -56,12 +56,28 @@ Learned 2026-10-18/19: a telemetry scan that read only the source passed a progr
 times; the static theme check cannot see a white popup background (white is a theme colour; only the rendered
 contrast check sees that failure).
 
+## Before a test, a measurement or a benchmark: the same ground on every machine
+```
+fieldkit parity manifest [--hash]                  this machine: versions + sha256, capabilities, OS (stable JSON)
+fieldkit parity compare                            against every household device over the link: SAME / PARTIAL / DRIFT
+fieldkit parity align [--apply]                    to releases/parity-pin.yaml FROM THE RELEASE (sha256 + SHA256SUMS);
+                                                   Windows installs (old exe kept); Linux/macOS get the root line to run
+fieldkit parity preflight --kind bench             the run guard's check alone: pin, other sessions' processes in this
+                                                   checkout or on the binary, a core pinned, a model this run did not load
+```
+Every guarded run already runs the check (WARN for tests, REFUSED for kinds bench and measure) and stamps the
+manifest hash into testcost's result rows: quote that hash with a measurement. The Mac is usually off: it shows as
+ABSENT and never fails a compare. Change the pin only by a commit; nothing updates in the background.
+
 ## Waiting
 `fieldkit wait --until "CMD" --matches RE --timeout 600` - never a fixed sleep.
 
 ## Generated files
 `fieldkit drift FILE --gen "GENERATOR"` - if it drifted, edit only your entry and say so; regenerate in a commit of
 its own. Found: a generator that was random (Go map order).
+`fieldkit merge-driver check` - two branches adding cards merge with no conflict in tools.yaml, platform_index.json
+and docs/groups.yaml (entry by entry; `install` if it says NEEDS). A conflict left in one of them is two edits of
+the same entry: resolve that entry only, then `python -m fieldkit.core.platform_gate --write`.
 
 ## MCP servers
 `fieldkit mcp-probe [--call NAME --args JSON] -- SERVER COMMAND` - handshake as mcp-go does (2024-11-05), the tool

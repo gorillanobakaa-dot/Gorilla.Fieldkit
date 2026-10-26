@@ -18,7 +18,9 @@ The result is also signed by the worker's own Ed25519 result key (fingerprint `k
 field but `sig`: PROVENANCE, which device ran what, never an approval. The orchestrator pins each worker's key once, at
 pairing (fieldkit mandate trust-reviewer). A worker accepts a job only when it holds a sealed mandate with that sha in
 force here and the repository is in it; otherwise it answers why, and the orchestrator reports that as a concern.
-Kinds today: test. build and screenshot are the next (16.3 (5)): a stage of release-cycle that is CANNOT HERE.
+Kinds today: test; run and agent (stage O3, plan section 19, 2026-10-26): the job names a tree the boss sent
+with `peers link put` by its digest, and fieldkit/orchestrate_work.py runs a Fieldkit command line or a Gorilla
+OpenCode brief on a copy of it; the artefacts go back by put, their sha256 in the signed result (`artefacts`).
 """
 import json
 import re
@@ -27,7 +29,8 @@ import sys
 import time
 from pathlib import Path
 
-KINDS = ("test",)
+KINDS = ("test", "run", "agent")
+WORK_KINDS = ("run", "agent")        # on a received tree, not a commit (fieldkit/orchestrate_work.py)
 ID = re.compile(r"[\w.-]{1,120}")
 SHA = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -140,7 +143,8 @@ def send(kind, repo, commit, mandate_path, call=None):
 
 
 def _canon(r):
-    return json.dumps({k: r.get(k) for k in RESULT_FIELDS}, sort_keys=True, separators=(",", ":")).encode()
+    fields = RESULT_FIELDS + (("artefacts",) if "artefacts" in r else ())    # results before O3 sign as they did
+    return json.dumps({k: r.get(k) for k in fields}, sort_keys=True, separators=(",", ":")).encode()
 
 
 def verified_results(repo, commit, workers=None, own_key=None):
@@ -269,6 +273,8 @@ def handle_job(req, popen=subprocess.Popen, repos=None, lock=None, find_mandate=
     each answer goes back to the orchestrator, which reports it."""
     from . import verdict as V
     jid, kind, repo, commit, msha = (str(req.get(k) or "") for k in ("id", "kind", "repo", "commit", "mandate"))
+    if kind in WORK_KINDS:                    # names a received tree by its digest instead of a commit
+        commit = commit or "0" * 40
     if not (ID.fullmatch(jid) and SHA.fullmatch(commit) and SHA256.fullmatch(msha) and ID.fullmatch(repo)):
         return {"ok": False, "error": "a job needs id, kind, repo, commit (40 hex) and mandate (sha256)"}
     if kind not in KINDS:
@@ -281,6 +287,10 @@ def handle_job(req, popen=subprocess.Popen, repos=None, lock=None, find_mandate=
     if boss and str(req.get("from_host") or "") not in boss:   # plan 17.1: workers obey the boss the mandate names
         return {"ok": False, "error": f"this job came from {req.get('from_host')}, not the mandate's orchestrator "
                                       f"({', '.join(boss)}): not taken"}
+    if kind in WORK_KINDS:
+        from .. import orchestrate_work
+        return orchestrate_work.accept(req, mpath, lock=Path(lock) if lock is not None else _lock(), cap=cap,
+                                       popen=popen)
     path = V.find_repo(repo, repos)
     if path is None:
         return {"ok": False, "error": f"{repo} is not checked out here (fix: add it to sync.repos on this computer)"}

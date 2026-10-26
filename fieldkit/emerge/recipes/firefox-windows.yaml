@@ -1,0 +1,67 @@
+# Gorilla Firefox on Windows: the firefox-windows pipeline (the Gorilla.firefox harness keeps the Firefox
+# knowledge) with keys, tiers and the checks the owner approved once (test cost audit, 2026-10-26):
+#   iterate  -> preflight .. package (a doc commit in the harness rebuilds nothing)
+#   install  -> + package checks, install, post-install: once, on the build that is installed
+#   release  -> + the leak gate: once per release, on the final build (owner rule 2026-10-07)
+# The pre-AI hand script did this compile + package in about 90 minutes, unattended: that is the target.
+name: firefox-windows
+pipeline: firefox-windows
+description: >-
+  Gorilla Firefox for Windows from the pinned upstream tag plus the patch set, through the Gorilla.firefox harness;
+  package checks and post-install once on the installed build, the leak gate once per release.
+baseline_minutes: 90
+vars:
+  version: "158.0"
+  task: "firefox-{version}"
+sources:
+  # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath
+  - {id: upstream, git: "{harness}/src", base: 3c71aeacdb296402e41fb2084b13e797d1770642, fetched_by: source}
+patches: {dir: "{harness}/gorilla-patchset/patches", glob: "*"}
+config:
+  mandate: gorilla-firefox
+  decisions: "{harness}"
+  files: ["{harness}/config/versions.lock.json", "{harness}/config/mozconfig.win64", "{harness}/config/patch_policy.json"]
+  testcost: true
+toolchain:
+  - ["{py}", --version]
+  - [rustc, --version]
+  - [cargo, --version]
+preflight: {disk_gb: 60, ram_gb: 16, path: "{harness}"}
+stages:
+  preflight: {always_run: true, bucket: tools}
+  deps: {uses: [toolchain, config, inputs], inputs: ["{harness}/harness/*.py"], needs: []}
+  source: {uses: [config, inputs], inputs: ["{harness}/harness/*.py"], needs: [deps]}
+  bootstrap: {uses: [toolchain, config], needs: [source]}
+  patches-check: {uses: [sources, patches, config], needs: [bootstrap], bucket: tests}
+  patches: {uses: [sources, patches, config], needs: [patches-check]}
+  generated: {uses: [sources, patches, config, inputs], inputs: ["{harness}/harness/*.py"], needs: [patches]}
+  build: {uses: [sources, patches, config, toolchain], needs: [generated]}
+  package: {uses: [sources, patches, config], needs: [build], outputs: ["{harness}/state/artifacts.json"]}
+  restore-power: {always_run: true, bucket: tools}
+extra_stages:
+  - id: package-checks
+    platforms: [windows]
+    tier: install
+    bucket: tests
+    needs: [package]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, verify, "{task}"], cwd: "${FIELDKIT}"}
+    triage: firefox-windows
+  - id: install
+    platforms: [windows]
+    tier: install
+    needs: [package-checks]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, install, "{task}"], cwd: "${FIELDKIT}"}
+  - id: post-install
+    platforms: [windows]
+    tier: install
+    bucket: tests
+    needs: [install]
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, post-install, "{task}"], cwd: "${FIELDKIT}"}
+  - id: leak-gate
+    platforms: [windows]
+    tier: release
+    bucket: tests
+    needs: [post-install]
+    timeout: 21600
+    fix: false              # a policy FAIL is the owner's call (allowlists are a hard line): the inbox, never a model
+    run: {cmd: ["{py}", -m, fieldkit, build-harness, leakgate, "{task}", --release], cwd: "${FIELDKIT}"}

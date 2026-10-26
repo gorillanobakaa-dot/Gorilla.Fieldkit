@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-25-18-33
+# Version: 1.2.0 · updated 26-10-26-15-40
 """Long horizon goals: a goal handed over and worked toward for days, not a queue a person writes each night.
 
 Owner, 2026-10-22: "by Long Horizon Tasks we really mean Long Horizon Tasks" and "eliminate THE MAIN BOTTLENECK, THE
@@ -27,6 +27,13 @@ loop of arXiv 2608.01964 (AMAP-ML LongHorizon-Harness): a planner (manager) issu
 Loop (one round): STOP? -> paused / budget / usage window? -> plan when due (after every verified result, failure
 and owner answer) -> planner says done: the verifier runs every criterion and wins -> next runnable job -> worker
 (job.py: budgets, checkpoint, resume) -> verifier (the job's own checks + every goal criterion) -> re-plan.
+
+Parallel workers (2026-10-26: goal windows-capabilities ran job 01 alone for two hours while job 03, disjoint files,
+sat queued): up to goal.json "max_workers" (default 2) jobs run at once, each in its own thread. A job starts only
+when its needs are verified and its touches (paths, resolved against its cwd; a parent folder covers what is under
+it) are disjoint from every running job's; a job that declares no touches runs alone (fail closed). A round waits
+for the FIRST running job to end, verifies it, and re-plans while the others go on. A job left "running" by a
+supervisor that died is resumed from its checkpoint (paused-resumable), never left stuck.
 """
 import hashlib
 import json
@@ -35,7 +42,9 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
+from concurrent import futures
 from pathlib import Path
 
 import yaml
@@ -53,6 +62,8 @@ VERIFIER_BUDGET = {"turns": 60, "wall_minutes": 30, "cost_usd": 2.0}
 SIGNALS = ("execute", "done", "blocked", "ask")
 ACTIONS = ("push_branch", "open_pr")
 PROTECTED_BRANCHES = ("main", "master", "windows-port")    # windows-port: Gorilla.Opencode's release branch
+MAX_WORKERS = 2                      # jobs of one goal running at once, unless goal.json says "max_workers"
+HEARTBEAT_EVERY = 60                 # the supervisor's lock heartbeat, from its own thread (workers block for hours)
 
 
 # ---- files ------------------------------------------------------------------------------------------------------
@@ -452,7 +463,8 @@ Shape: {{"signal": "execute" | "done" | "blocked" | "ask", "why": "...",
  "questions": [{{"id": "q-id", "title": "...", "why": "...", "category": "short word", "default": "what you would do",
    "options": ["..."]}}]}}
 Rules: keep ids of unfinished jobs stable (a job already verified is never re-run); one job = one bounded piece with
-its own verify commands; jobs that touch the same paths are ordered with needs; a job that failed or was paused gets a
+its own verify commands; jobs that touch the same paths are ordered with needs; up to {max_workers(goal)} jobs whose
+touches are disjoint run AT THE SAME TIME, so list every path a job changes (a job with no touches runs alone); a job that failed or was paused gets a
 better brief (say what the gap is) or is split, never repeated blindly. Ask a question ONLY for a decision listed as
 the owner's, and always give a default and a category; plan every job that does not depend on the answer. Say "done"
 only when you believe every criterion passes: the verifier will check, and it decides.
@@ -561,11 +573,43 @@ def budget_block(goal, st, now):
 
 
 # ---- one round --------------------------------------------------------------------------------------------------
-def runnable(st, t=None):
+def max_workers(goal):
+    return max(1, int((goal or {}).get("max_workers") or MAX_WORKERS))
+
+
+def _touches(s):
+    """A job's touches as normalized absolute paths; None = it declared none (it may touch anything)."""
+    t = s.get("touches") or []
+    if not t:
+        return None
+    base = os.path.expandvars(s.get("cwd") or ".")
+    return {os.path.normcase(os.path.normpath(os.path.join(base, os.path.expandvars(str(x))))) for x in t}
+
+
+def _overlap(a, b):
+    """Two touch sets collide when one path is the other or lies under it; None (undeclared) collides with all."""
+    if a is None or b is None:
+        return True
+    for x in a:
+        for y in b:
+            try:
+                if os.path.commonpath([x, y]) in (x, y):
+                    return True
+            except ValueError:          # different drives
+                continue
+    return False
+
+
+def startable(st, t=None, limit=1):
+    """-> up to limit job ids that may start now: needs verified, owner answers in, not paused, and touches disjoint
+    from every running job and from each other."""
     t = t or time.time()
     done = {j for j, v in st["jobs"].items() if v["status"] == "verified"}
-    busy = set()
+    busy = [_touches(v["spec"]) for v in st["jobs"].values() if v["status"] == "running"]
+    out = []
     for jid, j in st["jobs"].items():
+        if len(out) >= limit:
+            break
         if j["status"] not in ("queued", "paused-resumable"):
             continue
         s = j["spec"]
@@ -575,10 +619,120 @@ def runnable(st, t=None):
             continue
         if (j.get("paused_until") or 0) > t:
             continue
-        if set(s.get("touches") or []) & busy:
+        mine = _touches(s)
+        if any(_overlap(mine, b) for b in busy):
             continue
-        return jid
-    return None
+        out.append(jid)
+        busy.append(mine)
+    return out
+
+
+def runnable(st, t=None):
+    return (startable(st, t, 1) or [None])[0]
+
+
+# ---- workers: one thread per running job ------------------------------------------------------------------------
+_POOL = None
+_WORKERS = {}                        # gid -> {jid: {"future", "spend": [..]}} (this process only)
+_IO = threading.Lock()               # inbox numbering and the lock file are shared by the worker threads
+
+
+def _pool():
+    global _POOL
+    if _POOL is None:
+        _POOL = futures.ThreadPoolExecutor(max_workers=32, thread_name_prefix="goal-worker")
+    return _POOL
+
+
+def inflight(gid):
+    """Dollars the running workers of this goal spent so far (merged into state.json when each one ends)."""
+    return [x for w in list(_WORKERS.get(gid, {}).values()) for x in list(w["spend"])]
+
+
+def running(gid):
+    return sorted(_WORKERS.get(gid, {}))
+
+
+def _recover_orphans(gid, st):
+    """A job "running" in state.json with no worker in this process belongs to a supervisor that died (the lock
+    makes this one the only one): it resumes from its checkpoint."""
+    mine = _WORKERS.get(gid, {})
+    for jid, j in st["jobs"].items():
+        if j["status"] == "running" and jid not in mine:
+            j.update(status="paused-resumable", why="its supervisor stopped while it ran: resumes from its checkpoint",
+                     paused_until=None)
+            event(gid, f"job {jid}: no worker alive for it - paused-resumable (resumes from its checkpoint)")
+
+
+def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
+    j = st["jobs"][jid]
+    s = j["spec"]
+    j["status"] = "running"
+    j["attempts"] = j.get("attempts", 0) + 1
+    event(gid, f"job {jid} starts (attempt {j['attempts']})")
+    brief = (f"{s['brief']}\n\n---\nGoal {gid}: {goal['objective'][:600]}\nConstraints:\n" +
+             "\n".join(f"- {c}" for c in goal.get("constraints") or []) +
+             "\nYour result is judged by a separate verifier running: " +
+             "; ".join(v["run"] for v in s.get("verify") or []) +
+             ". Your own claim of success does not count. What only the owner may decide goes to "
+             "`fieldkit inbox add`; carry on with what does not depend on it.")
+    answers = {q: st["answers"][q]["answer"] for q in s.get("waits_on") or [] if q in st["answers"]}
+    if answers:
+        brief += "\nOwner answers you need: " + json.dumps(answers, ensure_ascii=False)
+    spend_log = []
+
+    def spend(usd, who):
+        spend_log.append({"t": time.time(), "usd": usd, "who": f"job {who}"})
+
+    def add(*a, **k):
+        with _IO:
+            return inbox_add(*a, **k)
+
+    fut = _pool().submit(run_job, gdir(gid) / "jobs" / jid, brief, s["cwd"],
+                         budget=bud.merge(goal.get("worker_budget"), s.get("budget")), job_id=f"{gid}-{jid}",
+                         max_continuations=int(s.get("max_continuations", 3)), fallback=s.get("fallback"),
+                         model=s.get("model"), sleep=sleep, now=now, say=say, inbox_add=add, on_spend=spend)
+    _WORKERS.setdefault(gid, {})[jid] = {"future": fut, "spend": spend_log}
+
+
+def _end_job(gid, goal, st, jid, claude, run):
+    """A finished worker -> its spend into state, the verifier on its checks, the job's new status."""
+    w = _WORKERS[gid].pop(jid)
+    st["spend"] += w["spend"]
+    try:
+        r = w["future"].result()
+    except Exception as e:  # noqa: BLE001
+        r = {"status": "failed", "why": f"the worker crashed: {type(e).__name__}: {e}"}
+    j = st["jobs"][jid]
+    s = j["spec"]
+    if r["status"] == "done":
+        checks = [dict(v, id=f"{jid}:{i}") for i, v in enumerate(s.get("verify") or [], 1)]
+        res = verify(gid, goal, st, extra=checks, claude=claude, run=run, who=f"job {jid}")
+        own = [x for x in res if str(x["id"]).startswith(f"{jid}:")]
+        if all(x["verdict"] == "PASS" for x in own):
+            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
+        else:
+            bad = [f"{x['id']} {x['why']}" for x in own if x["verdict"] != "PASS"]
+            j.update(status="failed-verify", why=f"the worker said done; the verifier says FAIL: {bad}")
+            if j["attempts"] < 3:
+                j["status"] = "queued"          # the planner gets the gap and a better brief may follow
+    elif r["status"] == "paused-resumable":
+        cp = r.get("checkpoint") or {}
+        j.update(status="paused-resumable", why=r.get("why", ""), paused_until=cp.get("paused_until"))
+    else:
+        j.update(status="failed", why=r.get("why", "")[:400])
+    event(gid, f"job {jid}: {j['status']} - {j.get('why', '')[:200]}")
+    st["needs_plan"] = True
+    return f"job {jid}: {j['status']}"
+
+
+def _end_finished(gid, goal, st, claude, run):
+    return [_end_job(gid, goal, st, jid, claude, run)
+            for jid, w in list(_WORKERS.get(gid, {}).items()) if w["future"].done()]
+
+
+def _all_done(st):
+    return all_pass(st) and not any(v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values())
 
 
 def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inbox_items=None, now=time.time,
@@ -602,10 +756,11 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         save_state(gid, st)
         event(gid, "stopped by a STOP file")
         return {"status": "stopped", "why": "STOP file"}
+    _recover_orphans(gid, st)
     t = now()
     if (st.get("paused_until") or 0) > t:
         return {"status": "waiting", "why": st.get("pause_why", ""), "wait_until": st["paused_until"]}
-    state, why, until = budget_block(goal, st, t)
+    state, why, until = budget_block(goal, dict(st, spend=st["spend"] + inflight(gid)), t)
     if state == "blocked":
         return _finish(gid, st, "blocked", why, inbox_add)
     if state == "pause":
@@ -613,9 +768,13 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         save_state(gid, st)
         event(gid, f"paused: {why}")
         return {"status": "waiting", "why": why, "wait_until": until}
+    ended = _end_finished(gid, goal, st, claude, run)
     if collect_answers(gid, st, inbox_items()):
         st["needs_plan"] = True
     reg, _ = preapprovals(gid)
+    if ended and _all_done(st):
+        _actions(gid, goal, st, reg, action, say)
+        return _finish(gid, st, "done", "every criterion PASSed (verifier)", inbox_add)
     if st.get("needs_plan"):
         if st["rounds"] >= int(goal.get("max_rounds", MAX_ROUNDS)):
             return _finish(gid, st, "blocked", f"{st['rounds']} planner rounds without reaching the criteria", inbox_add)
@@ -637,7 +796,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         apply_plan(gid, goal, st, p, reg, inbox_add, say)
         event(gid, f"plan round {st['rounds']}: {p['signal']} - {p.get('why', '')[:150]}; "
                    f"jobs {[j['id'] for j in p.get('jobs') or []]}")
-        if p["signal"] == "done" or (p["signal"] == "blocked" and not p.get("jobs")):
+        if (p["signal"] == "done" or (p["signal"] == "blocked" and not p.get("jobs"))) and not running(gid):
             verify(gid, goal, st, claude=claude, run=run, who="final")
             if all_pass(st):
                 _actions(gid, goal, st, reg, action, say)
@@ -652,8 +811,9 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
             return {"status": "active", "why": st["verifier_note"]}
         if not p.get("jobs"):
             st["empty_plans"] = st.get("empty_plans", 0) + 1
-    jid = runnable(st, t)
-    if jid is None:
+    for jid in startable(st, t, max_workers(goal) - len(running(gid))):
+        _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add)
+    if not running(gid):
         waiting_q = [q for q in st["questions"] if q not in st["answers"]]
         if waiting_q:
             save_state(gid, st)
@@ -669,56 +829,15 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         save_state(gid, st)
         return {"status": "active", "why": "nothing queued: re-plan"}
     st["empty_plans"] = 0
-    j = st["jobs"][jid]
-    s = j["spec"]
-    j["status"] = "running"
-    j["attempts"] = j.get("attempts", 0) + 1
     save_state(gid, st)
-    event(gid, f"job {jid} starts (attempt {j['attempts']})")
-    brief = (f"{s['brief']}\n\n---\nGoal {gid}: {goal['objective'][:600]}\nConstraints:\n" +
-             "\n".join(f"- {c}" for c in goal.get("constraints") or []) +
-             "\nYour result is judged by a separate verifier running: " +
-             "; ".join(v["run"] for v in s.get("verify") or []) +
-             ". Your own claim of success does not count. What only the owner may decide goes to "
-             "`fieldkit inbox add`; carry on with what does not depend on it.")
-    answers = {q: st["answers"][q]["answer"] for q in s.get("waits_on") or [] if q in st["answers"]}
-    if answers:
-        brief += "\nOwner answers you need: " + json.dumps(answers, ensure_ascii=False)
-
-    def spend(usd, who):
-        st["spend"].append({"t": time.time(), "usd": usd, "who": f"job {who}"})
-
-    r = run_job(gdir(gid) / "jobs" / jid, brief, s["cwd"], budget=bud.merge(goal.get("worker_budget"), s.get("budget")),
-                job_id=f"{gid}-{jid}", max_continuations=int(s.get("max_continuations", 3)),
-                fallback=s.get("fallback"), model=s.get("model"), sleep=sleep, now=now, say=say, inbox_add=inbox_add,
-                on_spend=spend)
-    goal, st2 = load(gid)
-    st2["spend"] = st["spend"]                 # the spend recorded during the job
-    st = st2
-    j = st["jobs"][jid]
-    if r["status"] == "done":
-        checks = [dict(v, id=f"{jid}:{i}") for i, v in enumerate(s.get("verify") or [], 1)]
-        res = verify(gid, goal, st, extra=checks, claude=claude, run=run, who=f"job {jid}")
-        own = [x for x in res if str(x["id"]).startswith(f"{jid}:")]
-        if all(x["verdict"] == "PASS" for x in own):
-            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
-        else:
-            bad = [f"{x['id']} {x['why']}" for x in own if x["verdict"] != "PASS"]
-            j.update(status="failed-verify", why=f"the worker said done; the verifier says FAIL: {bad}")
-            if j["attempts"] < 3:
-                j["status"] = "queued"          # the planner gets the gap and a better brief may follow
-    elif r["status"] == "paused-resumable":
-        cp = r.get("checkpoint") or {}
-        j.update(status="paused-resumable", why=r.get("why", ""), paused_until=cp.get("paused_until"))
-    else:
-        j.update(status="failed", why=r.get("why", "")[:400])
-    event(gid, f"job {jid}: {j['status']} - {j.get('why', '')[:200]}")
-    st["needs_plan"] = True
-    if all_pass(st) and not any(v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values()):
+    futures.wait([w["future"] for w in _WORKERS[gid].values()], return_when=futures.FIRST_COMPLETED)
+    ended = _end_finished(gid, goal, st, claude, run)
+    if _all_done(st):
         _actions(gid, goal, st, reg, action, say)
         return _finish(gid, st, "done", "every criterion PASSed (verifier)", inbox_add)
     save_state(gid, st)
-    return {"status": "active", "why": f"job {jid}: {j['status']}"}
+    left = running(gid)
+    return {"status": "active", "why": "; ".join(ended) + (f"; still running: {left}" if left else "")}
 
 
 def expand_branches(repo, branch, run=subprocess.run):
@@ -763,12 +882,24 @@ def _finish(gid, st, status, why, inbox_add):
     return {"status": status, "why": why}
 
 
+def _overhead(gid):
+    """fieldkit overhead's line for this goal (WARN over overhead.max_ratio); a broken meter says so, never raises."""
+    try:
+        from .. import overhead
+        return overhead.goal_line(gid, goals=GOALS)
+    except Exception as e:  # noqa: BLE001
+        return f"OVERHEAD: not measured ({type(e).__name__})"
+
+
 def report(gid):
     goal, st = load(gid)
     L = [f"# Goal {gid}: {st['status']}", "", f"Written {time.strftime('%Y-%m-%d %H:%M:%S')} by fieldkit goal from "
          "the verifier's records (no model wrote it).", "", f"Why: {st.get('why', '')}", "",
-         f"Spent: ${spent(st):.2f} in {len(st['spend'])} run(s); planner rounds {st['rounds']}", "",
-         "| criterion | state | verdict |", "|---|---|---|"]
+         f"Spent: ${spent(st):.2f} in {len(st['spend'])} run(s); planner rounds {st['rounds']}", ""]
+    oh = _overhead(gid)
+    if oh:
+        L += [oh, ""]
+    L += ["| criterion | state | verdict |", "|---|---|---|"]
     for k, v in st["criteria"].items():
         L.append(f"| {k} | {v.get('state')} | {v.get('why', '')[:120]} |")
     L += ["", "| job | state | why |", "|---|---|---|"]
@@ -802,12 +933,32 @@ def lock(now=time.time):
     return True, str(p)
 
 
-def heartbeat(now=time.time, note=""):
+def heartbeat(now=time.time, note=None):
     p = GOALS / ".supervisor.lock"
-    cur = _rj(p) or {}
-    if cur.get("pid") == os.getpid():
-        cur.update(heartbeat=now(), note=note)
-        _wj(p, cur)
+    with _IO:
+        cur = _rj(p) or {}
+        if cur.get("pid") == os.getpid():
+            cur["heartbeat"] = now()
+            if note is not None:
+                cur["note"] = note
+            cur["running"] = {g: sorted(w) for g, w in _WORKERS.items() if w}
+            _wj(p, cur)
+
+
+def _heartbeat_thread(now, every=HEARTBEAT_EVERY):
+    """Keeps the lock fresh while the main thread blocks on a worker, the planner or the verifier (seen 2026-10-26:
+    7,134 s stale while a worker ran, which reads as a hang and lets a second supervisor take over after 15 min).
+    -> the Event that stops it."""
+    stop_ev = threading.Event()
+
+    def beat():
+        while not stop_ev.wait(every):
+            try:
+                heartbeat(now)
+            except OSError:
+                pass
+    threading.Thread(target=beat, name="goal-heartbeat", daemon=True).start()
+    return stop_ev
 
 
 def unlock():
@@ -837,6 +988,7 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
     if not ok:
         say(f"SUPERVISOR: {why}; this one exits")
         return 0
+    beat = _heartbeat_thread(now)
     if hold:
         try:
             from ..buildh.window import hold_awake
@@ -880,6 +1032,7 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
                         s.pop("paused_until", None)
                         save_state(g, s)
     finally:
+        beat.set()
         unlock()
 
 
@@ -907,6 +1060,9 @@ def status_lines(gid=None):
                    f"round {st['rounds']}" + (f", paused until {time.strftime('%Y-%m-%d %H:%M', time.localtime(st['paused_until']))}"
                                               if st.get("paused_until") else ""))
         out.append(f"  pre-approvals: {reg_why}")
+        oh = _overhead(g)
+        if oh:
+            out.append("  " + oh)
         for k, v in st["criteria"].items():
             out.append(f"  [{v.get('state', 'pending'):<9}] {k}: {v.get('why', '')[:100]}")
         for k, v in st["jobs"].items():
