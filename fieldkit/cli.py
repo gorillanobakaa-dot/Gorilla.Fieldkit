@@ -1493,6 +1493,10 @@ def build_parser():
                         help="why a local model is slow: LM Studio's server log per request, Vulkan device lost "
                              "and its fix (fieldkit lmstudio-log)")
     lm.add_argument("args", nargs=argparse.REMAINDER)
+    hg = sub.add_parser("hog", add_help=False,
+                        help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
+                             "check, act, watch every 5 min (fieldkit hog)")
+    hg.add_argument("args", nargs=argparse.REMAINDER)
     ev = sub.add_parser("evidence", add_help=False,
                         help="research evidence that can be checked later: fetch pages into a store, import a run's "
                              "findings, check every claim (fieldkit evidence)")
@@ -2591,6 +2595,9 @@ def main(argv=None):
     if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
         from .win11 import cli as win11_cli
         return win11_cli.main(args[1:])
+    if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
+        from . import hog
+        return hog.main(args[1:])
     if args[:1] == ["lmstudio-log"]:                  # why a local model is slow: LM Studio's server log
         from . import lmstudio
         return lmstudio.main(args[1:])

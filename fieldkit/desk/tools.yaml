@@ -5522,3 +5522,40 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plants files in temporary folders it removes, and runs each check's own command or public function (fieldkit/method/canary_checks.py) there; nothing else is touched and nothing goes to the network. Registry: fieldkit/method/canaries.yaml + local/canaries.yaml. Born 2026-10-18 from the telemetry scan that passed a program carrying a tracing library 1,036 times."
   notes: "repeat/log run pytest n times in fresh processes, each with its own --basetemp; the tests' own effects apply. scan only reads (exit 0 always). Reachable as `fieldkit flaky` since 2026-10-18."
+
+- id: hog
+  title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
+  harness: desk
+  entry: [python, -m, fieldkit, hog]
+  path: ${FIELDKIT}/fieldkit/hog/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, act, watch, preflight, register, log, doctor, install], help: "LEAVE EMPTY for check (one pass, changes nothing). act/watch/preflight apply only the safe actions; install prints the schedule (add --apply)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "check/act: JSON"}
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "act: say what it would do, do nothing"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  headline: "{summary}"
+  output: own
+  exits: {1: "WARN: something is over a warn threshold", 2: "ACT: over an act threshold (act/watch applied the safe actions)", 3: "bad arguments or a missing process"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_hog.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Born 2026-10-26 01:3x: an IDLE Qwen3.6-35B-A3B held 43 GB for hours (58.6/63.7 GB, fans screaming, owner woken); unloading it gave 15.3 GB. Thresholds: fieldkit/hog/thresholds.json, override in state/hog/thresholds.json. Actions: lms unload / Ollama keep_alive 0 (reversible: the model reloads), and stopping ONLY processes in the PID registry (pid + creation time, from the room hook) whose session ended or that passed their cap; never by name. Every action: state/hog/actions.jsonl + one ROOM line. Local only: Ollama on loopback, lms only while LM Studio runs. Mutations: tests/hog_mutations.yaml."
+
+- id: preflight
+  title: "The ONE run guard before and during heavy work (builds, test suites, mutate, pipelines, autopilot jobs, the leak gate) - reclaim idle models and orphans, refuse under the free-RAM floor, sample RAM and CPU temperature, one end line"
+  harness: desk
+  entry: [python, -m, fieldkit.core.preflight]
+  path: ${FIELDKIT}/fieldkit/core/preflight.py
+  inputs:
+    - {name: label, flag: --label, type: str, required: false, help: "what runs (shown in every line)"}
+    - {name: kind, flag: --kind, type: str, required: false, help: "build, test, gate or job"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "on STOP, re-check for up to this many seconds"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: "no command: a check warned", 2: "STOP: refused (free RAM under the floor after reclaiming)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_preflight.py"]
+  skill: skills/fieldkit-hog/SKILL.md
+  notes: "Owner 2026-10-26: the hog runs automatically as a preflight of every Fieldkit-managed heavy run, hand in hand with the temperature monitor. Called by buildguard.guard (fieldkit guard, go builds), fieldkit mutate, pipeline run, autopilot jobs (runbook steps, goals), the leak gate (observation and safe reclaim only; no allowlist, judgment or verdict changes) and the pre-commit suite. Checks: STEPS + preflight.register(name, fn), fn(ctx) -> (ok|warn|stop, line); a broken check is a warning. Skipped inside pytest and with FIELDKIT_PREFLIGHT=0; one guard per run (FIELDKIT_RUN_GUARD). Measured 0.8 s on the ThinkPad."

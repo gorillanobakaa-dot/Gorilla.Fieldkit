@@ -277,6 +277,24 @@ def context(lines):
             "the other session before acting on the same ground):\n" + "\n".join(rows) + more)
 
 
+def _hog(call, event, ctx):
+    """fieldkit hog rides on this hook (2026-10-26): after a shell call it registers the session's test runners,
+    listeners and browsers (the only processes the hog may stop); at a prompt it adds ONE line when the last watch
+    found something. Never fails the hook."""
+    try:
+        from .. import hog
+        if event == "PostToolUse" and (call.get("tool_name") or "").lower() in SHELL_TOOLS:
+            from ..hog import registry
+            registry.observe(call, hog.config()["orphan_classes"])
+        elif event in ("UserPromptSubmit", "SessionStart"):
+            line = hog.hook_line()
+            if line:
+                return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
 def hook(stdin=None):
     """Claude Code hook (PostToolUse and UserPromptSubmit). Never blocks, never fails the call."""
     try:
@@ -292,6 +310,7 @@ def hook(stdin=None):
                 ctx = (ctx + "\n" + w).strip() if w else ctx
             except Exception:
                 pass
+        ctx = _hog(call, event, ctx)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
     except Exception:

@@ -1679,6 +1679,17 @@
    "heal-round"
   ]
  },
+ "hog": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "hog"
+  ]
+ },
  "i18n": {
   "platforms": [
    "linux",
