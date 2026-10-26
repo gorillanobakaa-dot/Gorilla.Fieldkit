@@ -142,6 +142,15 @@ def accept(req, mpath, lock, cap=3600, popen=subprocess.Popen):
     return {"ok": True, "started": jid}
 
 
+def run_argv(args, platform=None):
+    """The command a run job starts. On Windows it always runs inside `fieldkit guard --` (owner rule: every
+    compile job on the Windows laptop goes through the fan check and the build governor), whatever the boss sent."""
+    me = [sys.executable, "-P", "-m", "fieldkit"]
+    if (platform or sys.platform) == "win32":
+        return [*me, "guard", "--", *me, *args]
+    return [*me, *args]
+
+
 def _sha(p):
     h = hashlib.sha256()
     with open(p, "rb") as f:
@@ -227,7 +236,7 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         wall = int(job.get("wall_minutes") or 60) * 60
         env = link.link_env()
         if job["kind"] == "run":
-            argv = [sys.executable, "-P", "-m", "fieldkit", *job["argv"]]
+            argv = run_argv(job["argv"])
         else:
             exe = opencode_exe()
             if not exe:

@@ -48,3 +48,6 @@
 - file: fieldkit/mandate/jobs.py
   swap: ["    if kind in WORK_KINDS:\n        from .. import orchestrate_work", "    if False:\n        from .. import orchestrate_work"]
   why: run and agent jobs go to orchestrate_work after the mandate and boss checks
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if (platform or sys.platform) == "win32":', '    if False:']
+  why: on Windows every run job goes through fieldkit guard (the fan check), whatever the boss sent

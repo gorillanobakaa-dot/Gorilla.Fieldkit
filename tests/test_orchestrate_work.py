@@ -136,7 +136,7 @@ def test_a_run_job_builds_on_a_copy_and_sends_back_every_artefact_with_its_sha25
     r = go(home, run_req(), ran, sent)
     assert r["status"] == "pass" and r["kind"] == "run" and r["commit"] == DIGEST, r
     c = ran.calls[0]
-    assert c["argv"][:4] == [sys.executable, "-P", "-m", "fieldkit"] and c["argv"][4:] == run_req()["argv"]
+    assert c["argv"] == ow.run_argv(run_req()["argv"])                # on Windows inside fieldkit guard
     assert Path(c["cwd"]) == home / "work" / run_req()["id"] / "tree"
     assert not (home / "received" / "proj" / "dist").exists()          # received/ never changed
     built = Path(c["cwd"]) / "dist" / "app.exe"
@@ -238,3 +238,11 @@ def test_a_signed_result_covers_its_artefacts_and_older_results_sign_as_before()
     assert jobs._canon(old) == json.dumps(old, sort_keys=True, separators=(",", ":")).encode()
     new = dict(old, artefacts=[{"name": "a", "sha256": "1" * 64, "size": 1}])
     assert jobs._canon(new) != jobs._canon(dict(new, artefacts=[{"name": "a", "sha256": "2" * 64, "size": 1}]))
+
+
+def test_on_windows_a_run_job_always_goes_through_the_guard():
+    """Owner rule: every compile on the Windows laptop runs inside fieldkit guard; the worker adds it itself."""
+    me = [sys.executable, "-P", "-m", "fieldkit"]
+    assert ow.run_argv(["pipeline", "run", "go-app"], platform="win32") == [*me, "guard", "--", *me, "pipeline",
+                                                                            "run", "go-app"]
+    assert ow.run_argv(["pipeline", "run", "go-app"], platform="linux") == [*me, "pipeline", "run", "go-app"]
