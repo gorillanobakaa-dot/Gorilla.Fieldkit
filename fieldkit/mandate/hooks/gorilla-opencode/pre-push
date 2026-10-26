@@ -1,0 +1,20 @@
+#!/bin/sh
+# Gorilla.Opencode hook wrapper; logic in scripts/git-hooks/hooks.py. Fails closed if python or hooks.py is missing.
+# 2026-10-25: a worktree has no scripts/ (gitignored), so hooks.py is also looked for beside the main .git.
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+COMMON="$(cd "$(git rev-parse --git-common-dir)/.." 2>/dev/null && pwd)"
+HOOK=""
+for H in "$ROOT/scripts/git-hooks/hooks.py" "$COMMON/scripts/git-hooks/hooks.py"; do
+    if [ -f "$H" ]; then HOOK="$H"; break; fi
+done
+if [ -z "$HOOK" ]; then
+    echo "  REFUSED - scripts/git-hooks/hooks.py not found." >&2
+    exit 1
+fi
+for PY in python python3 py; do
+    if command -v "$PY" >/dev/null 2>&1; then
+        exec "$PY" "$HOOK" pre-push
+    fi
+done
+echo "  REFUSED - no python found to run the hook." >&2
+exit 1

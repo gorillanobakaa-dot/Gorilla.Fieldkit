@@ -1,4 +1,4 @@
-# Version: 1.5.0 · updated 26-10-25-23-40
+# Version: 1.6.0 · updated 26-10-26-12-00
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -12,7 +12,7 @@ one file:
                                     the project mandate store (~/.fieldkit/mandate: keys, trusted keys, mandates,
                                     seals, stops, the log), and FIELDKIT_MANDATE_HOME (a trust store of one's own)
   4. owner approvals                leak-gate approve/dispositions, record_decisions.py, GORILLA_OWNER_APPROVED,
-                                    fieldkit mandate keygen / trust / approve
+                                    fieldkit mandate keygen / trust / approve / renew / install-hooks --yes
   5. credential files               read or write: .env, keys, gh hosts.yml, .git-credentials, tokens
   and: the owner's STOP file (fieldkit autopilot stop) denies everything that is not a read; installing or booting
   a kernel (linux-image, grub, initramfs, kexec, reboot) is denied whatever a mandate says (2026-10-25).
@@ -112,7 +112,9 @@ OWNER_ONLY = [
     (r"build-harness\s+(approve|rewind|drop|withdraw|unblock|leakgate-rejudge)\b",
      "approving, rewinding, dropping, withdrawing, unblocking or re-judging (the owner's call)"),
     # 2026-10-23: `trust` needs only a typed yes, which a faked terminal can give
-    (r"\bmandate\s+(keygen|trust|approve)\b", "making, trusting or using the owner's mandate key"),
+    (r"\bmandate\s+(keygen|trust|approve|renew)\b", "making, trusting or using the owner's mandate key"),
+    # 2026-10-26: installing a push hook changes a protection: the owner's paste or a session the owner talks to
+    (r"\bmandate\s+install-hooks\b[^\n]*--yes\b", "installing a repository's push hook"),
 ]
 CREDENTIAL = re.compile(
     r"(^|[/\\\s\"'])(\.env(\.[a-z]+)?|id_rsa|id_ed25519|[^/\\\s\"']+\.(pem|pfx|p12|key)|hosts\.yml|"
@@ -166,7 +168,8 @@ INSTALL_WRAP = re.compile(r"^\s*" + FIELDKIT + r"\s+mandate\s+install\s", re.I)
 INSTALLER = re.compile(r"\b(apt(-get)?|dnf|yum|pacman|zypper|brew|snap|flatpak|winget|choco|scoop)\s+(-\S+\s+)*install\b|"
                        r"\bpip3?\s+install\b|\bpipx\s+install\b|\bnpm\s+(i|install)\s+(-g|--global)\b|"
                        r"\bdpkg\s+-i\b|(^|[\s/])install\.(sh|ps1)\b", re.I)
-NEVER_OPENED = re.compile(r"\bmandate\s+(keygen|trust|approve|stop)\b|gorilla_owner_approved", re.I)   # whatever a door says
+NEVER_OPENED = re.compile(r"\bmandate\s+(keygen|trust|approve|renew|stop|install-hooks)\b|gorilla_owner_approved",
+                          re.I)   # whatever a door says
 PLAIN = re.compile(r"^[^;&|`\n]*$")                     # one statement: no ; && || | ` or newline
 SUBST = re.compile(r"\$\(|<\(|>\(")
 

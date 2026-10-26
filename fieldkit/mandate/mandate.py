@@ -1,4 +1,4 @@
-# Version: 1.5.0 · updated 26-10-25-23-40
+# Version: 1.6.0 · updated 26-10-26-12-00
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -28,6 +28,9 @@
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
     fieldkit mandate gate [--repo .]              a repository's pre-push hook: the push lines on stdin, allowed only
                                                   through fieldkit ship push under a mandate in force (gate.py)
+    fieldkit mandate doctor [--json]              in force, days left, keys, the VAIO's key, every covered hook (upkeep.py)
+    fieldkit mandate install-hooks [--yes] [--stick DIR]   the gate-aware hook in every covered clone here (upkeep.py)
+    fieldkit mandate renew FILE.yaml [--days 7]   a new period: the approve screen, typed yes + passphrase (upkeep.py)
 
 The OWNER-WIDE mandate (scope: owner-wide, 2026-10-25, owner: "the approval has to come once, at the beginning ...
 has to cover all our projects"): one file, `defaults:` (branch patterns, tag patterns, merge after green CI, release
@@ -87,7 +90,8 @@ NOT_COVERED = (
      "hard lines 3 and 4; the gorilla-patchset pre-push hook still wants GORILLA_OWNER_APPROVED for that file"),
     ("leak-gate allowlist entries, dispositions and re-judging", "hard lines 3 and 4"),
     ("changes to the guards, the git hooks, the hard lines and the mandate code or store itself",
-     "hard line 3; the hooks are installed by your own paste, never by a session"),
+     "hard line 3; a hook is installed by your own paste, or by `fieldkit mandate install-hooks --yes` (only the "
+     "template merged into Fieldkit main, byte for byte; hard line 4 keeps every unattended run off it)"),
     ("force-push or any history rewrite", "fieldkit ship (never forces), the pre-push gate (fast-forward only)"),
     ("deleting a branch or a tag on GitHub, or moving a tag that exists", "the pre-push gate (no deletes, new tags only)"),
     ("pushing main, master or windows-port directly", "the pre-push gate; main moves only by a pull request merged "
@@ -675,7 +679,8 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
                                        "share", "status", "install", "review-key", "verdict", "job", "boss",
-                                       "ledger", "resume", "tasks", "start", "report", "ask", "quiet", "gate"])
+                                       "ledger", "resume", "tasks", "start", "report", "ask", "quiet", "gate",
+                                       "doctor", "install-hooks", "renew"])
     ap.add_argument("rest", nargs="*")
     # the flags after the command (--kind, --seconds, --evidence, --since, --lock, --send) are read from argv by each
     # command: parse_args refused them all, and the worker's own job process (job run ... --lock) died at start
@@ -733,7 +738,14 @@ def main(argv=None):
         for p in sorted(d.glob("*.yaml")) if d.is_dir() else []:
             ok, why = verify(p)
             print(f"  {'IN FORCE' if ok else 'not in force':12} {p.stem}: {why}")
+        from . import upkeep
+        w = upkeep.warning()
+        if w:
+            print("  " + w)
         return 0
+    if a.action in ("doctor", "install-hooks", "renew"):     # upkeep.py (2026-10-26: made permanent)
+        from . import upkeep
+        return upkeep.main(a.action, r, list(argv if argv is not None else sys.argv[1:])[1:])
     if a.action == "install":
         if "--" not in (argv if argv is not None else sys.argv):
             print("install GB WHAT -- COMMAND ...")

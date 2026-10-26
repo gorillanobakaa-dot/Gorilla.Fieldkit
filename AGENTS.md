@@ -101,7 +101,16 @@ The owner runs Fieldkit on a Windows laptop and a Linux machine, each with its o
   `sync.repos` (`fieldkit.local.json`) against GitHub. `fieldkit sync --apply` takes upstream commits only as a
   fast-forward, only with a clean tree, and only when CI ran green on both windows-latest and ubuntu-latest for
   that commit. Diverged history and a default branch ahead of a feature branch are reported for a person to merge.
-  Pushing still needs the owner's yes. Private files (`local/`, memory) travel by `catchup`, not git.
+  Pushing goes through the owner-wide mandate (below). Private files (`local/`, memory) travel by `catchup`, not git.
+- **Pushes go through the owner-wide mandate, never as per-push lines for the owner (owner, 2026-10-26).** In every
+  repository the mandate covers (`fieldkit mandate doctor` lists them) a session pushes ONLY with
+  `fieldkit ship push` (a feat/ fix/ release- night/ branch, fast-forward), `fieldkit ship push --tag vX` (a new tag)
+  and `fieldkit ship gh-release vX -- ARGS` (a release of a tag on GitHub, CI green); main moves only by a pull
+  request merged after green CI. Each repository's pre-push hook asks `fieldkit mandate gate`
+  (`fieldkit mandate install-hooks` puts the gate-aware hook in a clone); the tool router refuses a hand-typed
+  `git push` in a covered clone. GORILLA_OWNER_APPROVED stays the owner's own manual path (typed by the owner, for
+  what the mandate does not cover or when none is in force), never set by a session. 3 days before the mandate ends
+  one line says so; the owner renews with `fieldkit mandate renew FILE.yaml` (typed yes + passphrase).
 - **A tool is written for both systems.** CI runs every test on both. A card naming one system needs
   `platforms_why` (what the other system lacks). `python -m fieldkit.desk.platformcheck` fails on a new
   single-system card without one, and on a card that promises a system its test file is skipped on. The cards
@@ -162,7 +171,8 @@ The tool keeps the convention, not the model (owner, 2026-10-22: "we both know t
    to stop any other process. The owner runs the same programs.
 3. **Do not probe a script that runs on load.** Check `fieldkit tools check` first.
 4. **Nothing personal is published.** Run `fieldkit privacy scan REPO --git` before
-   any commit, push or release. Nothing is pushed without the owner's yes.
+   any commit, push or release. Nothing is pushed without the owner's yes: the signed owner-wide mandate is that
+   yes for `fieldkit ship push` / `push --tag` / `ship gh-release`; anything else waits for the owner.
 5. **The same failure is never diagnosed twice.** When `triage` says unrecognised,
    add the signature once the real cause is known.
 6. **Report the platform honestly.** A Debian-only stage on Windows reports

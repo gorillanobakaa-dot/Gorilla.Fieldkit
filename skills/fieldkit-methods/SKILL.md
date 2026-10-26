@@ -79,9 +79,20 @@ the answer carries (`output: own | third-party`).
 ```
 fieldkit ship status        where the branch stands
 fieldkit ship push          sync a squash-merged branch (merge -s ours, tree unchanged) and push; never forces
+fieldkit ship push --tag vX a NEW tag on a commit GitHub has (or that this push carries); never moves a tag
+fieldkit ship gh-release vX -- ARGS   gh release create --verify-tag, the repository from git, CI green
+fieldkit mandate doctor     the owner-wide mandate: in force, days left, keys, every covered hook honoring the gate
 ```
+Under the owner-wide mandate (owner, 2026-10-26) these ARE the owner's yes: every covered repository's pre-push hook
+asks `fieldkit mandate gate`, which lets a push go without the owner flag only when it came through `fieldkit ship
+push`, the mandate is in force and names the repository, every branch matches feat/ fix/ release- night/ and
+fast-forwards under its own name, and every tag is new. A hand-typed `git push` in a covered clone is refused by the
+tool router. Never hand the owner a GORILLA_OWNER_APPROVED line per push: that flag stays the owner's own manual path.
 Then the pull request with the host's tools: open it, wait for CI (`fieldkit wait` or the host's events), merge only
-when green and only where the owner has said so. A new repository needs the owner's yes again.
+when green (the mandate's merge_to_main: ci_green, by pull request). A repository the mandate does not name needs the
+owner's yes again. A clone whose hook does not ask the gate: `fieldkit mandate install-hooks` (preview), `--yes`.
+Expiry: 3 days before, one line in `mandate status` / `mandate start` / the prompt hook; the owner runs `fieldkit
+mandate renew FILE.yaml` (the approve screen, typed yes + passphrase).
 
 ## Someone else's tool
 Reproduce the bug on THEIR untouched copy; fix a scratch copy; `fieldkit regress` their own suite before and after;

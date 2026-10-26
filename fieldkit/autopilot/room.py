@@ -285,6 +285,13 @@ def hook(stdin=None):
         if event == "PostToolUse":
             write(call)
         ctx = context(unseen(call.get("session_id")))
+        if event == "UserPromptSubmit":                   # the mandate's expiry warning, once per session per day
+            try:
+                from ..mandate import upkeep
+                w = upkeep.session_warning(call.get("session_id"))
+                ctx = (ctx + "\n" + w).strip() if w else ctx
+            except Exception:
+                pass
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
     except Exception:
