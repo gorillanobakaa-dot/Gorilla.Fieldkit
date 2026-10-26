@@ -1484,6 +1484,8 @@ def build_parser():
                              "send, wait (fieldkit peers --help)")
     pe.add_argument("args", nargs=argparse.REMAINDER)
     pe.set_defaults(fn=lambda a: __import__("fieldkit.peers.peers", fromlist=["main"]).main(a.args))
+    sub.add_parser("orchestrate", add_help=False,
+                   help="the boss's side of the household: every device (--check asks each), one note to many")
 
     w11 = sub.add_parser("win11", add_help=False,
                          help="the Windows 11 tweaks framework: modules, fit to this PC, OEM check, run a module "
@@ -2597,6 +2599,9 @@ def main(argv=None):
     if args[:1] == ["peers"]:                         # messages between sessions on this computer (fieldkit/peers)
         from .peers import peers as peers_cli
         return peers_cli.main(args[1:])
+    if args[:1] == ["orchestrate"]:                   # the boss's side of the household (fieldkit/orchestrate.py)
+        from . import orchestrate
+        return orchestrate.main(args[1:])
     if args[:1] == ["win11"]:                         # the Windows 11 tweaks framework (fieldkit/win11)
         from .win11 import cli as win11_cli
         return win11_cli.main(args[1:])
