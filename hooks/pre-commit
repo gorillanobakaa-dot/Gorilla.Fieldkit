@@ -63,7 +63,23 @@ guarded() {
     "$@"
   fi
 }
-if ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
+# 2026-10-26 (owner: "We can't afford to waste literally thousands of dollars for the tests"; fieldkit/testcost.py):
+# the suite does not run again on a tree that ALREADY PASSED it (a commit retried after a privacy refusal, an amend
+# of the message, a rebase replay): the key is the hash of exactly the files the tests see. Every run, skip and
+# refusal is logged (state/testcost/runs.jsonl), so `fieldkit testcost report` knows what the suite costs and catches.
+KEY="$("$PY" -m fieldkit.testcost key 2>/dev/null)" || KEY=""
+T0="$(date +%s)"
+SKIP=""
+if [ -n "$KEY" ] && "$PY" -m fieldkit.testcost seen full-suite --key "$KEY"; then
+  SKIP=1
+  "$PY" -m fieldkit.testcost record full-suite skipped 0 --key "$KEY" --note "saved=$("$PY" -c 'from fieldkit import testcost as t; print(t.budget("full-suite") or 0)' 2>/dev/null) same tree" || true
+elif "$PY" -m fieldkit.testcost docs-only 2>/dev/null; then
+  # only with the owner's flag "docs_only_privacy_only" set (fieldkit testcost flags); OFF by default
+  echo "pre-commit: documentation only (owner flag docs_only_privacy_only): privacy scan only, the suite is skipped"
+  SKIP=1
+  "$PY" -m fieldkit.testcost record full-suite skipped 0 --key "$KEY" --note "docs-only flag" || true
+fi
+if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
   if grep -q '^REFUSED by the preflight' "$OUT"; then
     grep -E '^REFUSED by the preflight|preflight' "$OUT"
     echo "pre-commit: the preflight refused the suite (free RAM under the floor) - commit refused, nothing was tested"
@@ -78,13 +94,18 @@ if ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT"
   if [ -z "$FAILED" ] || ! "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT2" $FAILED >/dev/null 2>&1; then
     echo "pre-commit: tests failed - commit refused (python -m pytest to see why)"
     [ -n "$FAILED" ] && echo "$FAILED"
+    "$PY" -m fieldkit.testcost record full-suite refused "$(( $(date +%s) - T0 ))" --key "$KEY" \
+      --note "caught: $(echo $FAILED | tr '\n' ' ' | cut -c1-400)" >/dev/null 2>&1 || true
     exit 1
   fi
   mkdir -p state
   for t in $FAILED; do echo "$(date '+%Y-%m-%d %H:%M:%S') failed once, passed when run again: $t" >> state/flaky-tests.log; done
   echo "pre-commit: WARNING - failed once and passed when run again (logged in state/flaky-tests.log): $FAILED"
 fi
-grep -E '^  (preflight|run guard) ' "$OUT" | sed 's/^  /pre-commit: /'
+if [ -z "$SKIP" ]; then
+  grep -E '^  (preflight|run guard) ' "$OUT" | sed 's/^  /pre-commit: /'
+  "$PY" -m fieldkit.testcost record full-suite pass "$(( $(date +%s) - T0 ))" --key "$KEY" >/dev/null 2>&1 || true
+fi
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
   "$PY" -m fieldkit privacy scan . --git; exit 1

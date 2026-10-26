@@ -1,6 +1,6 @@
 ---
 name: fieldkit-methods
-description: How work gets done in Fieldkit, as tools - wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
+description: How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
 ---
 
 # Methods as tools (docs/METHODS.md)
@@ -19,6 +19,10 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 
 ## A test you wrote: prove it can fail
 ```
+fieldkit testcost plan                                         changed files -> only the tests that cover them
+fieldkit testcost run --fast                                   run that set while iterating; the FULL suite once, before push
+fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
+fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND
 fieldkit mutate --plan mutations.yaml -- TEST COMMAND          [{file, swap: [OLD, NEW], why}]
 ```

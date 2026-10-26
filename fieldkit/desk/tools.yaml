@@ -5559,3 +5559,16 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_preflight.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Owner 2026-10-26: the hog runs automatically as a preflight of every Fieldkit-managed heavy run, hand in hand with the temperature monitor. Called by buildguard.guard (fieldkit guard, go builds), fieldkit mutate, pipeline run, autopilot jobs (runbook steps, goals), the leak gate (observation and safe reclaim only; no allowlist, judgment or verdict changes) and the pre-commit suite. Checks: STEPS + preflight.register(name, fn), fn(ctx) -> (ok|warn|stop, line); a broken check is a warning. Skipped inside pytest and with FIELDKIT_PREFLIGHT=0; one guard per run (FIELDKIT_RUN_GUARD). Measured 0.8 s on the ThinkPad."
+- id: testcost
+  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests, budgets from measured runs, every refusal logged
+  harness: core
+  entry: [python, -m, fieldkit, testcost]
+  path: ${FIELDKIT}/fieldkit/testcost.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "key | seen CHECK | record CHECK STATUS SECONDS | plan | run --fast | budget CHECK | report | flags | docs-only"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done (seen: this exact tree already passed)", 1: "seen: not passed on this tree / docs-only: suite must run"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
