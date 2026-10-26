@@ -65,19 +65,21 @@ def parse_meminfo(text):
 
 
 def processes(top=40, keep=()):
-    """-> (procs, alive): the `top` biggest by working set plus every (pid, ctime) in `keep`, and the whole table's
-    (pid, ctime) pairs (the orphan rule checks registry entries against it)."""
+    """-> (procs, alive, rows): the `top` biggest by working set plus every (pid, ctime) in `keep`, the whole table's
+    (pid, ctime) pairs (the orphan rule checks registry entries against it), and every row with its ppid (the
+    pile-up rule groups children by parent; psutil reads it from the kernel on Windows, Linux and macOS alike, the
+    same field `ps -o ppid` shows)."""
     rows, alive = [], []
     keep = set(keep)
-    for p in psutil.process_iter(["name", "memory_info", "create_time", "cpu_times"]):
+    for p in psutil.process_iter(["name", "memory_info", "create_time", "cpu_times", "ppid"]):
         i = p.info
         if not i.get("create_time"):
             continue
         c = ct(i["create_time"])
         alive.append([p.pid, c])
         mi, cpu = i.get("memory_info"), i.get("cpu_times")
-        rows.append({"pid": p.pid, "ctime": c, "name": i.get("name") or "?", "rss": mi.rss if mi else 0,
-                     "cpu_s": round(cpu.user + cpu.system, 2) if cpu else None})
+        rows.append({"pid": p.pid, "ppid": i.get("ppid"), "ctime": c, "name": i.get("name") or "?",
+                     "rss": mi.rss if mi else 0, "cpu_s": round(cpu.user + cpu.system, 2) if cpu else None})
     rows.sort(key=lambda r: -r["rss"])
     procs = rows[:top] + [r for r in rows[top:] if (r["pid"], r["ctime"]) in keep]
     return procs, alive, rows
@@ -215,5 +217,6 @@ def temp(platform=None):
 def gather(cfg, keep=(), with_temp=True, now=None):
     procs, alive, rows = processes(cfg["sample_top"], keep)
     return {"t": now or time.time(), "host": sys.platform, "ram": ram(), "commit": commit(), "procs": procs,
-            "alive": alive, "lms": lms(rows, cfg), "ollama": ollama(rows, cfg), "disks": disks(),
+            "alive": alive, "table": [[r["pid"], r["ppid"], r["ctime"], r["name"], r["rss"]] for r in rows],
+            "lms": lms(rows, cfg), "ollama": ollama(rows, cfg), "disks": disks(),
             "temp": temp() if with_temp else {"c": None, "sensor": None}}

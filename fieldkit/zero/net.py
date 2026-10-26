@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-26
+# Version: 1.1.0 · updated 26-10-26
 """fieldkit net / fieldkit zero: the agent net. "Zero has been established", the military way, in deterministic code.
 
 Owner, 2026-10-26 (former soldier, verbatim): "i will always think in terms of 0 has been established the military
@@ -25,6 +25,9 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
     fieldkit zero close                   Zero closes the net
     fieldkit zero schedule [--apply | --remove]   the comms check every 15 min (Windows task / systemd / launchd)
     fieldkit zero doctor                  files, chain, hook, schedule, cable key, the agent rules, the clock
+    fieldkit zero task ST --objective .. --area PATH[,PATH] --done ..   Zero gives a station its order and ground
+    fieldkit zero release ST [--finished]  Zero closes an order; fieldkit zero orders lists them (command.py, set 2)
+    fieldkit zero checkin --relieve OLD   a rotated station's relief takes its order and ground
     every verb: --as STATION (agents with no session id in their environment), --json, --epoch N (fencing)
 
 Military term -> what it is in IT (the docs and the skill use both, so "zero" never confuses a model):
@@ -481,6 +484,9 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
         if to == me:
             renew(st, me, net, now, **info)
         save_stations(st)
+    if take:                                          # the rotated Zero's order and ground go with the net
+        from . import command
+        command.carry(old, to, now)
     e = append("handover", me, text=f"Zero is now {to} ({how})", data={"net": _public(net), "previous": old, "how": how},
                now=now, epoch=net["epoch"])
     return {"net": net, "entry": e, "previous": old, "pushed": _push(e, net, channels or ch.default(), now)}
@@ -488,13 +494,19 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
 
 def on_rotate(session_id, now=None):
     """Called by `fieldkit rotate handover`: when the rotated session is Zero, leave a pending handover for its
-    relief and return the line for the fresh session's brief; else "". Never raises."""
+    relief; when it holds an order, leave the order for its relief (command.on_rotate). -> the lines for the fresh
+    session's brief, or "". Never raises."""
     try:
         now = time.time() if now is None else now
         net = load_net()
         me = hook_station(session_id)
-        if zero_of(net) != me:
+        if not is_open(net):
             return ""
+        from . import command
+        order_line = command.on_rotate(me, now)
+        if zero_of(net) != me:
+            return order_line
+        net = load_net()
         net["handover_pending"] = {"from": me, "epoch": net.get("epoch"), "ts": now,
                                    "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))}
         with _Lock():
@@ -502,7 +514,8 @@ def on_rotate(session_id, now=None):
         append("msg", me, text=f"Zero {me} is rotating to a fresh session: its relief takes over with "
                "`fieldkit zero handover --take`", now=now)
         return (f"\nZERO: the session you continue was Zero of the agent net (epoch {net.get('epoch')}). Your FIRST "
-                "command: fieldkit zero handover --take   (epoch +1, every station is told Zero is now you)\n")
+                "command: fieldkit zero handover --take   (epoch +1, every station is told Zero is now you"
+                + ("; Zero's order and its ground go with it" if order_line else "") + ")\n")
     except Exception:  # noqa: BLE001 - a rotation must never fail because of the net
         return ""
 
@@ -568,7 +581,8 @@ def _deliver(me, items, now):
     return acked
 
 
-def checkin(me, sitrep=None, ref=None, off=False, channels=None, now=None, env=None, ingest=True, cable=None):
+def checkin(me, sitrep=None, ref=None, off=False, channels=None, now=None, env=None, ingest=True, cable=None,
+            relieve=None):
     now = time.time() if now is None else now
     if ingest:
         ingest_cable()
@@ -578,13 +592,19 @@ def checkin(me, sitrep=None, ref=None, off=False, channels=None, now=None, env=N
     clean = check_sitrep(sitrep) if sitrep else None
     rc = net.get("rollcall") or {}
     ref = ref or (rc.get("id") if clean else None)
+    relieved = None
+    if relieve:                                       # the relief of a rotated station takes its order and ground
+        from . import command
+        relieved = command.relieve(me, relieve, now)
     with _Lock():
         st = load_stations()
-        rec = renew(st, me, net, now, off=off, sitrep=clean, sitrep_ref=ref if clean else None, **_env_info(env))
+        rec = renew(st, me, net, now, off=off, sitrep=clean, sitrep_ref=ref if clean else None,
+                    sitrep_at=now if clean else None, **_env_info(env))
         items = pending_for(me, rec, net, now)
         save_stations(st)
-    e = append("checkin", me, to=zero_of(net), ref=ref, data={k: v for k, v in {"sitrep": clean, "off": off}.items() if v},
-               now=now)
+    order = (rec.get("order") or {}).get("id") if not (rec.get("order") or {}).get("closed") else None
+    e = append("checkin", me, to=zero_of(net), ref=ref,
+               data={k: v for k, v in {"sitrep": clean, "off": off, "order": order}.items() if v}, now=now)
     acked = _deliver(me, items, now)
     with _Lock():
         st = load_stations()
@@ -594,7 +614,7 @@ def checkin(me, sitrep=None, ref=None, off=False, channels=None, now=None, env=N
     if machine_of(me) != (net.get("zero") or {}).get("machine"):  # Zero is on the other computer: tell it there
         remote = (cable or ch.Cable()).push(e, net)
     return {"net": net, "me": me, "established": True, "entry": e, "pending": [x for _, x in items],
-            "acked": acked, "remote": remote, "rec": rec}
+            "acked": acked, "remote": remote, "rec": rec, "relieved": relieved}
 
 
 def send(me, text, to="*", flash=False, want_ack=True, channels=None, now=None):
@@ -804,7 +824,7 @@ def unacked(net, now):
     return out
 
 
-def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None):
+def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None, command_kw=None):
     now = time.time() if now is None else now
     ingest_cable()
     net = load_net()
@@ -875,10 +895,15 @@ def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, boar
             except Exception as e:  # noqa: BLE001
                 row["detail"] += f"; heal failed: {e}"
         links.append(row)
+    try:                                              # set 2: orders, drift, idle, archive, the wake (command.py)
+        from . import command
+        cmd = command.sweep(net, now, inbox_add=inbox_add, board=board, **(command_kw or {}))
+    except Exception as e:  # noqa: BLE001 - the comms check still reports the net
+        cmd = {"error": str(e), "findings": [], "new": []}
     level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") for x in links)
-             else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered else OK)
+             else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings") else OK)
     out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried,
-           "undelivered": undelivered, "links": links, "level": level}
+           "undelivered": undelivered, "links": links, "level": level, "command": cmd}
     if board:
         try:
             out["board"] = write_board(board_row(net, rows, now))
@@ -903,16 +928,16 @@ def board_row(net, rows, now):
             f"(written by the comms check) | `fieldkit zero` for the roll; MISSING stations go to `fieldkit inbox` |")
 
 
-def write_board(row, plan=None):
-    """Replace the net's own row on the Board, or add it under the Board's header; nothing else is touched.
-    -> "written" / "unchanged" / "no board"."""
+def write_board(row, plan=None, key=BOARD_KEY):
+    """Replace the net's own row (the one starting with `key`) on the Board, or add it under the Board's header;
+    nothing else is touched. -> "written" / "unchanged" / "no board"."""
     plan = Path(plan or coord() / "PLAN.md")
     if not plan.is_file():
         return "no board"
     text = plan.read_text(encoding="utf-8")
     lines = text.split("\n")
     for i, ln in enumerate(lines):
-        if ln.startswith(BOARD_KEY):
+        if ln.startswith(key):
             if ln == row:
                 return "unchanged"
             lines[i] = row
@@ -1019,6 +1044,9 @@ def doctor(settings=None, gemini=None, agents=None, run=None):
                      "MISSING " + ", ".join(r["missing"]) + ": python -m fieldkit.autopilot.room doctor"))
     except Exception as e:  # noqa: BLE001
         rows.append(("room hook (carries the net)", False, str(e)))
+    from . import command
+    ok, detail, _snip = command.hook_doctor(settings)
+    rows.append(("ground-claim hook (PreToolUse)", ok, detail))
     from . import schedule
     ok, detail = schedule.scheduled(run=run) if run else schedule.scheduled()
     rows.append(("scheduled comms check", ok, detail + ("" if ok else ": fieldkit zero schedule --apply")))
@@ -1088,7 +1116,8 @@ def pushed_lines(pushed):
 
 VERBS = {"status": "status", "open": "open", "establish": "open", "rollcall": "rollcall", "sitrep": "rollcall",
          "checkin": "checkin", "check": "check", "comms": "check", "time": "time", "handover": "handover",
-         "send": "send", "ack": "ack", "log": "log", "close": "close", "doctor": "doctor", "schedule": "schedule"}
+         "send": "send", "ack": "ack", "log": "log", "close": "close", "doctor": "doctor", "schedule": "schedule",
+         "task": "task", "release": "release", "orders": "orders"}
 
 
 def _emit(a, data, lines):
@@ -1127,6 +1156,13 @@ def main(argv=None, prog="fieldkit zero"):
     ap.add_argument("--verify", action="store_true", help="log: check the hash chain and the signatures")
     ap.add_argument("--apply", action="store_true", help="schedule: install it")
     ap.add_argument("--remove", action="store_true", help="schedule: remove it")
+    ap.add_argument("--objective", help="task: what the station is to achieve")
+    ap.add_argument("--area", action="append", default=[], help="task: the folder(s) it may write, PATH[,PATH]")
+    ap.add_argument("--done", help="task: what done looks like")
+    ap.add_argument("--drift-min", type=float, help="task: minutes without progress while WORKING = DRIFT (45)")
+    ap.add_argument("--idle-min", type=float, help="task: minutes without activity = asked why idle (45)")
+    ap.add_argument("--finished", action="store_true", help="release: the order is done (else released)")
+    ap.add_argument("--relieve", help="checkin: take over this rotated station's order and ground")
     a = ap.parse_args(argv)
     verb = VERBS[a.verb]
     me = station_id(a.as_name)
@@ -1167,7 +1203,7 @@ def main(argv=None, prog="fieldkit zero"):
             return roll_level(rr["rows"])
         if verb == "checkin":
             sit = {k: getattr(a, k) for k, _ in SITREP} if any(getattr(a, k) for k, _ in SITREP) else None
-            r = checkin(me, sit, a.ref, a.off)
+            r = checkin(me, sit, a.ref, a.off, relieve=a.relieve)
             if not r["established"]:
                 _emit(a, r, status_lines(status()))
                 return NONET
@@ -1175,6 +1211,10 @@ def main(argv=None, prog="fieldkit zero"):
                      f"{int(ttl_s(r['net']) // 60)} min" + (", sitrep recorded" if sit else "")
                      + (f" (answers {r['entry']['ref']})" if r["entry"].get("ref") else "")
                      + (" - signed off" if a.off else "")]
+            if r.get("relieved"):
+                o = r["relieved"]
+                lines.append(f"  RELIEVED {a.relieve}: order {o['id']} is yours: {o['objective']}; ground "
+                             f"{', '.join(o['area'])}; done when: {o['done']}")
             lines += [ch.human(e, r["net"]) for e in r["pending"]] or ["  no traffic for you"]
             if r["acked"]:
                 lines.append(f"  acked: {', '.join(r['acked'])}")
@@ -1194,7 +1234,13 @@ def main(argv=None, prog="fieldkit zero"):
             lines += [f"  event: {x}" for x in r["events"]]
             lines += [f"  retried {x}" for x in r["retried"]]
             lines += [f"  UNDELIVERED {x['id']} to {', '.join(x['missing'])}: {x['text'][:80]}" for x in r["undelivered"]]
-            lines.append(f"  PLAN.md Board: {r.get('board')}")
+            cmd = r.get("command") or {}
+            lines += [f"  {f['kind']}: {f['text']}" for f in cmd.get("findings", [])]
+            if cmd.get("error"):
+                lines.append(f"  command sweep failed: {cmd['error']}")
+            if cmd.get("woke"):
+                lines.append(f"  woke {cmd['woke']} with {len(cmd.get('new', []))} new finding(s)")
+            lines.append(f"  PLAN.md Board: {r.get('board')}" + (f"; command row: {cmd['board']}" if cmd.get("board") else ""))
             if not a.scheduled or r["level"]:
                 _emit(a, r, lines)
             return r["level"]
@@ -1247,6 +1293,25 @@ def main(argv=None, prog="fieldkit zero"):
             _emit(a, [{"item": i, "ok": o, "detail": d} for i, o, d in rows],
                   [f"  {'OK' if o else 'MISSING':<8} {i}: {d}" for i, o, d in rows])
             return OK if all(o for _, o, _ in rows) else WARN
+        if verb in ("task", "release", "orders"):
+            from . import command
+            if verb == "orders":
+                rows = command.orders()
+                _emit(a, rows, [f"ORDERS: {sum(r['open'] for r in rows)} open"] + command.order_lines(rows))
+                return OK
+            if not a.rest:
+                ap.error(f"{verb} needs the STATION")
+            if verb == "task":
+                area = [x for v in a.area for x in v.split(",")]
+                r = command.task(me, a.rest[0], a.objective, area, a.done, a.epoch, a.drift_min, a.idle_min)
+                _emit(a, r, [f"ORDER {r['order']['id']} -> {r['station']}: {r['order']['objective']}",
+                             f"  ground: {', '.join(r['order']['area'])} (claims written: writes outside it refused)",
+                             f"  done when: {r['order']['done']}"] + pushed_lines(r["sent"].get("pushed", []))
+                      + ([f"  NOT SENT: {r['sent']['refused']}"] if r["sent"].get("refused") else []))
+                return OK
+            r = command.release(me, a.rest[0], a.finished, a.epoch)
+            _emit(a, r, [f"ORDER {r['order']['id']} {r['order']['outcome'].upper()}: {r['station']}'s ground is free"])
+            return OK
         if verb == "schedule":
             from . import schedule
             steps = schedule.remove_plan() if a.remove else schedule.plan(state=coord())

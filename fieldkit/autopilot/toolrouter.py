@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-26
+# Version: 1.3.0 · updated 26-10-26
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -211,12 +211,26 @@ def message(r):
             "If the tool truly cannot do it, add '# toolrouter-ok: <why>' to the command (the reason is logged).")
 
 
+def _claims(call):
+    """The agent net's ground claims ride on this hook (2026-10-26, fieldkit/zero/claims.py): a write on ground
+    another station holds, or outside the station's ordered area, is refused. -> the deny JSON or None; never raises."""
+    try:
+        from ..zero import claims
+        return claims.pretool(call)
+    except Exception:  # noqa: BLE001 - fail open
+        return None
+
+
 def hook(stdin=None):
-    """Claude Code PreToolUse: Bash and PowerShell commands only; fails open on a malformed call (the hard lines
-    are the safety layer; this one teaches)."""
+    """Claude Code PreToolUse: Bash and PowerShell commands, and (ground claims only) Edit / Write / MultiEdit /
+    NotebookEdit; fails open on a malformed call (the hard lines are the safety layer; this one teaches)."""
     try:
         call = json.loads((stdin or sys.stdin).read() or "{}")
     except ValueError:
+        return 0
+    deny = _claims(call)
+    if deny:
+        print(json.dumps(deny))
         return 0
     tool = (call.get("tool_name") or "").lower()
     if tool not in ("bash", "powershell"):

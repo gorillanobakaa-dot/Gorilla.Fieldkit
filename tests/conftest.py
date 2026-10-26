@@ -273,3 +273,12 @@ def _own_liveness_dir(tmp_path_factory, monkeypatch):
     yield
     from fieldkit.core import liveness
     liveness._CURRENT = None
+
+
+# Tests never inherit the autopilot marker (2026-10-26: a commit made from inside an autopilot session refused 8
+# goal/peers-link tests that CI passes, because FIELDKIT_AUTOPILOT=1 leaked in). A test of the autopilot refusal sets
+# it itself with monkeypatch.setenv.
+@pytest.fixture(autouse=True)
+def _no_inherited_autopilot(monkeypatch):
+    monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
+    yield
