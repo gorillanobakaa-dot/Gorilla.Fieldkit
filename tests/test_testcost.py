@@ -107,9 +107,13 @@ def test_the_hook_does_not_run_the_suite_twice_on_the_same_tree(repo, tmp_path):
     # the repo's own stand-in package must not shadow the real fieldkit the hook calls
     shutil.rmtree(repo / "fieldkit")
     (repo / "tests" / "test_b.py").unlink()
+    # like the real repo: bytecode the suite writes is ignored (CI 2026-10-26: without it the second attempt saw new
+    # __pycache__ files, a different tree, and on Windows the privacy scan read paths inside the .pyc files)
+    (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n")
     git(repo, "add", "-A")
     env = dict(os.environ, PYTHONPATH=str(ROOT), FIELDKIT_TESTCOST_DIR=str(tmp_path / "state"),
-               VIRTUAL_ENV=str(Path(sys.executable).parent.parent), PYTEST_ADDOPTS="", FIELDKIT_PREFLIGHT="0")
+               VIRTUAL_ENV=str(Path(sys.executable).parent.parent), PYTEST_ADDOPTS="", FIELDKIT_PREFLIGHT="0",
+               PYTHONDONTWRITEBYTECODE="1")
     outs = []
     for _ in range(2):
         r = subprocess.run(["git", "-C", str(repo), "commit", "-q", "--allow-empty", "-m", "one"], env=env,
