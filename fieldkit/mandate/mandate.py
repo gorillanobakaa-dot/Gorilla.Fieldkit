@@ -44,9 +44,9 @@ a mandate allows it, with every condition proven by the tool; the autopilot hard
 owner approval a mandate in force covers (and log it), and judge `fieldkit mac run` on a granted Mac as the Mac's
 business; while a mandate is in force, installs go through `fieldkit mandate install`.
 
-Owner, 2026-10-23, after a day as the router between 16 sessions on two computers: "aprobarile se dau o singura data
-pentru un proiect si ar trebui sa fie valabile si pentru cealalta sesiune ... doua sesiuni lucrand la acelasi proiect
-sub acelasi mandat using the same SOPs." Plan: local/PROJECT-MANDATE-PLAN.md.
+Owner, 2026-10-23, after a day as the router between 16 sessions on two computers (translated from Romanian):
+"approvals are given once for a project and should be valid for the other session too ... two sessions working on
+the same project under the same mandate using the same SOPs." Plan: local/PROJECT-MANDATE-PLAN.md.
 
 Why a signing key and not the cable's key (the Windows side's review, 2026-10-23): anything that can read link.key
 could mint a seal; a seal must prove THE OWNER'S TERMINAL. The private key is encrypted with a passphrase only the

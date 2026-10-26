@@ -2084,6 +2084,26 @@
    "peers-link-find"
   ]
  },
+ "peers link heal": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run live on Windows 2026-10-26: during the incident the ladder said REFUSED on 47077 with ping 3/3 and ARP 02-00-5e-10-00-01 (listener down, host up), and found this end deaf too; after both listeners came back every rung was OK. --revive and the rescue door were run only offline (the VAIO does not run the door yet)",
+  "ids": [
+   "peers-link-heal"
+  ]
+ },
+ "peers link keepalive": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "status run on Windows 2026-10-26 (task missing: the prerequisite is not applied yet); the Linux units, install and status run offline with fake systemctl/loginctl; not yet installed on the VAIO",
+  "ids": [
+   "peers-link-keepalive"
+  ]
+ },
  "peers link relay": {
   "platforms": [
    "linux",
@@ -2092,6 +2112,16 @@
   "why": "run for real on the VAIO 2026-10-22 (relay session); the Windows relay ran from the brief the same night",
   "ids": [
    "peers-link-relay"
+  ]
+ },
+ "peers link rescue": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "loopback end to end in the tests on Windows; it is meant to run on Linux peers under systemd (fieldkit-link-rescue.service); not yet run on the VAIO",
+  "ids": [
+   "peers-link-rescue"
   ]
  },
  "peers link restart": {

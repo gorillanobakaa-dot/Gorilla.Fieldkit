@@ -67,7 +67,20 @@ def _scratch_exclusion():
     return scratch.exclusion()["present"]
 
 
-VERIFY = {"longpaths_enabled": _longpaths, "git_longpaths": _git_longpaths, "scratch_exclusion": _scratch_exclusion}
+def _link_keepalive():
+    # the cable listener's keep-alive (fieldkit/peers/link_keepalive.py): Linux units + linger, or the Windows task
+    from ..peers import link_keepalive
+    return all(r["ok"] for r in link_keepalive.status())
+
+
+def _link_rescue_firewall():
+    # None (unknown, so it is applied) unless the pinned script's own verify says the rule is present or not needed
+    from ..peers import link_keepalive
+    return link_keepalive.rescue_firewall_present()
+
+
+VERIFY = {"longpaths_enabled": _longpaths, "git_longpaths": _git_longpaths, "scratch_exclusion": _scratch_exclusion,
+          "link_keepalive": _link_keepalive, "link_rescue_firewall": _link_rescue_firewall}
 
 
 def entries(m):
@@ -167,6 +180,39 @@ def elevated(todo, action="apply", timeout_min=10, run=subprocess.run, say=print
                                f"not finished in {timeout_min} min (UAC not answered?): exit {w.returncode}")
 
 
+def _sh_quote(s):
+    return "'" + str(s).replace("'", "'\\''") + "'"
+
+
+def runner_text_sh(todo, root=None, action="apply", marker="PREREQS: done"):
+    """Linux: the ONE root script; each pinned script's sha256 checked again inside the root process, then run."""
+    root = Path(root or _root())
+    lines = ["#!/bin/sh", "failed=0"]
+    for e in todo:
+        p = _sh_quote(root / e["script"])
+        args = " ".join(_sh_quote(a) for a in (e.get(action) or []))
+        lines += [f"echo 'PREREQ {e['id']}: {action}'",
+                  f"h=$(sha256sum {p} | cut -d' ' -f1)",
+                  f"if [ \"$h\" != {_sh_quote(str(e['sha256']).lower())} ]; then echo 'PREREQ {e['id']}: FAILED "
+                  f"sha256 changed, not run'; failed=$((failed+1)); "
+                  f"else sh {p} {args} || {{ echo 'PREREQ {e['id']}: FAILED'; failed=$((failed+1)); }}; fi"]
+    lines.append(f"echo \"{marker} ($failed failed)\"")
+    return "\n".join(lines) + "\n"
+
+
+def elevated_linux(todo, action="apply", run=subprocess.run, say=print):
+    """Linux: write the runner, ONE pkexec prompt (the polkit password dialog) for all of them. -> (ok, why)."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    script = _state() / f"runner-{stamp}.sh"
+    with open(script, "w", encoding="utf-8", newline="\n") as f:
+        f.write(runner_text_sh(todo, action=action))
+    say(f"  one pkexec prompt for: {', '.join(e['id'] for e in todo)} (the owner approved these in the mandate)")
+    r = run(["pkexec", "/bin/sh", str(script)], capture_output=True, text=True)
+    (_state() / f"runner-{stamp}.log").write_text((r.stdout or "") + (r.stderr or ""), encoding="utf-8")
+    return r.returncode == 0 and "(0 failed)" in (r.stdout or ""), f"exit {r.returncode}: " + \
+        ((r.stdout or r.stderr or "").strip().splitlines() or [""])[-1][:200]
+
+
 def _attempted_recently(now=None):
     p = _state() / "last-attempt.json"
     try:
@@ -199,11 +245,22 @@ def apply(m, in_force, verify=None, run=subprocess.run, elevate_fn=None, say=pri
             todo_admin.append(e)
             continue
         cmd = [shutil.which(e["command"][0]) or e["command"][0]] + [str(x) for x in e["command"][1:]]
-        r = run(cmd, capture_output=True, text=True)
+        r = run(cmd, capture_output=True, text=True, cwd=str(_root()))     # `python -m fieldkit` finds this one
         out.append(f"  {i}: {'applied' if r.returncode == 0 else 'FAILED exit ' + str(r.returncode)} (as you)")
     if todo_admin:
-        if not ((os.name == "nt") if nt is None else nt):
-            out.append(f"  {', '.join(e['id'] for e in todo_admin)}: administrator entries run on Windows only")
+        win = (os.name == "nt") if nt is None else nt
+        linux = not win and all(e.get("os") == "linux" for e in todo_admin)
+        if linux:
+            if _attempted_recently(now) and not force:
+                out.append(f"  {', '.join(e['id'] for e in todo_admin)}: the pkexec prompt was put up less than "
+                           f"{ATTEMPT_EVERY_S // 3600} h ago; next session start (or prereqs apply --force)")
+            else:
+                _mark_attempt(now)
+                ok, why = (elevate_fn or elevated_linux)(todo_admin, run=run, say=say)
+                out.append(f"  pkexec run: {why}")
+        elif not win:
+            out.append(f"  {', '.join(e['id'] for e in todo_admin)}: administrator entries run on Windows, or on "
+                       "Linux when every one of them is os: linux")
         elif _attempted_recently(now) and not force:
             out.append(f"  {', '.join(e['id'] for e in todo_admin)}: the UAC prompt was put up less than "
                        f"{ATTEMPT_EVERY_S // 3600} h ago; next session start (or prereqs apply --force)")

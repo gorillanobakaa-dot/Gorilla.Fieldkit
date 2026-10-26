@@ -50,7 +50,30 @@ The steps underneath, for repair:
    starts only if THAT computer's owner allowed the agent in `~/.fieldkit/link/link.yaml` and ran `fieldkit peers
    link approve` there. Otherwise it lands in that owner's inbox. The started session is an autopilot run (hard
    lines, no credential), and it is told to talk back with `peers link send`.
-7. Never ping, SSH to or probe a computer where another session works without the owner saying so.
+7. Never ping, SSH to or probe a computer where another session works without the owner saying so. The one
+   exception is a device of this household that does not answer: `peers link heal` (below) is that probe.
+
+### A device does not answer: heal it, never walk to it (2026-10-26)
+- FIRST `fieldkit peers link heal [--device NAME]`, before saying "no answer". It climbs the ladder - this
+  computer's cable address, its OWN listener, ARP, ping (loss, rtt), TCP to the link port (REFUSED = host up and
+  nothing listening; TIMEOUT = host/path down or a firewall drops; UNREACHABLE = no route), the signed hello, then
+  logs (link.log here; the peer's watchdog.log, serve.log, link.log and journal through its rescue door) - and ends
+  with one `VERDICT` naming the broken layer and one `NEXT`. `orchestrate devices --check` prints the same line.
+- `fieldkit peers link heal --revive [--device NAME]` then tries ONLY what the device declares, in order: `rescue`
+  (the rescue door restarts the listener), `ssh` (key-only, one forced command), `wol` (magic packet on the cable,
+  only when the host is silent). Nothing works -> ONE inbox item with the machine, address, MAC and the command for
+  a person. Declare once: `fieldkit peers link heal declare vaio rescue,wol --mac 02:00:5e:10:00:01`.
+- Both ends can be deaf at once (2026-10-26): each side only sees the other refuse. The `own` rung and an `ALSO`
+  line say so; restart this end with `fieldkit peers link restart` (on Windows a session's child dies with the
+  session: the logon task, or WMI, starts it outside the session).
+- Keep-alive, not luck: `fieldkit peers link keepalive` (status) and `peers link doctor` (both ends, via hello).
+  Linux: `keepalive install` = user units fieldkit-link.service + fieldkit-link-rescue.service (Restart=always, no
+  start limit) + linger + the watchdog timer. Windows: the task fieldkit-link. Both are the mandate's
+  `machine_prerequisites` (link-keepalive-linux, link-keepalive-windows, link-rescue-firewall): approved once by the
+  owner, applied by `fieldkit mandate start`, never a mid-run click.
+- The rescue door (`peers link rescue serve|status|restart`) is a second door: cable address only, link port + 1,
+  cable devices of the household only, the household key, two verbs (status, restart), every request in rescue.log.
+  Close it: `systemctl --user disable --now fieldkit-link-rescue.service`.
 
 ### Big transfers: folders, big files, git bundles (2026-10-25)
 - `fieldkit peers link put FILE|FOLDER [...] [--device NAME]` sends any size on ONE connection: 1 MiB blocks,
