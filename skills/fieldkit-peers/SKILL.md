@@ -99,6 +99,17 @@ The steps underneath, for repair:
 - Jobs, results, resend and ask go on the CABLE only, until the mandate gate covers the LAN. Notes and files may
   use the LAN.
 
+### A job on a tree: build or brief on another device (2026-10-26)
+- `fieldkit orchestrate job run --device W --tree DIR --artefact 'dist/*' --wait 1200 -- pipeline run go-app --var
+  src=.` sends DIR, the worker runs that Fieldkit command line on a copy of it and sends the artefacts back; the line
+  `VERDICT PASS` means the result is signed by a pinned worker key and every artefact arrived with that sha256.
+- `fieldkit orchestrate job agent --device W --tree DIR --brief FILE --model gemini-flash-lite-latest --artefact X`
+  runs Gorilla OpenCode headless there on the worker's own provider. Use a cheap Gemini model for tests (owner rule),
+  never a local LM Studio model unless the owner asks.
+- A refusal is the worker's answer, read it: "no mandate with sha ... in force here" means the two machines hold
+  different copies of the owner's mandate (share the newer one, never edit it).
+- On Windows every run job goes through `fieldkit guard` by itself. `fieldkit orchestrate job status` is the ledger.
+
 ## The room (fieldkit room): what the others did, without anyone remembering to say it
 
 Owner, 2026-10-19: "is there any way for you guys to sit in the same room and see what each other is doing?"

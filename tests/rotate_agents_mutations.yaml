@@ -76,5 +76,5 @@
   swap: ["            trig = rule_present(RULE_FILES[name])", "            trig = True"]
   why: "doctor says an agent is triggered only when its file holds the rule"
 - file: fieldkit/core/preflight.py
-  swap: ["         \"fieldkit.tokens.rotate:preflight_check\"]", "         ]"]
+  swap: [", \"fieldkit.tokens.rotate:preflight_check\"]", "]"]
   why: "the run guard carries the rotation check"

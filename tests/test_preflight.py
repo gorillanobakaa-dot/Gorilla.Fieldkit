@@ -31,7 +31,8 @@ def fake_steps():
 
 def test_default_steps_are_the_hog_then_the_test_cost_then_scratch_then_rotation():
     assert preflight.STEPS == ["fieldkit.hog:preflight_check", "fieldkit.testcost:preflight_check",
-                               "fieldkit.scratch:preflight_check", "fieldkit.tokens.rotate:preflight_check"]
+                               "fieldkit.scratch:preflight_check", "fieldkit.parity:preflight_check",
+                               "fieldkit.tokens.rotate:preflight_check"]
 
 
 def test_skipped_inside_pytest_without_explicit_steps():
