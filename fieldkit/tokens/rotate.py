@@ -384,6 +384,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
              f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n")
     if row.get("task"):
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
+    from ..lifecycle import protocol                  # start side jobs headless; clean up and archive when done
+    brief += protocol.brief_tail()
     note.write_text(
         f"# Session rotated: {title}\n\n"
         f"- when: {stamp} (local)\n- session: {row['session']} ({row['source']}, {row.get('entrypoint') or '?'})\n"

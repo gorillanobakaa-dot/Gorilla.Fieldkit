@@ -1558,6 +1558,17 @@
    "flaky"
   ]
  },
+ "friction": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "friction"
+  ]
+ },
  "goal": {
   "platforms": [
    "linux",
@@ -2398,6 +2409,17 @@
    "session-cost"
   ]
  },
+ "sessions": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "sessions"
+  ]
+ },
  "ship": {
   "platforms": [
    "darwin",
@@ -2713,6 +2735,17 @@
   "why": "",
   "ids": [
    "sync"
+  ]
+ },
+ "task": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "task"
   ]
  },
  "teach": {

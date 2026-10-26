@@ -1,0 +1,184 @@
+"""Start a job from a brief file with no click: a headless autopilot run here, or the peer's link listener over the
+cable. Never a desktop session card (2026-10-26: a session-started turn cannot start a desktop session, so relief and
+side jobs became cards the owner had to click, on the VAIO and on Windows).
+
+    here       a one-step runbook (`agent:` = the brief) under fieldkit autopilot, in its own window: the hard lines,
+               the budget, checkpoints and the owner inbox hold; `fieldkit ship push` is open under the mandate
+    --on DEV   verb `ask` over the cable (HMAC-signed, cable only): the peer's link listener starts `fieldkit
+               autopilot claude` under ITS owner's approved link.yaml. No session on the peer is asked anything, so
+               none can refuse a relayed order or ask its owner (2026-10-26 18:4x: the VAIO session did both)
+
+Every brief gets the side-jobs rule and the done protocol appended (protocol.brief_tail) with the task's id, so the
+job reports back by itself: here `fieldkit task report ID ...`, on a peer `fieldkit peers link send "fieldkit-task ID
+done ..."`, which `fieldkit task status` reads from the link inbox. Every start and report is a ROOM line (every
+session, the command post included, sees it at its next hook) and a ledger line in state/lifecycle/tasks.jsonl.
+"""
+import hashlib
+import json
+import os
+import re
+import socket
+import time
+from pathlib import Path
+
+from . import protocol
+
+REPORT = re.compile(r"fieldkit-task (?P<id>T-[\w.-]+) (?P<status>done|failed|blocked)"
+                    r"(?: branch=(?P<branch>\S+))?(?: pr=(?P<pr>\S+))?(?: (?P<note>.*))?")
+STATUSES = ("started", "done", "failed", "blocked")
+
+
+def state_dir():
+    from .friction import state_dir as d
+    return d()
+
+
+def ledger_path():
+    return state_dir() / "tasks.jsonl"
+
+
+def ledger():
+    """-> {id: the task, its later reports merged in order}."""
+    out = {}
+    try:
+        lines = ledger_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        out.setdefault(r["id"], {}).update({k: v for k, v in r.items() if v not in (None, "")})
+    return out
+
+
+def _append(rec):
+    with open(ledger_path(), "a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def _room(obj, detail):
+    try:
+        from ..autopilot import room
+        room.append(room.line_for(os.environ.get("CLAUDE_CODE_SESSION_ID", "fieldkit-task"), os.getcwd(), "start",
+                                  obj, detail))
+    except Exception:  # noqa: BLE001 - the ledger is the record; the room line is a courtesy
+        pass
+
+
+def task_id(brief_text, now=None):
+    return (f"T-{time.strftime('%Y%m%d-%H%M%S', time.localtime(now))}-"
+            f"{hashlib.sha256(brief_text.encode('utf-8')).hexdigest()[:6]}")
+
+
+def full_brief(text, tid, on=None):
+    back = (f"\nREPORT BACK (the command post reads it; do this before you exit): `fieldkit peers link send "
+            f"\"fieldkit-task {tid} done branch=<branch> <one line>\"` (failed or blocked instead of done when so).\n"
+            if on else "")
+    return text.rstrip() + "\n" + protocol.brief_tail(None if on else tid, headless=True) + back
+
+
+def runbook_text(tid, brief, cwd, wall):
+    import yaml
+    step = {"id": "work", "title": f"task {tid}", "agent": brief, "cwd": str(cwd),
+            "budget": {"wall_minutes": int(wall)}}
+    return (f"# fieldkit task {tid}\n\nWritten by `fieldkit task start`; run headless by fieldkit autopilot.\n\n"
+            "```runbook\n" + yaml.safe_dump({"steps": [step]}, sort_keys=False, allow_unicode=True) + "```\n")
+
+
+def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None):
+    """-> the ledger record. Raises ValueError when the brief is missing or empty."""
+    p = Path(brief_path)
+    text = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
+    if not text:
+        raise ValueError(f"no brief in {brief_path}")
+    tid = task_id(text, now)
+    brief = full_brief(text, tid, on)
+    rec = {"id": tid, "title": title or text.splitlines()[0][:100], "brief": str(p.resolve()), "on": on or "here",
+           "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+           "status": "started"}
+    if on:
+        from ..peers import link
+        r = (call or link.call)({"verb": "ask", "agent": "claude", "brief": brief}, timeout=30, device=on)
+        ok = bool(r.get("ok") and r.get("started"))
+        rec.update(how="link ask", answer=r.get("why") or r.get("error") or "",
+                   status="started" if ok else "not-started")
+    else:
+        d = state_dir() / "tasks" / tid
+        d.mkdir(parents=True, exist_ok=True)
+        rb = d / f"{tid}.md"
+        rb.write_text(runbook_text(tid, brief, Path(cwd or os.getcwd()).resolve(), wall), encoding="utf-8")
+        if launch is None:
+            from ..buildh import window
+            launch = window.launch
+        try:
+            r = launch(["runbook", "run", str(rb)])
+            rec.update(how="autopilot runbook", runbook=str(rb), pid=r.get("pid"), log=r.get("log"))
+        except Exception as e:  # noqa: BLE001 - the refusal is the answer, recorded
+            rec.update(how="autopilot runbook", runbook=str(rb), status="not-started", answer=str(e)[:300])
+    _append(rec)
+    _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec.get('answer') or rec.get('how')})")
+    return rec
+
+
+def report(tid, status, branch="", pr="", note="", source="local"):
+    if status not in STATUSES[1:]:
+        raise ValueError(f"status is one of {', '.join(STATUSES[1:])}")
+    rec = {"id": tid, "status": status, "branch": branch, "pr": pr, "note": note[:300], "source": source,
+           "reported": time.strftime("%Y-%m-%d %H:%M:%S")}
+    _append(rec)
+    _room(f"task:{tid}", f"task {status}: branch {branch or '-'} PR {pr or '-'} {note[:200]}")
+    board(tid)
+    return rec
+
+
+def board(tid):
+    """One row per task in state/coordination/PLAN.md (only when the plan exists: a missing plan is said, not made)."""
+    t = ledger().get(tid) or {}
+    try:
+        from ..tokens.rotate import coordination_dir
+        plan = coordination_dir() / "PLAN.md"
+    except Exception:  # noqa: BLE001
+        return False
+    if not plan.is_file():
+        return False
+    cell = lambda s: " ".join(str(s or "-").split()).replace("|", "/")   # noqa: E731
+    with open(plan, "a", encoding="utf-8") as f:
+        f.write(f"| Task (fieldkit task) {cell(tid)} | {cell(t.get('on'))} | {cell(t.get('status'))} | "
+                f"{cell(t.get('title'))} | branch {cell(t.get('branch'))}, PR {cell(t.get('pr'))} | "
+                f"{cell(t.get('note'))} |\n")
+    return True
+
+
+def ingest(items=None):
+    """Reports that came over the cable ("fieldkit-task ID done ...") -> the ledger, once each. -> [records]."""
+    if items is None:
+        try:
+            from ..peers import link
+            items = link.inbox()
+        except Exception:  # noqa: BLE001
+            return []
+    have = ledger()
+    seen = {r.get("link_n") for r in have.values()}
+    out = []
+    for i in items:
+        m = REPORT.search(i.get("text") or "")
+        if not m or m["id"] not in have or f"{i.get('from_host')}:{i.get('n')}" in seen:
+            continue
+        rec = {"id": m["id"], "status": m["status"], "branch": m["branch"] or "", "pr": m["pr"] or "",
+               "note": (m["note"] or "")[:300], "source": f"link {i.get('from_host')}",
+               "link_n": f"{i.get('from_host')}:{i.get('n')}", "reported": i.get("at")}
+        _append(rec)
+        board(m["id"])
+        out.append(rec)
+    return out
+
+
+def lines(tasks):
+    L = []
+    for t in tasks.values():
+        L.append(f"{t['id']}  {t.get('status', '?'):<11} {t.get('on', '?'):<10} {t.get('title', '')[:60]}"
+                 + (f"  branch {t['branch']}" if t.get("branch") else "") + (f"  PR {t['pr']}" if t.get("pr") else "")
+                 + (f"  ({t['answer'][:120]})" if t.get("status") == "not-started" else ""))
+    return L or ["no tasks"]

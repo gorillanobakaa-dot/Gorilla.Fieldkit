@@ -432,7 +432,7 @@ tools:
   effects: [writes-files, admin, processes, deletes-files]   # installs software
   safety: irreversible
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
 
 - id: next-step
   title: The one next thing to do in a build pipeline (DO, BLOCKED, CANNOT HERE or DONE)
@@ -5857,6 +5857,67 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. Mutations: tests/rotate_mutations.yaml."
+
+- id: friction
+  title: "Friction audit - everything that can wait on a person, on this computer and on every peer over the cable: desktop session cards nobody started, sessions stopped on a question or not in bypass mode, Remote Control pending actions, a link.yaml that would send a peer's job to the inbox, mandate prerequisites not yet sealed (a UAC prompt or an owner yes), [NEEDS YOU] notes, open owner-inbox items; one line each with the fix"
+  harness: core
+  entry: [python, -m, fieldkit, friction]
+  path: ${FIELDKIT}/fieldkit/lifecycle/friction.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, ack, local], help: "LEAVE EMPTY for check (this computer + every peer). ack KEY... marks a handled line; local = this computer only"}
+    - {name: here, flag: --here, type: flag, required: false, help: "this computer only"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON rows with their keys"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {1: "something can wait on a person (each line has its fix)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
+
+- id: task
+  title: "Headless tasking - start a job from a brief file with no click: a one-step autopilot runbook in its own window here, or the peer's link listener over the cable (verb ask: fieldkit autopilot claude under that computer's approved link.yaml); the done protocol appended; reports come back by themselves (here: task report, over the cable: the link inbox) to the ledger, the ROOM log and the Board"
+  harness: core
+  entry: [python, -m, fieldkit, task]
+  path: ${FIELDKIT}/fieldkit/lifecycle/tasks.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [start, status, report], help: "start BRIEF.md [--on DEVICE] | status | report ID --status done|failed|blocked"}
+    - {name: arg, flag: null, type: str, required: false, help: "start: the brief file; report: the task id"}
+    - {name: on, flag: --on, type: str, required: false, help: "start: a household device; the job runs there"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "start here: the job's folder"}
+    - {name: wall, flag: --wall, type: int, required: false, help: "start here: wall budget in minutes (120)"}
+    - {name: status, flag: --status, type: str, required: false, help: "report: done, failed or blocked"}
+    - {name: branch, flag: --branch, type: str, required: false, help: "report: the pushed branch"}
+    - {name: pr, flag: --pr, type: str, required: false, help: "report: the PR URL"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes, network]
+  safety: reversible
+  output: own
+  exits: {2: "no brief / bad arguments", 3: "not started (the answer says why)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Replaces desktop session cards for relief and side jobs (2026-10-26: a session-started turn cannot start a desktop session, so jobs became cards the owner had to click, on the VAIO and on Windows). Proven 2026-10-26 18:57: Windows started a claude job on the VAIO over the cable; it reported back in 40 s, no click. Ledger: state/lifecycle/tasks.jsonl; runbooks: state/lifecycle/tasks/<id>/. The peer side needs allow_start: [claude] + cwd in its approved link.yaml (fieldkit friction says so when missing)."
+
+- id: sessions
+  title: "Session lifecycle - finished and idle Claude desktop sessions with the RAM and CPU their process trees hold (finished: no open PR and idle; idle: waiting on an open PR; held: working now, the command post in NET.yaml, a parent of live sessions, exempt), for the command post to archive; the done protocol every brief ends with; the standing rule block for CLAUDE.md, GEMINI.md, AGENTS.md"
+  harness: core
+  entry: [python, -m, fieldkit, sessions]
+  path: ${FIELDKIT}/fieldkit/lifecycle/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [sweep, protocol, rule, doctor], help: "LEAVE EMPTY for sweep. rule [--install PATH... | --all]; protocol [--task ID] [--headless]"}
+    - {name: idle_minutes, flag: --idle-minutes, type: int, required: false, help: "sweep: idle line (30)"}
+    - {name: keep, flag: --keep, type: str, required: false, help: "sweep: a session id never listed"}
+    - {name: json, flag: --json, type: flag, required: false, help: "sweep: JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: "sweep: a finished session is to archive / doctor: a rule file lacks the block"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Evidence 2026-10-26 18:4x: 20 claude.exe + 15 python.exe at 94 % CPU, many from idle sessions; a finished session could not be archived because Remote Control was on (its fix says: set_remote_control off, then archive_session). Lists only: archiving is the desktop app's verb. fieldkit hog check carries one row: 'idle agent sessions holding N GB'. Thresholds under 'lifecycle' in fieldkit.local.json (idle_minutes 30, busy_cpu_pct 5, hog_warn_gb 1). fieldkit rotate handover appends the done protocol to the relief's brief."
 
 - id: parity
   title: "Test parity - every machine runs the same pinned versions with the same capabilities before a test: a deterministic manifest per machine (versions + sha256 of gorilla-opencode, gorilla-size, python, go, git, gh, node; Fieldkit commit + dirty; installed skills, cards, Gorilla OpenCode provider NAMES, MCP servers, mandates in force, long paths; OS/arch), compared over the household link (SAME / PARTIAL / DRIFT, each difference named, an absent device reported, never a failure), aligned to releases/parity-pin.yaml from the release itself (asset + SHA256SUMS + GitHub digest, old binary kept, Linux/macOS get the root line), and the run guard's shared-ground check"

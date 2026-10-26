@@ -24,6 +24,9 @@ groups:
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
+  - name: lifecycle
+    title: Zero friction - everything that can wait on the owner's click found on every machine, side jobs started headless instead of as session cards, and finished or idle sessions listed with the RAM they hold for archiving
+    sources: [lifecycle/*.py]
   - name: scratch
     title: The scratch root - marked job folders for test copies and transfers, deleted directly and only when yours or stale, and the owner's Defender exclusion
     sources: [scratch/*.py]

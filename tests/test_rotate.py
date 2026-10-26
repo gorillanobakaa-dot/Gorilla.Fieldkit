@@ -204,6 +204,8 @@ def test_handover_writes_note_and_plan_section(tmp_path):
     assert Path(r["note"]).name.endswith("-sess-big.md")
     assert "## Next\n\nwrite tests" in note and "feat/x" in note and "https://github.com/o/r/pull/7" in note
     assert "Do NOT start over" in r["brief"] and r["note"] in r["brief"] and "Build the rotation tool" in r["brief"]
+    # the relief starts side jobs headless and archives itself when done (fieldkit/lifecycle)
+    assert "fieldkit task start" in r["brief"] and "archive_session \"self\"" in r["brief"]
     h = (tmp_path / "rot" / "handovers.jsonl").read_text(encoding="utf-8")
     assert json.loads(h)["plan_written"] is True
 

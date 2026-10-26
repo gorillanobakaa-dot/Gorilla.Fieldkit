@@ -1515,6 +1515,13 @@ def build_parser():
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
+    for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
+                                    "the fix (fieldkit/lifecycle)"),
+                       ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
+                                "listener with --on; status, report (fieldkit/lifecycle)"),
+                       ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
+                                     "protocol and the standing rule (fieldkit/lifecycle)")):
+        sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -2654,6 +2661,9 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] in (["friction"], ["task"], ["sessions"]):   # zero friction: no clicks, no idle sessions
+        from . import lifecycle
+        return lifecycle.main(args if args[0] != "sessions" else args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
