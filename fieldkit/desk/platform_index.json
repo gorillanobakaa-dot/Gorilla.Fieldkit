@@ -3208,5 +3208,16 @@
   "ids": [
    "xzcheck"
   ]
+ },
+ "zero": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "zero"
+  ]
  }
 }
