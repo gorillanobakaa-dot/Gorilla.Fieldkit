@@ -105,3 +105,13 @@
   - '        row["comparable"] = False'
   - '        pass'
   why: a result row says it is not comparable
+- file: fieldkit/parity.py
+  swap:
+  - '            level = INFO                                # differs by design; against_pin judges each machine'
+  - '            pass'
+  why: a toolchain pinned per target may differ between machines
+- file: fieldkit/parity.py
+  swap:
+  - '    return bool(have) and (have == want_v or have.startswith(want_v + "."))'
+  - '    return bool(have) and have.startswith(want_v)'
+  why: a pin of 1.24 is not satisfied by 1.240

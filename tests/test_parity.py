@@ -510,3 +510,42 @@ def test_mandate_share_sends_every_file_and_says_when_the_peer_is_away(tmp_path,
     assert ok and sent == ["owner-wide.yaml: ok", "owner-wide.seal.json: ok"]
     ok, sent = mandate.share(f, put=lambda p: {"ok": False, "error": "no route to 10.77.0.2"})
     assert not ok and sent[0] == "owner-wide.yaml: no route to 10.77.0.2"
+
+
+# ---- per-target toolchain pins ------------------------------------------------------------------------------------
+GO_PIN = dict(PIN, go={"targets": {"windows": "1.27.0", "linux": "1.24.4"}, "align": "report"})
+
+
+def test_go_differing_between_machines_is_drift_without_a_pin():
+    theirs = load("linux.json")
+    theirs["tools"]["go"]["version"] = "1.24.4"
+    r = parity.compare(load("windows.json"), theirs, PIN)
+    assert r["verdict"] == "DRIFT" and [d["what"] for d in r["diffs"] if d["level"] == "drift"] == ["go"]
+
+
+def test_a_per_target_go_pin_makes_the_difference_expected_and_judges_each_machine():
+    mine, theirs = load("windows.json"), load("linux.json")
+    theirs["tools"]["go"]["version"] = "1.24.4"
+    r = parity.compare(mine, theirs, GO_PIN)
+    assert r["verdict"] == "SAME"
+    assert [d["level"] for d in r["diffs"] if d["what"] == "go"] == ["info"]
+    theirs["tools"]["go"]["version"] = "1.25.0"
+    r = parity.compare(mine, theirs, GO_PIN)
+    rows = [d for d in r["diffs"] if d["what"] == "go pin"]
+    assert r["verdict"] == "DRIFT" and "the pin is 1.24.4: install go 1.24.4 by hand (report only)" in rows[0]["detail"]
+
+
+def test_a_pin_prefix_matches_the_patch_level_and_nothing_else():
+    assert parity._matches("1.24.4", "1.24") and parity._matches("1.24.4", "1.24.4")
+    assert not parity._matches("1.240.0", "1.24") and not parity._matches(None, "1.24")
+
+
+def test_a_target_the_pin_does_not_name_is_not_judged():
+    m = load("windows.json")
+    m["machine"]["os"] = "darwin"
+    assert not [d for d in parity.against_pin(m, GO_PIN) if d["what"] == "go pin"]
+
+
+def test_the_committed_pin_keeps_go_per_target_and_report_only():
+    go = parity.pin()["go"]
+    assert go["align"] == "report" and set(go["targets"]) >= {"windows", "linux"}

@@ -338,7 +338,7 @@ RULES = [
     ("fieldkit commit", "fieldkit.commit", DRIFT, "commit"),
     ("fieldkit dirty", "fieldkit.dirty", DRIFT, None),
     ("python", "tools.python.version", INFO, None),       # Windows scoop and Debian differ; 3.11+ is the floor
-    ("go", "tools.go.version", INFO, None),
+    ("go", "tools.go.version", DRIFT, None),             # the same source builds different binaries
     ("git", "tools.git.version", INFO, None),
     ("gh", "tools.gh.version", INFO, None),
     ("node", "tools.node.version", INFO, None),
@@ -377,25 +377,54 @@ def _list_delta(a, b):
     return "; ".join(parts)
 
 
+def pinned_for(want, m):
+    """The version the pin asks of THIS machine: one version for all, or per target (targets: {os or host: version}),
+    so a toolchain kept back on purpose (go1.24 for the Mac 10.13 build) is pinned, not forced to one version.
+    -> None when the pin names no version for this machine."""
+    if isinstance(want, dict) and isinstance(want.get("targets"), dict):
+        mach = m.get("machine") or {}
+        t = want["targets"]
+        v = t.get(mach.get("host")) or t.get(mach.get("os"))
+        return norm_version(str(v)) if v else None
+    return norm_version(str((want or {}).get("version") if isinstance(want, dict) else want))
+
+
+def _matches(have, want_v):
+    """'1.24.4' satisfies a pin of '1.24' or '1.24.4'; '1.240.0' does not satisfy '1.24'."""
+    return bool(have) and (have == want_v or have.startswith(want_v + "."))
+
+
+def per_target(p):
+    """Tools the pin governs per target: two machines differing on them is expected, the pin decides."""
+    return {t for t, w in (p or {}).items() if isinstance(w, dict) and isinstance(w.get("targets"), dict)}
+
+
 def against_pin(m, p, where="this machine"):
-    """-> [diff rows] for each pinned tool whose version here is not the pin."""
+    """-> [diff rows] for each pinned tool whose version here is not the pin. A tool pinned with `align: report` is
+    reported only: parity align moves Gorilla OpenCode alone, never a toolchain."""
     rows = []
     for tool, want in sorted((p or {}).items()):
-        want_v = norm_version(str((want or {}).get("version") if isinstance(want, dict) else want))
+        want_v = pinned_for(want, m)
+        if want_v is None:
+            continue
         have = _get(m, f"tools.{tool}.version")
         if have is ... and m.get("partial"):
             continue                                    # an older peer did not say: listed as NOT REPORTED
         have = None if have is ... else have
-        if have != want_v:
+        if not _matches(have, want_v):
+            fix = "fieldkit parity align" if tool == "gorilla-opencode" else f"install {tool} {want_v} by hand (report only)"
             rows.append({"what": f"{tool} pin", "level": DRIFT, "here": have, "there": want_v,
-                         "detail": f"{where} runs {have or 'nothing'}, the pin is {want_v}: fieldkit parity align"})
+                         "detail": f"{where} runs {have or 'nothing'}, the pin is {want_v}: {fix}"})
     return rows
 
 
 def compare(mine, theirs, p=None):
     """-> {verdict SAME | PARTIAL | DRIFT, diffs: [{what, level, here, there, detail}], missing: [what]}."""
     diffs, missing = [], []
+    governed = per_target(p)
     for what, path, level, how in RULES:
+        if what in governed:
+            level = INFO                                # differs by design; against_pin judges each machine
         a, b = _get(mine, path), _get(theirs, path)
         if a is ... and b is ...:
             continue                                    # neither says (both from before the field existed)
@@ -802,7 +831,8 @@ def main(argv=None):
             print(json.dumps({"mine": mine["hash"], "pin": p, "devices": rows}, indent=1, sort_keys=True))
         else:
             print(f"PARITY  this machine {mine['machine']['host']} manifest {mine['hash'][:12]}, pin "
-                  + ", ".join(f"{k} {v.get('version') if isinstance(v, dict) else v}" for k, v in sorted(p.items())))
+                  + ", ".join(f"{k} {(v.get('version') or canon(v.get('targets'))) if isinstance(v, dict) else v}"
+                              for k, v in sorted(p.items())))
             for line in _diff_lines({"diffs": against_pin(mine, p), "missing": []}):
                 print(line)
             for r in rows:
