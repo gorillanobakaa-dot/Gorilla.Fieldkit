@@ -97,24 +97,31 @@ def test_the_plan_maps_a_module_to_the_tests_that_import_it(repo):
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 def test_the_hook_does_not_run_the_suite_twice_on_the_same_tree(repo, tmp_path):
+    """The case the cache exists for: a commit refused AFTER the suite (privacy scan, a message typo) is tried again on
+    the same tree. Whether the commit itself goes through depends on the scan, so only the log is asserted."""
     hooks = repo / "hooks"
     hooks.mkdir()
-    shutil.copyfile(ROOT / "hooks" / "pre-commit", hooks / "pre-commit")
+    shutil.copy2(ROOT / "hooks" / "pre-commit", hooks / "pre-commit")   # copy2 keeps the mode: Linux git skips a
+    os.chmod(hooks / "pre-commit", 0o755)                                # hook that is not executable
     git(repo, "config", "core.hooksPath", "hooks")
     # the repo's own stand-in package must not shadow the real fieldkit the hook calls
     shutil.rmtree(repo / "fieldkit")
     (repo / "tests" / "test_b.py").unlink()
     git(repo, "add", "-A")
     env = dict(os.environ, PYTHONPATH=str(ROOT), FIELDKIT_TESTCOST_DIR=str(tmp_path / "state"),
-               VIRTUAL_ENV=str(Path(sys.executable).parent.parent), PYTEST_ADDOPTS="")
-    r1 = subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "one"], env=env, capture_output=True, text=True)
-    assert r1.returncode == 0, r1.stdout + r1.stderr
-    r2 = subprocess.run(["git", "-C", str(repo), "commit", "-q", "--amend", "-m", "one, retried"], env=env,
-                        capture_output=True, text=True)
-    assert r2.returncode == 0, r2.stdout + r2.stderr
-    runs = [json.loads(x) for x in (tmp_path / "state" / "runs.jsonl").read_text().splitlines()]
-    assert [x["status"] for x in runs if x["check"] == "full-suite"] == ["pass", "skipped"]
-    assert "passed on this exact tree" in r2.stdout + r2.stderr
+               VIRTUAL_ENV=str(Path(sys.executable).parent.parent), PYTEST_ADDOPTS="", FIELDKIT_PREFLIGHT="0")
+    outs = []
+    for _ in range(2):
+        r = subprocess.run(["git", "-C", str(repo), "commit", "-q", "--allow-empty", "-m", "one"], env=env,
+                           capture_output=True, text=True)
+        outs.append(r.stdout + r.stderr)
+        if r.returncode == 0:      # it went through: undo it, so the second attempt sees the same tree again
+            git(repo, "reset", "-q", "--soft", "HEAD~1") if git(repo, "rev-list", "--count", "HEAD").strip() != "1"                 else None
+    log = tmp_path / "state" / "runs.jsonl"
+    assert log.exists(), "the hook never ran: " + " | ".join(outs)
+    runs = [json.loads(x) for x in log.read_text().splitlines()]
+    assert [x["status"] for x in runs if x["check"] == "full-suite"] == ["pass", "skipped"], outs
+    assert "passed on this exact tree" in outs[1]
 
 
 def test_the_run_guard_gets_the_budget_line_and_never_a_stop(repo):
