@@ -136,7 +136,7 @@ def handoff(job_dir, cwd, job_id, reason, result_text="", since=None, wip=None, 
 
 
 def session_context(session_id, cwd=None):
-    """Tokens of the session's last call (its context size) from its transcript, through TokenAudit when present;
+    """Tokens of the session's last call (its context size) from its transcript, through session-cost (fieldkit/tokens);
     None when unmeasured."""
     if not session_id:
         return None

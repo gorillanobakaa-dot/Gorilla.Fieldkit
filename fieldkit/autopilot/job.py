@@ -15,6 +15,8 @@ commit on refs/heads/wip/<job> (checkpoint.py; HEAD, index and branch untouched)
 end decides (validated names; the defaults below are DESIGN.md section 5's):
 
     budget_exhausted  resume_session_if_fresh -> resume_from_checkpoint -> handoff_inbox   (max_continuations, 3)
+    rotate            the session crossed the ROTATE line (fieldkit rotate): a NEW session from the checkpoint, never
+                      --resume of the old one; past max_rotations (5, "rotate" in fieldkit.local.json) -> handoff_inbox
     rate_limit        backoff (retry-after honored, exponential + jitter, capped) -> pause_and_inbox
     usage_limit       wait_window (sleep until the reset; the checkpoint says paused_until for a supervisor)
     failed            one_fix_run (a fresh session from the checkpoint, told what broke) -> handoff_inbox
@@ -111,7 +113,7 @@ def run_job(job_dir, brief, cwd, say=print, **kw):
 
 def _run_job(job_dir, brief, cwd, budget=None, job_id=None, max_continuations=3, fallback=None, model=None,
              claude=None, sleep=time.sleep, now=time.time, say=print, inbox_add=None, stop_file=None,
-             max_sleep=MAX_SLEEP, on_spend=None):
+             max_sleep=MAX_SLEEP, on_spend=None, max_rotations=None):
     """Run (or resume) one job to done, paused-resumable or failed. Every attempt is recorded in CHECKPOINT.json."""
     from . import hardlines
     if claude is None:
@@ -123,6 +125,9 @@ def _run_job(job_dir, brief, cwd, budget=None, job_id=None, max_continuations=3,
     d.mkdir(parents=True, exist_ok=True)
     job_id = job_id or d.name
     b = bud.merge(budget)
+    if max_rotations is None:
+        from ..tokens import rotate
+        max_rotations = int(rotate.config()["max_rotations"])
     problems = check_fallback(fallback)
     if problems:
         return {"status": "failed", "rc": 2, "why": "; ".join(problems)}
@@ -152,8 +157,8 @@ def _run_job(job_dir, brief, cwd, budget=None, job_id=None, max_continuations=3,
         mode, sid = ck.resume_mode(cp, now(), ck.session_context(cp.get("session_id")))
         if mode == "session" and "resume_session_if_fresh" not in _names(_chain(fallback, "budget_exhausted")):
             mode, sid = "checkpoint", None
-        if cp.get("fixing"):
-            mode, sid = "checkpoint", None
+        if cp.get("fixing") or cp.pop("rotate_next", None):
+            mode, sid = "checkpoint", None          # a rotated session is never resumed: that is the monster
         prompt = first_prompt(brief, d, job_id, b) if mode == "start" else resume_prompt(brief, d, job_id, cp, mode)
         t0 = now()
         bud.start(d, b, t0)
@@ -212,6 +217,21 @@ def _run_job(job_dir, brief, cwd, budget=None, job_id=None, max_continuations=3,
             if "wait_window" in _names(_chain(fallback, "usage_limit")):
                 continue
             return {"status": "paused-resumable", "rc": bud.EXIT_PAUSED, "why": cp["pause_why"], "checkpoint": cp}
+        if kind == "rotate":
+            cp["rotations"] = cp.get("rotations", 0) + 1
+            cp["status"] = "paused-resumable"
+            if cp["rotations"] <= max_rotations:
+                cp["rotate_next"] = True
+                ck.save(d, cp)
+                say(f"    {job_id}: session rotated ({cp['rotations']}/{max_rotations}), a fresh one starts from "
+                    "HANDOFF.md")
+                continue
+            ck.save(d, cp)
+            inbox_add(f"job {job_id}: rotated {cp['rotations']} times", f"{detail[:200]}. Every fresh session "
+                      f"crossed the ROTATE line again: the job is too big for one session. HANDOFF.md in {d}",
+                      kind="handoff", files=[str(d / "HANDOFF.md")])
+            return {"status": "paused-resumable", "rc": bud.EXIT_PAUSED, "why": f"rotate x{cp['rotations']}",
+                    "checkpoint": cp}
         if kind in ("turns", "wall", "budget"):
             cp["continuations"] = cp.get("continuations", 0) + 1
             chain = _names(_chain(fallback, "budget_exhausted"))

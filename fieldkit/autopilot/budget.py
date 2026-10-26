@@ -7,7 +7,7 @@ a hidden 7200 s timeout sat behind it. Here:
 
   budget      {turns, wall_minutes, cost_usd} per attempt; defaults turns 10000, wall 12 h, no dollar cap
   meter       the job's own counter, kept by the hook (claude_hook.py) in <job>/meter.json: tool calls (the turn
-              proxy), wall time since the attempt started, dollars from the transcript (TokenAudit, when present)
+              proxy), wall time since the attempt started, dollars from the transcript (fieldkit/tokens/session_cost.py)
   thresholds  50 / 80 / 95 %: the job is told where it stands; at 80 % it must checkpoint (HANDOFF.md) before any
               further non-read call; at 100 % only a checkpoint is allowed
   classify    what ended a run: success | turns | wall | budget | usage_limit | rate_limit | api_error | crash
@@ -16,7 +16,6 @@ a hidden 7200 s timeout sat behind it. Here:
 import json
 import os
 import re
-import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,6 +24,7 @@ DEFAULT = {"turns": 10000, "wall_minutes": 720, "cost_usd": None}
 LEVELS = (50, 80, 95)
 EXIT_PAUSED = 75                     # sysexits EX_TEMPFAIL: budget exhausted, resumable from the checkpoint
 COST_EVERY = 10                      # the hook re-reads the transcript's cost every N tool calls
+MTIME_SLACK_S = 1.0                  # file times vs time.time(): see checkpointed_since
 
 
 def merge(*budgets):
@@ -84,23 +84,27 @@ def describe(budget, meter, now=None):
 
 
 def transcript_summary(transcript_path):
-    """The session's own transcript measured by the TokenAudit kit (session_cost.py) when it is on this machine:
-    {usd, context_last, ...}. None when it is not (the cost is then known only at the end, from total_cost_usd)."""
+    """The session's own transcript measured by session-cost (fieldkit/tokens/session_cost.py): {usd, context_last,
+    ...}. None when it cannot be read (the cost is then known only at the end, from total_cost_usd)."""
     if not transcript_path or not Path(transcript_path).is_file():
         return None
-    root = Path(__file__).resolve().parents[2]
-    for kit in (root / "local" / "kits" / "TokenAudit",
-                Path.home() / "Documents" / "Scripts" / "Fieldkit" / "local" / "kits" / "TokenAudit"):
-        if (kit / "session_cost.py").is_file():
-            if str(kit) not in sys.path:
-                sys.path.insert(0, str(kit))
-            try:
-                import session_cost as sc
-                adapter, path = sc.resolve(str(transcript_path), sc.adapters_for("claude-code"))
-                return sc.measure(adapter, path)[1] if adapter else None
-            except Exception:  # noqa: BLE001 - a meter must never break the run it measures
-                return None
-    return None
+    try:
+        from ..tokens import session_cost as sc
+        adapter, path = sc.resolve(str(transcript_path), sc.adapters_for("claude-code"))
+        return sc.measure(adapter, path)[1] if adapter else None
+    except Exception:  # noqa: BLE001 - a meter must never break the run it measures
+        return None
+
+
+def rotate_verdict(transcript_path):
+    """-> the session rotation row ({level, why, ...}) for the job's own transcript, or None (fieldkit rotate)."""
+    if not transcript_path or not Path(transcript_path).is_file():
+        return None
+    try:
+        from ..tokens import rotate, session_cost as sc
+        return rotate.judged(rotate.measure(sc.ClaudeCode(), Path(transcript_path)))
+    except Exception:  # noqa: BLE001 - a meter must never break the run it measures
+        return None
 
 
 def transcript_usd(transcript_path):
@@ -110,7 +114,9 @@ def transcript_usd(transcript_path):
 
 def checkpointed_since(job_dir, t):
     h = Path(job_dir) / "HANDOFF.md"
-    return t is not None and h.is_file() and h.stat().st_mtime >= t
+    # Windows stamps files from the coarse system tick (~16 ms) while time.time() is precise: a HANDOFF.md written
+    # right after t can carry an mtime a few ms before it (test_long_horizon failed 2 runs in 4, 2026-10-26)
+    return t is not None and h.is_file() and h.stat().st_mtime >= t - MTIME_SLACK_S
 
 
 def is_checkpoint_call(tool, args):
@@ -134,12 +140,22 @@ def hook_pre(job_dir, tool, args, transcript=None, now=None, read_tool=False):
     if transcript and (m["calls"] % COST_EVERY == 1 or m.get("usd") is None) and b.get("cost_usd"):
         usd = transcript_usd(transcript)
         m["usd"] = usd if usd is not None else m.get("usd")
+    if transcript and m.get("exhausted") != "rotate" and m["calls"] % COST_EVERY == 1:
+        row = rotate_verdict(transcript)
+        if row and row["level"] == "ROTATE":
+            m["exhausted"] = "rotate"
+            m["rotate_why"] = "; ".join(row["why"])
     share, which = used(b, m, now)
     why = None
     if share >= 0.8 and m.get("mark80") is None:
         m["mark80"] = now
     if not read_tool and not is_checkpoint_call(tool, args):
-        if share >= 1.0 and which != "turns":
+        if m.get("exhausted") == "rotate":
+            why = (f"SESSION ROTATION: this session is over the ROTATE line ({m.get('rotate_why')}). Write "
+                   f"{d / 'HANDOFF.md'} now (done / next / blockers / commands that worked / evidence), commit your "
+                   "work in progress on your branch, and end your turn; the harness restarts the job from it in a "
+                   "fresh session.")
+        elif share >= 1.0 and which != "turns":
             m["exhausted"] = m.get("exhausted") or which
             why = (f"BUDGET EXHAUSTED ({which}: {describe(b, m, now)}). Write {d / 'HANDOFF.md'} now (done / next / "
                    "blockers / commands that worked / evidence) and end your turn; the harness resumes you from it.")
@@ -199,6 +215,8 @@ def classify(r, meter=None):
         return "rate_limit", text.strip()[:300]
     if API_4XX.search(text) and (not res or res.get("is_error")):
         return "api_error", text.strip()[:300]
+    if (meter or {}).get("exhausted") == "rotate":
+        return "rotate", f"session over the ROTATE line ({meter.get('rotate_why')}); restart from the checkpoint"
     if (meter or {}).get("exhausted"):
         return "budget", f"{meter['exhausted']} budget exhausted (the hook allowed only a checkpoint)"
     if res and not res.get("is_error") and r.get("rc") == 0:

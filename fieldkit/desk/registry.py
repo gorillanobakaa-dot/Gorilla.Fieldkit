@@ -252,10 +252,20 @@ def _uses_argparse(tree):
     return imported and parses
 
 
+SUPERSEDED = set()       # local card ids left out because a shipped card took over (see load)
+
+
 def load(strict=False):
     raw = list(settings.read_file(REGISTRY)["tools"])
     if LOCAL_REGISTRY.is_file():
-        raw += settings.read_file(LOCAL_REGISTRY).get("tools") or []
+        shipped = {t["id"] for t in raw}
+        for t in settings.read_file(LOCAL_REGISTRY).get("tools") or []:
+            # a local kit's card whose tool moved into shipped code (session-cost, token-audit: 2026-10-26) is the
+            # old copy: the shipped card wins, and the machine keeps working until the local card is removed
+            if t.get("id") in shipped and "/local/kits/" in str(t.get("path", "")).replace("\\", "/"):
+                SUPERSEDED.add(t["id"])
+                continue
+            raw.append(t)
     tools = settings.expand(raw, strict=strict)
     ids = [t["id"] for t in tools]
     dup = {i for i in ids if ids.count(i) > 1}

@@ -295,6 +295,19 @@ def _hog(call, event, ctx):
     return ctx
 
 
+def _rotate(call, event, ctx):
+    """Session rotation rides on this hook (2026-10-26): a session over the ROTATE line is told, at every prompt, to
+    hand over and start a fresh session (fieldkit/tokens/rotate.py). Never fails the hook."""
+    try:
+        from ..tokens import rotate
+        line = rotate.hook_line(call, event)
+        if line:
+            return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
 def hook(stdin=None):
     """Claude Code hook (PostToolUse and UserPromptSubmit). Never blocks, never fails the call."""
     try:
@@ -311,6 +324,7 @@ def hook(stdin=None):
             except Exception:
                 pass
         ctx = _hog(call, event, ctx)
+        ctx = _rotate(call, event, ctx)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
     except Exception:
