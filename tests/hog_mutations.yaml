@@ -95,6 +95,51 @@
   - '        if gone or (cap is not None and age > cap):'
   - '        if gone:'
   why: a registered process past its cap is an orphan
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if cls is None or par is None or par[2] > ctime:'
+  - '        if cls is None or par is None:'
+  why: a parent whose PID now belongs to a younger process holds nothing (PID reused)
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if cls is None or par is None or par[2] > ctime:'
+  - '        if cls is None or par[2] > ctime:'
+  why: a dead parent holds nothing (no crash, no finding)
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        many = len(kids) > cfg["pileup_max_children"]'
+  - '        many = len(kids) >= cfg["pileup_max_children"]'
+  why: a pile-up is MORE than 20 children of one class
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        stale = [k for k in kids if newest - k[0] > cfg["pileup_stale_h"] * 3600]'
+  - '        stale = [k for k in kids if newest - k[0] >= cfg["pileup_stale_h"] * 3600 - 600]'
+  why: stale means started MORE than 12 h before the newest
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if not many and len(stale) < cfg["pileup_stale_min"]:'
+  - '        if not many:'
+  why: children left behind (>= 10 stale) are reported below the count limit
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if not many and len(stale) < cfg["pileup_stale_min"]:'
+  - '        if not many and len(stale) <= cfg["pileup_stale_min"]:'
+  why: 10 stale children is enough
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        groups.setdefault((ppid, cls), []).append((ctime, rss))'
+  - '        groups.setdefault(ppid, []).append((ctime, rss))'
+  why: each (parent, class) pair is counted apart
+- file: fieldkit/hog/rules.py
+  swap:
+  - '            + orphans(facts, registry, cfg, now) + pileup(facts, cfg))'
+  - '            + orphans(facts, registry, cfg, now))'
+  why: the pile-up rule runs in every check
+- file: fieldkit/hog/probe.py
+  swap:
+  - '    for p in psutil.process_iter(["name", "memory_info", "create_time", "cpu_times", "ppid"]):'
+  - '    for p in psutil.process_iter(["name", "memory_info", "create_time", "cpu_times"]):'
+  why: the live table carries each process's parent
 - file: fieldkit/hog/__init__.py
   swap:
   - '        if ct(p.create_time()) != a["ctime"]:'

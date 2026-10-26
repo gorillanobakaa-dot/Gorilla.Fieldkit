@@ -294,6 +294,94 @@ def test_a_shell_is_never_classed_by_the_command_text_it_carries(cfg):
     assert registry._cls(P("python.exe", "python -m pytest -q"), cfg["orphan_classes"]) == "pytest"
 
 
+# ---- pile-up -----------------------------------------------------------------------------------------------------
+def _table(n, cls_name="conhost.exe", parent=("claude.exe", 16824, 17880), parent_ct=NOW - 30 * 3600,
+           kid_ct=lambda i: NOW - 29 * 3600 + i * 60, rss=8 * MB):
+    """The 2026-10-26 shape: Claude Desktop's main process 17880, its NodeService utility 16824, n consoles under it."""
+    name, pid, ppid = parent
+    rows = [[ppid, 4, NOW - 31 * 3600, name, 200 * MB], [pid, ppid, parent_ct, name, 100 * MB]]
+    rows += [[1000 + i, pid, kid_ct(i), cls_name, rss] for i in range(n)]
+    return rows
+
+
+def test_pileup_names_parent_count_memory_and_fix(cfg):
+    f = rules.pileup(facts(table=_table(33)), cfg)
+    assert len(f) == 1 and f[0]["severity"] == "warn" and f[0]["action"] is None
+    n = f[0]["numbers"]
+    assert (n["pid"], n["cls"], n["count"], n["rss"], n["parent_pid"]) == (16824, "conhost", 33, 33 * 8 * MB, 17880)
+    line = f[0]["line"]
+    assert line.startswith(f"Claude (claude.exe 16824, started {rules.stamp(NOW - 30 * 3600)}, parent claude.exe 17880)"
+                           f" holds 33 consoles since {rules.stamp(NOW - 29 * 3600)}, 264 MB: restart Claude Desktop")
+
+
+def test_pileup_threshold_is_more_than_n(cfg):
+    assert rules.pileup(facts(table=_table(20)), cfg) == []          # 20 = the limit, not over it
+    assert rules.pileup(facts(table=_table(21)), cfg)
+
+
+def test_pileup_counts_each_class_and_parent_apart(cfg):
+    t = _table(15) + [[2000 + i, 16824, NOW - 3600, "bash.exe", MB] for i in range(15)]
+    t += [[3000 + i, 17880, NOW - 3600, "conhost.exe", MB] for i in range(15)]
+    assert rules.pileup(facts(table=t), cfg) == []                  # 45 children, no pair over 20
+
+
+def test_pileup_stale_children_left_behind(cfg):
+    # 12 consoles a day old and 2 fresh ones under the same parent: below 20, but left behind
+    t = _table(12, kid_ct=lambda i: NOW - 26 * 3600) + [[5000 + i, 16824, NOW - 60, "conhost.exe", MB] for i in range(2)]
+    f = rules.pileup(facts(table=t), cfg)
+    assert f and f[0]["numbers"]["stale"] == 12 and "12 consoles started over 12 h before its newest (of 14)" in f[0]["line"]
+    t = _table(9, kid_ct=lambda i: NOW - 26 * 3600) + [[5000, 16824, NOW - 60, "conhost.exe", MB]]
+    assert rules.pileup(facts(table=t), cfg) == []                  # 9 stale < 10
+    t = _table(10, kid_ct=lambda i: NOW - 26 * 3600) + [[5000, 16824, NOW - 60, "conhost.exe", MB]]
+    assert rules.pileup(facts(table=t), cfg)                        # 10 stale is enough
+    t = _table(12, kid_ct=lambda i: NOW - 11.9 * 3600) + [[5000, 16824, NOW, "conhost.exe", MB]]
+    assert rules.pileup(facts(table=t), cfg) == []                  # 11.9 h apart is not over 12 h
+
+
+def test_pileup_dead_parent_or_reused_pid_holds_nothing(cfg):
+    t = _table(33)[2:]                                              # parent and grandparent gone
+    assert rules.pileup(facts(table=t), cfg) == []
+    t = _table(33, parent_ct=NOW - 60)                              # 16824 now a process younger than its "children"
+    assert rules.pileup(facts(table=t), cfg) == []
+    t = _table(33)[1:]                                              # grandparent gone: still reported
+    assert "parent gone)" in rules.pileup(facts(table=t), cfg)[0]["line"]
+
+
+def test_pileup_linux_shape(cfg):
+    """Linux/macOS: no .exe; a shell holding python workers; init adopting what a dead terminal left."""
+    t = [[1, 0, NOW - 86400, "systemd", 10 * MB], [900, 1, NOW - 7200, "bash", MB]]
+    t += [[1000 + i, 900, NOW - 3600, "python3.12", 30 * MB] for i in range(25)]
+    t += [[2000 + i, 1, NOW - 3000, "bash", MB] for i in range(22)]
+    f = rules.pileup(facts(table=t), cfg)
+    assert [(x["numbers"]["pid"], x["numbers"]["cls"], x["numbers"]["count"]) for x in f] == \
+        [(900, "python", 25), (1, "bash", 23)]                     # 22 adopted + bash 900 itself
+    assert "close or restart bash when nothing it runs is working" in f[0]["line"]
+    assert f[1]["line"].startswith("init (their own parent died) (systemd 1,") and "pgrep -alP 1" in f[1]["line"]
+
+
+def test_pileup_classes(cfg):
+    c = cfg["pileup_classes"]
+    got = {n: next((k for k, rx in c.items() if __import__("re").search(rx, n.lower())), None)
+           for n in ("conhost.exe", "bash", "python3.12", "pythonw.exe", "node.exe", "pwsh", "PowerShell.exe",
+                     "cmd.exe", "WINWORD.EXE", "bashful", "nodejs-helper")}
+    assert got == {"conhost.exe": "conhost", "bash": "bash", "python3.12": "python", "pythonw.exe": "python",
+                   "node.exe": "node", "pwsh": "powershell", "PowerShell.exe": "powershell", "cmd.exe": "cmd",
+                   "WINWORD.EXE": None, "bashful": None, "nodejs-helper": None}
+
+
+def test_pileup_is_wired_into_evaluate_and_never_acts(cfg):
+    f = rules.evaluate(facts(table=_table(33)), [], [], cfg)
+    assert [x["check"] for x in f] == ["pileup"] and rules.worst(f) == 1
+    assert hog.act(cfg, facts(table=_table(33)), f, settle=0, do=lambda a: (True, "")) == []
+
+
+def test_probe_table_has_ppid(cfg):
+    import os
+    _p, _a, rows = probe.processes(5)
+    me = next(r for r in rows if r["pid"] == os.getpid())
+    assert me["ppid"] == os.getppid()
+
+
 def test_registry_add_dedupes_and_prunes():
     e = _entry()
     assert registry.add([e]) == [e]

@@ -24,6 +24,21 @@
   "act_unload_idle_models": true,
   "act_kill_orphans": true,
   "ollama_url": "http://127.0.0.1:11434",
+  "pileup_max_children": 20,
+  "pileup_stale_h": 12,
+  "pileup_stale_min": 10,
+  "pileup_classes": {
+    "conhost": "^conhost(\\.exe)?$",
+    "bash": "^bash(\\.exe)?$",
+    "python": "^python[0-9.]*w?(\\.exe)?$",
+    "node": "^node(\\.exe)?$",
+    "powershell": "^(powershell|pwsh)(\\.exe)?$",
+    "cmd": "^cmd(\\.exe)?$"
+  },
+  "pileup_fixes": [
+    ["^claude(\\.exe)?$", "Claude", "restart Claude Desktop (or end that claude session) when no session is working"],
+    ["^(systemd|init|launchd)$", "init (their own parent died)", "find who started them (pgrep -alP {pid}) and close what nobody uses"]
+  ],
   "orphan_classes": {
     "pytest": "\\bpytest\\b",
     "go-test": "\\bgo(\\.exe)?\\s+test\\b|\\.test(\\.exe)?\\s*$",

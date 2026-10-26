@@ -1,6 +1,6 @@
 ---
 name: fieldkit-net
-description: The agent net, the military way, with fieldkit zero (also fieldkit net) - is Zero established (who is net control, its epoch, its 2IC), establish Zero, roll call every session for a fixed sitrep, comms check / radio check (leases, SILENT and MISSING stations, a dead cable revived), compare the clocks of both computers, hand Zero over, send a message that wants an ack, read and verify the net log. Use when the owner says "zero", "zero established", "has zero been established", "establish zero", "sitrep", "sit rep", "comms check", "radio check", "roll call", "net", "who is out there", "is everyone alive", "2IC", "second in command", "who is 2IC", or when a session starts and must learn who Zero is, or the sessions went quiet.
+description: The agent net, the military way, with fieldkit zero (also fieldkit net) - is Zero established (who is net control, its epoch, its 2IC), establish Zero, roll call every session for a fixed sitrep, comms check / radio check (leases, SILENT and MISSING stations, a dead cable revived), compare the clocks of both computers, hand Zero over, send a message that wants an ack, read and verify the net log. Use when the owner says "zero", "zero established", "has zero been established", "establish zero", "sitrep", "sit rep", "comms check", "radio check", "roll call", "net", "who is out there", "is everyone alive", "2IC", "second in command", "who is 2IC", or when a session starts and must learn who Zero is, or the sessions went quiet; and for command - "give X its orders", "task X", "who is doing what", "orders", "X is done", a write refused with GROUND CLAIM, "why idle", or "--relieve" in a rotation brief.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Works offline; the only network is the paired cable peer through fieldkit peers link."
 ---
@@ -54,6 +54,27 @@ fieldkit zero checkin --ref R-xxxxxxxx --job "what you do" --state WORKING|BLOCK
   (`fieldkit zero handover --take`).
 - `fieldkit zero schedule --apply` once per computer: the comms check every 15 minutes with nobody awake (revives the
   cable through `fieldkit peers link heal --revive`, retries unacked messages, writes the Board row).
+
+## Command: orders, ground, drift, idle
+
+| The owner says | It means | Run |
+|---|---|---|
+| "give X its orders", "X works on Y", "task X" | Zero gives a station its order: objective, ground (folders), what done looks like | `fieldkit zero task STATION --objective ".." --area PATH[,PATH] --done ".."` |
+| "who is doing what", "orders" | every order with its sitrep, quiet minutes, idle query | `fieldkit zero orders` |
+| "X is done", "free X's ground" | Zero closes the order | `fieldkit zero release STATION [--finished]` |
+
+- Ground is a folder (give each station its own worktree: a worktree is a branch). Two live orders never overlap.
+- A write (Edit / Write / MultiEdit / NotebookEdit, or git commit / reset / checkout / stash / merge / rebase ...) on
+  ground another station holds, or on shared ground outside your own order, is REFUSED by the PreToolUse hook. Never
+  work around it: `fieldkit zero send --to ZERO "need X"` and carry on inside your own ground. PLAN.md, temp,
+  scratchpads, memory and notes are always free.
+- The scheduled comms check flags DRIFT (changes outside the ground; WORKING with nothing moving for 45 min), asks an
+  IDLE station once "why idle, what is blocking you" (answer with `fieldkit zero checkin` and the six fields), lists
+  DONE stations whose session ended with no open PR for archiving, and wakes Zero with ONE message per NEW finding.
+  Zero silent: an inbox item names the 2IC (`handover --assume`). A quiet net sends nothing.
+- Rotating with an order: `fieldkit rotate handover` writes the relief's first command into the brief:
+  `fieldkit zero checkin --relieve OLD_STATION` (order and ground move to the relief).
+- `fieldkit zero doctor` says whether the hook's matcher covers edits; the settings file is the owner's.
 
 Exit codes: 0 OK, 1 WARN, 2 ALARM, 3 no net, 4 REFUSED. Never edit NET.yaml or the net log by hand: `fieldkit zero log
 --verify` finds a changed line.
