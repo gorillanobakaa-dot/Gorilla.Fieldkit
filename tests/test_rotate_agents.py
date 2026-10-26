@@ -32,6 +32,8 @@ FIX = HERE / "data" / "tokens" / "agents"
 SID = "01a0dd9e-0000-7000-8000-000000000001"
 ROLLOUT = f"rollout-2026-09-26T13-08-41-{SID}.jsonl"
 CFG = dict(rotate.DEFAULTS)
+#: reading a .zst rollout needs Python 3.14 or the zstandard package; CI has neither (a new download is the owner's call)
+NEEDS_ZSTD = pytest.mark.skipif(sc._zstd_reader() is None, reason="no zstd decoder (Python 3.14+ or zstandard)")
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +66,7 @@ def priced(calls):
 
 # ---------------------------------------------------------------- Codex
 
-@pytest.mark.parametrize("zst", [False, True])
+@pytest.mark.parametrize("zst", [False, pytest.param(True, marks=NEEDS_ZSTD)])
 def test_codex_real_session_measured_and_priced(tmp_path, zst):
     root, p = codex_home(tmp_path, zst=zst)
     a = sc.Codex(root)
@@ -111,6 +113,7 @@ def test_codex_same_response_written_twice_is_one_call(tmp_path):
     assert len(sc.Codex(root).read(sc.Codex(root).sessions()[0], {})) == 4
 
 
+@NEEDS_ZSTD
 def test_codex_zst_read_once_then_skipped(tmp_path, monkeypatch):
     root, _ = codex_home(tmp_path, zst=True)
     a, st = sc.Codex(root), {}
