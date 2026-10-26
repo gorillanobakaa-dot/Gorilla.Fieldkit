@@ -1775,8 +1775,18 @@ tools:
   entry: [python, -m, fieldkit, peers, link]
   path: ${FIELDKIT}/fieldkit/peers/link.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE"}
-    - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text"}
+    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put, devices], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE; put FILE|FOLDER; devices list|add|remove|export|import"}
+    - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text; put: files or folders; devices: the subcommand and NAME or FILE"}
+    - {name: device, flag: --device, type: str, required: false, help: "hello/send/ask/put: which device of the household; devices import: this device's name"}
+    - {name: bundle, flag: --bundle, type: str, required: false, help: "put: a git bundle of every ref of this repository"}
+    - {name: retries, flag: --retries, type: int, required: false, help: "put: reconnect and resume this many times after a drop (3)"}
+    - {name: address, flag: --address, type: str, required: false, help: "devices add: its address(es), comma separated"}
+    - {name: role, flag: --role, type: str, required: false, help: "devices add: boss or worker (one boss)"}
+    - {name: os, flag: --os, type: str, required: false, help: "devices add: Linux, Windows, Darwin, FreeBSD, Android"}
+    - {name: brain, flag: --brain, type: str, required: false, help: "devices add: the OpenAI-compatible URL it serves"}
+    - {name: link, flag: --link, type: str, required: false, choices: [cable, lan], help: "devices add: how it is reached; jobs go on the cable only"}
+    - {name: port, flag: --port, type: int, required: false, help: "devices add: its port when not the household's"}
+    - {name: this, flag: --this, type: bool, required: false, help: "devices add: this row is THIS device (makes the household key if none)"}
     - {name: me, flag: --me, type: str, required: false, help: "pair init: this computer's cable address (e.g. 10.77.0.1)"}
     - {name: peer, flag: --peer, type: str, required: false, help: "pair init: the other computer's cable address"}
     - {name: to, flag: --to, type: str, required: false, help: "send: a session name on the peer (fieldkit peers) to hand the note to"}
@@ -1791,9 +1801,28 @@ tools:
   safety: irreversible           # a delivered note or a started session cannot be taken back
   output: third-party            # what the peer sends is text from another computer
   platforms: [windows, linux]
-  platforms_why: 'loopback-tested on Windows with two real processes (2026-10-22); not yet run across the cable or on the Linux box'
+  platforms_why: 'loopback-tested on Windows with two real processes (2026-10-22); run live across the cable 2026-10-26, Linux sending, Windows receiving (put of a 158 MB file and a 473,104-file tree, resume, notes); Windows as sender not yet run'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py"]
-  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14). 2026-10-22 Windows items: ask refuses to start when link_ops.startcheck(agent) fails (fail closed; the reply names each failed check); hello carries `toolset` (link_ops.toolset_local) and `time` (for check clock); the start brief names the interpreter by its full path; tests/test_peers_link_winitems.py, plan tests/peers_link_winitems_mutations.yaml (12/12)."
+  notes: "Doors: one TCP port (47077) on the cable address only (wildcard and public addresses refused), only the paired peer's address answered; HMAC-SHA256 on every request with a 32-byte key carried by hand (fingerprint compared on both screens), 120 s clock window, no replay, 64 KB cap. Received text is sanitized and shown fenced; never acted on. ask starts ONLY an agent the receiving computer's owner allowed in ~/.fieldkit/link/link.yaml and approved at a terminal (sha256-pinned); claude starts as `fieldkit autopilot claude --job` (hard lines, no credential); other agents only with a start command the owner wrote, never guessed; everything else goes to that computer's owner inbox. The key file is link.key (hard line 5 keeps models off it). Mutation plan tests/peers_link_mutations.yaml (14/14). 2026-10-22 Windows items: ask refuses to start when link_ops.startcheck(agent) fails (fail closed; the reply names each failed check); hello carries `toolset` (link_ops.toolset_local) and `time` (for check clock); the start brief names the interpreter by its full path; tests/test_peers_link_winitems.py, plan tests/peers_link_winitems_mutations.yaml (12/12). 2026-10-25 O2 big transfer (link_transfer.py): put sends a file, a whole folder or --bundle REPO on ONE connection in 1 MiB blocks (memory flat; no 50 MB cap), sha256 per file checked on arrival plus a digest both ends compare, resumable after a drop (transfer id = the manifest's sha256; --retries), never overwrites received/; case-only twins on a case-insensitive disk and Windows-reserved names are refused, never renamed; an older receiver still takes files up to 50 MB the old way. O1 household: ~/.fieldkit/link/household.json (name, addresses, role, OS, brain, cable|lan; one key, one boss), link.json's one peer read as a household of two and never rewritten; serve answers every household device; job/result/resend/ask on the cable only; one note counter per device. tests/test_peers_link_transfer.py, tests/test_orchestrate.py, plan tests/peers_link_transfer_mutations.yaml (21/21)."
+
+- id: orchestrate
+  title: "The boss's side of the household: every device (role, OS, cable or LAN, brain) and whether it answers now; one note to many workers"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate]
+  path: ${FIELDKIT}/fieldkit/orchestrate.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [devices, note], help: "devices first; note TEXT"}
+    - {name: rest, flag: null, type: str, required: false, help: "note: the text"}
+    - {name: check, flag: --check, type: bool, required: false, help: "devices: ask each device now (hello)"}
+    - {name: to, flag: --to, type: str, required: false, help: "note: workers (default), all, or NAME,NAME"}
+    - {name: needs_you, flag: --needs-you, type: bool, required: false, help: "note: the owner must act"}
+  effects: [network, writes-files]
+  safety: irreversible           # a delivered note cannot be taken back
+  output: third-party            # hello answers come from other computers
+  platforms: [windows, linux]
+  platforms_why: 'stdlib sockets only; run live 2026-10-26 with the boss on Linux, one worker on Windows over the cable and one on Linux; a Windows boss not yet run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate.py"]
+  notes: "Stage O1 of local/PROJECT-MANDATE-PLAN.md section 19. The registry and the wire are peers-link (household.json); this is only the fan-out. A device that does not answer is reported and does not stop the others; exit 3 when any did not answer."
 
 - id: peers-link-check
   title: "The 2026-10-22 Windows lessons as prechecks: clock skew against the peer (the link refuses > 120 s), the cable firewall rule (fix: setup, one UAC click via elevate), a stale 00-00-00-00-00-00 neighbor after a cable move, where put files land, Git Bash eating backslashes and PowerShell 5.1 refusing &&, CRLF from Python, privacy before the 16-minute commit hook, writes too big for one call, and what-you-see -> check"
