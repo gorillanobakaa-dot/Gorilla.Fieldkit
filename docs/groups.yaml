@@ -21,12 +21,18 @@ groups:
   - name: autopilot
     title: Unattended work - the hard lines no session crosses, the runbook runner, the owner's inbox and one-command publish
     sources: [autopilot/*.py]
+  - name: emerge
+    title: Compile jobs like Portage - a recipe per product, content-addressed stages, offload to the other machine, a model only when a stage fails
+    sources: [emerge/*.py]
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
   - name: lifecycle
     title: Zero friction - everything that can wait on the owner's click found on every machine, side jobs started headless instead of as session cards, and finished or idle sessions listed with the RAM they hold for archiving
     sources: [lifecycle/*.py]
+  - name: zero
+    title: The agent net, the military way - Zero (net control) established with a fencing epoch, a 2IC, check-ins on a lease, roll calls with a fixed sitrep, clocks, an append-only net log
+    sources: [zero/*.py]
   - name: scratch
     title: The scratch root - marked job folders for test copies and transfers, deleted directly and only when yours or stale, and the owner's Defender exclusion
     sources: [scratch/*.py]
@@ -121,6 +127,7 @@ groups:
       - lmstudio.py
       - orchestrate.py
       - orchestrate_work.py
+      - overhead.py
       - testcost.py
       - parity.py
 

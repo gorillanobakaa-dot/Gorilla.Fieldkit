@@ -1,0 +1,68 @@
+# fieldkit zero: the fencing, the lease, the chain, the acks and the discipline broken once each; all must be CAUGHT.
+#   python -m fieldkit mutate --plan tests/zero_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_zero_net.py
+- file: fieldkit/zero/net.py
+  swap: ["    if is_open(net) and zero_of(net) != me:\n        raise Refused(f\"split-brain", "    if False:\n        raise Refused(f\"split-brain"]
+  why: "a second Zero is refused while one is established"
+- file: fieldkit/zero/net.py
+  swap: ["    if epoch is not None and int(epoch) != int(net.get(\"epoch\") or 0):", "    if False:"]
+  why: "a command carrying an older epoch is refused"
+- file: fieldkit/zero/net.py
+  swap: ["    epoch = int(net.get(\"epoch\") or 0) + (0 if reopen else 1)", "    epoch = 1"]
+  why: "an epoch is never reused, even after close"
+- file: fieldkit/zero/net.py
+  swap: ["    net[\"epoch\"] = int(net.get(\"epoch\") or 0) + 1", "    net[\"epoch\"] = int(net.get(\"epoch\") or 0)"]
+  why: "a handover raises the epoch"
+- file: fieldkit/zero/net.py
+  swap: ["        if state_of(zrec, now) != \"MISSING\":", "        if False:"]
+  why: "the 2IC assumes only when Zero is MISSING"
+- file: fieldkit/zero/net.py
+  swap: ["    return 0 if now <= lu else 1 + int((now - lu) // ttl)", "    return 0 if now < lu + ttl else 1 + int((now - lu) // ttl)"]
+  why: "an expired lease is a miss at once"
+- file: fieldkit/zero/net.py
+  swap: ["    return \"UP\" if m == 0 else \"SILENT\" if m == 1 else \"MISSING\"", "    return \"UP\" if m == 0 else \"SILENT\""]
+  why: "two misses is MISSING"
+- file: fieldkit/zero/net.py
+  swap: ["        if m >= 2 and rec.get(\"inbox_lease\") != rec.get(\"lease_until\"):", "        if m >= 2:"]
+  why: "a MISSING station goes to the inbox once per lease, not every check"
+- file: fieldkit/zero/net.py
+  swap: ["             \"prev\": hashlib.sha256(last).hexdigest() if last else \"0\" * 64}", "             \"prev\": \"0\" * 64}"]
+  why: "each line carries the hash of the line before"
+- file: fieldkit/zero/net.py
+  swap: ["                if k and not hmac.compare_digest(", "                if False and not hmac.compare_digest("]
+  why: "a forged signature is found"
+- file: fieldkit/zero/net.py
+  swap: ["    if len(recent) >= int(cfg(net, \"per_minute\")) and not flash:", "    if False:"]
+  why: "net discipline: the rate limit holds"
+- file: fieldkit/zero/net.py
+  swap: ["    if entry[\"kind\"] not in COMMAND and not flash and _quiet(net, now):", "    if not flash and _quiet(net, now):"]
+  why: "quiet hours never hold command traffic (a roll call)"
+- file: fieldkit/zero/net.py
+  swap: ["        if u[\"attempts\"] > int(cfg(net, \"retries\")):", "        if u[\"attempts\"] > 99:"]
+  why: "retries stop and the message is listed undelivered"
+- file: fieldkit/zero/net.py
+  swap: ["        if e.get(\"id\") in seen:\n            continue", "        if False:\n            continue"]
+  why: "a cable entry is taken once, by id (idempotent retries)"
+- file: fieldkit/zero/net.py
+  swap: ["            if far_epoch > here or (k == \"close\"", "            if far_epoch >= here or (k == \"close\""]
+  why: "the same epoch with another Zero over the cable is split-brain, not adopted"
+- file: fieldkit/zero/net.py
+  swap: ["            if new or now - float(rec.get(\"last\") or 0) >= RENEW_EVERY_S or rec.get(\"off\"):", "            if True:"]
+  why: "the hook renews a lease at most once a minute"
+- file: fieldkit/zero/net.py
+  swap: ["            if quiet and st[\"meta\"].get(\"zero_alert\") != key:", "            if quiet:"]
+  why: "Zero is told once per change, not at every prompt"
+- file: fieldkit/zero/net.py
+  swap: ["    if machine_of(me) != (net.get(\"zero\") or {}).get(\"machine\"):", "    if False:"]
+  why: "a check-in on the far computer travels back over the cable"
+- file: fieldkit/zero/net.py
+  swap: ["    if bad:\n        raise ValueError(\"sitrep incomplete", "    if False:\n        raise ValueError(\"sitrep incomplete"]
+  why: "the sitrep format is enforced"
+- file: fieldkit/zero/clock.py
+  swap: ["    return \"STOP\" if a > STOP_S else \"WARN\" if a > WARN_S else \"OK\"", "    return \"WARN\" if a > WARN_S else \"OK\""]
+  why: "over 30 s stops a measuring run"
+- file: fieldkit/zero/clock.py
+  swap: ["    s = r[\"time\"] - (t0 + t1) / 2", "    s = r[\"time\"] - t1"]
+  why: "the skew is measured from the midpoint of the round trip"
+- file: fieldkit/zero/channels.py
+  swap: ["    i = (text or \"\").find(NET1 + \"{\")", "    i = 0 if (text or \"\").startswith(NET1) else -1"]
+  why: "the envelope is found behind the link's [FROM ...] stamp"

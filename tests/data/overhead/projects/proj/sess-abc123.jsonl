@@ -1,0 +1,16 @@
+{"type": "user", "timestamp": "2026-10-20T13:40:00.000Z", "message": {"role": "user", "content": "status of the build?"}}
+{"type": "assistant", "timestamp": "2026-10-20T13:40:30.000Z", "message": {"id": "m1", "role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "python -m pytest -q tests"}}]}}
+{"type": "user", "timestamp": "2026-10-20T13:42:30.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "3 passed"}]}}
+{"type": "assistant", "timestamp": "2026-10-20T13:43:00.000Z", "message": {"id": "m2", "role": "assistant", "content": [{"type": "tool_use", "id": "t2", "name": "Edit", "input": {"file_path": "a.py"}}]}}
+{"type": "user", "timestamp": "2026-10-20T13:45:00.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "ok"}]}}
+{"type": "assistant", "timestamp": "2026-10-20T13:45:30.000Z", "message": {"id": "m3", "role": "assistant", "content": [{"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "sleep 60"}}]}}
+{"type": "user", "timestamp": "2026-10-20T13:46:30.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t3", "content": ""}]}}
+{"type": "assistant", "timestamp": "2026-10-20T13:47:00.000Z", "message": {"id": "m4", "role": "assistant", "content": [{"type": "tool_use", "id": "t4", "name": "Write", "input": {"file_path": "b.py"}}]}}
+{"type": "user", "timestamp": "2026-10-20T13:47:05.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t4", "is_error": true, "content": "Permission for this action was denied by the Claude Code auto mode classifier."}]}}
+{"type": "assistant", "timestamp": "2026-10-20T13:47:30.000Z", "message": {"id": "m5", "role": "assistant", "content": [{"type": "text", "text": "Blocked; waiting for you."}]}}
+{"type": "user", "timestamp": "2026-10-20T13:52:30.000Z", "message": {"role": "user", "content": "ok, go on"}}
+{"type": "user", "isMeta": true, "timestamp": "2026-10-20T13:52:31.000Z", "message": {"role": "user", "content": "Another Claude session says hello"}}
+{"type": "assistant", "timestamp": "2026-10-20T13:53:00.000Z", "message": {"id": "m6", "role": "assistant", "content": [{"type": "text", "text": "Going on."}]}}
+{"type": "user", "timestamp": "2026-10-20T13:53:10.000Z", "message": {"role": "user", "content": "<task-notification>background job done</task-notification>"}}
+{"type": "assistant", "timestamp": "2026-10-20T13:54:00.000Z", "message": {"id": "m7", "role": "assistant", "content": [{"type": "tool_use", "id": "t5", "name": "Read", "input": {"file_path": "c.py"}}]}}
+{"type": "user", "timestamp": "2026-10-20T13:54:01.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t5", "content": "x"}]}}

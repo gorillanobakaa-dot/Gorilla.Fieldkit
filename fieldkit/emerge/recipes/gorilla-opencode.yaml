@@ -1,0 +1,33 @@
+# A Gorilla OpenCode release (gorilla-opencode pipeline: every release file from one machine). The modules stage is
+# keyed by go.mod + go.sum, so the 135 s of `go mod download + verify` runs only when they change; vet and test are
+# keyed by the Go sources; the published comparison runs only with --mode release.
+# The module folder: Documents/Gorilla.Opencode, or --var src=PATH.
+name: gorilla-opencode
+pipeline: gorilla-opencode
+description: >-
+  Every Gorilla OpenCode release file (Linux and Windows binaries, the Mac 10.13 zip, .deb/.rpm/tarball,
+  SHA256SUMS), with modules, vet and tests keyed by what they read.
+baseline_minutes: 10
+vars:
+  src: "${DOCUMENTS}/Gorilla.Opencode"
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: Gorilla.Opencode
+  testcost: true
+toolchain:
+  - [go, version]
+preflight: {disk_gb: 5, ram_gb: 4, path: "{src}"}
+docs_only: {source: src}
+stages:
+  toolchain: {uses: [toolchain], needs: [], bucket: tools}
+  modules: {uses: [toolchain, inputs], inputs: ["{src}/go.mod", "{src}/go.sum"], needs: [toolchain]}
+  vet: {uses: [toolchain, inputs], inputs: ["{src}/**/*.go", "{src}/go.sum"], needs: [modules], bucket: tests}
+  test: {uses: [toolchain, inputs], inputs: ["{src}/**/*.go", "{src}/**/testdata/**/*", "{src}/go.sum"], needs: [modules],
+         bucket: tests}
+  build: {needs: [vet, test]}
+  repro: {needs: [build], bucket: tests}
+  published: {needs: [build], tier: release, bucket: tests}
+  mac: {needs: [build]}
+  packages: {needs: [build, mac]}
+  checksums: {needs: [packages, repro]}
