@@ -63,6 +63,7 @@
     fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
     fieldkit testcost plan|run --fast|report     the cheapest test set that is enough; a passed tree is never re-tested
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
+    fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
     fieldkit rotate check|handover|finished      OK / WARN / ROTATE per session; hand a monster session over to a fresh one
@@ -1523,6 +1524,10 @@ def build_parser():
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
     oh.add_argument("args", nargs=argparse.REMAINDER)
+    pa = sub.add_parser("parity", add_help=False,
+                        help="test parity: manifest per machine, compare over the link (SAME/DRIFT), align to the pinned "
+                             "release checked by sha256, the preflight's shared-ground check (fieldkit parity)")
+    pa.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -2660,6 +2665,9 @@ def main(argv=None):
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])
+    if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
+        from . import parity
+        return parity.main(args[1:])
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])

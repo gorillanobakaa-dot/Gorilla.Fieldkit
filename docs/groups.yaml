@@ -120,6 +120,7 @@ groups:
       - orchestrate_work.py
       - overhead.py
       - testcost.py
+      - parity.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

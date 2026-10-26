@@ -2054,6 +2054,17 @@
    "overhead"
   ]
  },
+ "parity": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity"
+  ]
+ },
  "peers link": {
   "platforms": [
    "linux",
