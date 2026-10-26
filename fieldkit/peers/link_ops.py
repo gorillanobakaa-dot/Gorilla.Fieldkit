@@ -11,8 +11,8 @@
     fieldkit peers link verify-start --since N    wait for a started session's [DONE] note with evidence: the only
                                                   proof a session ran (a live process is not)
 
-Owner, 2026-10-22: "tot ce ai facut in seara asta ca sa ajungi la punctul acesta va trebui sa fie transformat in
-unelte deterministice cu card-urile lor, cu precheck-urile lor". What each replaces:
+Owner, 2026-10-22 (translated from Romanian): "everything you did tonight to get to this point will have to be
+turned into deterministic tools with their cards, with their prechecks". What each replaces:
   - toolset: two machines compared by chat, line by line (the only gap was claude 2.1.296 against 2.1.302)
   - startcheck: three start failures found one per round trip, each costing a session: autopilot options that did
     not exist (--job, --wall-minutes), a brief starting with "---" read by claude as an option (prompt in argv), and
