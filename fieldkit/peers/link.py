@@ -890,6 +890,15 @@ def _device():
         return None
 
 
+def _keepalive():
+    """This end's keep-alive in one line for the asking side's doctor (link_keepalive.py); never fails a hello."""
+    try:
+        from . import link_keepalive
+        return link_keepalive.summary(link_keepalive.status())
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "missing": [f"status failed: {type(e).__name__}"]}
+
+
 def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset, via="cable"):
     bad = verifier.check(req)
     if bad:
@@ -905,7 +914,8 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # toolset: the peer diffs it against its own (owner, 2026-10-22: the same tools on both); time: the asking
         # side measures the clock skew the Verifier would refuse (link_checks clock)
         return {"ok": True, "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
-                "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time(), "device": _device()}
+                "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time(), "device": _device(),
+                "keepalive": _keepalive()}
     if verb == "message":
         item = store("message", req)
         handed = ""
@@ -1140,6 +1150,17 @@ def doctor():
     if os.name == "nt":
         print(f"  firewall: allow TCP {cfg.get('port', PORT)} inbound only from {cfg.get('peer', '<peer>')} on the cable "
               "interface (one admin rule; the step that sets the address can add it)")
+    from . import link_keepalive
+    mine = link_keepalive.summary(link_keepalive.status())
+    print(f"  keep-alive here: {'installed' if mine['ok'] else 'MISSING ' + ', '.join(mine['missing'])}")
+    if cfg and k:
+        r = call({"verb": "hello"}, timeout=8)
+        ka = r.get("keepalive") if r.get("ok") else None
+        print("  keep-alive on the peer: " + ("unknown: " + str(r.get("error"))[:80] if not r.get("ok") else
+              "unknown (its link code is older)" if ka is None else "installed" if ka.get("ok") else
+              "MISSING " + ", ".join(ka.get("missing", []))))
+        if not r.get("ok"):
+            print("  the peer does not answer: fieldkit peers link heal")
     ok = all(x for _, x in rows)
     print("DOCTOR  " + ("OK" if ok else "NOT READY"))
     return 0 if ok else 2
@@ -1174,6 +1195,15 @@ def main(argv=None):
             print("peers link check: link_checks.py is not on this computer yet (fetch feat/agent-link)")
             return 2
         return link_checks.main(argv[1:])
+    if argv and argv[0] == "heal":                   # why a device does not answer, and revive it (link_heal.py)
+        from . import link_heal
+        return link_heal.main(argv[1:])
+    if argv and argv[0] == "rescue":                 # the second door: status + restart only (link_rescue.py)
+        from . import link_rescue
+        return link_rescue.main(argv[1:])
+    if argv and argv[0] == "keepalive":              # the service manager keeps the listener up (link_keepalive.py)
+        from . import link_keepalive
+        return link_keepalive.main(argv[1:])
     if argv and argv[0] == "watchdog":                    # the listener on a heartbeat (link_watchdog.py, 2026-10-23)
         from . import link_watchdog
         return link_watchdog.main(argv[1:])

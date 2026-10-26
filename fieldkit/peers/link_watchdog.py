@@ -35,8 +35,11 @@ def _listening():
 
 
 def _restart():
-    from . import link_ops
-    return link_ops.restart()
+    # 2026-10-26: through the service manager when keep-alive is installed (the listener then outlives this check);
+    # the old way only when it is not
+    from . import link_keepalive, link_ops
+    handled, code, lines = link_keepalive.restart_via_manager()
+    return (code, lines) if handled else link_ops.restart()
 
 
 def _report(text):
@@ -94,6 +97,7 @@ Description=fieldkit cable link watchdog (one check)
 
 [Service]
 Type=oneshot
+KillMode=process
 WorkingDirectory={root}
 ExecStart={py} -m fieldkit peers link watchdog --once
 """

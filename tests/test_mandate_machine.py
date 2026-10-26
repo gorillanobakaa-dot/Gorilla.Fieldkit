@@ -126,7 +126,8 @@ def test_the_proposed_mandate_pins_the_scripts_in_this_tree():
     p = settings.ROOT / "fieldkit" / "mandate" / "owner-wide.prereqs.yaml"
     m = yaml.safe_load(p.read_text(encoding="utf-8"))
     es = machine.entries(m)
-    assert {e["id"] for e in es} == {"scratch-defender-exclusion", "longpaths-enabled", "git-longpaths"}
+    assert {e["id"] for e in es} == {"scratch-defender-exclusion", "longpaths-enabled", "git-longpaths",
+                                     "link-keepalive-windows", "link-keepalive-linux", "link-rescue-firewall"}
     for e in es:
         assert PROPOSED_KEYS <= set(e) and machine.sha_ok(e)[0], e["id"]
         assert e["verify"] in machine.VERIFY
