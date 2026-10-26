@@ -120,7 +120,9 @@ groups:
       - buildh/worker.py
       - lmstudio.py
       - orchestrate.py
+      - orchestrate_work.py
       - testcost.py
+      - parity.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

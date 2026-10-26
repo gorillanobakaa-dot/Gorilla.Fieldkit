@@ -99,6 +99,15 @@ def _read(name):
 def record(check, status, seconds, key=None, note=""):
     row = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "check": check, "status": status, "seconds": round(float(seconds), 1),
            "key": key or "", "note": note}
+    if os.environ.get("FIELDKIT_PARITY_MANIFEST"):      # what it ran on (fieldkit/parity.py, set by the run guard)
+        row["manifest"] = os.environ["FIELDKIT_PARITY_MANIFEST"]
+    if os.environ.get("FIELDKIT_PARITY_DEFENDER"):     # Defender state on every result, baseline or not
+        try:
+            row["defender"] = json.loads(os.environ["FIELDKIT_PARITY_DEFENDER"])
+        except ValueError:
+            pass
+    if os.environ.get("FIELDKIT_PARITY_COMPARABLE") == "0":      # machine state off the baseline (Defender)
+        row["comparable"] = False
     _append("runs.jsonl", row)
     return row
 

@@ -555,6 +555,20 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
     return "ask", f"'{action}' is not something a mandate grants ({', '.join(ACTIONS)})"
 
 
+def share(path, put=None):
+    """Send the mandate, its seal and the public keys to the cable peer -> (all sent, ["name: ok | error"])."""
+    if put is None:
+        from ..peers import link
+        put = link.put
+    sent, ok = [], True
+    for f in (Path(path), _seal_path(path), _key_paths()[1], _review_paths()[1]):
+        if f.is_file():
+            res = put(f)
+            ok = ok and bool(res.get("ok"))
+            sent.append(f"{f.name}: {'ok' if res.get('ok') else res.get('error')}")
+    return ok and bool(sent), sent
+
+
 def mandates():
     d = home() / "mandates"
     return sorted(d.glob("*.yaml")) if d.is_dir() else []
@@ -899,12 +913,7 @@ def main(argv=None):
         print(f"STOPPED: {sp}" + ("" if ok else f"; the permanent entry is NOT written yet ({msg})"))
         return 0 if ok else 3
     if a.action == "share":
-        from ..peers import link
-        sent = []
-        for f in (path, _seal_path(path), _key_paths()[1], _review_paths()[1]):
-            if f.is_file():
-                res = link.put(f)
-                sent.append(f"{f.name}: {'ok' if res.get('ok') else res.get('error')}")
+        ok, sent = share(path)
         print("SHARED  " + "; ".join(sent))
         return 0
     return 2

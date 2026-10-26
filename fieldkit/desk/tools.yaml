@@ -1824,6 +1824,30 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate.py"]
   notes: "Stage O1 of local/PROJECT-MANDATE-PLAN.md section 19. The registry and the wire are peers-link (household.json); this is only the fan-out. A device that does not answer is reported and does not stop the others; exit 3 when any did not answer."
 
+- id: orchestrate-job
+  title: "A job on a tree the boss sends: a worker runs a Fieldkit command line (run) or a Gorilla OpenCode brief on a cheap Gemini model (agent) on a copy of it, and the artefacts come back with their sha256 signed"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate, job]
+  path: ${FIELDKIT}/fieldkit/orchestrate_work.py
+  inputs:
+    - {name: kind, flag: null, type: str, required: true, choices: [run, agent, status], help: "run: -- then the Fieldkit command line; agent: --brief FILE; status: the ledger"}
+    - {name: device, flag: --device, type: str, required: false, help: "the worker (fieldkit peers link devices)"}
+    - {name: tree, flag: --tree, type: str, required: false, help: "the folder the job works on; sent first with peers link put"}
+    - {name: project, flag: --project, type: str, required: false, help: "the repository the owner's mandate names (Gorilla.Fieldkit)"}
+    - {name: artefact, flag: --artefact, type: str, required: false, help: "a glob inside the tree to send back (repeat)"}
+    - {name: wall, flag: --wall, type: int, required: false, help: "minutes the job may run (60)"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait here for the result (one blocking wait)"}
+    - {name: brief, flag: --brief, type: str, required: false, help: "agent: a file with the brief"}
+    - {name: model, flag: --model, type: str, required: false, help: "agent: a model the worker's Gorilla OpenCode has (gemini-flash-lite-latest)"}
+    - {name: brain, flag: --brain, type: str, required: false, help: "agent: an OpenAI-compatible URL, only for a worker with no provider of its own"}
+  effects: [network, writes-files, processes]
+  safety: irreversible           # the worker runs the job; artefacts arrive here
+  output: third-party            # the result and artefacts come from another computer
+  platforms: [windows, linux]
+  platforms_why: 'run live 2026-10-26: boss on Linux, worker on Windows over the cable (a Go build inside fieldkit guard, 412 s; an agent brief on gemini-flash-lite-latest, 102 s); a Linux worker and a Windows boss tested on loopback or not yet'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_work.py"]
+  notes: "Stage O3 of local/PROJECT-MANDATE-PLAN.md section 19, on fieldkit/mandate/jobs.py (one boss, the owner's mandate the only approval; the worker checks the mandate sha in force there and the boss). The tree is named by the digest both ends compared; the worker runs on a copy, one job at a time, awake, with a wall cap; run refuses mandate, ship, publish, release, autopilot, peers, inbox, orchestrate, agent, elevate, build-harness; on Windows every run job goes through fieldkit guard. agent: -q (a console-less run otherwise ends with 0xC000013A), the model pinned in the copy's .gorilla-opencode.json; a local --brain model is unloaded after. Artefacts by put, sha256 in the signed result, checked by the boss. Cable only. Not yet: an agent run has the worker's normal Gorilla OpenCode tools. Mutation plan tests/orchestrate_work_mutations.yaml (18/18)."
+
 - id: peers-link-check
   title: "The 2026-10-22 Windows lessons as prechecks: clock skew against the peer (the link refuses > 120 s), the cable firewall rule (fix: setup, one UAC click via elevate), a stale 00-00-00-00-00-00 neighbor after a cable move, where put files land, Git Bash eating backslashes and PowerShell 5.1 refusing &&, CRLF from Python, privacy before the 16-minute commit hook, writes too big for one call, and what-you-see -> check"
   harness: peers
@@ -5850,3 +5874,20 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_net.py"]
   skill: skills/fieldkit-net/SKILL.md
   notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml."
+
+- id: parity
+  title: "Test parity - every machine runs the same pinned versions with the same capabilities before a test: a deterministic manifest per machine (versions + sha256 of gorilla-opencode, gorilla-size, python, go, git, gh, node; Fieldkit commit + dirty; installed skills, cards, Gorilla OpenCode provider NAMES, MCP servers, mandates in force, long paths; OS/arch), compared over the household link (SAME / PARTIAL / DRIFT, each difference named, an absent device reported, never a failure), aligned to releases/parity-pin.yaml from the release itself (asset + SHA256SUMS + GitHub digest, old binary kept, Linux/macOS get the root line), and the run guard's shared-ground check"
+  harness: core
+  entry: [python, -m, fieldkit, parity]
+  path: ${FIELDKIT}/fieldkit/parity.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [manifest, compare, align, preflight, doctor], help: "manifest [--hash] | compare [--peer NAME | --with FILE] | align [--version vX] [--apply] [--rollback] | preflight [--kind test|bench|measure] | doctor"}
+    - {name: json, flag: --json, type: flag, required: false, help: "manifest/compare/align: JSON"}
+  effects: [reads-files, writes-files, network, processes]
+  safety: reversible
+  output: own
+  exits: {0: "SAME / ALONE / aligned / done / preflight ok / doctor ok", 1: "PARTIAL (a peer on an older Fieldkit) / align TODO (the root line for that machine) / preflight warn / doctor problem", 2: "preflight stop (bench or measure on drift, shared ground, a foreign model, a machine not quiet)", 3: "DRIFT, a named device absent, or align/rollback failed"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_parity.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."

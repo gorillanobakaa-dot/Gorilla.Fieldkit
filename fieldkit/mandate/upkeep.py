@@ -532,6 +532,12 @@ def main(action, r, argv):
         code, msg = renew(path, getpass.getpass("Owner key passphrase: "), True, days, source=source)
         print(msg)
         if code == 0:
-            print(f"The other computer: fieldkit mandate share {path} (it verifies with the key it already trusts)")
+            # 2026-10-26: the VAIO kept the old copy after a renew here and refused a job (parity: mandate files)
+            try:
+                ok, sent = M.share(path)
+            except Exception as e:  # noqa: BLE001
+                ok, sent = False, [str(e)[:120]]
+            print(("SHARED with the other computer: " if ok else "NOT SHARED (the other computer still has the OLD "
+                   f"copy; when it is reachable: fieldkit mandate share {path}): ") + "; ".join(sent or ["no peer"]))
         return code
     return 2
