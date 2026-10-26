@@ -1,0 +1,410 @@
+{"t": "2026-10-16 16:11:44", "event": "start"}
+{"t": "2026-10-16 16:12:30", "event": "approve", "who": "owner (command line)"}
+{"t": "2026-10-16 16:12:37", "event": "migrate-init", "stage": "S2"}
+{"t": "2026-10-16 16:12:50", "event": "migrate-work", "stage": "S2"}
+{"t": "2026-10-16 16:12:50", "event": "script-start"}
+{"t": "2026-10-16 16:12:50", "event": "script-done", "seconds": 0.0}
+{"t": "2026-10-16 16:12:50", "event": "script-start"}
+{"t": "2026-10-16 16:12:52", "event": "script-done", "seconds": 2.2}
+{"t": "2026-10-16 16:12:52", "event": "script-start"}
+{"t": "2026-10-16 16:18:18", "event": "script-done", "seconds": 326.2}
+{"t": "2026-10-16 16:18:18", "event": "script-start"}
+{"t": "2026-10-16 16:18:21", "event": "script-done", "seconds": 2.9}
+{"t": "2026-10-16 16:18:21", "event": "script-start"}
+{"t": "2026-10-16 16:18:37", "event": "script-done", "seconds": 16.1}
+{"t": "2026-10-16 16:18:37", "event": "script-start"}
+{"t": "2026-10-16 16:18:41", "event": "script-done", "seconds": 3.4}
+{"t": "2026-10-16 16:18:41", "event": "script-start"}
+{"t": "2026-10-16 16:19:19", "event": "script-done", "seconds": 37.9}
+{"t": "2026-10-16 16:19:19", "event": "script-start"}
+{"t": "2026-10-16 16:19:25", "event": "script-done", "seconds": 6.8}
+{"t": "2026-10-16 16:19:25", "event": "script-start"}
+{"t": "2026-10-16 16:20:03", "event": "script-done", "seconds": 37.8}
+{"t": "2026-10-16 16:20:03", "event": "script-start"}
+{"t": "2026-10-16 16:20:09", "event": "script-done", "seconds": 6.2}
+{"t": "2026-10-16 16:20:09", "event": "script-start"}
+{"t": "2026-10-16 16:20:38", "event": "script-done", "seconds": 28.9}
+{"t": "2026-10-16 16:20:38", "event": "script-start"}
+{"t": "2026-10-16 16:20:44", "event": "script-done", "seconds": 5.2}
+{"t": "2026-10-16 16:20:44", "event": "script-start"}
+{"t": "2026-10-16 16:21:09", "event": "script-done", "seconds": 25.8}
+{"t": "2026-10-16 16:21:09", "event": "script-start"}
+{"t": "2026-10-16 16:21:14", "event": "script-done", "seconds": 5.2}
+{"t": "2026-10-16 16:21:14", "event": "script-start"}
+{"t": "2026-10-16 16:21:41", "event": "script-done", "seconds": 26.6}
+{"t": "2026-10-16 16:21:41", "event": "script-start"}
+{"t": "2026-10-16 16:21:46", "event": "script-done", "seconds": 5.1}
+{"t": "2026-10-16 16:21:46", "event": "script-start"}
+{"t": "2026-10-16 16:22:28", "event": "script-done", "seconds": 42.0}
+{"t": "2026-10-16 16:22:28", "event": "script-start"}
+{"t": "2026-10-16 16:22:37", "event": "script-done", "seconds": 8.7}
+{"t": "2026-10-16 16:22:37", "event": "script-start"}
+{"t": "2026-10-16 16:22:44", "event": "script-done", "seconds": 6.7}
+{"t": "2026-10-16 16:22:44", "event": "script-start"}
+{"t": "2026-10-16 16:22:50", "event": "script-done", "seconds": 6.1}
+{"t": "2026-10-16 16:22:50", "event": "script-start"}
+{"t": "2026-10-16 16:23:15", "event": "script-done", "seconds": 25.2}
+{"t": "2026-10-16 16:23:15", "event": "script-start"}
+{"t": "2026-10-16 16:23:21", "event": "script-done", "seconds": 6.4}
+{"t": "2026-10-16 16:23:21", "event": "script-start"}
+{"t": "2026-10-16 16:23:50", "event": "script-done", "seconds": 28.6}
+{"t": "2026-10-16 16:23:50", "event": "script-start"}
+{"t": "2026-10-16 16:23:57", "event": "script-done", "seconds": 6.8}
+{"t": "2026-10-16 16:23:57", "event": "script-start"}
+{"t": "2026-10-16 16:24:02", "event": "script-done", "seconds": 5.1}
+{"t": "2026-10-16 16:24:02", "event": "script-start"}
+{"t": "2026-10-16 16:24:24", "event": "script-done", "seconds": 22.4}
+{"t": "2026-10-16 16:24:24", "event": "script-start"}
+{"t": "2026-10-16 16:24:28", "event": "script-done", "seconds": 3.9}
+{"t": "2026-10-16 16:24:28", "event": "script-start"}
+{"t": "2026-10-16 16:24:50", "event": "script-done", "seconds": 22.2}
+{"t": "2026-10-16 16:24:50", "event": "script-start"}
+{"t": "2026-10-16 16:24:57", "event": "script-done", "seconds": 6.5}
+{"t": "2026-10-16 16:24:57", "event": "script-start"}
+{"t": "2026-10-16 16:25:01", "event": "script-done", "seconds": 4.1}
+{"t": "2026-10-16 16:25:01", "event": "script-start"}
+{"t": "2026-10-16 16:25:26", "event": "script-done", "seconds": 24.5}
+{"t": "2026-10-16 16:25:26", "event": "script-start"}
+{"t": "2026-10-16 16:25:35", "event": "script-done", "seconds": 9.6}
+{"t": "2026-10-16 16:25:35", "event": "script-start"}
+{"t": "2026-10-16 16:25:55", "event": "script-done", "seconds": 20.1}
+{"t": "2026-10-16 16:25:55", "event": "script-start"}
+{"t": "2026-10-16 16:26:00", "event": "script-done", "seconds": 4.4}
+{"t": "2026-10-16 16:26:00", "event": "script-start"}
+{"t": "2026-10-16 16:26:26", "event": "script-done", "seconds": 26.1}
+{"t": "2026-10-16 16:26:26", "event": "script-start"}
+{"t": "2026-10-16 16:26:31", "event": "script-done", "seconds": 4.9}
+{"t": "2026-10-16 16:26:31", "event": "script-start"}
+{"t": "2026-10-16 16:26:55", "event": "script-done", "seconds": 24.4}
+{"t": "2026-10-16 16:26:55", "event": "script-start"}
+{"t": "2026-10-16 16:27:06", "event": "script-done", "seconds": 11.0}
+{"t": "2026-10-16 16:27:06", "event": "script-start"}
+{"t": "2026-10-16 16:27:11", "event": "script-done", "seconds": 5.5}
+{"t": "2026-10-16 16:27:11", "event": "script-start"}
+{"t": "2026-10-16 16:27:17", "event": "script-done", "seconds": 5.9}
+{"t": "2026-10-16 16:27:17", "event": "script-start"}
+{"t": "2026-10-16 16:27:23", "event": "script-done", "seconds": 5.3}
+{"t": "2026-10-16 16:27:23", "event": "script-start"}
+{"t": "2026-10-16 16:27:49", "event": "script-done", "seconds": 25.9}
+{"t": "2026-10-16 16:27:49", "event": "script-start"}
+{"t": "2026-10-16 16:27:54", "event": "script-done", "seconds": 5.1}
+{"t": "2026-10-16 16:27:54", "event": "script-start"}
+{"t": "2026-10-16 16:27:58", "event": "script-done", "seconds": 4.7}
+{"t": "2026-10-16 16:27:58", "event": "script-start"}
+{"t": "2026-10-16 16:45:23", "event": "script-done", "seconds": 1044.2}
+{"t": "2026-10-16 16:45:23", "event": "obsolete"}
+{"t": "2026-10-16 16:45:23", "event": "obsolete"}
+{"t": "2026-10-16 16:45:34", "event": "auto-done"}
+{"t": "2026-10-16 16:45:43", "event": "auto-done"}
+{"t": "2026-10-16 16:45:52", "event": "auto-done"}
+{"t": "2026-10-16 16:46:00", "event": "auto-done"}
+{"t": "2026-10-16 16:46:09", "event": "auto-done"}
+{"t": "2026-10-16 16:46:17", "event": "auto-done"}
+{"t": "2026-10-16 16:46:24", "event": "auto-done"}
+{"t": "2026-10-16 16:46:33", "event": "auto-done"}
+{"t": "2026-10-16 16:46:42", "event": "auto-done"}
+{"t": "2026-10-16 16:46:51", "event": "auto-done"}
+{"t": "2026-10-16 16:47:00", "event": "auto-done"}
+{"t": "2026-10-16 16:47:10", "event": "auto-done"}
+{"t": "2026-10-16 16:47:52", "event": "auto-done"}
+{"t": "2026-10-16 16:48:01", "event": "auto-done"}
+{"t": "2026-10-16 16:48:11", "event": "auto-done"}
+{"t": "2026-10-16 16:48:21", "event": "auto-done"}
+{"t": "2026-10-16 16:48:59", "event": "auto-done"}
+{"t": "2026-10-16 16:49:08", "event": "auto-done"}
+{"t": "2026-10-16 16:49:16", "event": "auto-done"}
+{"t": "2026-10-16 16:49:24", "event": "auto-done"}
+{"t": "2026-10-16 16:49:31", "event": "auto-done"}
+{"t": "2026-10-16 16:49:39", "event": "auto-done"}
+{"t": "2026-10-16 16:49:47", "event": "auto-done"}
+{"t": "2026-10-16 16:50:22", "event": "auto-done"}
+{"t": "2026-10-16 16:50:29", "event": "auto-done"}
+{"t": "2026-10-16 16:50:36", "event": "auto-done"}
+{"t": "2026-10-16 16:50:42", "event": "auto-done"}
+{"t": "2026-10-16 16:50:51", "event": "auto-done"}
+{"t": "2026-10-16 16:50:58", "event": "auto-done"}
+{"t": "2026-10-16 16:51:05", "event": "auto-done"}
+{"t": "2026-10-16 16:51:13", "event": "auto-done"}
+{"t": "2026-10-16 16:51:22", "event": "auto-done"}
+{"t": "2026-10-16 16:51:30", "event": "auto-done"}
+{"t": "2026-10-16 16:51:38", "event": "auto-done"}
+{"t": "2026-10-16 16:51:47", "event": "auto-done"}
+{"t": "2026-10-16 16:51:55", "event": "auto-done"}
+{"t": "2026-10-16 16:52:02", "event": "auto-done"}
+{"t": "2026-10-16 16:52:09", "event": "auto-done"}
+{"t": "2026-10-16 16:52:16", "event": "auto-done"}
+{"t": "2026-10-16 16:52:23", "event": "auto-done"}
+{"t": "2026-10-16 16:52:29", "event": "auto-done"}
+{"t": "2026-10-16 16:52:36", "event": "auto-done"}
+{"t": "2026-10-16 16:52:43", "event": "auto-done"}
+{"t": "2026-10-16 16:52:50", "event": "auto-done"}
+{"t": "2026-10-16 16:52:57", "event": "auto-done"}
+{"t": "2026-10-16 16:53:04", "event": "auto-done"}
+{"t": "2026-10-16 16:53:11", "event": "auto-done"}
+{"t": "2026-10-16 16:53:18", "event": "auto-done"}
+{"t": "2026-10-16 16:53:25", "event": "auto-done"}
+{"t": "2026-10-16 16:53:32", "event": "auto-done"}
+{"t": "2026-10-16 16:53:38", "event": "auto-done"}
+{"t": "2026-10-16 16:53:45", "event": "auto-done"}
+{"t": "2026-10-16 16:53:53", "event": "auto-done"}
+{"t": "2026-10-16 16:54:00", "event": "auto-done"}
+{"t": "2026-10-16 16:54:07", "event": "auto-done"}
+{"t": "2026-10-16 16:54:14", "event": "auto-done"}
+{"t": "2026-10-16 16:54:21", "event": "auto-done"}
+{"t": "2026-10-16 16:54:28", "event": "auto-done"}
+{"t": "2026-10-16 16:54:36", "event": "auto-done"}
+{"t": "2026-10-16 16:54:46", "event": "auto-done"}
+{"t": "2026-10-16 16:54:55", "event": "auto-done"}
+{"t": "2026-10-16 16:55:04", "event": "auto-done"}
+{"t": "2026-10-16 16:55:14", "event": "auto-done"}
+{"t": "2026-10-16 16:55:24", "event": "auto-done"}
+{"t": "2026-10-16 16:55:33", "event": "auto-done"}
+{"t": "2026-10-16 16:55:43", "event": "auto-done"}
+{"t": "2026-10-16 16:55:50", "event": "auto-done"}
+{"t": "2026-10-16 16:55:58", "event": "auto-done"}
+{"t": "2026-10-16 16:56:07", "event": "auto-done"}
+{"t": "2026-10-16 16:56:16", "event": "auto-done"}
+{"t": "2026-10-16 16:56:24", "event": "auto-done"}
+{"t": "2026-10-16 16:56:33", "event": "auto-done"}
+{"t": "2026-10-16 16:56:42", "event": "auto-done"}
+{"t": "2026-10-16 16:56:51", "event": "auto-done"}
+{"t": "2026-10-16 16:57:00", "event": "auto-done"}
+{"t": "2026-10-16 16:57:08", "event": "auto-done"}
+{"t": "2026-10-16 16:57:17", "event": "auto-done"}
+{"t": "2026-10-16 16:57:26", "event": "auto-done"}
+{"t": "2026-10-16 16:57:35", "event": "auto-done"}
+{"t": "2026-10-16 16:57:44", "event": "auto-done"}
+{"t": "2026-10-16 16:57:54", "event": "auto-done"}
+{"t": "2026-10-16 16:58:04", "event": "auto-done"}
+{"t": "2026-10-16 16:58:14", "event": "auto-done"}
+{"t": "2026-10-16 16:58:24", "event": "auto-done"}
+{"t": "2026-10-16 16:58:34", "event": "auto-done"}
+{"t": "2026-10-16 16:58:44", "event": "auto-done"}
+{"t": "2026-10-16 16:58:54", "event": "auto-done"}
+{"t": "2026-10-16 16:59:04", "event": "auto-done"}
+{"t": "2026-10-16 16:59:14", "event": "auto-done"}
+{"t": "2026-10-16 16:59:24", "event": "auto-done"}
+{"t": "2026-10-16 16:59:33", "event": "auto-done"}
+{"t": "2026-10-16 16:59:44", "event": "auto-done"}
+{"t": "2026-10-16 16:59:54", "event": "auto-done"}
+{"t": "2026-10-16 17:00:04", "event": "auto-done"}
+{"t": "2026-10-16 17:00:14", "event": "auto-done"}
+{"t": "2026-10-16 17:00:24", "event": "auto-done"}
+{"t": "2026-10-16 17:00:33", "event": "auto-done"}
+{"t": "2026-10-16 17:00:44", "event": "auto-done"}
+{"t": "2026-10-16 17:00:54", "event": "auto-done"}
+{"t": "2026-10-16 17:01:04", "event": "auto-done"}
+{"t": "2026-10-16 17:01:15", "event": "auto-done"}
+{"t": "2026-10-16 17:01:25", "event": "auto-done"}
+{"t": "2026-10-16 17:01:35", "event": "auto-done"}
+{"t": "2026-10-16 17:01:46", "event": "auto-done"}
+{"t": "2026-10-16 17:01:57", "event": "auto-done"}
+{"t": "2026-10-16 17:02:07", "event": "auto-done"}
+{"t": "2026-10-16 17:02:17", "event": "auto-done"}
+{"t": "2026-10-16 17:02:27", "event": "auto-done"}
+{"t": "2026-10-16 17:02:37", "event": "auto-done"}
+{"t": "2026-10-16 17:02:47", "event": "auto-done"}
+{"t": "2026-10-16 17:02:57", "event": "auto-done"}
+{"t": "2026-10-16 17:03:07", "event": "auto-done"}
+{"t": "2026-10-16 17:03:16", "event": "auto-done"}
+{"t": "2026-10-16 17:03:24", "event": "auto-done"}
+{"t": "2026-10-16 17:03:33", "event": "auto-done"}
+{"t": "2026-10-16 17:03:41", "event": "auto-done"}
+{"t": "2026-10-16 17:03:50", "event": "auto-done"}
+{"t": "2026-10-16 17:03:58", "event": "auto-done"}
+{"t": "2026-10-16 17:04:07", "event": "auto-done"}
+{"t": "2026-10-16 17:04:15", "event": "auto-done"}
+{"t": "2026-10-16 17:04:24", "event": "auto-done"}
+{"t": "2026-10-16 17:04:33", "event": "auto-done"}
+{"t": "2026-10-16 17:04:41", "event": "auto-done"}
+{"t": "2026-10-16 17:04:49", "event": "auto-done"}
+{"t": "2026-10-16 17:04:58", "event": "auto-done"}
+{"t": "2026-10-16 17:05:07", "event": "auto-done"}
+{"t": "2026-10-16 17:05:16", "event": "auto-done"}
+{"t": "2026-10-16 17:05:25", "event": "auto-done"}
+{"t": "2026-10-16 17:05:34", "event": "auto-done"}
+{"t": "2026-10-16 17:05:43", "event": "auto-done"}
+{"t": "2026-10-16 17:05:52", "event": "auto-done"}
+{"t": "2026-10-16 17:06:01", "event": "auto-done"}
+{"t": "2026-10-16 17:06:07", "event": "auto-done"}
+{"t": "2026-10-16 17:06:12", "event": "auto-done"}
+{"t": "2026-10-16 17:06:17", "event": "auto-done"}
+{"t": "2026-10-16 17:06:22", "event": "auto-done"}
+{"t": "2026-10-16 17:06:31", "event": "auto-done"}
+{"t": "2026-10-16 17:06:36", "event": "auto-done"}
+{"t": "2026-10-16 17:06:41", "event": "auto-done"}
+{"t": "2026-10-16 17:06:46", "event": "auto-done"}
+{"t": "2026-10-16 17:06:52", "event": "auto-done"}
+{"t": "2026-10-16 17:06:57", "event": "auto-done"}
+{"t": "2026-10-16 17:08:23", "event": "dropped"}
+{"t": "2026-10-16 17:09:03", "event": "script-start"}
+{"t": "2026-10-16 17:09:08", "event": "script-done", "seconds": 4.5}
+{"t": "2026-10-16 17:09:08", "event": "script-start"}
+{"t": "2026-10-16 17:09:12", "event": "script-done", "seconds": 4.1}
+{"t": "2026-10-16 17:09:12", "event": "script-start"}
+{"t": "2026-10-16 17:10:02", "event": "script-done", "seconds": 50.4}
+{"t": "2026-10-16 17:10:08", "event": "auto-done"}
+{"t": "2026-10-16 17:10:15", "event": "auto-done"}
+{"t": "2026-10-16 17:10:45", "event": "auto-miss"}
+{"t": "2026-10-16 17:10:47", "event": "packet"}
+{"t": "2026-10-16 17:12:26", "event": "dropped"}
+{"t": "2026-10-16 17:15:08", "event": "lesson"}
+{"t": "2026-10-16 17:15:10", "event": "submit", "ok": true}
+{"t": "2026-10-16 17:15:28", "event": "script-start"}
+{"t": "2026-10-16 17:15:33", "event": "script-done", "seconds": 4.8}
+{"t": "2026-10-16 17:15:33", "event": "script-start"}
+{"t": "2026-10-16 17:15:59", "event": "script-done", "seconds": 25.8}
+{"t": "2026-10-16 17:15:59", "event": "script-start"}
+{"t": "2026-10-16 17:16:05", "event": "script-done", "seconds": 6.3}
+{"t": "2026-10-16 17:16:05", "event": "script-start"}
+{"t": "2026-10-16 17:16:10", "event": "script-done", "seconds": 5.0}
+{"t": "2026-10-16 17:16:10", "event": "script-start"}
+{"t": "2026-10-16 17:16:58", "event": "script-done", "seconds": 47.8}
+{"t": "2026-10-16 17:16:58", "event": "script-start"}
+{"t": "2026-10-16 17:17:03", "event": "script-done", "seconds": 5.2}
+{"t": "2026-10-16 17:17:03", "event": "script-start"}
+{"t": "2026-10-16 17:18:02", "event": "superseded"}
+{"t": "2026-10-16 17:18:07", "event": "script-done", "seconds": 63.6}
+{"t": "2026-10-16 17:18:07", "event": "script-start"}
+{"t": "2026-10-16 17:20:32", "event": "script-done", "seconds": 145.4}
+{"t": "2026-10-16 17:20:32", "event": "done"}
+{"t": "2026-10-16 17:21:13", "event": "migrate-work", "stage": "S2"}
+{"t": "2026-10-16 17:29:39", "event": "migrate-check"}
+{"t": "2026-10-16 17:40:25", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-16 17:40:30", "event": "hand-edit"}
+{"t": "2026-10-16 19:27:02", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-16 19:27:27", "event": "hand-edit"}
+{"t": "2026-10-16 20:02:35", "event": "hand-edit"}
+{"t": "2026-10-16 20:49:19", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-16 20:59:43", "event": "build-start"}
+{"t": "2026-10-16 22:09:25", "event": "thermal", "stage": "build"}
+{"t": "2026-10-16 22:09:25", "event": "build-stop", "stage": "build", "rc": 2}
+{"t": "2026-10-16 23:11:47", "event": "dropped"}
+{"t": "2026-10-16 23:12:02", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-16 23:28:47", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-16 23:37:12", "event": "build-start"}
+{"t": "2026-10-17 00:53:16", "event": "thermal", "stage": "build"}
+{"t": "2026-10-17 00:53:16", "event": "build-stage-done", "stage": "build"}
+{"t": "2026-10-17 00:55:55", "event": "installer-stub", "ok": true}
+{"t": "2026-10-17 08:33:04", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-17 08:33:19", "event": "hand-edit"}
+{"t": "2026-10-17 09:10:31", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-17 09:16:48", "event": "build-start"}
+{"t": "2026-10-17 09:19:18", "event": "thermal", "stage": "build"}
+{"t": "2026-10-17 09:19:18", "event": "build-stage-done", "stage": "build"}
+{"t": "2026-10-17 09:19:52", "event": "installer-stub", "ok": true}
+{"t": "2026-10-17 09:21:43", "event": "thermal", "stage": "package"}
+{"t": "2026-10-17 09:21:43", "event": "build-stage-done", "stage": "package"}
+{"t": "2026-10-17 09:44:26", "event": "build-verified", "ok": false}
+{"t": "2026-10-17 09:46:58", "event": "hand-edit"}
+{"t": "2026-10-17 09:47:04", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-17 09:51:19", "event": "build-start"}
+{"t": "2026-10-17 09:53:09", "event": "thermal", "stage": "build"}
+{"t": "2026-10-17 09:53:09", "event": "build-stage-done", "stage": "build"}
+{"t": "2026-10-17 09:53:47", "event": "installer-stub", "ok": true}
+{"t": "2026-10-17 09:55:49", "event": "thermal", "stage": "package"}
+{"t": "2026-10-17 09:55:49", "event": "build-stage-done", "stage": "package"}
+{"t": "2026-10-17 10:18:17", "event": "build-verified", "ok": false}
+{"t": "2026-10-17 10:42:22", "event": "backup"}
+{"t": "2026-10-17 10:42:49", "event": "install", "ok": true, "rc": 0, "seconds": 2}
+{"t": "2026-10-17 10:56:08", "event": "post_install", "ok": false}
+{"t": "2026-10-17 16:19:58", "event": "leakgate", "final": "FAIL", "release": true}
+{"t": "2026-10-17 23:08:53", "event": "leakgate", "final": "FAIL", "release": true}
+{"t": "2026-10-17 23:13:40", "event": "replay-proof", "ok": false}
+{"t": "2026-10-17 23:46:51", "event": "post_install", "ok": false}
+{"t": "2026-10-18 00:20:01", "event": "replay-proof", "ok": false}
+{"t": "2026-10-18 00:36:33", "event": "replay-proof", "ok": false}
+{"t": "2026-10-18 00:41:51", "event": "rebase-set", "ok": true}
+{"t": "2026-10-18 00:43:08", "event": "replay-proof", "ok": false}
+{"t": "2026-10-18 00:45:36", "event": "replay-proof", "ok": false}
+{"t": "2026-10-18 00:49:19", "event": "replay-proof", "ok": false}
+{"t": "2026-10-18 00:50:59", "event": "replay-proof", "ok": true}
+{"t": "2026-10-18 00:52:37", "event": "replay-proof", "ok": true}
+{"t": "2026-10-18 01:57:42", "event": "replay-proof", "ok": true}
+{"t": "2026-10-18 02:18:03", "event": "post_install", "ok": false}
+{"t": "2026-10-18 02:39:43", "event": "post_install", "ok": false}
+{"t": "2026-10-18 03:03:12", "event": "replay-proof", "ok": true}
+{"t": "2026-10-18 03:23:34", "event": "post_install", "ok": false}
+{"t": "2026-10-18 16:18:05", "event": "hand-edit"}
+{"t": "2026-10-18 16:21:13", "event": "hand-edit"}
+{"t": "2026-10-18 16:52:43", "event": "hand-carried"}
+{"t": "2026-10-18 17:07:06", "event": "replay-proof", "ok": false}
+{"t": "2026-10-18 17:09:05", "event": "replay-proof", "ok": true}
+{"t": "2026-10-18 17:34:20", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-18 17:34:26", "event": "hand-edit"}
+{"t": "2026-10-18 18:06:29", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-18 18:24:51", "event": "build-start"}
+{"t": "2026-10-18 18:29:08", "event": "thermal", "stage": "build"}
+{"t": "2026-10-18 18:29:08", "event": "build-stage-done", "stage": "build"}
+{"t": "2026-10-18 18:30:37", "event": "dist-sweep"}
+{"t": "2026-10-18 18:30:37", "event": "installer-stub", "ok": true}
+{"t": "2026-10-18 18:33:00", "event": "thermal", "stage": "package"}
+{"t": "2026-10-18 18:33:00", "event": "build-stage-done", "stage": "package"}
+{"t": "2026-10-18 18:55:53", "event": "build-verified", "ok": false}
+{"t": "2026-10-18 19:18:29", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-18 19:18:33", "event": "hand-edit"}
+{"t": "2026-10-18 19:44:59", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-18 19:58:37", "event": "build-start"}
+{"t": "2026-10-18 20:00:29", "event": "thermal", "stage": "build"}
+{"t": "2026-10-18 20:00:29", "event": "build-stage-done", "stage": "build"}
+{"t": "2026-10-18 20:01:57", "event": "installer-stub", "ok": true}
+{"t": "2026-10-18 20:04:10", "event": "thermal", "stage": "package"}
+{"t": "2026-10-18 20:04:10", "event": "build-stage-done", "stage": "package"}
+{"t": "2026-10-18 20:26:25", "event": "build-verified", "ok": true}
+{"t": "2026-10-18 21:12:08", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-18 21:13:37", "event": "build-start"}
+{"t": "2026-10-18 21:15:42", "event": "thermal", "stage": "build"}
+{"t": "2026-10-18 21:15:42", "event": "build-stage-done", "stage": "build"}
+{"t": "2026-10-18 21:17:16", "event": "installer-stub", "ok": true}
+{"t": "2026-10-18 21:20:36", "event": "thermal", "stage": "package"}
+{"t": "2026-10-18 21:20:36", "event": "build-stage-done", "stage": "package"}
+{"t": "2026-10-18 21:43:56", "event": "build-verified", "ok": true}
+{"t": "2026-10-18 21:44:55", "event": "replay-proof", "ok": true}
+{"t": "2026-10-18 22:08:08", "event": "backup"}
+{"t": "2026-10-18 22:08:35", "event": "install", "ok": true, "rc": 0, "seconds": 2}
+{"t": "2026-10-18 22:15:46", "event": "post_install", "ok": false}
+{"t": "2026-10-18 22:22:41", "event": "post_install", "ok": true}
+{"t": "2026-10-18 22:25:47", "event": "post_install", "ok": true}
+{"t": "2026-10-19 02:41:56", "event": "leakgate", "final": "FAIL", "release": true}
+{"t": "2026-10-19 05:11:02", "event": "done"}
+{"t": "2026-10-19 05:57:41", "event": "leakgate", "final": "FAIL", "release": true}
+{"t": "2026-10-19 06:07:45", "event": "post_install", "ok": false}
+{"t": "2026-10-19 06:21:18", "event": "post_install", "ok": true}
+{"t": "2026-10-19 06:24:49", "event": "installer-test", "ok": false}
+{"t": "2026-10-19 06:25:31", "event": "installer-test", "ok": true}
+{"t": "2026-10-19 06:35:15", "event": "replay-proof", "ok": true}
+{"t": "2026-10-19 06:53:06", "event": "post_install", "ok": false}
+{"t": "2026-10-19 07:06:49", "event": "replay-proof", "ok": true}
+{"t": "2026-10-23 21:25:22", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-23 21:25:28", "event": "hand-edit"}
+{"t": "2026-10-23 21:27:24", "event": "replay-proof", "ok": true}
+{"t": "2026-10-23 21:27:24", "event": "check-change", "ok": true}
+{"t": "2026-10-23 21:29:49", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-23 21:29:55", "event": "hand-edit"}
+{"t": "2026-10-23 21:31:44", "event": "replay-proof", "ok": true}
+{"t": "2026-10-23 21:31:44", "event": "check-change", "ok": true}
+{"t": "2026-10-23 21:36:06", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-23 21:36:13", "event": "hand-edit"}
+{"t": "2026-10-23 21:37:55", "event": "replay-proof", "ok": true}
+{"t": "2026-10-23 21:37:55", "event": "check-change", "ok": true}
+{"t": "2026-10-23 21:47:51", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-23 21:48:02", "event": "hand-edit"}
+{"t": "2026-10-23 21:50:07", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 21:50:07", "event": "check-change", "ok": false}
+{"t": "2026-10-23 21:52:47", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 21:52:47", "event": "check-change", "ok": false}
+{"t": "2026-10-23 21:53:46", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 21:54:18", "event": "migrate-action", "stage": "S2"}
+{"t": "2026-10-23 21:54:24", "event": "hand-edit"}
+{"t": "2026-10-23 21:56:08", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 21:56:08", "event": "check-change", "ok": false}
+{"t": "2026-10-23 21:57:07", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 21:59:13", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 21:59:13", "event": "check-change", "ok": false}
+{"t": "2026-10-23 22:01:19", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 22:01:19", "event": "check-change", "ok": false}
+{"t": "2026-10-23 22:03:10", "event": "replay-proof", "ok": false}
+{"t": "2026-10-23 22:03:10", "event": "check-change", "ok": false}
+{"t": "2026-10-23 22:03:22", "event": "hand-carried"}
+{"t": "2026-10-23 22:05:05", "event": "replay-proof", "ok": true}
+{"t": "2026-10-23 22:05:05", "event": "check-change", "ok": true}

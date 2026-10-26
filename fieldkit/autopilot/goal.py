@@ -882,12 +882,24 @@ def _finish(gid, st, status, why, inbox_add):
     return {"status": status, "why": why}
 
 
+def _overhead(gid):
+    """fieldkit overhead's line for this goal (WARN over overhead.max_ratio); a broken meter says so, never raises."""
+    try:
+        from .. import overhead
+        return overhead.goal_line(gid, goals=GOALS)
+    except Exception as e:  # noqa: BLE001
+        return f"OVERHEAD: not measured ({type(e).__name__})"
+
+
 def report(gid):
     goal, st = load(gid)
     L = [f"# Goal {gid}: {st['status']}", "", f"Written {time.strftime('%Y-%m-%d %H:%M:%S')} by fieldkit goal from "
          "the verifier's records (no model wrote it).", "", f"Why: {st.get('why', '')}", "",
-         f"Spent: ${spent(st):.2f} in {len(st['spend'])} run(s); planner rounds {st['rounds']}", "",
-         "| criterion | state | verdict |", "|---|---|---|"]
+         f"Spent: ${spent(st):.2f} in {len(st['spend'])} run(s); planner rounds {st['rounds']}", ""]
+    oh = _overhead(gid)
+    if oh:
+        L += [oh, ""]
+    L += ["| criterion | state | verdict |", "|---|---|---|"]
     for k, v in st["criteria"].items():
         L.append(f"| {k} | {v.get('state')} | {v.get('why', '')[:120]} |")
     L += ["", "| job | state | why |", "|---|---|---|"]
@@ -1048,6 +1060,9 @@ def status_lines(gid=None):
                    f"round {st['rounds']}" + (f", paused until {time.strftime('%Y-%m-%d %H:%M', time.localtime(st['paused_until']))}"
                                               if st.get("paused_until") else ""))
         out.append(f"  pre-approvals: {reg_why}")
+        oh = _overhead(g)
+        if oh:
+            out.append("  " + oh)
         for k, v in st["criteria"].items():
             out.append(f"  [{v.get('state', 'pending'):<9}] {k}: {v.get('why', '')[:100]}")
         for k, v in st["jobs"].items():
