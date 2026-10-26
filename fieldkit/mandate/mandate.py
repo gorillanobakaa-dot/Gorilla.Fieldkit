@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 26-10-23-19-38
+# Version: 1.5.0 · updated 26-10-25-23-40
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -26,6 +26,12 @@
     fieldkit mandate quiet --install              while a mandate is in force no session asks the owner (two hooks)
     fieldkit mandate status                       every mandate here and whether it is in force
     fieldkit mandate install GB WHAT -- CMD ...   an install inside the budget: runs CMD, measures the disk, logs it
+    fieldkit mandate gate [--repo .]              a repository's pre-push hook: the push lines on stdin, allowed only
+                                                  through fieldkit ship push under a mandate in force (gate.py)
+
+The OWNER-WIDE mandate (scope: owner-wide, 2026-10-25, owner: "the approval has to come once, at the beginning ...
+has to cover all our projects"): one file, `defaults:` (branch patterns, tag patterns, merge after green CI, release
+from a tag) under every repository it names; the approve screen adds what it does NOT cover and the threat model.
 
 Callers (M3): `fieldkit ship push` logs a push the mandate covers; `fieldkit ship merge` merges into main ONLY when
 a mandate allows it, with every condition proven by the tool; the autopilot hard lines 1 and 4 open for a push or an
@@ -63,9 +69,49 @@ from pathlib import Path
 import yaml
 
 REQUIRED = ("project", "goal", "expires", "repos", "never")
-ACTIONS = ("push", "merge_main", "install", "mac", "release", "approval")
+ACTIONS = ("push", "tag", "merge_main", "release_tag", "install", "mac", "release", "approval")
 # owner approvals no mandate can grant: the mandate's own key, and the owner's signature on a harness change
 NEVER_GRANTED = re.compile(r"\bmandate\b|gorilla_owner_approved", re.I)
+# never pushed under a mandate, whatever a pattern says: the base branches move only by `fieldkit ship merge`
+BASE_BRANCHES = re.compile(r"^(main|master|windows-port|gh-pages)$")
+# a kernel on the owner's machine (2026-10-25): built, pushed and published under a mandate, never installed or booted
+KERNEL_BOOT = re.compile(r"\blinux-(image|headers|modules)\b|\bdpkg\b[^\n]*\s-i\b[^\n]*(kernel|linux)|"
+                         r"\b(update-grub|grub-(install|mkconfig|reboot|set-default)|update-initramfs|mkinitcpio|"
+                         r"dracut|kexec|bootctl|efibootmgr)\b|\bsystemctl\s+reboot\b|(^|[;&|]\s*|\bsudo\s+)reboot\b|"
+                         r"\bshutdown\b[^\n]*\s-r\b", re.I)
+
+# What no mandate covers, whatever it says: shown on the approve screen as NOT COVERED, and each one enforced by the
+# place named (owner, 2026-10-25). The mandate never lists them as doors; a mandate that tries is still shown these.
+NOT_COVERED = (
+    ("decision-register approvals (product-decisions, gorilla_decisions.json, record_decisions.py)",
+     "hard lines 3 and 4; the gorilla-patchset pre-push hook still wants GORILLA_OWNER_APPROVED for that file"),
+    ("leak-gate allowlist entries, dispositions and re-judging", "hard lines 3 and 4"),
+    ("changes to the guards, the git hooks, the hard lines and the mandate code or store itself",
+     "hard line 3; the hooks are installed by your own paste, never by a session"),
+    ("force-push or any history rewrite", "fieldkit ship (never forces), the pre-push gate (fast-forward only)"),
+    ("deleting a branch or a tag on GitHub, or moving a tag that exists", "the pre-push gate (no deletes, new tags only)"),
+    ("pushing main, master or windows-port directly", "the pre-push gate; main moves only by a pull request merged "
+                                                       "after green CI (fieldkit ship merge)"),
+    ("real permanent deletes outside the scratch folders", "hard line 2"),
+    ("downloading a new third-party tool", "not a door of this mandate: the install budget is 0 unless you write one"),
+    ("administrator rights or a UAC prompt on the laptop", "the elevate kit needs your click; no mandate clicks it"),
+    ("installing or booting a kernel on your machine", "KERNEL_BOOT: refused by the install door and the hard lines"),
+)
+
+
+def owner_wide(m):
+    return str(m.get("scope", "")) == "owner-wide"
+
+
+def repo_cfg(m, repo):
+    """The repository's block with the mandate's `defaults:` under it -> dict, or None when the mandate does not name
+    the repository. `Gorilla.Opencode: {}` (or empty) means the defaults alone."""
+    repos = m.get("repos") or {}
+    if repo not in repos:
+        return None
+    out = dict(m.get("defaults") or {})
+    out.update(repos.get(repo) or {})
+    return out
 
 
 def home():
@@ -183,13 +229,24 @@ def load(path):
 def doors(m):
     """Every door the mandate opens, in plain words: what the owner reads before typing yes."""
     out = []
-    for repo, r in (m.get("repos") or {}).items():
+    for repo in (m.get("repos") or {}):
+        r = repo_cfg(m, repo)
         if r.get("push"):
             out.append(f"sessions may PUSH, fast-forward only, these branches of {repo}: {', '.join(r['push'])}")
+        if r.get("tags"):
+            out.append(f"  and push NEW tags {', '.join(r['tags'])} on a commit already on GitHub (a tag is never "
+                       f"moved or deleted)")
+        if r.get("release") == "from_tag":
+            out.append(f"  and publish a GitHub release (gh release create) of such a tag once its CI is green")
+        if r.get("kernel"):
+            out.append("  kernel repository: build, push the branches above, publish the .deb on a release; NEVER "
+                       "install or boot it on your machine (that needs your separate yes)")
         mm = r.get("merge_to_main")
         if mm:
             out.append(f"sessions may MERGE into {repo} main ({mm.get('how', 'fast-forward')}) when: "
-                       f"{', '.join(mm.get('when', []))}")
+                       f"{', '.join(mm.get('when', []))}"
+                       + (" (every GitHub check of that exact commit finished green; no CI = no merge)"
+                          if "ci_green" in (mm.get("when") or []) else ""))
             if any(str(w).split(":")[0] in ("other_machine_reviewed", "tests_on") for w in mm.get("when") or []):
                 # the Windows review of 804f28b: say what the proof is, and what it is not
                 out.append("  a worker's RESULT (other_machine_reviewed, tests_on:<system>): a worker ran the full suite "
@@ -197,7 +254,7 @@ def doors(m):
                            "provenance. NO PERSON READS A DIFF BEFORE MAIN under this gate: it proves another OS ran "
                            "the tests and they did not shrink, nothing more. The worker's concerns are reported; "
                            "with ask_when: [worker_concern] a concern stops the merge and comes to you")
-    if m.get("install"):
+    if float((m.get("install") or {}).get("budget_gb", 0) or 0) > 0:
         out.append(f"sessions may INSTALL software up to {m['install'].get('budget_gb', 0)} GB, each logged")
     for name in (m.get("mac") or {}).values() if isinstance(m.get("mac"), dict) else []:
         out.append(f"sessions have full read/write access to the Mac '{name}'")
@@ -213,11 +270,67 @@ def doors(m):
         out.append("sessions may RELEASE, the whole cycle (build every system, checksums, screenshots, both tracks, "
                    "publish on GitHub, clean up), exactly these: " + "; ".join(
                        f"{p_} {', '.join(map(str, v_ or []))}" for p_, v_ in rel["cycle"].items()))
-    else:
+    elif not owner_wide(m):                            # owner-wide: releases are per repository (release: from_tag)
         out.append("release (tags, published assets): " + str(rel))
     out.append("never: " + ", ".join(m.get("never") or []))
     out.append(f"ends: {m['expires']}")
     return out
+
+
+def not_covered():
+    """What stays yours with this mandate in force, and what enforces each: the approve screen's second list."""
+    return [f"{what}  [{by}]" for what, by in NOT_COVERED]
+
+
+def threat_model(path):
+    """Who can act through the mandate, where the key is, what is logged, how to stop it: the approve screen's third
+    list, with this computer's real paths."""
+    from . import guarded
+    priv, _pub = _key_paths()
+    return [
+        "WHO CAN ACT THROUGH IT: any process on a computer that trusts your key, running as your user, that pushes "
+        "through fieldkit ship (every Claude, Gemini or OpenCode session, and any program you run). It opens only "
+        "the doors above, and only until it ends or you stop it.",
+        "WHO CAN MAKE A NEW ONE: whoever holds BOTH your private key file and its passphrase. The passphrase is never "
+        "written anywhere by Fieldkit; a model can fake a terminal, not the passphrase.",
+        f"KEY STORAGE: private key {priv} (encrypted with the passphrase; hard line 5 keeps models off *.pem); the "
+        f"public half pinned in {guarded.root()} (only an administrator / root can write there).",
+        f"WHAT IS LOGGED: every push, tag, merge and release a mandate allows, in {_log_path(path)} (append-only by "
+        "habit, not by force: your user can edit it), and by GitHub itself (the push and release events, which no "
+        "session can edit).",
+        "WHAT IT DOES NOT STOP: a program running as your user can still do whatever your user can (edit a hook, "
+        "git push --no-verify). The hooks and hard lines stop mistakes and unattended models; GitHub branch "
+        "protection is what stops a determined local program.",
+        f"HOW TO STOP IT: fieldkit mandate stop {path}  (at once, on this computer; permanent for this file), or "
+        f"let it expire on {load(path)['expires']}. On the other computer run the same stop.",
+    ]
+
+
+REF_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$")
+
+
+def _plain_ref(name):
+    return bool(REF_NAME.match(name or "")) and ".." not in name and "//" not in name and \
+        not name.endswith((".lock", "/"))
+
+
+def branch_ok(cfg, branch):
+    """-> (ok, why): a branch the repository's block lets sessions push (never a base branch, whatever the pattern)."""
+    if not _plain_ref(branch):
+        return False, f"{branch!r} is not a plain branch name"
+    if BASE_BRANCHES.match(branch):
+        return False, f"{branch} is a base branch: it moves only by fieldkit ship merge"
+    if not any(fnmatch.fnmatchcase(branch, pat) for pat in cfg.get("push") or []):
+        return False, f"{branch} is not a branch the mandate lets sessions push ({', '.join(cfg.get('push') or [])})"
+    return True, f"{branch} matches {', '.join(cfg.get('push') or [])}"
+
+
+def tag_ok(cfg, tag):
+    if not _plain_ref(tag):
+        return False, f"{tag!r} is not a plain tag name"
+    if not any(fnmatch.fnmatchcase(tag, pat) for pat in cfg.get("tags") or []):
+        return False, f"{tag} is not a tag the mandate lets sessions push ({', '.join(cfg.get('tags') or []) or 'none'})"
+    return True, f"{tag} matches {', '.join(cfg.get('tags'))}"
 
 
 def _sha(path):
@@ -335,20 +448,46 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
             return "ask", "preview only: a push is allowed by the tool that makes it (fieldkit ship push), which " \
                           "reads the repository, branch and fast-forward itself"
         repo, branch = pv.where(repo_path)
-        r = (m.get("repos") or {}).get(repo)
-        if not r:
+        r = repo_cfg(m, repo)
+        if r is None:
             return "ask", f"the repository {repo} is not in the mandate"
-        if not any(fnmatch.fnmatch(branch, pat) for pat in r.get("push") or []):
-            return "ask", f"{branch} is not a branch the mandate lets sessions push"
+        ok, why = branch_ok(r, branch)
+        if not ok:
+            return "ask", why
         ff, ev = pv.fast_forward(repo_path, branch)
         if not ff:
             return "ask", ev
         return "allow", f"repos.{repo}.push matches {branch}; {ev}"
+    if action in ("tag", "release_tag"):
+        # tag: a NEW tag matching repos.X.tags on a commit GitHub already has (fieldkit ship push --tag);
+        # release_tag: also release: from_tag and CI green on the tag's commit (fieldkit ship gh-release)
+        tag = str(p.get("tag") or "")
+        if repo_path is None or not tag:
+            return "ask", "preview only: fieldkit ship push --tag / ship gh-release find the tag's facts themselves"
+        repo, _ = pv.where(repo_path)
+        r = repo_cfg(m, repo)
+        if r is None:
+            return "ask", f"the repository {repo} is not in the mandate"
+        ok, why = tag_ok(r, tag)
+        if not ok:
+            return "ask", why
+        if action == "tag":
+            ok, ev = pv.tag_new_on_pushed_commit(repo_path, tag)
+            return ("allow", f"repos.{repo}.tags matches {tag}; {ev}") if ok else ("ask", ev)
+        if r.get("release") != "from_tag":
+            return "ask", f"repos.{repo}.release is not from_tag: publishing a release is the owner's"
+        ok, ev = pv.tag_on_origin(repo_path, tag)
+        if not ok:
+            return "ask", ev
+        green, cev = pv.PROVERS["ci_green"](repo_path, ev.split()[-1], r)
+        if not green:
+            return "ask", f"{tag}: {cev}"
+        return "allow", f"repos.{repo}.release from_tag {tag}: {cev}"
     if action == "merge_main":
         if repo_path is None or not commit:
             return "ask", "preview only: a merge is allowed by fieldkit ship merge, which proves every condition itself"
         repo, _ = pv.where(repo_path)
-        r = (m.get("repos") or {}).get(repo)
+        r = repo_cfg(m, repo)
         mm = (r or {}).get("merge_to_main")
         if not mm:
             return "ask", f"merging into {repo} main is not in the mandate"
@@ -366,6 +505,8 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
             return "ask", "not proven: " + "; ".join(missing)
         return "allow", f"repos.{repo}.merge_to_main for {commit[:10]}: " + "; ".join(proven)
     if action == "install":
+        if KERNEL_BOOT.search(f"{p.get('what', '')} {p.get('cmd', '')}"):
+            return "ask", "installing or booting a kernel on this machine is never inside a mandate: the owner's yes"
         budget = float((m.get("install") or {}).get("budget_gb", 0))
         used = sum(float(e.get("gb", 0)) for e in read_log(path) if e.get("what") == "install")
         want = float(p.get("gb", 0))
@@ -439,7 +580,7 @@ def _disk_used():
 def install(gb, what, cmd, run=subprocess.run, used=_disk_used):
     """An install inside a mandate's budget -> (code, message). Logs the larger of what was declared and what the
     disk measured, so a low declaration does not stretch the budget."""
-    v, why, p = decide("install", gb=gb)
+    v, why, p = decide("install", gb=gb, what=what, cmd=" ".join(cmd))
     if v != "allow":
         return 3, f"NOT INSIDE THE MANDATE ({why}); nothing installed"
     before = used()
@@ -534,7 +675,7 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
                                        "share", "status", "install", "review-key", "verdict", "job", "boss",
-                                       "ledger", "resume", "tasks", "start", "report", "ask", "quiet"])
+                                       "ledger", "resume", "tasks", "start", "report", "ask", "quiet", "gate"])
     ap.add_argument("rest", nargs="*")
     # the flags after the command (--kind, --seconds, --evidence, --since, --lock, --send) are read from argv by each
     # command: parse_args refused them all, and the worker's own job process (job run ... --lock) died at start
@@ -639,6 +780,9 @@ def main(argv=None):
             print(f"  #{e['n']} {e['at']} {e['what']}: " + ", ".join(f"{k}={v}" for k, v in e.items()
                                                                   if k not in ("n", "at", "what")))
         return 0
+    if a.action == "gate":                                # a repository's pre-push hook (gate.py)
+        from . import gate
+        return gate.main(list(argv if argv is not None else sys.argv[1:])[1:])
     if a.action == "quiet":                               # the owner is not asked while a mandate is in force
         from . import quiet
         return quiet.main(list(argv if argv is not None else sys.argv[1:]))
@@ -693,6 +837,12 @@ def main(argv=None):
         print(f"MANDATE {m['project']}: {m['goal']}".strip())
         print("It opens these doors, for every session on every computer that trusts your key:")
         for line in doors(m):
+            print(f"  - {line}")
+        print("NOT COVERED: these stay yours, whatever the mandate says (and what enforces each):")
+        for line in not_covered():
+            print(f"  - {line}")
+        print("THREAT MODEL:")
+        for line in threat_model(path):
             print(f"  - {line}")
         if not _typed_yes("Approve? Type yes: "):
             print("REFUSED: approving needs the owner typing yes at a real terminal" if not sys.stdin.isatty()

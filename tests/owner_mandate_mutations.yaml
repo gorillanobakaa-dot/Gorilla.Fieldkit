@@ -1,0 +1,137 @@
+# Rules of the owner-wide mandate and the pre-push gate (2026-10-25). Every one must be CAUGHT:
+#   fieldkit mutate --plan tests/owner_mandate_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider -k "not end_to_end" tests/test_mandate_owner_wide.py tests/test_autopilot_hardlines.py
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '    if env.get(MARKER) != "1":'
+  - '    if False:'
+  why: a push that did not come through fieldkit ship push is refused
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '            refused.append(f"deleting {remote_ref} is the owner''s")'
+  - '            pass'
+  why: deleting a branch or tag on origin is the owner's
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '            ok, why = M.branch_ok(cfg, name)'
+  - '            ok, why = True, ""'
+  why: a branch outside the patterns (or a base branch) is refused
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '            elif local_ref != remote_ref:'
+  - '            elif False:'
+  why: a branch pushed under another name is refused
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '            elif remote_sha != ZERO and not _ancestor(repo_path, remote_sha, local_sha):'
+  - '            elif False:'
+  why: a push that rewrites history is refused
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '        ok, why = M.tag_ok(cfg, tag)'
+  - '        ok, why = True, ""'
+  why: a tag outside the patterns is refused
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '            refused.append(f"{tag} exists on origin: a tag is never moved")'
+  - '            pass'
+  why: a tag that exists on origin is never moved
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '        elif not (proofs._origin_has(repo_path, commit) or any(_ancestor(repo_path, commit, b) for b in branches)):'
+  - '        elif False:'
+  why: a tag on a commit GitHub has not seen is refused
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '        if not remote_ref.startswith("refs/tags/"):'
+  - '        if False:'
+  why: a ref that is neither a branch nor a tag is refused
+- file: fieldkit/mandate/gate.py
+  swap:
+  - '        return False, [f"no mandate in force names {repo}: {cfg}"], None'
+  - '        return True, [], None'
+  why: no mandate in force for this repository = refused
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '    if (today or date.today()) > ends:'
+  - '    if False:'
+  why: an expired mandate opens nothing
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '    if seal.get("sha256") != _sha(path):'
+  - '    if False:'
+  why: a mandate edited after its seal opens nothing
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        return False, "STOPPED by the owner"'
+  - '        pass'
+  why: a stopped mandate opens nothing
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        return False, "the seal''s signature is not valid"'
+  - '        pass'
+  why: a forged signature opens nothing
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '    if BASE_BRANCHES.match(branch):'
+  - '    if False:'
+  why: main/master/windows-port are never pushed, whatever a pattern says
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '            return "ask", "installing or booting a kernel on this machine is never inside a mandate: the owner''s yes"'
+  - '            pass'
+  why: a kernel is never installed or booted through the install door
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        if r.get("release") != "from_tag":'
+  - '        if False:'
+  why: a release needs release from_tag in the repository's block
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        if not green:'
+  - '        if False:'
+  why: a release needs green CI on the tag's commit
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        for line in not_covered():'
+  - '        for line in []:'
+  why: the approve screen lists what is NOT covered
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        for line in threat_model(path):'
+  - '        for line in []:'
+  why: the approve screen shows the threat model
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '    if cmd is not None and KERNEL_BOOT.search(cmd):'
+  - '    if False:'
+  why: the hard lines deny a kernel install or boot, mandate or not
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '        v, why, path = door.decide("release_tag", repo_path='
+  - '        v, why, path = door.decide("push", repo_path='
+  why: a release of a tag is opened only by the release_tag door
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '        v, why, path = door.decide("tag", repo_path=repo_path, tag=tag.group(1)) if tag else \'
+  - '        v, why, path = door.decide("push", repo_path=repo_path) if tag else \'
+  why: a tag push asks the tag door, not the branch door
+- file: fieldkit/method/ship.py
+  swap:
+  - '                                  "hook declined", "failed to push some refs"))'
+  - '                                  "hook declined"))'
+  why: a hook refusal is not retried as a network error
+- file: fieldkit/method/ship.py
+  swap:
+  - '    verdict, why, mpath = mandate("release_tag", repo_path=repo, tag=tag)'
+  - '    verdict, why, mpath = "allow", "", None'
+  why: ship gh-release publishes only what the mandate's release_tag door allows
+- file: fieldkit/method/ship.py
+  swap:
+  - '    bad = [x for x in extra if x in ("--target", "-t", "-R", "--repo") or x.startswith(("--target=", "--repo=", "-R"))]'
+  - '    bad = []'
+  why: the release's commit and repository never come from the caller
+- file: fieldkit/method/ship.py
+  swap:
+  - '    verdict, why, mpath = mandate("tag", repo_path=repo, tag=tag)'
+  - '    verdict, why, mpath = "allow", "", None'
+  why: ship push --tag pushes only a tag the mandate allows
