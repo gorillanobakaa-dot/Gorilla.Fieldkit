@@ -1889,6 +1889,17 @@
    "mandate-install-hooks"
   ]
  },
+ "mandate prereqs": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate-prereqs"
+  ]
+ },
  "mandate renew": {
   "platforms": [
    "darwin",
@@ -2312,6 +2323,17 @@
   "why": "",
   "ids": [
    "runbook"
+  ]
+ },
+ "scratch": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "scratch"
   ]
  },
  "session-cost": {

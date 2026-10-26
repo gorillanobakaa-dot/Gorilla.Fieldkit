@@ -24,6 +24,9 @@ groups:
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
+  - name: scratch
+    title: The scratch root - marked job folders for test copies and transfers, deleted directly and only when yours or stale, and the owner's Defender exclusion
+    sources: [scratch/*.py]
   - name: tokens
     title: What AI coding sessions cost and where their tokens went, and session rotation - monster sessions handed over to fresh ones
     sources: [tokens/*.py]

@@ -4,5 +4,6 @@
   "kernel": {"workdir": "${HOME}/kernel-build", "project": "${HOME}/debian-kernel"},
   "privacy": {"terms": ["your real name", "your email", "your login name"]},
   "career": {"dir": "${FIELDKIT}/local/career", "reed_key": "", "adzuna_app_id": "", "adzuna_app_key": ""},
-  "backup": {"dir": "the folder where your backups already are", "reminder": "a line printed after every backup"}
+  "backup": {"dir": "the folder where your backups already are", "reminder": "a line printed after every backup"},
+  "scratch": {"root": "C:\\fk-scratch", "stale_hours": 24}
 }
