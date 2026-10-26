@@ -179,7 +179,7 @@ def _mark_attempt(now=None):
     (_state() / "last-attempt.json").write_text(json.dumps({"t": now or time.time()}), encoding="utf-8")
 
 
-def apply(m, in_force, verify=None, run=subprocess.run, elevate_fn=None, say=print, force=False, now=None):
+def apply(m, in_force, verify=None, run=subprocess.run, elevate_fn=None, say=print, force=False, now=None, nt=None):
     """Apply the missing prerequisites of an IN-FORCE mandate. -> (code, lines). 0 all present, 3 something missing."""
     if not in_force:
         return 3, ["PREREQS: no mandate in force: nothing is applied (the owner approves them in the mandate)"]
@@ -202,7 +202,7 @@ def apply(m, in_force, verify=None, run=subprocess.run, elevate_fn=None, say=pri
         r = run(cmd, capture_output=True, text=True)
         out.append(f"  {i}: {'applied' if r.returncode == 0 else 'FAILED exit ' + str(r.returncode)} (as you)")
     if todo_admin:
-        if os.name != "nt":
+        if not ((os.name == "nt") if nt is None else nt):
             out.append(f"  {', '.join(e['id'] for e in todo_admin)}: administrator entries run on Windows only")
         elif _attempted_recently(now) and not force:
             out.append(f"  {', '.join(e['id'] for e in todo_admin)}: the UAC prompt was put up less than "

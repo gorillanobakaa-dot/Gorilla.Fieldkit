@@ -66,7 +66,8 @@ def extended(p, nt=None):
     s = str(p)
     if not nt:
         return s
-    s = os.path.abspath(s) if not s.startswith("\\\\?\\") else s
+    import ntpath                   # Windows rules even when a test asks for them on Linux
+    s = ntpath.abspath(s) if not s.startswith("\\\\?\\") else s
     if s.startswith("\\\\?\\"):
         return s
     return "\\\\?\\UNC\\" + s[2:] if s.startswith("\\\\") else "\\\\?\\" + s

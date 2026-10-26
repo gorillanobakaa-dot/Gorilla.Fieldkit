@@ -80,13 +80,12 @@ def test_user_entries_run_as_you_and_admin_entries_go_to_one_elevated_run(tmp_pa
         elevated.append([e["id"] for e in todo])
         state["lp"] = True
         return True, "finished"
-    monkeypatch.setattr(os, "name", "nt")
     code, lines = machine.apply(_m(lp(), GIT), True, verify={"lp": lambda: state["lp"], "git": lambda: state["git"]},
-                                run=run, elevate_fn=elev, now=1000.0)
+                                run=run, elevate_fn=elev, now=1000.0, nt=True)
     assert code == 0 and elevated == [["longpaths-enabled"]] and len(ran) == 1
     # a second start within 12 h does not put the UAC prompt up again
     state["lp"] = False
-    code, lines = machine.apply(_m(lp()), True, verify={"lp": lambda: state["lp"]}, elevate_fn=elev, now=2000.0)
+    code, lines = machine.apply(_m(lp()), True, verify={"lp": lambda: state["lp"]}, elevate_fn=elev, now=2000.0, nt=True)
     assert code == 3 and elevated == [["longpaths-enabled"]] and "less than 12 h ago" in " ".join(lines)
 
 
