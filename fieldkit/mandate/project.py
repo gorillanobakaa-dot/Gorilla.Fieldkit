@@ -106,6 +106,12 @@ def start(smoke=None, health_fn=None):
     w = upkeep.warning()
     if w:
         out.append(w)                                     # the expiry warning, WARN_DAYS before the end (one line)
+    if force:
+        from . import machine
+        try:
+            out += machine.start_lines()                  # the mandate's machine prerequisites, applied once
+        except Exception as e:  # noqa: BLE001
+            out.append(f"PREREQS: not checked ({e})")
     if smoke is None:
         try:
             smoke = _link().call({"verb": "hello"})

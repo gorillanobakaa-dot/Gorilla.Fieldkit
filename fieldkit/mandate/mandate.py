@@ -30,7 +30,10 @@
                                                   through fieldkit ship push under a mandate in force (gate.py)
     fieldkit mandate doctor [--json]              in force, days left, keys, the VAIO's key, every covered hook (upkeep.py)
     fieldkit mandate install-hooks [--yes] [--stick DIR]   the gate-aware hook in every covered clone here (upkeep.py)
-    fieldkit mandate renew FILE.yaml [--days 7]   a new period: the approve screen, typed yes + passphrase (upkeep.py)
+    fieldkit mandate renew FILE.yaml [--days 7] [--from CHANGED.yaml]   a new period (with --from: the changed
+                                                  mandate, new doors marked NEW): typed yes + passphrase (upkeep.py)
+    fieldkit mandate prereqs [check | apply [--force] | undo ID]   the mandate's machine prerequisites (machine.py):
+                                                  approved once with the mandate, applied at a session start
 
 The OWNER-WIDE mandate (scope: owner-wide, 2026-10-25, owner: "the approval has to come once, at the beginning ...
 has to cover all our projects"): one file, `defaults:` (branch patterns, tag patterns, merge after green CI, release
@@ -41,9 +44,9 @@ a mandate allows it, with every condition proven by the tool; the autopilot hard
 owner approval a mandate in force covers (and log it), and judge `fieldkit mac run` on a granted Mac as the Mac's
 business; while a mandate is in force, installs go through `fieldkit mandate install`.
 
-Owner, 2026-10-23, after a day as the router between 16 sessions on two computers: "aprobarile se dau o singura data
-pentru un proiect si ar trebui sa fie valabile si pentru cealalta sesiune ... doua sesiuni lucrand la acelasi proiect
-sub acelasi mandat using the same SOPs." Plan: local/PROJECT-MANDATE-PLAN.md.
+Owner, 2026-10-23, after a day as the router between 16 sessions on two computers (translated from Romanian):
+"approvals are given once for a project and should be valid for the other session too ... two sessions working on
+the same project under the same mandate using the same SOPs." Plan: local/PROJECT-MANDATE-PLAN.md.
 
 Why a signing key and not the cable's key (the Windows side's review, 2026-10-23): anything that can read link.key
 could mint a seal; a seal must prove THE OWNER'S TERMINAL. The private key is encrypted with a passphrase only the
@@ -98,7 +101,9 @@ NOT_COVERED = (
                                                        "after green CI (fieldkit ship merge)"),
     ("real permanent deletes outside the scratch folders", "hard line 2"),
     ("downloading a new third-party tool", "not a door of this mandate: the install budget is 0 unless you write one"),
-    ("administrator rights or a UAC prompt on the laptop", "the elevate kit needs your click; no mandate clicks it"),
+    ("administrator rights or a UAC prompt on the laptop, beyond the machine prerequisites listed above",
+     "the elevate kit needs your click; no mandate clicks it (a listed prerequisite still shows ONE UAC prompt the "
+     "first time a session start applies it: Windows lets no program answer its own prompt)"),
     ("installing or booting a kernel on your machine", "KERNEL_BOOT: refused by the install door and the hard lines"),
 )
 
@@ -276,6 +281,8 @@ def doors(m):
                        f"{p_} {', '.join(map(str, v_ or []))}" for p_, v_ in rel["cycle"].items()))
     elif not owner_wide(m):                            # owner-wide: releases are per repository (release: from_tag)
         out.append("release (tags, published assets): " + str(rel))
+    from . import machine
+    out += machine.door_lines(m)                       # machine prerequisites: approved here, applied at a start
     out.append("never: " + ", ".join(m.get("never") or []))
     out.append(f"ends: {m['expires']}")
     return out
@@ -683,7 +690,7 @@ def main(argv=None):
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
                                        "share", "status", "install", "review-key", "verdict", "job", "boss",
                                        "ledger", "resume", "tasks", "start", "report", "ask", "quiet", "gate",
-                                       "doctor", "install-hooks", "renew"])
+                                       "doctor", "install-hooks", "renew", "prereqs"])
     ap.add_argument("rest", nargs="*")
     # the flags after the command (--kind, --seconds, --evidence, --since, --lock, --send) are read from argv by each
     # command: parse_args refused them all, and the worker's own job process (job run ... --lock) died at start
@@ -746,6 +753,9 @@ def main(argv=None):
         if w:
             print("  " + w)
         return 0
+    if a.action == "prereqs":                                # machine.py: declared, approved once, applied at a start
+        from . import machine
+        return machine.main(r, list(argv if argv is not None else sys.argv[1:]))
     if a.action in ("doctor", "install-hooks", "renew"):     # upkeep.py (2026-10-26: made permanent)
         from . import upkeep
         return upkeep.main(a.action, r, list(argv if argv is not None else sys.argv[1:])[1:])

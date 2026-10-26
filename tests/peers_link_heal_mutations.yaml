@@ -1,0 +1,68 @@
+# Rules tests/test_peers_link_heal.py and tests/test_peers_link_keepalive.py must hold. Every one CAUGHT:
+#   fieldkit mutate --plan tests/peers_link_heal_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link_heal.py tests/test_peers_link_keepalive.py
+- file: fieldkit/peers/link_heal.py
+  swap: ['    if isinstance(exc, ConnectionRefusedError) or code in REFUSED_CODES:', '    if False:']
+  why: a refused port is told apart from a timeout
+- file: fieldkit/peers/link_heal.py
+  swap: ['    if code in UNREACH_CODES:', '    if False:']
+  why: no route is its own verdict
+- file: fieldkit/peers/link_heal.py
+  swap: ['            return {"mac": mac, "state": "FAILED" if mac == "00:00:00:00:00:00" else f[2].upper()}', '            return {"mac": mac, "state": f[2].upper()}']
+  why: the stale all-zero Windows entry counts as no neighbor
+- file: fieldkit/peers/link_heal.py
+  swap: ['    if facts["tcp"] == "REFUSED":', '    if False:']
+  why: REFUSED with a live host means the listener is down
+- file: fieldkit/peers/link_heal.py
+  swap: ['        if (path == "wol") == host_up:', '        if False:']
+  why: wol only for a silent host, rescue and ssh only for a live one
+- file: fieldkit/peers/link_heal.py
+  swap: ['        if path not in declared:', '        if False:']
+  why: nothing undeclared is ever tried
+- file: fieldkit/peers/link_heal.py
+  swap: ['    (inbox or _inbox)(f"{dev[''name'']} does not answer on the cable", text, owner_command(dev))', '    pass']
+  why: nothing worked means one inbox item for the owner
+- file: fieldkit/peers/link_heal.py
+  swap: ['    return f''restrict,from="{from_ip}",command="{SSH_RESTART}" {pubkey.strip()}''', '    return pubkey.strip()']
+  why: the ssh door runs one command from the cable address only
+- file: fieldkit/peers/link_heal.py
+  swap: ['if "  serving on " not in x', 'if True']
+  why: our own serving line is not the peer's last traffic
+- file: fieldkit/peers/link_heal.py
+  swap: ['    if facts.get("own_listening") is False and layer', '    if False and layer']
+  why: both ends deaf is said
+- file: fieldkit/peers/link_rescue.py
+  swap: ['    if verb not in VERBS:', '    if False:']
+  why: the rescue door answers two verbs only
+- file: fieldkit/peers/link_rescue.py
+  swap: ['    bad = verifier.check(req)', '    bad = None']
+  why: every rescue request is signed, fresh and not replayed
+- file: fieldkit/peers/link_rescue.py
+  swap: ['    if (dev.get("link") or "lan") != "cable":', '    if False:']
+  why: a LAN device has no rescue door
+- file: fieldkit/peers/link_keepalive.py
+  swap: ["Restart=always\nRestartSec=5", "Restart=on-failure\nRestartSec=5"]
+  why: the listener is restarted whatever way it stopped
+- file: fieldkit/peers/link_keepalive.py
+  swap: ['StartLimitIntervalSec=0', 'StartLimitIntervalSec=10']
+  why: systemd never gives up restarting it
+- file: fieldkit/peers/link_keepalive.py
+  swap: ['    return ok and bool(re.search(r"^Linger=yes", out, re.M))', '    return ok']
+  why: linger off is reported
+- file: fieldkit/peers/link_keepalive.py
+  swap: ['        _ok(run, ["schtasks", "/End", "/TN", TASK])', '        pass']
+  why: a deaf listener held by the task is ended before /Run (IgnoreNew)
+- file: fieldkit/peers/link_keepalive.py
+  swap: ['    return None if r.returncode != 0 or not m else m.group(1) == "yes"', '    return True']
+  why: an unreadable firewall is never taken as present
+- file: fieldkit/peers/link_watchdog.py
+  swap: ['KillMode=process', 'KillMode=control-group']
+  why: the watchdog's oneshot must not kill the listener it started
+- file: fieldkit/peers/link_watchdog.py
+  swap: ['    return (code, lines) if handled else link_ops.restart()', '    return link_ops.restart()']
+  why: the watchdog restarts through the service manager when keep-alive is installed
+- file: fieldkit/mandate/machine.py
+  swap: ['        linux = not win and all(e.get("os") == "linux" for e in todo_admin)', '        linux = False']
+  why: Linux administrator prerequisites run in the one pkexec runner
+- file: fieldkit/mandate/machine.py
+  swap: ["f\"sha256 changed, not run'; failed=$((failed+1)); \"", "f\"sha256 ignored'; \""]
+  why: the root runner checks every pin again

@@ -1,0 +1,106 @@
+# The OWNER-WIDE mandate WITH MACHINE PREREQUISITES, proposed 2026-10-26 (owner: "this click should go in AT THE
+# BEGINING OF THE SESSION. into the mandate list of the preapprovals. Android does that in their apps."). Every door
+# is the same as owner-wide.yaml; only `machine_prerequisites:` is new. The owner approves it ONCE, at a terminal:
+#   fieldkit mandate renew ~/.fieldkit/mandate/mandates/owner-wide.yaml --from <Fieldkit>/fieldkit/mandate/owner-wide.prereqs.yaml
+# (the renew screen marks the new lines NEW; typed yes + passphrase). From then on `fieldkit mandate start` applies
+# what is missing, once (an administrator entry shows one UAC prompt the first time; Windows lets no program answer
+# its own prompt). Each script is pinned by sha256: a changed byte and nothing runs.
+project: owner-wide
+scope: owner-wide
+goal: >
+  One approval for a week of work on every project: sessions push their working branches and new version tags,
+  merge into main through a pull request only after CI is green, and publish a GitHub release of a tag on GitHub.
+  Nothing else changes: the owner-only list stays the owner's.
+expires: 2026-11-01
+defaults:
+  push: ["feat/*", "fix/*", "release-*", "night/*"]
+  tags: ["v*"]
+  merge_to_main: {when: [ci_green], how: pull-request}
+  release: from_tag
+repos:
+  Gorilla.Opencode: {}
+  Gorilla.Fieldkit: {ci_os: [windows, ubuntu]}
+  gorilla-size: {}
+  gorilla-firefox: {}
+  Gorilla.Portable.Network.Hub: {}
+  TPFanCtrl2: {}
+  pfind: {}
+  sensors-gorilla: {}
+  black-gorilla-theme: {}
+  Windows.11.tweaks.optimisation: {}
+  code-review-toolkit: {}
+  dual-track-doc-generator: {}
+  Gorilla.HDMI.Harness: {}
+  speaker-loudness-fix: {}
+  searchfox-tools: {}
+  respect-your-llms: {}
+  model-eval: {}
+  apple-superdrive-enabler: {}
+  gorillanobakaa-dot: {}
+  debian-kernel: {kernel: true}
+  kernel-6.19.13-ultimate: {kernel: true}
+  kernel-7.0.9-unleashed: {kernel: true}
+  kernel-7.0.5-release: {kernel: true}
+install: {budget_gb: 0}
+release: ask
+never: [force_push, delete_outside_scratch, credentials, change_hard_lines, change_this_mandate, spend_money,
+        kernel_install_or_boot]
+ask_when: [outside_mandate]
+machine_prerequisites:
+  - id: scratch-defender-exclusion
+    os: windows
+    admin: true
+    what: "Microsoft Defender path exclusion for C:\\fk-scratch ONLY (no process, no extension exclusion, no other setting); owner decision 2026-10-26: Defender exclusion folder for scratch. Go."
+    cost: "nothing inside C:\\fk-scratch is scanned: nothing is ever executed from there, transfers check their sha256; any program running as you could drop files there unscanned"
+    script: fieldkit/scratch/owner/scratch-exclusion.ps1
+    sha256: e0559ac8130d8fa85209ce674184fd0e142567e035d5ce9476ce847669b00a4c
+    apply: [-Action, apply, -Root, 'C:\fk-scratch']
+    undo: [-Action, undo, -Root, 'C:\fk-scratch']
+    verify: scratch_exclusion
+  - id: longpaths-enabled
+    os: windows
+    admin: true
+    what: "HKLM SYSTEM\\CurrentControlSet\\Control\\FileSystem LongPathsEnabled = 1: paths up to 32,767 characters in long-path-aware programs (Microsoft Learn, Maximum Path Length Limitation)"
+    cost: "none known: programs that are not long-path-aware keep the 260 limit; no channel opened"
+    script: fieldkit/mandate/prereqs/longpaths-enabled.ps1
+    sha256: 368d5489e32d73f0b652fea467003194ad676b3065763d11ba9cd9df4a638d0d
+    apply: [-Action, apply]
+    undo: [-Action, undo]
+    verify: longpaths_enabled
+  - id: git-longpaths
+    os: windows
+    admin: false
+    what: "git config --global core.longpaths true (git for Windows: checkouts deeper than 260 characters)"
+    cost: "none: a setting in your own ~/.gitconfig"
+    command: [git, config, --global, core.longpaths, "true"]
+    undo_command: [git, config, --global, --unset, core.longpaths]
+    verify: git_longpaths
+  # 2026-10-26: the cable listener comes back without a person (fieldkit peers link heal / keepalive / rescue)
+  - id: link-keepalive-windows
+    os: windows
+    admin: true
+    what: "scheduled task fieldkit-link for this user: at logon and every 5 minutes, start `pythonw -m fieldkit peers link serve` NOT elevated if it is not running (MultipleInstances IgnoreNew, RestartCount 999)"
+    cost: "nobody new can act: it starts the same cable-only, key-signed listener setup starts; no port, no firewall rule"
+    script: fieldkit/peers/keepalive/link-keepalive-windows.ps1
+    sha256: 76670405ff097da6d205617a8c89d68f32dc05afb15654a1aba0d24427989c9c
+    apply: [-Action, apply]
+    undo: [-Action, undo]
+    verify: link_keepalive
+  - id: link-keepalive-linux
+    os: linux
+    admin: false
+    what: "systemd user units fieldkit-link.service + fieldkit-link-rescue.service (Restart=always, no start limit) and the watchdog timer, enabled; loginctl enable-linger for this user so they run at boot without a login"
+    cost: "the rescue door (TCP link port + 1, cable address only, household devices on the cable only, household key, two verbs: status and restart of the listener, every request in rescue.log) is a second door; whoever holds link.key can restart the listener and read its last log lines. Linger: this user's services run with nobody logged in"
+    command: [python3, -m, fieldkit, peers, link, keepalive, install]
+    undo_command: [systemctl, --user, disable, --now, fieldkit-link.service, fieldkit-link-rescue.service]
+    verify: link_keepalive
+  - id: link-rescue-firewall
+    os: linux
+    admin: true
+    what: "if ufw or firewalld is active: allow TCP 47078 from 10.77.0.1 to 10.77.0.2 only (the rescue door on the cable); no active firewall: nothing"
+    cost: "the Windows end of the cable can reach the rescue door; it still needs the household key for every request"
+    script: fieldkit/peers/keepalive/link-rescue-firewall.sh
+    sha256: fd4b42fabb5bd363e0f5fe5fde4fabe52b714d0339b526f38983522471e9b5a8
+    apply: [apply, 10.77.0.1, 10.77.0.2, "47078"]
+    undo: [undo, 10.77.0.1, 10.77.0.2, "47078"]
+    verify: link_rescue_firewall

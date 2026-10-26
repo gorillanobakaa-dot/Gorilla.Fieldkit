@@ -1866,6 +1866,58 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_checks.py"]
   notes: "Exit 0 all OK, 3 a PROBLEM (each with FIX and NEXT), 2 bad usage. Mutation plan tests/peers_link_checks_mutations.yaml (19/19). publish refusing a never-pushed branch is a symptom entry only: fixed in 1f48c1c (feat/long-horizon)."
 
+- id: peers-link-heal
+  title: "Why a device of the household does not answer, rung by rung with evidence (this computer's cable address, its own listener, ARP/ip neigh, ping count/loss/rtt, TCP to the link port telling REFUSED / TIMEOUT / UNREACHABLE apart, the signed hello, link.log and the peer's logs through its rescue door), one VERDICT naming the broken layer and NEXT; --revive tries each DECLARED path (rescue door, key-only ssh with a forced command, Wake-on-LAN on the cable) and else puts ONE inbox item naming the machine and the exact command"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, heal]
+  path: ${FIELDKIT}/fieldkit/peers/link_heal.py
+  inputs:
+    - {name: rest, flag: null, type: str, required: false, help: "declare NAME rescue,ssh,wol | ssh-line PUBKEYFILE FROM_IP (the peer's authorized_keys line)"}
+    - {name: device, flag: --device, type: str, required: false, help: "which device (default: the household default)"}
+    - {name: revive, flag: --revive, type: bool, required: false, help: "after the ladder, the declared revive paths, then the ladder again"}
+    - {name: mac, flag: --mac, type: str, required: false, help: "declare: the device's MAC for Wake-on-LAN"}
+    - {name: ssh-user, flag: --ssh-user, type: str, required: false, help: "declare: the user of the key-only ssh door"}
+    - {name: ssh-key, flag: --ssh-key, type: str, required: false, help: "declare: the private key file for it"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable rows, facts, layer, next"}
+  effects: [network, processes, writes-files]   # ping, arp/ip neigh, TCP connects, one signed hello and rescue call; --revive: one restart request, a WoL packet, an inbox item, a link.log line; declare writes household.json
+  safety: reversible             # the ladder is read-only; a revive restarts a listener or wakes a machine, nothing else
+  output: third-party            # hello and rescue answers come from the other computer
+  platforms: [windows, linux]
+  platforms_why: 'run live on Windows 2026-10-26: during the incident the ladder said REFUSED on 47077 with ping 3/3 and ARP 02-00-5e-10-00-01 (listener down, host up), and found this end deaf too; after both listeners came back every rung was OK. --revive and the rescue door were run only offline (the VAIO does not run the door yet)'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_heal.py"]
+  notes: "THREAT MODEL. No new door is opened by heal itself. Its revive paths, each used ONLY when the device declares it (heal declare): rescue = the peer's rescue door (peers-link-rescue); ssh = key-only (BatchMode, PasswordAuthentication=no, StrictHostKeyChecking=yes, bound to the cable source address) to an authorized_keys line made by heal ssh-line: restrict, from=<the cable address>, command=systemctl --user restart fieldkit-link.service - whoever holds that private key can restart the listener from the cable address and do nothing else; wol = a magic packet to the cable's /30 broadcast from the cable address, never the LAN. Every revive and every failure is a link.log line; nothing works -> one inbox item (kind link) with the machine, its address and MAC, what was tried and the command for a person. Exit 0 answers, 3 does not, 2 bad usage. orchestrate devices --check prints the heal line under every device that does not answer. Mutation plan tests/peers_link_heal_mutations.yaml."
+
+- id: peers-link-rescue
+  title: "The rescue door: a second, tiny listener on the cable address only (link port + 1, 47078) that answers devices the household marks cable, signed with the household key, with two verbs only - rescue-status (listening? keep-alive? the last lines of watchdog.log, serve.log, link.log and the user journal of the two units) and rescue-restart (the listener, through the service manager) - every request in rescue.log"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, rescue]
+  path: ${FIELDKIT}/fieldkit/peers/link_rescue.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [serve, status, restart], help: "serve: run the door (the systemd unit does); status / restart: ask the peer's door"}
+    - {name: device, flag: --device, type: str, required: false, help: "which device"}
+  effects: [network, processes, reads-files]
+  safety: reversible             # restarts a listener; reads log tails
+  output: third-party
+  platforms: [windows, linux]
+  platforms_why: 'loopback end to end in the tests on Windows; it is meant to run on Linux peers under systemd (fieldkit-link-rescue.service); not yet run on the VAIO'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_heal.py"]
+  notes: "THREAT MODEL: a second door, so justified here. WHO can act through it: whoever holds link.key (the same people who can already use the link, start sessions where allowed and send files); WHAT they can do: read the last 40 lines of three logs and the units' journal (metadata the link already logs: host names, addresses, note numbers, file names and sizes, job ids; never note bodies), and restart the listener. No shell, no file, no argument is executed. WHERE: bound to the cable address(es) only; refuses any source that is not a cable device of the household; the Linux firewall rule (mandate prerequisite link-rescue-firewall) opens 47078 from the one cable peer to the one cable address only. LOGGED: rescue.log, every request, refused or answered. CLOSE IT: systemctl --user disable --now fieldkit-link-rescue.service."
+
+- id: peers-link-keepalive
+  title: "Keep the cable listener alive without a person: Linux systemd user units (fieldkit-link.service + fieldkit-link-rescue.service, Restart=always, RestartSec=5, no start limit) + loginctl enable-linger + the watchdog timer (KillMode=process, restarts through systemctl); Windows a scheduled task at logon and every 5 minutes (IgnoreNew, RestartCount 999, not elevated); status says what is missing, peers link doctor shows both ends"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, keepalive]
+  path: ${FIELDKIT}/fieldkit/peers/link_keepalive.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [status, install, units], help: "status (default) | install (Linux) | units DIR (write the Linux units only, for review)"}
+  effects: [processes, writes-files]   # systemctl --user, loginctl, schtasks /Query; install writes ~/.config/systemd/user units
+  safety: reversible             # undo: systemctl --user disable --now ...; the Windows task: fieldkit mandate prereqs undo link-keepalive-windows
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'status run on Windows 2026-10-26 (task missing: the prerequisite is not applied yet); the Linux units, install and status run offline with fake systemctl/loginctl; not yet installed on the VAIO'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link_keepalive.py"]
+  notes: "Why the VAIO's listener stayed down on 2026-10-26 (reasons by construction; the VAIO's own logs not yet read): the listener was a detached child nobody restarts; the watchdog was a Type=oneshot unit whose restart started the listener inside its own cgroup, which systemd stops when the oneshot exits (KillMode=control-group, systemd.kill(5)); without linger user timers stop at logout and wait for a login after a reboot (loginctl(1)); after two failed restarts the watchdog stops on purpose. On Windows the listener had been started by a session and dies with it. Installed through the mandate's machine_prerequisites (link-keepalive-linux as the user, link-keepalive-windows and link-rescue-firewall elevated, each script pinned by sha256), approved once by the owner. Mutation plan tests/peers_link_heal_mutations.yaml."
+
 - id: peers-wait
   title: "Be a session for a while and return the messages that arrive (fenced: text from another program, not orders)"
   harness: peers
@@ -5692,6 +5744,58 @@ tools:
   skill: skills/fieldkit-skills/SKILL.md
   notes: "A model API is a door opened on purpose, per run (owner 2026-10-26: anything that calls an API is explicit opt-in with no default endpoint): --api-base becomes ANTHROPIC_BASE_URL, the key comes only from the environment. Needs pip install anthropic mcp. For a check without a model, use fieldkit mcp-probe."
 
+- id: scratch
+  title: "The scratch root - one short folder (C:\\fk-scratch; ~/.cache/fieldkit-scratch) for test copies, fixtures, transfers and probe output: marked job folders, deleted directly and fast, only when yours or stale; report with sizes, ages, owners; the owner's Defender exclusion script"
+  harness: core
+  entry: [python, -m, fieldkit, scratch]
+  path: ${FIELDKIT}/fieldkit/scratch/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [new, clean, report, doctor, owner-script, bench], help: "new [JOB] makes a marked job; clean JOB | --mine | --stale deletes; report lists; doctor checks; owner-script writes the elevated exclusion script; bench times clean vs the Recycle Bin"}
+    - {name: claim, flag: --claim, type: flag, required: false, help: "clean: named jobs whose owner is gone, or hand-over (link) jobs"}
+    - {name: dry_run, flag: --dry-run, type: flag, required: false, help: "clean: say what would go, delete nothing"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, deletes-files]
+  safety: irreversible
+  output: own
+  exits: {1: "doctor: something to look at", 2: "refused or bad arguments", 3: "clean: a job was refused or not fully deleted"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_scratch.py"]
+  skill: skills/fieldkit-scratch/SKILL.md
+  notes: "Owner decision 2026-10-26, verbatim: \"Defender exclusion folder for scratch. Go.\" (chosen over Dev Drive and a plain folder). Why: about a million test files through the Recycle Bin with Defender scanning took half an hour (\"imagine a petabyte\"), and two transfer test copies (956,000 files, 8.3 GB) could not go to the bin at all (paths over 259 characters inside it). DELIBERATE EXCEPTION TO THE RECYCLE RULE, inside the marked scratch root only: clean deletes permanently, never through the Recycle Bin, and only a direct child of the root that carries a valid marker (.fk-scratch.json: schema 1, job = folder name, root = this root) AND is the caller's (same owning session process, pid + creation time) or stale (owner gone AND older than stale_hours, default 24, AND not --keep) or named with --claim (owner gone, or kind link = transfer hand-over). Root and job must be real folders (no junction/symlink/reparse point); links inside a job are removed as links, never followed; \\\\?\\ long paths; read-only files made writable; parallel threads; marker re-read right before and deleted last; every delete one line in state/scratch/clean.jsonl. Unmarked folders: reported, never deleted. Wired in: the run guard (fieldkit/core/preflight.py STEPS: stale and unmarked reported, never a stop) and fieldkit hog check (a finding, no action); the cable receiver (peers link put-stream) lands each transfer in its own job link-<tid> (kind link, keep). The delete is the platform's standard method through fieldkit/core/longpath.py (card longpath): Windows DeleteFileW/RemoveDirectoryW on \\\\?\\ extended-length paths, what rmdir /s /q does (Microsoft Learn, Maximum Path Length Limitation); POSIX shutil.rmtree = openat/unlinkat, symlinks unlinked never followed, plus the rm --one-file-system check. The Defender exclusion is a security setting, never set by a session on its own: it is the machine prerequisite scratch-defender-exclusion of the mandate (fieldkit/mandate/owner-wide.prereqs.yaml, owner approves ONCE with fieldkit mandate renew --from; then fieldkit mandate start applies it, one UAC click the first time); the same script by hand: fieldkit scratch owner-script -> state/proposed/scratch-exclusion-2026-10-26/apply|verify|undo.ps1. The script: Add-MpPreference -ExclusionPath for the root only, no process or extension exclusions, verified, undo included. COST THE OWNER ACCEPTED: nothing inside the scratch root is scanned, so nothing is ever executed from there, and transfers verify their sha256. doctor reads the exclusion with Get-MpPreference (lists only for an administrator) else the owner script's proof state/scratch/exclusion.json. Measured 2026-10-26 on the ThinkPad (i7-1255U, NVMe), WITHOUT the Defender exclusion (not applied yet), fieldkit scratch bench --files 100000 --recycle, 100 folders x 1,000 files of 64 bytes: make 9.7-12.0 s; clean 4.4-4.5 s (two runs); single-thread shutil.rmtree on the same shape 8.6 s; fieldkit size recycle --whole-folder + apply its plan 12.3 s to MOVE them into the bin (emptying the bin is a second pass, not timed: the half-hour per million the owner saw). Re-measure with the exclusion applied: the same bench. Mutations: tests/scratch_mutations.yaml."
+
+- id: longpath
+  title: "Long paths by default for every tool that walks or deletes files - the extended-length form (Windows up to 32,767 characters), the platform's standard direct delete with links never followed, and the machine's long-path state (LongPathsEnabled, git core.longpaths)"
+  harness: core
+  entry: [python, -m, fieldkit.core.longpath]
+  path: ${FIELDKIT}/fieldkit/core/longpath.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON rows"}
+    - {name: probe, flag: --probe, type: str, required: false, help: "also build and delete a tree deeper than 260 characters in this folder"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "something to fix on this machine (the mandate's machine prerequisites fix it)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_longpath.py"]
+  skill: skills/fieldkit-scratch/SKILL.md
+  notes: "Owner 2026-10-26: \"dealing with long paths. This is ADMIN 101 ... the maximum windows, osx, and linux can allow by default\" and \"the cleaning protocol is be industry standard\". Limits: Windows 32,767 UTF-16 characters through \\\\?\\ (Microsoft Learn, Maximum Path Length Limitation, learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation), MAX_PATH 260 without it unless LongPathsEnabled=1 and a longPathAware manifest (python.exe has it), name 255, git core.longpaths; Linux PATH_MAX 4096 / NAME_MAX 255 (POSIX limits.h, linux/limits.h); macOS 1024 / 255 (sys/syslimits.h). remove_tree: Windows DeleteFileW/RemoveDirectoryW on \\\\?\\ paths (rmdir /s /q, robocopy /MIR from an empty folder), reparse points removed as themselves, read-only cleared, parallel per level, deepest first; POSIX shutil.rmtree (fd-based openat/unlinkat, avoids_symlink_attacks) after a --one-file-system check (a mount below refuses all). Never the Recycle Bin, which stays at MAX_PATH. Used by: fieldkit scratch, the cable receiver (peers link put-stream writes through extended paths). NOT yet used by: 50 other modules that walk or delete (Board follow-up); gorilla-size (Rust, its own repository) has its own walker. Machine fixes: the mandate's machine_prerequisites longpaths-enabled and git-longpaths (fieldkit mandate prereqs). Mutations: tests/scratch_mutations.yaml."
+
+- id: mandate-prereqs
+  title: "Machine prerequisites in the mandate, Android-permissions style - declared with what each changes and costs, each script pinned by sha256, approved ONCE on the approve/renew screen, applied by the harness at a session start (fieldkit mandate start), checked, undone by id"
+  harness: core
+  entry: [python, -m, fieldkit, mandate, prereqs]
+  path: ${FIELDKIT}/fieldkit/mandate/machine.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, apply, undo], help: "LEAVE EMPTY for check (read-only). apply: the missing ones (administrator ones in ONE elevated run); undo ID"}
+    - {name: force, flag: --force, type: flag, required: false, help: "apply: put the UAC prompt up even if it was up less than 12 h ago"}
+  effects: [reads-files, writes-files, admin, registry]
+  safety: reversible
+  output: own
+  exits: {2: "bad arguments or no such prerequisite", 3: "something missing, refused (sha256 changed) or no mandate in force"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_machine.py"]
+  skill: skills/fieldkit-scratch/SKILL.md
+  notes: "Owner 2026-10-26: \"this click should go in AT THE BEGINING OF THE SESSION. into the mandate list of the preapprovals. Android does that in their apps.\" A mandate's machine_prerequisites: entries {id, os, admin, what, cost, script + sha256 + apply/undo args | command + undo_command, verify = a named read-only check (longpaths_enabled, git_longpaths, scratch_exclusion)}. Shown on the approve and renew screens (renew --from CHANGED.yaml marks new doors NEW). Applied only under a mandate IN FORCE; a script whose sha256 differs never runs (checked again inside the elevated process); user-level entries run as you; administrator entries share ONE elevated run through local/kits/Elevate (one UAC prompt: Windows lets no program answer its own prompt; the setting then persists, so it is asked once), at most every 12 h; the result is the read-only check afterwards, not the script's word. FIELDKIT_PREREQS=0 skips it at start. Proposal: fieldkit/mandate/owner-wide.prereqs.yaml (scratch-defender-exclusion, longpaths-enabled, git-longpaths). Mutations: tests/scratch_mutations.yaml."
 - id: session-cost
   title: "What an AI coding session costs in dollars, live or afterwards: Claude Code (CLI and desktop Code tab, subagents included) and Antigravity (Gemini and Claude), cost per call, the share spent re-reading old context, a loud warning past a dollar threshold"
   harness: core
