@@ -168,7 +168,9 @@ def push_refusal(command, cwd="", names=None):
     if where is None:
         return None
     try:
-        from ..mandate import proofs
+        from ..mandate import proofs, upkeep
+        if not upkeep.git_here()[0]:                      # never run macOS's /usr/bin/git stub (a dialog)
+            return None
         name = proofs.where(where)[0]
     except Exception:  # noqa: BLE001 - not a clone (or no git): nothing to say
         return None

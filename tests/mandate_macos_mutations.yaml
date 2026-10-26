@@ -1,0 +1,44 @@
+# The mandate tools on macOS (2026-10-26, owner: "Make sure that works on all the operating systems"). Every one CAUGHT:
+#   fieldkit mutate --plan tests/mandate_macos_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_mandate_macos.py
+- file: fieldkit/mandate/guarded.py
+  swap: ['    if platform == "darwin":', '    if False:']
+  why: a Mac keeps its store in /Library/Application Support
+- file: fieldkit/mandate/guarded.py
+  swap: ['return Path(LINUX_ROOT) if not exists(MAC_ROOT) and exists(LINUX_ROOT) else Path(MAC_ROOT)', 'return Path(MAC_ROOT)']
+  why: a Mac pinned before reads its old /etc store until the new one exists
+- file: fieldkit/mandate/guarded.py
+  swap: ['    return _parents_safe(root(), stat, access)', '    return True, "parents guarded"']
+  why: a folder above the store that this user can change makes the store count for nothing
+- file: fieldkit/mandate/guarded.py
+  swap: ['        if st.st_uid != 0 or access(q, os.W_OK):', '        if st.st_uid != 0:']
+  why: a root-owned parent this user may still write (admin group) is refused
+- file: fieldkit/mandate/guarded.py
+  swap: ['        if st.st_uid != 0 or access(q, os.W_OK) or st.st_mode & 0o022:', '        if st.st_uid != 0 or access(q, os.W_OK):']
+  why: a group-writable store is refused
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    if platform == "darwin" and str(exe) == "/usr/bin/git":', '    if False:']
+  why: the macOS git stub is never taken for git
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    if roots is None and not git_here()[0]:', '    if False:']
+  why: no git, no clones (and never the stub)
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['        if not upkeep.git_here()[0]:', '        if False:']
+  why: the router never runs the macOS git stub
+- file: fieldkit/mandate/mandate.py
+  swap: ['        return False, "the cryptography package is not installed here, so no seal can be checked (NOT in force)"', '        raise']
+  why: a lean Mac without cryptography is not in force, and nothing crashes
+- file: fieldkit/method/ship.py
+  swap: ['    return dict(os.environ, FIELDKIT_SHIP_PUSH="1", FIELDKIT_SHIP_PYTHON=sys.executable)', '    return dict(os.environ, FIELDKIT_SHIP_PUSH="1")']
+  why: ship push names the Python whose fieldkit the hook must ask
+- file: fieldkit/mandate/hooks/gorilla-opencode/hooks.py
+  swap: ['    if py and os.path.isfile(py):', '    if py:']
+  why: a stale FIELDKIT_SHIP_PYTHON is never trusted blindly
+- file: fieldkit/mandate/hooks/gorilla-opencode/pre-push
+  swap: ["for PY in python3 python py; do", "for PY in python python3 py; do"]
+  why: python3 first (macOS python is Python 2)
+- file: fieldkit/mandate/hooks/gorilla-opencode/pre-push
+  swap: ["sys.exit(0 if sys.version_info >= (3, 8) else 1)", "sys.exit(0)"]
+  why: only a Python 3 runs the hook
+- file: fieldkit/core/host.py
+  swap: ['        if p in ("macos", "darwin") and h["system"] == "Darwin":', '        if p == "macos" and h["system"] == "Darwin":']
+  why: a card that says darwin runs on a Mac

@@ -93,6 +93,10 @@ when green (the mandate's merge_to_main: ci_green, by pull request). A repositor
 owner's yes again. A clone whose hook does not ask the gate: `fieldkit mandate install-hooks` (preview), `--yes`.
 Expiry: 3 days before, one line in `mandate status` / `mandate start` / the prompt hook; the owner runs `fieldkit
 mandate renew FILE.yaml` (the approve screen, typed yes + passphrase).
+Windows, Linux and macOS alike (2026-10-26). The protected trust store: %ProgramData%\Fieldkit\mandate-trust (UAC),
+/etc/fieldkit/mandate-trust (pkexec), /Library/Application Support/Fieldkit/mandate-trust (sudo). On a Mac without
+Apple's developer tools /usr/bin/git is a stub and is never run (the doctor says "no clone here"); the lean set has no
+`cryptography`, so a mandate there is NOT in force until the owner installs it.
 
 ## Someone else's tool
 Reproduce the bug on THEIR untouched copy; fix a scratch copy; `fieldkit regress` their own suite before and after;

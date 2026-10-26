@@ -90,7 +90,11 @@ def pre_commit():
 
 
 def _fieldkit():
-    """The fieldkit command, or None (then only the owner's flag opens a push: fail closed)."""
+    """The fieldkit command, or None (then only the owner's flag opens a push: fail closed). First the Python that
+    runs fieldkit ship push (FIELDKIT_SHIP_PYTHON, 2026-10-26: a Mac installed from the zip has no fieldkit on PATH)."""
+    py = os.environ.get("FIELDKIT_SHIP_PYTHON", "")
+    if py and os.path.isfile(py):
+        return [py, "-m", "fieldkit"]
     exe = shutil.which("fieldkit")
     if exe:
         return [exe]
