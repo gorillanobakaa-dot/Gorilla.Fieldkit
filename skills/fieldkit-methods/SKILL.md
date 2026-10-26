@@ -75,6 +75,9 @@ ABSENT and never fails a compare. Change the pin only by a commit; nothing updat
 ## Generated files
 `fieldkit drift FILE --gen "GENERATOR"` - if it drifted, edit only your entry and say so; regenerate in a commit of
 its own. Found: a generator that was random (Go map order).
+`fieldkit merge-driver check` - two branches adding cards merge with no conflict in tools.yaml, platform_index.json
+and docs/groups.yaml (entry by entry; `install` if it says NEEDS). A conflict left in one of them is two edits of
+the same entry: resolve that entry only, then `python -m fieldkit.core.platform_gate --write`.
 
 ## MCP servers
 `fieldkit mcp-probe [--call NAME --args JSON] -- SERVER COMMAND` - handshake as mcp-go does (2024-11-05), the tool

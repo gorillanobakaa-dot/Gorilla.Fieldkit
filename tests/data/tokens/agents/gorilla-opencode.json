@@ -1,0 +1,70 @@
+{
+ "schema": [
+  "CREATE TABLE messages (\n    id TEXT PRIMARY KEY,\n    session_id TEXT NOT NULL,\n    role TEXT NOT NULL,\n    parts TEXT NOT NULL default '[]',\n    model TEXT,\n    created_at INTEGER NOT NULL,  -- Unix timestamp in SECONDS (the triggers below use strftime('%s'), which is seconds; the original comment said milliseconds and was wrong \u2014 dividing by 1000 yields 1970)\n    updated_at INTEGER NOT NULL,  -- Unix timestamp in SECONDS (the triggers below use strftime('%s'), which is seconds; the original comment said milliseconds and was wrong \u2014 dividing by 1000 yields 1970)\n    finished_at INTEGER,  -- Unix timestamp in SECONDS (the triggers below use strftime('%s'), which is seconds; the original comment said milliseconds and was wrong \u2014 dividing by 1000 yields 1970)\n    FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE\n)",
+  "CREATE TABLE sessions (\n    id TEXT PRIMARY KEY,\n    parent_session_id TEXT,\n    title TEXT NOT NULL,\n    message_count INTEGER NOT NULL DEFAULT 0 CHECK (message_count >= 0),\n    prompt_tokens  INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),\n    completion_tokens  INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens>= 0),\n    cost REAL NOT NULL DEFAULT 0.0 CHECK (cost >= 0.0),\n    updated_at INTEGER NOT NULL,  -- Unix timestamp in SECONDS (the triggers below use strftime('%s'), which is seconds; the original comment said milliseconds and was wrong \u2014 dividing by 1000 yields 1970)\n    created_at INTEGER NOT NULL   -- Unix timestamp in SECONDS (the triggers below use strftime('%s'), which is seconds; the original comment said milliseconds and was wrong \u2014 dividing by 1000 yields 1970)\n, summary_message_id TEXT, started_in TEXT NOT NULL DEFAULT '', cumulative_prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cumulative_prompt_tokens >= 0), cumulative_completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cumulative_completion_tokens >= 0), cost_reread REAL NOT NULL DEFAULT 0 CHECK (cost_reread >= 0), calls_priced INTEGER NOT NULL DEFAULT 0 CHECK (calls_priced >= 0), calls_unpriced INTEGER NOT NULL DEFAULT 0 CHECK (calls_unpriced >= 0), last_call_cost REAL NOT NULL DEFAULT 0 CHECK (last_call_cost >= 0), resent_tokens INTEGER NOT NULL DEFAULT 0 CHECK (resent_tokens >= 0))"
+ ],
+ "sessions": [
+  {
+   "id": "sess-1",
+   "parent_session_id": null,
+   "title": "fixture session 1",
+   "message_count": 6,
+   "prompt_tokens": 13260,
+   "completion_tokens": 27,
+   "cost": 0.009478819999999999,
+   "updated_at": 1793028515,
+   "created_at": 1793028424,
+   "summary_message_id": null,
+   "started_in": "C:\\work\\repo",
+   "cumulative_prompt_tokens": 39257,
+   "cumulative_completion_tokens": 173,
+   "cost_reread": 0.00030342,
+   "calls_priced": 3,
+   "calls_unpriced": 0,
+   "last_call_cost": 0.0013147200000000001,
+   "resent_tokens": 26143
+  },
+  {
+   "id": "sess-2",
+   "parent_session_id": null,
+   "title": "fixture session 2",
+   "message_count": 2,
+   "prompt_tokens": 13645,
+   "completion_tokens": 15,
+   "cost": 0.0,
+   "updated_at": 1792946351,
+   "created_at": 1792946110,
+   "summary_message_id": null,
+   "started_in": "C:\\work\\repo",
+   "cumulative_prompt_tokens": 13645,
+   "cumulative_completion_tokens": 15,
+   "cost_reread": 0.0,
+   "calls_priced": 1,
+   "calls_unpriced": 0,
+   "last_call_cost": 0.0,
+   "resent_tokens": 0
+  }
+ ],
+ "messages": [
+  {
+   "id": "msg-1",
+   "session_id": "sess-1",
+   "role": "assistant",
+   "parts": "[]",
+   "model": "gemini-flash-lite-latest",
+   "created_at": 1793028486,
+   "updated_at": 1793028486,
+   "finished_at": null
+  },
+  {
+   "id": "msg-2",
+   "session_id": "sess-2",
+   "role": "assistant",
+   "parts": "[]",
+   "model": "local.qwen3.6-35b-a3b",
+   "created_at": 1792946110,
+   "updated_at": 1792946110,
+   "finished_at": null
+  }
+ ]
+}

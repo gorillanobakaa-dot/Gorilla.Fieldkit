@@ -1437,6 +1437,17 @@
    "drift"
   ]
  },
+ "emerge": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "emerge"
+  ]
+ },
  "eta": {
   "platforms": [
    "linux",
@@ -1942,6 +1953,17 @@
    "mcp-probe"
   ]
  },
+ "merge-driver": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "merge-driver"
+  ]
+ },
  "mutate": {
   "platforms": [
    "linux",
@@ -2071,6 +2093,17 @@
   "why": "run live 2026-10-26: boss on Linux, the suite placed on the Windows laptop over the cable and back signed; a Windows boss not yet run",
   "ids": [
    "orchestrate-place"
+  ]
+ },
+ "overhead": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "overhead"
   ]
  },
  "parity": {
@@ -3237,6 +3270,17 @@
   "why": "",
   "ids": [
    "xzcheck"
+  ]
+ },
+ "zero": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "zero"
   ]
  }
 }

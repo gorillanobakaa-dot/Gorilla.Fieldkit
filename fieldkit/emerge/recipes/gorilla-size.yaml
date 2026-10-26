@@ -1,0 +1,67 @@
+# gorilla-size (Gorilla Size Calculation, Rust): the smallest real recipe, the one emerge is proven on.
+# Every dependency is vendored and the build is --offline --locked: no network at all. Each stage declares the files
+# it reads, so a README change rebuilds nothing; only the telemetry scan (the privacy stage, which reads the whole
+# tree) runs again.
+name: gorilla-size
+description: >-
+  gorilla-size from its vendored sources, --offline --locked: tests, the release binaries, SHA256SUMS, a telemetry
+  scan of the tree; with --mode release a second build in another target folder must give the same bytes.
+baseline_minutes: 10
+vars:
+  src: "${DOCUMENTS}/Gorilla.Size"
+  exe: ".exe"                       # Linux: --var exe=
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  files: ["{src}/Cargo.toml", "{src}/Cargo.lock", "{src}/.cargo/config.toml"]
+toolchain:
+  - [cargo, --version]
+  - [rustc, --version]
+preflight: {disk_gb: 3, ram_gb: 2, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: test
+    run: {cmd: [cargo, test, --release, --offline, --locked, -q], cwd: "{src}"}
+    timeout: 3600
+    inputs: ["{src}/src/**/*.rs", "{src}/tests/**/*.rs", "{src}/vendor/*/.cargo-checksum.json"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: build
+    run: {cmd: [cargo, build, --release, --offline, --locked], cwd: "{src}"}
+    timeout: 3600
+    inputs: ["{src}/src/**/*.rs", "{src}/vendor/*/.cargo-checksum.json"]
+    outputs: ["{src}/target/release/gorilla-size{exe}", "{src}/target/release/gorilla-trash{exe}"]
+    uses: [config, toolchain, inputs]
+    needs: []
+
+  - id: checksums
+    run:
+      python: "fieldkit.emerge.stages:sha256sums"
+      args: {files: ["{src}/target/release/gorilla-size{exe}", "{src}/target/release/gorilla-trash{exe}"],
+             out: "{src}/target/release/SHA256SUMS"}
+    outputs: ["{src}/target/release/SHA256SUMS"]
+    uses: []
+    needs: [build, test]
+
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: repro
+    # the same inputs built again in another folder: Rust MSVC builds carry the PDB path, so a difference is
+    # reported (advisory), never hidden
+    run: {cmd: [cargo, build, --release, --offline, --locked, --target-dir, "{src}/target-emerge-repro"], cwd: "{src}"}
+    timeout: 3600
+    outputs: ["{src}/target-emerge-repro/release/gorilla-size{exe}"]
+    verify:
+      - python: {target: "fieldkit.emerge.stages:same_bytes",
+                 args: {a: "{src}/target/release/gorilla-size{exe}", b: "{src}/target-emerge-repro/release/gorilla-size{exe}"}}
+    uses: [config, toolchain]
+    needs: [build]
+    tier: release
+    advisory: true

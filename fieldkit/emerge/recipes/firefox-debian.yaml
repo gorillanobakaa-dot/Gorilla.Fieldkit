@@ -1,0 +1,35 @@
+# Gorilla Firefox for Debian (firefox-linux pipeline). From Windows every stage is a run job on the VAIO over the
+# cable, so the Windows build and the Debian build run at the same time on two machines; on the VAIO it runs
+# directly. Tiers as on Windows: install adds the .deb install, release adds nothing here (the leak gate of a
+# release runs on the Windows build, once).
+name: firefox-debian
+pipeline: firefox-linux
+description: >-
+  Gorilla Firefox .deb from the vaulted release source plus the public patch set; on Windows each stage is offloaded
+  to the Linux machine over the cable.
+baseline_minutes: 90
+sources:
+  - {id: harness, git: "{harness}", track: tree}
+config:
+  mandate: gorilla-firefox
+  decisions: "{harness}"
+  testcost: true
+toolchain:
+  - [python3, --version]
+preflight: {disk_gb: 60, ram_gb: 8}
+x-offload: &vaio
+  device: vaio
+  project: gorilla-firefox
+  tree: "${FIELDKIT}/fieldkit/emerge/recipes"
+  wall: 240
+stages:
+  deps: {uses: [toolchain], needs: [], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, deps, --local, --no-fix]}}
+  source: {uses: [config], needs: [deps], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, source, --local, --no-fix]}}
+  mozconfig: {uses: [sources, config], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, mozconfig, --local, --no-fix]}}
+  patches-check: {uses: [sources], bucket: tests, offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, patches-check, --local, --no-fix]}}
+  patches: {uses: [sources], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, patches, --local, --no-fix]}}
+  preflight: {always_run: true, bucket: tools, offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, preflight, --local, --no-fix]}}
+  bootstrap: {uses: [toolchain, config], needs: [patches], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, bootstrap, --local, --no-fix]}}
+  build: {uses: [sources, config, toolchain], needs: [bootstrap], offload: {<<: *vaio, wall: 900, argv: [emerge, run, firefox-debian, --only, build, --local, --no-fix]}}
+  package: {uses: [sources, config], offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, package, --local, --no-fix]}}
+  install: {tier: install, offload: {<<: *vaio, argv: [emerge, run, firefox-debian, --only, install, --local, --no-fix, --mode, install]}}

@@ -39,6 +39,8 @@
     fieldkit voice doctor|install|say|clean ...          a voice worth listening to, on Linux (fieldkit/voice)
     fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
     fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
+    fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor]   the agent net: is Zero
+                                                 established, roll call / sitrep, comms check; also `fieldkit net VERB` (fieldkit/zero)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
     fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
@@ -63,7 +65,9 @@
     fieldkit release table|verify                the page's file table measured from SHA256SUMS; a published tag checked
     fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
     fieldkit testcost plan|run --fast|report     the cheapest test set that is enough; a passed tree is never re-tested
+    fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
+    fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
     fieldkit rotate check|handover|finished      OK / WARN / ROTATE per session; hand a monster session over to a fresh one
@@ -1335,12 +1339,17 @@ def cmd_kernel(a):
 
 
 # -- parser ---------------------------------------------------------------------
+# the agent net's verbs (fieldkit/zero/net.py): `fieldkit net VERB` goes there; the network tool keeps its own verbs
+ZERO_VERBS = ("status", "open", "establish", "rollcall", "sitrep", "checkin", "check", "comms", "time", "handover",
+              "send", "ack", "log", "close", "doctor", "schedule")
 # docs/METHODS.md: how the work gets done, as tools. name -> (module in fieldkit/method, one line)
 METHODS = {
     "wait": ("wait", "wait on a condition, never on a clock (--until CMD --matches RE --timeout S)"),
     "mutate": ("mutate", "prove a test can fail: break a rule, run the test, restore the file (FILE --swap A B -- TEST)"),
     "regress": ("regress", "test failures by name before and after a change (record LABEL -- CMD; compare A B)"),
     "drift": ("drift", "does a committed generated file still match its generator? reports, never rewrites"),
+    "merge-driver": ("mergedriver", "cards and generated indexes merged entry by entry, so two branches adding cards "
+                                    "never conflict (check | install)"),
     "mcp-probe": ("mcp_probe", "speak MCP to a server as a client does: handshake, tools and their size, one call"),
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "
@@ -1508,6 +1517,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    zr = sub.add_parser("zero", add_help=False,
+                        help="the agent net: is Zero established, roll call / sitrep, comms check, time, handover, "
+                             "net log (fieldkit zero; also fieldkit net VERB)")
+    zr.add_argument("args", nargs=argparse.REMAINDER)
     sc = sub.add_parser("scratch", add_help=False,
                         help="the scratch root: marked job folders, deleted fast and only when yours or stale; "
                              "report, doctor, the owner's Defender exclusion script (fieldkit scratch)")
@@ -1519,10 +1532,19 @@ def build_parser():
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
+    em = sub.add_parser("emerge", add_help=False,
+                        help="compile jobs like Gentoo's Portage: a recipe per product, every stage content-addressed "
+                             "(skipped when its key was built), offload to the other machine, a model only on failure "
+                             "(fieldkit emerge)")
+    em.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    oh = sub.add_parser("overhead", add_help=False,
+                        help="how much longer than the bare build script a job took and where the extra time went: "
+                             "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
+    oh.add_argument("args", nargs=argparse.REMAINDER)
     pa = sub.add_parser("parity", add_help=False,
                         help="test parity: manifest per machine, compare over the link (SAME/DRIFT), align to the pinned "
                              "release checked by sha256, the preflight's shared-ground check (fieldkit parity)")
@@ -2630,6 +2652,9 @@ def main(argv=None):
     if args[:1] == ["mandate"]:                       # one owner approval per project, both computers (fieldkit/mandate)
         from .mandate import mandate as mandate_cli
         return mandate_cli.main(args[1:])
+    if args[:1] == ["zero"] or (args[:1] == ["net"] and (len(args) == 1 or args[1] in ZERO_VERBS)):
+        from .zero import net as zero_net             # the agent net, "Zero has been established" (fieldkit/zero)
+        return zero_net.main(args[1:], prog="fieldkit " + args[0])
     if args[:1] == ["peers"]:                         # messages between sessions on this computer (fieldkit/peers)
         from .peers import peers as peers_cli
         return peers_cli.main(args[1:])
@@ -2661,9 +2686,15 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
+        from . import emerge
+        return emerge.main(args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
+        from . import overhead
+        return overhead.main(args[1:])
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])

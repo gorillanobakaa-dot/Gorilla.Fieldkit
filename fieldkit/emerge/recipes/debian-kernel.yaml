@@ -1,0 +1,37 @@
+# The custom Debian kernel packages (debian-kernel pipeline). Every stage needs Linux: from Windows each one is a
+# run job on the VAIO over the cable (`fieldkit emerge run debian-kernel --only STAGE --local --no-fix` there, on the
+# exact recipe bytes); on the VAIO itself it runs directly. The tarball is pinned by sha256 in
+# debian-kernel.manifest.json (fieldkit emerge manifest debian-kernel --write, once, on the machine that fetched it).
+name: debian-kernel
+pipeline: debian-kernel
+description: >-
+  Debian kernel .deb and .rpm packages from the pinned kernel.org tarball plus the project's patches and config;
+  offloaded stage by stage to the Linux machine when run from Windows.
+baseline_minutes: 90
+sources:
+  - {id: tarball, path: "{workdir}/linux-{version}.tar.xz", fetched_by: fetch}
+  - {id: project, git: "{project}", track: tree}
+config:
+  mandate: debian-kernel
+  testcost: true
+toolchain:
+  - [gcc, --version]
+  - [make, --version]
+preflight: {disk_gb: 40, ram_gb: 8}
+x-offload: &vaio
+  device: vaio
+  project: debian-kernel
+  tree: "${FIELDKIT}/fieldkit/emerge/recipes"
+  wall: 240
+stages:
+  deps: {uses: [toolchain], needs: [], offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, deps, --local, --no-fix]}}
+  fetch: {uses: [], needs: [], offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, fetch, --local, --no-fix]}}
+  extract: {uses: [sources], needs: [fetch], offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, extract, --local, --no-fix]}}
+  patches-check: {uses: [sources], bucket: tests, offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, patches-check, --local, --no-fix]}}
+  patches: {uses: [sources], offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, patches, --local, --no-fix]}}
+  config: {uses: [sources, config], offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, config, --local, --no-fix]}}
+  build: {uses: [sources, config, toolchain], offload: {<<: *vaio, wall: 600, argv: [emerge, run, debian-kernel, --only, build, --local, --no-fix]}}
+  rpm: {uses: [sources, toolchain], offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, rpm, --local, --no-fix]}}
+  collect: {uses: [], offload: {<<: *vaio, argv: [emerge, run, debian-kernel, --only, collect, --local, --no-fix]}}
+  repro: {uses: [sources, config, toolchain], tier: release, advisory: true, needs: [collect],
+          offload: {<<: *vaio, wall: 600, argv: [emerge, run, debian-kernel, --only, repro, --local, --no-fix, --mode, release]}}

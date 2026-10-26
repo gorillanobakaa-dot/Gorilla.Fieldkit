@@ -1,0 +1,42 @@
+# fieldkit merge-driver: every merge rule must be CAUGHT (2026-10-26):
+#   fieldkit mutate --plan tests/mergedriver_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_mergedriver.py
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '    Path(a).write_bytes(text.encode("utf-8"))'
+  - '    return 1'
+  why: the merged text is what git gets
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '    if theirs == base:'
+  - '    if theirs != base:'
+  why: the side that changed wins; both changed differently is a conflict
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '    return sorted((o & t) | (o - b) | (t - b))'
+  - '    return sorted(o | t)'
+  why: a platform or id one side removed stays removed
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '            if o is None or t is None:          # one side removed the command, the other changed it'
+  - '            if False:'
+  why: a removed command against a changed one conflicts
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '        while at < len(order) and order[at] not in B and order[at] not in T:'
+  - '        while False:'
+  why: their new card goes after ours, not between ours and its predecessor
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '[ -f "$f" ] || f="{copy}"; if'
+  - 'if'
+  why: a branch cut before the driver merges through the clone's copy
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '    add = [ln for ln in _attr_lines() if ln not in old.splitlines()]'
+  - '    add = []'
+  why: info/attributes carries the paths for old branches
+- file: fieldkit/method/mergedriver.py
+  swap:
+  - '    ok = bool(have) and SCRIPT in have and not missing'
+  - '    ok = not missing'
+  why: check says NEEDS when the driver is not in the config

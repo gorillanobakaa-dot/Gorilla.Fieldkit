@@ -1,0 +1,80 @@
+# fieldkit rotate for every agent: the Codex / Gorilla OpenCode / generic adapters, the rule block, the run-guard check.
+#   python -m fieldkit mutate --plan tests/rotate_agents_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_rotate_agents.py
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                     max(0, total - read - write), write, 0, read,", "                     max(0, total), write, 0, read,"]
+  why: "Codex input_tokens includes the cached tokens: they are not billed twice"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                if rid in seen or not p.get(\"usage\"):", "                if not p.get(\"usage\"):"]
+  why: "one Codex response is one call"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["            elif kind == \"event_msg\" and p.get(\"type\") == \"token_count\" and not state.get(\"records\"):", "            elif kind == \"event_msg\" and p.get(\"type\") == \"token_count\":"]
+  why: "token_count is the fallback only: a file with token_usage_record is not counted twice"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                if not info.get(\"last_token_usage\") or total == state.get(\"last_total\"):", "                if not info.get(\"last_token_usage\"):"]
+  why: "a token_count written twice is one call"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                                        and p[\"thread_id\"] != p[\"session_id\"])", "                                        and False)"]
+  why: "a Codex subagent's call does not hide the session's own context"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["        return m.group(1) if m else super().stem", "        return super().stem"]
+  why: "a Codex session is named by its thread id"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["            if offsets.get(key) == size:\n                return []", "            if False:\n                return []"]
+  why: "a finished .zst rollout is read once"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["    end = chunk.rfind(b\"\\n\") + 1                          # a line still being written", "    end = len(chunk)                          # a line still being written"]
+  why: "a half-written line is read next time, not lost"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                rows = con.execute(\"select id, updated_at, title from sessions where parent_session_id is null \"", "                rows = con.execute(\"select id, updated_at, title from sessions where 1 \""]
+  why: "a Gorilla OpenCode sub-agent session is billed to its parent, not listed"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                 usd=(cost or 0.0) + kids[0],", "                 usd=(cost or 0.0),"]
+  why: "a sub-agent's cost is in the parent's bill"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["        if state.get(\"seen_update\") == key:\n            return []", "        if False:\n            return []"]
+  why: "an unchanged Gorilla OpenCode row adds nothing"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["                    and n[1] + n[3] <= n[0]", "                    and True"]
+  why: "generic: cached tokens are part of input_tokens, never more"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["and d[\"session\"] == path.stem", "and True"]
+  why: "generic: a line naming another session is not this session's call"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["isinstance(x, int) and not isinstance(x, bool) and x >= 0", "isinstance(x, int) and x >= 0"]
+  why: "generic: true is not a token count"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["            c[\"sub\"] = bool(d.get(\"sub\"))", "            c[\"sub\"] = False"]
+  why: "generic: a subagent's call is marked"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["    def sessions(self):\n        return []\n", "    def sessions(self):\n        return [self.root] if self.root.is_file() else []\n"]
+  why: "IBM Bob's unverified store is never read"
+- file: fieldkit/tokens/rotate.py
+  swap: ["            m[\"calls\"], m[\"usd\"], m[\"unpriced\"] = c[\"n\"], c[\"usd\"], c[\"n_unpriced\"]", "            m[\"calls\"] += c[\"n\"]; m[\"usd\"] += c[\"usd\"]; m[\"unpriced\"] = c[\"n_unpriced\"]"]
+  why: "a product's session totals replace the meter, they do not add up"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if cwd and not _under(r.get(\"cwd\"), cwd):", "        if False:"]
+  why: "--cwd keeps only the sessions working in that folder"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if newest:\n            break", "        if False:\n            break"]
+  why: "--newest is one session"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    targets.sort(key=lambda t: t[1].stat().st_mtime, reverse=True)", "    targets.sort(key=lambda t: t[1].stat().st_mtime)"]
+  why: "--newest is the most recently active one"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    rows = [r for r in check(hours) if r[\"level\"] != \"OK\"]", "    rows = [r for r in check(hours) if r[\"level\"] == \"ROTATE\"]"]
+  why: "the run guard names a WARN session too"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        how = \"same\" if new == text else \"updated\"", "        how = \"updated\""]
+  why: "installing the rule twice changes nothing"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        new = head + block + (tail[1:] if tail.startswith(\"\\n\") else tail)", "        new = text + block"]
+  why: "an older rule block is replaced, never doubled"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        path.write_bytes(new.replace(\"\\n\", nl).encode(\"utf-8\"))", "        path.write_bytes(new.encode(\"utf-8\"))"]
+  why: "the instruction file keeps its line endings"
+- file: fieldkit/tokens/rotate.py
+  swap: ["            trig = rule_present(RULE_FILES[name])", "            trig = True"]
+  why: "doctor says an agent is triggered only when its file holds the rule"
+- file: fieldkit/core/preflight.py
+  swap: [", \"fieldkit.tokens.rotate:preflight_check\"]", "]"]
+  why: "the run guard carries the rotation check"

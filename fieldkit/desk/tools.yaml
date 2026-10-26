@@ -5452,6 +5452,24 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Never writes the file; runs the --gen command (its safety). Exit 2 when the generator fails or the file is missing."
 
+- id: merge-driver
+  title: "Cards and generated indexes merged entry by entry: two branches that each add a tool card merge with no conflict in tools.yaml, platform_index.json or docs/groups.yaml"
+  harness: method
+  entry: [python, -m, fieldkit, merge-driver]
+  path: ${FIELDKIT}/fieldkit/method/mergedriver.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, install], help: "LEAVE EMPTY for check; install writes the driver into this clone's git folder"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+    - {name: quiet, flag: --quiet, type: flag, required: false, help: "say nothing when it is already installed"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {3: "check: not installed, or .gitattributes does not name a file"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mergedriver.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "2026-10-26: every card PR conflicted in platform_index.json and at the end of tools.yaml; each hand resolution cost a ~25-min pre-commit suite. install writes only inside the clone's git folder (merge.fieldkit-generated.* config, info/attributes, a copy of the script for branches cut before it); hooks/pre-commit runs it when missing. Two edits of one card still conflict; tests/test_platform_gate.py stays the guard for the index. Standard library only, no network. Mutations: tests/mergedriver_mutations.yaml."
+
 - id: mcp-probe
   title: Speak MCP to a server as a client does - handshake, tool list and its size, optionally one call
   harness: method
@@ -5719,6 +5737,25 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_preflight.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Owner 2026-10-26: the hog runs automatically as a preflight of every Fieldkit-managed heavy run, hand in hand with the temperature monitor. Called by buildguard.guard (fieldkit guard, go builds), fieldkit mutate, pipeline run, autopilot jobs (runbook steps, goals), the leak gate (observation and safe reclaim only; no allowlist, judgment or verdict changes) and the pre-commit suite. Checks: STEPS + preflight.register(name, fn), fn(ctx) -> (ok|warn|stop, line); a broken check is a warning. Skipped inside pytest and with FIELDKIT_PREFLIGHT=0; one guard per run (FIELDKIT_RUN_GUARD). Measured 0.8 s on the ThinkPad."
+- id: emerge
+  title: "Compile jobs like Gentoo's Portage, and better - one recipe per product (Firefox Windows, Firefox Debian, kernel, Gorilla OpenCode, gorilla-size), every stage content-addressed and skipped when its key was built and its outputs verify, offload to the other machine over the cable, test tiers (leak gate once per release), one fix-on-failure model run per attempt and zero on a green run, the inbox past the limit"
+  harness: core
+  entry: [python, -m, fieldkit, emerge]
+  path: ${FIELDKIT}/fieldkit/emerge/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [list, plan, run, status, manifest, export, repro, forget], help: "plan (the dry run: keys, SKIP/RUN/OFFLOAD/TIER-SKIP, ETA, preflight) | run | status | manifest [--write] | export [--out F] | repro --with F | forget [--stage S] | list"}
+    - {name: recipe, flag: null, type: str, required: false, help: "a recipe name (fieldkit/emerge/recipes) or a .yaml path"}
+    - {name: mode, flag: --mode, type: str, required: false, choices: [iterate, install, release], help: "iterate (default) | install (+ package checks, post-install) | release (+ the leak gate)"}
+    - {name: var, flag: --var, type: str, required: false, help: "k=v recipe/pipeline variable (repeat)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "plan/run: JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {0: "plan: preflight not STOP / run: green", 2: "refused before stage 1 (a pin, disk) or bad arguments", 3: "a stage failed and is in the inbox / manifest would move a pin / repro found different bytes"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_emerge.py"]
+  skill: skills/fieldkit-emerge/SKILL.md
+  notes: "Owner 2026-10-26: 'I don't want it to be hard ... Be better than Portage. Let's implement that.' Builds ON fieldkit/core/pipeline.py (stages run through Pipeline._run, one stage at a time), testcost (every stage pass/fail recorded under emerge:<recipe>:<stage> with its key; ETA = median of measured passes), the one run guard (core/preflight.py: hog, testcost, scratch; parity once #122 merges) entered ONCE before stage 1, orchestrate_work (offload = run jobs over the cable, signed artefacts by sha256), autopilot run.claude (the fixer) and inbox. State: state/emerge/<recipe>/ (cache/<stage>/<key>.json, last-report.json, overhead.json in fieldkit overhead's shape, journal.jsonl). Mutations: tests/emerge_mutations.yaml."
 - id: testcost
   title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests, budgets from measured runs, every refusal logged
   harness: core
@@ -5732,6 +5769,26 @@ tools:
   exits: {0: "done (seen: this exact tree already passed)", 1: "seen: not passed on this tree / docs-only: suite must run"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
+
+- id: overhead
+  title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
+  harness: core
+  entry: [python, -m, fieldkit, overhead]
+  path: ${FIELDKIT}/fieldkit/overhead.py
+  inputs:
+    - {name: job, flag: null, type: str, required: false, help: "a build-harness task (firefox-158.0, 'firefox-158.0 #2'), goal:<id>, or baselines; none = one line per known job"}
+    - {name: session, flag: --session, type: str, required: false, help: "a Claude Code session id (prefix) of this job, repeatable; splits LLM / tools / owner time"}
+    - {name: bare, flag: --bare, type: float, required: false, help: "the bare minutes when no stage log gives them"}
+    - {name: state, flag: --state, type: path, required: false, help: "Fieldkit state folder (default: this checkout's state/)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {0: "every job within overhead.max_ratio (or no baseline)", 1: "a job took more than overhead.max_ratio x its bare build (WARN)", 2: "unknown job or bad arguments"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_overhead.py"]
+  skill: skills/fieldkit-overhead/SKILL.md
+  notes: "Owner 2026-10-26: the bar is Gentoo Portage / his pre-AI script, a 90-minute compile + package, unattended. Baseline = the build-harness journal's own stage runs (first migration burst + longest successful compile + its package). Every second of the wall clock in exactly one bucket by priority bare > rework > tests > tools > llm > owner > idle. Sources: journal.jsonl, leak gate run folders, testcost runs.jsonl, autopilot inbox, goal events.log/CHECKPOINT.json/verdicts.jsonl, Claude Code transcripts given by --session or overhead.sessions (never guessed). Budget overhead.max_ratio (default 1.5) in fieldkit.local.json; goal status + REPORT.md show the line; board_line() is the zero-net Board's hook. Read-only, no network, no model. First real run: Firefox 158 = bare 2 h 49 min, took 62 h 55 min = 22.4x."
 
 - id: skills
   title: "Agent Skills (agentskills.io, the standard Anthropic gave the Agentic AI Foundation) - every spec rule checked on every skill, network doors in adopted third-party skills, installed copies against the sources, license/compatibility aligned, third-party skills rebuilt from a pinned upstream; plus the adopted skill-creator scripts (package, benchmark, eval)"
@@ -5852,13 +5909,13 @@ tools:
   skill: skills/fieldkit-scratch/SKILL.md
   notes: "Owner 2026-10-26: \"this click should go in AT THE BEGINING OF THE SESSION. into the mandate list of the preapprovals. Android does that in their apps.\" A mandate's machine_prerequisites: entries {id, os, admin, what, cost, script + sha256 + apply/undo args | command + undo_command, verify = a named read-only check (longpaths_enabled, git_longpaths, scratch_exclusion)}. Shown on the approve and renew screens (renew --from CHANGED.yaml marks new doors NEW). Applied only under a mandate IN FORCE; a script whose sha256 differs never runs (checked again inside the elevated process); user-level entries run as you; administrator entries share ONE elevated run through local/kits/Elevate (one UAC prompt: Windows lets no program answer its own prompt; the setting then persists, so it is asked once), at most every 12 h; the result is the read-only check afterwards, not the script's word. FIELDKIT_PREREQS=0 skips it at start. Proposal: fieldkit/mandate/owner-wide.prereqs.yaml (scratch-defender-exclusion, longpaths-enabled, git-longpaths). Mutations: tests/scratch_mutations.yaml."
 - id: session-cost
-  title: "What an AI coding session costs in dollars, live or afterwards: Claude Code (CLI and desktop Code tab, subagents included) and Antigravity (Gemini and Claude), cost per call, the share spent re-reading old context, a loud warning past a dollar threshold"
+  title: "What an AI coding session costs in dollars, live or afterwards: Claude Code (CLI and desktop Code tab, subagents included), Antigravity (Gemini and Claude), OpenAI Codex, Gorilla OpenCode and any agent writing the generic usage contract, cost per call, the share spent re-reading old context, a loud warning past a dollar threshold"
   harness: core
   entry: [python, -m, fieldkit, session-cost]
   path: ${FIELDKIT}/fieldkit/tokens/session_cost.py
   inputs:
     - {name: sessions, flag: null, type: list, required: false, help: "a Claude Code .jsonl, an Antigravity conversation .db, or a session id (first characters are enough); default: the newest session"}
-    - {name: source, flag: --source, type: str, required: false, help: "all (default), claude-code or antigravity"}
+    - {name: source, flag: --source, type: str, required: false, help: "all (default), claude-code, antigravity, codex, gorilla-opencode, generic"}
     - {name: list, flag: --list, type: str, required: false, help: "the N newest sessions per source, each with its dollars"}
     - {name: live, flag: --live, type: flag, required: false, help: "keep running and print the running total after every call (Ctrl+C stops)"}
     - {name: warn_usd, flag: --warn-usd, type: str, required: false, help: "print a loud warning when a session passes this many dollars; exit 3 in report mode"}
@@ -5901,17 +5958,38 @@ tools:
   entry: [python, -m, fieldkit, rotate]
   path: ${FIELDKIT}/fieldkit/tokens/rotate.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor], help: "LEAVE EMPTY for check. handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]"}
+    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor, rule], help: "LEAVE EMPTY for check. handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]; rule prints the block for agents with no hook"}
     - {name: hours, flag: --hours, type: float, required: false, help: "check/finished: sessions active in the last N hours (24 / 72)"}
+    - {name: source, flag: --source, type: str, required: false, help: "check: one agent only: all (default), claude-code, antigravity, codex, gorilla-opencode, generic, ibm-bob"}
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "check: only sessions working in this folder or under it"}
+    - {name: newest, flag: --newest, type: flag, required: false, help: "check: only the most recently active session (an agent asking about itself)"}
+    - {name: install, flag: --install, type: str, required: false, help: "rule: add the rule block to this instruction file (AGENTS.md, GEMINI.md); idempotent"}
     - {name: json, flag: --json, type: flag, required: false, help: "check/handover/finished: JSON"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
   exits: {1: "check: a session is WARN / handover: PLAN.md not found (note written, plan not)", 2: "check: a session is ROTATE", 3: "session not found"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py", "${FIELDKIT}/tests/test_rotate_agents.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
-  notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. Mutations: tests/rotate_mutations.yaml."
+  notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. 1.1.0 (2026-10-26): also measures OpenAI Codex, Gorilla OpenCode and the generic JSONL contract (IBM Bob: not measured, no verified format, doctor says WARN); agents with no hook get the rule block (rotate rule --install FILE: ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md) and the run guard (core/preflight.py) names any session over a line; doctor lists measured/triggered per agent. Mutations: tests/rotate_mutations.yaml, tests/rotate_agents_mutations.yaml."
+- id: zero
+  title: "The agent net, the military way - 'Zero has been established': one net control station (Zero) for every agent session, an epoch that fences a second Zero out (split-brain refused), a 2IC for failover, check-ins on a lease (comms check / radio check), roll calls answered with a fixed sitrep, LATE / SILENT / MISSING stations on the PLAN.md Board and in the owner inbox, a dead cable revived, clocks compared, an append-only hash-chained net log with acked, retried messages. Also `fieldkit net VERB`."
+  harness: core
+  entry: [python, -m, fieldkit, zero]
+  path: ${FIELDKIT}/fieldkit/zero/net.py
+  inputs:
+    - {name: verb, flag: null, type: str, required: false, choices: [status, open, establish, rollcall, sitrep, checkin, check, comms, time, handover, send, ack, log, close, doctor, schedule], help: "LEAVE EMPTY for status ('has Zero been established?'). Owner words: zero / zero established -> status or open; sitrep / sit rep / roll call / who is out there -> rollcall; comms check / radio check -> check; net -> status"}
+    - {name: as, flag: --as, type: str, required: false, help: "the station you speak for, e.g. gemini:main (agents with no CLAUDE_CODE_SESSION_ID)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {1: "WARN: a station LATE or SILENT, an undelivered message, a clock over 2 s", 2: "ALARM: a station MISSING, the cable not revived, a clock over 30 s, the log chain broken", 3: "no net established", 4: "REFUSED: not Zero, stale epoch, split-brain, net discipline, an incomplete sitrep"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_net.py"]
+  skill: skills/fieldkit-net/SKILL.md
+  notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml."
 
 - id: parity
   title: "Test parity - every machine runs the same pinned versions with the same capabilities before a test: a deterministic manifest per machine (versions + sha256 of gorilla-opencode, gorilla-size, python, go, git, gh, node; Fieldkit commit + dirty; installed skills, cards, Gorilla OpenCode provider NAMES, MCP servers, mandates in force, long paths; OS/arch), compared over the household link (SAME / PARTIAL / DRIFT, each difference named, an absent device reported, never a failure), aligned to releases/parity-pin.yaml from the release itself (asset + SHA256SUMS + GitHub digest, old binary kept, Linux/macOS get the root line), and the run guard's shared-ground check"
