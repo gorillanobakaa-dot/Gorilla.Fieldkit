@@ -1,0 +1,76 @@
+{
+ "capabilities": {
+  "cards": [
+   "hog",
+   "parity",
+   "testcost"
+  ],
+  "local_cards": [],
+  "long_paths": {
+   "git": true,
+   "os": true
+  },
+  "mandates": [
+   "owner-wide"
+  ],
+  "opencode": {
+   "agents": {
+    "coder": "gemini-2.5-flash"
+   },
+   "config": true,
+   "mcp": [
+    "fieldkit"
+   ],
+   "providers": [
+    "gemini"
+   ]
+  },
+  "skills": [
+   "fieldkit-hog",
+   "fieldkit-peers"
+  ]
+ },
+ "fieldkit": {
+  "branch": "main",
+  "commit": "db67cbd685cbda84f7d86c79f825d3597124f800",
+  "dirty": false
+ },
+ "hash": "47d6bc70c3a4a6525d6ec607316945cf4a9772c4c8de56d01ff8af708d47ebcd",
+ "machine": {
+  "arch": "x86_64",
+  "host": "vaio-b",
+  "os": "linux",
+  "release": "6.12"
+ },
+ "schema": 1,
+ "taken": "2026-10-26 14:00:00",
+ "tools": {
+  "gh": null,
+  "git": {
+   "bytes": 1,
+   "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+   "version": "2.47.3"
+  },
+  "go": {
+   "bytes": 1,
+   "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "version": "1.27.0"
+  },
+  "gorilla-opencode": {
+   "bytes": 1,
+   "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "version": "0.1.154"
+  },
+  "gorilla-size": {
+   "bytes": 1,
+   "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "version": "0.3.0"
+  },
+  "node": null,
+  "python": {
+   "bytes": 1,
+   "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "version": "3.13.5"
+  }
+ }
+}
