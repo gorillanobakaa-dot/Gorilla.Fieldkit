@@ -2,3 +2,8 @@
 *.png binary
 *.ico binary
 *.bundle binary
+# Entries both sides added merge entry by entry, not as a conflict (fieldkit/method/mergedriver.py;
+# installed per clone by `fieldkit merge-driver install`, and by hooks/pre-commit when it is missing).
+fieldkit/desk/platform_index.json merge=fieldkit-generated
+fieldkit/desk/tools.yaml merge=fieldkit-generated
+docs/groups.yaml merge=fieldkit-generated

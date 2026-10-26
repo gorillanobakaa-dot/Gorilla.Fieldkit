@@ -40,6 +40,9 @@ OUT="$BT.out"
 MARK="$(git rev-parse --git-common-dir)/pre-commit.running.$$"
 date '+%Y-%m-%d %H:%M:%S' > "$MARK" 2>/dev/null || true
 trap 'rm -rf "$BT" "$OUT" "${BT2:-}" "$MARK"' EXIT
+# 2026-10-26: the merge driver for cards and generated indexes (fieldkit/method/mergedriver.py), written into the
+# clone's git folder when missing, so the next merge of two card branches does not conflict. Never refuses a commit.
+[ -f fieldkit/method/mergedriver.py ] && "$PY" fieldkit/method/mergedriver.py install --quiet 2>/dev/null | sed 's/^/pre-commit: merge driver /'
 # 2026-10-14 (owner): a new module must never be blocked by the docs map. Put every module that is in no group into
 # its folder's group first, and stage the map; a module in a brand-new folder (or a tie) is refused with the reason.
 if [ -f docs/groups.yaml ]; then

@@ -21,6 +21,10 @@ local kit TokenAudit 2026-10-26), cards `session-cost`, `token-audit`, `rotate`.
 | which sessions are monsters now? | `fieldkit rotate check` (exit 0 OK, 1 WARN, 2 ROTATE) |
 | hand this session over to a fresh one | `fieldkit rotate handover --transcript PATH --title T --done D --next N --not-verified V` |
 | finished sessions to archive | `fieldkit rotate finished --gh --exclude <own session id>` |
+| am I (Codex, Antigravity, Gorilla OpenCode, ...) over the line? | `fieldkit rotate check --source <agent> --cwd . --newest` |
+| which agents are measured and told? | `fieldkit rotate doctor` (per agent: measured yes/no, triggered yes/no) |
+| tell an agent with no hook to check itself | `fieldkit rotate rule --install <its AGENTS.md / GEMINI.md>` |
+| an agent Fieldkit cannot read | write `~/.fieldkit/usage/<agent>/<session>.jsonl`, one line per call: `ts, session, model, input_tokens` (cached included), `cached_tokens, output_tokens` (+ optional `provider`) |
 
 ## Session rotation (owner 2026-10-26: "get rid of the monster sessions and create new ones that costs less")
 

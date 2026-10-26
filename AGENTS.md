@@ -121,7 +121,9 @@ The owner runs Fieldkit on a Windows laptop and a Linux machine, each with its o
   the card's `platforms_why` and what to use instead; `--help` always passes), `agent.run` refuses it, and
   `agent.discover` never offers it. The command line reads `fieldkit/desk/platform_index.json`, generated from the
   cards: after changing a card's `platforms` or entry, run `python -m fieldkit.core.platform_gate --write`
-  (`tests/test_platform_gate.py` fails until you do). Inside a tool, a reader or lever that exists on one system
+  (`tests/test_platform_gate.py` fails until you do). Two branches that each add cards merge with no conflict in
+  `tools.yaml`, `platform_index.json` or `docs/groups.yaml`: `fieldkit merge-driver` (installed per clone by
+  `hooks/pre-commit`) merges them entry by entry; never hand-resolve those files. Inside a tool, a reader or lever that exists on one system
   only checks `sys.platform` itself and returns nothing elsewhere (the thermal sensors and cap are the example).
 - **A Firefox patch is applied only where it builds.** `build-harness set-proof` (run by the patch set's pre-push
   hook for both systems) fails on a patch whose files only the other system builds, unless the policy declares it.
@@ -264,3 +266,12 @@ procedure, look there; when you invent one, add it there, and turn it into a too
 ## Commands for the owner
 
 OWNER COMMANDS ARE PASTEABLE AS THEY ARE (owner, 2026-10-18). Every command the owner is to paste is a Windows PowerShell block that starts with cd to a full path (cd $HOME; ...), calls every program by its full real path (an MSIX app such as Claude Desktop keeps its files under $env:LOCALAPPDATA\Packages\<package>\LocalCache, not where the app itself sees them), uses PowerShell syntax only (no &&, export, $VAR, ~/), and says in words where anything typed AFTER it goes (for example: type /login inside Claude's prompt, not in PowerShell). Checked by fieldkit.autopilot.ownercmd; in Claude Code a Stop hook sends a failing answer back.
+
+<!-- fieldkit-rotate-rule v1 -->
+## Session rotation (fieldkit rotate)
+
+Every call re-sends the whole conversation, so a long session costs more with every call. At the start of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` (agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`).
+- exit 0 OK: carry on.
+- exit 1 WARN: finish the current job here; the next job starts in a fresh session.
+- exit 2 ROTATE: start no new work. At the next safe point (work committed or written down) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, and end this one.
+<!-- /fieldkit-rotate-rule -->
