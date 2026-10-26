@@ -1427,6 +1427,17 @@
    "drift"
   ]
  },
+ "emerge": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "emerge"
+  ]
+ },
  "eta": {
   "platforms": [
    "linux",

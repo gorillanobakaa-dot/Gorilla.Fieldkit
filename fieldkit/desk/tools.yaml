@@ -5664,6 +5664,25 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_preflight.py"]
   skill: skills/fieldkit-hog/SKILL.md
   notes: "Owner 2026-10-26: the hog runs automatically as a preflight of every Fieldkit-managed heavy run, hand in hand with the temperature monitor. Called by buildguard.guard (fieldkit guard, go builds), fieldkit mutate, pipeline run, autopilot jobs (runbook steps, goals), the leak gate (observation and safe reclaim only; no allowlist, judgment or verdict changes) and the pre-commit suite. Checks: STEPS + preflight.register(name, fn), fn(ctx) -> (ok|warn|stop, line); a broken check is a warning. Skipped inside pytest and with FIELDKIT_PREFLIGHT=0; one guard per run (FIELDKIT_RUN_GUARD). Measured 0.8 s on the ThinkPad."
+- id: emerge
+  title: "Compile jobs like Gentoo's Portage, and better - one recipe per product (Firefox Windows, Firefox Debian, kernel, Gorilla OpenCode, gorilla-size), every stage content-addressed and skipped when its key was built and its outputs verify, offload to the other machine over the cable, test tiers (leak gate once per release), one fix-on-failure model run per attempt and zero on a green run, the inbox past the limit"
+  harness: core
+  entry: [python, -m, fieldkit, emerge]
+  path: ${FIELDKIT}/fieldkit/emerge/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [list, plan, run, status, manifest, export, repro, forget], help: "plan (the dry run: keys, SKIP/RUN/OFFLOAD/TIER-SKIP, ETA, preflight) | run | status | manifest [--write] | export [--out F] | repro --with F | forget [--stage S] | list"}
+    - {name: recipe, flag: null, type: str, required: false, help: "a recipe name (fieldkit/emerge/recipes) or a .yaml path"}
+    - {name: mode, flag: --mode, type: str, required: false, choices: [iterate, install, release], help: "iterate (default) | install (+ package checks, post-install) | release (+ the leak gate)"}
+    - {name: var, flag: --var, type: str, required: false, help: "k=v recipe/pipeline variable (repeat)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "plan/run: JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {0: "plan: preflight not STOP / run: green", 2: "refused before stage 1 (a pin, disk) or bad arguments", 3: "a stage failed and is in the inbox / manifest would move a pin / repro found different bytes"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_emerge.py"]
+  skill: skills/fieldkit-emerge/SKILL.md
+  notes: "Owner 2026-10-26: 'I don't want it to be hard ... Be better than Portage. Let's implement that.' Builds ON fieldkit/core/pipeline.py (stages run through Pipeline._run, one stage at a time), testcost (every stage pass/fail recorded under emerge:<recipe>:<stage> with its key; ETA = median of measured passes), the one run guard (core/preflight.py: hog, testcost, scratch; parity once #122 merges) entered ONCE before stage 1, orchestrate_work (offload = run jobs over the cable, signed artefacts by sha256), autopilot run.claude (the fixer) and inbox. State: state/emerge/<recipe>/ (cache/<stage>/<key>.json, last-report.json, overhead.json in fieldkit overhead's shape, journal.jsonl). Mutations: tests/emerge_mutations.yaml."
 - id: testcost
   title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests, budgets from measured runs, every refusal logged
   harness: core
