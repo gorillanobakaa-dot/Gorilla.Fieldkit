@@ -66,6 +66,41 @@
         "gemini-3.1-pro-preview": [{"input": 2, "output": 12, "cache_read": 0.2,
                                     "over": {"prompt_tokens": 200000, "input": 4, "output": 18, "cache_read": 0.4}}]
       }
+    },
+    "openai": {
+      "label": "OpenAI API, Standard tier",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "fetched": "2026-10-26",
+      "sha256": "606acc6693f882253e203e30da2fbfd23f28b02540a98f26fce93c5cdc04e9dd",
+      "notes": "Used for OpenAI Codex (CLI and desktop app, model_provider openai). sha256 is of the page's markdown copy (the same URL + .md), which these numbers were parsed from; not in the evidence store (fieldkit evidence fetch refuses NAT64 addresses on this network). OpenAI caches for 30 minutes or 12 hours: cache_write_5m holds the '30m write' price and cache_write_1h the '12h write' price. Codex records one cache-write count without its lifetime, priced as 30m (a lower bound). 'over' = the page's long context (> 272K input tokens). 'fast' = the Fast table. Models listed without a cached-input price (the -pro models) are left out: a call on one is unpriced, never guessed.",
+      "models": {
+        "gpt-6-astra": [{"input": 10, "output": 50, "cache_read": 1, "cache_write_5m": 12.5, "cache_write_1h": 25, "over": {"prompt_tokens": 272000, "input": 20, "output": 75, "cache_read": 2, "cache_write_5m": 25, "cache_write_1h": 50}, "fast": {"input": 20, "output": 100}}],
+        "gpt-6.1-sol": [{"input": 2, "output": 10, "cache_read": 0.1, "cache_write_5m": 2.5, "cache_write_1h": 5, "over": {"prompt_tokens": 272000, "input": 4, "output": 15, "cache_read": 0.2, "cache_write_5m": 5, "cache_write_1h": 10}, "fast": {"input": 4, "output": 20}}],
+        "gpt-6-luna": [{"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write_5m": 0.125, "cache_write_1h": 0.25, "over": {"prompt_tokens": 272000, "input": 0.2, "output": 0.75, "cache_read": 0.02, "cache_write_5m": 0.25, "cache_write_1h": 0.5}, "fast": {"input": 0.2, "output": 1}}],
+        "gpt-6-sol": [{"input": 2, "output": 10, "cache_read": 0.2, "cache_write_5m": 2.5, "cache_write_1h": 5, "over": {"prompt_tokens": 272000, "input": 4, "output": 15, "cache_read": 0.4, "cache_write_5m": 5, "cache_write_1h": 10}, "fast": {"input": 4, "output": 20}}],
+        "gpt-5.6-sol": [{"input": 4, "output": 20, "cache_read": 0.4, "cache_write_5m": 5, "cache_write_1h": 10, "over": {"prompt_tokens": 272000, "input": 8, "output": 30, "cache_read": 0.8, "cache_write_5m": 10, "cache_write_1h": 20}, "fast": {"input": 8, "output": 40}}],
+        "gpt-5.6-terra": [{"input": 2, "output": 12, "cache_read": 0.2, "cache_write_5m": 2.5, "cache_write_1h": 5, "over": {"prompt_tokens": 272000, "input": 4, "output": 18, "cache_read": 0.4, "cache_write_5m": 5, "cache_write_1h": 10}, "fast": {"input": 4, "output": 24}}],
+        "gpt-5.6-luna": [{"input": 0.2, "output": 1.2, "cache_read": 0.02, "cache_write_5m": 0.25, "cache_write_1h": 0.5, "over": {"prompt_tokens": 272000, "input": 0.4, "output": 1.8, "cache_read": 0.04, "cache_write_5m": 0.5, "cache_write_1h": 1}, "fast": {"input": 0.4, "output": 2.4}}],
+        "gpt-5.5": [{"input": 5, "output": 30, "cache_read": 0.5, "over": {"prompt_tokens": 272000, "input": 10, "output": 45, "cache_read": 1}, "fast": {"input": 12.5, "output": 75}}],
+        "gpt-5.4": [{"input": 2.5, "output": 15, "cache_read": 0.25, "over": {"prompt_tokens": 272000, "input": 5, "output": 22.5, "cache_read": 0.5}, "fast": {"input": 5, "output": 30}}],
+        "gpt-5.4-mini": [{"input": 0.75, "output": 4.5, "cache_read": 0.075}],
+        "gpt-5.4-nano": [{"input": 0.2, "output": 1.25, "cache_read": 0.02}],
+        "gpt-5.2": [{"input": 1.75, "output": 14, "cache_read": 0.175}],
+        "gpt-5.1": [{"input": 1.25, "output": 10, "cache_read": 0.125}],
+        "gpt-5": [{"input": 1.25, "output": 10, "cache_read": 0.125}],
+        "gpt-5-mini": [{"input": 0.25, "output": 2, "cache_read": 0.025}],
+        "gpt-5-nano": [{"input": 0.05, "output": 0.4, "cache_read": 0.005}],
+        "gpt-4.1": [{"input": 2, "output": 8, "cache_read": 0.5}],
+        "gpt-4.1-mini": [{"input": 0.4, "output": 1.6, "cache_read": 0.1}],
+        "gpt-4.1-nano": [{"input": 0.1, "output": 0.4, "cache_read": 0.025}],
+        "gpt-4o": [{"input": 2.5, "output": 10, "cache_read": 1.25}],
+        "gpt-4o-mini": [{"input": 0.15, "output": 0.6, "cache_read": 0.075}],
+        "o1": [{"input": 15, "output": 60, "cache_read": 7.5}],
+        "o3": [{"input": 2, "output": 8, "cache_read": 0.5}],
+        "o4-mini": [{"input": 1.1, "output": 4.4, "cache_read": 0.275}],
+        "o3-mini": [{"input": 1.1, "output": 4.4, "cache_read": 0.55}],
+        "gpt-5.3-codex": [{"input": 1.75, "output": 14, "cache_read": 0.175}]
+      }
     }
   }
 }

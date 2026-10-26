@@ -38,7 +38,7 @@
     fieldkit voice doctor|install|say|clean ...          a voice worth listening to, on Linux (fieldkit/voice)
     fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
     fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
-    fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor]   the agent net: is Zero
+    fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor|task|release|orders]   the agent net: is Zero
                                                  established, roll call / sitrep, comms check; also `fieldkit net VERB` (fieldkit/zero)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
     fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
@@ -1340,13 +1340,15 @@ def cmd_kernel(a):
 # -- parser ---------------------------------------------------------------------
 # the agent net's verbs (fieldkit/zero/net.py): `fieldkit net VERB` goes there; the network tool keeps its own verbs
 ZERO_VERBS = ("status", "open", "establish", "rollcall", "sitrep", "checkin", "check", "comms", "time", "handover",
-              "send", "ack", "log", "close", "doctor", "schedule")
+              "send", "ack", "log", "close", "doctor", "schedule", "task", "release", "orders")
 # docs/METHODS.md: how the work gets done, as tools. name -> (module in fieldkit/method, one line)
 METHODS = {
     "wait": ("wait", "wait on a condition, never on a clock (--until CMD --matches RE --timeout S)"),
     "mutate": ("mutate", "prove a test can fail: break a rule, run the test, restore the file (FILE --swap A B -- TEST)"),
     "regress": ("regress", "test failures by name before and after a change (record LABEL -- CMD; compare A B)"),
     "drift": ("drift", "does a committed generated file still match its generator? reports, never rewrites"),
+    "merge-driver": ("mergedriver", "cards and generated indexes merged entry by entry, so two branches adding cards "
+                                    "never conflict (check | install)"),
     "mcp-probe": ("mcp_probe", "speak MCP to a server as a client does: handshake, tools and their size, one call"),
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "

@@ -219,13 +219,64 @@ def orphans(facts, registry, cfg, now):
     return out
 
 
+#: what a person calls a class's children in the pile-up line
+NOUN = {"conhost": "consoles", "bash": "bash shells", "python": "python processes", "node": "node processes",
+        "powershell": "PowerShell shells", "cmd": "cmd shells"}
+
+
+def _fix(parent, cfg):
+    """-> (label, fix) for a parent: the first pileup_fixes entry whose regex matches its name, else a plain one."""
+    for rx, label, fix in cfg.get("pileup_fixes") or []:
+        if re.search(rx, parent[3].lower()):
+            return label, fix.format(pid=parent[0], name=parent[3])
+    return parent[3], f"close or restart {parent[3]} when nothing it runs is working"
+
+
+def pileup(facts, cfg):
+    """A live parent holding more than pileup_max_children children of one class, or >= pileup_stale_min of them
+    started more than pileup_stale_h hours before its newest one (left behind, never closed), is reported with its
+    own parent, the count, their working set and the fix. Report only: the hog never stops what it did not start.
+    facts["table"] rows: [pid, ppid, ctime, name, rss]. A parent that is gone, or whose number now belongs to a
+    process younger than the child (PID reused), holds nothing."""
+    table = facts.get("table") or []
+    byid = {r[0]: r for r in table}
+    classes = cfg["pileup_classes"]
+    groups = {}
+    for pid, ppid, ctime, name, rss in table:
+        cls = next((c for c, rx in classes.items() if re.search(rx, name.lower())), None)
+        par = byid.get(ppid)
+        if cls is None or par is None or par[2] > ctime:
+            continue
+        groups.setdefault((ppid, cls), []).append((ctime, rss))
+    out = []
+    for (ppid, cls), kids in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0][0])):
+        newest = max(k[0] for k in kids)
+        stale = [k for k in kids if newest - k[0] > cfg["pileup_stale_h"] * 3600]
+        many = len(kids) > cfg["pileup_max_children"]
+        if not many and len(stale) < cfg["pileup_stale_min"]:
+            continue
+        par = byid[ppid]
+        gp = byid.get(par[1])
+        label, fix = _fix(par, cfg)
+        noun = NOUN.get(cls, f"{cls} processes")
+        held = f"{len(kids)} {noun}" if many else \
+            f"{len(stale)} {noun} started over {cfg['pileup_stale_h']} h before its newest (of {len(kids)})"
+        rss = sum(k[1] for k in kids)
+        out.append(_f("pileup", "warn", f"{label} ({par[3]} {ppid}, started {stamp(par[2])}, parent "
+                      f"{f'{gp[3]} {gp[0]}' if gp else 'gone'}) holds {held} since {stamp(min(k[0] for k in kids))}, "
+                      f"{rss / MB:.0f} MB: {fix}",
+                      {"pid": ppid, "name": par[3], "cls": cls, "count": len(kids), "stale": len(stale),
+                       "rss": rss, "parent_pid": par[1], "parent_name": gp[3] if gp else None}))
+    return out
+
+
 def evaluate(facts, history, registry, cfg, now=None):
     now = facts.get("t") if now is None else now
     crit = critical(facts, cfg)
     return (ram(facts, cfg) + commit(facts, cfg) + lms_models(facts, cfg, now, crit)
             + ollama_models(facts, history, cfg, now, crit) + leaks(facts, history, cfg)
             + cpu_pinned(facts, history, cfg) + temp(facts, cfg) + disk(facts, cfg)
-            + orphans(facts, registry, cfg, now))
+            + orphans(facts, registry, cfg, now) + pileup(facts, cfg))
 
 
 def summary(findings, now=None):
