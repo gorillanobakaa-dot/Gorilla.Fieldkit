@@ -1,4 +1,4 @@
-# Version: 1.6.0 · updated 26-10-26-12-00
+# Version: 1.7.0 · updated 26-10-26-23-37
 """A project mandate: the owner's ONE approval for a whole project, valid on both computers, checkable by each.
 
     fieldkit mandate keygen                       the owner's signing key, once per owner (passphrase-protected)
@@ -8,7 +8,10 @@
     fieldkit mandate verify FILE.yaml             seal, hash, trusted key, expiry, stop: in force or why not
     fieldkit mandate allows FILE.yaml ACTION [k=v ...]   a PREVIEW: allow | ask | deny and the clause (gates nothing)
     fieldkit mandate stop FILE.yaml               the owner's stop: nothing is allowed by it any more
-    fieldkit mandate share FILE.yaml              the mandate, its seal and the public key to the other computer
+    fieldkit mandate share FILE.yaml              the mandate, its seal and the public key to the other computer,
+                                                  whose listener then installs them (mandate-receive)
+    fieldkit mandate receive FILE.yaml FILE.seal  install a received pair ONLY if the seal verifies against the owner
+                                                  key already pinned here; the old pair to ~/Agents.Work.Trash
     fieldkit mandate review-key                   this computer's review key (made once; its public half is carried
                                                   to the other computer)
     fieldkit mandate trust-reviewer PUBFILE       the owner pins the OTHER computer's review key (guarded store)
@@ -555,18 +558,114 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
     return "ask", f"'{action}' is not something a mandate grants ({', '.join(ACTIONS)})"
 
 
-def share(path, put=None):
-    """Send the mandate, its seal and the public keys to the cable peer -> (all sent, ["name: ok | error"])."""
+def share(path, put=None, call=None):
+    """Send the mandate, its seal and the public keys to the cable peer, then ask its listener to install the pair
+    (link verb mandate-receive: it installs only what the owner key pinned THERE verifies) -> (all sent and installed,
+    ["name: ok | error", ..., "installed: ..."]). A listener without that verb gets a note with the command to run."""
+    from ..peers import link
     if put is None:
-        from ..peers import link
         put = link.put
-    sent, ok = [], True
+    call = call or link.call
+    sent, ok, saved = [], True, {}
     for f in (Path(path), _seal_path(path), _key_paths()[1], _review_paths()[1]):
         if f.is_file():
             res = put(f)
             ok = ok and bool(res.get("ok"))
             sent.append(f"{f.name}: {'ok' if res.get('ok') else res.get('error')}")
-    return ok and bool(sent), sent
+            where = res.get("saved") or []
+            saved[f] = where[0] if isinstance(where, list) and where else where
+    y, s = saved.get(Path(path)), saved.get(_seal_path(path))
+    if not (ok and y and s):
+        return False, sent or ["nothing sent"]
+    r = call({"verb": "mandate-receive", "yaml": str(y), "seal": str(s)})
+    if r.get("ok"):
+        sent.append(f"installed: {r.get('message', '')}")
+        return True, sent
+    if "unknown verb" in str(r.get("error", "")):
+        n = call({"verb": "message", "text": f"a renewed mandate arrived; install it: fieldkit mandate receive {y} {s}"})
+        sent.append("NOT installed: the other computer's listener is older (no mandate-receive); a note asks it to run "
+                    f"fieldkit mandate receive {y} {s}" + ("" if n.get("ok") else f" (the note failed: {n.get('error')})"))
+        return False, sent
+    sent.append(f"NOT installed: {r.get('error') or r.get('message')}")
+    return False, sent
+
+
+PLAIN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
+
+
+def _target(m):
+    """The installed mandate a received one replaces: the one with the same project, else mandates/<project>.yaml."""
+    for p in mandates():
+        try:
+            if str(load(p).get("project")) == str(m["project"]):
+                return p
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+    return home() / "mandates" / f"{m['project']}.yaml"
+
+
+def _approved_at(seal_path):
+    try:
+        return str(json.loads(Path(seal_path).read_text(encoding="utf-8")).get("approved_at", ""))
+    except (OSError, ValueError):
+        return ""
+
+
+def receive(yaml_path, seal_path, today=None, trash=None):
+    """Install a mandate received from the other computer -> (code, message). 0 installed (or already here),
+    2 bad usage, 3 refused. Installed ONLY when the pair verifies here exactly as verify() would read it in place:
+    the seal over these bytes, by an owner key ALREADY pinned in this computer's guarded store, not stopped, not
+    expired; and never an older approval over a newer one of the same project. The replaced pair goes to
+    ~/Agents.Work.Trash (the house rule: quarantine, never delete); the mandate's .log stays and records it."""
+    import tempfile
+    yp, sp = Path(yaml_path), Path(seal_path)
+    for f, suffix in ((yp, ".yaml"), (sp, ".seal")):
+        if not f.is_file():
+            return 2, f"REFUSED: {f} is not a file"
+        if f.suffix != suffix:
+            return 2, f"REFUSED: {f.name} is not a {suffix} file (receive FILE.yaml FILE.seal)"
+    try:
+        m = load(yp)
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        return 3, f"REFUSED: unreadable mandate: {e}"
+    if not PLAIN_NAME.match(str(m["project"])):
+        return 3, f"REFUSED: project {m['project']!r} is not a plain name"
+    with tempfile.TemporaryDirectory() as td:
+        staged = Path(td) / f"{m['project']}.yaml"
+        shutil.copyfile(yp, staged)
+        shutil.copyfile(sp, _seal_path(staged))
+        ok, why = verify(staged, today)
+    if not ok:
+        return 3, f"REFUSED: {why}"
+    target = _target(m)
+    old_seal = _seal_path(target)
+    if target.is_file() and _sha(target) == _sha(yp) and old_seal.is_file() and _sha(old_seal) == _sha(sp):
+        return 0, f"ALREADY INSTALLED: {target} ({why})"
+    new_at, old_at = _approved_at(sp), _approved_at(old_seal)
+    if target.is_file() and verify(target, today)[0] and old_at > new_at:
+        return 3, (f"REFUSED: {target.name} here was approved {old_at}, after the received one ({new_at}); "
+                   "an older approval never replaces a newer one")
+    moved = []
+    if target.is_file() or old_seal.is_file():
+        bin_ = Path(trash or Path.home() / "Agents.Work.Trash") / f"mandate-{target.stem}-{time.strftime('%y-%m-%d-%H-%M-%S')}"
+        bin_.mkdir(parents=True, exist_ok=True)
+        for f in (target, old_seal):
+            if f.is_file():
+                shutil.copy2(f, bin_ / f.name)          # the copy first: a failed install still leaves the old pair
+                moved.append(str(bin_ / f.name))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    for src, dst in ((yp, target), (sp, old_seal)):
+        tmp = dst.with_name(dst.name + ".receiving")
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dst)
+    ok, why = verify(target, today)
+    if not ok:                                          # a .STOP beside the old file, say: put the old pair back
+        for f in moved:
+            shutil.copy2(f, target.parent / Path(f).name)
+        return 3, f"REFUSED: installed it did not verify ({why}); the old pair is back"
+    log(target, "received", f"from {yp}; key {json.loads(sp.read_text(encoding='utf-8')).get('key')}",
+        replaced=moved)
+    return 0, f"INSTALLED {target}: {why}" + (f"; old pair in {Path(moved[0]).parent}" if moved else "")
 
 
 def mandates():
@@ -702,7 +801,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit mandate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["keygen", "trust", "trust-reviewer", "approve", "verify", "allows", "stop",
-                                       "share", "status", "install", "review-key", "verdict", "job", "boss",
+                                       "share", "receive", "status", "install", "review-key", "verdict", "job", "boss",
                                        "ledger", "resume", "tasks", "start", "report", "ask", "quiet", "gate",
                                        "doctor", "install-hooks", "renew", "prereqs"])
     ap.add_argument("rest", nargs="*")
@@ -914,6 +1013,13 @@ def main(argv=None):
         return 0 if ok else 3
     if a.action == "share":
         ok, sent = share(path)
-        print("SHARED  " + "; ".join(sent))
-        return 0
+        print(("SHARED  " if ok else "NOT INSTALLED THERE  ") + "; ".join(sent))
+        return 0 if ok else 3
+    if a.action == "receive":
+        if len(r) < 2:
+            print("receive FILE.yaml FILE.seal  (the received copies: link.log says where they landed)")
+            return 2
+        code, msg = receive(path, r[1])
+        print(msg)
+        return code
     return 2
