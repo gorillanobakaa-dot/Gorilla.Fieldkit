@@ -28,11 +28,17 @@
   swap: ['    ok = [r for r in rows if not r.get("me") and', '    ok = [r for r in rows if']
   why: placement never picks this computer
 - file: fieldkit/orchestrate_load.py
-  swap: ['                        check += f"@{r[''os'']}"', '                        pass']
+  swap: ['            check += f"@{r[''os'']}"', '            pass']
   why: another OS's pass never lets this OS skip its suite
 - file: fieldkit/orchestrate_load.py
-  swap: ['                elif r["status"] not in ("pass", "fail"):', '                elif False:']
+  swap: ['        if r["status"] not in ("pass", "fail"):', '        if False:']
   why: a job that could not run falls back to running here
 - file: fieldkit/orchestrate_work.py
   swap: ['        if argv[0] == "admit" and argv[1:2] != ["suite"]:', '        if False:']
   why: admit -- CMD is never a remote job
+- file: fieldkit/orchestrate_load.py
+  swap: ["        sleep(seek_s)\n        rows = None", "        sleep(seek_s)\n        break"]
+  why: while queued, the load is read again and a device that frees takes the suite
+- file: fieldkit/orchestrate_load.py
+  swap: ["        if not said_seek:", "        if True:"]
+  why: the seeking line is said once, not every 5 s

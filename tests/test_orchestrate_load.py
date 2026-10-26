@@ -89,7 +89,7 @@ def full_here(monkeypatch, tmp_path):
     s = A.try_take(1, "test", "the other suite")
     monkeypatch.setattr(L, "export_tree", lambda repo: ((tmp_path / "x" / "tree"), "ee" * 20))
     (tmp_path / "x" / "tree").mkdir(parents=True)
-    yield
+    yield s
     s.release()
 
 
@@ -135,7 +135,7 @@ def test_same_os_result_counts_as_this_os_full_suite(full_here):
 
 def test_os_specific_suite_stays_on_its_os(full_here):
     log, kw = fakes()
-    r = L.place(".", rows=[row("vaio", me=True), row("win", "WINDOWS")], **kw)    # no --any-os
+    r = L.place(".", rows=[row("vaio", me=True), row("win", "WINDOWS")], seek_max=0, **kw)    # no --any-os
     assert log["sent"] == [] and r["where"] == "here" and "no other device is idle and capable" in r["note"]
 
 
@@ -186,3 +186,34 @@ def test_export_tree_is_exactly_the_testcost_tree(tmp_path):
                                                                                          "new.py"]
     assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True,
                           text=True).stdout.count("??") == 1          # nothing staged by the export
+
+
+def test_while_queued_the_load_is_read_again_and_a_device_that_frees_takes_it(full_here):
+    log, kw = fakes()
+    reads = iter([[row("vaio", me=True), row("w2", cpu=80.0)],          # busy at the second read
+                  [row("vaio", me=True), row("w2", cpu=20.0)]])         # idle at the third
+    sleeps, said = [], []
+    kw["say"] = said.append
+    r = L.place(".", rows=[row("vaio", me=True), row("w2", cpu=90.0)], load_fn=lambda: next(reads),
+                sleep=sleeps.append, **kw)
+    assert (r["where"], r["how"]) == ("w2", "placed") and sleeps == [L.SEEK_S, L.SEEK_S]
+    assert sum("reading the load again" in x for x in said) == 1          # said once, not every 5 s
+    assert log["here"] == 0
+
+
+def test_while_seeking_a_slot_freed_here_first_runs_here(full_here):
+    log, kw = fakes()
+    r = L.place(".", rows=[row("vaio", me=True)], load_fn=lambda: [row("vaio", me=True)],
+                sleep=lambda s: full_here.release(), **kw)           # the other suite here ends
+    assert (r["where"], r["how"]) == ("here", "slot freed here first") and log["sent"] == [] and log["here"] == 1
+
+
+def test_seek_max_gives_up_seeking_and_queues_here(full_here):
+    log, kw = fakes()
+    t = [0.0]
+
+    def sleep(s):
+        t[0] += s
+    r = L.place(".", rows=[row("vaio", me=True)], load_fn=lambda: [row("vaio", me=True)], sleep=sleep,
+                now=lambda: t[0], seek_max=12, **kw)
+    assert r["how"] == "queued here" and t[0] == 15.0 and log["here"] == 1

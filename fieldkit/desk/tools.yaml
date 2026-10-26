@@ -1874,13 +1874,14 @@ tools:
     - {name: any_os, flag: --any-os, type: bool, required: false, help: "the suite does not depend on the OS: any device may run it"}
     - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait for a remote result (3600)"}
     - {name: project, flag: --project, type: str, required: false, help: "the repository the owner's mandate names (Gorilla.Fieldkit)"}
+    - {name: seek, flag: --seek, type: float, required: false, help: "seconds at most to keep reading the load for an idle device (default: until a slot here or a device frees)"}
   effects: [network, writes-files, processes]
   safety: irreversible           # the worker runs the suite
   output: third-party            # the result comes from another computer
   platforms: [windows, linux]
   platforms_why: 'run live 2026-10-26: boss on Linux, the suite placed on the Windows laptop over the cable and back signed; a Windows boss not yet run'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_load.py"]
-  notes: "Stage O4. Capable = pytest + git + the same OS unless --any-os. The tree is git archive of the testcost tree hash (tracked + untracked, .gitignore respected); the job is `admit suite` (an O3 run job, so the worker's own gate admits it; on Windows inside fieldkit guard). testcost check name gets @OS when the worker's OS differs, so another OS's pass never skips this OS's suite. Fail closed: not taken, no signed result, could not run, or any exception -> the suite runs here and the verdict says why. A remote FAIL is the answer, not rerun. Mutation plan tests/o4_scheduler_mutations.yaml (12/12)."
+  notes: "Stage O4. Capable = pytest + git + the same OS unless --any-os. The tree is git archive of the testcost tree hash (tracked + untracked, .gitignore respected); the job is `admit suite` (an O3 run job, so the worker's own gate admits it; on Windows inside fieldkit guard). testcost check name gets @OS when the worker's OS differs, so another OS's pass never skips this OS's suite. Fail closed: not taken, no signed result, could not run, or any exception -> the suite runs here and the verdict says why. While nothing is free the load is read again every 5 s and the first to free takes it (a slot here or an idle device), said once. A remote FAIL is the answer, not rerun. Mutation plan tests/o4_scheduler_mutations.yaml (14/14)."
 
 - id: admit
   title: "One machine-wide gate for heavy jobs (the full suite, mutate, builds, go test): at most N at once on this computer, the rest queue and never ask anyone; a hot CPU is offered one slot fewer"
