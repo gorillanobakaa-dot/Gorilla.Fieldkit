@@ -397,8 +397,11 @@ def stopped(path):
 
 def verify(path, today=None):
     """-> (in_force: bool, why). Fail closed on every doubt."""
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except ImportError:                                   # the lean set (a Mac from the zip) has no cryptography
+        return False, "the cryptography package is not installed here, so no seal can be checked (NOT in force)"
     try:
         m = load(path)
     except (OSError, ValueError, yaml.YAMLError) as e:

@@ -153,9 +153,11 @@ def refused_not_network(out):
 
 def ship_env():
     """The environment of a push made by this tool: FIELDKIT_SHIP_PUSH=1 tells a repository's pre-push hook to ask the
-    mandate gate (fieldkit/mandate/gate.py) instead of wanting the owner's flag. A marker, not a credential."""
+    mandate gate (fieldkit/mandate/gate.py) instead of wanting the owner's flag. A marker, not a credential.
+    FIELDKIT_SHIP_PYTHON (2026-10-26) is the Python running this tool, so the hook asks the SAME Fieldkit's gate even
+    where fieldkit is not on PATH (a Mac installed from the zip keeps it in FOLDER/.venv). Same-user, like PATH."""
     import os
-    return dict(os.environ, FIELDKIT_SHIP_PUSH="1")
+    return dict(os.environ, FIELDKIT_SHIP_PUSH="1", FIELDKIT_SHIP_PYTHON=sys.executable)
 
 
 def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate):
