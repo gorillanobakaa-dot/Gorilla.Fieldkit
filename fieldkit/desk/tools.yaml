@@ -5667,3 +5667,65 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py", -k, opt_in]
   skill: skills/fieldkit-skills/SKILL.md
   notes: "A model API is a door opened on purpose, per run (owner 2026-10-26: anything that calls an API is explicit opt-in with no default endpoint): --api-base becomes ANTHROPIC_BASE_URL, the key comes only from the environment. Needs pip install anthropic mcp. For a check without a model, use fieldkit mcp-probe."
+
+- id: session-cost
+  title: "What an AI coding session costs in dollars, live or afterwards: Claude Code (CLI and desktop Code tab, subagents included) and Antigravity (Gemini and Claude), cost per call, the share spent re-reading old context, a loud warning past a dollar threshold"
+  harness: core
+  entry: [python, -m, fieldkit, session-cost]
+  path: ${FIELDKIT}/fieldkit/tokens/session_cost.py
+  inputs:
+    - {name: sessions, flag: null, type: list, required: false, help: "a Claude Code .jsonl, an Antigravity conversation .db, or a session id (first characters are enough); default: the newest session"}
+    - {name: source, flag: --source, type: str, required: false, help: "all (default), claude-code or antigravity"}
+    - {name: list, flag: --list, type: str, required: false, help: "the N newest sessions per source, each with its dollars"}
+    - {name: live, flag: --live, type: flag, required: false, help: "keep running and print the running total after every call (Ctrl+C stops)"}
+    - {name: warn_usd, flag: --warn-usd, type: str, required: false, help: "print a loud warning when a session passes this many dollars; exit 3 in report mode"}
+    - {name: calls, flag: --calls, type: flag, required: false, help: "one line per call: time, model, context sent, cost, running total, re-reading share"}
+    - {name: assume, flag: --assume, type: str, required: false, help: "NAME=PUBLIC: price an internal model name as a public one (stated in the report, never by default)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session"}
+    - {name: doctor, flag: --doctor, type: flag, required: false, help: "check Python, the price tables and both session folders, then stop"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "session not found", 3: "a session is over --warn-usd"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_session_cost.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "Moved from the local kit TokenAudit into shipped code 2026-10-26 (session rotation needs it; Queue 15: the skill had no source in the repo). Standard library only, no network, writes nothing. Prices: fieldkit/tokens/prices.json, one table per provider with source URL, fetch date and the page's sha256; unknown or internal model names are unpriced, never guessed. Claude Code transcripts under $CLAUDE_CONFIG_DIR or ~/.claude/projects (Windows, Linux, macOS). Mutations: tests/tokens_mutations.yaml."
+
+- id: token-audit
+  title: "Where the tokens of Claude Code sessions went - API calls, context sent per call (average, peak, 100k bands), cache reads and writes, tools used most, text injected by the harness's own hooks, and the API-credit dollars"
+  harness: core
+  entry: [python, -m, fieldkit, token-audit]
+  path: ${FIELDKIT}/fieldkit/tokens/token_audit.py
+  inputs:
+    - {name: transcripts, flag: null, type: list, required: false, help: "session .jsonl files"}
+    - {name: all, flag: --all, type: flag, required: false, help: "every transcript under ~/.claude/projects"}
+    - {name: min_mb, flag: --min-mb, type: str, required: false, help: "with --all: skip files smaller than this (default 1)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session"}
+    - {name: doctor, flag: --doctor, type: flag, required: false, help: "check this computer and stop"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "a transcript not found, or none named"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_token_audit.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "Moved from the local kit TokenAudit 2026-10-26. Standard library only, no network, writes nothing. Built 2026-10-21 for 'does the harness cost me a lot of tokens?': tokens are roughly calls x context per call; the harness's always-on text and hooks are a few percent."
+
+- id: rotate
+  title: "Session rotation - every live agent session measured (context per call, dollars), one verdict each OK / WARN / ROTATE, a monster session told at every prompt to hand over and start a fresh one, autopilot jobs restarted from their checkpoint in a new session, finished sessions listed for archive"
+  harness: core
+  entry: [python, -m, fieldkit, rotate]
+  path: ${FIELDKIT}/fieldkit/tokens/rotate.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor], help: "LEAVE EMPTY for check. handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]"}
+    - {name: hours, flag: --hours, type: float, required: false, help: "check/finished: sessions active in the last N hours (24 / 72)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "check/handover/finished: JSON"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "check: a session is WARN / handover: PLAN.md not found (note written, plan not)", 2: "check: a session is ROTATE", 3: "session not found"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. Mutations: tests/rotate_mutations.yaml."

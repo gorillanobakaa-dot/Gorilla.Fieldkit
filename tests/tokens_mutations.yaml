@@ -1,0 +1,63 @@
+# python -m fieldkit mutate --plan tests/tokens_mutations.yaml -- python -m pytest -q tests/test_tokens_session_cost.py tests/test_tokens_token_audit.py -p no:cacheprovider
+# Every rule the session-cost and token-audit tests claim to hold, broken on purpose once. All must be CAUGHT.
+# (moved with the meters from the local kit TokenAudit, 2026-10-26)
+- file: fieldkit/tokens/session_cost.py
+  swap: ["if not u or mid in seen:", "if not u:"]
+  why: "Claude Code: one reply written as several lines is one call (dedupe by message id)"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['return [path] + sorted((path.with_suffix("") / "subagents").glob("*.jsonl"))', "return [path]"]
+  why: "Claude Code: subagent transcripts belong to the session's bill"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['if msg.get("model") == "<synthetic>":', "if False:"]
+  why: "Claude Code: <synthetic> lines are not API calls"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["w - w1h, w1h,", "w, 0,"]
+  why: "Claude Code: 1-hour cache writes cost more than 5-minute ones"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['end = chunk.rfind(b"\n") + 1', "end = len(chunk)"]
+  why: "live: a half-written line is read when it is complete, not dropped"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['if c.get("geo") == "us":', "if False:"]
+  why: "Anthropic: US-only inference costs 1.1x"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['if speed == "fast":', "if False:"]
+  why: "Anthropic: fast mode has its own prices"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['if over and prompt_tokens > over["prompt_tokens"]:', "if False:"]
+  why: "long-prompt tier (Haiku 5.5 over 100k, Gemini 3.1 Pro over 200k)"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['(e.get("to") and day > e["to"])', '(e.get("to") and day > "9999")']
+  why: "dated prices: Gemini 3.8 Flash's promotional price ends 2026-12-31"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['for s in prices.get("suffixes_stripped", []):', "for s in []:"]
+  why: "effort suffixes (-medium, -thinking) price as the public model"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["u.get(5, 0), u.get(3, 0)))", "u.get(5, 0), u.get(10, 0)))"]
+  why: "Antigravity: output is field 3 (includes thinking), not field 10 (response only)"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['26: "google-cloud-claude"', '26: "anthropic"']
+  why: "Antigravity: Claude runs on Google Cloud (API_PROVIDER_ANTHROPIC_VERTEX), priced from Google's table"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["if not any(u.get(k) for k in (2, 3, 4, 5)):", "if False:"]
+  why: "Antigravity: rows with no tokens are not calls"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['strftime("%Y-%m-%dT%H:%M:%SZ") if ts', 'strftime("%Y-%m-%dT%H:%M:%SZ") if False']
+  why: "Antigravity: the call time comes from its steps (prices depend on the date)"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['state["last_idx"] = idx', "pass"]
+  why: "Antigravity live: only new rows are read"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["usd_reread=reread * mult / 1e6", "usd_reread=0.0"]
+  why: "the re-reading share of the cost"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['if warn_usd is not None and s["usd"] >= warn_usd:', 'if warn_usd is not None and s["usd"] >= warn_usd * 10:']
+  why: "report: the warning prints once the threshold is passed"
+- file: fieldkit/tokens/session_cost.py
+  swap: ['warned = int(s["usd"] // warn_usd)', "warned = warned + 1"]
+  why: "live: one warning per threshold step passed"
+- file: fieldkit/tokens/session_cost.py
+  swap: ["return 3 if over else 0", "return 0"]
+  why: "CLI: exit code 3 when a session is over --warn-usd"
+- file: fieldkit/tokens/token_audit.py
+  swap: ['w1h * price["cache_write_1h"]', 'w1h * price["cache_write_5m"]']
+  why: "token-audit: 1-hour writes priced from the shared table"
