@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -577,6 +578,153 @@ def test_goal_spec_validation():
     assert goal.validate({"id": "Bad Id", "objective": "", "criteria": []})
     assert goal.validate({"id": "ok", "objective": "o", "criteria": [{"id": "c", "run": "x"}],
                           "seed_jobs": [{"id": "j", "brief": "b", "cwd": "."}]}) == []
+
+
+# ---- parallel workers (2026-10-26) ------------------------------------------------------------------------------
+class Workers:
+    """A run_job stand-in: records starts and ends, counts how many run at once, writes a file per job."""
+
+    def __init__(self, hold=None, barrier=None, out=None):
+        self.lock, self.live, self.peak, self.log = threading.Lock(), 0, 0, []
+        self.hold, self.barrier, self.out = hold or {}, barrier, out
+
+    def __call__(self, job_dir, brief, cwd, **kw):
+        jid = kw["job_id"].split("-", 1)[1]
+        with self.lock:
+            self.live += 1
+            self.peak = max(self.peak, self.live)
+            self.log.append(("start", jid))
+        if self.barrier:
+            self.barrier.wait(timeout=10)       # two workers must meet here: proves they run at the same time
+        if jid in self.hold:
+            assert self.hold[jid].wait(timeout=10)
+        time.sleep(0.05)
+        if self.out:
+            (Path(self.out) / f"{jid}.txt").write_text(jid)
+        with self.lock:
+            self.live -= 1
+            self.log.append(("end", jid))
+        return {"status": "done"}
+
+    def order(self, kind):
+        return [j for k, j in self.log if k == kind]
+
+
+def pjob(jid, cwd, touches=(), needs=()):
+    return {"id": jid, "brief": f"do {jid}", "cwd": str(cwd), "touches": list(touches), "needs": list(needs)}
+
+
+def run_steps(w, n=6):
+    for _ in range(n):
+        out = goal.step("g1", run_job=w, say=lambda m: None)
+        if out["status"] != "active":
+            return out
+    return out
+
+
+def test_disjoint_jobs_run_at_the_same_time(tmp_path, monkeypatch):
+    mkgoal(tmp_path, tmp_path / "never.txt")
+    script(tmp_path, [plan_of([pjob("j1", tmp_path, ["a.txt"]), pjob("j2", tmp_path, ["b"])]), plan_of()], monkeypatch)
+    w = Workers(barrier=threading.Barrier(2))
+    goal.step("g1", run_job=w, say=lambda m: None)
+    run_steps(w, 2)
+    _, st = goal.load("g1")
+    assert w.peak == 2 and not w.barrier.broken
+    assert {st["jobs"][j]["status"] for j in ("j1", "j2")} == {"verified"}
+    assert goal.MAX_WORKERS == 2
+
+
+def test_a_shared_touch_serializes_and_a_free_slot_takes_a_disjoint_job(tmp_path, monkeypatch):
+    mkgoal(tmp_path, tmp_path / "never.txt")
+    script(tmp_path, [plan_of([pjob("j1", tmp_path, ["src"]), pjob("j2", tmp_path, ["src/a.py"]),
+                               pjob("j3", tmp_path, ["docs"])]), plan_of()], monkeypatch)
+    ev = threading.Event()
+    w = Workers(hold={"j1": ev})
+    threading.Timer(0.5, ev.set).start()
+    goal.step("g1", run_job=w, say=lambda m: None)
+    assert set(w.order("start")) == {"j1", "j3"}                # src/a.py lies under src: j2 waits
+    run_steps(w, 4)
+    _, st = goal.load("g1")
+    assert w.order("start").index("j2") > w.order("end").index("j1")
+    assert {v["status"] for v in st["jobs"].values()} == {"verified"}
+
+
+def test_a_needs_chain_runs_one_after_the_other(tmp_path, monkeypatch):
+    mkgoal(tmp_path, tmp_path / "never.txt", max_workers=3)
+    script(tmp_path, [plan_of([pjob("j1", tmp_path, ["a"]), pjob("j2", tmp_path, ["b"], ["j1"]),
+                               pjob("j3", tmp_path, ["c"], ["j2"])]), plan_of()], monkeypatch)
+    w = Workers()
+    run_steps(w, 6)
+    _, st = goal.load("g1")
+    assert w.peak == 1 and w.order("start") == ["j1", "j2", "j3"]
+    assert {v["status"] for v in st["jobs"].values()} == {"verified"}
+
+
+def test_startable_rules():
+    def st(**jobs):
+        return {"answers": {}, "jobs": {k: {"status": s, "spec": sp} for k, (s, sp) in jobs.items()}}
+    a, b = "C:/w/a" if os.name == "nt" else "/w/a", "C:/w/b" if os.name == "nt" else "/w/b"
+    # undeclared touches run alone (fail closed), both ways
+    assert goal.startable(st(j1=("queued", pjob("j1", a)), j2=("queued", pjob("j2", a, ["x"]))), limit=2) == ["j1"]
+    assert goal.startable(st(j1=("running", pjob("j1", a)), j2=("queued", pjob("j2", a, ["x"]))), limit=2) == []
+    # the same relative path in two folders is two paths
+    assert goal.startable(st(j1=("running", pjob("j1", a, ["src"])), j2=("queued", pjob("j2", b, ["src"]))),
+                          limit=2) == ["j2"]
+    assert goal.startable(st(j1=("running", pjob("j1", a, ["src"])), j2=("queued", pjob("j2", a, ["./src/x"]))),
+                          limit=2) == []
+    assert goal.max_workers({}) == 2 and goal.max_workers({"max_workers": 4}) == 4
+
+
+def test_the_planner_saying_done_never_ends_a_goal_while_a_worker_runs(tmp_path, monkeypatch):
+    mkgoal(tmp_path, tmp_path / "j1.txt")
+    script(tmp_path, [plan_of([pjob("j1", tmp_path, ["a"]), pjob("j2", tmp_path, ["b"])]),
+                      plan_of(signal="done")], monkeypatch)
+    ev = threading.Event()
+    w = Workers(hold={"j2": ev}, out=tmp_path)
+    goal.step("g1", run_job=w, say=lambda m: None)              # j1 ends, j2 still runs
+    threading.Timer(0.5, ev.set).start()
+    out = goal.step("g1", run_job=w, say=lambda m: None)        # the planner says done: wait for j2 first
+    _, st = goal.load("g1")
+    assert out["status"] == "done" and st["jobs"]["j2"]["status"] == "verified"
+
+
+def test_a_job_left_running_by_a_dead_supervisor_resumes(tmp_path, monkeypatch):
+    mkgoal(tmp_path, tmp_path / "never.txt", seed_jobs=[pjob("j1", tmp_path, ["a"])])
+    _, st = goal.load("g1")
+    st.update(needs_plan=False)
+    st["jobs"]["j1"]["status"] = "running"
+    goal.save_state("g1", st)
+    w = Workers()
+    goal.step("g1", run_job=w, say=lambda m: None)
+    _, st = goal.load("g1")
+    assert w.order("start") == ["j1"] and st["jobs"]["j1"]["status"] == "verified"
+    assert "no worker alive" in (goal.gdir("g1") / "events.log").read_text()
+
+
+def test_a_crashing_worker_is_a_failed_job(tmp_path, monkeypatch):
+    mkgoal(tmp_path, tmp_path / "never.txt", seed_jobs=[pjob("j1", tmp_path, ["a"])])
+    _, st = goal.load("g1")
+    st.update(needs_plan=False)
+    goal.save_state("g1", st)
+
+    def boom(*a, **k):
+        raise RuntimeError("worker died")
+    goal.step("g1", run_job=boom, say=lambda m: None)
+    _, st = goal.load("g1")
+    assert st["jobs"]["j1"]["status"] == "failed" and "worker died" in st["jobs"]["j1"]["why"]
+
+
+def test_the_heartbeat_stays_fresh_while_the_main_thread_blocks(tmp_path, monkeypatch):
+    assert goal.lock()[0]
+    lk = goal.GOALS / ".supervisor.lock"
+    goal._wj(lk, dict(goal._rj(lk), heartbeat=0))
+    ev = goal._heartbeat_thread(time.time, every=0.05)
+    try:
+        time.sleep(0.5)                                          # the main thread "waits on a worker"
+    finally:
+        ev.set()
+    assert time.time() - goal._rj(lk)["heartbeat"] < 5
+    goal.unlock()
 
 
 # ---- the supervisor ---------------------------------------------------------------------------------------------
