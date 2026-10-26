@@ -248,6 +248,42 @@ def test_the_stick_folder_carries_the_templates_and_the_clones_to_check(tmp_path
         U.stick(out, rows=rows, covered={})
 
 
+def test_the_template_hook_is_committed_executable():
+    t = U.template_dir("Gorilla.Opencode") / "pre-push"
+    r = subprocess.run(["git", "-C", str(t.parent), "ls-files", "--stage", t.name], capture_output=True, text=True)
+    if r.returncode or not r.stdout:
+        pytest.skip("not a git checkout")
+    assert r.stdout.split()[0] == "100755", r.stdout              # 100644: Linux and macOS git skip the hook
+
+
+def test_git_skips_a_hook_that_is_not_executable_except_on_windows():
+    assert U.runnable("x", "win32", access=lambda *a: False)
+    assert not U.runnable("x", "linux", access=lambda *a: False)
+    assert not U.runnable("x", "darwin", access=lambda *a: False)
+    assert U.runnable("x", "linux", access=lambda *a: True)
+
+
+def test_a_hook_git_would_skip_is_reported_and_never_verified(clone, monkeypatch):
+    hook(clone, '#!/bin/sh\n[ "$GORILLA_OWNER_APPROVED" = "1" ] || exit 1\n')
+    monkeypatch.setattr(U, "runnable", lambda p, platform=None, access=None: False)
+    row = U.classify(clone, "pfind")
+    assert row["state"] == "not-executable" and not row["ok"] and "SKIPS" in row["why"]
+    assert not U._verify_installed(clone)[0]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no executable bit; git runs a hook anyway")
+def test_install_hooks_makes_the_hook_executable(clone, monkeypatch):
+    old = hook(clone, "#!/bin/sh\nexit 1\n")
+    old.chmod(0o644)
+    monkeypatch.setattr(U, "_verify_installed", lambda repo: (True, "verified"))
+    assert U.install_hooks(True, {"Gorilla.Opencode": [clone]}, {"Gorilla.Opencode": "x"}, lambda s: None) == 0
+    assert os.access(old, os.X_OK)
+    old.chmod(0o644)                                               # same bytes, not executable: installed again
+    said = []
+    U.install_hooks(True, {"Gorilla.Opencode": [clone]}, {"Gorilla.Opencode": "x"}, said.append)
+    assert "INSTALLED" in said[0] and os.access(old, os.X_OK)
+
+
 def test_the_template_is_the_hook_that_asks_the_gate():
     t = U.template_dir("Gorilla.Opencode")
     text = (t / "hooks.py").read_text(encoding="utf-8")

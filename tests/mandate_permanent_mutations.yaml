@@ -69,3 +69,9 @@
 - file: fieldkit/mandate/upkeep.py
   swap: ['        elif not ok and not any_in_force and why.startswith("expired")', '        elif not ok and why.startswith("expired")']
   why: an old expired mandate is not news while another is in force
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    return (platform or sys.platform) == "win32" or access(p, os.X_OK)', '    return True']
+  why: a hook git skips (not executable on Linux and macOS) is never called installed
+- file: fieldkit/mandate/upkeep.py
+  swap: ['return {"state": "not-executable", "ok": False,', 'return {"state": "not-executable", "ok": True,']
+  why: the doctor reports a hook git skips

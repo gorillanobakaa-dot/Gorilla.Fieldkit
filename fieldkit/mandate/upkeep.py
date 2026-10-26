@@ -28,6 +28,7 @@ install-hooks and renew are hard line 4 (hardlines.py): an unattended run never 
 """
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -213,6 +214,10 @@ def classify(repo, name):
     hp = hook_path(repo)
     if not hp.is_file():
         return {"state": "none", "ok": True, "why": "no pre-push hook: git asks nothing, there is no flag to honor"}
+    if not runnable(hp):
+        return {"state": "not-executable", "ok": False,
+                "why": f"{hp} is not executable, so git on this system SKIPS it (its scans and its flag check never "
+                       "run): fieldkit mandate install-hooks --yes, or chmod +x it"}
     text = hp.read_text(encoding="utf-8", errors="replace")
     for ref in re.findall(r"[\w./-]+\.py", text):         # the script the wrapper runs (scripts/git-hooks/hooks.py)
         for base in (Path(repo), hp.parent):
@@ -256,10 +261,20 @@ def hook_rows(covered=None, clones=None):
     return rows
 
 
+def runnable(p, platform=None, access=os.access):
+    """Does git run this hook? On Linux and macOS only when it is executable: git skips any other hook in silence
+    (2026-10-26: the template was committed 100644, so on Ubuntu CI the pushed branch went through unchecked). Git for
+    Windows runs a hook whatever its mode."""
+    return (platform or sys.platform) == "win32" or access(p, os.X_OK)
+
+
 def _verify_installed(repo):
     """Run the installed hook as git would, twice, with no push lines: without the marker it must refuse with the
-    owner-flag reason; with FIELDKIT_SHIP_PUSH=1 it must reach the gate (which refuses: no push lines)."""
+    owner-flag reason; with FIELDKIT_SHIP_PUSH=1 it must reach the gate (which refuses: no push lines). First: git
+    must run it at all (executable on Linux and macOS)."""
     hp = hook_path(repo)
+    if not runnable(hp):
+        return False, f"{hp} is not executable: git on this system skips it"
     sh = shutil.which("sh") or shutil.which("bash")
     if not sh:
         return False, "no sh to run the hook with"
@@ -291,7 +306,8 @@ def install_hooks(apply=False, clones=None, covered=None, say=print, today=None)
                 say(f"  {'ok' if row['ok'] else 'NEEDS'}  {name} ({c}): {row['why']}")
                 continue
             change = {src: dst for src, dst in targets.items()
-                      if not dst.is_file() or _norm(dst.read_bytes()) != _norm(_src(src).read_bytes())}
+                      if not dst.is_file() or _norm(dst.read_bytes()) != _norm(_src(src).read_bytes())
+                      or (dst.name == "pre-push" and not runnable(dst))}
             if not change:
                 ok, why = _verify_installed(c)
                 bad += 0 if ok else 1
@@ -307,6 +323,8 @@ def install_hooks(apply=False, clones=None, covered=None, say=print, today=None)
                     shutil.copy2(dst, dst.with_name(f"{dst.name}.bak-{stamp}"))
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 dst.write_bytes(_norm(_src(src).read_bytes()))
+                if dst.name == "pre-push":
+                    dst.chmod(0o755)                      # a hook git runs (Linux and macOS skip a 0644 one)
             ok, why = _verify_installed(c)
             bad += 0 if ok else 1
             say(f"  {'INSTALLED' if ok else 'INSTALLED, NOT VERIFIED'}  {name} ({c}): {why}; old files kept as "
