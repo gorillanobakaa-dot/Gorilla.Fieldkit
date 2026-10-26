@@ -5875,3 +5875,37 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. Mutations: tests/rotate_mutations.yaml."
+- id: zero
+  title: "The agent net, the military way - 'Zero has been established': one net control station (Zero) for every agent session, an epoch that fences a second Zero out (split-brain refused), a 2IC for failover, check-ins on a lease (comms check / radio check), roll calls answered with a fixed sitrep, LATE / SILENT / MISSING stations on the PLAN.md Board and in the owner inbox, a dead cable revived, clocks compared, an append-only hash-chained net log with acked, retried messages. Also `fieldkit net VERB`."
+  harness: core
+  entry: [python, -m, fieldkit, zero]
+  path: ${FIELDKIT}/fieldkit/zero/net.py
+  inputs:
+    - {name: verb, flag: null, type: str, required: false, choices: [status, open, establish, rollcall, sitrep, checkin, check, comms, time, handover, send, ack, log, close, doctor, schedule], help: "LEAVE EMPTY for status ('has Zero been established?'). Owner words: zero / zero established -> status or open; sitrep / sit rep / roll call / who is out there -> rollcall; comms check / radio check -> check; net -> status"}
+    - {name: as, flag: --as, type: str, required: false, help: "the station you speak for, e.g. gemini:main (agents with no CLAUDE_CODE_SESSION_ID)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {1: "WARN: a station LATE or SILENT, an undelivered message, a clock over 2 s", 2: "ALARM: a station MISSING, the cable not revived, a clock over 30 s, the log chain broken", 3: "no net established", 4: "REFUSED: not Zero, stale epoch, split-brain, net discipline, an incomplete sitrep"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_net.py"]
+  skill: skills/fieldkit-net/SKILL.md
+  notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml."
+
+- id: parity
+  title: "Test parity - every machine runs the same pinned versions with the same capabilities before a test: a deterministic manifest per machine (versions + sha256 of gorilla-opencode, gorilla-size, python, go, git, gh, node; Fieldkit commit + dirty; installed skills, cards, Gorilla OpenCode provider NAMES, MCP servers, mandates in force, long paths; OS/arch), compared over the household link (SAME / PARTIAL / DRIFT, each difference named, an absent device reported, never a failure), aligned to releases/parity-pin.yaml from the release itself (asset + SHA256SUMS + GitHub digest, old binary kept, Linux/macOS get the root line), and the run guard's shared-ground check"
+  harness: core
+  entry: [python, -m, fieldkit, parity]
+  path: ${FIELDKIT}/fieldkit/parity.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [manifest, compare, align, preflight, doctor], help: "manifest [--hash] | compare [--peer NAME | --with FILE] | align [--version vX] [--apply] [--rollback] | preflight [--kind test|bench|measure] | doctor"}
+    - {name: json, flag: --json, type: flag, required: false, help: "manifest/compare/align: JSON"}
+  effects: [reads-files, writes-files, network, processes]
+  safety: reversible
+  output: own
+  exits: {0: "SAME / ALONE / aligned / done / preflight ok / doctor ok", 1: "PARTIAL (a peer on an older Fieldkit) / align TODO (the root line for that machine) / preflight warn / doctor problem", 2: "preflight stop (bench or measure on drift, shared ground, a foreign model, a machine not quiet)", 3: "DRIFT, a named device absent, or align/rollback failed"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_parity.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."

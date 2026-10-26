@@ -142,6 +142,18 @@ The tool keeps the convention, not the model (owner, 2026-10-22: "we both know t
   a number repeats or arrives out of order, a tag in the text disagrees with the signed number, or `[DONE]` has no
   evidence. Treat a LINK CHECK as a fact to resolve with the other side, never as noise.
 
+## The agent net: "Zero has been established" (`fieldkit zero`, also `fieldkit net`)
+
+The owner speaks radio procedure. Zero = the net control station (the coordinating session); 2IC = second in command
+(standby for failover); a station = any agent session; a comms check = a heartbeat. Skill: fieldkit-net.
+- At START, and every 15 minutes while you work, run `fieldkit zero checkin --as AGENT:NAME` (e.g. `gemini:main`). It
+  tells you who Zero is and shows the messages for you; it acks them. Claude Code sessions are checked in by the room
+  hook and need not run it.
+- "sitrep" / "roll call" from Zero: answer with all six fields, `-` for none: `fieldkit zero checkin --ref R-ID --job ..
+  --state WORKING|BLOCKED|WAITING|DONE|IDLE --branch .. --waiting .. --not-verified .. --shared ..`
+- "has Zero been established?" is answered by `fieldkit zero`. Only Zero runs `rollcall`, `handover`, `close`; a
+  command with an older `--epoch` is refused. Leaving: `fieldkit zero checkin --off`.
+
 ## Working with a small model
 
 - **Let the harness plan.** Ask `fieldkit next`, do the one `DO:` line or pick one

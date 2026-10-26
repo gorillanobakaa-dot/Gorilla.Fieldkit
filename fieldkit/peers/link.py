@@ -916,6 +916,11 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         return {"ok": True, "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
                 "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time(), "device": _device(),
                 "keepalive": _keepalive()}
+    if verb == "manifest":
+        # read-only, like hello (so not a JOB_VERB): this machine's versions and capabilities for `fieldkit parity
+        # compare` on the other side (fieldkit/parity.py, 2026-10-26)
+        from .. import parity
+        return {"ok": True, "manifest": parity.manifest()}
     if verb == "message":
         item = store("message", req)
         handed = ""

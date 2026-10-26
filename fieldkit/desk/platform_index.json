@@ -2054,6 +2054,17 @@
    "orchestrate-job"
   ]
  },
+ "parity": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity"
+  ]
+ },
  "peers link": {
   "platforms": [
    "linux",
@@ -3207,6 +3218,17 @@
   "why": "",
   "ids": [
    "xzcheck"
+  ]
+ },
+ "zero": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "zero"
   ]
  }
 }

@@ -38,6 +38,8 @@
     fieldkit voice doctor|install|say|clean ...          a voice worth listening to, on Linux (fieldkit/voice)
     fieldkit watchdog status|run|test|pause|install ...  keep the laptop online, or say so out loud (fieldkit/watchdog)
     fieldkit net route|compare|kind|router|antenna      which interface carries traffic; what antenna the bands need (fieldkit/net)
+    fieldkit zero [open|rollcall|checkin|check|time|handover|send|ack|log|close|schedule|doctor]   the agent net: is Zero
+                                                 established, roll call / sitrep, comms check; also `fieldkit net VERB` (fieldkit/zero)
     fieldkit explain [TOPIC] [--lang ro]                a written explanation from a file: no model, no tokens (fieldkit/explain)
     fieldkit sitrep template|check|render|example|doctor [FILE] [--lang ro] [--order classic] [--md]   a status report a reader can take in pieces (fieldkit/sitrep)
     fieldkit teach [SESSION|newest] --out LOG.md [--since T] [--tools Bash,PowerShell]   every command a session ran, with what came back (fieldkit/teach)
@@ -62,6 +64,7 @@
     fieldkit release table|verify                the page's file table measured from SHA256SUMS; a published tag checked
     fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
     fieldkit testcost plan|run --fast|report     the cheapest test set that is enough; a passed tree is never re-tested
+    fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
     fieldkit rotate check|handover|finished      OK / WARN / ROTATE per session; hand a monster session over to a fresh one
@@ -1333,6 +1336,9 @@ def cmd_kernel(a):
 
 
 # -- parser ---------------------------------------------------------------------
+# the agent net's verbs (fieldkit/zero/net.py): `fieldkit net VERB` goes there; the network tool keeps its own verbs
+ZERO_VERBS = ("status", "open", "establish", "rollcall", "sitrep", "checkin", "check", "comms", "time", "handover",
+              "send", "ack", "log", "close", "doctor", "schedule")
 # docs/METHODS.md: how the work gets done, as tools. name -> (module in fieldkit/method, one line)
 METHODS = {
     "wait": ("wait", "wait on a condition, never on a clock (--until CMD --matches RE --timeout S)"),
@@ -1505,6 +1511,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    zr = sub.add_parser("zero", add_help=False,
+                        help="the agent net: is Zero established, roll call / sitrep, comms check, time, handover, "
+                             "net log (fieldkit zero; also fieldkit net VERB)")
+    zr.add_argument("args", nargs=argparse.REMAINDER)
     sc = sub.add_parser("scratch", add_help=False,
                         help="the scratch root: marked job folders, deleted fast and only when yours or stale; "
                              "report, doctor, the owner's Defender exclusion script (fieldkit scratch)")
@@ -1520,6 +1530,10 @@ def build_parser():
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    pa = sub.add_parser("parity", add_help=False,
+                        help="test parity: manifest per machine, compare over the link (SAME/DRIFT), align to the pinned "
+                             "release checked by sha256, the preflight's shared-ground check (fieldkit parity)")
+    pa.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -2623,6 +2637,9 @@ def main(argv=None):
     if args[:1] == ["mandate"]:                       # one owner approval per project, both computers (fieldkit/mandate)
         from .mandate import mandate as mandate_cli
         return mandate_cli.main(args[1:])
+    if args[:1] == ["zero"] or (args[:1] == ["net"] and (len(args) == 1 or args[1] in ZERO_VERBS)):
+        from .zero import net as zero_net             # the agent net, "Zero has been established" (fieldkit/zero)
+        return zero_net.main(args[1:], prog="fieldkit " + args[0])
     if args[:1] == ["peers"]:                         # messages between sessions on this computer (fieldkit/peers)
         from .peers import peers as peers_cli
         return peers_cli.main(args[1:])
@@ -2654,6 +2671,9 @@ def main(argv=None):
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
+        from . import parity
+        return parity.main(args[1:])
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])
