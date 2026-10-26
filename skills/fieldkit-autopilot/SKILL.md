@@ -40,6 +40,13 @@ How it decides: the planner (a headless run with its own small budget) writes bo
 a fresh worker does one (job.py); the verifier runs the job's checks and every criterion; only a PASS it printed
 moves a criterion. The planner saying "done" is not done: the verifier decides (logged "verifier wins"). A question
 no pre-approval covers goes to the inbox WITH a default, and every job that does not wait on it goes on.
+Parallel workers (2026-10-26: one job ran alone for two hours while a disjoint one sat queued): up to `max_workers`
+jobs of a goal run at once (goal.json, default 2). A job starts only when every job in its `needs` is verified and
+its `touches` are disjoint from every running job's (paths resolved against the job's `cwd`; a folder covers what is
+under it). A job with NO `touches` runs alone, so list every path each job changes. Each finished job is verified
+and re-planned at once while the others keep running; the planner saying done waits for running workers. The
+supervisor heartbeat comes from its own thread (fresh while workers run; `status` shows the running jobs in the
+lock), and a job a dead supervisor left `running` resumes from its checkpoint.
 
 ## Budgets, checkpoints, resume (every agent job)
 - Per session: 10000 turns, 12 h wall (the process tree is killed by PID after it), optional dollars. The hook says

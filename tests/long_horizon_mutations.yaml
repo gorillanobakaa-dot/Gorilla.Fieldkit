@@ -157,3 +157,40 @@
 - file: fieldkit/autopilot/goal.py
   swap: ['ExecStart={python} -m fieldkit goal run', 'ExecStart={python} -m fieldkit goal status']
   why: the unit runs the supervisor
+# parallel workers (2026-10-26)
+- file: fieldkit/autopilot/goal.py
+  swap: ['    for jid in startable(st, t, max_workers(goal) - len(running(gid))):', '    for jid in startable(st, t, 1 - len(running(gid))):']
+  why: up to max_workers disjoint jobs start in one round, not one
+- file: fieldkit/autopilot/goal.py
+  swap: ['MAX_WORKERS = 2 ', 'MAX_WORKERS = 1 ']
+  why: two workers by default
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if any(_overlap(mine, b) for b in busy):', '        if False:']
+  why: a job whose touches collide with a running job waits
+- file: fieldkit/autopilot/goal.py
+  swap: ['        busy.append(mine)', '        pass']
+  why: two queued jobs with colliding touches never start in the same round
+- file: fieldkit/autopilot/goal.py
+  swap: ['                if os.path.commonpath([x, y]) in (x, y):', '                if x == y:']
+  why: a folder in touches covers every path under it
+- file: fieldkit/autopilot/goal.py
+  swap: ["    if a is None or b is None:\n        return True", "    if a is None or b is None:\n        return False"]
+  why: a job that declares no touches runs alone (fail closed)
+- file: fieldkit/autopilot/goal.py
+  swap: ['    base = os.path.expandvars(s.get("cwd") or ".")', '    base = "."']
+  why: touches are paths in the job's own cwd; the same relative path in two folders is two paths
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if any(n not in done for n in s.get("needs") or []):', '        if False:']
+  why: a job starts only after every job it needs is verified
+- file: fieldkit/autopilot/goal.py
+  swap: ['and not running(gid):', ':']
+  why: the planner saying done never ends a goal while a worker runs
+- file: fieldkit/autopilot/goal.py
+  swap: ['        if j["status"] == "running" and jid not in mine:', '        if False:']
+  why: a job left running by a dead supervisor resumes instead of staying stuck
+- file: fieldkit/autopilot/goal.py
+  swap: ["                heartbeat(now)\n            except OSError:", "                pass\n            except OSError:"]
+  why: the heartbeat stays fresh while the main thread waits on a worker
+- file: fieldkit/autopilot/goal.py
+  swap: ['        r = {"status": "failed", "why": f"the worker crashed:', '        r = {"status": "done", "why": f"the worker crashed:']
+  why: a worker that raised is a failed job, never a done one
