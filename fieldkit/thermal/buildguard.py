@@ -77,6 +77,19 @@ def kill_children(pid=None):
 @contextmanager
 def guard(say=print, label="build", csv_dir=None, check_fan=True, sensor=None):
     """Fan check (fail closed), then the governor around the block. Yields the governor (verdict, peak)."""
+    from ..core import preflight
+    # 2026-10-26: the ONE run guard around every guarded build: the preflight first (idle models unloaded, orphans
+    # stopped, the free-RAM floor), the RAM/temperature sampler during it, one end line after it
+    try:
+        with preflight.guard(label, "build", say) as rg:
+            with _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg) as gov:
+                yield gov
+    except preflight.Refused as e:
+        raise BuildRefused(f"preflight: {e}") from e
+
+
+@contextmanager
+def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
     from . import governor as gv
     if check_fan:
         ok, msg = fan_check()
@@ -99,6 +112,8 @@ def guard(say=print, label="build", csv_dir=None, check_fan=True, sensor=None):
     gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(), on_event=say,
                       csv_path=csv_path)
     gov.start()
+    if rg is not None:
+        rg.governor = gov                             # the end line counts the seconds the cap was under 100%
     try:
         yield gov
     finally:

@@ -217,6 +217,17 @@ class Pipeline:
         return {"pipeline": self.name, "host": host(), "vars": self.vars, "stages": out}
 
     def run(self, only=None, start=None, dry_run=False, force=False):
+        """The pipeline under the one run guard (fieldkit/core/preflight.py, 2026-10-26); a dry run is not guarded."""
+        if dry_run:
+            return self._run(only, start, dry_run, force)
+        from . import preflight
+
+        def refused(why):
+            raise PipelineError(f"preflight refused {self.name}: {why}")
+        return preflight.call(f"pipeline {self.name}", "build", self._run, only, start, dry_run, force,
+                              refused=refused)
+
+    def _run(self, only=None, start=None, dry_run=False, force=False):
         st = self.state()
         ctx = Context(self, dry_run)
         report = {"pipeline": self.name, "started": time.strftime("%Y-%m-%d %H:%M:%S"), "dry_run": dry_run,

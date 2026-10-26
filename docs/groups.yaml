@@ -21,6 +21,9 @@ groups:
   - name: autopilot
     title: Unattended work - the hard lines no session crosses, the runbook runner, the owner's inbox and one-command publish
     sources: [autopilot/*.py]
+  - name: hog
+    title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
+    sources: [hog/*.py]
   - name: terminal
     title: A terminal window opened in front of a person, with the command ready
     sources: [terminal/*.py]
