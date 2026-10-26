@@ -178,7 +178,7 @@ def test_an_agent_job_uses_the_workers_own_provider_with_a_pinned_cheap_model(ho
     req = run_req(kind="agent", argv=None, brief="write out.txt", model="", artefacts=["out.txt"])
     r = go(home, req, ran)
     c = ran.calls[0]
-    assert c["argv"] == ["/usr/bin/gorilla-opencode", "-p", "write out.txt", "-c", c["cwd"]]
+    assert c["argv"] == ["/usr/bin/gorilla-opencode", "-p", "write out.txt", "-c", c["cwd"], "-q"]   # no spinner
     assert "XDG_CONFIG_HOME" not in c["env"] or c["env"]["XDG_CONFIG_HOME"] == __import__("os").environ.get(
         "XDG_CONFIG_HOME")                                             # the worker's own config, keys and all
     pinned = json.loads((Path(c["cwd"]) / ".gorilla-opencode.json").read_text())

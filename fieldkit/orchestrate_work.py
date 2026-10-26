@@ -247,7 +247,9 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
                 model = model if model.startswith("local.") else f"local.{model}"
             pin_model(tree, model)
             env["GORILLA_OPENCODE_HEADLESS_TIMEOUT"] = f"{max(1, wall // 60)}m"
-            argv = [exe, "-p", job["brief"], "-c", str(tree)]
+            # -q: no spinner. With it, a worker started with no console (DETACHED_PROCESS) ended after 8 s with
+            # 0xC000013A, "ended by Ctrl+C", live on Windows 2026-10-26; fieldkit buildh drive passes -q too
+            argv = [exe, "-p", job["brief"], "-c", str(tree), "-q"]
         from .mandate import health
         with health.awake(f"fieldkit job {jid}"), open(log, "w", encoding="utf-8") as out:
             out.write(f"$ {' '.join(argv[:6])}{' ...' if len(argv) > 6 else ''}\n")

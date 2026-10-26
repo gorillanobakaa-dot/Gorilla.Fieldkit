@@ -51,3 +51,6 @@
 - file: fieldkit/orchestrate_work.py
   swap: ['    if (platform or sys.platform) == "win32":', '    if False:']
   why: on Windows every run job goes through fieldkit guard (the fan check), whatever the boss sent
+- file: fieldkit/orchestrate_work.py
+  swap: ['            argv = [exe, "-p", job["brief"], "-c", str(tree), "-q"]', '            argv = [exe, "-p", job["brief"], "-c", str(tree)]']
+  why: the agent run hides the spinner; a worker with no console was ended by 0xC000013A without it (live, Windows)
