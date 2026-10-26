@@ -82,6 +82,19 @@ Values are shown masked. Exit code 3 means there are findings; fix them before
 publishing. A line holding a deliberate fake, such as a test fixture, can carry the
 comment `privacy-scan: allow`.
 
+Then push with the tool, never with a hand-typed `git push` (the tool router refuses one in every clone the
+owner-wide mandate covers):
+
+```
+fieldkit mandate doctor                 # mandate in force? days left, keys, every covered hook honoring the gate
+fieldkit ship push --repo CLONE         # a feat/ fix/ release- night/ branch, fast-forward, through the gate
+fieldkit ship push --tag vX --repo CLONE        # a new tag on a commit GitHub has
+fieldkit ship gh-release vX --repo CLONE -- --title vX --notes-file NOTES.md   # CI green, tag on GitHub
+```
+
+Never hand the owner a GORILLA_OWNER_APPROVED line per push: that flag is the owner's own manual path for what the
+mandate does not cover (deletes, moved tags, the decision register) or when no mandate is in force.
+
 ## Machine facts
 
 `fieldkit host --json` reports the system, the distribution and the CPU count.

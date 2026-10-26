@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-19
+# Version: 1.2.0 · updated 26-10-26
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -115,6 +115,65 @@ ROUTES = [
 #: a refusal can be overridden only by saying why in the command itself, so the reason is on record
 OVERRIDE = re.compile(r"#\s*toolrouter-ok:\s*\S", re.I)
 
+# -- 2026-10-26 (owner: "fa permanent"): a session pushes a repository the owner-wide mandate covers ONLY through
+#    fieldkit ship push (the gate, the log, fast-forward only), never by a hand-typed git push. The owner's own manual
+#    path (GORILLA_OWNER_APPROVED in the owner's PowerShell) never passes through this router and stays the owner's.
+GIT_PUSH = re.compile(r"(^|[;&|(]\s*|\bthen\s+|\bdo\s+)(?:[\w]+=\S*\s+)*(?:[\"'][^\"']*[\\/]|[^\s\"';&|]*[\\/])?"
+                      r"git(\.exe)?[\"']?"
+                      r"((?:\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+)|\s+-c\s+\S+|\s+--[\w-]+(=\S+)?)*)\s+push\b", re.I | re.M)
+CD = re.compile(r"(?:^|[;&|]\s*)(?:cd|Set-Location|pushd)\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)", re.I | re.M)
+SHIP_PUSH = {"route": "git-push-by-hand",
+             "use": "fieldkit ship push (under the owner-wide mandate: the pre-push gate, the log, fast-forward only; "
+                    "push --tag vX for a new tag, ship gh-release vX for a release). GORILLA_OWNER_APPROVED stays the "
+                    "owner's own manual path, typed by the owner, never by a session",
+             "example": FK + " ship push --repo <the clone>"}
+
+
+def _unquote(s):
+    s = s[1:-1] if s[:1] in "\"'" and s[-1:] == s[:1] else s
+    # Git Bash on Windows: /c/Users/... is C:/Users/... (Python on Windows reads /c/ as a folder named c)
+    m = re.match(r"^/([A-Za-z])(/|$)", s)
+    import os
+    return f"{m.group(1).upper()}:/{s[3:]}" if m and os.name == "nt" else s
+
+
+def covered_names():
+    """The repository names the mandates on this computer cover (the packaged owner-wide.yaml when none is here)."""
+    try:
+        from ..mandate import upkeep
+        return set(upkeep.covered_repos())
+    except Exception:  # noqa: BLE001 - no mandate code: nothing is known to be covered
+        return set()
+
+
+def push_repo(command, cwd=""):
+    """-> the folder a hand-typed `git push` in the command pushes from, or None when there is no git push."""
+    import os
+    m = GIT_PUSH.search(command or "")
+    if not m:
+        return None
+    dash_c = re.findall(r"-C\s+(\"[^\"]+\"|'[^']+'|\S+)", m.group(3) or "")
+    cds = [x for x in CD.finditer(command) if x.start() < m.start()]
+    where = cwd or os.getcwd()
+    if cds:
+        where = os.path.join(where, os.path.expanduser(_unquote(cds[-1].group(1))))
+    for c in dash_c:
+        where = os.path.join(where, os.path.expanduser(_unquote(c)))
+    return where
+
+
+def push_refusal(command, cwd="", names=None):
+    """-> the SHIP_PUSH route when the command hand-types a git push from a clone a mandate covers, else None."""
+    where = push_repo(command, cwd)
+    if where is None:
+        return None
+    try:
+        from ..mandate import proofs
+        name = proofs.where(where)[0]
+    except Exception:  # noqa: BLE001 - not a clone (or no git): nothing to say
+        return None
+    return SHIP_PUSH if name and name in (covered_names() if names is None else names) else None
+
 
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M)
 
@@ -125,10 +184,11 @@ HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M
 CODE_HEREDOC = re.compile(r"\b(python[0-9.]*|py)(\.exe)?\s+-\s*<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n(.*?)^\s*\3\s*$", re.S | re.M)
 
 
-def route(command):
+def route(command, cwd=""):
     """-> None (allowed) or {"route", "use", "example"} for the first route the command matches. A heredoc's body is
     data written to a file or a program, not a command (2026-10-18: appending the rule that NAMES these commands to
-    GEMINI.md was refused), so it is not judged - except Python code with backslashes, which the shell mangles."""
+    GEMINI.md was refused), so it is not judged - except Python code with backslashes, which the shell mangles.
+    `cwd`: the folder the command runs in (the hook call's cwd), for the git-push row."""
     m = CODE_HEREDOC.search(command or "")
     if m and "\\" in m.group(4) and not OVERRIDE.search(command or ""):
         return {"route": "code-with-backslashes-in-a-heredoc",
@@ -140,7 +200,7 @@ def route(command):
     for name, pat, use, example in ROUTES:
         if pat.search(cmd):
             return {"route": name, "use": use, "example": example}
-    return None
+    return push_refusal(cmd, cwd)
 
 
 def message(r):
@@ -159,7 +219,7 @@ def hook(stdin=None):
     tool = (call.get("tool_name") or "").lower()
     if tool not in ("bash", "powershell"):
         return 0
-    r = route((call.get("tool_input") or {}).get("command", ""))
+    r = route((call.get("tool_input") or {}).get("command", ""), call.get("cwd") or "")
     if r:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": message(r)}}))

@@ -1,0 +1,77 @@
+# The owner-wide mandate made permanent (2026-10-26, owner: "fa permanent 1,2,3,4"). Every one must be CAUGHT:
+#   fieldkit mutate --plan tests/mandate_permanent_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_mandate_upkeep.py
+- file: fieldkit/mandate/upkeep.py
+  swap: ['        if ok and left <= WARN_DAYS:', '        if ok and left <= WARN_DAYS + 1:']
+  why: the warning comes 3 days before the end, not 4
+- file: fieldkit/mandate/upkeep.py
+  swap: ['and not any_in_force and why.startswith("expired") and -14 <= left < 0:', 'and not any_in_force and -14 <= left < 0:']
+  why: a stopped or unsealed mandate gets no renew line
+- file: fieldkit/mandate/upkeep.py
+  swap: ['        if f.is_file() and f.read_text(encoding="utf-8").strip() == today.isoformat():', '        if False:']
+  why: once per session per day, never a nag loop
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    if M.stopped(path):', '    if False:']
+  why: a stopped mandate is never renewed
+- file: fieldkit/mandate/upkeep.py
+  swap: ['        return 3, "wrong passphrase: not renewed, nothing changed"', '        pass']
+  why: the passphrase is checked before the file changes
+- file: fieldkit/mandate/upkeep.py
+  swap: ['        path.write_bytes(old_text)', '        pass']
+  why: a failed seal puts the old mandate back
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    out, n = re.subn(r"(?m)^expires:\s*\S+\s*$", f"expires: {new.isoformat()}", text)', '    out, n = text.replace("expires:", "expires: " + new.isoformat() + " #"), 1']
+  why: only the date changes, and it moves
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    if FLAG not in text:', '    if True:']
+  why: a hook that wants the owner flag is never called flag-free
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    if GATE_CALL.search(text):', '    if True:']
+  why: a flag hook without the gate call NEEDS the gate
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    if name in BY_DESIGN:', '    if name:']
+  why: only the listed repositories are owner-only by design
+- file: fieldkit/mandate/upkeep.py
+  swap: ['            if not apply:', '            if False:']
+  why: without --yes nothing is written
+- file: fieldkit/mandate/upkeep.py
+  swap: ['                    shutil.copy2(dst, dst.with_name(f"{dst.name}.bak-{stamp}"))', '                    pass']
+  why: the old hook is kept
+- file: fieldkit/mandate/upkeep.py
+  swap: ['            if not targets:', '            if False:']
+  why: a hook with no template is never written
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    if a.returncode == 0 or FLAG not in a.stderr:', '    if False:']
+  why: a hook that lets every push go fails its verification
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    return any(m["in_force"] for m in f["mandates"]) and bool(f["trusted"]) and all(r["ok"] for r in f["hooks"])', '    return bool(f["trusted"])']
+  why: the doctor fails on no mandate or a hook that needs the gate
+- file: fieldkit/mandate/upkeep.py
+  swap: ['        out.setdefault(name, "owner-wide (the packaged list)")', '        pass']
+  why: the owner's whole list is covered even with another mandate here
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    return push_refusal(cmd, cwd)', '    return None']
+  why: a hand-typed push in a covered clone is refused
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    if cds:', '    if False:']
+  why: cd X && git push is judged in X
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    r = route((call.get("tool_input") or {}).get("command", ""), call.get("cwd") or "")', '    r = route((call.get("tool_input") or {}).get("command", ""), "")']
+  why: the hook judges the push in the call's folder
+- file: fieldkit/autopilot/hardlines.py
+  swap: ['(r"\bmandate\s+(keygen|trust|approve|renew)\b"', '(r"\bmandate\s+(keygen|trust|approve)\b"']
+  why: renew is the owner's in an unattended run
+- file: fieldkit/autopilot/room.py
+  swap: ['                ctx = (ctx + "\n" + w).strip() if w else ctx', '                pass']
+  why: the prompt hook carries the expiry warning
+- file: fieldkit/mandate/project.py
+  swap: ['        out.append(w)                                     # the expiry warning', '        pass  # the expiry warning']
+  why: mandate start (the board check) carries the warning
+- file: fieldkit/mandate/upkeep.py
+  swap: ['        elif not ok and not any_in_force and why.startswith("expired")', '        elif not ok and why.startswith("expired")']
+  why: an old expired mandate is not news while another is in force
+- file: fieldkit/mandate/upkeep.py
+  swap: ['    return (platform or sys.platform) == "win32" or access(p, os.X_OK)', '    return True']
+  why: a hook git skips (not executable on Linux and macOS) is never called installed
+- file: fieldkit/mandate/upkeep.py
+  swap: ['return {"state": "not-executable", "ok": False,', 'return {"state": "not-executable", "ok": True,']
+  why: the doctor reports a hook git skips

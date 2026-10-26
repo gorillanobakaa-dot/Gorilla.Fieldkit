@@ -201,7 +201,7 @@ groups:
 
   - name: mandate
     title: "A project mandate: the owner's one approval for a whole project, valid and checkable on both computers"
-    sources: ["mandate/*.py"]
+    sources: ["mandate/*.py", "mandate/hooks/*/*.py"]
 
   - name: evidence
     title: "Research evidence that can be checked later: pages kept by hash, every claim of a run against its page"
