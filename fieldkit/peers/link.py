@@ -247,15 +247,15 @@ def others(h):
 
 
 def household_default(h):
-    """The device a call goes to when none is named: the only other one, else (on a worker) the boss."""
+    """The device a call goes to when none is named: on a worker the boss, else the first other device (the one
+    paired peer of link.json stays first, so a relay that never names a device keeps reaching it)."""
     o = others(h)
-    if len(o) == 1:
-        return o[0]
+    if not o:
+        raise ValueError("no other device in the household")
     boss = next((d for d in o if d.get("role") == "boss"), None)
     if boss and (device(h, h.get("me")) or {}).get("role") != "boss":
         return boss
-    raise ValueError(f"{len(o)} other devices in the household: name one (--device NAME); "
-                     f"{', '.join(d['name'] for d in o) or 'none'}")
+    return o[0]
 
 
 def save_household(h):

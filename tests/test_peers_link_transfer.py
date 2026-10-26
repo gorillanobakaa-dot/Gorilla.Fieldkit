@@ -273,7 +273,7 @@ def test_a_receiver_whose_digest_disagrees_is_not_taken_at_its_word(here):
             req = w.line()
             w.send({"ok": True, "go": "manifest"})
             w.exact(req["manifest_size"])
-            w.send({"ok": True, "have": [0]})
+            w.send({"ok": True, "files": 1, "have": {}})
             w.exact(5 + 32)
             w.send({"ok": True, "saved": ["x"], "files": 1, "bytes": 5, "digest": "0" * 64})
             b.close()
@@ -281,3 +281,14 @@ def test_a_receiver_whose_digest_disagrees_is_not_taken_at_its_word(here):
         return a, os.urandom(32)
     r = lt.put_stream(src, retries=0, connect=connect)
     assert not r["ok"] and r["verified_both_ends"] is False and "differs" in r["error"]
+
+
+def test_the_resume_answer_for_a_big_tree_stays_one_short_line(here, monkeypatch):
+    """Live 2026-10-25: 473,104 files made the old answer (one offset per file) a line over 1 MiB, refused 4 times."""
+    tree = here / "many"
+    tree.mkdir()
+    for i in range(3000):
+        (tree / f"f{i:05d}").write_bytes(b"")
+    monkeypatch.setattr(lt, "LINE", 4096)                     # one offset per file would be ~9 KB here
+    r = lt.put_stream(tree, retries=0, connect=receiver())
+    assert r["ok"] and r["files"] == 3000, r

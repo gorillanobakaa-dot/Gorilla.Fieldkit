@@ -54,3 +54,12 @@
 - file: fieldkit/peers/link.py
   swap: ['    h.setdefault("removed", []).append(', '    h.setdefault("unused", []).append(']
   why: a removed device is kept, dated, never deleted
+- file: fieldkit/peers/link.py
+  swap: ['    if boss and (device(h, h.get("me")) or {}).get("role") != "boss":', '    if False:']
+  why: a worker that names no device talks to the boss
+- file: fieldkit/peers/link.py
+  swap: ['    return o[0]', '    return o[-1]']
+  why: with no device named, notes keep reaching the one paired peer of link.json
+- file: fieldkit/peers/link_transfer.py
+  swap: ['"have": {str(i): o for i, o in enumerate(have) if o}}', '"have": {str(i): o for i, o in enumerate(have)}}']
+  why: the resume answer lists only files with bytes already here, so a big tree's answer stays one short line

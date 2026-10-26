@@ -11,7 +11,8 @@ The wire, one TCP connection after the signed first line:
   1. sender:   a signed JSON line {verb: put-stream, tid, kind, name, manifest_size, manifest_sha256}
   2. receiver: {"ok": true, "go": "manifest"}, or a refusal
   3. sender:   the manifest, manifest_size bytes of JSON {name, kind, files: [[path, size, exec, mtime]], dirs: [...]}
-  4. receiver: {"ok": true, "have": [bytes already here, per file]} (left by an earlier attempt that dropped), or
+  4. receiver: {"ok": true, "files": N, "have": {index: bytes already here}} for the files an earlier attempt that
+               dropped left behind (only those: a list of 473,104 zeros was a 1 MB line, live 2026-10-25), or
                the paths this computer cannot hold (names differing only by case on a case-insensitive disk, names
                Windows reserves); nothing is renamed, a source tree with renamed files would not build
   5. sender:   per file, in manifest order: its bytes from that offset to the end, then 32 bytes, the sha256 of the
@@ -42,7 +43,7 @@ from pathlib import Path
 
 BLOCK = 1024 * 1024                 # read, hash and send in 1 MiB blocks: memory stays flat at any size
 MAX_MANIFEST = 256 * 1024 * 1024    # about 2.5 million files
-LINE = 1024 * 1024                  # the longest JSON line on the wire (a refusal listing paths)
+LINE = 64 * 1024 * 1024             # the longest JSON line on the wire (the have map of a resumed big tree)
 TIMEOUT = 120
 _ACTIVE, _ACTIVE_LOCK = {}, threading.Lock()   # tid -> the socket it is arriving on
 WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
@@ -56,15 +57,16 @@ def _home():
 
 # ---- the manifest -------------------------------------------------------------------------------------------------
 def manifest_for(path):
-    """-> (manifest dict, [absolute source paths in manifest order], [skipped: (path, why)])."""
+    """-> (manifest dict, the root it is read from, [skipped: (path, why)]). No Path per file is kept: a
+    473,104-file tree cost the sender 690 MB that way (live, 2026-10-25)."""
     p = Path(path)
     if p.is_symlink() or not (p.is_file() or p.is_dir()):
         raise ValueError(f"{path}: not a file or folder (links are not followed)")
     if p.is_file():
         st = p.stat()
         return ({"name": p.name, "kind": "file", "files": [[p.name, st.st_size, bool(st.st_mode & 0o111),
-                                                             int(st.st_mtime)]], "dirs": []}, [p], [])
-    files, srcs, dirs, skipped = [], [], [], []
+                                                             int(st.st_mtime)]], "dirs": []}, p, [])
+    files, dirs, skipped = [], [], []
     for top, dnames, fnames in os.walk(p, followlinks=False):
         dnames.sort()
         rel_top = Path(top).relative_to(p).as_posix()
@@ -82,8 +84,7 @@ def manifest_for(path):
                 continue
             st = fp.stat()
             files.append([rel(n), st.st_size, bool(st.st_mode & 0o111), int(st.st_mtime)])
-            srcs.append(fp)
-    return {"name": p.name, "kind": "dir", "files": files, "dirs": dirs}, srcs, skipped
+    return {"name": p.name, "kind": "dir", "files": files, "dirs": dirs}, p, skipped
 
 
 def manifest_bytes(man):
@@ -155,12 +156,14 @@ class Wire:
     def line(self):
         while b"\n" not in self.buf:
             if len(self.buf) > LINE:
-                raise ValueError("a line longer than 1 MiB")
+                raise ValueError(f"a line longer than {LINE} bytes")
             c = self.s.recv(65536)
             if not c:
                 raise ConnectionError("the other side closed the connection")
             self.buf += c
         i = self.buf.index(b"\n")
+        if i > LINE:                     # also when the whole line came in one read
+            raise ValueError(f"a line longer than {LINE} bytes")
         out = bytes(self.buf[:i])
         del self.buf[:i + 1]
         return json.loads(out.decode("utf-8"))
@@ -287,7 +290,7 @@ def _receive(w, req, tid, msize, windows, case_insensitive, link):
             done.pop(str(i), None)
         have.append(o)
     resumed = sum(have)
-    w.send({"ok": True, "have": have})
+    w.send({"ok": True, "files": len(have), "have": {str(i): o for i, o in enumerate(have) if o}})
     try:
         bad, rows, total = _files(w, files, tree, have, done, part, windows)
     finally:
@@ -420,15 +423,15 @@ def put_stream(path, device=None, retries=3, progress=None, sleep=time.sleep, co
     """Send a file or a folder; resume after a drop (up to `retries` more tries). -> the receiver's answer, plus
     attempts, seconds and MB/s measured here."""
     if man is None:
-        man, srcs, skipped = manifest_for(path)
+        man, root, skipped = manifest_for(path)
     else:
-        man, srcs, skipped = man
+        man, root, skipped = man
     raw = manifest_bytes(man)
     last = None
     t0 = time.time()
     for attempt in range(1, retries + 2):
         try:
-            r = _send_once(man, raw, srcs, device, progress, connect, to_desktop)
+            r = _send_once(man, raw, root, device, progress, connect, to_desktop)
             r.update(attempts=attempt, skipped=[list(x) for x in skipped[:50]], skipped_count=len(skipped))
             secs = max(time.time() - t0, 1e-6)
             if r.get("ok"):
@@ -443,7 +446,7 @@ def put_stream(path, device=None, retries=3, progress=None, sleep=time.sleep, co
                                   "and it carries on from where it stopped"}
 
 
-def _send_once(man, raw, srcs, device, progress, connect, to_desktop=False):
+def _send_once(man, raw, root, device, progress, connect, to_desktop=False):
     from . import link
     if connect is None:
         sock, k = link.connect_device(device, timeout=TIMEOUT)
@@ -465,12 +468,16 @@ def _send_once(man, raw, srcs, device, progress, connect, to_desktop=False):
         r = w.line()
         if not r.get("ok"):
             return r
-        have = r["have"]
-        if len(have) != len(man["files"]):
+        if r.get("files") != len(man["files"]) or not isinstance(r.get("have"), dict):
             return {"ok": False, "error": "the receiver answered for a different number of files"}
+        have = [0] * len(man["files"])
+        for i, o in r["have"].items():
+            have[int(i)] = int(o)
         total = sum(f[1] for f in man["files"]) - sum(have)
         sent, rows, tick = 0, [], time.time()
-        for (rel, size, _x, _mt), src, off in zip(man["files"], srcs, have):
+        root = Path(root)
+        for (rel, size, _x, _mt), off in zip(man["files"], have):
+            src = root if man["kind"] == "file" else root / rel
             h = hashlib.sha256()
             with open(src, "rb") as f:
                 left = off

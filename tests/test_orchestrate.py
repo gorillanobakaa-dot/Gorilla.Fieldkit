@@ -134,6 +134,13 @@ def test_one_paired_peer_still_works_and_keeps_its_note_numbers(tmp_path, monkey
     assert link.last_sent(link.device_named(h, "laptop")) == 41 and link.last_sent(link.device_named(h, "air")) == 0
     link._save_sent(link.device_named(h, "air"), 1)
     assert link.last_sent(link.device_named(h, "laptop")) == 41    # air's #1 does not move the laptop's count
-    with pytest.raises(ValueError, match="name one"):
-        link.household_default(h)                     # two others now: a call must say which
+    assert link.household_default(h)["name"] == "laptop"   # a relay that names no device still reaches the old peer
     assert (tmp_path / "old" / "link.json").read_text() == json.dumps(old)    # never rewritten
+
+
+def test_a_worker_with_no_device_named_talks_to_the_boss(house, monkeypatch):
+    use(monkeypatch, house["homes"]["w2"])
+    h = link.household()
+    h["devices"].reverse()                            # the boss last: found by its role, not by its place
+    link.save_household(h)
+    assert link.household_default(link.household())["name"] == "boss"
