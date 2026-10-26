@@ -38,7 +38,8 @@ from contextlib import contextmanager
 OK, WARN, STOP = "ok", "warn", "stop"
 RANK = {OK: 0, WARN: 1, STOP: 2}
 #: in order. Add a "module:function" here (or call register()) to put a check in every guarded run.
-STEPS = ["fieldkit.hog:preflight_check", "fieldkit.testcost:preflight_check", "fieldkit.scratch:preflight_check"]
+STEPS = ["fieldkit.hog:preflight_check", "fieldkit.testcost:preflight_check", "fieldkit.scratch:preflight_check",
+         "fieldkit.parity:preflight_check"]
 _REGISTERED = []
 #: set while a guard runs (children inherit it): a guarded run inside a guarded run gets no second guard
 NESTED = "FIELDKIT_RUN_GUARD"

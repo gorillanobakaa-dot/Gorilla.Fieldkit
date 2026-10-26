@@ -1,0 +1,107 @@
+# fieldkit parity: every rule that decides a verdict or guards an install must be CAUGHT (2026-10-26):
+#   fieldkit mutate --plan tests/parity_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_parity.py
+- file: fieldkit/parity.py
+  swap:
+  - '    ("gorilla-opencode", "tools.gorilla-opencode.version", DRIFT, None),'
+  - '    ("gorilla-opencode", "tools.gorilla-opencode.version", INFO, None),'
+  why: a different Gorilla OpenCode version is DRIFT
+- file: fieldkit/parity.py
+  swap:
+  - '    ("skills installed", "capabilities.skills", DRIFT, None),'
+  - '    ("skills installed", "capabilities.skills", INFO, None),'
+  why: missing skills are DRIFT
+- file: fieldkit/parity.py
+  swap:
+  - '            same = bool(a and b) and (a.startswith(b) or b.startswith(a))'
+  - '            same = a == b'
+  why: an older peer reports a short commit
+- file: fieldkit/parity.py
+  swap:
+  - '        if have is ... and m.get("partial"):'
+  - '        if False:'
+  why: what an older peer did not say is NOT REPORTED, not "runs nothing"
+- file: fieldkit/parity.py
+  swap:
+  - '    code = 3 if v == "DRIFT" or (named and not present) else 1 if v == "PARTIAL" else 0'
+  - '    code = 3 if v == "DRIFT" or not present else 1 if v == "PARTIAL" else 0'
+  why: an absent Mac never fails; only a NAMED absent device does
+- file: fieldkit/parity.py
+  swap:
+  - '    return hashlib.sha256(canon({k: v for k, v in m.items() if k not in ("hash", "taken")}).encode()).hexdigest()'
+  - '    return hashlib.sha256(canon({k: v for k, v in m.items() if k != "hash"}).encode()).hexdigest()'
+  why: the time a manifest was taken is not part of what it says
+- file: fieldkit/parity.py
+  swap:
+  - '    if key in cache:'
+  - '    if False:'
+  why: an unchanged binary is not hashed or started again
+- file: fieldkit/parity.py
+  swap:
+  - '        if r["pid"] in mine or r["pid"] in (0, 4) or r["name"] in ("system idle process", "idle", "system"):'
+  - '        if r["pid"] in (0, 4) or r["name"] in ("system idle process", "idle", "system"):'
+  why: this session's own processes are never shared ground
+- file: fieldkit/parity.py
+  swap:
+  - '        if r.get("cpu") is not None and r["cpu"] >= CPU_BUSY_PCT:'
+  - '        if r.get("cpu") is not None and r["cpu"] > 100:'
+  why: a process pinning a core is named
+- file: fieldkit/parity.py
+  swap:
+  - '    status = "stop" if strict else "warn"'
+  - '    status = "warn"'
+  why: a bench is REFUSED on drift or shared ground
+- file: fieldkit/parity.py
+  swap:
+  - '    return [n for n in names if n not in ours]'
+  - '    return names'
+  why: a model the run loaded itself is not held against it
+- file: fieldkit/parity.py
+  swap:
+  - '    if sums.get(name) != got:'
+  - '    if False:'
+  why: the download must equal SHA256SUMS
+- file: fieldkit/parity.py
+  swap:
+  - '    if gd and gd != got:'
+  - '    if False:'
+  why: the download must equal GitHub's digest
+- file: fieldkit/parity.py
+  swap:
+  - '    if pids:'
+  - '    if False:'
+  why: a running binary is never replaced
+- file: fieldkit/parity.py
+  swap:
+  - '    if got != want_sha or not ver:'
+  - '    if not ver:'
+  why: the installed bytes must be the release's
+- file: fieldkit/parity.py
+  swap:
+  - '    if dest.is_file() and not backup.exists():'
+  - '    if False:'
+  why: the old binary is kept for rollback
+- file: fieldkit/parity.py
+  swap:
+  - '        if isinstance(p, dict) and not p.get("disabled") and (str(p.get("apiKey") or "").strip()'
+  - '        if isinstance(p, dict) and (str(p.get("apiKey") or "").strip()'
+  why: a disabled provider is not a capability
+- file: fieldkit/testcost.py
+  swap:
+  - '        row["manifest"] = os.environ["FIELDKIT_PARITY_MANIFEST"]'
+  - '        pass'
+  why: every result row says what it ran on
+- file: fieldkit/parity.py
+  swap:
+  - '    rt = True if word == "true" else False if word == "false" else None'
+  - '    rt = word == "true"'
+  why: an unreadable Defender state is unknown, never "off"
+- file: fieldkit/parity.py
+  swap:
+  - '            for k, v in sorted((base.get("defender") or {}).items()) if state.get(k) != v]'
+  - '            for k, v in sorted((base.get("defender") or {}).items()) if False]'
+  why: a run off the Defender baseline is NOT COMPARABLE
+- file: fieldkit/testcost.py
+  swap:
+  - '        row["comparable"] = False'
+  - '        pass'
+  why: a result row says it is not comparable

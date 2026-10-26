@@ -1,0 +1,3 @@
+# The versions every machine runs before a test (fieldkit parity). Changed by a commit, never by a background
+# update: updates are pulled, checked against the release's SHA256SUMS and deployed on our schedule.
+gorilla-opencode: {version: v0.1.154, repo: gorillanobakaa-dot/Gorilla.Opencode}
