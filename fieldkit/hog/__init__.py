@@ -1,5 +1,5 @@
-# Version: 1.0.0 · updated 26-10-26
-"""The resource watchdog: memory hogs, leaks, idle local models, orphans, pinned CPU, heat, disk. Deterministic.
+# Version: 1.1.0 · updated 26-10-26
+"""The resource watchdog: memory hogs, leaks, idle local models, orphans, pile-ups, pinned CPU, heat, disk. Deterministic.
 
     fieldkit hog check [--json]           one pass: the findings, one summary line; exit 0 OK, 1 WARN, 2 ACT
     fieldkit hog act [--dry-run]          one pass, then the safe actions (unload idle models, stop registered orphans)
@@ -28,6 +28,10 @@ THE RULES (numbers in thresholds.json; override in state/hog/thresholds.json; se
     orphan     a REGISTERED process (pid and creation time both match) whose session process is gone, or older than
                its cap (4 h; none for one found in a live session's tree) -> stopped, with its own children. Nothing
                outside the registry is ever stopped, never by name (registry.py).
+    pileup     a live parent holding > 20 children of one class (conhost, bash, python, node, powershell, cmd), or
+               >= 10 of them started > 12 h before its newest one -> reported with its own parent, the count, their
+               working set and the fix. Never stopped. Born 2026-10-26: Claude Desktop's NodeService held 33 consoles
+               it never closed (61 conhost in Task Manager).
 
 Every action: state/hog/actions.jsonl (what, why, numbers before/after) and one ROOM line (verb stop), which every
 session, the command post included, sees on its next hook. The room hook also prints ONE line at a prompt when the
