@@ -252,3 +252,12 @@ procedure, look there; when you invent one, add it there, and turn it into a too
 ## Commands for the owner
 
 OWNER COMMANDS ARE PASTEABLE AS THEY ARE (owner, 2026-10-18). Every command the owner is to paste is a Windows PowerShell block that starts with cd to a full path (cd $HOME; ...), calls every program by its full real path (an MSIX app such as Claude Desktop keeps its files under $env:LOCALAPPDATA\Packages\<package>\LocalCache, not where the app itself sees them), uses PowerShell syntax only (no &&, export, $VAR, ~/), and says in words where anything typed AFTER it goes (for example: type /login inside Claude's prompt, not in PowerShell). Checked by fieldkit.autopilot.ownercmd; in Claude Code a Stop hook sends a failing answer back.
+
+<!-- fieldkit-rotate-rule v1 -->
+## Session rotation (fieldkit rotate)
+
+Every call re-sends the whole conversation, so a long session costs more with every call. At the start of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` (agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`).
+- exit 0 OK: carry on.
+- exit 1 WARN: finish the current job here; the next job starts in a fresh session.
+- exit 2 ROTATE: start no new work. At the next safe point (work committed or written down) run `fieldkit rotate handover --session <id from the check> --title "<job>" --done "<done>" --next "<left>" --not-verified "<not verified>"`, start a fresh session with the brief it prints, and end this one.
+<!-- /fieldkit-rotate-rule -->

@@ -1,12 +1,12 @@
 """session-cost: what an AI coding session costs in dollars, live and after the fact. Read-only.
 
 usage:
-    python session_cost.py                          the newest session (Claude Code or Antigravity)
+    python session_cost.py                          the newest session (any source below)
     python session_cost.py SESSION [SESSION ...]    a transcript .jsonl, an Antigravity .db, or a session id
     python session_cost.py --list [N]               the N newest sessions per source, with dollars
     python session_cost.py --live [SESSION]         keep running; print the running total after every call
     python session_cost.py --doctor                 what this computer has for the meter
-  options: --source claude-code|antigravity|all   --warn-usd 5   --calls   --json
+  options: --source all|claude-code|antigravity|codex|gorilla-opencode|generic   --warn-usd 5   --calls   --json
            --assume NAME=PUBLIC (price an internal model name as a public one; shown in the report)
 
 Sources (adapters), each read from files the product already writes; nothing is sent anywhere:
@@ -19,6 +19,13 @@ Sources (adapters), each read from files the product already writes; nothing is 
                 incl. thinking, 4 cache write, 5 cache read, 6 api_provider), field 19 response_model.
                 Field names read from the descriptor inside Antigravity's language_server.exe.
                 The call time comes from steps.metadata field 1 (created_at) via field 2 step_indices.
+  codex         $CODEX_HOME/sessions/**/rollout-*-<thread>.jsonl[.zst] (OpenAI Codex CLI and desktop app);
+                token_usage_record lines, one per API response. See class Codex.
+  gorilla-opencode  ~/.local/share/gorilla-opencode/gorilla-opencode.db, table sessions: per-session totals
+                (last call's prompt, cost from its own price table, calls). See class GorillaOpenCode.
+  generic       ~/.fieldkit/usage/<agent>/<session>.jsonl, a documented contract any agent or wrapper can
+                write (one line per call: ts, session, model, input_tokens, cached_tokens, output_tokens).
+  ibm-bob       not measured: no verified session format yet (see class IBMBob; rotate doctor says WARN).
 
 Prices: prices.json next to this file, one table per provider, each with its source page and date.
 A model without a price is counted as unpriced and named in the report, never guessed.
@@ -29,6 +36,7 @@ how big the conversation was at that call.
 Written 2026-10-21 (owner: make the cost visible before it hurts). Standard library only, Python 3.8+.
 """
 import argparse
+import io
 import json
 import os
 import re
@@ -38,7 +46,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 HERE = Path(__file__).resolve().parent
 PRICES_FILE = HERE / "prices.json"
 # Claude Code honors CLAUDE_CONFIG_DIR (default ~/.claude) on Windows, Linux and macOS alike
@@ -115,6 +123,12 @@ def rate(prices, provider, model, day, prompt_tokens, speed="standard"):
 
 def price_call(c, prices, assume=None):
     """Adds usd, usd_reread, priced, reason, priced_as to one call dict (in place) and returns it."""
+    if c.get("aggregate"):        # a session's totals, already priced by the product itself (no per-call tokens)
+        none = c["n"] and c["n_unpriced"] >= c["n"]
+        c.update(priced_as=c["model"], context=c["input"], priced=not none,
+                 reason="%s recorded no priced call" % c["source"] if none else
+                 "priced by %s's own price table" % c["source"])
+        return c
     raw = c["model"]
     model = canonical_model(raw, prices)
     model = (assume or {}).get(raw) or (assume or {}).get(model) or model
@@ -324,7 +338,333 @@ class Antigravity:
         return calls
 
 
-ADAPTERS = {"claude-code": ClaudeCode, "antigravity": Antigravity}
+def _zstd_reader():
+    """A zstd decompress function (stdlib compression.zstd on 3.14+, else the zstandard package), or None."""
+    try:
+        from compression import zstd                       # Python 3.14+
+        return zstd.decompress
+    except ImportError:
+        pass
+    try:
+        import zstandard                                    # stream_reader: frames without a content size too
+        return lambda b: zstandard.ZstdDecompressor().stream_reader(io.BytesIO(b)).read()
+    except ImportError:
+        return None
+
+
+def _new_lines(f, state, key):
+    """New complete lines of a growing .jsonl (byte offset kept in state), or all lines of a finished .zst once."""
+    offsets = state.setdefault("offsets", {})
+    try:
+        if f.name.endswith(".zst"):
+            size = f.stat().st_size
+            if offsets.get(key) == size:
+                return []
+            unz = _zstd_reader()
+            if unz is None:
+                raise OSError("a .zst session needs Python 3.14 or the zstandard package: " + f.name)
+            data = unz(f.read_bytes())
+            offsets[key] = size
+            return data.splitlines()
+        with open(f, "rb") as fh:
+            fh.seek(offsets.get(key, 0))
+            chunk = fh.read()
+    except FileNotFoundError:
+        return []
+    end = chunk.rfind(b"\n") + 1                          # a line still being written is read next time
+    offsets[key] = offsets.get(key, 0) + end
+    return chunk[:end].splitlines()
+
+
+CODEX_HOME = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+_ROLLOUT = re.compile(r"^rollout-[0-9T:-]+-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl(?:\.zst)?$")
+
+
+class _CodexPath(type(Path())):
+    """A rollout file whose stem is the thread id (rollout-2026-10-16T22-02-39-<uuid>.jsonl[.zst] -> <uuid>)."""
+
+    @property
+    def stem(self):
+        m = _ROLLOUT.match(self.name)
+        return m.group(1) if m else super().stem
+
+
+class Codex:
+    """OpenAI Codex (CLI and desktop app): $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl, one JSON
+    line per item ({timestamp, type, payload}); the desktop app keeps finished ones zstd-compressed (.jsonl.zst).
+    Format read from real files (cli 0.158 to 0.162, 2026-09-26 to 2026-10-16) and codex-rs's RolloutLine:
+      session_meta.payload.model_provider   the price table ("openai"; a custom provider stays unpriced)
+      turn_context.payload.model            the model of the calls that follow
+      token_usage_record.payload.usage      one per API response (response_id): input_tokens INCLUDING
+                                            cached_input_tokens and cache_write_input_tokens, output_tokens
+                                            including reasoning_output_tokens. thread_id != session_id = a subagent.
+      event_msg token_count .info           older writers: last_token_usage per response, used only when the file
+                                            has no token_usage_record (deduplicated on total_token_usage).
+    Titles: $CODEX_HOME/session_index.jsonl ({id, thread_name})."""
+    name = "codex"
+
+    def __init__(self, root=None):
+        self.root = Path(root) if root else CODEX_HOME / "sessions"
+
+    def sessions(self):
+        if not self.root.is_dir():
+            return []
+        found = [_CodexPath(p) for p in self.root.rglob("rollout-*.jsonl*") if _ROLLOUT.match(p.name)]
+        return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def owns(self, path):
+        return bool(_ROLLOUT.match(Path(path).name))
+
+    def title(self, path):
+        idx = self.root.parent / "session_index.jsonl"
+        sid, name = _CodexPath(path).stem, ""
+        try:
+            with open(idx, "rb") as fh:
+                for line in fh:
+                    if sid.encode() in line:
+                        name = json.loads(line).get("thread_name") or name
+        except (OSError, ValueError):
+            pass
+        return name
+
+    def read(self, path, state):
+        seen = state.setdefault("seen", set())
+        calls = []
+        for line in _new_lines(Path(path), state, "rollout"):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            kind, p = d.get("type"), d.get("payload") or {}
+            if kind == "session_meta":
+                state["provider"] = p.get("model_provider") or state.get("provider")
+                state["cwd"] = p.get("cwd") or state.get("cwd")
+            elif kind == "turn_context":
+                state["model"] = p.get("model") or state.get("model")
+                state["cwd"] = p.get("cwd") or state.get("cwd")
+            elif kind == "token_usage_record":
+                state["records"] = True
+                rid = p.get("response_id") or "%s#%s" % (d.get("timestamp"), d.get("ordinal"))
+                if rid in seen or not p.get("usage"):
+                    continue
+                seen.add(rid)
+                calls.append(self._call(path, state, d.get("timestamp"), p["usage"]))
+                calls[-1]["sub"] = bool(p.get("thread_id") and p.get("session_id")
+                                        and p["thread_id"] != p["session_id"])
+            elif kind == "event_msg" and p.get("type") == "token_count" and not state.get("records"):
+                info = p.get("info") or {}
+                total = json.dumps(info.get("total_token_usage"), sort_keys=True)
+                if not info.get("last_token_usage") or total == state.get("last_total"):
+                    continue
+                state["last_total"] = total
+                calls.append(self._call(path, state, d.get("timestamp"), info["last_token_usage"]))
+                calls[-1]["sub"] = False
+        return calls
+
+    def _call(self, path, state, ts, u):
+        total = u.get("input_tokens", 0) or 0
+        read = u.get("cached_input_tokens", 0) or 0
+        write = u.get("cache_write_input_tokens", 0) or 0
+        return _call(self.name, _CodexPath(path).stem, ts, state.get("model"), state.get("provider") or "?",
+                     max(0, total - read - write), write, 0, read, u.get("output_tokens", 0) or 0)
+
+    def facts(self, path, state):
+        return {"cwd": state.get("cwd")}
+
+
+def _opencode_data():
+    """Gorilla OpenCode's data folder (internal/config/store.go DataBase): $XDG_DATA_HOME/gorilla-opencode, else
+    ~/.local/share/gorilla-opencode, on Windows too. A data.directory set in its settings is not followed here."""
+    xdg = os.environ.get("XDG_DATA_HOME")
+    return (Path(xdg) if xdg else Path.home() / ".local" / "share") / "gorilla-opencode"
+
+
+class _Row:
+    """One session that is a row in a database: what rotation and the report need from a session path."""
+    suffix = ""
+
+    def __init__(self, store, sid, mtime, title=""):
+        self.store, self.stem, self.name, self.mtime, self.row_title = Path(store), sid, sid, mtime, title
+
+    def stat(self):
+        return os.stat_result((0, 0, 0, 0, 0, 0, 0, int(self.mtime), int(self.mtime), int(self.mtime)))
+
+    def is_file(self):
+        return self.store.is_file()
+
+    def __str__(self):
+        return "%s#%s" % (self.store, self.stem)
+
+    def __eq__(self, other):
+        return isinstance(other, _Row) and str(other) == str(self)
+
+    def __hash__(self):
+        return hash(str(self))
+
+
+class GorillaOpenCode:
+    """Gorilla OpenCode: <data>/gorilla-opencode.db (SQLite), table sessions. It keeps no per-call tokens; it keeps
+    per session (internal/llm/agent/agent.go TrackUsage, migrations 20260819/20261021):
+      prompt_tokens        the LAST call's prompt (input + cache writes + cache reads): the context per call
+      cost                 dollars, summed per call from Gorilla OpenCode's own price table
+      calls_priced / calls_unpriced   the calls (counted since the cost-ledger migration, 2026-10-19)
+      parent_session_id    set on a sub-agent's session: its calls and cost count in the parent's bill
+    So the meter takes the session's totals as they are, priced by Gorilla OpenCode (said in the report)."""
+    name = "gorilla-opencode"
+
+    def __init__(self, root=None):
+        self.root = Path(root) if root else _opencode_data()
+        self.db = self.root / "gorilla-opencode.db"
+
+    def _con(self):
+        return sqlite3.connect("file:%s?mode=ro" % self.db.as_posix(), uri=True, timeout=5)
+
+    def sessions(self):
+        if not self.db.is_file():
+            return []
+        try:
+            con = self._con()
+            try:
+                rows = con.execute("select id, updated_at, title from sessions where parent_session_id is null "
+                                   "order by updated_at desc").fetchall()
+            finally:
+                con.close()
+        except sqlite3.Error:
+            return []
+        return [_Row(self.db, sid, upd or 0, title or "") for sid, upd, title in rows]
+
+    def owns(self, path):
+        return isinstance(path, _Row) or Path(path).name == "gorilla-opencode.db"
+
+    def title(self, path):
+        return getattr(path, "row_title", "")
+
+    def read(self, path, state):
+        con = self._con()
+        try:
+            r = con.execute("select prompt_tokens, cost, calls_priced, calls_unpriced, updated_at, started_in, "
+                            "cost_reread, last_call_cost from sessions where id = ?", (path.stem,)).fetchone()
+            kids = con.execute("select coalesce(sum(cost), 0), coalesce(sum(calls_priced + calls_unpriced), 0), "
+                               "coalesce(sum(calls_unpriced), 0), coalesce(sum(cost_reread), 0) from sessions "
+                               "where parent_session_id = ?", (path.stem,)).fetchone()
+            model = con.execute("select model from messages where session_id = ? and role = 'assistant' and model "
+                                "is not null order by created_at desc limit 1", (path.stem,)).fetchone()
+        finally:
+            con.close()
+        if r is None:
+            return []
+        ctx, cost, priced, unpriced, upd, cwd, reread, last = r
+        state["cwd"] = cwd
+        key = [upd, kids[0], kids[1]]
+        if state.get("seen_update") == key:
+            return []
+        state["seen_update"] = key
+        ts = datetime.fromtimestamp(upd, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if upd else None
+        c = _call(self.name, path.stem, ts, model[0] if model else None, "gorilla-opencode", ctx or 0)
+        c.update(aggregate=True, n=(priced or 0) + (unpriced or 0) + kids[1], n_unpriced=(unpriced or 0) + kids[2],
+                 usd=(cost or 0.0) + kids[0], usd_reread=(reread or 0.0) + kids[3], usd_last=last or 0.0, sub=False)
+        return [c]
+
+    def facts(self, path, state):
+        return {"cwd": state.get("cwd")}
+
+
+USAGE_DIR = Path(os.environ.get("FIELDKIT_USAGE_DIR") or Path.home() / ".fieldkit" / "usage")
+CONTRACT_KEYS = ("ts", "session", "model", "input_tokens", "cached_tokens", "output_tokens")
+
+
+class Generic:
+    """Any agent, through a documented contract: <usage dir>/<agent>/<session>.jsonl, one line per API call
+        {"ts": "2026-10-26T10:00:00Z", "session": "<id>", "model": "<model id>",
+         "input_tokens": N, "cached_tokens": N, "output_tokens": N}
+    input_tokens = EVERY prompt token sent with the call, cached ones included (the context of the call);
+    cached_tokens = the part of it served from the provider's cache. Optional keys: "provider" (a prices.json
+    table, e.g. "openai", "anthropic", "gemini-api"; without it the call is counted, not priced),
+    "cache_write_tokens" (part of input_tokens written to the cache), "cwd", "sub" (true: a subagent's call,
+    counted in the bill, not as the session's context). <usage dir> = $FIELDKIT_USAGE_DIR, else ~/.fieldkit/usage.
+    A line missing a required key, with a negative or non-integer count, or naming another session is skipped and
+    counted (state["bad"]); `rotate doctor` shows the count."""
+    name = "generic"
+
+    def __init__(self, root=None):
+        self.root = Path(root) if root else USAGE_DIR
+
+    def sessions(self):
+        return sorted(self.root.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True) \
+            if self.root.is_dir() else []
+
+    def owns(self, path):
+        try:
+            Path(path).resolve().relative_to(self.root.resolve())
+            return Path(path).suffix == ".jsonl"
+        except ValueError:
+            return False
+
+    def title(self, path):
+        return ""
+
+    def read(self, path, state):
+        path = Path(path)
+        calls = []
+        for line in _new_lines(path, state, "usage"):
+            try:
+                d = json.loads(line)
+                ok = isinstance(d, dict) and all(k in d for k in CONTRACT_KEYS) and d["session"] == path.stem
+                n = [d[k] for k in ("input_tokens", "cached_tokens", "output_tokens")]
+                n.append(d.get("cache_write_tokens", 0))
+                ok = ok and all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in n) \
+                    and n[1] + n[3] <= n[0]
+            except (ValueError, TypeError, KeyError):
+                ok = False
+            if not ok:
+                state["bad"] = state.get("bad", 0) + 1
+                continue
+            inp, read, out, write = n
+            if d.get("cwd"):
+                state["cwd"] = d["cwd"]
+            c = _call(self.name, path.stem, d["ts"], d["model"], d.get("provider") or "?", inp - read - write,
+                      write, 0, read, out)
+            c["sub"] = bool(d.get("sub"))
+            calls.append(c)
+        return calls
+
+    def facts(self, path, state):
+        return {"cwd": state.get("cwd")}
+
+
+BOB_DB = Path.home() / ".bob" / "db" / "bob.db"
+
+
+class IBMBob:
+    """IBM Bob (IDE and `bob` CLI): NOT MEASURED. No install on this machine to read a real session store from, and
+    IBM's own docs do not describe one. Third-party readers (memex PR #196, granite-cli issue #151, both 2026) say it
+    is ~/.bob/db/bob.db (SQLite, WAL) with a task table holding a costs JSON (input, output, cacheRead, cacheWrite,
+    cost) and no model name; that is a lead, not a verified format, so nothing here parses it. To measure Bob: record
+    a scrubbed copy of a real bob.db (schema + one task's rows) as a test fixture and write read() from it. Until
+    then: sessions() is empty, `rotate doctor` says WARN, and a wrapper can write the generic contract instead."""
+    name = "ibm-bob"
+    verified = False
+
+    def __init__(self, root=None):
+        self.root = Path(root) if root else BOB_DB
+
+    def sessions(self):
+        return []
+
+    def owns(self, path):
+        return False
+
+    def title(self, path):
+        return ""
+
+    def read(self, path, state):
+        return []
+
+
+ADAPTERS = {"claude-code": ClaudeCode, "antigravity": Antigravity, "codex": Codex,
+            "gorilla-opencode": GorillaOpenCode, "generic": Generic, "ibm-bob": IBMBob}
 
 
 def adapters_for(source):
@@ -340,7 +680,7 @@ def resolve(arg, adapters):
                 return a, p
     for a in adapters:
         for s in a.sessions():
-            if s.stem.startswith(arg):
+            if s.stem.startswith(arg) or str(s) == arg:     # an id, or a database row's "<db>#<id>"
                 return a, s
     return None, p
 
@@ -364,8 +704,11 @@ def summarize(calls, adapter=None, path=None):
     total = sum(c["usd"] for c in priced)
     unpriced = {}
     for c in calls:
-        if not c["priced"]:
-            unpriced.setdefault(c["model"], {"calls": 0, "reason": c["reason"]})["calls"] += 1
+        if not c["priced"] or c.get("n_unpriced"):
+            why = c["reason"] if not c["priced"] else "no price in %s's own table" % c["source"]
+            unpriced.setdefault(c["model"], {"calls": 0, "reason": why})["calls"] += c.get("n_unpriced", 1)
+    n_calls = sum(c.get("n", 1) for c in calls)
+    n_priced = sum(c.get("n", 1) - c.get("n_unpriced", 0) for c in priced)
     bands = []
     lo = 0
     for hi in BANDS + (None,):
@@ -387,12 +730,12 @@ def summarize(calls, adapter=None, path=None):
         "session": path.stem if path else (calls[0]["session"] if calls else "?"),
         "title": adapter.title(path) if adapter and path else "",
         "first": min(ts) if ts else None, "last": max(ts) if ts else None, "hours": round(span, 2),
-        "calls": len(calls), "priced_calls": len(priced),
+        "calls": n_calls, "priced_calls": n_priced,
         "usd": round(total, 4),
         "usd_reread": round(sum(c["usd_reread"] for c in priced), 4),
         "reread_share": round(sum(c["usd_reread"] for c in priced) / total, 4) if total else 0.0,
-        "usd_per_call": round(total / len(priced), 4) if priced else 0.0,
-        "last_call_usd": round(priced[-1]["usd"], 4) if priced else 0.0,
+        "usd_per_call": round(total / n_priced, 4) if n_priced else 0.0,
+        "last_call_usd": round(priced[-1].get("usd_last", priced[-1]["usd"]), 4) if priced else 0.0,
         "context_last": (priced or calls)[-1]["context"] if calls else 0,     # the call "last call $" is
         "context_avg": int(sum(c["context"] for c in calls) / len(calls)) if calls else 0,
         "tokens": {k: sum(c[k] for c in calls) for k in
@@ -527,7 +870,7 @@ def doctor():
 def main(argv=None):
     p = argparse.ArgumentParser(prog="session_cost", description="What an AI coding session costs, in dollars.")
     p.add_argument("sessions", nargs="*", help="transcript .jsonl, Antigravity .db, or session id")
-    p.add_argument("--source", choices=["all", "claude-code", "antigravity"], default="all")
+    p.add_argument("--source", choices=["all"] + list(ADAPTERS), default="all")
     p.add_argument("--list", type=int, nargs="?", const=5, metavar="N", help="the N newest sessions per source")
     p.add_argument("--live", action="store_true", help="keep running and print the total after every call")
     p.add_argument("--interval", type=float, default=5.0, help="with --live: seconds between looks (default 5)")
