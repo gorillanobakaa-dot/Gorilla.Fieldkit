@@ -55,6 +55,13 @@ def _iso(tmp_path, monkeypatch):
     monkeypatch.setattr(net, "ingest_cable", lambda *a, **k: 0)
     monkeypatch.setattr(ch, "default", lambda: [FakeChannel()])
     monkeypatch.setattr(ch, "Cable", lambda *a, **k: FakeCable())
+    # nothing a test does may reach the owner's real inbox, link home or room (2026-10-26: 78 test items in the
+    # owner's inbox from a sibling suite); every place is a tmp folder, and the guard test below proves it
+    from fieldkit.autopilot import inbox, room
+    monkeypatch.setenv("FIELDKIT_AUTOPILOT_STATE", str(tmp_path / "autopilot"))
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "link"))
+    monkeypatch.setattr(inbox, "INBOX", tmp_path / "autopilot" / "inbox")
+    monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
     return tmp_path
 
 
@@ -624,3 +631,19 @@ def test_hook_decides_well_under_100_ms_on_a_busy_log():
         net.hook_line(hook_call("bbbbbbbb-1", "PostToolUse"), "PostToolUse", now=T0 + 3001 + i)
         times.append(time.perf_counter() - t)
     assert sorted(times)[10] < 0.1, f"median {sorted(times)[10] * 1000:.1f} ms"
+
+
+def test_guard_a_missing_station_reaches_only_the_tmp_inbox(tmp_path):
+    """The real check() path, no inbox_add injected: the item lands in the test's tmp inbox, never the owner's."""
+    from pathlib import Path
+    from fieldkit.autopilot import inbox
+    real = Path.home() / ".fieldkit" / "autopilot" / "inbox"
+    before = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
+    opened()
+    net.checkin(GEM, now=T0, env={})
+    net.check(heal=False, now=T0 + 3601)
+    assert str(inbox.INBOX).startswith(str(tmp_path))
+    got = list((tmp_path / "autopilot" / "inbox").glob("*.json"))
+    assert got and any(GEM in p.read_text(encoding="utf-8") for p in got)
+    after = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
+    assert after == before
