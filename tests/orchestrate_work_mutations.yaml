@@ -1,0 +1,50 @@
+# Rules the job kinds run and agent (stage O3) must hold. Every one CAUGHT:
+#   fieldkit mutate --plan tests/orchestrate_work_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_orchestrate_work.py
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if argv[0] in REFUSED:', '        if False:']
+  why: a job never runs the commands that approve, push, publish or start agents
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if not CMD.fullmatch(argv[0]):', '        if False:']
+  why: a run job is a Fieldkit command name, never a shell line
+- file: fieldkit/orchestrate_work.py
+  swap: ['            not isinstance(g, str) or link_transfer_bad(g) for g in pats):', '            not isinstance(g, str) for g in pats):']
+  why: artefact patterns stay inside the tree
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if not 1 <= wall <= 1440:', '    if False:']
+  why: a job has a wall cap of 1 to 1440 minutes
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if rec is None:', '    if False:']
+  why: a worker runs only a tree that arrived with the digest the job names
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if jobs.busy(lock, cap):', '    if False:']
+  why: one job at a time per worker
+- file: fieldkit/orchestrate_work.py
+  swap: ['            shutil.copytree(src, tree, symlinks=True)', '            tree = src']
+  why: the job runs on a copy; received/ is never changed
+- file: fieldkit/orchestrate_work.py
+  swap: ['        status = "pass" if rc == 0 and not missing and not bad else "fail"', '        status = "pass" if rc == 0 else "fail"']
+  why: a missing or undelivered artefact fails the job
+- file: fieldkit/orchestrate_work.py
+  swap: ['            out.append({"name": p.relative_to(tree).as_posix(), "size": p.stat().st_size, "sha256": _sha(p),', '            out.append({"name": p.relative_to(tree).as_posix(), "size": p.stat().st_size, "sha256": "",']
+  why: every artefact carries its sha256 in the result
+- file: fieldkit/orchestrate_work.py
+  swap: ['            pin_model(tree, model)', '            pass']
+  why: the agent run uses the model the job names (default a cheap Gemini), pinned in the tree copy
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if job["kind"] == "agent" and job.get("brain"):', '        if False:']
+  why: a model loaded on a local brain is unloaded when the job ends
+- file: fieldkit/orchestrate_work.py
+  swap: ['        elif _sha(where) != a.get("sha256"):', '        elif False:']
+  why: the boss takes an artefact only if its bytes still have the sha256 the worker signed
+- file: fieldkit/orchestrate_work.py
+  swap: ["    why = check_work(req)\n    if why:\n        return None, why, None", "    why = None"]
+  why: the boss refuses a bad job before any tree crosses the cable
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if led.get(jid, {}).get("status") in ("sent", "pass"):', '    if False:']
+  why: a job already sent or passed is not sent twice
+- file: fieldkit/mandate/jobs.py
+  swap: ['    fields = RESULT_FIELDS + (("artefacts",) if "artefacts" in r else ())', '    fields = RESULT_FIELDS']
+  why: the worker's signature covers the artefacts list
+- file: fieldkit/mandate/jobs.py
+  swap: ["    if kind in WORK_KINDS:\n        from .. import orchestrate_work", "    if False:\n        from .. import orchestrate_work"]
+  why: run and agent jobs go to orchestrate_work after the mandate and boss checks
