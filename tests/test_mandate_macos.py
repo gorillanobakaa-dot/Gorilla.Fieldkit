@@ -230,11 +230,10 @@ def test_the_hook_runs_only_a_python_3(clone, tmp_path, pythons, expect):
         check = ('case "$2" in *"version_info >= (3, 8)"*) exit %d;; *) exit 0;; esac'
                  % (0 if kind == "ok" else 1))
         _fake(bindir, name, 'if [ "$1" = "-c" ]; then %s; fi\necho "RAN %s"\nexit 0\n' % (check, name))
-    # PATH: the fakes, then only what git and sh need (git's own folder and the shell's), never a real python
-    keep = {str(Path(shutil.which("git")).parent), str(Path(shutil.which("sh")).parent)}
-    keep = [d for d in keep if not any(Path(d, p).exists() or Path(d, p + ".exe").exists()
-                                       for p in ("python", "python3", "py"))]
-    env = dict(os.environ, PATH=os.pathsep.join([str(bindir)] + keep))
+    # PATH: the fakes ONLY, so no real python can answer. git is a stub here that runs the real one by its full path
+    # (2026-10-26, #112 on Ubuntu: git and python3 share /usr/bin, so keeping git's folder off PATH lost git too)
+    _fake(bindir, "git", 'exec "%s" "$@"\n' % Path(shutil.which("git")).as_posix())
+    env = dict(os.environ, PATH=str(bindir))
     r = subprocess.run([shutil.which("sh"), str(hook), "origin", "x"], cwd=str(clone), input="",
                        capture_output=True, text=True, env=env, timeout=60)
     assert expect in r.stdout + r.stderr, r.stdout + r.stderr
