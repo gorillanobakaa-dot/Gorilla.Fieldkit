@@ -78,6 +78,8 @@ def kill_children(pid=None):
 def guard(say=print, label="build", csv_dir=None, check_fan=True, sensor=None):
     """Fan check (fail closed), then the governor around the block. Yields the governor (verdict, peak)."""
     from . import governor as gv
+    from ..core import preflight
+    preflight.run(say, label)                     # the one preflight: idle models unloaded, orphans stopped (2026-10-26)
     if check_fan:
         ok, msg = fan_check()
         say("  " + msg)

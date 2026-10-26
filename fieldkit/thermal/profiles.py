@@ -143,6 +143,8 @@ def monitor(sensor=None, set_cap=None, say=None, clock=time.time, sleep=time.sle
     `until_pid`: stop when that process ends (a build), as `thermal log --until-pid` does; the cap goes back to 100%."""
     from . import governor, sensors
     if sensor is None:
+        from ..core import preflight
+        preflight.run(report, "thermal monitor")   # the one preflight, before the heavy run it watches (2026-10-26)
         name, sensor, detail = sensors.best(prove=True)
         if sensor is None:
             raise RuntimeError(f"no CPU temperature source moves under load here: {detail}")

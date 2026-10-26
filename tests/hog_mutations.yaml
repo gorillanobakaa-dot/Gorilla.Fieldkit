@@ -1,0 +1,147 @@
+# fieldkit hog: every threshold rule and every safety line must be CAUGHT (2026-10-26):
+#   fieldkit mutate --plan tests/hog_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_hog.py
+- file: fieldkit/hog/rules.py
+  swap:
+  - '    sev = "act" if pct >= cfg["ram_act_pct"] else "warn" if pct >= cfg["ram_warn_pct"] else None'
+  - '    sev = "act" if pct > cfg["ram_act_pct"] + 1 else "warn" if pct > cfg["ram_warn_pct"] + 1 else None'
+  why: RAM warn at 80%, act at 90%
+- file: fieldkit/hog/rules.py
+  swap:
+  - '    sev = "act" if pct >= cfg["commit_act_pct"] else "warn" if pct >= cfg["commit_warn_pct"] else None'
+  - '    sev = "warn" if pct >= cfg["commit_warn_pct"] else None'
+  why: commit charge act at 95%
+- file: fieldkit/hog/rules.py
+  swap:
+  - '    return cfg["model_idle_min_critical"] if crit else cfg["model_idle_min"]'
+  - '    return cfg["model_idle_min"]'
+  why: with RAM at the act line an idle model goes after 5 min, not 15
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if (m.get("status") or "").lower() in BUSY:'
+  - '        if False:'
+  why: a model that is generating is never unloaded
+- file: fieldkit/hog/rules.py
+  swap:
+  - '    return idle > limit           # idle means MORE than the limit'
+  - '    return idle >= limit - 1'
+  why: idle means MORE than the limit
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        last = max(logged + [m.get("last_used") or 0]) or None'
+  - '        last = max(logged) or None'
+  why: lms lastUsedTime counts as use
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if last is None:'
+  - '        if last is None and False:'
+  why: no log evidence = no unload (fail closed)
+- file: fieldkit/hog/rules.py
+  swap:
+  - '            if (h.get("ollama") or {}).get(m["name"]) != m.get("expires_at"):'
+  - '            if False:'
+  why: an Ollama request (expires_at moved) resets idle
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if any(b < a for a, b in zip(rss, rss[1:])):'
+  - '        if False:'
+  why: a working set that dropped is not a leak
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if growth >= cfg["leak_growth_mb"] * MB:'
+  - '        if growth > 0:'
+  why: a leak is >= 1 GB of growth
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if len(pts) < cfg["leak_min_samples"] or pts[-1][0] - pts[0][0] < 0.8 * win:'
+  - '        if len(pts) < 2:'
+  why: a leak needs >= 6 samples over >= 80% of the window
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if rates and min(rates) >= cfg["cpu_pinned_pct"]:'
+  - '        if rates and max(rates) >= cfg["cpu_pinned_pct"]:'
+  why: pinned means EVERY interval at >= 95%
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if len(recent) < 2 or recent[-1][0] - recent[0][0] < win:'
+  - '        if len(recent) < 2:'
+  why: pinned needs the whole 10 minutes covered
+- file: fieldkit/hog/rules.py
+  swap:
+  - '    sev = "act" if t >= cfg["temp_act_c"] else "warn" if t >= cfg["temp_warn_c"] else None'
+  - '    sev = "act" if t > cfg["temp_act_c"] else "warn" if t > cfg["temp_warn_c"] else None'
+  why: temperature warn at 85 C, act at 95 C
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        sev = "act" if pct < cfg["disk_act_free_pct"] else "warn" if pct < cfg["disk_warn_free_pct"] else None'
+  - '        sev = "act" if pct <= cfg["disk_act_free_pct"] else "warn" if pct <= cfg["disk_warn_free_pct"] else None'
+  why: disk warn under 10% free, act under 5%
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if (e["pid"], e["ctime"]) not in alive:'
+  - '        if e["pid"] not in {a[0] for a in alive}:'
+  why: a reused PID (other creation time) is never a candidate
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        gone = owner[0] is not None and owner not in alive'
+  - '        gone = True'
+  why: a process of a live session is not an orphan
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        cap = e.get("cap_s") or (None if e.get("source") == "tree" else cfg["orphan_cap_h"] * 3600)'
+  - '        cap = e.get("cap_s") or cfg["orphan_cap_h"] * 3600'
+  why: a process found in a live session's tree has no default cap (MCP servers)
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if gone or (cap is not None and age > cap):'
+  - '        if gone:'
+  why: a registered process past its cap is an orphan
+- file: fieldkit/hog/__init__.py
+  swap:
+  - '        if ct(p.create_time()) != a["ctime"]:'
+  - '        if False:'
+  why: kill refuses a PID whose creation time changed
+- file: fieldkit/hog/__init__.py
+  swap:
+  - '        if not a or not allowed(a, cfg):'
+  - '        if not a:'
+  why: the act switches in thresholds.json are honored
+- file: fieldkit/hog/__init__.py
+  swap:
+  - '        if dry:'
+  - '        if False:'
+  why: --dry-run does nothing
+- file: fieldkit/hog/__init__.py
+  swap:
+  - '        if last and now - last.get("t", 0) <= cfg["hook_fresh_min"] * 60 and last.get("severity", 0) > 0:'
+  - '        if last and last.get("severity", 0) > 0:'
+  why: the prompt line uses only a fresh watch result
+- file: fieldkit/hog/probe.py
+  swap:
+  - '        if not m or "LMSAuthenticator" in raw or "Client=lms-cli" in raw:'
+  - '        if not m:'
+  why: the watch's own lms questions are not activity
+- file: fieldkit/hog/probe.py
+  swap:
+  - '    if host not in LOOPBACK:'
+  - '    if False:'
+  why: the hog talks to this machine only
+- file: fieldkit/hog/probe.py
+  swap:
+  - '    if not running(rows, LMS_PROC):'
+  - '    if False:'
+  why: lms is never started when LM Studio is not running
+- file: fieldkit/hog/registry.py
+  swap:
+  - '                if now - p.create_time() > RECENT_S:'
+  - '                if False:'
+  why: a printed PID registers only a process created in the last 15 minutes
+- file: fieldkit/hog/registry.py
+  swap:
+  - '        if proc.name().lower() in SHELLS:'
+  - '        if False:'
+  why: a shell is not classed by the command text it carries
+- file: fieldkit/core/preflight.py
+  swap:
+  - '            out[s] = None'
+  - '            raise'
+  why: a failing preflight step never stops the others
