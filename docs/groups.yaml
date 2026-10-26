@@ -84,6 +84,7 @@ groups:
   - name: port-engine
     title: The Firefox port engine (build harness tasks and decisions)
     sources:
+      - admission.py
       - aliases.py
       - buildh/__init__.py
       - buildh/answer.py
@@ -117,6 +118,7 @@ groups:
       - buildh/worker.py
       - lmstudio.py
       - orchestrate.py
+      - orchestrate_load.py
       - orchestrate_work.py
       - testcost.py
       - parity.py

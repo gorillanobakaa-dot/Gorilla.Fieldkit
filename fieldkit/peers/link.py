@@ -921,6 +921,11 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # compare` on the other side (fieldkit/parity.py, 2026-10-26)
         from .. import parity
         return {"ok": True, "manifest": parity.manifest()}
+    if verb == "load":
+        # read-only, like hello and manifest (so not a JOB_VERB): this device's CPU, RAM, temperature, the admission
+        # gate's slots and heavy jobs, for the boss's placement (fieldkit/orchestrate_load.py, stage O4, 2026-10-26)
+        from .. import orchestrate_load
+        return {"ok": True, "load": orchestrate_load.report()}
     if verb == "message":
         item = store("message", req)
         handed = ""

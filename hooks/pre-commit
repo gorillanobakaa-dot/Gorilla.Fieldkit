@@ -56,9 +56,15 @@ fi
 # 2026-10-26: the suite runs under the one run guard (fieldkit/core/preflight.py): idle local models unloaded and dead
 # sessions' orphans stopped first, RAM and temperature sampled during it, one end line after it. A checkout without
 # the guard runs the suite bare.
+# 2026-10-26 (stage O4, fieldkit/admission.py): the suite first waits for a slot of the one machine-wide gate for
+# heavy jobs (at most N suites, mutates and builds at once on this computer, the rest queue; nobody is asked).
 guarded() {
   if "$PY" -c "import fieldkit.core.preflight" >/dev/null 2>&1; then
-    "$PY" -m fieldkit.core.preflight --label pre-commit --kind test -- "$@"
+    if "$PY" -c "import fieldkit.admission" >/dev/null 2>&1; then
+      "$PY" -m fieldkit admit --kind test --label pre-commit -- "$PY" -m fieldkit.core.preflight --label pre-commit --kind test -- "$@"
+    else
+      "$PY" -m fieldkit.core.preflight --label pre-commit --kind test -- "$@"
+    fi
   else
     "$@"
   fi

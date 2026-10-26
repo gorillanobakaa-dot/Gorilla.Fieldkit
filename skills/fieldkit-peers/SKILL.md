@@ -1,6 +1,6 @@
 ---
 name: fieldkit-peers
-description: Talk to the other AI sessions on this computer, or on the other computer of a direct cable (fieldkit peers link - which agents it has, pair, send, ask it to start a session) - list them, send one a short note, wait for a reply or for "my turn is done" - in Gorilla OpenCode's own session-messaging protocol, so an OpenCode session (0.1.145 or later) hears it. Use when asked to tell, ask, warn or hand over to another session on the same machine, or to wait until another session has finished.
+description: Talk to the other AI sessions on this computer, or on the other computer of a direct cable (fieldkit peers link - which agents it has, pair, send, ask it to start a session) - list them, send one a short note, wait for a reply or for "my turn is done" - in Gorilla OpenCode's own session-messaging protocol, so an OpenCode session (0.1.145 or later) hears it. Also each device's load (fieldkit orchestrate load), the machine-wide gate for heavy jobs (fieldkit admit) and a test suite placed on an idle device over the cable (fieldkit orchestrate place). Use when asked to tell, ask, warn or hand over to another session on the same machine, to wait until another session has finished, when a computer is overloaded by suites, mutates or builds, or to spread test work across the household.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
@@ -109,6 +109,21 @@ The steps underneath, for repair:
 - A refusal is the worker's answer, read it: "no mandate with sha ... in force here" means the two machines hold
   different copies of the owner's mandate (share the newer one, never edit it).
 - On Windows every run job goes through `fieldkit guard` by itself. `fieldkit orchestrate job status` is the ledger.
+
+### Load, the gate for heavy jobs, and placement (stage O4, 2026-10-26)
+- `fieldkit orchestrate load` - one line per device: IDLE or BUSY, CPU, RAM free, temperature against its hot line,
+  the gate's slots (held/offered, waiting), heavy jobs running, what it can run. `NO REPORT: unknown verb 'load'`
+  means that device runs an older Fieldkit. Read-only, zero model tokens.
+- `fieldkit admit status` - this computer's slots. Heavy jobs ask the gate first by themselves: the pre-commit suite,
+  `fieldkit mutate`, every `fieldkit guard` and build stage. N at once (2 on the laptop by default;
+  `fieldkit.local.json` `admission.slots` sets it), one fewer while the CPU is hot. A queued job waits silently; never
+  ask the owner to free a slot, and never kill a slot holder to get in.
+- Any other heavy command: `fieldkit admit --kind build --label NAME -- CMD ...` (`--wait S` gives up with exit 75
+  and runs nothing).
+- `fieldkit orchestrate place [--any-os] [PATH ...]` - the suite of this checkout's tree: here if a slot is free, else
+  on an idle capable device (same OS unless `--any-os`), else here after the queue. The verdict names where it ran;
+  `placing on X failed` / `X did not take it` means it ran HERE instead (fail closed). A remote FAIL is a real
+  failure, read the evidence. A pass from another OS is recorded as `CHECK@OS` and never skips this OS's own suite.
 
 ## The room (fieldkit room): what the others did, without anyone remembering to say it
 

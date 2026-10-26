@@ -203,7 +203,10 @@ def main(argv=None, prog="fieldkit mutate"):
             print(f"REFUSED: bad mutation {m!r}")
             return 2
     from ..core import preflight               # the one run guard (2026-10-26); a STOP refuses with exit 2
-    r = preflight.call("fieldkit mutate", "test", mutate, plan, test, a.cwd, a.timeout,
-                       refused={"ok": False, "baseline": "not run", "results": [], "caught": 0, "survived": 0, "refused": 0})
+    from .. import admission                    # a heavy job: it waits for a slot of the machine-wide gate (stage O4)
+    with admission.admitted("mutate", f"mutate {Path(plan[0]['file']).name}"):
+        r = preflight.call("fieldkit mutate", "test", mutate, plan, test, a.cwd, a.timeout,
+                           refused={"ok": False, "baseline": "not run", "results": [], "caught": 0, "survived": 0,
+                                    "refused": 0})
     emit(r, a.json, _lines)
     return 0 if r["ok"] else (2 if r.get("baseline") in ("failed", "not run") else 3)

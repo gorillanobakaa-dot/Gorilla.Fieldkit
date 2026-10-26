@@ -1,0 +1,38 @@
+# Rules of the admission gate and placement (stage O4). Every one CAUGHT:
+#   fieldkit mutate --plan tests/o4_scheduler_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_admission.py tests/test_orchestrate_load.py tests/test_orchestrate_work.py
+- file: fieldkit/admission.py
+  swap: ['    return max(1, min(2, int(cores) // 2, int(ram_gb) // 4))', '    return max(1, min(2, int(cores) // 2))']
+  why: a small-RAM computer gets fewer slots
+- file: fieldkit/admission.py
+  swap: ['    return max(1, base - 1) if temp_c is not None and temp_c >= hot else base', '    return base']
+  why: a hot CPU is offered one slot fewer
+- file: fieldkit/admission.py
+  swap: ['    if os.environ.get(NESTED):', '    if False:']
+  why: a nested job never waits on its own slot
+- file: fieldkit/admission.py
+  swap: ['            if wait is not None and now() - t0 >= wait:', '            if False:']
+  why: --wait gives up instead of waiting for ever
+- file: fieldkit/admission.py
+  swap: ['        if os.path.isabs(p) or ".." in Path(p).parts or p.startswith("-"):', '        if os.path.isabs(p):']
+  why: a placed suite stays inside its tree
+- file: fieldkit/admission.py
+  swap: ["            p.unlink(missing_ok=True)\n    return out", "            pass\n    return out"]
+  why: a dead waiter is not counted
+- file: fieldkit/orchestrate_load.py
+  swap: ['    return bool(g.get("free", 0) > 0 and float(r.get("cpu_pct") or 0) < IDLE_CPU and not hot)', '    return bool(g.get("free", 0) > 0 and not hot)']
+  why: a busy CPU is not idle
+- file: fieldkit/orchestrate_load.py
+  swap: ['    return bool(c.get("pytest") and c.get("git") and (any_os or r.get("os") == os_name))', '    return bool(c.get("pytest") and c.get("git"))']
+  why: OS-specific suites stay on their OS
+- file: fieldkit/orchestrate_load.py
+  swap: ['    ok = [r for r in rows if not r.get("me") and', '    ok = [r for r in rows if']
+  why: placement never picks this computer
+- file: fieldkit/orchestrate_load.py
+  swap: ['                        check += f"@{r[''os'']}"', '                        pass']
+  why: another OS's pass never lets this OS skip its suite
+- file: fieldkit/orchestrate_load.py
+  swap: ['                elif r["status"] not in ("pass", "fail"):', '                elif False:']
+  why: a job that could not run falls back to running here
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if argv[0] == "admit" and argv[1:2] != ["suite"]:', '        if False:']
+  why: admit -- CMD is never a remote job
