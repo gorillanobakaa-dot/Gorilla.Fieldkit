@@ -117,6 +117,7 @@ groups:
       - buildh/worker.py
       - lmstudio.py
       - orchestrate.py
+      - orchestrate_work.py
       - testcost.py
       - parity.py
 

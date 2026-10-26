@@ -4,6 +4,7 @@
                                                               each device now (hello) and says who answers
     fieldkit orchestrate note TEXT [--to workers|all|NAME,NAME] [--needs-you] [--json]
                                                               one note to each named device, one line per device
+    fieldkit orchestrate job run|agent|status ...             a job on a tree the boss sends (orchestrate_work.py)
 
 Stage O1 of the household orchestrator (local/PROJECT-MANDATE-PLAN.md section 19): one boss, many workers, any OS.
 The registry and the wire are fieldkit/peers/link.py (household.json, one household key); this file is only the
@@ -63,6 +64,9 @@ def note(text, to="workers", needs_you=False, call_fn=None):
 
 
 def main(argv=None):
+    if argv and argv[0] in ("job", "work"):            # stage O3: jobs on a received tree (orchestrate_work.py)
+        from . import orchestrate_work
+        return orchestrate_work.main(argv)
     ap = argparse.ArgumentParser(prog="fieldkit orchestrate", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["devices", "note"])
