@@ -106,8 +106,29 @@ def test_an_unknown_check_is_never_present():
 
 def test_the_runner_checks_each_sha_again_inside_the_elevated_process():
     t = machine.runner_text([lp()], root=settings.ROOT)
-    assert "Get-FileHash -Algorithm SHA256" in t and lp()["sha256"] in t and "'-Action' 'apply'" in t
+    assert "Get-FileHash -Algorithm SHA256" in t and lp()["sha256"] in t and " -Action 'apply'" in t
+    assert "'-Action'" not in t
     assert t.rstrip().endswith('Write-Host "PREREQS: done ($failed failed)"')
+
+
+def test_parameter_names_go_bare_and_values_stay_quoted():
+    assert machine._ps_arg("-Action") == "-Action" and machine._ps_arg("-Root") == "-Root"
+    assert machine._ps_arg("apply") == "'apply'" and machine._ps_arg(r"C:\fk-scratch") == r"'C:\fk-scratch'"
+    assert machine._ps_arg("-1") == "'-1'" and machine._ps_arg("- x; rm") == "'- x; rm'"
+    assert machine._ps_arg("o'k") == "'o''k'"
+
+
+@pytest.mark.skipif(os.name != "nt" or not shutil.which("powershell"), reason="Windows PowerShell binding")
+def test_the_runner_binds_named_parameters_for_real(tmp_path):
+    s = tmp_path / "p.ps1"
+    s.write_text("param([ValidateSet('apply','undo')][string]$Action, [string]$Root)\r\n"
+                 "Write-Host \"GOT $Action $Root\"\r\n", encoding="utf-8")
+    e = {"id": "t", "script": str(s), "sha256": hashlib.sha256(s.read_bytes()).hexdigest(),
+         "apply": ["-Action", "apply", "-Root", r"C:\fk-scratch"]}
+    (tmp_path / "r.ps1").write_text(machine.runner_text([e], root=tmp_path), encoding="utf-8")
+    r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(tmp_path / "r.ps1")],
+                       capture_output=True, text=True, timeout=60)
+    assert r"GOT apply C:\fk-scratch" in r.stdout and "(0 failed)" in r.stdout, (r.stdout, r.stderr)
 
 
 @pytest.mark.skipif(os.name != "nt" or not shutil.which("powershell"), reason="Windows PowerShell parser")
