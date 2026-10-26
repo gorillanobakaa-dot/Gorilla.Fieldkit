@@ -1,0 +1,191 @@
+# Version: 1.0.0 · updated 26-10-26
+"""Zero friction: nothing waits on the owner's click, and finished or idle sessions do not sit eating CPU and RAM.
+
+    fieldkit friction [--here] [--json]          everything that can wait on a person, here and on every peer over
+                                                 the cable; one line each with the fix; exit 0 none, 1 some
+    fieldkit friction ack KEY [KEY ...]          a line that is handled (state/lifecycle/friction-ack.json)
+    fieldkit task start BRIEF.md [--on DEVICE] [--cwd DIR] [--wall MIN] [--title T]
+                                                 a headless job from a brief: autopilot here, the peer's link
+                                                 listener with --on; never a desktop card
+    fieldkit task status [--json]                every task, with the reports that came back (here and over the cable)
+    fieldkit task report ID --status done|failed|blocked [--branch B] [--pr URL] [--note TEXT]
+                                                 the job's own report: ledger, ROOM line, Board row
+    fieldkit sessions sweep [--idle-minutes N] [--keep ID] [--json]
+                                                 finished / idle desktop sessions with their measured RAM and CPU,
+                                                 for the command post to archive; exit 1 when one is to archive
+    fieldkit sessions protocol [--task ID] [--headless]   the done protocol every brief ends with
+    fieldkit sessions rule [--install PATH ... | --all]   the standing rule block in the agents' instruction files
+    fieldkit sessions doctor                    rule files, the desktop session store, the link, the ledger
+
+Owner, 2026-10-26 (verbatim): "i have noticed the other linux machine asked for my approval. this should not have
+happened. We want zero friction. Long horizon tasks run unattended and will typically not have anyone waiting 5 days
+in front of the computer for those moments when an approval might be needed. We need to fix that part of the problem
+on both sides, actually on all the sides involved in the process."
+
+Zero tokens when quiet: plain code, no model. Read-only on the desktop app's files and transcripts. The only network
+is the household link (cable, HMAC-signed) to the peers the owner paired.
+"""
+import argparse
+import json
+import sys
+
+from . import friction, protocol, sweep, tasks
+
+
+def _gb(n):
+    return f"{n / 2**30:.2f} GB"
+
+
+def cmd_friction(argv):
+    ap = argparse.ArgumentParser(prog="fieldkit friction", description=friction.__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("action", nargs="?", choices=["check", "ack", "local"], default="check")
+    ap.add_argument("keys", nargs="*")
+    ap.add_argument("--here", action="store_true", help="this computer only (no peers)")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    if a.action == "ack":
+        if not a.keys:
+            print("friction ack KEY [KEY ...]: the key is in --json output")
+            return 2
+        friction.ack(a.keys)
+        print(f"acknowledged {len(a.keys)}")
+        return 0
+    result = friction.audit(peers=not a.here and a.action != "local")
+    n = sum(len(r) for _, r in result)
+    if a.json:
+        print(json.dumps([{"where": w, "rows": r} for w, r in result], indent=1, ensure_ascii=False))
+    else:
+        print("\n".join(friction.lines(result)))
+    return 1 if n else 0
+
+
+def cmd_task(argv):
+    ap = argparse.ArgumentParser(prog="fieldkit task", description=tasks.__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("action", choices=["start", "status", "report"])
+    ap.add_argument("arg", nargs="?", help="start: the brief file; report: the task id")
+    ap.add_argument("--on", help="start: a device of the household (the job runs there, over the cable)")
+    ap.add_argument("--cwd", help="start here: the folder the job works in (default: this one)")
+    ap.add_argument("--wall", type=int, default=120, help="start here: wall-clock budget in minutes")
+    ap.add_argument("--title")
+    ap.add_argument("--status", choices=list(tasks.STATUSES[1:]))
+    ap.add_argument("--branch", default="")
+    ap.add_argument("--pr", default="")
+    ap.add_argument("--note", default="")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    if a.action == "start":
+        if not a.arg:
+            print("task start BRIEF.md [--on DEVICE]")
+            return 2
+        try:
+            rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title)
+        except ValueError as e:
+            print(f"NOT STARTED  {e}")
+            return 2
+        print(json.dumps(rec, indent=1, ensure_ascii=False) if a.json else
+              f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec.get('how')}): "
+              f"{rec.get('answer') or rec.get('log') or rec.get('runbook') or ''}")
+        return 0 if rec["status"] == "started" else 3
+    if a.action == "report":
+        if not (a.arg and a.status):
+            print("task report ID --status done|failed|blocked [--branch B] [--pr URL] [--note TEXT]")
+            return 2
+        rec = tasks.report(a.arg, a.status, a.branch, a.pr, a.note)
+        print(f"TASK {rec['id']}  {rec['status']}")
+        return 0
+    new = tasks.ingest()
+    led = tasks.ledger()
+    if a.json:
+        print(json.dumps(list(led.values()), indent=1, ensure_ascii=False))
+    else:
+        print("\n".join(tasks.lines(led)))
+        if new:
+            print(f"{len(new)} report(s) came over the cable")
+    return 0
+
+
+def main(argv=None, prog="fieldkit sessions"):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["friction"]:
+        return cmd_friction(argv[1:])
+    if argv[:1] == ["task"]:
+        return cmd_task(argv[1:])
+    ap = argparse.ArgumentParser(prog=prog, description="\n\n".join(__doc__.split("\n\n")[:2]),
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd")
+    s = sub.add_parser("sweep")
+    s.add_argument("--idle-minutes", type=int)
+    s.add_argument("--keep", action="append", default=[])
+    s.add_argument("--interval", type=float, default=1.0, help="CPU is measured over this many seconds (0: not)")
+    s.add_argument("--json", action="store_true")
+    p = sub.add_parser("protocol")
+    p.add_argument("--task")
+    p.add_argument("--headless", action="store_true")
+    r = sub.add_parser("rule")
+    r.add_argument("--install", nargs="*", metavar="PATH")
+    r.add_argument("--all", action="store_true", help="install into every agent's global file that exists")
+    sub.add_parser("doctor")
+    a = ap.parse_args(argv)
+    cmd = a.cmd or "sweep"
+    if cmd == "sweep":
+        cfg = sweep.config()
+        if getattr(a, "idle_minutes", None):
+            cfg["idle_minutes"] = a.idle_minutes
+        rows = sweep.sweep(interval=getattr(a, "interval", 1.0), cfg=cfg, keep=tuple(getattr(a, "keep", [])))
+        if getattr(a, "json", False):
+            print(json.dumps({"summary": sweep.summary(rows), "rows": rows}, indent=1, ensure_ascii=False))
+        else:
+            for x in rows:
+                cpu = "-" if x["cpu_pct"] is None else f"{x['cpu_pct']:.0f}%"
+                print(f"{x['state'].upper():<9} {x['id'][:14]}  {_gb(x['rss']):>9} {cpu:>5}  "
+                      f"{x['title'][:50]:<50} {x['why']}" + (f"\n          fix: {x['fix']}" if x["fix"] else ""))
+            print(sweep.summary(rows))
+        return 1 if sweep.totals(rows)["finished"] else 0
+    if cmd == "protocol":
+        print(protocol.done_protocol(a.task, a.headless), end="")
+        return 0
+    if cmd == "rule":
+        if a.install is None and not a.all:
+            print(protocol.rule_text(), end="")
+            return 0
+        paths = list(a.install or [])
+        if a.all:
+            paths += [str(p) for p in protocol.rule_files().values() if p.is_file()]
+        for x in paths:
+            print(f"{protocol.install_rule(x):<8} {x}")
+        return 0
+    if cmd == "doctor":
+        return doctor()
+    return 2
+
+
+def doctor():
+    from . import desktop
+    ok = True
+    print("lifecycle 1.0.0 doctor")
+    for name, path in protocol.rule_files().items():
+        here = path.is_file()
+        good = protocol.rule_present(path)
+        if here and not good:
+            ok = False
+        print(f"  [{'ok' if good or not here else 'NO'}] rule in {name}: {path}"
+              + ("" if good else " (agent not installed here)" if not here else
+                 f" - fieldkit sessions rule --install {path}"))
+    stores = desktop.store_dirs()
+    print(f"  [{'ok' if stores else '--'}] desktop session store: {', '.join(map(str, stores)) or 'none (no Claude desktop app here)'}")
+    try:
+        from ..peers import link
+        h = link.household()
+        reg, why = link.approvals()
+        print(f"  [{'ok' if h else '--'}] household: {len(link.others(h)) if h else 0} peer(s); link.yaml: {why}"
+              + (f", allow_start {reg.get('allow_start')}" if reg else ""))
+    except Exception as e:  # noqa: BLE001
+        print(f"  [--] link: {e}")
+    print(f"  [ok] ledger: {tasks.ledger_path()} ({len(tasks.ledger())} task(s))")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

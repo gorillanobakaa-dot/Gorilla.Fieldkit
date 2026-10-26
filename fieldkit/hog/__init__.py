@@ -103,6 +103,11 @@ def check(cfg=None, facts=None, hist=None, reg=None, sample=False):
             found += scratch.hog_findings()
         except Exception:
             pass
+        try:                        # idle agent sessions and the RAM they hold: reported, archived by the command post
+            from ..lifecycle import sweep
+            found += sweep.hog_findings()
+        except Exception:
+            pass
     if sample:
         save_sample(facts, hist, cfg)
         reg = registry.prune(facts["alive"])

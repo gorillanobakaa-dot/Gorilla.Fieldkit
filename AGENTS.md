@@ -267,6 +267,25 @@ procedure, look there; when you invent one, add it there, and turn it into a too
 
 OWNER COMMANDS ARE PASTEABLE AS THEY ARE (owner, 2026-10-18). Every command the owner is to paste is a Windows PowerShell block that starts with cd to a full path (cd $HOME; ...), calls every program by its full real path (an MSIX app such as Claude Desktop keeps its files under $env:LOCALAPPDATA\Packages\<package>\LocalCache, not where the app itself sees them), uses PowerShell syntax only (no &&, export, $VAR, ~/), and says in words where anything typed AFTER it goes (for example: type /login inside Claude's prompt, not in PowerShell). Checked by fieldkit.autopilot.ownercmd; in Claude Code a Stop hook sends a failing answer back.
 
+<!-- fieldkit-lifecycle-rule v1 -->
+## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)
+
+SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless autopilot run here, or the other computer's link listener over the cable). Never propose a desktop session card or ask a person to click: a card waits for the owner, who is asleep.
+
+Nothing may wait on the owner: no cards, no permission prompts, no [NEEDS YOU] for what the mandate covers. `fieldkit friction` lists everything that could wait on a person, on every machine (exit 0 = none). What truly needs the owner goes to `fieldkit inbox`, the ONE morning list.
+
+Idle sessions eat RAM and CPU. The command post runs `fieldkit sessions sweep` on every watchdog wake and archives what it lists.
+
+DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
+1. tests + `fieldkit mutate` + `fieldkit telemetry scan .` pass; commit on your own branch (never main).
+2. push with `fieldkit ship push` (the owner-wide mandate covers it; never a GORILLA_OWNER_APPROVED line).
+3. open the pull request where your agent can (a headless run reports the branch; the command post opens it).
+4. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
+5. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
+6. stop your own background jobs and listeners (by PID, never by name).
+7. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session.
+<!-- /fieldkit-lifecycle-rule -->
+
 <!-- fieldkit-rotate-rule v1 -->
 ## Session rotation (fieldkit rotate)
 

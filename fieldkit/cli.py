@@ -1528,6 +1528,13 @@ def build_parser():
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
+    for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
+                                    "the fix (fieldkit/lifecycle)"),
+                       ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
+                                "listener with --on; status, report (fieldkit/lifecycle)"),
+                       ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
+                                     "protocol and the standing rule (fieldkit/lifecycle)")):
+        sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     em = sub.add_parser("emerge", add_help=False,
                         help="compile jobs like Gentoo's Portage: a recipe per product, every stage content-addressed "
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
@@ -2679,6 +2686,9 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] in (["friction"], ["task"], ["sessions"]):   # zero friction: no clicks, no idle sessions
+        from . import lifecycle
+        return lifecycle.main(args if args[0] != "sessions" else args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
