@@ -2001,7 +2001,7 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal"])
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
@@ -2553,6 +2553,9 @@ def cmd_repro(a):
 
 
 def cmd_thermal(a):
+    if a.action == "journal":
+        from .thermal import journal
+        return 0 if journal.run() else 1
     if sys.platform.startswith("linux") and a.action in ("status", "log"):
         # the Sony VAIO, through the owner's sensors.gorilla (2026-10-15). profile, monitor, prove and watch run on
         # both systems (2026-10-20): sensors.providers() and governor.set_cap pick this system's own sources and cap.

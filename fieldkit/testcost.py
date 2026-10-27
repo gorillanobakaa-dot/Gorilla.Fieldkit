@@ -291,6 +291,8 @@ def main(argv=None, prog="fieldkit testcost"):
     rp = sub.add_parser("report")
     rp.add_argument("--last", type=int, default=200)
     sub.add_parser("flags")
+    st = sub.add_parser("staged", help="the test files that cover the staged files, one per line (the pre-commit hook)")
+    st.add_argument("--repo", default=".")
     d = sub.add_parser("docs-only")
     d.add_argument("--repo", default=".")
     a = ap.parse_args(argv)
@@ -306,6 +308,11 @@ def main(argv=None, prog="fieldkit testcost"):
         return 1
     if a.cmd == "record":
         record(a.check, a.status, a.seconds, a.key, a.note)
+        return 0
+    if a.cmd == "staged":
+        # owner 2026-10-27 (verbatim): "Da: pe laptop doar testele fișierelor atinse, suita completă doar în CI."
+        for t in plan(a.repo, paths=staged_files(a.repo))["tests"]:
+            print(os.path.relpath(t, a.repo).replace("\\", "/"))
         return 0
     if a.cmd in ("plan", "run"):
         pl = plan(a.repo, a.base)

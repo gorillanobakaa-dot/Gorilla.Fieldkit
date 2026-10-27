@@ -1,0 +1,26 @@
+# Rules the heavy-work refusal must hold (crash 2026-10-27; owner: "guard obligatoriu prin tool router"):
+#   fieldkit guard -- fieldkit mutate --plan tests/toolrouter_heavy_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_toolrouter_heavy.py
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['if platform != "win32" or not command or GUARDED.search(command)', 'if platform != "win32" or not command']
+  why: a command under fieldkit guard passes
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['or REMOTE.search(command):', ':']
+  why: work sent to the VAIO passes
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['return any(not f.lower().endswith(".py") for f in files) or len(files) > 3', 'return len(files) > 3']
+  why: a folder of tests is a suite
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['or len(files) > 3', 'or len(files) > 30']
+  why: more than three test files is heavy
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['    if not paths:', '    if False:']
+  why: pytest with no path runs the whole suite
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['if platform != "win32" or', 'if False or']
+  why: only the Windows laptop is judged; the VAIO has thermald
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['        if _is_fieldkit_checkout(where):', '        if False:']
+  why: a commit in a Fieldkit checkout runs the full suite in its hook
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)', 'return push_refusal(cmd, cwd)']
+  why: the refusal is wired into the hook's route()
