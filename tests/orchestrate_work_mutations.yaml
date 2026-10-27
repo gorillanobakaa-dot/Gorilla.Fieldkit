@@ -73,3 +73,43 @@
 - file: fieldkit/method/regress.py
   swap: ['            return 0 if r["tests"] else 3', '            return 0']
   why: a regress record that read no test exits 3
+# 2026-10-27, the job in a container (fieldkit/core/contain.py): a job on a worker can never hang silently
+- file: fieldkit/orchestrate_work.py
+  swap: ['                           stdout_path=str(log), merge=True, idle_s=idle_s)', '                           stdout_path=str(log), merge=True, idle_s=None)']
+  why: a job with no output and no CPU for the stall limit is stopped as a STALL, not left to the wall cap
+- file: fieldkit/orchestrate_work.py
+  swap: ['                           stdout_path=str(log), merge=True, idle_s=idle_s)', '                           stdout_path=str(log), merge=False, idle_s=idle_s)']
+  why: the job's stderr goes to job.log with its stdout
+- file: fieldkit/orchestrate_work.py
+  swap: ['                           stdout_path=str(log), merge=True, idle_s=idle_s)', '                           stdout_path=None, merge=True, idle_s=idle_s)']
+  why: the job's output goes to job.log through a file, never a pipe, and the boss gets its tail
+- file: fieldkit/orchestrate_work.py
+  swap: ['        return contain.run([str(a) for a in argv], label=label, deadline_s=deadline_s, cwd=str(cwd), env=env,', '        return contain.run([str(a) for a in argv], label=label, deadline_s=None, cwd=str(cwd), env=env,']
+  why: the wall cap is the container's deadline; on expiry the whole tree is stopped, grandchildren included
+- file: fieldkit/orchestrate_work.py
+  swap: ['    own = liveness.beacon("job", label, label).start() if liveness.current() is None else None', '    own = None']
+  why: the detached worker opens its own liveness beacon, so fieldkit liveness check sees the job and its members
+- file: fieldkit/orchestrate_work.py
+  swap: ["        if own:\n            own.close()", "        pass"]
+  why: the job's beacon is closed when it ends (no stale run file, no current beacon left behind)
+- file: fieldkit/orchestrate_work.py
+  swap: ['    elif o.status == "stalled":', '    elif False:']
+  why: a stall reaches the boss as a concern naming the kept tail
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if o.leftovers:', '    if False:']
+  why: processes the job left running (and the container stopped) are reported to the boss
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if not o.contained:', '    if False:']
+  why: a refused container is reported, never hidden
+- file: fieldkit/orchestrate_work.py
+  swap: ['    rc = o.rc if o.status in ("ok", "fail") else None', '    rc = o.rc']
+  why: a job stopped by the harness (timeout, stall) has no exit code of its own; its evidence says so
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if o.status == "error":', '        if False:']
+  why: a command that could not start is not-run with the reason, never a pass or a bare fail
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if more:', '        if False:']
+  why: a wall cap, stall or leftover line is written into job.log itself, so the log tells the story
+- file: fieldkit/orchestrate_work.py
+  swap: ['    return float(os.environ.get("FIELDKIT_IDLE_MINUTES") or STALL_MINUTES) * 60', '    return float(STALL_MINUTES) * 60']
+  why: FIELDKIT_IDLE_MINUTES (the same knob as autopilot claude) sets the stall limit

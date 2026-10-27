@@ -109,6 +109,11 @@ The steps underneath, for repair:
 - A refusal is the worker's answer, read it: "no mandate with sha ... in force here" means the two machines hold
   different copies of the owner's mandate (share the newer one, never edit it).
 - On Windows every run job goes through `fieldkit guard` by itself. `fieldkit orchestrate job status` is the ledger.
+- The job runs in a container on the worker (2026-10-27, fieldkit/core/contain.py): the wall cap (`--wall`, 60 min)
+  stops the whole process tree, grandchildren included; no output and no CPU for 10 minutes is a STALL, stopped
+  at once with the tail of its output kept on the worker (the concern names the file); what the job left running
+  is stopped and reported. A worker job can never hang silently. The result's evidence opens with the
+  container's status: `ok exit 0`, `fail exit 2`, `timeout exit None`, `stalled exit None`.
 
 ### Start a job on ANY device with no click (2026-10-27)
 Never route device work through a desktop app session: the app refuses to start a session on a turn another
