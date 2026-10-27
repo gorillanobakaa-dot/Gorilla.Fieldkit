@@ -914,6 +914,9 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     bad = verifier.check(req)
     if bad:
         _log(f"REFUSED from {req.get('from_host') if isinstance(req, dict) else '?'}: {bad}")
+        if isinstance(req, dict) and req.get("verb") == "job":     # a job that failed the cable check: the owner sees it
+            from .. import orchestrate_session
+            orchestrate_session.refused(req, f"cable check: {bad}", inbox_add=inbox_add)
         return {"ok": False, "error": bad}
     verb = req.get("verb")
     if verb in JOB_VERBS and via != "cable":
@@ -978,7 +981,8 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # one orchestrator, many workers (fieldkit/mandate/jobs.py, 2026-10-23): a job is run by a tool here, no
         # session is asked; a result is kept for the orchestrator. Every refusal is the answer, and logged.
         from ..mandate import jobs as mandate_jobs
-        res = mandate_jobs.handle_job(req, popen=popen) if verb == "job" else mandate_jobs.handle_result(req)
+        res = mandate_jobs.handle_job(req, popen=popen, inbox_add=inbox_add) if verb == "job" else \
+            mandate_jobs.handle_result(req)
         _log(f"{verb} {req.get('id') or (req.get('result') or {}).get('id')} from {req.get('from_host')}: "
              f"{'ok' if res.get('ok') else res.get('error')}")
         if verb == "result" and res.get("ok"):

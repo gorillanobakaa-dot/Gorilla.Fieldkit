@@ -2119,6 +2119,16 @@
    "orchestrate-job"
   ]
  },
+ "orchestrate job session": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "tests on Windows (real git origin in tmp); the live run Windows boss -> Linux VAIO worker is in PLAN.md (state/coordination) with what was NOT verified; a Windows worker and macOS not run live",
+  "ids": [
+   "orchestrate-session"
+  ]
+ },
  "orchestrate load": {
   "platforms": [
    "linux",

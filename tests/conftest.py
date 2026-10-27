@@ -302,3 +302,12 @@ def _fixed_machine_tag(tmp_path_factory, monkeypatch):
     said = tmp_path_factory.mktemp("said-machine")
     monkeypatch.setattr(machine, "_said_dir", lambda: said)
     yield
+
+
+# Tests never write the owner's real inbox (2026-10-27: a refused job is an inbox row on the refusing device, and the
+# job protocol's refusal tests would have filed theirs in ~/.fieldkit/autopilot/inbox). A test may set its own.
+@pytest.fixture(autouse=True)
+def _no_real_inbox(tmp_path, monkeypatch):
+    from fieldkit.autopilot import inbox
+    monkeypatch.setattr(inbox, "INBOX", tmp_path / "test-inbox")
+    yield
