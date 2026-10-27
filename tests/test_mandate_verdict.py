@@ -193,7 +193,8 @@ def test_the_link_hands_job_and_result_to_the_tools(monkeypatch, linkhome):
     from fieldkit.peers import link
     k = b"k" * 32
     got = []
-    monkeypatch.setattr(jobs, "handle_job", lambda req, popen=None: got.append(req) or {"ok": True, "started": req["id"]})
+    monkeypatch.setattr(jobs, "handle_job", lambda req, popen=None, **kw: got.append(req) or {"ok": True,
+                                                                                               "started": req["id"]})
     monkeypatch.setattr(link, "_log", lambda text: None)
     req = link.sign({"verb": "job", "id": "test-x", "kind": "test", "repo": "R", "commit": "a" * 40, "mandate": MSHA}, k)
     assert link.handle(req, link.Verifier(k))["started"] == "test-x"

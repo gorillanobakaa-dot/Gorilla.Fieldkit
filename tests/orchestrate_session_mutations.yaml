@@ -1,0 +1,71 @@
+# Rules the session job kind (no-click job starts on any device, 2026-10-27) must hold. Every one CAUGHT:
+#   fieldkit mutate --plan tests/orchestrate_session_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_orchestrate_session.py
+- file: fieldkit/orchestrate_session.py
+  swap: ['    if fp not in keys:', '    if False:']
+  why: only a boss key pinned on the device at enrolment can order a job
+- file: fieldkit/orchestrate_session.py
+  swap: ['    if not fp or not req.get("boss_sig"):', '    if False:']
+  why: a job without the boss signature is refused
+- file: fieldkit/orchestrate_session.py
+  swap: ['        Ed25519PublicKey.from_public_bytes(keys[fp]).verify(bytes.fromhex(str(req["boss_sig"])), _canon(req))', '        pass']
+  why: the boss signature must match every signed field of the job
+- file: fieldkit/orchestrate_session.py
+  swap: ['SIGNED = ("id", "kind", "repo", "branch", "base", "agent", "brief", "wall_minutes", "mandate", "from_host")', 'SIGNED = ("id", "kind", "repo", "mandate")']
+  why: branch, brief, agent, wall and the boss name are covered by the boss signature
+- file: fieldkit/orchestrate_session.py
+  swap: ['    if agent not in STARTABLE:', '    if False:']
+  why: only an agent autopilot runs with the hard-line hook is started
+- file: fieldkit/orchestrate_session.py
+  swap: ['    ok, why = M.branch_ok(cfg, str(branch or ""))', '    ok, why = True, ""']
+  why: the branch must match the mandate push patterns, never a base branch
+- file: fieldkit/orchestrate_session.py
+  swap: ['    if cfg is None:', '    if False:']
+  why: the repository must be named by the mandate
+- file: fieldkit/orchestrate_session.py
+  swap: ['    if not isinstance(brief, str) or not brief.strip() or len(brief) > MAX_BRIEF:', '    if False:']
+  why: a brief of 1 to 32 KB
+- file: fieldkit/orchestrate_session.py
+  swap: ['    if not 1 <= wall <= 1440:', '    if False:']
+  why: the agent has a wall cap of 1 to 1440 minutes
+- file: fieldkit/orchestrate_session.py
+  swap: ['    why = boss_check(req, pinned) or check_scope(req, mpath)', '    why = None']
+  why: the worker checks boss and scope before it starts anything
+- file: fieldkit/orchestrate_session.py
+  swap: ['        refused(req, why, inbox_add=inbox_add)', '        pass']
+  why: every authority refusal is an inbox row on the device
+- file: fieldkit/orchestrate_session.py
+  swap: ['    row["inboxed"] = not recent', '    row["inboxed"] = True']
+  why: the same refusal makes one inbox row an hour, not a flood
+- file: fieldkit/orchestrate_session.py
+  swap: ['    if jobs.busy(lock, cap):', '    if False:']
+  why: one job at a time per device
+- file: fieldkit/orchestrate_session.py
+  swap: ['        elif git(repo, "merge-base", "--is-ancestor", local, sha, run=run)[0]:', '        elif False:']
+  why: a local branch that diverged from origin is never overwritten
+- file: fieldkit/orchestrate_session.py
+  swap: ['        if not ours:', '        if False:']
+  why: a branch the device's own checkout has out is never taken over
+- file: fieldkit/orchestrate_session.py
+  swap: ["        if dirty:\n            return f\"an earlier job", "        if False:\n            return f\"an earlier job"]
+  why: an earlier job's uncommitted work is never removed
+- file: fieldkit/orchestrate_session.py
+  swap: ['            pushed = bool(res.get("ok")) and remote.split()[:1] == [head]', '            pushed = bool(res.get("ok"))']
+  why: pushed means origin has the head, not that the tool said ok
+- file: fieldkit/orchestrate_session.py
+  swap: ['        status = "pass" if rc == 0 and new and pushed else "fail"', '        status = "pass" if rc == 0 else "fail"']
+  why: a pass needs new commits that reached origin
+- file: fieldkit/orchestrate_session.py
+  swap: ["        if not dirty:                          # this job's own scratch; its commits live on in the branch\n            git(job[\"repo_path\"], \"worktree\", \"remove\", str(tree), run=run)", "        if True:\n            git(job[\"repo_path\"], \"worktree\", \"remove\", \"--force\", str(tree), run=run)"]
+  why: a worktree with uncommitted work is kept (git alone keeps it unless forced)
+- file: fieldkit/orchestrate_session.py
+  swap: ["    why = check_scope(req, mpath)\n    if why:\n        return jid, f\"not sent: {why}\"", "    why = None"]
+  why: the boss never sends a job its own mandate does not cover
+- file: fieldkit/mandate/jobs.py
+  swap: ['    fields = RESULT_FIELDS + tuple(k for k in ("artefacts", "branch", "pushed") if k in r)', '    fields = RESULT_FIELDS + tuple(k for k in ("artefacts",) if k in r)']
+  why: the worker's signature covers the branch and whether it was pushed
+- file: fieldkit/mandate/jobs.py
+  swap: ['        return _refuse(req, f"no mandate with sha', '        return {"ok": False, "error": "x"} or _refuse(req, f"no mandate with sha']
+  why: an expired or missing mandate is an inbox row on the device
+- file: fieldkit/peers/link.py
+  swap: ['        if isinstance(req, dict) and req.get("verb") == "job":', '        if False:']
+  why: a job that fails the cable check is an inbox row too
