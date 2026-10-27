@@ -569,7 +569,11 @@ def measure(name, job, sessions=(), since=None, until=None, bare_min=None, cfg=N
     if inbox_dir is None:
         from .autopilot import hardlines
         inbox_dir = hardlines.STATE / "inbox"
-    iv += inbox_intervals(inbox_dir, match, now)
+    if job.get("kind") != "goal":
+        # 2026-10-27: a goal never waits on an inbox item (it waits only on its own questions and the pre-approvals,
+        # both read from its events); an open item that merely names it said "waiting-for-owner 12 h" for a goal that
+        # never paused once (the 9 h were a hung go test)
+        iv += inbox_intervals(inbox_dir, match, now)
     secs = sweep(iv, t0, t1)
     wall = max(0.0, t1 - t0)
     ratio = wall / bare if bare else None

@@ -311,7 +311,14 @@ def main(argv=None, prog="fieldkit testcost"):
         return 0
     if a.cmd == "staged":
         # owner 2026-10-27 (verbatim): "Da: pe laptop doar testele fișierelor atinse, suita completă doar în CI."
-        for t in plan(a.repo, paths=staged_files(a.repo))["tests"]:
+        tests = plan(a.repo, paths=staged_files(a.repo))["tests"]
+        cap = int(os.environ.get("FIELDKIT_LOCAL_TEST_CAP", "15"))
+        if len(tests) > cap:
+            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop: that is the suite, so CI runs it
+            print(f"testcost: {len(tests)} test files cover the staged files (> {cap}): CI runs them, not this laptop",
+                  file=sys.stderr)
+            return 0
+        for t in tests:
             print(os.path.relpath(t, a.repo).replace("\\", "/"))
         return 0
     if a.cmd in ("plan", "run"):
