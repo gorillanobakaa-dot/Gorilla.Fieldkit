@@ -79,7 +79,25 @@ def test_the_reader_shows_at_most_max_and_says_how_many_more():
     for i in range(room.MAX_SHOW + 5):
         room.write(call("s1", "Bash", command=f"git commit -m {i}"))
     ctx = room.context(room.unseen("s2"))
-    assert ctx.count("\n  20") <= room.MAX_SHOW and "+5 more in ROOM.log" in ctx
+    assert "+5 more:" in ctx and len(ctx) < 600
+
+
+def test_an_injection_is_capped_and_repeats_are_one_row():
+    """#108 fix 6: 3141 injections of up to 20 rows were re-read on every later call; now about 400 chars of rows."""
+    room.unseen("s2")
+    for i in range(6):
+        room.write(call("s1", "Bash", command=f"taskkill /PID {1000 + i} /F"))
+    for i in range(8):
+        room.write(call("s1", "Bash", command=f"git -C C:/r{i} commit -m n{i}"))
+    ctx = room.context(room.unseen("s2"))
+    rows = ctx.split("\n")[1:]
+    assert ctx.startswith("ROOM: what the other session")             # token-audit keys on this prefix
+    assert sum(len(r) for r in rows if not r.startswith("  +")) <= room.MAX_CHARS + room.ROW_CHARS
+    assert "r7" in ctx and "(x8)" in ctx and "(x6)" in ctx and "more:" not in ctx   # the newest of each kind
+    many = [f"2026-10-27 13:{i:02d}:00\tw@x\ts1\tedit\tC:/f/{chr(97 + i)}.py\t{'y' * 100}" for i in range(15)]
+    capped = room.context(many)
+    assert len(capped) < room.MAX_CHARS + 2 * room.ROW_CHARS and "f/o.py" in capped and "more:" in capped
+    assert room.context([]) == ""
 
 
 def test_the_hook_writes_shows_and_never_fails(capsys):
