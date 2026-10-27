@@ -105,6 +105,16 @@ def door_lines(m):
     return out
 
 
+def command_argv(command, python=None, which=shutil.which):
+    """The argv a user-level prerequisite runs. `python3 -m fieldkit ...` runs with the Python running Fieldkit now
+    (2026-10-26: the mandate's `python3` was the system Python on the VAIO, so the keep-alive units it wrote started
+    the listener with a Python that had no pytest, and every test job there collected 0 tests)."""
+    c = [str(x) for x in command]
+    if c and re.fullmatch(r"python(3(\.\d+)?)?(\.exe)?", os.path.basename(c[0]), re.I) and c[1:3] == ["-m", "fieldkit"]:
+        return [python or sys.executable] + c[1:]
+    return [which(c[0]) or c[0]] + c[1:] if c else c
+
+
 def sha_ok(e, root=None):
     """-> (ok, why). A script entry must exist and hash to its pinned sha256; a command entry has nothing to pin."""
     if not e.get("script"):
@@ -257,7 +267,7 @@ def apply(m, in_force, verify=None, run=subprocess.run, elevate_fn=None, say=pri
         if e.get("admin"):
             todo_admin.append(e)
             continue
-        cmd = [shutil.which(e["command"][0]) or e["command"][0]] + [str(x) for x in e["command"][1:]]
+        cmd = command_argv(e["command"])
         r = run(cmd, capture_output=True, text=True, cwd=str(_root()))     # `python -m fieldkit` finds this one
         out.append(f"  {i}: {'applied' if r.returncode == 0 else 'FAILED exit ' + str(r.returncode)} (as you)")
     if todo_admin:

@@ -78,10 +78,12 @@ def kill_children(pid=None):
 def guard(say=print, label="build", csv_dir=None, check_fan=True, sensor=None):
     """Fan check (fail closed), then the governor around the block. Yields the governor (verdict, peak)."""
     from ..core import preflight
+    from .. import admission
     # 2026-10-26: the ONE run guard around every guarded build: the preflight first (idle models unloaded, orphans
-    # stopped, the free-RAM floor), the RAM/temperature sampler during it, one end line after it
+    # stopped, the free-RAM floor), the RAM/temperature sampler during it, one end line after it. Stage O4: a slot of
+    # the machine-wide gate first (fieldkit/admission.py), so a build waits its turn beside a suite or a mutate
     try:
-        with preflight.guard(label, "build", say) as rg:
+        with admission.admitted("build", label, say=say), preflight.guard(label, "build", say) as rg:
             with _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg) as gov:
                 yield gov
     except preflight.Refused as e:

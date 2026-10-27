@@ -117,3 +117,16 @@ def test_linux_admin_prerequisites_run_in_one_pkexec_runner(monkeypatch, tmp_pat
     code, lines = machine.apply({"machine_prerequisites": [e]}, True, verify={"fw": lambda: state["present"]},
                                 elevate_fn=elev, nt=False)
     assert code == 0 and got == [["link-rescue-firewall"]] and "  pkexec run: finished" in lines
+
+
+def test_doctor_names_a_listener_python_without_pytest(tmp_path):
+    # 2026-10-26: units written with the system python3 (no pytest): every test job collected 0 tests
+    assert K.listener_python(home=tmp_path) is None                               # no unit installed: no line
+    d = K.unit_dir(tmp_path)
+    d.mkdir(parents=True)
+    (d / K.SERVICE).write_text("[Service]\nExecStart=/usr/bin/python3 -P -m fieldkit peers link serve\n")
+    run, calls = _run({"/usr/bin/python3 -c import pytest": (1, "ModuleNotFoundError: No module named 'pytest'")})
+    ok, line = K.listener_python(home=tmp_path, run=run)
+    assert not ok and line.startswith("PROBLEM /usr/bin/python3") and calls[0][0] == "/usr/bin/python3"
+    run, _ = _run({"import pytest": (0, "")})
+    assert K.listener_python(home=tmp_path, run=run)[0] is True
