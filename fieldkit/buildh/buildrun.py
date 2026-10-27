@@ -637,7 +637,9 @@ PROOF_REUSE_S = 12 * 3600
 
 
 def _proof_cache():
-    return task.STATE / "thermal-proof.json"
+    """One proof per machine and boot, not per checkout: under task.STATE every new worktree re-stressed the CPU for
+    ~24 s on its first guarded command (measured 2026-10-27)."""
+    return Path(os.environ.get("FIELDKIT_THERMAL_PROOF") or Path.home() / ".fieldkit" / "thermal-proof.json")
 
 
 def _boot_time():
@@ -704,6 +706,7 @@ def thermal_sensor(say, retry=True):
         governor.set_cap(before if before else 100)
     if name:
         try:
+            c.parent.mkdir(parents=True, exist_ok=True)
             c.write_text(_json.dumps({"boot": _boot_time(), "when": time.time(), "name": name, "detail": detail}), encoding="utf-8")
         except OSError:
             pass
