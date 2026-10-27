@@ -311,8 +311,13 @@ def test_a_non_zero_exit_and_an_agent_job_are_judged_as_before():
     assert ow.judge("agent", None, 0, "", [])[0] is True
 
 
-def test_a_real_job_runs_contained_and_its_output_reaches_the_log(home):
-    """No fake: the job runs through fieldkit/core/contain.py (process group / Job Object, wall cap, stall stop)."""
+def test_a_real_job_runs_contained_and_its_output_reaches_the_log(home, monkeypatch):
+    """No fake: the job runs through fieldkit/core/contain.py (process group / Job Object, wall cap, stall stop).
+    The command is the non-Windows form on every host: on Windows run_argv wraps it in `fieldkit guard --`, whose
+    fan check fails closed without Gorilla TPFanControl (windows-latest: "no fan status file", status fail). That
+    wrapping is the owner's rule and is checked on its own (test_on_windows_a_run_job_always_goes_through_the_guard)."""
+    real = ow.run_argv
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None: real(args, platform="linux"))
     r = ow.work(start(home, run_req(argv=["host"], artefacts=[])), put=lambda p, device=None: {"ok": True},
                 deliver=lambda r: None, sign=lambda r: r, health_fn=list)
     log = (home / "work" / run_req()["id"] / "job.log").read_text()
