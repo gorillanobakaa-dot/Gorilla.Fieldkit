@@ -488,6 +488,25 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_v0152_release_tools.py", -k, "table or sums"]
 
+- id: release-page
+  title: The whole GitHub release page composed from the release's notes - opening, plain-language track, developer track, each in full - with the File | Bytes | SHA-256 table measured from the files; never written by hand again
+  harness: build
+  entry: [python, -m, fieldkit, release, page]
+  path: ${FIELDKIT}/fieldkit/build/relpage.py
+  inputs:
+    - {name: tag, flag: null, type: str, required: true, help: "the version, e.g. v0.1.157"}
+    - {name: src, flag: --src, type: str, required: true, help: "the repository (ReleaseNotes/openings/<v>.md, Changelogs/<v>-release-notes.{layman,developer}.md)"}
+    - {name: dir, flag: --dir, type: str, required: true, help: "the folder with SHA256SUMS-<v>.txt and the files (the pipeline's output)"}
+    - {name: commit, flag: --commit, type: str, required: false, help: "the commit every file was built from"}
+    - {name: out, flag: --out, type: str, required: false, help: "write the page here (default: print)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {2: "a notes file is missing or a file differs from SHA256SUMS"}
+  notes: 'Owner 2026-10-27: "we should have a script like this that we only modify small parts of it and reuse it". The v0.1.155 and v0.1.156 pages had this shape; a release changes its notes, not this code. The table goes at <!-- files table --> in the developer notes, else before "Test coverage and CI". Then: fieldkit ship gh-release <v> -- --title ... --notes-file PAGE FILES.'
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_relpage.py"]
+
 - id: release-verify
   title: A published GitHub release checked - every asset downloaded into a new empty folder and compared with SHA256SUMS and GitHub's digest, the page's table, every .deb/.xz through xzcheck, then linux-install.yml run and deb-ubuntu / rpm-fedora reported
   harness: build
