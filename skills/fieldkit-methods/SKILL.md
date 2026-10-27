@@ -116,6 +116,12 @@ when green (the mandate's merge_to_main: ci_green, by pull request). A repositor
 owner's yes again. A clone whose hook does not ask the gate: `fieldkit mandate install-hooks` (preview), `--yes`.
 Expiry: 3 days before, one line in `mandate status` / `mandate start` / the prompt hook; the owner runs `fieldkit
 mandate renew FILE.yaml` (the approve screen, typed yes + passphrase).
+The renewed pair reaches the other computer by itself: the renewal runs `fieldkit mandate share`, whose files land
+there in the scratch root (`link-*/NAME-N.yaml`, `NAME-M.seal`; link.log says where) and whose link verb
+mandate-receive (cable only) runs `fieldkit mandate receive FILE.yaml FILE.seal` there. It installs ONLY a pair the
+owner key already pinned on that computer verifies (any changed byte, other key, stop or expiry is refused), never an
+older approval over a newer one; the old pair goes to ~/Agents.Work.Trash. A far listener without that verb gets a
+note with the command.
 Windows, Linux and macOS alike (2026-10-26). The protected trust store: %ProgramData%\Fieldkit\mandate-trust (UAC),
 /etc/fieldkit/mandate-trust (pkexec), /Library/Application Support/Fieldkit/mandate-trust (sudo). On a Mac without
 Apple's developer tools /usr/bin/git is a stub and is never run (the doctor says "no clone here"); the lean set has no

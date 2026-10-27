@@ -1988,6 +1988,23 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Born 2026-10-26 (owner: 'fa permanent 1,2,3,4'). Clones found by catchup's walk (Documents and the Antigravity scratch, its exclusions; worktrees left out, they share the main clone's hooks). Covered = every mandate here plus the packaged owner-wide.yaml list. A hook is read as text: the pre-push file and the .py it runs; GORILLA_OWNER_APPROVED without a `mandate gate` call = NEEDS-GATE, except BY_DESIGN (gorilla-firefox: the flag only for the decision register). A repository with a template must match it byte for byte (LF). 'VAIO pinned' = the other computer's review key pinned HERE; whether the VAIO trusts the owner key is its own doctor's row."
 
+- id: mandate-receive
+  title: "Install a mandate received from the other computer ONLY when its seal verifies against the owner key already pinned here (not stopped, not expired, never an older approval over a newer one); the replaced pair to ~/Agents.Work.Trash; `mandate share` asks the far listener to run it"
+  harness: core
+  entry: [python, -m, fieldkit, mandate, receive]
+  path: ${FIELDKIT}/fieldkit/mandate/mandate.py
+  inputs:
+    - {name: yaml, type: path, required: true, help: "the received mandate (link.log says where it landed: the scratch root link-*/NAME-N.yaml)"}
+    - {name: seal, type: path, required: true, help: "the received seal (NAME-M.seal, its number may differ)"}
+  effects: [writes-files]
+  safety: reversible             # undo: the replaced pair is in ~/Agents.Work.Trash/mandate-NAME-<stamp>/
+  output: own
+  exits: {2: "not a .yaml then a .seal, or a file missing", 3: "refused: the seal does not verify here (changed byte, bad signature, key not pinned here, stopped, expired) or an older approval"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_mandate_receive.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-10-26 (owner approved: 'yeah'), after the VAIO kept the old copy of a renewed owner-wide mandate and refused a job. The pair is verified in a staging folder exactly as verify() reads it in place (both named <project>), so nothing that would not be in force is ever written to the mandate home; then it replaces the installed mandate of the same project (whatever its file name), else mandates/<project>.yaml. The old pair is copied to the trash before the swap and put back if the installed copy does not verify (a .STOP beside the old file). The mandate's .log stays and gets a received entry. No passphrase and no guarded write: a model can run it because it can only install what the owner already signed. `mandate share` puts the four files, then calls the far listener's verb mandate-receive (cable only, logged); an older listener gets a link note with the command. Mutation plan tests/mandate_receive_mutations.yaml (9/9)."
+
 - id: mandate-install-hooks
   title: "The gate-aware pre-push hook in every covered clone on THIS computer that has a Fieldkit template (fieldkit/mandate/hooks/<repo>/): a preview without --yes; with --yes installed byte for byte, old files kept as *.bak-<date>, then verified by running the hook; --stick DIR writes the templates, their sha256, the clones the other computer must check and a README for the stick"
   harness: core

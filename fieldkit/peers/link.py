@@ -215,7 +215,7 @@ def config():
 # mandate gate covers the LAN (rule of 2026-10-25); notes and files go over either.
 ROLES = ("boss", "worker", "")
 LINKS = ("cable", "lan")
-JOB_VERBS = ("job", "result", "resend", "ask")
+JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive")
 
 
 def household_path():
@@ -938,6 +938,16 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
                 handed = f"; no session {req['to']} ({e})"
         _log(f"message #{item['n']} from {req.get('from_host')}{handed}")
         return {"ok": True, "stored": item["n"], "note": handed.strip("; ")}
+    if verb == "mandate-receive":
+        # `fieldkit mandate share` on the other side (2026-10-26): install the pair it just put here, ONLY if the owner
+        # key pinned on THIS computer verifies it (mandate.receive); every other answer is a refusal, and logged
+        from ..mandate import mandate as M
+        try:
+            code, msg = M.receive(str(req.get("yaml", "")), str(req.get("seal", "")))
+        except Exception as e:  # noqa: BLE001 - a broken install never installs
+            code, msg = 3, f"REFUSED: {type(e).__name__}: {e}"
+        _log(f"mandate-receive from {req.get('from_host')}: {msg}")
+        return {"ok": code == 0, "message": msg, **({} if code == 0 else {"error": msg})}
     if verb == "resend":                                  # a restarted boss asks for results it missed
         from ..mandate import jobs as mandate_jobs
         n = mandate_jobs.flush()
