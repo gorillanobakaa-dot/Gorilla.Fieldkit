@@ -6153,6 +6153,41 @@ tools:
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Evidence 2026-10-26 18:4x: 20 claude.exe + 15 python.exe at 94 % CPU, many from idle sessions; a finished session could not be archived because Remote Control was on (its fix says: set_remote_control off, then archive_session). Lists only: archiving is the desktop app's verb. fieldkit hog check carries one row: 'idle agent sessions holding N GB'. Thresholds under 'lifecycle' in fieldkit.local.json (idle_minutes 30, busy_cpu_pct 5, hog_warn_gb 1). fieldkit rotate handover appends the done protocol to the relief's brief."
 
+- id: machine
+  title: "Machine tags - this machine's tag [MODEL-OS] ([VAIO-LNX], [L15-WIN], [AIR-MAC]) made once from the hardware model and the OS by fixed rules and stored in the household registry (never retyped); every device with its tag, OS, link address and last seen; a SessionStart hook line telling a session to title itself with the tag"
+  harness: core
+  entry: [python, -m, fieldkit, machine]
+  path: ${FIELDKIT}/fieldkit/peers/machine.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [name, list, hook], help: "name: this machine's tag | list: every device | hook: Claude Code SessionStart hook (stdin: the hook call)"}
+    - {name: offline, flag: --offline, type: flag, required: false, help: "list: the registry only, no hello over the link"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_machine_tags.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner order 2026-10-26 21:5x: 'make sure this is implemented & integrated into harness as a deterministic set of tolls, deterministic checks and all that.' ONE registry: ~/.fieldkit/link/household.json (fieldkit/peers/link.py); device rows carry tag, host, model, last_seen. The rules are data: fieldkit/peers/machine_tags.yaml (DMI on Linux, HKLM HARDWARE BIOS on Windows, sysctl hw.model on macOS; no rule: the host name). Writes only on `name`/`list` (a legacy link.json household is written out as household.json the first time); the hooks and the link's hello read only. Network: list asks each peer's hello over the household link. Carried by: link hello (tag), link verb tags, task start (title, brief SESSION TITLE, ROOM detail, Board row), rotate handover (title, SESSION TITLE line), the net (roll call, status, sitrep check-in data, Board row), friction kind untagged, fieldkit doctor. Zero tokens, no model in the check path. Mutations: tests/machine_tags_mutations.yaml."
+
+- id: sessions-tag
+  title: "Session-title check - every live session, on this computer and on each peer over the link, whose title does not start with its machine's tag ([VAIO-LNX]); a peer that cannot be asked is NOT CHECKED, never a pass"
+  harness: core
+  entry: [python, -m, fieldkit, sessions, tag]
+  path: ${FIELDKIT}/fieldkit/peers/machine.py
+  inputs:
+    - {name: check, flag: --check, type: flag, required: false, help: "the check (the default)"}
+    - {name: here, flag: --here, type: flag, required: false, help: "this computer only (no peers)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON: machines and untagged rows"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {1: "a session lacks its machine's tag, or a machine could not be checked"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_machine_tags.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Plain string comparison: a title is tagged when, leading spaces aside, it starts with the tag. Reads the Claude desktop app's session records (read-only, fieldkit/lifecycle/desktop.py). Peers answer the read-only link verb tags. The same rows reach fieldkit friction (kind untagged) and fieldkit doctor (row sessions machine-tag, this computer only)."
+
 - id: parity
   title: "Test parity - every machine runs the same pinned versions with the same capabilities before a test: a deterministic manifest per machine (versions + sha256 of gorilla-opencode, gorilla-size, python, go, git, gh, node; Fieldkit commit + dirty; installed skills, cards, Gorilla OpenCode provider NAMES, MCP servers, mandates in force, long paths; OS/arch), compared over the household link (SAME / PARTIAL / DRIFT, each difference named, an absent device reported, never a failure), aligned to releases/parity-pin.yaml from the release itself (asset + SHA256SUMS + GitHub digest, old binary kept, Linux/macOS get the root line), and the run guard's shared-ground check"
   harness: core

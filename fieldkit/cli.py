@@ -162,8 +162,31 @@ def cmd_doctor(a):
         return 0 if r["ready_to_install"] else 3
     way = None if doctor.git_state() == "real" else "zip"
     r = doctor.check(a.pipeline, lean=getattr(a, "lean", False), way=way)
+    if not getattr(a, "lean", False):
+        r = _with_session_tags(r)
     _emit(r, a.json, lambda d: print("\n".join(doctor.lines(d))))
     return 0 if r["ok"] else 3
+
+
+def _with_session_tags(r, check=None):
+    """doctor's row for the session titles on THIS computer (machine.py; the peers: `fieldkit sessions tag --check`).
+    A check that cannot run is said, never a pass."""
+    try:
+        from .peers import machine
+        c = (check or machine.check)(peers=False)
+        bad = c["rows"]
+        row = {"kind": "sessions", "name": "machine-tag", "ok": not bad,
+               "detail": (f"{len(bad)} live session(s) without {c['machines'][0]['tag'] or 'the machine tag'}: "
+                          + "; ".join(x["title"][:40] or x["id"][:12] for x in bad[:3]) if bad else
+                          f"every live session starts with {c['machines'][0]['tag']}"),
+               "install": ""}
+    except Exception as e:  # noqa: BLE001
+        row = {"kind": "sessions", "name": "machine-tag", "ok": False, "detail": f"not checked: {e}"[:200],
+               "install": ""}
+    rows = r["rows"] + [row]
+    ok = r["ok"] and row["ok"]
+    nxt = r["next"] if row["ok"] or not r["ok"] else "rename the sessions listed by `fieldkit sessions tag --check`"
+    return dict(r, rows=rows, ok=ok, next=nxt)
 
 
 def cmd_audio(a):
@@ -1542,7 +1565,10 @@ def build_parser():
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
-                                     "protocol and the standing rule (fieldkit/lifecycle)")):
+                                     "protocol and the standing rule; `sessions tag --check`: titles without "
+                                     "their machine tag (fieldkit/lifecycle)"),
+                       ("machine", "this machine's tag ([VAIO-LNX]) from the household registry; every device "
+                                   "with tag, OS, address, last seen (fieldkit/peers/machine.py)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     em = sub.add_parser("emerge", add_help=False,
                         help="compile jobs like Gentoo's Portage: a recipe per product, every stage content-addressed "
@@ -2701,6 +2727,9 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
+        from .peers import machine
+        return machine.main(args[1:])
     if args[:1] in (["friction"], ["task"], ["sessions"]):   # zero friction: no clicks, no idle sessions
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])

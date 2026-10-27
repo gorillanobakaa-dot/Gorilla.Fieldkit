@@ -1888,6 +1888,17 @@
    "fieldkit-macair"
   ]
  },
+ "machine": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "machine"
+  ]
+ },
  "mandate": {
   "platforms": [
    "darwin",
@@ -2523,6 +2534,17 @@
   "why": "",
   "ids": [
    "sessions"
+  ]
+ },
+ "sessions tag": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "sessions-tag"
   ]
  },
  "ship": {

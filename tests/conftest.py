@@ -293,6 +293,17 @@ def _no_inherited_autopilot(monkeypatch):
     yield
 
 
+# Tests see one fixed machine tag, never this computer's (fieldkit/peers/machine.py reads the real household file
+# and the hardware otherwise). A test of the tag itself sets machine._CURRENT = None and its own FIELDKIT_LINK_HOME.
+@pytest.fixture(autouse=True)
+def _fixed_machine_tag(tmp_path_factory, monkeypatch):
+    from fieldkit.peers import machine
+    monkeypatch.setattr(machine, "_CURRENT", "[TEST-LNX]")
+    said = tmp_path_factory.mktemp("said-machine")
+    monkeypatch.setattr(machine, "_said_dir", lambda: said)
+    yield
+
+
 # Tests never write the owner's real inbox (2026-10-27: a refused job is an inbox row on the refusing device, and the
 # job protocol's refusal tests would have filed theirs in ~/.fieldkit/autopilot/inbox). A test may set its own.
 @pytest.fixture(autouse=True)
