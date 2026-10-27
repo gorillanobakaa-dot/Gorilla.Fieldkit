@@ -110,6 +110,19 @@ The steps underneath, for repair:
   different copies of the owner's mandate (share the newer one, never edit it).
 - On Windows every run job goes through `fieldkit guard` by itself. `fieldkit orchestrate job status` is the ledger.
 
+### Start a job on ANY device with no click (2026-10-27)
+Never route device work through a desktop app session: the app refuses to start a session on a turn another
+session's message started, so the work waits for the owner's click on that machine (the VAIO, 2026-10-26).
+- `fieldkit orchestrate job session --device W --repo Gorilla.Fieldkit --branch feat/x --brief FILE --wait 7200`:
+  the device runs `fieldkit autopilot claude` on its own worktree of the branch (hard lines, no GitHub credential)
+  and the TOOL pushes the branch with `fieldkit ship push`. `VERDICT PASS` = signed by a pinned worker key, origin
+  has the head.
+- What lets it run: the household key (pairing), the boss's machine key pinned on the device ONCE (enrolment), the
+  owner-wide mandate in force there (the owner's one approval), the branch inside its push patterns. Nothing else.
+- A refusal is answered AND is an inbox row on that device (`fieldkit inbox` there; `fieldkit orchestrate job
+  refusals`). "boss key ... not pinned" = enrolment missing; "no mandate with sha" = expired, stopped or never
+  shared; "out of scope" = a branch the mandate does not cover. Never work around one: it is the owner's.
+
 ## The room (fieldkit room): what the others did, without anyone remembering to say it
 
 Owner, 2026-10-19: "is there any way for you guys to sit in the same room and see what each other is doing?"

@@ -18,7 +18,8 @@ The result is also signed by the worker's own Ed25519 result key (fingerprint `k
 field but `sig`: PROVENANCE, which device ran what, never an approval. The orchestrator pins each worker's key once, at
 pairing (fieldkit mandate trust-reviewer). A worker accepts a job only when it holds a sealed mandate with that sha in
 force here and the repository is in it; otherwise it answers why, and the orchestrator reports that as a concern.
-Kinds today: test; run and agent (stage O3, plan section 19, 2026-10-26): the job names a tree the boss sent
+Kinds today: test; session (2026-10-27: brief + repo + branch, a headless agent, the branch pushed by the tool;
+fieldkit/orchestrate_session.py); run and agent (stage O3, plan section 19, 2026-10-26): the job names a tree the boss sent
 with `peers link put` by its digest, and fieldkit/orchestrate_work.py runs a Fieldkit command line or a Gorilla
 OpenCode brief on a copy of it; the artefacts go back by put, their sha256 in the signed result (`artefacts`).
 """
@@ -29,7 +30,7 @@ import sys
 import time
 from pathlib import Path
 
-KINDS = ("test", "run", "agent")
+KINDS = ("test", "run", "agent", "session")
 WORK_KINDS = ("run", "agent")        # on a received tree, not a commit (fieldkit/orchestrate_work.py)
 ID = re.compile(r"[\w.-]{1,120}")
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -143,7 +144,8 @@ def send(kind, repo, commit, mandate_path, call=None):
 
 
 def _canon(r):
-    fields = RESULT_FIELDS + (("artefacts",) if "artefacts" in r else ())    # results before O3 sign as they did
+    # results before O3 (artefacts) and before session jobs (branch, pushed) sign as they did
+    fields = RESULT_FIELDS + tuple(k for k in ("artefacts", "branch", "pushed") if k in r)
     return json.dumps({k: r.get(k) for k in fields}, sort_keys=True, separators=(",", ":")).encode()
 
 
@@ -267,26 +269,39 @@ def busy(lock, cap):
         return False
 
 
-def handle_job(req, popen=subprocess.Popen, repos=None, lock=None, find_mandate=None, cap=3600):
+def _refuse(req, why, inbox_add=None):
+    """A job outside what this device may run: answered, and an owner inbox row HERE (orchestrate_session.refused)."""
+    from .. import orchestrate_session
+    orchestrate_session.refused(req, why, inbox_add=inbox_add)
+    return {"ok": False, "error": why}
+
+
+def handle_job(req, popen=subprocess.Popen, repos=None, lock=None, find_mandate=None, cap=3600, inbox_add=None):
     """The worker's side of verb job (inside link.handle, after the HMAC check): no session is asked. Refuses only
     what it CANNOT do (no such mandate here, a repository it does not have, a kind it does not know, a job running);
-    each answer goes back to the orchestrator, which reports it."""
+    each answer goes back to the orchestrator, which reports it. A refusal of AUTHORITY (no mandate in force here,
+    not the mandate's boss, an unknown kind, out of scope) is also an owner inbox row on this device."""
     from . import verdict as V
     jid, kind, repo, commit, msha = (str(req.get(k) or "") for k in ("id", "kind", "repo", "commit", "mandate"))
-    if kind in WORK_KINDS:                    # names a received tree by its digest instead of a commit
+    if kind in WORK_KINDS + ("session",):     # a received tree's digest or a branch instead of a commit
         commit = commit or "0" * 40
     if not (ID.fullmatch(jid) and SHA.fullmatch(commit) and SHA256.fullmatch(msha) and ID.fullmatch(repo)):
-        return {"ok": False, "error": "a job needs id, kind, repo, commit (40 hex) and mandate (sha256)"}
+        return _refuse(req, "a job needs id, kind, repo, commit (40 hex) and mandate (sha256)", inbox_add)
     if kind not in KINDS:
-        return {"ok": False, "error": f"this worker does not know the job kind {kind!r} ({', '.join(KINDS)})"}
+        return _refuse(req, f"this worker does not know the job kind {kind!r} ({', '.join(KINDS)})", inbox_add)
     mpath = (find_mandate or mandate_for)(repo, msha)
     if mpath is None:
-        return {"ok": False, "error": f"no mandate with sha {msha[:12]} in force here naming {repo} "
-                                      "(fix: fieldkit mandate share it to this computer)"}
+        return _refuse(req, f"no mandate with sha {msha[:12]} in force here naming {repo} (expired, stopped, not "
+                            "sealed by a trusted owner key, or never shared; fix: fieldkit mandate share it to this "
+                            "computer)", inbox_add)
     boss = _bosses(mpath)
     if boss and str(req.get("from_host") or "") not in boss:   # plan 17.1: workers obey the boss the mandate names
-        return {"ok": False, "error": f"this job came from {req.get('from_host')}, not the mandate's orchestrator "
-                                      f"({', '.join(boss)}): not taken"}
+        return _refuse(req, f"this job came from {req.get('from_host')}, not the mandate's orchestrator "
+                            f"({', '.join(boss)}): not taken", inbox_add)
+    if kind == "session":                     # brief + repo + branch, a headless agent (fieldkit/orchestrate_session.py)
+        from .. import orchestrate_session
+        return orchestrate_session.accept(req, mpath, lock=Path(lock) if lock is not None else _lock(), cap=cap,
+                                          popen=popen, find_repo=lambda n: V.find_repo(n, repos), inbox_add=inbox_add)
     if kind in WORK_KINDS:
         from .. import orchestrate_work
         return orchestrate_work.accept(req, mpath, lock=Path(lock) if lock is not None else _lock(), cap=cap,

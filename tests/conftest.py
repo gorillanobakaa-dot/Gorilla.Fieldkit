@@ -272,3 +272,12 @@ from fieldkit.autopilot.quiet import noisy as _real_noisy  # noqa: E402
 def _no_inherited_autopilot(monkeypatch):
     monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
     yield
+
+
+# Tests never write the owner's real inbox (2026-10-27: a refused job is an inbox row on the refusing device, and the
+# job protocol's refusal tests would have filed theirs in ~/.fieldkit/autopilot/inbox). A test may set its own.
+@pytest.fixture(autouse=True)
+def _no_real_inbox(tmp_path, monkeypatch):
+    from fieldkit.autopilot import inbox
+    monkeypatch.setattr(inbox, "INBOX", tmp_path / "test-inbox")
+    yield
