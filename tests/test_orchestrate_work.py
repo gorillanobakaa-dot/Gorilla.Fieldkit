@@ -396,3 +396,77 @@ def test_on_windows_a_run_job_always_goes_through_the_guard():
     assert ow.run_argv(["pipeline", "run", "go-app"], platform="win32") == [*me, "guard", "--", *me, "pipeline",
                                                                             "run", "go-app"]
     assert ow.run_argv(["pipeline", "run", "go-app"], platform="linux") == [*me, "pipeline", "run", "go-app"]
+
+
+# ---- the evidence rule (O3 false PASS, 2026-10-26) -----------------------------------------------------------------
+class Said(Ran):
+    """A fake run that prints `text` into the job log and exits rc, making no file."""
+
+    def __init__(self, text, rc=0):
+        super().__init__(rc=rc, make=())
+        self.text = text
+
+    def __call__(self, argv, cwd, env, log, deadline_s, idle_s, label):
+        self.calls.append({"argv": argv, "cwd": str(cwd), "env": env, "log": str(log), "deadline_s": deadline_s,
+                           "idle_s": idle_s, "label": label})
+        if self.text:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(self.text)
+        return contain.Outcome("ok" if self.rc == 0 else "fail", self.rc, self.text, "", 0.1, 4242)
+
+
+FALSE_PASS_ARGV = ["regress", "record", "vaio-train", "--", "python3", "-m", "pytest", "-q", "-rA", "-p",
+                   "no:cacheprovider", "tests/test_train.py"]
+FALSE_PASS_LOG = ("vaio-train: 0 passed, 0 failed (0 test names read; exit 1)\n"
+                  "  | /usr/bin/python3: No module named pytest\n")
+
+
+def test_the_o3_false_pass_is_a_fail_the_job_that_tested_nothing(home):
+    """Reproduced from the two real job folders run-Gorilla.Fieldkit-6a90e8d43aab-*: exit 0 in 0 s, that log, no
+    artefact declared; the worker said PASS."""
+    ran = Said(FALSE_PASS_LOG)
+    r = go(home, run_req(argv=FALSE_PASS_ARGV, artefacts=[]), ran)
+    assert r["status"] == "fail" and "tests never ran" in r["concerns"][0]["text"], r
+    # and the `python3` in such a line is now the worker's own Python (the one with pytest), first on PATH
+    assert ran.calls[0]["env"]["PATH"].split(os.pathsep)[0] == os.path.dirname(sys.executable)
+
+
+def test_exit_0_with_no_output_and_no_declared_artefact_is_a_fail(home):
+    r = go(home, run_req(argv=["host"], artefacts=[]), Said(""))
+    assert r["status"] == "fail" and "no output and no declared artefact" in r["concerns"][0]["text"], r
+    r = go(home, run_req(id="run-Gorilla.Fieldkit-abababababab-55555555", argv=["host"], artefacts=[]),
+           Said("host: linux\n"))
+    assert r["status"] == "pass", r                    # it said something: not this rule's business
+
+
+@pytest.mark.parametrize("argv,out,ok,why", [
+    (["admit", "suite"], "....\n4 passed, 1 skipped in 3.20s\n", True, ""),
+    (["admit", "suite"], "\nno tests ran in 0.01s\n", False, "tests never ran"),
+    (["admit", "suite"], "1 failed, 3 passed in 2.0s\n", False, "1 test(s) failed"),
+    (["admit", "suite"], "3 passed, 2 errors in 2.0s\n", False, "2 error(s)"),
+    (["admit", "suite"], "collected nothing at all\n", False, "no test count"),
+    (FALSE_PASS_ARGV, "vaio-train: 5 passed, 0 failed (5 test names read; exit 0)\n", True, ""),
+    (FALSE_PASS_ARGV, "vaio-train: 4 passed, 1 failed (5 test names read; exit 1)\n", False, "1 test(s) failed"),
+    (["pipeline", "run", "go-app"], "built\n", True, ""),
+])
+def test_a_test_job_passes_only_on_a_test_count_with_a_pass_and_no_failure(argv, out, ok, why):
+    passed, concerns = ow.judge("run", argv, 0, out, [])
+    assert passed is ok and (not why or why in concerns[0]["text"]), concerns
+
+
+def test_a_non_zero_exit_and_an_agent_job_are_judged_as_before():
+    assert ow.judge("run", ["admit", "suite"], 1, "4 passed in 1s", [])[0] is False
+    assert ow.judge("agent", None, 0, "", [])[0] is True
+
+
+def test_a_real_job_runs_contained_and_its_output_reaches_the_log(home, monkeypatch):
+    """No fake: the job runs through fieldkit/core/contain.py (process group / Job Object, wall cap, stall stop).
+    The command is the non-Windows form on every host: on Windows run_argv wraps it in `fieldkit guard --`, whose
+    fan check fails closed without Gorilla TPFanControl (windows-latest: "no fan status file", status fail). That
+    wrapping is the owner's rule and is checked on its own (test_on_windows_a_run_job_always_goes_through_the_guard)."""
+    real = ow.run_argv
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None: real(args, platform="linux"))
+    r = ow.work(start(home, run_req(argv=["host"], artefacts=[])), put=lambda p, device=None: {"ok": True},
+                deliver=lambda r: None, sign=lambda r: r, health_fn=list)
+    log = (home / "work" / run_req()["id"] / "job.log").read_text()
+    assert r["status"] == "pass" and len(log.splitlines()) > 1, (r, log)

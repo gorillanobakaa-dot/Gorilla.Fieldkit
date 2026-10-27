@@ -1,6 +1,6 @@
 ---
 name: fieldkit-peers
-description: Talk to the other AI sessions on this computer, or on the other computer of a direct cable (fieldkit peers link - which agents it has, pair, send, ask it to start a session) - list them, send one a short note, wait for a reply or for "my turn is done" - in Gorilla OpenCode's own session-messaging protocol, so an OpenCode session (0.1.145 or later) hears it. Also each device's load (fieldkit orchestrate load), the machine-wide gate for heavy jobs (fieldkit admit) and a test suite placed on an idle device over the cable (fieldkit orchestrate place). Use when asked to tell, ask, warn or hand over to another session on the same machine, to wait until another session has finished, when a computer is overloaded by suites, mutates or builds, or to spread test work across the household.
+description: Talk to the other AI sessions on this computer, or on the other computer of a direct cable (fieldkit peers link - which agents it has, pair, send, ask it to start a session) - list them, send one a short note, wait for a reply or for "my turn is done" - in Gorilla OpenCode's own session-messaging protocol, so an OpenCode session (0.1.145 or later) hears it. Also each device's load (fieldkit orchestrate load), the machine-wide gate for heavy jobs (fieldkit admit) a test suite placed on an idle device over the cable (fieldkit orchestrate place) and the Windows pre-commit suite sent to the Linux box (fieldkit orchestrate offload). Use when asked to tell, ask, warn or hand over to another session on the same machine, to wait until another session has finished, when a computer is overloaded by suites, mutates or builds, or to spread test work across the household.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
@@ -142,6 +142,14 @@ session's message started, so the work waits for the owner's click on that machi
   on an idle capable device (same OS unless `--any-os`), else here after the queue. The verdict names where it ran;
   `placing on X failed` / `X did not take it` means it ran HERE instead (fail closed). A remote FAIL is a real
   failure, read the evidence. A pass from another OS is recorded as `CHECK@OS` and never skips this OS's own suite.
+- `fieldkit orchestrate offload` - the Windows pre-commit suite on an idle Linux device (owner, 2026-10-26: every MB
+  counts). It passes only on a result signed by a pinned worker key AND its JUnit report back with the signed
+  sha256, with at least one test passed and none failed; then only the test files the device SKIPPED run here
+  (`RUN HERE` lines). Device down or BUSY, no signed report, 0 tests: `VERDICT LOCAL`, run the full suite here.
+  Off for one run: `FIELDKIT_SUITE_LOCAL=1`; for good: `suite_offload: off` in `fieldkit.local.json`.
+- A job's verdict needs evidence, not just exit 0 (O3 false PASS, 2026-10-26): no output and no declared artefact is
+  FAIL; a test job (`admit suite`, `regress record`, pytest) is FAIL unless its output ends in a test count with a
+  pass and no failure. "exit 0 in 0 s" with a concern "the tests never ran" means pytest was missing or found nothing.
 
 ## The room (fieldkit room): what the others did, without anyone remembering to say it
 

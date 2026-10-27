@@ -1867,7 +1867,7 @@ tools:
   platforms: [windows, linux]
   platforms_why: 'run live 2026-10-26: boss on Linux, worker on Windows over the cable (a Go build inside fieldkit guard, 412 s; an agent brief on gemini-flash-lite-latest, 102 s); a Linux worker and a Windows boss tested on loopback or not yet'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_work.py"]
-  notes: "Stage O3 of local/PROJECT-MANDATE-PLAN.md section 19, on fieldkit/mandate/jobs.py (one boss, the owner's mandate the only approval; the worker checks the mandate sha in force there and the boss). The tree is named by the digest both ends compared; the worker runs on a copy, one job at a time, awake, with a wall cap; run refuses mandate, ship, publish, release, autopilot, peers, inbox, orchestrate, agent, elevate, build-harness; on Windows every run job goes through fieldkit guard. agent: -q (a console-less run otherwise ends with 0xC000013A), the model pinned in the copy's .gorilla-opencode.json; a local --brain model is unloaded after. Artefacts by put, sha256 in the signed result, checked by the boss. Cable only. Not yet: an agent run has the worker's normal Gorilla OpenCode tools. 2026-10-27: the job runs in a container (fieldkit/core/contain.py; before, a plain subprocess.run with timeout = the wall cap): Job Object on Windows, own process group on Linux and macOS, the wall cap stops the WHOLE tree, no output and no CPU for 10 min (STALL_MINUTES, FIELDKIT_IDLE_MINUTES) is a STALL stopped at once with the output tail kept and a ROOM line, output to job.log through a file never a pipe, leftovers stopped and reported, the detached worker opens its own liveness beacon (kind job). Mutation plan tests/orchestrate_work_mutations.yaml (31/31)."
+  notes: "Stage O3 of local/PROJECT-MANDATE-PLAN.md section 19, on fieldkit/mandate/jobs.py (one boss, the owner's mandate the only approval; the worker checks the mandate sha in force there and the boss). The tree is named by the digest both ends compared; the worker runs on a copy, one job at a time, awake, with a wall cap; run refuses mandate, ship, publish, release, autopilot, peers, inbox, orchestrate, agent, elevate, build-harness; on Windows every run job goes through fieldkit guard. agent: -q (a console-less run otherwise ends with 0xC000013A), the model pinned in the copy's .gorilla-opencode.json; a local --brain model is unloaded after. Artefacts by put, sha256 in the signed result, checked by the boss. Cable only. Not yet: an agent run has the worker's normal Gorilla OpenCode tools. 2026-10-27: the job runs in a container (fieldkit/core/contain.py; before, a plain subprocess.run with timeout = the wall cap): Job Object on Windows, own process group on Linux and macOS, the wall cap stops the WHOLE tree, no output and no CPU for 10 min (STALL_MINUTES, FIELDKIT_IDLE_MINUTES) is a STALL stopped at once with the output tail kept and a ROOM line, output to job.log through a file never a pipe, leftovers stopped and reported, the detached worker opens its own liveness beacon (kind job). Evidence rule (O3 false PASS 2026-10-26): exit 0 with no output and no declared artefact fails; a test job (admit suite, regress record, pytest) passes only on a test count with a pass and no failure; the worker's Python is first on PATH. Mutation plan tests/orchestrate_work_mutations.yaml (the evidence-rule and container plans, merged 2026-10-27; not re-run as one)."
 
 - id: orchestrate-load
   title: "Each device's load in one line: CPU, RAM, temperature against its hot line, the admission gate's slots, heavy jobs running, what it can run; IDLE or BUSY by a fixed rule"
@@ -1904,6 +1904,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_load.py"]
   notes: "Stage O4. Capable = pytest + git + the same OS unless --any-os. The tree is git archive of the testcost tree hash (tracked + untracked, .gitignore respected); the job is `admit suite` (an O3 run job, so the worker's own gate admits it; on Windows inside fieldkit guard). testcost check name gets @OS when the worker's OS differs, so another OS's pass never skips this OS's suite. Fail closed: not taken, no signed result, could not run, or any exception -> the suite runs here and the verdict says why. While nothing is free the load is read again every 5 s and the first to free takes it (a slot here or an idle device), said once. A remote FAIL is the answer, not rerun. Mutation plan tests/o4_scheduler_mutations.yaml (14/14)."
 
+- id: orchestrate-offload
+  title: "The pre-commit suite on an idle Linux device over the cable: a signed result and its JUnit report back, only the test files that device skipped run here; down, BUSY, unsigned or 0 tests -> the full suite here"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate, offload]
+  path: ${FIELDKIT}/fieldkit/suite_offload.py
+  inputs:
+    - {name: tree, flag: --tree, type: str, required: false, help: "the git checkout whose tree is tested (.)"}
+    - {name: project, flag: --project, type: str, required: false, help: "the repository the owner's mandate names (Gorilla.Fieldkit)"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [network, writes-files, processes]
+  safety: irreversible           # the worker runs the suite
+  output: third-party            # the result comes from another computer
+  platforms: [windows, linux]
+  platforms_why: 'written for a Windows boss (auto sends only from Windows; suite_offload "on" in fieldkit.local.json from Linux); unit tests on both systems, no live Windows commit through it yet (the hook line waits for the owner)'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_suite_offload.py"]
+  notes: "Owner 2026-10-26: every MB counts, delegate to the Linux box. Rules: wanted (suite_offload auto|on|off, FIELDKIT_SUITE_LOCAL=1); device = orchestrate_load.choose(any_os) IDLE and capable, never waited for; job = `admit suite --report fk-suite-report.xml` on the testcost tree, report the one declared artefact; trust only a pinned-key signed result + the report with the signed sha256 + at least one test passed and none failed; a skip that maps to no file -> local. testcost full-suite@OS recorded. Hook door: python -m fieldkit.suite_offload hook (0 pass + files to run here, 1 fail, 10 local). The hooks/pre-commit lines that call it are an owner change (HARD LINE 3), filed in the inbox. Mutation plan tests/suite_offload_mutations.yaml (11/11). Zero model tokens."
+
 - id: admit
   title: "One machine-wide gate for heavy jobs (the full suite, mutate, builds, go test): at most N at once on this computer, the rest queue and never ask anyone; a hot CPU is offered one slot fewer"
   harness: methods
@@ -1915,6 +1932,7 @@ tools:
     - {name: kind, flag: --kind, type: str, required: false, choices: [test, mutate, build, go-test, other], help: "what the command is (other)"}
     - {name: label, flag: --label, type: str, required: false, help: "a name the status and the load report show"}
     - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait for a slot at most (default: as long as it takes); exit 75 when it runs out"}
+    - {name: report, flag: --report, type: str, required: false, help: "suite: a JUnit XML report pytest writes (relative, inside the folder): the evidence an offloaded suite sends back"}
     - {name: json, flag: --json, type: bool, required: false, help: "status: machine-readable"}
   effects: [writes-files, processes]
   safety: reversible             # lock files under ~/.fieldkit/admission; the command after -- is the caller's

@@ -168,12 +168,75 @@ def _sha(p):
     return h.hexdigest()
 
 
+def _read(path):
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def _tail(path, n=15, chars=1500):
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return ""
     return "\n".join(lines[-n:])[-chars:]
+
+
+PYTEST_SUMMARY = re.compile(r"\b(\d+ (?:passed|failed|errors?|skipped)|no tests ran)\b.* in [\d.]+s")
+REGRESS_LINE = re.compile(r": (\d+) passed, (\d+) failed \((\d+) test names read; exit (-?\d+|None)\)")
+
+
+def is_test_job(argv):
+    """A run job whose point is to run tests: `admit suite`, `regress record`, or pytest anywhere in the line."""
+    argv = [str(a) for a in argv or []]
+    return argv[:2] == ["admit", "suite"] or argv[:2] == ["regress", "record"] or any(
+        a.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].startswith("pytest") for a in argv)
+
+
+def test_counts(text):
+    """-> {passed, failed, errors} from the LAST pytest summary or `regress record` line in the output, or None."""
+    found = None
+    for ln in text.splitlines():
+        m = REGRESS_LINE.search(ln)
+        if m:
+            p, f, n, ex = m.groups()
+            found = {"passed": int(p), "failed": int(f), "errors": 0 if ex == "0" else 1, "read": int(n)}
+        elif PYTEST_SUMMARY.search(ln):
+            c = {k: 0 for k in ("passed", "failed", "errors")}
+            for num, word in re.findall(r"(\d+) (passed|failed|errors?)\b", ln):
+                c["errors" if word.startswith("error") else word] += int(num)
+            found = c
+    return found
+
+
+def judge(kind, argv, rc, output, declared):
+    """The evidence rule (O3 false PASS, 2026-10-26: two `regress record ... -- python3 -m pytest` jobs said "exit 0
+    in 0 s" and PASS while that python3 had no pytest and nothing was tested). -> (passes, [concern]). Fixed rules:
+      - an exit code other than 0 fails;
+      - a run job that printed nothing and declared no artefact fails: nothing shows the command did anything;
+      - a test job (is_test_job) passes only when its output ends in a test count with at least one test passed and
+        none failed or errored; "0 test names read", "no tests ran" or no count at all is invalid evidence."""
+    if rc != 0:
+        return False, []
+    if kind != "run":
+        return True, []
+    if not output.strip() and not declared:
+        return False, [{"text": "exit 0 with no output and no declared artefact: nothing shows the command ran",
+                        "fix_offered": "declare the file the job makes with --artefact, or run a command that "
+                                       "reports what it did"}]
+    if is_test_job(argv):
+        c = test_counts(output)
+        if c is None or c["passed"] < 1:
+            return False, [{"text": "the tests never ran: no test passed"
+                                    + (f" ({c.get('read', 0)} test names read)" if c and "read" in c else
+                                       " (no test count in the output)" if c is None else ""),
+                            "fix_offered": "check the job log: pytest missing for that Python, or 0 tests "
+                                           "collected"}]
+        if c["failed"] or c["errors"]:
+            return False, [{"text": f"{c['failed']} test(s) failed, {c['errors']} error(s)",
+                            "fix_offered": "fix the failing tests"}]
+    return True, []
 
 
 AGENTS = ("coder", "task", "title", "summarizer")
@@ -287,6 +350,9 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
         concerns += (health_fn or _health)()
         wall = int(job.get("wall_minutes") or 60) * 60
         env = link.link_env()
+        # a `python3` in the job's own line is the worker's Python (it has pytest), never a bare system one: the
+        # O3 false PASS ran /usr/bin/python3, which had no pytest
+        env["PATH"] = os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])
         if job["kind"] == "run":
             argv = run_argv(job["argv"])
         else:
@@ -326,7 +392,10 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
         bad = [a for a in arts if not a["sent"]]
         concerns += [{"text": f"artefact {a['name']} did not reach the boss: {a['error']}",
                       "fix_offered": "the file is still in the job folder; send the job again"} for a in bad]
-        status = "pass" if rc == 0 and not missing and not bad else "fail"
+        output = "".join(_read(log).splitlines(keepends=True)[2:])     # after the "$ command" and "# contained" lines
+        ok, why = judge(job["kind"], job.get("argv"), rc, output, job.get("artefacts"))
+        concerns += why
+        status = "pass" if ok and not missing and not bad else "fail"
         evidence = (f"{o.status} exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} "
                     f"artefact(s) sent, sha256 in this result\n{_tail(log)}")
     except Exception as e:  # noqa: BLE001 - every failure becomes a result the boss sees, never silence

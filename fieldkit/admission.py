@@ -2,7 +2,7 @@
 
     fieldkit admit [--kind K] [--label L] [--wait S] -- CMD ...   run CMD when a slot is free (queued jobs wait,
                                                                   they never ask anyone); exit = CMD's exit
-    fieldkit admit suite [--wait S] [PATH ...]                    the pytest suite of the current folder under the
+    fieldkit admit suite [--wait S] [--report F] [PATH ...]       the pytest suite of the current folder under the
                                                                   gate (what a placed test job runs on a worker)
     fieldkit admit status [--json]                                the slots, who holds them, who waits
 
@@ -255,13 +255,15 @@ def run(cmd, kind="other", label="", wait=None, root=None, call=subprocess.call,
         return 75
 
 
-def suite_cmd(paths=(), basetemp=None):
-    """The pytest suite of the current folder (a placed job's tree copy). Paths are relative and inside it."""
-    for p in paths:
+def suite_cmd(paths=(), basetemp=None, report=None):
+    """The pytest suite of the current folder (a placed job's tree copy). Paths are relative and inside it. report: a
+    JUnit XML file pytest writes (relative, inside the tree), the evidence an offloaded suite sends back."""
+    for p in [*paths, *([report] if report else [])]:
         if os.path.isabs(p) or ".." in Path(p).parts or p.startswith("-"):
             raise ValueError(f"{p!r}: a suite path is relative, inside the tree, and not an option")
     bt = basetemp or tempfile.mkdtemp(prefix="fk-admit-suite-")
-    return [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", bt, "-rf", *paths]
+    return [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp", bt, "-rf",
+            *(["--junitxml", report] if report else []), *paths]
 
 
 def lines(st):
@@ -289,6 +291,7 @@ def main(argv=None):
     ap.add_argument("--kind", choices=KINDS, default="other")
     ap.add_argument("--label", default="")
     ap.add_argument("--wait", type=float, help="seconds to wait for a slot at most (default: as long as it takes)")
+    ap.add_argument("--report", help="suite: a JUnit XML report pytest writes (relative, inside the folder)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if a.action == "status":
@@ -297,7 +300,7 @@ def main(argv=None):
         return 0
     if a.action == "suite":
         try:
-            cmd = suite_cmd(a.paths)
+            cmd = suite_cmd(a.paths, report=a.report)
         except ValueError as e:
             print(f"ADMISSION  NOT RUN: {e}")
             return 2
