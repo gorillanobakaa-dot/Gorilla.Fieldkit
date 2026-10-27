@@ -163,8 +163,8 @@ def test_fieldkit_ship_push_is_publishing_without_a_mandate(nostop):
 def test_cd_then_a_mandated_push_is_the_push_run_in_that_folder(nostop):
     """Owner "Da" 2026-10-27 (inbox #97): workers write `cd REPO && fieldkit ship push`; it was refused."""
     door = Door(allow={"push"}, force=True)
-    assert dm('cd "C:/Users/x/Gorilla.Opencode" && fieldkit ship push', door, nostop) == "allow"
-    assert door.asked[-1] == ("push", {"repo_path": "C:/Users/x/Gorilla.Opencode"})
+    assert dm('cd "C:/Users/x/Gorilla.Opencode" && fieldkit ship push', door, nostop) == "allow"  # privacy-scan: allow
+    assert door.asked[-1] == ("push", {"repo_path": "C:/Users/x/Gorilla.Opencode"})  # privacy-scan: allow
     assert dm("cd /w/r && fieldkit ship push && git push", door, nostop) == "deny"     # still one statement only
     assert dm("cd /w/r && fieldkit ship push", Door(), nostop) == "deny"                # no mandate: denied
 
@@ -314,7 +314,7 @@ def test_fix2_content_and_search_patterns_are_not_places(tool, args, nostop):
     ("Write", {"file_path": "C:/w/CLAUDE.md", "content": "x"}),
     ("Edit", {"file_path": "C:/w/fieldkit/autopilot/hardlines.py", "old_string": "a", "new_string": "b"}),
     ("Write", {"file_path": "C:/w/.env", "content": "A=1"}),
-    ("Read", {"file_path": "C:/Users/u/.config/gh/hosts.yml"}),
+    ("Read", {"file_path": "C:/Users/u/.config/gh/hosts.yml"}),  # privacy-scan: allow
     ("Grep", {"pattern": "token", "path": "C:/w/.env"}),
     ("Glob", {"pattern": "**/id_rsa"}),
     ("write_to_file", {"TargetFile": "C:/w/.claude/settings.json", "CodeContent": "{}"}),
@@ -339,8 +339,8 @@ def test_fix3_an_rm_under_the_temp_variable_is_scratch(nostop, monkeypatch, tmp_
     assert d("Bash", {"command": 'rm -rf "$TEMP/x"'}, nostop) == "allow"
     assert d("Bash", {"command": "rm -rf ${TMP}/build"}, nostop) == "allow"
     # replayed from hook.log 10-26: the delete is judged on its own statement, not on a cd next to it
-    assert d("Bash", {"command": "rm -rf /tmp/tmp.M3ZYUfvbTS; cd C:/Users/u/repo; git status --short"}, nostop) == "allow"
-    assert d("Bash", {"command": "rm -rf /tmp/x; rm -rf C:/Users/u/repo"}, nostop) == "deny"
+    assert d("Bash", {"command": "rm -rf /tmp/tmp.M3ZYUfvbTS; cd C:/Users/u/repo; git status --short"}, nostop) == "allow"  # privacy-scan: allow
+    assert d("Bash", {"command": "rm -rf /tmp/x; rm -rf C:/Users/u/repo"}, nostop) == "deny"  # privacy-scan: allow
 
 
 def test_fix3_the_hooks_path_read_with_get_all_and_a_grep_pattern(nostop):
