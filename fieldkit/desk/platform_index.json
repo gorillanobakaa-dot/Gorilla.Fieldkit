@@ -1888,6 +1888,17 @@
    "fieldkit-macair"
   ]
  },
+ "machine": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "machine"
+  ]
+ },
  "mandate": {
   "platforms": [
    "darwin",
@@ -2126,6 +2137,16 @@
   "why": "run live 2026-10-26 on the Linux boss with the Windows laptop answering over the cable",
   "ids": [
    "orchestrate-load"
+  ]
+ },
+ "orchestrate offload": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "written for a Windows boss (auto sends only from Windows; suite_offload \"on\" in fieldkit.local.json from Linux); unit tests on both systems, no live Windows commit through it yet (the hook line waits for the owner)",
+  "ids": [
+   "orchestrate-offload"
   ]
  },
  "orchestrate place": {
@@ -2513,6 +2534,17 @@
   "why": "",
   "ids": [
    "sessions"
+  ]
+ },
+ "sessions tag": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "sessions-tag"
   ]
  },
  "ship": {

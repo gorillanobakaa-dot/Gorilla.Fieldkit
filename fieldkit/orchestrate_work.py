@@ -17,6 +17,12 @@ of fieldkit/mandate/jobs.py (one boss, many workers; the owner's mandate is the 
     file), and the job names it by the digest both ends compared, so the worker runs exactly those bytes;
   - the worker runs on a COPY of the received tree (received/ is never changed), one job at a time, with a wall
     cap, awake, after a free-space and clock check. It never needs the internet: nothing reaches GitHub;
+  - the job runs in a container (fieldkit/core/contain.py): a Job Object on Windows, its own process group on Linux
+    and macOS, so the wall cap stops the WHOLE tree, orphans included; its output goes to job.log through a file,
+    never a pipe; no output and no CPU for STALL_MINUTES is a STALL, stopped long before the wall cap with the tail
+    of its output kept on disk and a ROOM line; what the job leaves running when it ends is stopped and reported.
+    Before (2026-10-26): a plain subprocess.run with timeout = the wall cap, so a hung `go test` on the VAIO would
+    have sat silent for the whole hour and left its children behind. A job on a worker can never hang silently;
   - `run` is a Fieldkit command line with no shell; the commands that approve, push, publish or start agents are
     refused (REFUSED). `agent` is a fresh Gorilla OpenCode run with the brief, on the model the job names, through
     the worker's own configured provider (owner, 2026-10-26: cheap Gemini for tests, never a local model for O3);
@@ -51,6 +57,7 @@ MAX_BRIEF = 32 * 1024
 DEFAULT_MODEL = "gemini-flash-lite-latest"            # cheap Gemini, the owner's model for tests (2026-10-26)
 MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,120}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
+STALL_MINUTES = 10                                    # FM-9: no output and no CPU for this long = a silent stall, stopped
 
 
 def work_root():
@@ -161,12 +168,75 @@ def _sha(p):
     return h.hexdigest()
 
 
+def _read(path):
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def _tail(path, n=15, chars=1500):
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return ""
     return "\n".join(lines[-n:])[-chars:]
+
+
+PYTEST_SUMMARY = re.compile(r"\b(\d+ (?:passed|failed|errors?|skipped)|no tests ran)\b.* in [\d.]+s")
+REGRESS_LINE = re.compile(r": (\d+) passed, (\d+) failed \((\d+) test names read; exit (-?\d+|None)\)")
+
+
+def is_test_job(argv):
+    """A run job whose point is to run tests: `admit suite`, `regress record`, or pytest anywhere in the line."""
+    argv = [str(a) for a in argv or []]
+    return argv[:2] == ["admit", "suite"] or argv[:2] == ["regress", "record"] or any(
+        a.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].startswith("pytest") for a in argv)
+
+
+def test_counts(text):
+    """-> {passed, failed, errors} from the LAST pytest summary or `regress record` line in the output, or None."""
+    found = None
+    for ln in text.splitlines():
+        m = REGRESS_LINE.search(ln)
+        if m:
+            p, f, n, ex = m.groups()
+            found = {"passed": int(p), "failed": int(f), "errors": 0 if ex == "0" else 1, "read": int(n)}
+        elif PYTEST_SUMMARY.search(ln):
+            c = {k: 0 for k in ("passed", "failed", "errors")}
+            for num, word in re.findall(r"(\d+) (passed|failed|errors?)\b", ln):
+                c["errors" if word.startswith("error") else word] += int(num)
+            found = c
+    return found
+
+
+def judge(kind, argv, rc, output, declared):
+    """The evidence rule (O3 false PASS, 2026-10-26: two `regress record ... -- python3 -m pytest` jobs said "exit 0
+    in 0 s" and PASS while that python3 had no pytest and nothing was tested). -> (passes, [concern]). Fixed rules:
+      - an exit code other than 0 fails;
+      - a run job that printed nothing and declared no artefact fails: nothing shows the command did anything;
+      - a test job (is_test_job) passes only when its output ends in a test count with at least one test passed and
+        none failed or errored; "0 test names read", "no tests ran" or no count at all is invalid evidence."""
+    if rc != 0:
+        return False, []
+    if kind != "run":
+        return True, []
+    if not output.strip() and not declared:
+        return False, [{"text": "exit 0 with no output and no declared artefact: nothing shows the command ran",
+                        "fix_offered": "declare the file the job makes with --artefact, or run a command that "
+                                       "reports what it did"}]
+    if is_test_job(argv):
+        c = test_counts(output)
+        if c is None or c["passed"] < 1:
+            return False, [{"text": "the tests never ran: no test passed"
+                                    + (f" ({c.get('read', 0)} test names read)" if c and "read" in c else
+                                       " (no test count in the output)" if c is None else ""),
+                            "fix_offered": "check the job log: pytest missing for that Python, or 0 tests "
+                                           "collected"}]
+        if c["failed"] or c["errors"]:
+            return False, [{"text": f"{c['failed']} test(s) failed, {c['errors']} error(s)",
+                            "fix_offered": "fix the failing tests"}]
+    return True, []
 
 
 AGENTS = ("coder", "task", "title", "summarizer")
@@ -214,8 +284,51 @@ def unload_local_models(brain, run=subprocess.run):
         f"NOT UNLOADED: lms unload --all exit {r.returncode}: {(r.stderr or r.stdout).strip()[:160]}"
 
 
-def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=None):
-    """The job itself (a detached process on the worker). -> the result, delivered to the boss."""
+def stall_s():
+    """The stall limit in seconds: FIELDKIT_IDLE_MINUTES (the same knob as autopilot claude), else STALL_MINUTES."""
+    return float(os.environ.get("FIELDKIT_IDLE_MINUTES") or STALL_MINUTES) * 60
+
+
+def run_contained(argv, cwd, env, log, deadline_s, idle_s, label):
+    """The job's command in a container (fieldkit/core/contain.py). -> contain.Outcome.
+    The container's output is APPENDED to log (stdout and stderr merged), through a file, never a pipe; the wall
+    deadline and the stall limit stop the whole tree; the worker is a detached process, so it opens its own liveness
+    beacon when none is current (fieldkit liveness check sees the job, its step and its members)."""
+    from .core import contain, liveness
+    own = liveness.beacon("job", label, label).start() if liveness.current() is None else None
+    try:
+        return contain.run([str(a) for a in argv], label=label, deadline_s=deadline_s, cwd=str(cwd), env=env,
+                           stdout_path=str(log), merge=True, idle_s=idle_s)
+    finally:
+        if own:
+            own.close()
+
+
+def job_concerns(o, wall, idle_s):
+    """What a contained run's Outcome says beyond its exit code, as concerns for the boss. -> (rc, [concern])."""
+    out = []
+    if o.status == "timeout":
+        out.append({"text": f"stopped at the wall cap ({wall // 60} min): the container stopped "
+                            f"{len(o.killed)} process(es)", "fix_offered": "send it again with a larger --wall"})
+    elif o.status == "stalled":
+        out.append({"text": f"STALL: no output and no CPU for {idle_s / 60:g} min; the container stopped "
+                            f"{len(o.killed)} process(es); output tail kept at {o.tail_file}",
+                    "fix_offered": "read the tail; a job that waits on a person or a lock here cannot run as a job"})
+    if o.leftovers:
+        out.append({"text": f"{len(o.leftovers)} process(es) the job left running were stopped: {o.leftovers}",
+                    "fix_offered": "a job ends with its children; check what it started"})
+    if not o.contained:
+        out.append({"text": f"NOT CONTAINED: {o.why}; only the tree kill held",
+                    "fix_offered": "fieldkit liveness doctor on the worker"})
+    rc = o.rc if o.status in ("ok", "fail") else None
+    return rc, out
+
+
+def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unload=None):
+    """The job itself (a detached process on the worker). -> the result, delivered to the boss.
+    run: the contained runner (run_contained): (argv, cwd, env, log, deadline_s, idle_s, label) -> contain.Outcome."""
+    run = run or run_contained
+    unload = unload or unload_local_models
     put = put or link.put
     deliver = deliver or jobs.deliver
     sign = sign or jobs.sign_result
@@ -237,6 +350,9 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         concerns += (health_fn or _health)()
         wall = int(job.get("wall_minutes") or 60) * 60
         env = link.link_env()
+        # a `python3` in the job's own line is the worker's Python (it has pytest), never a bare system one: the
+        # O3 false PASS ran /usr/bin/python3, which had no pytest
+        env["PATH"] = os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])
         if job["kind"] == "run":
             argv = run_argv(job["argv"])
         else:
@@ -253,18 +369,21 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
             # 0xC000013A, "ended by Ctrl+C", live on Windows 2026-10-26; fieldkit buildh drive passes -q too
             argv = [exe, "-p", job["brief"], "-c", str(tree), "-q"]
         from .mandate import health
-        with health.awake(f"fieldkit job {jid}"), open(log, "w", encoding="utf-8") as out:
-            out.write(f"$ {' '.join(argv[:6])}{' ...' if len(argv) > 6 else ''}\n")
-            out.flush()
-            try:
-                rc = run(argv, cwd=str(tree), env=env, stdin=subprocess.DEVNULL, stdout=out,
-                         stderr=subprocess.STDOUT, timeout=wall).returncode
-            except subprocess.TimeoutExpired:
-                rc = None
-                concerns.append({"text": f"stopped at the wall cap ({wall // 60} min)",
-                                 "fix_offered": "send it again with a larger --wall"})
+        idle_s = stall_s()
+        with open(log, "w", encoding="utf-8") as out:
+            out.write(f"$ {' '.join(argv[:6])}{' ...' if len(argv) > 6 else ''}\n"
+                      f"# contained: wall {wall // 60} min, stall {idle_s / 60:g} min without output or CPU\n")
+        with health.awake(f"fieldkit job {jid}"):
+            o = run(argv, tree, env, log, wall, idle_s, f"job {jid}")
+        if o.status == "error":
+            raise RuntimeError(o.why or "the job's command could not start")
+        rc, more = job_concerns(o, wall, idle_s)
+        concerns += more
+        if more:
+            with open(log, "a", encoding="utf-8") as out:
+                out.write("".join(f"\n=== {c['text']}" for c in more) + "\n")
         if job["kind"] == "agent" and job.get("brain"):
-            said = unload_local_models(job["brain"], run=run)
+            said = unload(job["brain"])
             if said.startswith("NOT"):
                 concerns.append({"text": said, "fix_offered": "unload the model in LM Studio"})
         arts, missing = _artefacts(tree, job.get("artefacts") or [], put, boss)
@@ -273,9 +392,12 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         bad = [a for a in arts if not a["sent"]]
         concerns += [{"text": f"artefact {a['name']} did not reach the boss: {a['error']}",
                       "fix_offered": "the file is still in the job folder; send the job again"} for a in bad]
-        status = "pass" if rc == 0 and not missing and not bad else "fail"
-        evidence = (f"exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} artefact(s) "
-                    f"sent, sha256 in this result\n{_tail(log)}")
+        output = "".join(_read(log).splitlines(keepends=True)[2:])     # after the "$ command" and "# contained" lines
+        ok, why = judge(job["kind"], job.get("argv"), rc, output, job.get("artefacts"))
+        concerns += why
+        status = "pass" if ok and not missing and not bad else "fail"
+        evidence = (f"{o.status} exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} "
+                    f"artefact(s) sent, sha256 in this result\n{_tail(log)}")
     except Exception as e:  # noqa: BLE001 - every failure becomes a result the boss sees, never silence
         status, arts = "not-run", []
         evidence = f"the job could not run here: {type(e).__name__}: {e}"

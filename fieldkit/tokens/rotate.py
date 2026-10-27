@@ -446,6 +446,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     if a is None:
         raise FileNotFoundError(str(transcript))
     row = judged(measure(a, p), cfg)
+    from ..peers import machine                       # the successor runs here: its title starts with this tag
+    title = machine.prefix(title)
     stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(now))
     sid = row["session"][:8]
     coord = coordination_dir()
@@ -456,7 +458,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     brief = (f"You are continuing \"{title}\" from session {sid}, rotated by fieldkit rotate ({row['level']}: "
              f"{'; '.join(row['why']) or 'by hand'}). Do NOT start over. Read {note} first.\n"
              f"Working folder: {where} (branch {branch}).\n"
-             f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n")
+             f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n"
+             f"SESSION TITLE: {title} (title yourself exactly this; it starts with the machine's tag)\n")
     if row.get("task"):
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
     from ..lifecycle import protocol                  # start side jobs headless; clean up and archive when done

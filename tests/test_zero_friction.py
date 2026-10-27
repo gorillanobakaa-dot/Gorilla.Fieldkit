@@ -412,7 +412,7 @@ def test_report_writes_ledger_room_and_board(tmp_path):
     r = tasks.start(brief(tmp_path), launch=lambda a: {"pid": 1}, now=NOW)
     tasks.report(r["id"], "done", branch="feat/x", pr="https://g/pull/9", note="all | green")
     t = tasks.ledger()[r["id"]]
-    assert t["status"] == "done" and t["pr"] == "https://g/pull/9" and t["title"] == "Do the job."
+    assert t["status"] == "done" and t["pr"] == "https://g/pull/9" and t["title"] == "[TEST-LNX] Do the job."
     plan = (tmp_path / "coord" / "PLAN.md").read_text(encoding="utf-8")
     assert f"| Task (fieldkit task) {r['id']} | here | done |" in plan and "all / green" in plan
     with pytest.raises(ValueError):

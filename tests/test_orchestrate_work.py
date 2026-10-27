@@ -1,15 +1,22 @@
 """Jobs on a received tree (stage O3, 2026-10-26): the boss sends a folder and a job, the worker runs a Fieldkit
-command line or a Gorilla OpenCode brief on a COPY of it, the artefacts come back with their sha256 signed."""
+command line or a Gorilla OpenCode brief on a COPY of it, the artefacts come back with their sha256 signed.
+The job runs in a container (fieldkit/core/contain.py, 2026-10-27): wall deadline, stall stop, output through a file,
+the tree stopped as a whole; a job on a worker can never hang silently."""
 import hashlib
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from fieldkit import orchestrate_work as ow
+from fieldkit.core import contain, liveness
 from fieldkit.mandate import jobs
+
+PY = sys.executable
 
 DIGEST = "ab" * 32
 MSHA = "cd" * 32
@@ -18,6 +25,8 @@ MSHA = "cd" * 32
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("FIELDKIT_LIVENESS_DIR", str(tmp_path / "liveness"))
+    monkeypatch.setattr(liveness, "room_line", lambda *a: None)
     return tmp_path / "home"
 
 
@@ -105,30 +114,37 @@ def start(home, req):
 
 
 class Ran:
-    """A fake subprocess.run: records the call and makes what a build would make in the tree copy."""
+    """A fake contained runner (ow.run_contained): records the call, makes what a build would make in the tree copy,
+    appends a line to the job log, and answers with the contain.Outcome the status asks for."""
 
-    def __init__(self, rc=0, make=("dist/app.exe",), timeout=False):
-        self.calls, self.rc, self.make, self.timeout = [], rc, make, timeout
+    def __init__(self, rc=0, make=("dist/app.exe",), timeout=False, stalled=False, leftovers=(), contained=True):
+        self.calls, self.rc, self.make = [], rc, make
+        self.status = "timeout" if timeout else "stalled" if stalled else None
+        self.leftovers, self.contained = list(leftovers), contained
 
-    def __call__(self, argv, cwd=None, env=None, timeout=None, **kw):
-        self.calls.append({"argv": argv, "cwd": cwd, "env": env})
-        if self.timeout:
-            raise subprocess.TimeoutExpired(argv, timeout)
-        for rel in self.make if cwd else ():         # lms unload runs with no working folder
+    def __call__(self, argv, cwd, env, log, deadline_s, idle_s, label):
+        self.calls.append({"argv": argv, "cwd": str(cwd), "env": env, "log": str(log), "deadline_s": deadline_s,
+                           "idle_s": idle_s, "label": label})
+        for rel in self.make:
             (Path(cwd) / rel).parent.mkdir(parents=True, exist_ok=True)
             (Path(cwd) / rel).write_bytes(b"MZ built " + rel.encode())
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("building...\n")
+        if self.status:
+            return contain.Outcome(self.status, 124, "building...", "", 12.0, 4242, killed=[4242, 4243],
+                                   tail_file="/liveness/tails/job.txt", contained=self.contained,
+                                   why="no job object: refused" if not self.contained else "")
+        return contain.Outcome("ok" if self.rc == 0 else "fail", self.rc, "building...", "", 12.0, 4242,
+                               leftovers=self.leftovers, contained=self.contained,
+                               why="no job object: refused" if not self.contained else "")
 
-        class R:
-            returncode = self.rc
-            stdout = stderr = ""
-        return R()
 
-
-def go(home, req, ran, sent=None):
+def go(home, req, ran, sent=None, unload=None):
     sent = [] if sent is None else sent
     delivered = []
     put = lambda p, device=None: sent.append((Path(p).name, device)) or {"ok": True, "sha256": "x"}  # noqa: E731
-    r = ow.work(start(home, req), run=ran, put=put, deliver=delivered.append, sign=lambda r: r, health_fn=list)
+    r = ow.work(start(home, req), run=ran, put=put, deliver=delivered.append, sign=lambda r: r, health_fn=list,
+                unload=unload)
     assert delivered == [r]
     return r
 
@@ -141,6 +157,10 @@ def test_a_run_job_builds_on_a_copy_and_sends_back_every_artefact_with_its_sha25
     c = ran.calls[0]
     assert c["argv"] == ow.run_argv(run_req()["argv"])                # on Windows inside fieldkit guard
     assert Path(c["cwd"]) == home / "work" / run_req()["id"] / "tree"
+    assert c["deadline_s"] == 5 * 60 and c["idle_s"] == ow.STALL_MINUTES * 60    # the wall cap and the stall stop
+    log = (home / "work" / run_req()["id"] / "job.log").read_text()
+    assert log.startswith("$ ") and "# contained: wall 5 min, stall 10 min" in log and log.endswith("building...\n")
+    assert r["evidence"].startswith("ok exit 0") and "building..." in r["evidence"]
     assert not (home / "received" / "proj" / "dist").exists()          # received/ never changed
     built = Path(c["cwd"]) / "dist" / "app.exe"
     assert r["artefacts"] == [{"name": "dist/app.exe", "size": built.stat().st_size,
@@ -151,11 +171,119 @@ def test_a_run_job_builds_on_a_copy_and_sends_back_every_artefact_with_its_sha25
 
 def test_a_failed_build_a_missing_artefact_and_the_wall_cap_are_failures_with_concerns(home):
     r = go(home, run_req(), Ran(rc=2))
-    assert r["status"] == "fail" and r["evidence"].startswith("exit 2")
+    assert r["status"] == "fail" and r["evidence"].startswith("fail exit 2")
     r = go(home, run_req(id="run-Gorilla.Fieldkit-abababababab-33333333"), Ran(make=()))
     assert r["status"] == "fail" and "no file matched" in r["concerns"][0]["text"]
     r = go(home, run_req(id="run-Gorilla.Fieldkit-abababababab-44444444"), Ran(timeout=True))
-    assert r["status"] == "fail" and "wall cap" in r["concerns"][0]["text"]
+    assert r["status"] == "fail" and "wall cap (5 min)" in r["concerns"][0]["text"]
+    assert "stopped 2 process(es)" in r["concerns"][0]["text"] and r["evidence"].startswith("timeout exit None")
+    assert "=== stopped at the wall cap" in (home / "work" / "run-Gorilla.Fieldkit-abababababab-44444444" /
+                                            "job.log").read_text()
+
+
+def test_a_silent_job_is_a_stall_with_its_tail_named_long_before_the_wall_cap(home):
+    """FM-9 on a worker: the container stopped it for want of output and CPU; the boss is told where the tail is."""
+    r = go(home, run_req(), Ran(stalled=True))
+    assert r["status"] == "fail" and r["evidence"].startswith("stalled exit None")
+    c = r["concerns"][0]["text"]
+    assert c.startswith("STALL: no output and no CPU for 10 min") and "stopped 2 process(es)" in c
+    assert "tail kept at /liveness/tails/job.txt" in c and "read the tail" in r["concerns"][0]["fix_offered"]
+    assert "=== STALL" in (home / "work" / run_req()["id"] / "job.log").read_text()
+
+
+def test_leftovers_and_a_refused_container_are_concerns_not_silence(home):
+    r = go(home, run_req(), Ran(leftovers=[777, 778]))
+    assert r["status"] == "pass" and "2 process(es) the job left running were stopped: [777, 778]" in \
+        r["concerns"][0]["text"]
+    r = go(home, run_req(id="run-Gorilla.Fieldkit-abababababab-55555555"), Ran(contained=False))
+    assert r["status"] == "pass" and r["concerns"][0]["text"].startswith("NOT CONTAINED: no job object: refused")
+
+
+def test_a_command_that_cannot_start_is_not_run_with_the_reason(home):
+    def no_exe(argv, cwd, env, log, deadline_s, idle_s, label):
+        return contain.Outcome("error", 127, err="could not start: [Errno 2] No such file", contained=True,
+                               why="could not start: [Errno 2] No such file")
+    delivered = []
+    r = ow.work(start(home, run_req()), run=no_exe, put=lambda *a, **k: {"ok": True}, deliver=delivered.append,
+                sign=lambda r: r, health_fn=list)
+    assert r["status"] == "not-run" and "could not start: [Errno 2]" in r["evidence"] and delivered == [r]
+
+
+def test_the_stall_limit_is_ten_minutes_unless_the_idle_knob_says_otherwise(monkeypatch):
+    monkeypatch.delenv("FIELDKIT_IDLE_MINUTES", raising=False)
+    assert ow.stall_s() == 600 and ow.STALL_MINUTES == 10
+    monkeypatch.setenv("FIELDKIT_IDLE_MINUTES", "0.5")
+    assert ow.stall_s() == 30
+
+
+# ---- the real container under a job --------------------------------------------------------------------------------
+def test_run_contained_appends_both_streams_to_the_log_and_opens_its_own_beacon(home, tmp_path):
+    log = tmp_path / "job.log"
+    log.write_text("$ header\n")
+    seen = {}
+    real_beacon = liveness.beacon
+
+    def spy(kind, rid, label="", **kw):
+        b = real_beacon(kind, rid, label, **kw)
+        seen.update(kind=kind, rid=rid, path=b.path)
+        return b
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(liveness, "beacon", spy)
+        o = ow.run_contained([PY, "-c", "import sys; print('out line'); print('err line', file=sys.stderr)"],
+                             tmp_path, dict(os.environ), log, 60, 600, "job run-x")
+    assert o.status == "ok" and o.rc == 0, o.as_dict()
+    text = log.read_text()
+    assert text.startswith("$ header\n") and "out line" in text and "err line" in text   # appended, merged
+    assert seen["kind"] == "job" and seen["rid"] == "job run-x" and not seen["path"].exists()  # closed after
+    assert liveness.current() is None
+
+
+def test_a_silent_job_is_stopped_as_a_stall_within_seconds_not_at_the_wall_cap(home, tmp_path):
+    log = tmp_path / "job.log"
+    silent = "import time; print('partial: tests collected', flush=True); time.sleep(40)"
+    t0 = time.time()
+    o = ow.run_contained([PY, "-c", silent], tmp_path, dict(os.environ), log, 600, 3, "job silent")
+    assert o.status == "stalled" and o.rc == 124 and o.killed, o.as_dict()
+    assert time.time() - t0 < 30, "a 3 s stall must be stopped within seconds, not at the 600 s wall cap"
+    assert "partial: tests collected" in log.read_text()
+    assert o.tail_file and "partial: tests collected" in Path(o.tail_file).read_text(encoding="utf-8")
+    rc, concerns = ow.job_concerns(o, 600, 3)
+    assert rc is None and concerns[0]["text"].startswith("STALL: no output and no CPU for 0.05 min")
+
+
+def test_the_wall_cap_stops_the_whole_tree_grandchild_included(home, tmp_path):
+    log = tmp_path / "job.log"
+    child = ("import subprocess, sys, time\n"                   # bounded (25 s): a mutant with no deadline ends
+             f"g = subprocess.Popen([{PY!r}, '-c', 'import time; time.sleep(25)'])\n"
+             "print('grandchild', g.pid, flush=True)\n"
+             "time.sleep(25)\n")
+    t0 = time.time()
+    o = ow.run_contained([PY, "-c", child], tmp_path, dict(os.environ), log, 3, None, "job tree")
+    assert o.status == "timeout" and o.rc == 124 and time.time() - t0 < 15, o.as_dict()
+    gpid = int(log.read_text().split("grandchild")[1].split()[0])
+    deadline = time.time() + 10
+    while time.time() < deadline and contain.ctime(gpid) is not None:
+        time.sleep(0.2)
+    assert contain.ctime(gpid) is None, "the grandchild outlived the wall cap"
+    rc, concerns = ow.job_concerns(o, 180, 600)
+    assert rc is None and "wall cap (3 min)" in concerns[0]["text"]
+
+
+def test_a_real_run_job_goes_through_the_container_end_to_end(home, monkeypatch):
+    """No fake runner: the worker runs `fieldkit host` on the tree copy inside a container.
+    The command is the non-Windows form on every host: on Windows run_argv wraps it in `fieldkit guard --`, whose
+    fan check fails closed on a machine without Gorilla TPFanControl (windows-latest: exit 2, status fail). That
+    wrapping is checked on its own (test_on_windows_a_run_job_always_goes_through_the_guard); this test is the container."""
+    real = ow.run_argv
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None: real(args, platform="linux"))
+    sent, delivered = [], []
+    req = run_req(argv=["host"], artefacts=[])
+    put = lambda p, device=None: sent.append(Path(p).name) or {"ok": True}  # noqa: E731
+    r = ow.work(start(home, req), put=put, deliver=delivered.append, sign=lambda r: r, health_fn=list)
+    assert r["status"] == "pass" and r["concerns"] == [], (r["evidence"], r["concerns"])
+    log = (home / "work" / req["id"] / "job.log").read_text()
+    assert "# contained: wall 5 min, stall 10 min" in log and '"is_windows"' in log
+    assert r["evidence"].startswith("ok exit 0") and liveness.current() is None
 
 
 def test_an_artefact_that_did_not_reach_the_boss_fails_the_job(home):
@@ -195,11 +323,30 @@ def test_an_agent_job_with_a_local_brain_unloads_what_it_loaded(home, monkeypatc
     ran = Ran(make=("out.txt",))
     req = run_req(kind="agent", argv=None, brief="b", model="qwen", brain="http://127.0.0.1:1234/v1",
                   artefacts=["out.txt"])
-    r = go(home, req, ran)
+    unloaded = []
+    sent, delivered = [], []
+    put = lambda p, device=None: sent.append(Path(p).name) or {"ok": True, "sha256": "x"}  # noqa: E731
+    r = ow.work(start(home, req), run=ran, put=put, deliver=delivered.append, sign=lambda r: r, health_fn=list,
+                unload=lambda brain: unloaded.append(brain) or "unloaded: lms unload --all")
     cfg = json.loads((Path(ran.calls[0]["env"]["XDG_CONFIG_HOME"]) / "gorilla-opencode" / "config.json").read_text())
     assert cfg["localEndpoints"] == [{"name": "brain", "baseURL": "http://127.0.0.1:1234/v1"}]
-    assert ran.calls[1]["argv"] == ["/usr/bin/lms", "unload", "--all"] and r["status"] == "pass", r["evidence"]
-    assert "another computer" in ow.unload_local_models("http://10.77.0.1:1234/v1", run=ran)
+    assert unloaded == ["http://127.0.0.1:1234/v1"] and r["status"] == "pass", r["evidence"]
+    calls = []
+
+    def lms_run(argv, **kw):
+        calls.append(argv)
+
+        class R:
+            returncode = 0
+            stdout = stderr = ""
+        return R()
+    assert ow.unload_local_models("http://127.0.0.1:1234/v1", run=lms_run) == "unloaded: lms unload --all"
+    assert calls == [["/usr/bin/lms", "unload", "--all"]]
+    assert "another computer" in ow.unload_local_models("http://10.77.0.1:1234/v1", run=lms_run) and len(calls) == 1
+    r = go(home, run_req(id="run-Gorilla.Fieldkit-abababababab-66666666", kind="agent", argv=None, brief="b",
+                         model="qwen", brain="http://127.0.0.1:1234/v1", artefacts=["out.txt"]), Ran(make=("out.txt",)),
+           unload=lambda brain: "NOT UNLOADED: no lms command here")
+    assert "NOT UNLOADED" in r["concerns"][0]["text"]
 
 
 # ---- the boss ------------------------------------------------------------------------------------------------------
@@ -249,3 +396,77 @@ def test_on_windows_a_run_job_always_goes_through_the_guard():
     assert ow.run_argv(["pipeline", "run", "go-app"], platform="win32") == [*me, "guard", "--", *me, "pipeline",
                                                                             "run", "go-app"]
     assert ow.run_argv(["pipeline", "run", "go-app"], platform="linux") == [*me, "pipeline", "run", "go-app"]
+
+
+# ---- the evidence rule (O3 false PASS, 2026-10-26) -----------------------------------------------------------------
+class Said(Ran):
+    """A fake run that prints `text` into the job log and exits rc, making no file."""
+
+    def __init__(self, text, rc=0):
+        super().__init__(rc=rc, make=())
+        self.text = text
+
+    def __call__(self, argv, cwd, env, log, deadline_s, idle_s, label):
+        self.calls.append({"argv": argv, "cwd": str(cwd), "env": env, "log": str(log), "deadline_s": deadline_s,
+                           "idle_s": idle_s, "label": label})
+        if self.text:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(self.text)
+        return contain.Outcome("ok" if self.rc == 0 else "fail", self.rc, self.text, "", 0.1, 4242)
+
+
+FALSE_PASS_ARGV = ["regress", "record", "vaio-train", "--", "python3", "-m", "pytest", "-q", "-rA", "-p",
+                   "no:cacheprovider", "tests/test_train.py"]
+FALSE_PASS_LOG = ("vaio-train: 0 passed, 0 failed (0 test names read; exit 1)\n"
+                  "  | /usr/bin/python3: No module named pytest\n")
+
+
+def test_the_o3_false_pass_is_a_fail_the_job_that_tested_nothing(home):
+    """Reproduced from the two real job folders run-Gorilla.Fieldkit-6a90e8d43aab-*: exit 0 in 0 s, that log, no
+    artefact declared; the worker said PASS."""
+    ran = Said(FALSE_PASS_LOG)
+    r = go(home, run_req(argv=FALSE_PASS_ARGV, artefacts=[]), ran)
+    assert r["status"] == "fail" and "tests never ran" in r["concerns"][0]["text"], r
+    # and the `python3` in such a line is now the worker's own Python (the one with pytest), first on PATH
+    assert ran.calls[0]["env"]["PATH"].split(os.pathsep)[0] == os.path.dirname(sys.executable)
+
+
+def test_exit_0_with_no_output_and_no_declared_artefact_is_a_fail(home):
+    r = go(home, run_req(argv=["host"], artefacts=[]), Said(""))
+    assert r["status"] == "fail" and "no output and no declared artefact" in r["concerns"][0]["text"], r
+    r = go(home, run_req(id="run-Gorilla.Fieldkit-abababababab-55555555", argv=["host"], artefacts=[]),
+           Said("host: linux\n"))
+    assert r["status"] == "pass", r                    # it said something: not this rule's business
+
+
+@pytest.mark.parametrize("argv,out,ok,why", [
+    (["admit", "suite"], "....\n4 passed, 1 skipped in 3.20s\n", True, ""),
+    (["admit", "suite"], "\nno tests ran in 0.01s\n", False, "tests never ran"),
+    (["admit", "suite"], "1 failed, 3 passed in 2.0s\n", False, "1 test(s) failed"),
+    (["admit", "suite"], "3 passed, 2 errors in 2.0s\n", False, "2 error(s)"),
+    (["admit", "suite"], "collected nothing at all\n", False, "no test count"),
+    (FALSE_PASS_ARGV, "vaio-train: 5 passed, 0 failed (5 test names read; exit 0)\n", True, ""),
+    (FALSE_PASS_ARGV, "vaio-train: 4 passed, 1 failed (5 test names read; exit 1)\n", False, "1 test(s) failed"),
+    (["pipeline", "run", "go-app"], "built\n", True, ""),
+])
+def test_a_test_job_passes_only_on_a_test_count_with_a_pass_and_no_failure(argv, out, ok, why):
+    passed, concerns = ow.judge("run", argv, 0, out, [])
+    assert passed is ok and (not why or why in concerns[0]["text"]), concerns
+
+
+def test_a_non_zero_exit_and_an_agent_job_are_judged_as_before():
+    assert ow.judge("run", ["admit", "suite"], 1, "4 passed in 1s", [])[0] is False
+    assert ow.judge("agent", None, 0, "", [])[0] is True
+
+
+def test_a_real_job_runs_contained_and_its_output_reaches_the_log(home, monkeypatch):
+    """No fake: the job runs through fieldkit/core/contain.py (process group / Job Object, wall cap, stall stop).
+    The command is the non-Windows form on every host: on Windows run_argv wraps it in `fieldkit guard --`, whose
+    fan check fails closed without Gorilla TPFanControl (windows-latest: "no fan status file", status fail). That
+    wrapping is the owner's rule and is checked on its own (test_on_windows_a_run_job_always_goes_through_the_guard)."""
+    real = ow.run_argv
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None: real(args, platform="linux"))
+    r = ow.work(start(home, run_req(argv=["host"], artefacts=[])), put=lambda p, device=None: {"ok": True},
+                deliver=lambda r: None, sign=lambda r: r, health_fn=list)
+    log = (home / "work" / run_req()["id"] / "job.log").read_text()
+    assert r["status"] == "pass" and len(log.splitlines()) > 1, (r, log)

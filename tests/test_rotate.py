@@ -238,7 +238,7 @@ def test_handover_writes_note_and_plan_section(tmp_path):
     r = rotate.handover(p, "Rotation | job", "write tests", done="module", not_verified="CI", now=1_800_000_000)
     assert r["plan_written"]
     text = plan.read_text(encoding="utf-8")
-    assert text.startswith("# PLAN\n") and "session rotated: Rotation / job (sess-big)" in text
+    assert text.startswith("# PLAN\n") and "session rotated: [TEST-LNX] Rotation / job (sess-big)" in text
     assert "| ROTATE: context per call 400k >= ROTATE 350k | module | write tests | CI |" in text
     note = Path(r["note"]).read_text(encoding="utf-8")
     assert Path(r["note"]).name.endswith("-sess-big.md")

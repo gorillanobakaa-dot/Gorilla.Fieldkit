@@ -61,8 +61,9 @@ def _append(rec):
 def _room(obj, detail):
     try:
         from ..autopilot import room
+        from ..peers import machine                    # the line says which computer wrote it ([VAIO-LNX] task ...)
         room.append(room.line_for(os.environ.get("CLAUDE_CODE_SESSION_ID", "fieldkit-task"), os.getcwd(), "start",
-                                  obj, detail))
+                                  obj, machine.prefix(detail, tag_for())))
     except Exception:  # noqa: BLE001 - the ledger is the record; the room line is a courtesy
         pass
 
@@ -72,11 +73,21 @@ def task_id(brief_text, now=None):
             f"{hashlib.sha256(brief_text.encode('utf-8')).hexdigest()[:6]}")
 
 
-def full_brief(text, tid, on=None):
+def tag_for(on=None):
+    """-> the machine tag of where the task runs: this machine, or the device it was sent to (peers/machine.py)."""
+    try:
+        from ..peers import machine
+        return machine.tag_of(on) if on else machine.current()
+    except Exception:  # noqa: BLE001 - no registry: no tag, said by the check (fieldkit sessions tag --check)
+        return ""
+
+
+def full_brief(text, tid, on=None, title=""):
+    head = f"\nSESSION TITLE: {title} (title yourself exactly this; it starts with the machine's tag)\n" if title else ""
     back = (f"\nREPORT BACK (the command post reads it; do this before you exit): `fieldkit peers link send "
             f"\"fieldkit-task {tid} done branch=<branch> <one line>\"` (failed or blocked instead of done when so).\n"
             if on else "")
-    return text.rstrip() + "\n" + protocol.brief_tail(None if on else tid, headless=True) + back
+    return text.rstrip() + "\n" + head + protocol.brief_tail(None if on else tid, headless=True) + back
 
 
 def runbook_text(tid, brief, cwd, wall):
@@ -94,8 +105,10 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     if not text:
         raise ValueError(f"no brief in {brief_path}")
     tid = task_id(text, now)
-    brief = full_brief(text, tid, on)
-    rec = {"id": tid, "title": title or text.splitlines()[0][:100], "brief": str(p.resolve()), "on": on or "here",
+    from ..peers import machine
+    title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))
+    brief = full_brief(text, tid, on, title)
+    rec = {"id": tid, "title": title, "brief": str(p.resolve()), "on": on or "here", "tag": tag_for(on),
            "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
            "status": "started"}
     if on:
@@ -144,9 +157,11 @@ def board(tid):
     if not plan.is_file():
         return False
     cell = lambda s: " ".join(str(s or "-").split()).replace("|", "/")   # noqa: E731
+    from ..peers import machine
+    title = machine.prefix(t.get("title"), t.get("tag") or tag_for(None if t.get("on") in (None, "here") else t["on"]))
     with open(plan, "a", encoding="utf-8") as f:
         f.write(f"| Task (fieldkit task) {cell(tid)} | {cell(t.get('on'))} | {cell(t.get('status'))} | "
-                f"{cell(t.get('title'))} | branch {cell(t.get('branch'))}, PR {cell(t.get('pr'))} | "
+                f"{cell(title)} | branch {cell(t.get('branch'))}, PR {cell(t.get('pr'))} | "
                 f"{cell(t.get('note'))} |\n")
     return True
 

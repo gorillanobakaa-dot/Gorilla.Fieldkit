@@ -9,6 +9,8 @@
                  run would stop on a UAC prompt or an owner yes)
     needs-you    a [NEEDS YOU] note over the cable in the last 48 h that nobody acknowledged
     inbox        an open item in the owner inbox (fieldkit inbox)
+    untagged     a live session whose title does not start with its machine's tag ([VAIO-LNX]; peers/machine.py):
+                 a notification from it does not say which computer spoke
     peer         a peer that cannot be audited (no answer, or an older Fieldkit without the friction verb)
 
 Acknowledge a line that is handled with `fieldkit friction ack KEY` (state/lifecycle/friction-ack.json). Read-only
@@ -219,11 +221,22 @@ def inbox_rows(items=None):
                  f"the morning list: `fieldkit inbox show {i.get('n')}`, then done or decided") for i in items]
 
 
+def untagged_rows(sessions, tag=None):
+    """One row per live session whose title lacks this machine's tag (peers/machine.py: the same check as `fieldkit
+    sessions tag --check`, plain string comparison)."""
+    from ..peers import machine
+    tag = machine.current() if tag is None else tag
+    return [_row("untagged", f"untagged:{x['id']}", f"session \"{x['title'][:60]}\" ({x['id'][:14]}) lacks the "
+                 f"machine tag {tag or '(none known)'}", f"rename it \"{machine.prefix(x['title'], tag)}\"")
+            for x in machine.untagged(sessions, tag, "")]
+
+
 def local_rows(dirs=None, me=None):
     """Every friction line on THIS computer (also what the link verb `friction` answers a peer)."""
     me = me if me is not None else os.environ.get(desktop.HOST_ENV, "")
-    rows = (desktop_rows(desktop.sessions(dirs), me=me) + remote_rows(dirs) + link_rows() + prereq_rows()
-            + needs_you_rows() + inbox_rows())
+    sessions = desktop.sessions(dirs)
+    rows = (desktop_rows(sessions, me=me) + untagged_rows(sessions) + remote_rows(dirs) + link_rows()
+            + prereq_rows() + needs_you_rows() + inbox_rows())
     done = acked()
     return [r for r in rows if r["key"] not in done]
 

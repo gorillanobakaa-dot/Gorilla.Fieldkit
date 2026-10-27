@@ -464,7 +464,8 @@ def test_room_hook_carries_the_hog_line(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(hog, "hook_line", lambda: "hog: ACT - RAM 58.6/63.7 GB (92%)")
     room.hook(io.StringIO(json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "abc"})))
     out = json.loads(capsys.readouterr().out)
-    assert out["hookSpecificOutput"]["additionalContext"] == "hog: ACT - RAM 58.6/63.7 GB (92%)"
+    # the machine tag line (peers/machine.py) follows at a session's first prompt
+    assert out["hookSpecificOutput"]["additionalContext"].splitlines()[0] == "hog: ACT - RAM 58.6/63.7 GB (92%)"
 
 
 def test_check_writes_last_and_samples(cfg, tmp_path):
