@@ -69,6 +69,11 @@ def record(label, cmd, cwd=None, timeout=7200):
     rec = {"label": label, "command": cmd, "exit": code, "seconds": round(time.time() - t0, 1),
            "when": time.strftime("%Y-%m-%d %H:%M:%S"), "tests": tests,
            "passed": sum(v == "pass" for v in tests.values()), "failed": sum(v == "fail" for v in tests.values())}
+    if not tests or code not in (0, 1):
+        # 2026-10-26: a job ran `python3 -m pytest` where that Python had no pytest; the record said only "0 test
+        # names read; exit 1" and the real error stayed hidden. Now its last lines travel with the record.
+        rec["tail"] = out.strip().splitlines()[-12:] if out.strip() else ["(no output)" if code is not None
+                                                                         else f"(stopped at {timeout} s)"]
     STORE.mkdir(parents=True, exist_ok=True)
     (STORE / f"{label}.json").write_text(json.dumps(rec, indent=1), encoding="utf-8")
     return rec
@@ -127,7 +132,8 @@ def main(argv=None, prog="fieldkit regress"):
                 return 2
             r = record(a.labels[0], test, a.cwd)
             emit(r, a.json, lambda d: [f"{d['label']}: {d['passed']} passed, {d['failed']} failed "
-                                       f"({len(d['tests'])} test names read; exit {d['exit']})"])
+                                       f"({len(d['tests'])} test names read; exit {d['exit']})"]
+                 + [f"  | {x}" for x in d.get("tail") or []])
             return 0
         if a.action == "show":
             r = load(a.labels[0])

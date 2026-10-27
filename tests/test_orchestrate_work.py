@@ -48,6 +48,8 @@ def run_req(**kw):
     ({"argv": ["mandate", "approve"]}, "not run as a job"),
     ({"argv": ["ship", "push"]}, "not run as a job"),
     ({"argv": ["publish"]}, "not run as a job"),
+    ({"argv": ["admit", "--", "sh", "-c", "rm -rf ~"]}, "only `admit suite`"),
+    ({"argv": ["admit", "status"]}, "only `admit suite`"),
     ({"argv": ["autopilot", "claude", "x"]}, "not run as a job"),
     ({"argv": ["pipeline; rm -rf ~"]}, "not a Fieldkit command"),
     ({"argv": []}, "argv is a list"),
@@ -67,6 +69,7 @@ def test_a_job_the_worker_must_not_or_cannot_run_is_refused_with_the_reason(chan
 
 def test_a_good_run_and_a_good_agent_job_are_taken():
     assert ow.check_work(run_req()) is None
+    assert ow.check_work(run_req(argv=["admit", "suite", "tests/test_x.py"])) is None   # what placement sends
     assert ow.check_work(run_req(kind="agent", argv=None, brief="build it", model="")) is None   # default model
 
 

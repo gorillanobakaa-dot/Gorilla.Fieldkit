@@ -1848,6 +1848,61 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_work.py"]
   notes: "Stage O3 of local/PROJECT-MANDATE-PLAN.md section 19, on fieldkit/mandate/jobs.py (one boss, the owner's mandate the only approval; the worker checks the mandate sha in force there and the boss). The tree is named by the digest both ends compared; the worker runs on a copy, one job at a time, awake, with a wall cap; run refuses mandate, ship, publish, release, autopilot, peers, inbox, orchestrate, agent, elevate, build-harness; on Windows every run job goes through fieldkit guard. agent: -q (a console-less run otherwise ends with 0xC000013A), the model pinned in the copy's .gorilla-opencode.json; a local --brain model is unloaded after. Artefacts by put, sha256 in the signed result, checked by the boss. Cable only. Not yet: an agent run has the worker's normal Gorilla OpenCode tools. Mutation plan tests/orchestrate_work_mutations.yaml (18/18)."
 
+- id: orchestrate-load
+  title: "Each device's load in one line: CPU, RAM, temperature against its hot line, the admission gate's slots, heavy jobs running, what it can run; IDLE or BUSY by a fixed rule"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate, load]
+  path: ${FIELDKIT}/fieldkit/orchestrate_load.py
+  inputs:
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable rows"}
+  effects: [network, reads-files]
+  safety: reversible             # read-only: one `load` question per device
+  output: third-party            # load reports come from other computers
+  platforms: [windows, linux]
+  platforms_why: 'run live 2026-10-26 on the Linux boss with the Windows laptop answering over the cable'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_load.py"]
+  notes: "Stage O4 of local/PROJECT-MANDATE-PLAN.md section 19. The link verb `load` is read-only (not a JOB_VERB, so it answers on the LAN too) and reuses the hog's RAM and CPU-sensor probes. Idle = a free slot, CPU under 50 %, below the hot line (build governor target + 3). Exit 3 when a device gave no report (an older Fieldkit says unknown verb)."
+
+- id: orchestrate-place
+  title: "A test suite placed where there is room: here when a slot is free, else on an idle capable device over the cable (signed result recorded in testcost for that tree hash and OS), else here after the queue"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate, place]
+  path: ${FIELDKIT}/fieldkit/orchestrate_load.py
+  inputs:
+    - {name: paths, flag: null, type: str, required: false, help: "test paths inside the tree (default: the whole suite)"}
+    - {name: tree, flag: --tree, type: str, required: false, help: "the git checkout whose tree is tested (.)"}
+    - {name: any_os, flag: --any-os, type: bool, required: false, help: "the suite does not depend on the OS: any device may run it"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait for a remote result (3600)"}
+    - {name: project, flag: --project, type: str, required: false, help: "the repository the owner's mandate names (Gorilla.Fieldkit)"}
+    - {name: seek, flag: --seek, type: float, required: false, help: "seconds at most to keep reading the load for an idle device (default: until a slot here or a device frees)"}
+  effects: [network, writes-files, processes]
+  safety: irreversible           # the worker runs the suite
+  output: third-party            # the result comes from another computer
+  platforms: [windows, linux]
+  platforms_why: 'run live 2026-10-26: boss on Linux, the suite placed on the Windows laptop over the cable and back signed; a Windows boss not yet run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_load.py"]
+  notes: "Stage O4. Capable = pytest + git + the same OS unless --any-os. The tree is git archive of the testcost tree hash (tracked + untracked, .gitignore respected); the job is `admit suite` (an O3 run job, so the worker's own gate admits it; on Windows inside fieldkit guard). testcost check name gets @OS when the worker's OS differs, so another OS's pass never skips this OS's suite. Fail closed: not taken, no signed result, could not run, or any exception -> the suite runs here and the verdict says why. While nothing is free the load is read again every 5 s and the first to free takes it (a slot here or an idle device), said once. A remote FAIL is the answer, not rerun. Mutation plan tests/o4_scheduler_mutations.yaml (14/14)."
+
+- id: admit
+  title: "One machine-wide gate for heavy jobs (the full suite, mutate, builds, go test): at most N at once on this computer, the rest queue and never ask anyone; a hot CPU is offered one slot fewer"
+  harness: methods
+  entry: [python, -m, fieldkit, admit]
+  path: ${FIELDKIT}/fieldkit/admission.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [status, suite], help: "status: slots, holders, waiters; suite: pytest of the current folder under the gate; none: the command after --"}
+    - {name: paths, flag: null, type: str, required: false, help: "suite: test paths inside the folder"}
+    - {name: kind, flag: --kind, type: str, required: false, choices: [test, mutate, build, go-test, other], help: "what the command is (other)"}
+    - {name: label, flag: --label, type: str, required: false, help: "a name the status and the load report show"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "seconds to wait for a slot at most (default: as long as it takes); exit 75 when it runs out"}
+    - {name: json, flag: --json, type: bool, required: false, help: "status: machine-readable"}
+  effects: [writes-files, processes]
+  safety: reversible             # lock files under ~/.fieldkit/admission; the command after -- is the caller's
+  output: own
+  platforms: [windows, linux]
+  platforms_why: 'fcntl locks on Linux and macOS, msvcrt on Windows; run on Linux 2026-10-26 and on Windows as the placed suite of the live proof'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_admission.py"]
+  notes: "Stage O4. N = fieldkit.local.json admission.slots (1-16), else min(2, physical cores / 2, RAM GB / 4), at least 1. The lock dies with its process, so no slot goes stale. FIELDKIT_ADMITTED is set while a slot is held: a nested job (admit suite inside fieldkit guard) takes no second slot. Asked first by the pre-commit suite, fieldkit mutate and every fieldkit guard / build stage. Zero model tokens."
+
 - id: peers-link-check
   title: "The 2026-10-22 Windows lessons as prechecks: clock skew against the peer (the link refuses > 120 s), the cable firewall rule (fix: setup, one UAC click via elevate), a stale 00-00-00-00-00-00 neighbor after a cable move, where put files land, Git Bash eating backslashes and PowerShell 5.1 refusing &&, CRLF from Python, privacy before the 16-minute commit hook, writes too big for one call, and what-you-see -> check"
   harness: peers
