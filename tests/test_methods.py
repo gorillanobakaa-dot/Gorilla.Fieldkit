@@ -110,6 +110,17 @@ def test_regress_record_and_compare_through_the_cli(tmp_path, monkeypatch):
     assert regress.main(["compare", "before", "nope"]) == 2
 
 
+def test_regress_record_shows_why_no_test_was_read(tmp_path, monkeypatch, capsys):
+    # 2026-10-26: `python3 -m pytest` on a Python with no pytest read 0 tests and hid "No module named pytest"
+    monkeypatch.setattr(regress, "STORE", tmp_path)
+    r = regress.record("x", [PY, "-c", "import sys; sys.stderr.write('No module named pytest\\n'); sys.exit(1)"])
+    assert r["tests"] == {} and r["tail"] == ["No module named pytest"]
+    regress.main(["record", "y", "--", PY, "-c", "import sys; sys.stderr.write('No module named pytest\\n'); sys.exit(1)"])
+    assert "  | No module named pytest" in capsys.readouterr().out
+    ok = regress.record("z", [PY, "-c", "print('[PASS] one')"])
+    assert "tail" not in ok                                                    # a normal record stays as it was
+
+
 # -- drift ---------------------------------------------------------------------------------------------------
 def test_drift_names_json_paths_and_never_writes(tmp_path):
     f = tmp_path / "schema.json"

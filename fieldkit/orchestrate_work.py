@@ -102,6 +102,8 @@ def check_work(req):
             return "run: argv is a list of strings, the Fieldkit command line without `fieldkit`"
         if not CMD.fullmatch(argv[0]):
             return f"run: {argv[0]!r} is not a Fieldkit command"
+        if argv[0] == "admit" and argv[1:2] != ["suite"]:
+            return "run: of `fieldkit admit` only `admit suite` is a job (admit -- CMD would run any command)"
         if argv[0] in REFUSED:
             return f"run: `fieldkit {argv[0]}` is not run as a job (it approves, pushes, publishes or starts agents)"
     elif kind == "agent":

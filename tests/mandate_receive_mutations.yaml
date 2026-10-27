@@ -1,0 +1,47 @@
+# fieldkit mandate receive and share (2026-10-26). Every one must be CAUGHT:
+#   fieldkit mutate --plan tests/mandate_receive_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_mandate_receive.py
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        return 3, f"REFUSED: {why}"'
+  - '        pass'
+  why: a pair that does not verify here (changed byte, bad signature, key not pinned, expired) is refused
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '    if target.is_file() and verify(target, today)[0] and old_at > new_at:'
+  - '    if False:'
+  why: an older approval never replaces a newer one of the same project
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '                shutil.copy2(f, bin_ / f.name)          # the copy first: a failed install still leaves the old pair'
+  - '                pass'
+  why: the replaced pair is kept in the trash, never lost
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '        if f.suffix != suffix:'
+  - '        if False:'
+  why: receive takes FILE.yaml then FILE.seal, nothing else
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '            if str(load(p).get("project")) == str(m["project"]):'
+  - '            if False:'
+  why: a renewal replaces the installed mandate of the same project, whatever its file name
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '    if not (ok and y and s):'
+  - '    if not ok:'
+  why: share asks nothing when it does not know where the pair landed
+- file: fieldkit/mandate/mandate.py
+  swap:
+  - '    if "unknown verb" in str(r.get("error", "")):'
+  - '    if False:'
+  why: an older listener gets a note with the command to run
+- file: fieldkit/peers/link.py
+  swap:
+  - 'JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive")'
+  - 'JOB_VERBS = ("job", "result", "resend", "ask")'
+  why: mandate-receive is answered on the cable only
+- file: fieldkit/peers/link.py
+  swap:
+  - '        return {"ok": code == 0, "message": msg, **({} if code == 0 else {"error": msg})}'
+  - '        return {"ok": True, "message": msg}'
+  why: a refusal on the far side is reported as a refusal

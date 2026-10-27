@@ -57,6 +57,8 @@ def run_req(**kw):
     ({"argv": ["mandate", "approve"]}, "not run as a job"),
     ({"argv": ["ship", "push"]}, "not run as a job"),
     ({"argv": ["publish"]}, "not run as a job"),
+    ({"argv": ["admit", "--", "sh", "-c", "rm -rf ~"]}, "only `admit suite`"),
+    ({"argv": ["admit", "status"]}, "only `admit suite`"),
     ({"argv": ["autopilot", "claude", "x"]}, "not run as a job"),
     ({"argv": ["pipeline; rm -rf ~"]}, "not a Fieldkit command"),
     ({"argv": []}, "argv is a list"),
@@ -76,6 +78,7 @@ def test_a_job_the_worker_must_not_or_cannot_run_is_refused_with_the_reason(chan
 
 def test_a_good_run_and_a_good_agent_job_are_taken():
     assert ow.check_work(run_req()) is None
+    assert ow.check_work(run_req(argv=["admit", "suite", "tests/test_x.py"])) is None   # what placement sends
     assert ow.check_work(run_req(kind="agent", argv=None, brief="build it", model="")) is None   # default model
 
 
@@ -266,13 +269,18 @@ def test_the_wall_cap_stops_the_whole_tree_grandchild_included(home, tmp_path):
     assert rc is None and "wall cap (3 min)" in concerns[0]["text"]
 
 
-def test_a_real_run_job_goes_through_the_container_end_to_end(home):
-    """No fake runner: the worker runs `fieldkit --version` on the tree copy inside a container."""
+def test_a_real_run_job_goes_through_the_container_end_to_end(home, monkeypatch):
+    """No fake runner: the worker runs `fieldkit host` on the tree copy inside a container.
+    The command is the non-Windows form on every host: on Windows run_argv wraps it in `fieldkit guard --`, whose
+    fan check fails closed on a machine without Gorilla TPFanControl (windows-latest: exit 2, status fail). That
+    wrapping is checked on its own (test_on_windows_a_run_job_always_goes_through_the_guard); this test is the container."""
+    real = ow.run_argv
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None: real(args, platform="linux"))
     sent, delivered = [], []
     req = run_req(argv=["host"], artefacts=[])
     put = lambda p, device=None: sent.append(Path(p).name) or {"ok": True}  # noqa: E731
     r = ow.work(start(home, req), put=put, deliver=delivered.append, sign=lambda r: r, health_fn=list)
-    assert r["status"] == "pass" and r["concerns"] == [], r
+    assert r["status"] == "pass" and r["concerns"] == [], (r["evidence"], r["concerns"])
     log = (home / "work" / req["id"] / "job.log").read_text()
     assert "# contained: wall 5 min, stall 10 min" in log and '"is_windows"' in log
     assert r["evidence"].startswith("ok exit 0") and liveness.current() is None

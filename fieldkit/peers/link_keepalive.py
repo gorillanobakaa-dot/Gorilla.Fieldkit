@@ -102,6 +102,24 @@ def linux_status(run=subprocess.run, user=None):
     return rows
 
 
+def listener_python(home=None, run=subprocess.run):
+    """-> (ok, one line) about the Python the installed listener unit starts, or None when no unit is installed.
+    2026-10-26: the units were written with the system python3, which had no pytest, so every test job the listener
+    ran collected 0 tests and said only "exit 1"."""
+    p = unit_dir(home) / SERVICE
+    try:
+        m = re.search(r"^ExecStart=(\S+)", p.read_text(encoding="utf-8"), re.M)
+    except OSError:
+        return None
+    if not m:
+        return False, f"{p} has no ExecStart"
+    py = m.group(1)
+    ok, out = _ok(run, [py, "-c", "import pytest, yaml, psutil"])
+    return (True, f"{py}: pytest, yaml, psutil present") if ok else \
+        (False, f"PROBLEM {py} cannot import pytest/yaml/psutil, so test jobs here collect nothing. FIX: run "
+                f"`{sys.executable} -m fieldkit peers link keepalive install` with the Fieldkit venv Python")
+
+
 def windows_status(run=subprocess.run):
     ok, out = _ok(run, ["schtasks", "/Query", "/TN", TASK, "/V", "/FO", "LIST"])
     if not ok:
