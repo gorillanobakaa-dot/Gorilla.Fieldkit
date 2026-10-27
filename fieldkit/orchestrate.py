@@ -8,6 +8,8 @@
     fieldkit orchestrate job session --device W --repo R --branch B --brief F
                                                               a headless agent on any device, its branch pushed
                                                               there; no click (orchestrate_session.py)
+    fieldkit orchestrate load | place ...                     each device's load; a suite placed where there is
+                                                              room (orchestrate_load.py)
 
 Stage O1 of the household orchestrator (local/PROJECT-MANDATE-PLAN.md section 19): one boss, many workers, any OS.
 The registry and the wire are fieldkit/peers/link.py (household.json, one household key); this file is only the
@@ -70,6 +72,9 @@ def main(argv=None):
     if argv and (argv[0] == "session-work" or argv[:2] in (["job", "session"], ["job", "refusals"])):
         from . import orchestrate_session            # brief + repo + branch on any device, no click (2026-10-27)
         return orchestrate_session.main(argv)
+    if argv and argv[0] in ("load", "place"):         # stage O4: the load of each device, placement of a suite
+        from . import orchestrate_load
+        return orchestrate_load.main(argv)
     if argv and argv[0] in ("job", "work"):            # stage O3: jobs on a received tree (orchestrate_work.py)
         from . import orchestrate_work
         return orchestrate_work.main(argv)

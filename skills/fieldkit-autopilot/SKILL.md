@@ -48,6 +48,25 @@ and re-planned at once while the others keep running; the planner saying done wa
 supervisor heartbeat comes from its own thread (fresh while workers run; `status` shows the running jobs in the
 lock), and a job a dead supervisor left `running` resumes from its checkpoint.
 
+## Process liveness: nothing orphaned, nothing silent (fieldkit liveness)
+2026-10-26: an orphaned go.exe held the verifier's pipes for 80 min, the supervisor wrote nothing and 8 jobs waited.
+Every process the harness starts (goal workers, verifier criteria, autopilot claude, runbook steps, pipeline and
+emerge stages, the guarded pre-commit suite) runs in a CONTAINER (`fieldkit/core/contain.py`: a Windows Job Object
+with kill-on-close, a Linux process group + child subreaper, a macOS process group) with a WALL deadline, and output
+goes to files, never pipes. On the deadline the whole tree stops, orphans included, and a criterion is `TIMEOUT`
+(not FAIL); the supervisor goes on. What a step leaves running when it ends is stopped too.
+- Every long run holds a beacon (`state/liveness/runs/`): heartbeat from its own thread, open steps with deadlines,
+  every container member (PID + creation time). Its thread also stops its OWN overdue step, so an elevated
+  supervisor reaps its own orphans; never elevate another session to do it.
+- `fieldkit liveness check [--act] [--json]`: OK / STALLED / ORPHAN, exit 3 on findings. Runs on hog's 5-minute
+  schedule, at supervisor start and in the preflight before every job. --act stops only beacon members whose PID AND
+  creation time match, logs each to `state/liveness/actions.jsonl` and puts ONE inbox line, never a prompt.
+- `fieldkit liveness modes` lists the failure modes (orphaned grandchild, silent supervisor, pipe held by an orphan,
+  stale lock with a stuck owner, hung pre-commit test, background job outliving its session, PID reuse, elevated
+  orphan) and the check and test for each. A new harness runner starts its processes through `contain.run` /
+  `Container`, never a bare `subprocess.run(capture_output=..., timeout=...)`.
+- Any command, contained: `python -m fieldkit.core.contain --deadline 1800 -- CMD ...` (exit 124 on the deadline).
+
 ## Budgets, checkpoints, resume (every agent job)
 - Per session: 10000 turns, 12 h wall (the process tree is killed by PID after it), optional dollars. The hook says
   where the job stands at 50 / 80 / 95 %; at 80 % it denies everything except writing HANDOFF.md / committing until

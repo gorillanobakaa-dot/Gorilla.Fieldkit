@@ -29,7 +29,6 @@ owner's model; the pre-commit hook guards the suite from OUTSIDE pytest.
 import argparse
 import importlib
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -39,7 +38,8 @@ OK, WARN, STOP = "ok", "warn", "stop"
 RANK = {OK: 0, WARN: 1, STOP: 2}
 #: in order. Add a "module:function" here (or call register()) to put a check in every guarded run.
 STEPS = ["fieldkit.hog:preflight_check", "fieldkit.testcost:preflight_check", "fieldkit.scratch:preflight_check",
-         "fieldkit.parity:preflight_check", "fieldkit.tokens.rotate:preflight_check"]
+         "fieldkit.parity:preflight_check", "fieldkit.tokens.rotate:preflight_check",
+         "fieldkit.core.liveness:preflight_check"]
 _REGISTERED = []
 #: set while a guard runs (children inherit it): a guarded run inside a guarded run gets no second guard
 NESTED = "FIELDKIT_RUN_GUARD"
@@ -212,6 +212,24 @@ def call(label, kind, fn, *args, say=print, wait_s=0, refused=None, **kw):
         return refused
 
 
+GUARD_CAP_S = 2 * 3600              # the longest a guarded command may run when nothing else is said
+
+
+def command_deadline(kind, explicit=None):
+    """The wall deadline of a guarded command: explicit, else for tests 3 x the measured full suite (testcost),
+    else GUARD_CAP_S."""
+    from . import liveness
+    hist = []
+    if kind == "test" and not explicit:
+        try:
+            from .. import testcost
+            b = testcost.budget("full-suite")
+            hist = [b] if b else []
+        except Exception:  # noqa: BLE001
+            hist = []
+    return liveness.deadline_for(hist, explicit, floor=600, cap=GUARD_CAP_S)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     cmd = []
@@ -222,12 +240,16 @@ def main(argv=None):
     ap.add_argument("--label", default="heavy work")
     ap.add_argument("--kind", default="build", help="build, test, gate, job (the checks read it)")
     ap.add_argument("--wait", type=float, default=0, help="on STOP, re-check for up to this many seconds")
+    ap.add_argument("--deadline", type=float, default=None,
+                    help="wall deadline in seconds (default: 3 x the measured suite for --kind test, capped)")
     a = ap.parse_args(argv)
     if not cmd:
         return RANK[run(a.label, a.kind, wait_s=a.wait)["status"]]
     try:
         with guard(a.label, a.kind, wait_s=a.wait):
-            return subprocess.call(cmd)
+            # in a container with a wall deadline: a hung test (or anything it started) is stopped, exit 124 (FM-5)
+            from . import contain
+            return contain.wait_inherit(cmd, a.label, command_deadline(a.kind, a.deadline))
     except Refused as e:
         print(f"REFUSED by the preflight: {e}")
         return 2

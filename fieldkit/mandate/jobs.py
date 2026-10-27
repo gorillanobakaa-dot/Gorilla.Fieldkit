@@ -378,7 +378,8 @@ def run_job(jid, repo_path, commit, mandate_path, verdict_fn=None, call=None, he
     branches = ((M.load(mandate_path).get("repos") or {}).get(name) or {}).get("push") or []
     can_run, sick, said = (health_fn or health.check)(repo_path)
     if can_run:
-        with health.awake(f"fieldkit job {jid}"):
+        from ..core import liveness          # a detached job outlives its listener: its beacon shows it to liveness
+        with health.awake(f"fieldkit job {jid}"), liveness.beacon("link-job", jid, f"fieldkit mandate job run {jid}"):
             v = (verdict_fn or V.verdict)(repo_path, commit, name=name, branches=branches)
     else:
         v = {"status": "not-run", "evidence": "the device cannot run it now: " + "; ".join(said), "concerns": []}

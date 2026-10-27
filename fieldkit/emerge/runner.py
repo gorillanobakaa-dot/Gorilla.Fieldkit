@@ -417,6 +417,12 @@ class Emerge:
         return passed, secs, outs, tail.strip()
 
     def run(self, only=None):
+        # under a liveness beacon: heartbeat + every stage's container members (fieldkit liveness check sees it)
+        from ..core import liveness
+        with liveness.beacon("emerge", self.recipe.name, f"fieldkit emerge {self.recipe.name}"):
+            return self._run_all(only)
+
+    def _run_all(self, only=None):
         t_start, wall0 = _now(), self.clock()
         r = self.recipe
         b = {"bare": 0.0, "rework": 0.0, "tests": 0.0, "tools": 0.0, "llm": 0.0, "owner": 0.0}

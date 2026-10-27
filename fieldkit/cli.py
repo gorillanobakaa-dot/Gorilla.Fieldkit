@@ -30,6 +30,8 @@
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
     fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
+    fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
+    fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
@@ -1498,7 +1500,10 @@ def build_parser():
     pe.add_argument("args", nargs=argparse.REMAINDER)
     pe.set_defaults(fn=lambda a: __import__("fieldkit.peers.peers", fromlist=["main"]).main(a.args))
     sub.add_parser("orchestrate", add_help=False,
-                   help="the boss's side of the household: every device (--check asks each), one note to many")
+                   help="the boss's side of the household: every device (--check asks each), one note to many, each device's load, a suite placed where there is room")
+    sub.add_parser("admit", add_help=False,
+                   help="one machine-wide gate for heavy jobs (suite, mutate, builds, go test): N at once, the rest "
+                        "queue and never ask (fieldkit admit status)")
 
     w11 = sub.add_parser("win11", add_help=False,
                          help="the Windows 11 tweaks framework: modules, fit to this PC, OEM check, run a module "
@@ -1513,6 +1518,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    lv = sub.add_parser("liveness", add_help=False,
+                        help="process liveness: every harness long run OK, STALLED or ORPHAN; --act stops the "
+                             "harness's own orphans and overdue steps (fieldkit liveness)")
+    lv.add_argument("args", nargs=argparse.REMAINDER)
     zr = sub.add_parser("zero", add_help=False,
                         help="the agent net: is Zero established, roll call / sitrep, comms check, time, handover, "
                              "net log (fieldkit zero; also fieldkit net VERB)")
@@ -2661,6 +2670,9 @@ def main(argv=None):
     if args[:1] == ["peers"]:                         # messages between sessions on this computer (fieldkit/peers)
         from .peers import peers as peers_cli
         return peers_cli.main(args[1:])
+    if args[:1] == ["admit"]:                         # the machine-wide gate for heavy jobs (fieldkit/admission.py)
+        from . import admission
+        return admission.main(args[1:])
     if args[:1] == ["orchestrate"]:                   # the boss's side of the household (fieldkit/orchestrate.py)
         from . import orchestrate
         return orchestrate.main(args[1:])
@@ -2673,6 +2685,9 @@ def main(argv=None):
     if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
         from . import hog
         return hog.main(args[1:])
+    if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
+        from .core import liveness
+        return liveness.main(args[1:])
     if args[:1] == ["skills"]:                        # Agent Skills: spec checks, doors, installs (fieldkit/skills)
         from . import skills
         return skills.main(args[1:])

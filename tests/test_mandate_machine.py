@@ -171,3 +171,17 @@ def test_renew_from_a_changed_file_takes_its_text(tmp_path):
     assert "machine_prerequisites" in text and "expires: 2026-11-02" in text
     text, _ = upkeep.renewed_text(cur, 7, today=date(2026, 10, 26))
     assert "machine_prerequisites" not in text
+
+
+def test_a_python_fieldkit_prerequisite_runs_with_the_fieldkit_python():
+    # 2026-10-26: `python3 -m fieldkit peers link keepalive install` ran the system Python, the units it wrote started
+    # the listener without pytest, and every test job on the VAIO collected 0 tests
+    from fieldkit.mandate import machine
+    for exe in ("python3", "python", "/usr/bin/python3", "python3.12", "PYTHON.EXE"):
+        assert machine.command_argv([exe, "-m", "fieldkit", "peers", "link", "keepalive", "install"],
+                                    python="/venv/bin/python") == ["/venv/bin/python", "-m", "fieldkit", "peers",
+                                                                   "link", "keepalive", "install"]
+    assert machine.command_argv(["python3", "-c", "print(1)"], python="/v", which=lambda c: f"/usr/bin/{c}") == \
+        ["/usr/bin/python3", "-c", "print(1)"]                                 # only `-m fieldkit` is redirected
+    assert machine.command_argv(["systemctl", "--user", "status"], which=lambda c: f"/bin/{c}") == \
+        ["/bin/systemctl", "--user", "status"]

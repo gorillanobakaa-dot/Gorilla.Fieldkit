@@ -234,6 +234,15 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 # the real elevated packet helper twice; six "Administrator: Windows PowerShell" windows were left open). A test that
 # injects its own runner still exercises the helper.
 @pytest.fixture(autouse=True)
+def _own_admission_gate(tmp_path_factory, monkeypatch):
+    # stage O4 (fieldkit/admission.py): a test never takes or reads a slot of this computer's real gate, and a suite
+    # run inside the pre-commit's slot (FIELDKIT_ADMITTED inherited) still exercises the gate, not the nested pass
+    monkeypatch.setenv("FIELDKIT_ADMISSION_HOME", str(tmp_path_factory.mktemp("admission")))
+    monkeypatch.delenv("FIELDKIT_ADMITTED", raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_real_elevation(monkeypatch):
     import subprocess
     from fieldkit.leakgate import sensors
@@ -263,6 +272,16 @@ def _no_real_quiet(monkeypatch):
 
 
 from fieldkit.autopilot.quiet import noisy as _real_noisy  # noqa: E402
+
+
+# Liveness beacons a test's supervisor writes go to the test's own folder, never the checkout's state/liveness (where
+# the real `fieldkit liveness check --act` would read them).
+@pytest.fixture(autouse=True)
+def _own_liveness_dir(tmp_path_factory, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LIVENESS_DIR", str(tmp_path_factory.mktemp("liveness")))
+    yield
+    from fieldkit.core import liveness
+    liveness._CURRENT = None
 
 
 # Tests never inherit the autopilot marker (2026-10-26: a commit made from inside an autopilot session refused 8

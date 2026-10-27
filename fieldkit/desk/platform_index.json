@@ -269,6 +269,16 @@
    "academic-words"
   ]
  },
+ "admit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "fcntl locks on Linux and macOS, msvcrt on Windows; run on Linux 2026-10-26 and on Windows as the placed suite of the live proof",
+  "ids": [
+   "admit"
+  ]
+ },
  "audio": {
   "platforms": [
    "linux"
@@ -1839,6 +1849,17 @@
    "lifecycle"
   ]
  },
+ "liveness": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "liveness"
+  ]
+ },
  "lmstudio-log": {
   "platforms": [
    "linux",
@@ -1920,6 +1941,17 @@
   "why": "",
   "ids": [
    "mandate-prereqs"
+  ]
+ },
+ "mandate receive": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate-receive"
   ]
  },
  "mandate renew": {
@@ -2084,6 +2116,26 @@
   "why": "tests on Windows (real git origin in tmp); the live run Windows boss -> Linux VAIO worker is in PLAN.md (state/coordination) with what was NOT verified; a Windows worker and macOS not run live",
   "ids": [
    "orchestrate-session"
+  ]
+ },
+ "orchestrate load": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run live 2026-10-26 on the Linux boss with the Windows laptop answering over the cable",
+  "ids": [
+   "orchestrate-load"
+  ]
+ },
+ "orchestrate place": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run live 2026-10-26: boss on Linux, the suite placed on the Windows laptop over the cable and back signed; a Windows boss not yet run",
+  "ids": [
+   "orchestrate-place"
   ]
  },
  "overhead": {
