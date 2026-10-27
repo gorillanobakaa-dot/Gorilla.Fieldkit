@@ -23,3 +23,8 @@ def test_only_its_own_files_older_than_seven_days_go(tmp_path):
     assert journal.prune(tmp_path, now=now) == ["journal-2026-10-19.csv"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["journal-2026-10-20.csv", "journal-2026-10-26.csv",
                                                           "other-2026-01-01.csv"]
+
+
+def test_the_default_folder_is_the_checkouts_state_thermal():
+    p = journal.folder()
+    assert p.parts[-2:] == ("state", "thermal")

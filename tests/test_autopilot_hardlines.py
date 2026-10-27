@@ -160,6 +160,20 @@ def test_fieldkit_ship_push_is_publishing_without_a_mandate(nostop):
         assert dm(cmd, Door(), nostop) == "deny"
 
 
+def test_cd_then_a_mandated_push_is_the_push_run_in_that_folder(nostop):
+    """Owner "Da" 2026-10-27 (inbox #97): workers write `cd REPO && fieldkit ship push`; it was refused."""
+    door = Door(allow={"push"}, force=True)
+    assert dm('cd "C:/Users/x/Gorilla.Opencode" && fieldkit ship push', door, nostop) == "allow"
+    assert door.asked[-1] == ("push", {"repo_path": "C:/Users/x/Gorilla.Opencode"})
+    assert dm("cd /w/r && fieldkit ship push && git push", door, nostop) == "deny"     # still one statement only
+    assert dm("cd /w/r && fieldkit ship push", Door(), nostop) == "deny"                # no mandate: denied
+
+
+def test_an_inbox_note_that_names_publishing_is_a_note(nostop):
+    assert dm('fieldkit inbox add "publish feat/x" "the hook refused fieldkit ship push"', Door(), nostop) == "allow"
+    assert dm('fieldkit inbox add "x" "y" && fieldkit ship push', Door(), nostop) == "deny"
+
+
 def test_a_mandated_push_is_allowed_logged_and_checked_where_it_runs(nostop):
     door = Door(allow={"push"}, force=True)
     assert dm("fieldkit ship push", door, nostop) == "allow"
@@ -171,7 +185,7 @@ def test_a_mandated_push_is_allowed_logged_and_checked_where_it_runs(nostop):
 @pytest.mark.parametrize("cmd", [
     "git push origin feat/x",                              # the tool is the one door
     "fieldkit ship push; git push origin main",
-    "cd /w/other && fieldkit ship push",                   # checked here, run elsewhere
+    "cd /w/other && fieldkit ship push --tag v1",          # cd + push is a branch push only (2026-10-27)
     "fieldkit ship push --repo $(pwd)/../main",
     "fieldkit ship push | tee log",
     "gh release create v1",

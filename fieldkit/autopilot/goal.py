@@ -768,7 +768,10 @@ def _end_job(gid, goal, st, jid, claude, run):
     s = j["spec"]
     if r["status"] == "done":
         checks = [dict(v, id=f"{jid}:{i}") for i, v in enumerate(s.get("verify") or [], 1)]
-        res = verify(gid, goal, st, extra=checks, claude=claude, run=run, who=f"job {jid}")
+        # 2026-10-27 (owner: "implementeaza cea mai rapida functie ... parte integranta din harnasament"): a finished
+        # job runs ITS OWN checks only. Every goal criterion (a full go test, vet, cross builds, every AI verifier) ran
+        # after every job: a 20-minute job took hours. The goal's criteria run once, at the end (verify ... "final").
+        res = verify(gid, goal, st, ids=[], extra=checks, claude=claude, run=run, who=f"job {jid}")
         own = [x for x in res if str(x["id"]).startswith(f"{jid}:")]
         if all(x["verdict"] == "PASS" for x in own):
             j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
@@ -783,7 +786,10 @@ def _end_job(gid, goal, st, jid, claude, run):
     else:
         j.update(status="failed", why=r.get("why", "")[:400])
     event(gid, f"job {jid}: {j['status']} - {j.get('why', '')[:200]}")
-    st["needs_plan"] = True
+    # the planner (an AI call) only when it has something to decide: a job that did not verify, or nothing left queued
+    queued = any(v["status"] in ("queued", "paused-resumable") for k, v in st["jobs"].items() if k != jid)
+    if j["status"] != "verified" or not queued:
+        st["needs_plan"] = True
     return f"job {jid}: {j['status']}"
 
 
@@ -794,6 +800,18 @@ def _end_finished(gid, goal, st, claude, run):
 
 def _all_done(st):
     return all_pass(st) and not any(v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values())
+
+
+def _final_if_due(gid, goal, st, claude, run):
+    """The planner said done while a worker ran: the goal's criteria run once, when the last worker has ended (a
+    finished job runs only its own checks, so nothing else would verify them)."""
+    if not st.get("final_due") or running(gid) or any(
+            v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values()):
+        return
+    st["final_due"] = False
+    verify(gid, goal, st, claude=claude, run=run, who="final")
+    if not all_pass(st):
+        st["needs_plan"] = True
 
 
 def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inbox_items=None, now=time.time,
@@ -830,6 +848,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         event(gid, f"paused: {why}")
         return {"status": "waiting", "why": why, "wait_until": until}
     ended = _end_finished(gid, goal, st, claude, run)
+    _final_if_due(gid, goal, st, claude, run)
     if collect_answers(gid, st, inbox_items()):
         st["needs_plan"] = True
     reg, _ = preapprovals(gid)
@@ -857,6 +876,8 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         apply_plan(gid, goal, st, p, reg, inbox_add, say)
         event(gid, f"plan round {st['rounds']}: {p['signal']} - {p.get('why', '')[:150]}; "
                    f"jobs {[j['id'] for j in p.get('jobs') or []]}")
+        if p["signal"] == "done" and running(gid):
+            st["final_due"] = True
         if (p["signal"] == "done" or (p["signal"] == "blocked" and not p.get("jobs"))) and not running(gid):
             verify(gid, goal, st, claude=claude, run=run, who="final")
             if all_pass(st):
@@ -893,6 +914,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
     save_state(gid, st)
     futures.wait([w["future"] for w in _WORKERS[gid].values()], return_when=futures.FIRST_COMPLETED)
     ended = _end_finished(gid, goal, st, claude, run)
+    _final_if_due(gid, goal, st, claude, run)
     if _all_done(st):
         _actions(gid, goal, st, reg, action, say)
         return _finish(gid, st, "done", "every criterion PASSed (verifier)", inbox_add)

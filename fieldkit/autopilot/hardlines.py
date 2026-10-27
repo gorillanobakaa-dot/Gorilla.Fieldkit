@@ -174,6 +174,11 @@ PLAIN = re.compile(r"^[^;&|`\n]*$")                     # one statement: no ; &&
 SUBST = re.compile(r"\$\(|<\(|>\(")
 
 
+CD_THEN = re.compile(r"^\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)\s*&&\s*(.+)$", re.S)
+CD_PUSH = re.compile(r"^\s*(?:python[\d.]*(?:\.exe)?\s+-m\s+)?fieldkit(?:\.exe)?\s+ship\s+push\b(?![^\n]*--tag)", re.I)
+INBOX_NOTE = re.compile(r"^\s*(?:python[\d.]*(?:\.exe)?\s+-m\s+)?fieldkit(?:\.exe)?\s+inbox\s+add\s", re.I)
+
+
 def _one_statement(cmd):
     return bool(PLAIN.match(cmd)) and not SUBST.search(cmd)
 
@@ -270,6 +275,14 @@ def decide(tool, args, stop_file=None, cwd=None, door=None):
         return "deny", ("HARD LINE 4: installing or booting a kernel (or rebooting) on this machine is the owner's "
                         "alone, mandate or not; build, push and publish it, then put the install in the owner inbox")
     if cmd is not None:
+        # 2026-10-27 (owner "Da" on inbox #97): `cd REPO && fieldkit ship push` is judged as the push run in REPO;
+        # one plain `fieldkit inbox add "..."` is a note, whatever its quoted text names (it was refused for saying
+        # "fieldkit ship" while asking the owner to publish)
+        cd = CD_THEN.match(cmd)
+        if cd and _one_statement(cd.group(2)) and CD_PUSH.match(cd.group(2)):    # a branch push only, judged in REPO
+            cwd, cmd = cd.group(1).strip("\"'"), cd.group(2)
+        if INBOX_NOTE.match(cmd) and _one_statement(cmd):
+            return "allow", "a note to the owner's inbox"
         published = next((why for pat, why in PUBLISH if re.search(pat, cmd, re.I)), None)
         owner = next((why for pat, why in OWNER_ONLY if re.search(pat, cmd, re.I)), None)
         if published or owner:

@@ -21,7 +21,7 @@ HEADER = "time,cpu_c,max_c,load_pct,fan,rpm,mode\n"
 
 
 def folder():
-    from .. import settings
+    from ..core import settings
     return Path(settings.ROOT) / "state" / "thermal"
 
 

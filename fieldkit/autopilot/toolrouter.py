@@ -254,20 +254,25 @@ def heavy_refusal(command, cwd="", platform=None):
     platform = sys.platform if platform is None else platform
     if platform != "win32" or not command or GUARDED.search(command) or REMOTE.search(command):
         return None
+    # quoted text is data (`grep -n "a\|go test" f` was refused 2026-10-27), except a shell's -c / -Command script,
+    # which is judged as a command of its own
+    inner = [m.group(2) for m in re.finditer(r"\s-(?:c|Command)\s+([\"'])(.*?)\1", command, re.S)]
+    raw, command = command, "\n".join([re.sub(r"\"[^\"\n]*\"|'[^'\n]*'", '""', command)] + inner)
     if any(p.search(command) for _, p in HEAVY):
         return HEAVY_GUARD
     if any(_pytest_heavy(m.group(1)) for m in PYTEST.finditer(command)):
         return HEAVY_GUARD
-    m = GIT_COMMIT.search(command)
+    m = GIT_COMMIT.search(raw) if GIT_COMMIT.search(command) else None      # the paths come from the raw command
     if m:
         dash_c = re.findall(r"-C\s+(\"[^\"]+\"|'[^']+'|\S+)", m.group(3) or "")
-        cds = [x for x in CD.finditer(command) if x.start() < m.start()]
+        cds = [x for x in CD.finditer(raw) if x.start() < m.start()]
         where = cwd or os.getcwd()
         if cds:
             where = os.path.join(where, os.path.expanduser(_unquote(cds[-1].group(1))))
         for c in dash_c:
             where = os.path.join(where, os.path.expanduser(_unquote(c)))
-        if _is_fieldkit_checkout(where):
+        no_hook = re.search(r"\s(--no-verify|-n)\b", raw[m.end():].split("\n")[0])   # no hook = no suite
+        if _is_fieldkit_checkout(where) and not no_hook:
             return HEAVY_GUARD
     return None
 

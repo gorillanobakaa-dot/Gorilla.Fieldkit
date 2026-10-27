@@ -246,3 +246,20 @@ def test_no_network_and_no_model():
     src = (ROOT / "fieldkit" / "overhead.py").read_text(encoding="utf-8")
     for door in ("urllib", "requests", "socket", "http.client", "subprocess", "anthropic"):
         assert f"import {door}" not in src and f"from {door}" not in src
+
+
+def test_an_open_inbox_item_that_names_a_goal_is_not_waiting_for_the_owner(tmp_path):
+    """2026-10-27: 'waiting-for-owner 12 h' for a goal that never paused (inbox #20 named it, open for hours)."""
+    g = tmp_path / "goals" / "g2"
+    g.mkdir(parents=True)
+    (g / "goal.json").write_text(json.dumps({"id": "g2", "bare_minutes": 60}), encoding="utf-8")
+    (g / "state.json").write_text(json.dumps({"status": "done", "finished": "2026-10-20 14:00:00"}), encoding="utf-8")
+    (g / "events.log").write_text("2026-10-20 10:00:00  goal created: x\n", encoding="utf-8")
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "20.json").write_text(json.dumps({"n": 20, "title": "publish g2", "why": "goal g2 job done",
+                                               "added": "2026-10-20 10:05:00"}), encoding="utf-8")
+    jobs = overhead.goal_jobs(goals=tmp_path / "goals")
+    r = overhead.measure("goal:g2", jobs["goal:g2"], cfg=CFG, projects=DATA / "projects", inbox_dir=str(inbox),
+                         testcost_log=DATA / "none.jsonl")
+    assert r["buckets"]["owner"] == 0
