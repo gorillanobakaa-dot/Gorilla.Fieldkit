@@ -506,8 +506,12 @@ def test_mandate_share_sends_every_file_and_says_when_the_peer_is_away(tmp_path,
     monkeypatch.setattr(mandate, "_key_paths", lambda: (None, tmp_path / "absent.pub"))
     monkeypatch.setattr(mandate, "_review_paths", lambda: (None, tmp_path / "absent2.pub"))
     (tmp_path / "owner-wide.seal.json").write_text("{}")
-    ok, sent = mandate.share(f, put=lambda p: {"ok": True})
-    assert ok and sent == ["owner-wide.yaml: ok", "owner-wide.seal.json: ok"]
+    # 2026-10-26: sent is not enough, the far listener must install the pair (mandate-receive)
+    installed = lambda req: {"ok": True, "message": "INSTALLED"}          # noqa: E731
+    ok, sent = mandate.share(f, put=lambda p: {"ok": True, "saved": [str(p)]}, call=installed)
+    assert ok and sent == ["owner-wide.yaml: ok", "owner-wide.seal.json: ok", "installed: INSTALLED"]
+    ok, sent = mandate.share(f, put=lambda p: {"ok": True}, call=installed)
+    assert not ok                                                         # nothing says where the pair landed
     ok, sent = mandate.share(f, put=lambda p: {"ok": False, "error": "no route to 10.77.0.2"})
     assert not ok and sent[0] == "owner-wide.yaml: no route to 10.77.0.2"
 

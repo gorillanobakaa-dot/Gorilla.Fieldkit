@@ -1943,6 +1943,17 @@
    "mandate-prereqs"
   ]
  },
+ "mandate receive": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "mandate-receive"
+  ]
+ },
  "mandate renew": {
   "platforms": [
    "darwin",

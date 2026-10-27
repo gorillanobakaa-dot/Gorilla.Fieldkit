@@ -83,7 +83,10 @@ def test_load_verb_is_read_only_and_answers_on_the_lan(monkeypatch):
 # ---- placement -----------------------------------------------------------------------------------------------------
 @pytest.fixture
 def full_here(monkeypatch, tmp_path):
-    """This computer's gate is full (one slot, held)."""
+    """This computer's gate is full (one slot, held). It is the VAIO (LINUX) on any host: the OS tag the tests
+    expect must not follow the machine CI runs on (windows-latest saw 'placed-suite' for a WINDOWS result)."""
+    from fieldkit.peers import link
+    monkeypatch.setattr(link, "os_tag", lambda: "LINUX")
     monkeypatch.setattr(A, "base_slots", lambda local=None: 1)
     monkeypatch.setattr(A, "temperature", lambda: None)
     s = A.try_take(1, "test", "the other suite")
