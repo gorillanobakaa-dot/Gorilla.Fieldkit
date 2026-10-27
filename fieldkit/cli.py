@@ -30,6 +30,7 @@
     fieldkit sweep [--run-tests]                 the weekly walk through the scratch folders: what is not in the harness yet
     fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
+    fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
     fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
@@ -1499,7 +1500,10 @@ def build_parser():
     pe.add_argument("args", nargs=argparse.REMAINDER)
     pe.set_defaults(fn=lambda a: __import__("fieldkit.peers.peers", fromlist=["main"]).main(a.args))
     sub.add_parser("orchestrate", add_help=False,
-                   help="the boss's side of the household: every device (--check asks each), one note to many")
+                   help="the boss's side of the household: every device (--check asks each), one note to many, each device's load, a suite placed where there is room")
+    sub.add_parser("admit", add_help=False,
+                   help="one machine-wide gate for heavy jobs (suite, mutate, builds, go test): N at once, the rest "
+                        "queue and never ask (fieldkit admit status)")
 
     w11 = sub.add_parser("win11", add_help=False,
                          help="the Windows 11 tweaks framework: modules, fit to this PC, OEM check, run a module "
@@ -2666,6 +2670,9 @@ def main(argv=None):
     if args[:1] == ["peers"]:                         # messages between sessions on this computer (fieldkit/peers)
         from .peers import peers as peers_cli
         return peers_cli.main(args[1:])
+    if args[:1] == ["admit"]:                         # the machine-wide gate for heavy jobs (fieldkit/admission.py)
+        from . import admission
+        return admission.main(args[1:])
     if args[:1] == ["orchestrate"]:                   # the boss's side of the household (fieldkit/orchestrate.py)
         from . import orchestrate
         return orchestrate.main(args[1:])

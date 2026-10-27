@@ -269,6 +269,16 @@
    "academic-words"
   ]
  },
+ "admit": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "fcntl locks on Linux and macOS, msvcrt on Windows; run on Linux 2026-10-26 and on Windows as the placed suite of the live proof",
+  "ids": [
+   "admit"
+  ]
+ },
  "audio": {
   "platforms": [
    "linux"
@@ -2096,6 +2106,26 @@
   "why": "run live 2026-10-26: boss on Linux, worker on Windows over the cable (a Go build inside fieldkit guard, 412 s; an agent brief on gemini-flash-lite-latest, 102 s); a Linux worker and a Windows boss tested on loopback or not yet",
   "ids": [
    "orchestrate-job"
+  ]
+ },
+ "orchestrate load": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run live 2026-10-26 on the Linux boss with the Windows laptop answering over the cable",
+  "ids": [
+   "orchestrate-load"
+  ]
+ },
+ "orchestrate place": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "run live 2026-10-26: boss on Linux, the suite placed on the Windows laptop over the cable and back signed; a Windows boss not yet run",
+  "ids": [
+   "orchestrate-place"
   ]
  },
  "overhead": {
