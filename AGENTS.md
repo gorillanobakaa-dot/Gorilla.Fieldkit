@@ -14,6 +14,12 @@ next run needs no model. The bar is the owner's pre-AI build script: a Firefox c
 unattended, zero AI tokens when nothing fails. A product with no recipe gets a recipe, not a hand-run. Skill:
 fieldkit-emerge.
 
+ASK THE OWNER: "ADD IT TO GIT?" (owner, 2026-10-27, permanent). `state/` is git-ignored and this repository is
+PUBLIC. Before a job ends, every document you wrote under `state/` (`state/proposed/`, `state/coordination/`) or
+`local/` that a later session or the owner needs (a design, a plan, a decision, a cost report) is named to the owner
+with one question: add it to git? Say that the repository is public and that `fieldkit privacy scan` runs before any
+add. Never add it silently, never leave it behind silently. Scratch, logs and test output need no question.
+
 Fieldkit is a set of deterministic tools. The model decides what to do; Fieldkit does
 it the same way every time and reports the result in JSON. Prefer a Fieldkit command
 to writing a one-off script for the same job.
