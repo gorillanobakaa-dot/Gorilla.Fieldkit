@@ -381,10 +381,12 @@ def test_the_second_platform_skips_rebase_set_and_replay_is_the_proof(monkeypatc
 def test_the_thermal_proof_is_reused_across_checkouts(tmp_path, monkeypatch):
     """2026-10-27: the proof cache lived in each checkout's state, so every new worktree re-stressed the CPU ~24 s.
     One machine, one boot, one proof: two checkouts (two task.STATE folders) read the same cached proof."""
+    from pathlib import Path
     from fieldkit.buildh import task
     from fieldkit.thermal import governor, sensors
-    proof = tmp_path / "machine" / "thermal-proof.json"
-    monkeypatch.setenv("FIELDKIT_THERMAL_PROOF", str(proof))
+    proof = tmp_path / "home" / ".fieldkit" / "thermal-proof.json"
+    monkeypatch.delenv("FIELDKIT_THERMAL_PROOF", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
     monkeypatch.setattr(governor, "restore_stale_cap", lambda say: None)
     monkeypatch.setattr(buildrun, "cool_down", lambda say: 40.0)
     monkeypatch.setattr(buildrun, "wait_for_idle", lambda say: 0)

@@ -22,8 +22,20 @@
   swap: ["    return \"UP\" if m == 0 else \"SILENT\" if m == 1 else \"MISSING\"", "    return \"UP\" if m == 0 else \"SILENT\""]
   why: "two misses is MISSING"
 - file: fieldkit/zero/net.py
-  swap: ["        if m >= 2 and rec.get(\"inbox_lease\") != rec.get(\"lease_until\"):", "        if m >= 2:"]
+  swap: ["        if m >= 2 and not ended and rec.get(\"inbox_lease\") != rec.get(\"lease_until\"):", "        if m >= 2 and not ended:"]
   why: "a MISSING station goes to the inbox once per lease, not every check"
+- file: fieldkit/zero/net.py
+  swap: ["        if m >= 2 and not ended and rec.get(\"inbox_lease\")", "        if m >= 2 and rec.get(\"inbox_lease\")"]
+  why: "an ended hook station never reaches the inbox (59 of 83 items, 2026-10-25..27)"
+- file: fieldkit/zero/net.py
+  swap: ["        ended = m >= 2 and rec.get(\"via\") == \"hook\" and s not in leads", "        ended = m >= 2 and rec.get(\"via\") == \"hook\""]
+  why: "Zero and the 2IC keep the MISSING alarm even when the hook checked them in"
+- file: fieldkit/zero/net.py
+  swap: ["        ended = m >= 2 and rec.get(\"via\") == \"hook\" and s not in leads", "        ended = m >= 2 and s not in leads"]
+  why: "a station that checks in by hand keeps the MISSING alarm"
+- file: fieldkit/zero/net.py
+  swap: ["(min(m, 2) if ended else m)", "m"]
+  why: "an ended station is logged once, not once per lease forever"
 - file: fieldkit/zero/net.py
   swap: ["             \"prev\": hashlib.sha256(last).hexdigest() if last else \"0\" * 64}", "             \"prev\": \"0\" * 64}"]
   why: "each line carries the hash of the line before"

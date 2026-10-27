@@ -341,6 +341,7 @@ def test_an_ended_hook_station_is_logged_once_and_never_reaches_the_inbox():
     station only the hook checked in is ENDED after two missed leases: one log line, no inbox item, no alarm. A
     station that checks in by hand, Zero and the 2IC still go to the inbox."""
     opened(second=GEM)
+    net.hook_line(hook_call("aaaaaaaa-1"), "UserPromptSubmit", now=T0 + 61)     # Zero, renewed by the hook too
     net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0)          # TWO: checked in by the hook only
     other = f"gemini:hand@{HOST}"
     net.checkin(other, now=T0, env={})
@@ -350,7 +351,8 @@ def test_an_ended_hook_station_is_logged_once_and_never_reaches_the_inbox():
     for t in (T0 + 3601, T0 + 5401, T0 + 9000):
         r = net.check(heal=False, now=t, inbox_add=add, board=False)
     rows = {x["station"]: x["state"] for x in r["rows"]}
-    assert rows[TWO] == "ENDED" and rows[other] == "MISSING" and rows[GEM] == "MISSING"
+    assert rows[TWO] == "ENDED" and rows[other] == "MISSING" and rows[GEM] == "MISSING" and rows[ZERO] == "MISSING"
+    assert net.load_stations()["stations"][ZERO]["via"] == "hook"
     assert not [b for b in box if TWO in b[0]]
     assert [b for b in box if other in b[0]] and [b for b in box if GEM in b[0]]
     assert len([e for _, e in net.entries() if e["kind"] == "miss" and e["to"] == TWO and "ENDED" in e["text"]]) == 1
