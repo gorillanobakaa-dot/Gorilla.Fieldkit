@@ -2107,6 +2107,16 @@
    "orchestrate-load"
   ]
  },
+ "orchestrate offload": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "written for a Windows boss (auto sends only from Windows; suite_offload \"on\" in fieldkit.local.json from Linux); unit tests on both systems, no live Windows commit through it yet (the hook line waits for the owner)",
+  "ids": [
+   "orchestrate-offload"
+  ]
+ },
  "orchestrate place": {
   "platforms": [
    "linux",

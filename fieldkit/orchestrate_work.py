@@ -51,6 +51,7 @@ MAX_BRIEF = 32 * 1024
 DEFAULT_MODEL = "gemini-flash-lite-latest"            # cheap Gemini, the owner's model for tests (2026-10-26)
 MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,120}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
+STALL_S = 600                                         # a job with no output and no CPU this long is stopped
 
 
 def work_root():
@@ -161,12 +162,75 @@ def _sha(p):
     return h.hexdigest()
 
 
+def _read(path):
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def _tail(path, n=15, chars=1500):
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return ""
     return "\n".join(lines[-n:])[-chars:]
+
+
+PYTEST_SUMMARY = re.compile(r"\b(\d+ (?:passed|failed|errors?|skipped)|no tests ran)\b.* in [\d.]+s")
+REGRESS_LINE = re.compile(r": (\d+) passed, (\d+) failed \((\d+) test names read; exit (-?\d+|None)\)")
+
+
+def is_test_job(argv):
+    """A run job whose point is to run tests: `admit suite`, `regress record`, or pytest anywhere in the line."""
+    argv = [str(a) for a in argv or []]
+    return argv[:2] == ["admit", "suite"] or argv[:2] == ["regress", "record"] or any(
+        a.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].startswith("pytest") for a in argv)
+
+
+def test_counts(text):
+    """-> {passed, failed, errors} from the LAST pytest summary or `regress record` line in the output, or None."""
+    found = None
+    for ln in text.splitlines():
+        m = REGRESS_LINE.search(ln)
+        if m:
+            p, f, n, ex = m.groups()
+            found = {"passed": int(p), "failed": int(f), "errors": 0 if ex == "0" else 1, "read": int(n)}
+        elif PYTEST_SUMMARY.search(ln):
+            c = {k: 0 for k in ("passed", "failed", "errors")}
+            for num, word in re.findall(r"(\d+) (passed|failed|errors?)\b", ln):
+                c["errors" if word.startswith("error") else word] += int(num)
+            found = c
+    return found
+
+
+def judge(kind, argv, rc, output, declared):
+    """The evidence rule (O3 false PASS, 2026-10-26: two `regress record ... -- python3 -m pytest` jobs said "exit 0
+    in 0 s" and PASS while that python3 had no pytest and nothing was tested). -> (passes, [concern]). Fixed rules:
+      - an exit code other than 0 fails;
+      - a run job that printed nothing and declared no artefact fails: nothing shows the command did anything;
+      - a test job (is_test_job) passes only when its output ends in a test count with at least one test passed and
+        none failed or errored; "0 test names read", "no tests ran" or no count at all is invalid evidence."""
+    if rc != 0:
+        return False, []
+    if kind != "run":
+        return True, []
+    if not output.strip() and not declared:
+        return False, [{"text": "exit 0 with no output and no declared artefact: nothing shows the command ran",
+                        "fix_offered": "declare the file the job makes with --artefact, or run a command that "
+                                       "reports what it did"}]
+    if is_test_job(argv):
+        c = test_counts(output)
+        if c is None or c["passed"] < 1:
+            return False, [{"text": "the tests never ran: no test passed"
+                                    + (f" ({c.get('read', 0)} test names read)" if c and "read" in c else
+                                       " (no test count in the output)" if c is None else ""),
+                            "fix_offered": "check the job log: pytest missing for that Python, or 0 tests "
+                                           "collected"}]
+        if c["failed"] or c["errors"]:
+            return False, [{"text": f"{c['failed']} test(s) failed, {c['errors']} error(s)",
+                            "fix_offered": "fix the failing tests"}]
+    return True, []
 
 
 AGENTS = ("coder", "task", "title", "summarizer")
@@ -214,7 +278,7 @@ def unload_local_models(brain, run=subprocess.run):
         f"NOT UNLOADED: lms unload --all exit {r.returncode}: {(r.stderr or r.stdout).strip()[:160]}"
 
 
-def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=None):
+def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None):
     """The job itself (a detached process on the worker). -> the result, delivered to the boss."""
     put = put or link.put
     deliver = deliver or jobs.deliver
@@ -237,6 +301,9 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         concerns += (health_fn or _health)()
         wall = int(job.get("wall_minutes") or 60) * 60
         env = link.link_env()
+        # a `python3` in the job's own line is the worker's Python (it has pytest), never a bare system one: the
+        # O3 false PASS ran /usr/bin/python3, which had no pytest
+        env["PATH"] = os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])
         if job["kind"] == "run":
             argv = run_argv(job["argv"])
         else:
@@ -256,15 +323,30 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         with health.awake(f"fieldkit job {jid}"), open(log, "w", encoding="utf-8") as out:
             out.write(f"$ {' '.join(argv[:6])}{' ...' if len(argv) > 6 else ''}\n")
             out.flush()
-            try:
-                rc = run(argv, cwd=str(tree), env=env, stdin=subprocess.DEVNULL, stdout=out,
-                         stderr=subprocess.STDOUT, timeout=wall).returncode
-            except subprocess.TimeoutExpired:
-                rc = None
-                concerns.append({"text": f"stopped at the wall cap ({wall // 60} min)",
-                                 "fix_offered": "send it again with a larger --wall"})
+            if run is None:                           # contained: the whole tree stops at the wall cap or a stall
+                from .core import contain
+                out.close()
+                o = contain.run(argv, f"job {jid}", deadline_s=wall, cwd=str(tree), env=env, stdout_path=str(log),
+                                merge=True, idle_s=STALL_S)
+                rc = o.rc if o.status in ("ok", "fail") else None
+                if o.status == "timeout":
+                    concerns.append({"text": f"stopped at the wall cap ({wall // 60} min)",
+                                     "fix_offered": "send it again with a larger --wall"})
+                elif o.status == "stalled":
+                    concerns.append({"text": f"stopped: no output and no CPU for {STALL_S // 60} min",
+                                     "fix_offered": "check the job log for what it waited on"})
+                elif o.status == "error":
+                    concerns.append({"text": o.why or "the command could not start", "fix_offered": "check the job"})
+            else:
+                try:
+                    rc = run(argv, cwd=str(tree), env=env, stdin=subprocess.DEVNULL, stdout=out,
+                             stderr=subprocess.STDOUT, timeout=wall).returncode
+                except subprocess.TimeoutExpired:
+                    rc = None
+                    concerns.append({"text": f"stopped at the wall cap ({wall // 60} min)",
+                                     "fix_offered": "send it again with a larger --wall"})
         if job["kind"] == "agent" and job.get("brain"):
-            said = unload_local_models(job["brain"], run=run)
+            said = unload_local_models(job["brain"], run=run or subprocess.run)
             if said.startswith("NOT"):
                 concerns.append({"text": said, "fix_offered": "unload the model in LM Studio"})
         arts, missing = _artefacts(tree, job.get("artefacts") or [], put, boss)
@@ -273,7 +355,10 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         bad = [a for a in arts if not a["sent"]]
         concerns += [{"text": f"artefact {a['name']} did not reach the boss: {a['error']}",
                       "fix_offered": "the file is still in the job folder; send the job again"} for a in bad]
-        status = "pass" if rc == 0 and not missing and not bad else "fail"
+        output = "".join(_read(log).splitlines(keepends=True)[1:])     # after the "$ command" line
+        ok, why = judge(job["kind"], job.get("argv"), rc, output, job.get("artefacts"))
+        concerns += why
+        status = "pass" if ok and not missing and not bad else "fail"
         evidence = (f"exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} artefact(s) "
                     f"sent, sha256 in this result\n{_tail(log)}")
     except Exception as e:  # noqa: BLE001 - every failure becomes a result the boss sees, never silence

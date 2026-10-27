@@ -22,7 +22,7 @@
   swap: ['            shutil.copytree(src, tree, symlinks=True)', '            tree = src']
   why: the job runs on a copy; received/ is never changed
 - file: fieldkit/orchestrate_work.py
-  swap: ['        status = "pass" if rc == 0 and not missing and not bad else "fail"', '        status = "pass" if rc == 0 else "fail"']
+  swap: ['        status = "pass" if ok and not missing and not bad else "fail"', '        status = "pass" if ok else "fail"']
   why: a missing or undelivered artefact fails the job
 - file: fieldkit/orchestrate_work.py
   swap: ['            out.append({"name": p.relative_to(tree).as_posix(), "size": p.stat().st_size, "sha256": _sha(p),', '            out.append({"name": p.relative_to(tree).as_posix(), "size": p.stat().st_size, "sha256": "",']
@@ -54,3 +54,22 @@
 - file: fieldkit/orchestrate_work.py
   swap: ['            argv = [exe, "-p", job["brief"], "-c", str(tree), "-q"]', '            argv = [exe, "-p", job["brief"], "-c", str(tree)]']
   why: the agent run hides the spinner; a worker with no console was ended by 0xC000013A without it (live, Windows)
+# 2026-10-27, the evidence rule (O3 false PASS: exit 0 in 0 s, pytest never ran, verdict PASS)
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if not output.strip() and not declared:', '    if False:']
+  why: exit 0 with no output and no declared artefact is a fail
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if c is None or c["passed"] < 1:', '        if c is None:']
+  why: a test job that tested nothing (0 test names read, no tests ran) is a fail
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if c["failed"] or c["errors"]:', '        if False:']
+  why: a test job whose count names failures is a fail even at exit 0
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if is_test_job(argv):', '    if False:']
+  why: a test job is judged on its test count, not its exit code
+- file: fieldkit/orchestrate_work.py
+  swap: ['        env["PATH"] = os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])', '        pass']
+  why: a python3 in a job's line is the worker's Python, never a bare system one
+- file: fieldkit/method/regress.py
+  swap: ['            return 0 if r["tests"] else 3', '            return 0']
+  why: a regress record that read no test exits 3

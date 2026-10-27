@@ -132,6 +132,7 @@ groups:
       - overhead.py
       - testcost.py
       - parity.py
+      - suite_offload.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

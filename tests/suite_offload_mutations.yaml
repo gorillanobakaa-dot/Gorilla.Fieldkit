@@ -1,0 +1,35 @@
+# Rules the offloaded pre-commit suite must hold (fieldkit/suite_offload.py). Every one CAUGHT:
+#   fieldkit mutate --plan tests/suite_offload_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_suite_offload.py
+- file: fieldkit/suite_offload.py
+  swap: ['    if report["passed"] < 1:', '    if False:']
+  why: a report in which no test passed is never a pass
+- file: fieldkit/suite_offload.py
+  swap: ['    if report["failed"] or report["errors"]:', '    if False:']
+  why: a report that names failures refuses the commit
+- file: fieldkit/suite_offload.py
+  swap: ['    if not arrived or not arrived[0][1]:', '    if not arrived:']
+  why: the report counts only with the sha256 the worker signed
+- file: fieldkit/suite_offload.py
+  swap: ['    if r is None:', '    if False:']
+  why: only a result signed by a pinned worker key is trusted
+- file: fieldkit/suite_offload.py
+  swap: ['    if status == "pass" and r["status"] != "pass":', '    if False:']
+  why: a passing report under a failed signed result is not a pass
+- file: fieldkit/suite_offload.py
+  swap: ['    if unmapped:', '    if False:']
+  why: a skipped test that maps to no file here sends the full suite here
+- file: fieldkit/suite_offload.py
+  swap: ['            files.add(f)', '            pass']
+  why: every file the device skipped runs here
+- file: fieldkit/suite_offload.py
+  swap: ['    pick = L.choose(rows, me, any_os=True)', '    pick = rows[-1] if len(rows) > 1 else None']
+  why: a device that is down, BUSY or lacks pytest is never chosen
+- file: fieldkit/suite_offload.py
+  swap: ['    if s == "on" or os_tag == "WINDOWS":', '    if True:']
+  why: auto sends the suite away from Windows only
+- file: fieldkit/suite_offload.py
+  swap: ['    if env.get("FIELDKIT_SUITE_LOCAL") == "1":', '    if False:']
+  why: FIELDKIT_SUITE_LOCAL=1 keeps the suite here
+- file: fieldkit/suite_offload.py
+  swap: ['    if said != "sent":', '    if False:']
+  why: a job the device did not take is never waited on

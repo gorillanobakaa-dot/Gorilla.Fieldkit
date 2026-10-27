@@ -12,7 +12,8 @@ running is not a pass).
 
 Test names are read from the output of: pytest (-rA or -v), go test -v, unittest -v, and "[PASS] / [FAIL] name"
 or "PASS: / FAIL: name" lines. Records live in state/regress/<label>.json.
-Exit 0 when there is nothing new failing, 3 when there is, 2 for bad input.
+Exit 0 when there is nothing new failing, 3 when there is, 2 for bad input. `record` exits 3 when it read no
+test name (the command never tested anything), else 0 even with failures (a baseline may hold them).
 """
 import argparse
 import json
@@ -134,7 +135,8 @@ def main(argv=None, prog="fieldkit regress"):
             emit(r, a.json, lambda d: [f"{d['label']}: {d['passed']} passed, {d['failed']} failed "
                                        f"({len(d['tests'])} test names read; exit {d['exit']})"]
                  + [f"  | {x}" for x in d.get("tail") or []])
-            return 0
+            # 2026-10-27 (O3 false PASS): a record of 0 tests recorded nothing; exit 0 let a job call it a pass
+            return 0 if r["tests"] else 3
         if a.action == "show":
             r = load(a.labels[0])
             emit(r, a.json, lambda d: [f"{n}: {v}" for n, v in sorted(d["tests"].items())])
