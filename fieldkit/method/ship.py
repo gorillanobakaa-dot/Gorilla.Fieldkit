@@ -133,7 +133,9 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     if not st.get("ok"):
         return st
     if st["state"] == "in-step":
-        return dict(st, pushed=False)
+        # really nothing to push: say so and nothing else (no NEXT that reads like a step)
+        return dict(st, pushed=False, next="",
+                    said=f"nothing to push: origin/{st['branch']} is already at {(st.get('local') or '')[:12]}")
     # an unattended push reaches here only through the hard line, which asked the mandate first; here it is logged
     verdict, why, mpath = mandate("push", repo_path=repo)
     delay, last = 2, ""
@@ -142,7 +144,7 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
         if r.returncode == 0:
             if verdict == "allow":
                 _mandate_log(mpath, "push", why, branch=st["branch"], commit=st.get("local"))
-            return dict(status(repo, base), pushed=True, mandate=why if verdict == "allow" else "")
+            return pushed_report(repo, base, st, why if verdict == "allow" else "")
         last = (r.stderr or r.stdout).strip()
         if refused_not_network(last):
             return dict(st, ok=False, pushed=False, error=last[-1500:],
@@ -150,6 +152,21 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
         sleep(delay)                                   # network: 2, 4, 8, 16 s
         delay *= 2
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
+
+
+def pushed_report(repo, base, before, mandate_why=""):
+    """After a push that worked: what moved (OLD..NEW, how many commits) and the real next step.
+    2026-10-27: a push that reached origin printed `in-step (pushed)` then `NEXT: nothing to push`; two sessions read
+    it as "nobody pushed"."""
+    old, new = before.get("remote"), before.get("local")
+    after = status(repo, base, fetch=False)
+    since = old or _rev(repo, f"origin/{base}")
+    n = git(repo, "rev-list", "--count", f"{since}..{new}" if since else new).stdout.strip()
+    rng = f"{old[:12]}..{new[:12]}" if old else f"{new[:12]} (new branch)"
+    nxt = (f"open the pull request if none is open yet ({before['branch']} -> {base}); it merges after green CI on "
+           f"{new[:12]}")
+    return dict(after, pushed=True, mandate=mandate_why, range=rng, commits=int(n) if n.isdigit() else None,
+                said=f"pushed {rng} to origin/{before['branch']} ({n or '?'} commit(s))", next=nxt)
 
 
 def refused_not_network(out):
@@ -335,8 +352,9 @@ def main(argv=None, prog="fieldkit ship"):
         r = {"status": status, "sync": sync, "push": push, "merge": merge}[a.action](a.repo, a.base)
     except RuntimeError as e:
         r = {"ok": False, "error": str(e), "next": "nothing was pushed"}
-    emit(r, a.json, lambda d: [f"{d.get('branch', '?')}: {d.get('state', 'error')}"
-                               + (" (synced)" if d.get("synced") else "") + (" (pushed)" if d.get("pushed") else "")]
+    emit(r, a.json, lambda d: ([f"{d.get('branch', '?')}: {d['said']}"] if d.get("said") else
+                               [f"{d.get('branch', '?')}: {d.get('state', 'error')}"
+                                + (" (synced)" if d.get("synced") else "")])
          + ([f"error: {d['error']}"] if d.get("error") else [])
          + ([f"mandate: {d['mandate']}"] if d.get("mandate") else []))
     return 0 if r.get("ok") else 3
