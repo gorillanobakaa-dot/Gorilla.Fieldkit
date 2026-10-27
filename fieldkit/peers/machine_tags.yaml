@@ -1,0 +1,27 @@
+# Version: 1.0.0 · updated 26-10-27-10-00
+# How a machine's tag is made from its hardware model and OS (fieldkit/peers/machine.py). Data, not code: a new
+# kind of computer gets a rule here. The first rule whose field matches wins; {1} is the pattern's first group,
+# upper-cased. No rule matches: the host name, letters and digits, at most 10. The tag is made ONCE and stored in
+# the household registry (household.json); it is never retyped.
+#
+# Fields: vendor (DMI sys_vendor, Windows SystemManufacturer), product (product_name, SystemProductName), version
+# (product_version, SystemVersion: Lenovo keeps the friendly name there), family (product_family, SystemFamily),
+# model (macOS hw.model).
+os:
+  Windows: WIN
+  Linux: LNX
+  Darwin: MAC
+rules:
+  - {field: model, pattern: '^MacBookAir', tag: AIR}
+  - {field: model, pattern: '^MacBookPro', tag: MBP}
+  - {field: model, pattern: '^MacBook\d', tag: MB}
+  - {field: model, pattern: '^iMac', tag: IMAC}
+  - {field: model, pattern: '^Macmini', tag: MINI}
+  - {field: model, pattern: '^MacPro', tag: MACPRO}
+  - {field: vendor, pattern: '^Sony', tag: VAIO}
+  - {field: version, pattern: 'ThinkPad\s+([A-Za-z]*\d+[A-Za-z]?)', tag: '{1}'}
+  - {field: family, pattern: 'ThinkPad\s+([A-Za-z]*\d+[A-Za-z]?)', tag: '{1}'}
+  - {field: product, pattern: 'Latitude\s+(\d+)', tag: 'LAT{1}'}
+  - {field: product, pattern: 'XPS\s+(\d+)', tag: 'XPS{1}'}
+  - {field: product, pattern: 'EliteBook\s+(\d+)', tag: 'EB{1}'}
+  - {field: product, pattern: 'ProBook\s+(\d+)', tag: 'PB{1}'}

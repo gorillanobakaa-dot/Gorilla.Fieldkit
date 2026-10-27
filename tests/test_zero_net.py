@@ -455,6 +455,8 @@ def hook_call(sid, event="UserPromptSubmit"):
 
 
 def test_hook_is_silent_without_a_net():
+    # the machine tag line (peers/machine.py) is said once per session, net or no net; nothing of the net's own
+    assert net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0).startswith("MACHINE: ")
     assert net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0) == ""
 
 
@@ -492,6 +494,7 @@ def test_hook_tells_zero_once_per_change_which_stations_went_quiet():
 
 def test_hook_never_raises(monkeypatch):
     monkeypatch.setattr(net, "load_net", lambda: 1 / 0)
+    assert "NET" not in net.hook_line(hook_call("x"), "UserPromptSubmit")
     assert net.hook_line(hook_call("x"), "UserPromptSubmit") == ""
 
 

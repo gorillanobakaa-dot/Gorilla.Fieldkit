@@ -16,6 +16,8 @@
     fieldkit sessions protocol [--task ID] [--headless]   the done protocol every brief ends with
     fieldkit sessions rule [--install PATH ... | --all]   the standing rule block in the agents' instruction files
     fieldkit sessions doctor                    rule files, the desktop session store, the link, the ledger
+    fieldkit sessions tag --check [--here]      every live session (here and the peers') whose title lacks its
+                                                 machine's tag ([VAIO-LNX]); exit 1 if any (fieldkit/peers/machine.py)
 
 Owner, 2026-10-26 (verbatim): "i have noticed the other linux machine asked for my approval. this should not have
 happened. We want zero friction. Long horizon tasks run unattended and will typically not have anyone waiting 5 days
@@ -112,6 +114,9 @@ def main(argv=None, prog="fieldkit sessions"):
         return cmd_friction(argv[1:])
     if argv[:1] == ["task"]:
         return cmd_task(argv[1:])
+    if argv[:1] == ["tag"]:                       # session titles carry their machine's tag (peers/machine.py)
+        from ..peers import machine
+        return machine.sessions_main(argv[1:])
     ap = argparse.ArgumentParser(prog=prog, description="\n\n".join(__doc__.split("\n\n")[:2]),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd")

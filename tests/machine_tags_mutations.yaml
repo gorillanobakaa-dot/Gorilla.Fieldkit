@@ -1,0 +1,52 @@
+# Version: 1.0.0 · updated 26-10-27-10-00
+# fieldkit machine / sessions tag (fieldkit/peers/machine.py and where the tag is carried): each rule broken once;
+# all must be CAUGHT.
+#   python -m fieldkit mutate --plan tests/machine_tags_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_machine_tags.py tests/test_rotate.py
+- file: fieldkit/peers/machine.py
+  swap: ["    if row and valid(row.get(\"tag\")):", "    if False:"]
+  why: "a stored tag is read from the registry, never made again"
+- file: fieldkit/peers/machine.py
+  swap: ["    if row is not None and save:", "    if row is not None:"]
+  why: "a read-only name (hooks, hello) writes nothing"
+- file: fieldkit/peers/machine.py
+  swap: ["    if not short:\n", "    if False:\n"]
+  why: "no rule: the host name makes the tag"
+- file: fieldkit/peers/machine.py
+  swap: ["return bool(tag) and str(title or \"\").lstrip().startswith(tag)", "return bool(tag) and tag in str(title or \"\")"]
+  why: "the tag starts the title; anywhere else is untagged"
+- file: fieldkit/peers/machine.py
+  swap: ["    live = [s for s in sessions if not s.get(\"archived\")]", "    live = list(sessions)"]
+  why: "an archived session is not checked"
+- file: fieldkit/peers/machine.py
+  swap: ["return 1 if r[\"rows\"] or any(m[\"state\"] != \"checked\" for m in r[\"machines\"]) else 0", "return 1 if r[\"rows\"] else 0"]
+  why: "a machine that could not be checked is not a pass"
+- file: fieldkit/peers/machine.py
+  swap: ["    if valid(answer.get(\"tag\")):", "    if answer.get(\"tag\"):"]
+  why: "a malformed tag from a peer is not stored"
+- file: fieldkit/peers/machine.py
+  swap: ["    if h and \"ok\" in out.values():", "    if h:"]
+  why: "no peer answered: nothing is written"
+- file: fieldkit/peers/machine.py
+  swap: ["            if event == \"UserPromptSubmit\" and mark.is_file():", "            if False:"]
+  why: "the tag line is said once per session"
+- file: fieldkit/peers/link.py
+  swap: ["        kept = {k: old[k] for k in KEPT if k in old}", "        kept = {}"]
+  why: "devices add keeps the learned tag"
+- file: fieldkit/peers/link.py
+  swap: ["\"keepalive\": _keepalive(), \"tag\": _tag()}", "\"keepalive\": _keepalive()}"]
+  why: "the hello answer carries the tag"
+- file: fieldkit/lifecycle/friction.py
+  swap: ["desktop_rows(sessions, me=me) + untagged_rows(sessions) + remote_rows(dirs)", "desktop_rows(sessions, me=me) + remote_rows(dirs)"]
+  why: "friction flags an untagged session"
+- file: fieldkit/zero/net.py
+  swap: ["    return f\"{t} {station}\" if t and station else station", "    return station"]
+  why: "roll call, status and the Board row carry the station's machine tag"
+- file: fieldkit/lifecycle/tasks.py
+  swap: ["    title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))", "    title = title or text.splitlines()[0][:100]"]
+  why: "task start titles carry the tag of where the job runs"
+- file: fieldkit/tokens/rotate.py
+  swap: ["    title = machine.prefix(title)\n", "    pass\n"]
+  why: "a rotate successor's title carries the tag"
+- file: fieldkit/cli.py
+  swap: ["    ok = r[\"ok\"] and row[\"ok\"]", "    ok = r[\"ok\"]"]
+  why: "doctor fails on an untagged session"

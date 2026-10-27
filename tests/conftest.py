@@ -282,3 +282,14 @@ def _own_liveness_dir(tmp_path_factory, monkeypatch):
 def _no_inherited_autopilot(monkeypatch):
     monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
     yield
+
+
+# Tests see one fixed machine tag, never this computer's (fieldkit/peers/machine.py reads the real household file
+# and the hardware otherwise). A test of the tag itself sets machine._CURRENT = None and its own FIELDKIT_LINK_HOME.
+@pytest.fixture(autouse=True)
+def _fixed_machine_tag(tmp_path_factory, monkeypatch):
+    from fieldkit.peers import machine
+    monkeypatch.setattr(machine, "_CURRENT", "[TEST-LNX]")
+    said = tmp_path_factory.mktemp("said-machine")
+    monkeypatch.setattr(machine, "_said_dir", lambda: said)
+    yield

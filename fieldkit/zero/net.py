@@ -153,6 +153,22 @@ def hook_station(session_id, host=None):
     return f"claude:{(session_id or '?')[:8]}@{host or machine()}"
 
 
+def tag_of(station):
+    """-> the machine tag of the station's computer ([VAIO-LNX]) from the household registry (peers/machine.py);
+    "" when the registry does not know that computer. Never raises."""
+    try:
+        from ..peers import machine as machine_tags
+        return machine_tags.tag_of(machine_of(station))
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def tagged_station(station):
+    """-> "[VAIO-LNX] claude:ab12cd34@host": the station as lines show it, its machine's tag first."""
+    t = tag_of(station)
+    return f"{t} {station}" if t and station else station
+
+
 def kind_of(station):
     return station.split(":", 1)[0] if ":" in station.split("@")[0] else "agent"
 
@@ -599,12 +615,13 @@ def checkin(me, sitrep=None, ref=None, off=False, channels=None, now=None, env=N
     with _Lock():
         st = load_stations()
         rec = renew(st, me, net, now, off=off, sitrep=clean, sitrep_ref=ref if clean else None,
-                    sitrep_at=now if clean else None, **_env_info(env))
+                    sitrep_at=now if clean else None, tag=tag_of(me), **_env_info(env))
         items = pending_for(me, rec, net, now)
         save_stations(st)
     order = (rec.get("order") or {}).get("id") if not (rec.get("order") or {}).get("closed") else None
     e = append("checkin", me, to=zero_of(net), ref=ref,
-               data={k: v for k, v in {"sitrep": clean, "off": off, "order": order}.items() if v}, now=now)
+               data={k: v for k, v in {"sitrep": clean, "off": off, "order": order, "tag": tag_of(me)}.items() if v},
+               now=now)
     acked = _deliver(me, items, now)
     with _Lock():
         st = load_stations()
@@ -724,7 +741,7 @@ def roll(net, now, found=None):
             status = state_of(rec, now)
         rows.append({"station": s, "status": status, "sitrep": (answered.get(s) or {}).get("data", {}).get("sitrep"),
                      "last": rec.get("last"), "kind": rec.get("kind") or kind_of(s), "host_session": rec.get("host_session"),
-                     "name": rec.get("name")})
+                     "name": rec.get("name"), "tag": tag_of(s)})
     known = set(st) | set(answered) | ({zero} if zero else set())
     devices_with_stations = {machine_of(s) for s in known}
     for f in found or []:
@@ -924,7 +941,8 @@ def board_row(net, rows, now):
     sec = (net.get("2ic") or {}).get("station") or "none"
     state = (f"{len(up)} UP" + (f"; SILENT: {', '.join(silent)}" if silent else "")
              + (f"; MISSING: {', '.join(missing)}" if missing else ""))
-    return (f"{BOARD_KEY} ZERO ESTABLISHED: Zero {zero_of(net)}, epoch {net.get('epoch')}, 2IC {sec} | {state} "
+    return (f"{BOARD_KEY} ZERO ESTABLISHED: Zero {tagged_station(zero_of(net))}, epoch {net.get('epoch')}, 2IC "
+            f"{tagged_station(sec) if sec != 'none' else sec} | {state} "
             f"(written by the comms check) | `fieldkit zero` for the roll; MISSING stations go to `fieldkit inbox` |")
 
 
@@ -957,6 +975,17 @@ def write_board(row, plan=None, key=BOARD_KEY):
 # ---------------------------------------------------------------- the hook rider (fieldkit/autopilot/room.py)
 
 def hook_line(call, event, now=None):
+    """The machine tag line (peers/machine.py: at SessionStart and a session's first prompt, net or no net), then the
+    net's own lines. Never raises."""
+    try:
+        from ..peers import machine as machine_tags
+        tagline = machine_tags.hook_line(call, event)
+    except Exception:  # noqa: BLE001
+        tagline = ""
+    return "\n".join(x for x in (tagline, _net_line(call, event, now)) if x)
+
+
+def _net_line(call, event, now=None):
     """Every Claude Code session on this computer: checked in by the hook (the lease renewed at most once a minute),
     shown its unseen net traffic (acked), told once who Zero is. Zero is told which stations went quiet, once per
     change. Nothing when no net is open (net discipline: silence). Never raises."""
@@ -1017,7 +1046,8 @@ def status(now=None):
     net = load_net()
     st = load_stations()["stations"]
     rows = [{"station": s, "state": state_of(r, now), "kind": r.get("kind"), "last": r.get("last"),
-             "sitrep": r.get("sitrep"), "name": r.get("name"), "via": r.get("via")} for s, r in sorted(st.items())]
+             "sitrep": r.get("sitrep"), "name": r.get("name"), "via": r.get("via"), "tag": tag_of(s)}
+            for s, r in sorted(st.items())]
     return {"established": is_open(net), "net": net, "rows": rows,
             "level": NONET if not is_open(net) else ALARM if any(r["state"] == "MISSING" for r in rows)
             else WARN if any(r["state"] == "SILENT" for r in rows) else OK}
@@ -1074,14 +1104,14 @@ def status_lines(r, now=None):
     z = net.get("zero") or {}
     sec = (net.get("2ic") or {}).get("station") or "none named"
     n = {k: sum(x["state"] == k for x in r["rows"]) for k in ("UP", "SILENT", "MISSING", "OFF")}
-    out = [f"ZERO ESTABLISHED: Zero = {z.get('station')}{' (' + z['name'] + ')' if z.get('name') else ''}, "
+    out = [f"ZERO ESTABLISHED: Zero = {tagged_station(z.get('station'))}{' (' + z['name'] + ')' if z.get('name') else ''}, "
            f"epoch {net.get('epoch')}, 2IC = {sec}" + (f", mirror of {net['mirror_of']}" if net.get("mirror_of") else ""),
            f"  check-in every {cfg(net, 'interval_min')} min (lease {int(ttl_s(net) // 60)} min), roll answers due in "
            f"{cfg(net, 'answer_min')} min" + (f", quiet hours {net['quiet']}" if net.get("quiet") else ""),
            f"  {len(r['rows'])} station(s): {n['UP']} UP, {n['SILENT']} SILENT, {n['MISSING']} MISSING, {n['OFF']} OFF"]
     for x in r["rows"]:
         tag = "ZERO" if x["station"] == z.get("station") else x["state"]
-        line = f"  {tag:<8} {x['station']:<34} last {_when(x['last'])}"
+        line = f"  {tag:<8} {tagged_station(x['station']):<45} last {_when(x['last'])}"
         if x.get("sitrep"):
             line += f"  {x['sitrep']['state']}: {x['sitrep']['job']}"
         out.append(line)
@@ -1096,7 +1126,7 @@ def roll_lines(r):
         return ["no roll call yet: fieldkit zero rollcall"]
     out = [f"ROLL CALL {rc['id']} sent {rc.get('at')}, answers due {_when(rc.get('deadline'))}"]
     for x in r["rows"]:
-        out.append(f"  {x['status']:<12} {x['station']}" + (f" ({x['name']})" if x.get("name") else ""))
+        out.append(f"  {x['status']:<12} {tagged_station(x['station'])}" + (f" ({x['name']})" if x.get("name") else ""))
         if x.get("sitrep"):
             for k, label in SITREP:
                 out.append(f"      {label + ':':<15}{x['sitrep'][k]}")

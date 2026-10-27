@@ -216,6 +216,7 @@ def config():
 ROLES = ("boss", "worker", "")
 LINKS = ("cable", "lan")
 JOB_VERBS = ("job", "result", "resend", "ask")
+KEPT = ("tag", "host", "model", "last_seen")   # what a device row learned by itself; `devices add` keeps it
 
 
 def household_path():
@@ -294,8 +295,9 @@ def device_add(name, address, role="worker", os_name="", brain="", via="lan", po
         row["port"] = int(port)
     old = device(h, name)
     if old:
+        kept = {k: old[k] for k in KEPT if k in old}      # learned, never retyped (machine.py)
         old.clear()
-        old.update(row)
+        old.update(row, **kept)
     else:
         h["devices"].append(row)
     if me:
@@ -890,6 +892,15 @@ def _device():
         return None
 
 
+def _tag():
+    """This machine's tag ([VAIO-LNX]) from the household registry (machine.py); "" when unknown, never fails."""
+    try:
+        from . import machine
+        return machine.current()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _keepalive():
     """This end's keep-alive in one line for the asking side's doctor (link_keepalive.py); never fails a hello."""
     try:
@@ -915,7 +926,12 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # side measures the clock skew the Verifier would refuse (link_checks clock)
         return {"ok": True, "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
                 "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time(), "device": _device(),
-                "keepalive": _keepalive()}
+                "keepalive": _keepalive(), "tag": _tag()}
+    if verb == "tags":
+        # read-only, like friction: this computer's live sessions whose title lacks its machine tag (machine.py,
+        # 2026-10-27), so `fieldkit sessions tag --check` on any device checks every machine of the household
+        from . import machine
+        return dict(machine.local_check(), ok=True)
     if verb == "manifest":
         # read-only, like hello (so not a JOB_VERB): this machine's versions and capabilities for `fieldkit parity
         # compare` on the other side (fieldkit/parity.py, 2026-10-26)
