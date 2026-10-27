@@ -5,6 +5,15 @@ TESTS: ONLY WHAT YOU TOUCHED (owner, 2026-10-27, permanent). Locally run only th
 on green CI. Never a full suite locally "to be sure". On Windows every heavy command runs under `fieldkit guard --`
 (the tool router refuses it otherwise). Do the job, not new tooling.
 
+BUILDS GO THROUGH `fieldkit emerge`, LIKE PORTAGE (owner, 2026-10-26 and 2026-10-27, permanent). Compiling, building
+and packaging any product of ours (Gorilla Firefox, the kernel, Gorilla OpenCode, gorilla-size) runs as
+`fieldkit emerge plan RECIPE`, then `fieldkit emerge run RECIPE` in the background, then `fieldkit emerge status
+RECIPE`. The model is not the driver: never run build stages by hand, never poll, never re-run a stage the runner
+skipped. The model is called only when a stage fails, and its fix lands as a commit to the recipe or the tool, so the
+next run needs no model. The bar is the owner's pre-AI build script: a Firefox compile + package in about 2 hours,
+unattended, zero AI tokens when nothing fails. A product with no recipe gets a recipe, not a hand-run. Skill:
+fieldkit-emerge.
+
 Fieldkit is a set of deterministic tools. The model decides what to do; Fieldkit does
 it the same way every time and reports the result in JSON. Prefer a Fieldkit command
 to writing a one-off script for the same job.
@@ -36,6 +45,7 @@ fieldkit jobs run|ingest-advert|pack|check-letter|apply|status ...   the job hun
 fieldkit tools list | check [--run-tests]
 fieldkit office read|create|check|scrub|deliver ...
 fieldkit pipeline list|plan|run|status|reset NAME
+fieldkit emerge list|plan|run|status RECIPE      EVERY build, compile and package: recipes, cached stages, model only on failure
 fieldkit pipeline run gorilla-opencode --var src=PATH [--var version=vX]   build Gorilla OpenCode (any Go app: go-app)
 fieldkit wait|mutate|regress|drift|mcp-probe|survey|i18n|ship|handover ...   methods as tools (docs/METHODS.md)
 fieldkit cards check | draft FILE.py             every card against its command; a card started from argparse code
