@@ -849,17 +849,24 @@ def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, boar
         return {"established": False, "net": net, "level": NONET}
     st = load_stations()
     rows, events = [], []
+    leads = {zero_of(net), (net.get("2ic") or {}).get("station")}
     for s, rec in sorted(st["stations"].items()):
         state, m = state_of(rec, now), misses(rec, now)
+        # A station the hook checked in renews only while its session makes calls: two missed leases mean the
+        # session ended or sits idle, which nobody can act on (59 of 83 inbox items, 2026-10-25..27, were these).
+        # Zero, the 2IC and stations that check in by hand keep the alarm; a hung headless job is liveness's.
+        ended = m >= 2 and rec.get("via") == "hook" and s not in leads
+        if ended:
+            state = "ENDED"
         rows.append({"station": s, "state": state, "misses": m, "last": rec.get("last"), "kind": rec.get("kind")})
         if state == "OFF" or m == 0:
             continue
-        if int(rec.get("logged_miss") or 0) < m:
-            append("miss", "net", to=s, text=f"{s} {'SILENT' if m == 1 else 'MISSING'}: {m} missed check-in(s)",
+        if int(rec.get("logged_miss") or 0) < (min(m, 2) if ended else m):    # an ended station: logged once
+            append("miss", "net", to=s, text=f"{s} {'SILENT' if m == 1 else state}: {m} missed check-in(s)",
                    data={"misses": m}, now=now)
             rec["logged_miss"] = m
             events.append(f"{s} {state}")
-        if m >= 2 and rec.get("inbox_lease") != rec.get("lease_until"):
+        if m >= 2 and not ended and rec.get("inbox_lease") != rec.get("lease_until"):
             title = f"net: station {s} MISSING (2 missed check-ins)"
             why = (f"Zero {zero_of(net)} has not heard {s} since "
                    f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(float(rec.get('last') or 0)))}. "
