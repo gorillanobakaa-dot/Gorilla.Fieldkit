@@ -113,7 +113,7 @@ def test_the_hook_does_not_run_the_suite_twice_on_the_same_tree(repo, tmp_path):
     git(repo, "add", "-A")
     env = dict(os.environ, PYTHONPATH=str(ROOT), FIELDKIT_TESTCOST_DIR=str(tmp_path / "state"),
                VIRTUAL_ENV=str(Path(sys.executable).parent.parent), PYTEST_ADDOPTS="", FIELDKIT_PREFLIGHT="0",
-               PYTHONDONTWRITEBYTECODE="1")
+               PYTHONDONTWRITEBYTECODE="1", FIELDKIT_FULL_SUITE="1")   # the full-suite cache (affected: own test)
     outs = []
     for _ in range(2):
         r = subprocess.run(["git", "-C", str(repo), "commit", "-q", "--allow-empty", "-m", "one"], env=env,

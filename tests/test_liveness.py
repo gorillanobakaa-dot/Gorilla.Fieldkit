@@ -129,6 +129,8 @@ def test_a_hung_criterion_with_an_orphan_is_timeout_and_the_supervisor_goes_on(t
     spins; the wall deadline stops the whole container, the verdict is TIMEOUT (not FAIL), verify returns."""
     from fieldkit.autopilot import goal
     monkeypatch.setattr(goal, "GOALS", tmp_path / "goals")
+    from fieldkit.thermal import buildguard           # the container's deadline is under test, not the thermal guard
+    monkeypatch.setattr(buildguard, "STATUS", tmp_path / "no-fan-control")
     parent, pidf = orphan_maker(tmp_path, then="hang")
     g = {"id": "g", "objective": "o", "cwd": str(tmp_path),
          "criteria": [{"id": "go-test", "run": f'& "{PY}" "{parent}"' if os.name == "nt" else f'"{PY}" "{parent}"',

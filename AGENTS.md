@@ -1,5 +1,10 @@
 # Fieldkit - instructions for coding agents
 
+TESTS: ONLY WHAT YOU TOUCHED (owner, 2026-10-27, permanent). Locally run only the tests that cover the changed files
+(`fieldkit testcost staged`; the pre-commit hook does exactly this); the full suite runs only in CI and a PR merges only
+on green CI. Never a full suite locally "to be sure". On Windows every heavy command runs under `fieldkit guard --`
+(the tool router refuses it otherwise). Do the job, not new tooling.
+
 Fieldkit is a set of deterministic tools. The model decides what to do; Fieldkit does
 it the same way every time and reports the result in JSON. Prefer a Fieldkit command
 to writing a one-off script for the same job.
