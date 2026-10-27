@@ -127,6 +127,12 @@ def check(pipeline=None, pyproject=None, requirements=None, have_dist=None, whic
                      "detail": path or f"not found ({t.get('why', '')})",
                      "install": "" if path else (t.get("install") or {}).get(fam, f"install {name} for this system")})
 
+    if pipeline:                                       # a Go app pipeline: its goapps.<name> entry (2026-10-27)
+        from ..build import goapp
+        row = goapp.doctor_row(pipeline)
+        if row:
+            rows.append(row)
+
     missing = [r for r in rows if not r["ok"]]
     # one line per command, in order; "a && b" becomes two lines: PowerShell 5.1 refuses && (the Windows side,
     # 2026-10-23, running the lean line from install.ps1)
