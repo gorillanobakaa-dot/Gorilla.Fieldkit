@@ -2031,6 +2031,8 @@ def build_parser():
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
+    th.add_argument("--forever", action="store_true",
+                    help="watch: the always-on machine-wide governor (started at logon); one per computer")
     th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
     th.add_argument("--interval", type=int, default=60, help="log (Linux): seconds between lines")
     th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux), monitor (both systems): run until this "
@@ -2623,6 +2625,9 @@ def cmd_thermal(a):
         name, fn, detail = sensors.best(prove=True)
         print(f"{'PROVEN' if name else 'NO LIVE SOURCE'}: {name}: {detail}")
         return 0 if name else 3
+    if getattr(a, "forever", False):
+        from .thermal import watch
+        return watch.forever(target=a.target)
     name, fn, detail = sensors.best(prove=True)
     if not name:
         print("no live source: " + detail)
