@@ -768,7 +768,10 @@ def _end_job(gid, goal, st, jid, claude, run):
     s = j["spec"]
     if r["status"] == "done":
         checks = [dict(v, id=f"{jid}:{i}") for i, v in enumerate(s.get("verify") or [], 1)]
-        res = verify(gid, goal, st, extra=checks, claude=claude, run=run, who=f"job {jid}")
+        # 2026-10-27 (owner: "implementeaza cea mai rapida functie ... parte integranta din harnasament"): a finished
+        # job runs ITS OWN checks only. Every goal criterion (a full go test, vet, cross builds, every AI verifier) ran
+        # after every job: a 20-minute job took hours. The goal's criteria run once, at the end (verify ... "final").
+        res = verify(gid, goal, st, ids=[], extra=checks, claude=claude, run=run, who=f"job {jid}")
         own = [x for x in res if str(x["id"]).startswith(f"{jid}:")]
         if all(x["verdict"] == "PASS" for x in own):
             j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
@@ -783,7 +786,10 @@ def _end_job(gid, goal, st, jid, claude, run):
     else:
         j.update(status="failed", why=r.get("why", "")[:400])
     event(gid, f"job {jid}: {j['status']} - {j.get('why', '')[:200]}")
-    st["needs_plan"] = True
+    # the planner (an AI call) only when it has something to decide: a job that did not verify, or nothing left queued
+    queued = any(v["status"] in ("queued", "paused-resumable") for k, v in st["jobs"].items() if k != jid)
+    if j["status"] != "verified" or not queued:
+        st["needs_plan"] = True
     return f"job {jid}: {j['status']}"
 
 

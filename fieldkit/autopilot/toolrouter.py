@@ -271,7 +271,8 @@ def heavy_refusal(command, cwd="", platform=None):
             where = os.path.join(where, os.path.expanduser(_unquote(cds[-1].group(1))))
         for c in dash_c:
             where = os.path.join(where, os.path.expanduser(_unquote(c)))
-        if _is_fieldkit_checkout(where):
+        no_hook = re.search(r"\s(--no-verify|-n)\b", raw[m.end():].split("\n")[0])   # no hook = no suite
+        if _is_fieldkit_checkout(where) and not no_hook:
             return HEAVY_GUARD
     return None
 

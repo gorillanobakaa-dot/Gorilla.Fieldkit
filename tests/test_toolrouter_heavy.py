@@ -72,6 +72,7 @@ def test_a_commit_in_a_fieldkit_checkout_runs_the_suite_and_is_refused(tmp_path)
     assert tr.heavy_refusal(f'cd "{fk}" && git commit -m x', cwd=str(other), platform="win32") is tr.HEAVY_GUARD
     assert tr.heavy_refusal('git commit -m x', cwd=str(other), platform="win32") is None
     assert tr.heavy_refusal('fieldkit guard -- git commit -m x', cwd=str(fk), platform="win32") is None
+    assert tr.heavy_refusal('git commit -q --no-verify -m "x"', cwd=str(fk), platform="win32") is None
 
 
 def test_the_hook_route_refuses_heavy_work_on_windows(monkeypatch):
