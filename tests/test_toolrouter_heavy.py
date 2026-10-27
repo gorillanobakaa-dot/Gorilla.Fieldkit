@@ -46,6 +46,8 @@ def test_heavy_commands_are_refused_on_windows(cmd):
     "git status && git log -1",
     "echo cargo build is heavy",
     "grep -n 'go test' notes.md",
+    'grep -n "telemetry\\|mutate\\|go test\\|cargo" COMMON.md',
+    "echo 'then go test ./... in CI' >> notes.md",
     "python -m pytest -q  # toolrouter-ok: none, just a test of the override",
 ])
 def test_light_guarded_or_remote_commands_pass(cmd):
