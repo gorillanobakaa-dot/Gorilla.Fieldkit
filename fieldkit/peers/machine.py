@@ -102,7 +102,7 @@ def _link():
     return link
 
 
-def name(h=None, save=True, facts_fn=facts, system=None, hostname=None):
+def name(h=None, save=True, facts_fn=None, system=None, hostname=None):
     """-> {tag, source: registry|derived, stored, device, registry}. Reads this machine's row; the first time, makes
     the tag and stores it there. With no household at all the tag is made and said, nothing is written (pair first)."""
     link = _link()
@@ -113,7 +113,7 @@ def name(h=None, save=True, facts_fn=facts, system=None, hostname=None):
     if row and valid(row.get("tag")):
         return {"tag": row["tag"], "source": "registry", "stored": True, "device": row["name"],
                 "registry": str(link.household_path())}
-    f = facts_fn(system=system)
+    f = (facts_fn or facts)(system=system)       # looked up at call time, so a patched facts() is the one used
     tag = derive(f, system, hostname)
     stored = False
     if row is not None and save:
