@@ -69,7 +69,7 @@ def kill_children(pid=None):
     if sys.platform == "win32":
         ps = (f"function k($p) {{ Get-CimInstance Win32_Process -Filter \"ParentProcessId=$p\" | ForEach-Object "
               f"{{ k $_.ProcessId; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }} }}; k {pid}")
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     else:
         subprocess.run(["pkill", "-TERM", "-P", str(pid)], capture_output=True)
 
