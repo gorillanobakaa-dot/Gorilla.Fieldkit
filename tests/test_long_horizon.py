@@ -765,7 +765,8 @@ def test_the_supervisor_resumes_unfinished_goals_after_a_restart(tmp_path, monke
     check = mkgoal(tmp_path, f)
     script(tmp_path, [plan_of([{"id": "j1", "brief": "make it", "cwd": str(r), "verify": [{"run": check}]},
                                {"id": "j2", "brief": "then this", "cwd": str(r), "needs": ["j1"]}]),
-                      {"do": "success", "write": {"path": str(f), "text": "x"}}, plan_of(), {"do": "success"}],
+                      {"do": "success", "write": {"path": str(f), "text": "x"}}, {"do": "success"},
+                      plan_of(signal="done")],      # j2 is queued when j1 verifies: no planner between them
            monkeypatch)
     assert goal.supervise(once=True, say=lambda m: None, hold=False) == 0     # one round, then "the machine dies"
     assert goal.load("g1")[1]["status"] == "active"
