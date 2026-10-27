@@ -31,6 +31,7 @@
     fieldkit sync [--apply] [--repo DIR]         this machine vs GitHub; --apply fast-forwards only to commits CI proved on both systems
     fieldkit guard -- CMD ...                    any compile job with the fan check and the ~70 C build governor
     fieldkit admit [--kind K] -- CMD | suite | status   one machine-wide gate: at most N heavy jobs at once, the rest queue
+    fieldkit liveness check [--act] [--json]     every harness long run: OK, STALLED or ORPHAN (exit 3); --act stops its own
     fieldkit adopt NAME... [--into G] [--apply]  move a Scripts tool into local/kits, repoint shortcuts/skills/memory
     fieldkit adopt --finish [--apply]            remove old copies of adopted tools once nothing runs from them
     fieldkit refcheck manifest|markdown|python|regex TARGET   every named thing must exist (exit 3 if not)
@@ -1517,6 +1518,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    lv = sub.add_parser("liveness", add_help=False,
+                        help="process liveness: every harness long run OK, STALLED or ORPHAN; --act stops the "
+                             "harness's own orphans and overdue steps (fieldkit liveness)")
+    lv.add_argument("args", nargs=argparse.REMAINDER)
     zr = sub.add_parser("zero", add_help=False,
                         help="the agent net: is Zero established, roll call / sitrep, comms check, time, handover, "
                              "net log (fieldkit zero; also fieldkit net VERB)")
@@ -2680,6 +2685,9 @@ def main(argv=None):
     if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
         from . import hog
         return hog.main(args[1:])
+    if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
+        from .core import liveness
+        return liveness.main(args[1:])
     if args[:1] == ["skills"]:                        # Agent Skills: spec checks, doors, installs (fieldkit/skills)
         from . import skills
         return skills.main(args[1:])

@@ -1,0 +1,74 @@
+# fieldkit liveness + contain: every containment, deadline and safety line must be CAUGHT (2026-10-26):
+#   fieldkit mutate --plan tests/liveness_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_liveness.py
+- file: fieldkit/core/contain.py
+  swap: ['        if not self.keep_leftovers:', '        if False:']
+  why: FM-1 what a step leaves running is stopped when its container closes
+- file: fieldkit/core/contain.py
+  swap: ['                    if live and not self.keep_leftovers:', '                    if False:']
+  why: FM-1 the orphan of a finished step is stopped and named as a leftover
+- file: fieldkit/core/contain.py
+  swap: ['                    if deadline_s and time.monotonic() - t0 >= deadline_s:', '                    if False:']
+  why: FM-2 a step is stopped at its wall deadline
+- file: fieldkit/core/contain.py
+  swap: ['                        status, rc = "timeout", 124', '                        status, rc = "fail", 124']
+  why: a deadline is TIMEOUT, not FAIL
+- file: fieldkit/core/contain.py
+  swap: ['    return now is not None and ct is not None and abs(now - float(ct)) <= CT_TOL', '    return now is not None']
+  why: FM-7 a reused PID is never ours
+- file: fieldkit/core/contain.py
+  swap: ['                if deadline_s and time.monotonic() >= t0 + deadline_s:', '                if False:']
+  why: FM-5 the guarded command (pre-commit suite) stops at its deadline
+- file: fieldkit/core/contain.py
+  swap: ['                self.beacon.add_members(new, self.sid)', '                self.beacon.add_members(new, None)']
+  why: members are recorded with their step, so an orphan of an ended step is found
+- file: fieldkit/core/liveness.py
+  swap: ['    if age > float(rec.get("stale_s") or STALE_MIN_S):', '    if False:']
+  why: a stale heartbeat is STALLED
+- file: fieldkit/core/liveness.py
+  swap: ['        if d and now > d + GRACE_S:', '        if False:']
+  why: FM-2/FM-4 a step past deadline + grace is STALLED even with a fresh heartbeat
+- file: fieldkit/core/liveness.py
+  swap: ['            ks = [[p, m["ctime"]] for p, m in sorted(live.items()) if str(m.get("step")) == str(sid)]', '            ks = []']
+  why: the overdue step's processes are stopped
+- file: fieldkit/core/liveness.py
+  swap: ['    ended = [(p, m) for p, m in sorted(live.items()) if m.get("step") is not None and str(m["step"]) not in steps]', '    ended = []']
+  why: a member that outlived its step is ORPHAN
+- file: fieldkit/core/liveness.py
+  swap: ['    if not owner:', '    if False:']
+  why: FM-6 members of a dead owner are ORPHAN
+- file: fieldkit/core/liveness.py
+  swap: ['    if not same(pid, ct):', '    if False:']
+  why: FM-7 stop_pid refuses a reused PID
+- file: fieldkit/core/liveness.py
+  swap: ['        if not act:', '        if False:']
+  why: check without --act stops nothing
+- file: fieldkit/core/liveness.py
+  swap: ['                       if s.get("deadline_at") and self.now() > s["deadline_at"] + self.grace]', '                       if False]']
+  why: FM-8 the beacon thread stops its own overdue step
+- file: fieldkit/core/liveness.py
+  swap: ['    return float(max(floor, min(cap, factor * max(hist))))', '    return float(cap)']
+  why: a deadline is derived from measured history
+- file: fieldkit/core/liveness.py
+  swap: ['        return float(min(float(explicit), cap))', '        return float(explicit)']
+  why: an explicit deadline is still capped
+- file: fieldkit/core/liveness.py
+  swap: ['    return {"status": "FINDINGS" if real else "OK",', '    return {"status": "OK",']
+  why: findings make exit 3
+- file: fieldkit/autopilot/goal.py
+  swap: ['    if cur.get("ctime") is None:', '    if True:']
+  why: FM-4 the lock holder is PID + creation time
+- file: fieldkit/core/contain.py
+  swap: ['        return time.monotonic() - self.at >= self.idle_s', '        return False']
+  why: FM-9 no progress for idle_s is a stall
+- file: fieldkit/core/contain.py
+  swap: ['        if size > self.size or cpu - self.cpu >= IDLE_CPU_S:', '        if size > self.size:']
+  why: FM-9 CPU use is progress (a quiet test suite is not a stall)
+- file: fieldkit/core/contain.py
+  swap: ['                o.tail_file = keep_tail_file(self.label, out, err, why)', '                o.tail_file = None']
+  why: FM-9 the tail of a stalled run is kept on disk
+- file: fieldkit/core/contain.py
+  swap: ['                    _report_stall(self.label, why, o.tail_file)', '                    pass']
+  why: FM-9 a stall reaches the ROOM, not only a log
+- file: fieldkit/core/liveness.py
+  swap: ['        if idle and since and now - since > idle + GRACE_S:', '        if False:']
+  why: FM-9 liveness check reports a step with no progress

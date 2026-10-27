@@ -224,8 +224,10 @@ class Pipeline:
 
         def refused(why):
             raise PipelineError(f"preflight refused {self.name}: {why}")
-        return preflight.call(f"pipeline {self.name}", "build", self._run, only, start, dry_run, force,
-                              refused=refused)
+        from . import liveness
+        with liveness.beacon("pipeline", self.name, f"fieldkit pipeline run {self.name}"):
+            return preflight.call(f"pipeline {self.name}", "build", self._run, only, start, dry_run, force,
+                                  refused=refused)
 
     def _run(self, only=None, start=None, dry_run=False, force=False):
         st = self.state()
