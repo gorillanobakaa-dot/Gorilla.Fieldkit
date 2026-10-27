@@ -15,6 +15,10 @@ machine-wide governor started at logon."
 Turbo is the power plan's PERFBOOSTMODE (powercfg, no elevation, the same lever family as PROCTHROTTLEMAX). Without a
 die sensor it is the one brake that does not wait for a lagging reading: it removes the 4.7 GHz bursts at the source.
 Windows only; elsewhere boost_set returns False and nothing is claimed.
+
+The fan: while a hold lives, %ProgramData%/TPFanControl/guard-hold.txt exists and Gorilla TPFanControl (Compile and
+Gorilla mode, gorilla.5) runs the fan at full speed for the whole job instead of waiting for the lagging EC reading to
+rise. A stale flag (a crash) only keeps the fan fast; the next guard or the machine governor removes it.
 """
 import json
 import os
@@ -31,6 +35,25 @@ LEASE_S = 15.0           # the machine governor rewrites its lease every 3 s
 def _dir():
     from ..core import settings
     return Path(settings.ROOT) / "state" / "thermal"
+
+
+def fan_flag_path():
+    return Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "TPFanControl" / "guard-hold.txt"
+
+
+def fan_flag(on, label=""):
+    """Tell the fan control a guarded job runs (full speed) or none does. -> True when the file is as asked."""
+    f = fan_flag_path()
+    try:
+        if on:
+            if not f.parent.is_dir():
+                return False                                  # no fan control here: nothing to tell
+            f.write_text(f"{os.getpid()} {label}\n", encoding="ascii", errors="replace")
+        elif f.exists():
+            f.unlink()
+        return True
+    except OSError:
+        return False
 
 
 def _powercfg(*args):
@@ -87,7 +110,10 @@ def restore_stale_boost(folder=None, read=None, write=None, alive=None, say=prin
     """No live hold but a boost marker: a crashed guard left turbo off. -> the restored mode or None."""
     write = write or boost_set
     m = Path(folder or _dir()) / "boost-original.json"
-    if not m.exists() or holds(folder, alive):
+    if holds(folder, alive):
+        return None
+    fan_flag(False)                                           # no job holds: the fan control may slow down again
+    if not m.exists():
         return None
     try:
         orig = int(json.loads(m.read_text(encoding="utf-8"))["original"])
@@ -117,6 +143,8 @@ def hold(label, say=print, folder=None, read=None, write=None, alive=None, pid=N
         orig = read()
         if orig is not None and orig != BOOST_OFF:
             marker.write_text(json.dumps({"original": orig}), encoding="utf-8")
+    if fan_flag(True, label):
+        say("  fan: full speed while this job runs (guard-hold.txt for Gorilla TPFanControl)")
     if write(BOOST_OFF):
         say("  turbo: off while this job runs (boost mode 0; put back when the last guarded job ends)")
     elif sys.platform == "win32":
@@ -131,7 +159,7 @@ def hold(label, say=print, folder=None, read=None, write=None, alive=None, pid=N
         rest = [x for x in holds(d, alive) if x.get("pid") != pid]
         if rest:
             say(f"  turbo: stays off, {len(rest)} other guarded job(s) still running")
-        elif marker.exists():
+        else:
             restore_stale_boost(d, read, write, alive, say)
 
 

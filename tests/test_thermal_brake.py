@@ -30,6 +30,8 @@ class Boost:
 def fake(tmp_path, monkeypatch):
     b, caps = Boost(), []
     monkeypatch.setattr(brake, "_dir", lambda: tmp_path)
+    (tmp_path / "fan").mkdir()
+    monkeypatch.setattr(brake, "fan_flag_path", lambda: tmp_path / "fan" / "guard-hold.txt")
     monkeypatch.setattr(brake, "boost_read", b.read)
     monkeypatch.setattr(brake, "boost_set", b.write)
     monkeypatch.setattr(governor, "set_cap", caps.append)
@@ -80,7 +82,9 @@ def test_turbo_is_off_while_any_guarded_job_holds_and_back_after_the_last(fake):
             pass
         assert fake.boost.mode == brake.BOOST_OFF                 # a still runs
         assert any("stays off" in s for s in said)
+        assert (fake.dir / "fan" / "guard-hold.txt").exists()     # the fan stays at full speed too
     assert fake.boost.mode == 2 and not (fake.dir / "boost-original.json").exists()
+    assert not (fake.dir / "fan" / "guard-hold.txt").exists()
 
 
 def test_a_crashed_guard_leaves_turbo_off_and_the_next_run_restores_it(fake):
@@ -88,8 +92,10 @@ def test_a_crashed_guard_leaves_turbo_off_and_the_next_run_restores_it(fake):
     (fake.dir / "holds" / "999.json").write_text('{"pid": 999}', encoding="utf-8")
     (fake.dir / "boost-original.json").write_text('{"original": 2}', encoding="utf-8")
     fake.boost.mode = 0
+    (fake.dir / "fan" / "guard-hold.txt").write_text("999 crashed", encoding="ascii")
     assert brake.restore_stale_boost(alive=lambda p: False, say=lambda m: None) == 2
     assert fake.boost.mode == 2 and not list((fake.dir / "holds").glob("*.json"))
+    assert not (fake.dir / "fan" / "guard-hold.txt").exists()
 
 
 def _guard(monkeypatch, surface=True):
