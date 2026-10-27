@@ -39,7 +39,7 @@ tools:
   inputs:
     - {name: target, flag: -Target, type: str, required: false, help: "the folder (default %USERPROFILE%\\Fieldkit); refused if it has files or is under OneDrive"}
     - {name: branch, flag: -Branch, type: str, required: false, help: "the GitHub branch whose zip is downloaded (main)"}
-    - {name: yes, flag: -Yes, type: bool, required: false, help: "answer yes to every question"}
+    - {name: "yes", flag: -Yes, type: bool, required: false, help: "answer yes to every question"}
   effects: [network, writes-files, processes]
   safety: reversible
   notes: 'Twin of install.sh (Linux/macOS). Asks y/N before each download and install; Windows PowerShell 5.1; Python found by full path (py launcher, python.org installs, never PATH or the Store alias); refuses a zip entry outside its top folder. Only the target folder changes: delete it to undo. FIELDKIT_ZIP_URL (file:// = copy) and FIELDKIT_SKIP_PIP=1 as in install.sh. Exit 0 ready, 2 bad usage or refused folder, 3 not ready. Owner order 2026-10-23.'
@@ -1174,7 +1174,7 @@ tools:
   path: ${FIELDKIT}/install.sh
   inputs:
     - {name: folder, flag: null, type: str, required: false, help: "where to put Fieldkit (default ./Fieldkit; refused when it already has files)"}
-    - {name: yes, flag: --yes, type: flag, required: false, help: "answer yes to each question (downloads, installs)"}
+    - {name: "yes", flag: --yes, type: flag, required: false, help: "answer yes to each question (downloads, installs)"}
     - {name: full, flag: --full, type: flag, required: false, help: "every dependency instead of the lean set"}
     - {name: branch, flag: --branch, type: str, required: false, help: "the branch to download (default main)"}
   effects: [network, writes-files, processes]
@@ -2105,7 +2105,7 @@ tools:
   entry: [python, -m, fieldkit, mandate, install-hooks]
   path: ${FIELDKIT}/fieldkit/mandate/upkeep.py
   inputs:
-    - {name: yes, flag: --yes, type: flag, required: false, help: "install (without it: a preview that changes nothing)"}
+    - {name: "yes", flag: --yes, type: flag, required: false, help: "install (without it: a preview that changes nothing)"}
     - {name: stick, flag: --stick, type: str, required: false, help: "a NEW empty folder for the other computer (nothing is overwritten)"}
   effects: [writes-files]
   safety: reversible             # every replaced file is kept beside it as *.bak-<date>
@@ -5662,7 +5662,7 @@ tools:
   inputs:
     - {name: action, flag: null, type: str, required: true, choices: [repeat, log, scan], help: "repeat TEST...; log: re-measure state/flaky-tests.log; scan [PATH...]"}
     - {name: targets, flag: null, type: list, required: false, help: "repeat: pytest node ids or files; scan: paths"}
-    - {name: n, flag: -n, type: int, required: false, help: "runs per test (repeat 10, log 5)"}
+    - {name: "n", flag: -n, type: int, required: false, help: "runs per test (repeat 10, log 5)"}
   effects: [reads-files, processes, writes-files]
   safety: unknown
   output: own
@@ -6118,7 +6118,7 @@ tools:
   inputs:
     - {name: action, flag: null, type: str, required: true, choices: [start, status, report], help: "start BRIEF.md [--on DEVICE] | status | report ID --status done|failed|blocked"}
     - {name: arg, flag: null, type: str, required: false, help: "start: the brief file; report: the task id"}
-    - {name: on, flag: --on, type: str, required: false, help: "start: a household device; the job runs there"}
+    - {name: "on", flag: --on, type: str, required: false, help: "start: a household device; the job runs there"}
     - {name: cwd, flag: --cwd, type: str, required: false, help: "start here: the job's folder"}
     - {name: wall, flag: --wall, type: int, required: false, help: "start here: wall budget in minutes (120)"}
     - {name: status, flag: --status, type: str, required: false, help: "report: done, failed or blocked"}
