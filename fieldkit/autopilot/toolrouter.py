@@ -1,4 +1,4 @@
-# Version: 1.4.0 · updated 27-10-26
+# Version: 1.5.0 · updated 27-10-26
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -205,6 +205,8 @@ REMOTE = re.compile(r"(?:^|[;&|]\s*)ssh(?:\.exe)?\s|\bfieldkit(?:\.exe)?\s+(?:ta
                     r"\s--on\s+(?!this\b|local\b)\S", re.I | re.M)
 GIT_COMMIT = re.compile(r"(^|[;&|(]\s*|\bthen\s+|\bdo\s+)(?:\w+=\S*\s+)*(?:[\"']?[^\s\"';&|]*[\\/])?git(\.exe)?[\"']?"
                         r"((?:\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+)|\s+-c\s+\S+|\s+--[\w-]+(=\S+)?)*)\s+commit\b", re.I | re.M)
+SEARCH = re.compile(r"^\s*(?:[^\s\"';&|]*[\\/])?(?:grep|egrep|fgrep|rg|ag|findstr|select-string|git\s+(?:-C\s+\S+\s+)?grep)"
+                    r"(?:\.exe)?\b(?![^\n]*(?:\s-c\s|\$\(|`|\s--exec\b|\s-x\b))", re.I)
 HEAVY_GUARD = {"route": "heavy-work-outside-the-guard",
                "use": "fieldkit guard -- <the command> (one machine-wide slot, the preflight, the fan check and the "
                       "governor that brakes at thermal.build_target), or run it on the VAIO (fieldkit task start BRIEF "
@@ -258,6 +260,9 @@ def heavy_refusal(command, cwd="", platform=None):
     # which is judged as a command of its own
     inner = [m.group(2) for m in re.finditer(r"\s-(?:c|Command)\s+([\"'])(.*?)\1", command, re.S)]
     raw, command = command, "\n".join([re.sub(r"\"[^\"\n]*\"|'[^'\n]*'", '""', command)] + inner)
+    # 2026-10-27 (#108 fix 5): the words of a search are its pattern, not a command (`grep -n -- pytest f`); a
+    # search statement is dropped whole, the statements around it are still judged (`grep x f; pytest` is heavy)
+    command = "".join("" if SEARCH.match(p) else p for p in re.split(r"(;|&&|\|\||\||\n)", command))
     if any(p.search(command) for _, p in HEAVY):
         return HEAVY_GUARD
     if any(_pytest_heavy(m.group(1)) for m in PYTEST.finditer(command)):

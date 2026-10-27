@@ -110,3 +110,23 @@ def test_a_goal_criterion_on_windows_runs_under_the_guard(tmp_path, monkeypatch)
 def test_the_refusal_names_the_guarded_form():
     m = tr.message(tr.HEAVY_GUARD)
     assert "fieldkit guard --" in m and "--on peer" in m
+
+
+@pytest.mark.parametrize("cmd", [
+    "grep -n -- pytest tests/x.py",
+    "rg -n -e pytest -- cargo build",
+    "git grep -n -- go test",
+    "cat log | grep -- pytest",
+])
+def test_fix5_the_words_of_a_search_are_its_pattern(cmd):
+    assert tr.heavy_refusal(cmd, platform="win32") is None
+
+
+@pytest.mark.parametrize("cmd", [
+    "grep -n x f; pytest",
+    "grep -n x f && python -m pytest tests",
+    "pytest | grep -- passed",
+    "grep -n x f | xargs -- cargo build",
+])
+def test_fix5_heavy_work_next_to_a_search_is_still_refused(cmd):
+    assert tr.heavy_refusal(cmd, platform="win32") is not None

@@ -1,4 +1,4 @@
-# Version: 1.6.0 · updated 26-10-26-12-00
+# Version: 1.7.0 · updated 26-10-27-14-00
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -183,6 +183,81 @@ def _one_statement(cmd):
     return bool(PLAIN.match(cmd)) and not SUBST.search(cmd)
 
 
+# -- 2026-10-27 (owner "Da" on inbox #108: 53 of 73 refusals 10-25..27 were false, BASELINE.md). Each rule below
+#    narrows what is READ as an action; what is written, deleted or pushed is judged exactly as before.
+#: a file-descriptor redirect writes nothing: 2>&1, >&2, 2>/dev/null, 2>nul, &>/dev/null (fix 1)
+FD_REDIRECT = re.compile(r"\d?>&\d|&>>?\s*(/dev/null|nul)\b|\d?>>?\s*(/dev/null|nul)\b", re.I)
+#: a cat/tee heredoc whose body cannot run: quoted delimiter, or no $( or backtick in it (fix 4). The first line
+#: keeps its redirect (`cat > CLAUDE.md <<'EOF'` is still a write there); `cat <<EOF | sh` is never stripped.
+SINK_HEREDOC = re.compile(r"^([ \t]*(?:cat|tee)\b[^\n|;&`]*<<-?[ \t]*(['\"]?)(\w+)\2[^\n|;&`]*)\n(.*?)\n[ \t]*\3[ \t]*$",
+                          re.S | re.M)
+#: reading the hooks-path setting (no value after it) is not a delete (fix 3)
+HOOKS_READ = re.compile(r"^\s*git\s+config\s+(--(get|get-all|get-regexp|local|global|system|show-origin|show-scope|"
+                        r"worktree|null|name-only)\s+)*core\.hookspath\s*$", re.I)
+#: the arguments of an Edit/Write/Grep/... call that name a place, not its content (fix 2)
+PATH_KEY = re.compile(r"path|file|dir|^(target|source|destination|glob|include|cwd)$", re.I)
+CONTENT_KEY = re.compile(r"content|text|chunk|string|code|source_?code|edits|instruction|description", re.I)
+
+
+def _writes(text):
+    return WRITE.search(FD_REDIRECT.sub(" ", text))
+
+
+def _sink_heredocs_out(cmd):
+    def cut(m):
+        quoted, body = m.group(2), m.group(4)
+        return m.group(1) if quoted or not re.search(r"\$\(|`", body) else m.group(0)
+    return SINK_HEREDOC.sub(cut, cmd)
+
+
+def _comments_out(cmd):
+    """Drop shell comments: a # at the start of a word, outside quotes, to the end of its line. Not under cmd.exe,
+    where # is an ordinary character (`cmd /c echo #& rd /s x` runs the rd)."""
+    if re.search(r"\bcmd(\.exe)?[\"']?\s+/[ck]\b", cmd, re.I):
+        return cmd
+    out, q, i = [], None, 0
+    while i < len(cmd):
+        c = cmd[i]
+        if q:
+            q = None if c == q else q
+        elif c in "\"'":
+            q = c
+        elif c == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|("):
+            j = cmd.find("\n", i)
+            i = len(cmd) if j < 0 else j
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+SEARCH_PATTERN = re.compile(r"((?:^|[;&|\n])\s*(?:[^\s\"';&|]*[\\/])?(?:grep|egrep|fgrep|rg|ag|findstr|select-string|"
+                            r"git\s+grep)(?:\.exe)?\b[^\"'\n;&|]*)(\"[^\"\n]*\"|'[^'\n]*')", re.I)
+
+
+def _patterns_out(cmd):
+    """The command without the pattern (first quoted argument) of each search statement; its files stay. Matched
+    from the search word to its first quote, so a | inside the pattern does not split it."""
+    return SEARCH_PATTERN.sub(lambda m: m.group(1) + '""', cmd)
+
+
+def _delete_text(cmd):
+    """The command as hard line 2 reads it: no comments, no plain reads of the hooks-path setting."""
+    parts = re.split(r"(;|&&|\|\||\||\r?\n)", _comments_out(cmd))
+    return "".join("" if HOOKS_READ.match(FD_REDIRECT.sub(" ", p)) else p for p in parts)
+
+
+def _place_text(args, name=""):
+    """-> the path-like arguments of a tool. None when a tool that may write names no place (then its whole input is
+    judged, fail closed); "" for a read tool that names none (a search in the current folder)."""
+    found = [s for k, v in args.items()
+             if (PATH_KEY.search(k) and not CONTENT_KEY.search(k)) or (name == "glob" and k.lower() == "pattern")
+             for s in _strings(v)]
+    if found:
+        return "\n".join(found)
+    return "" if name in READ_TOOLS else None
+
+
 class MandateDoor:
     """What the hard lines ask of the project mandate (fieldkit/mandate). Any error answers "not allowed"."""
 
@@ -260,7 +335,16 @@ def decide(tool, args, stop_file=None, cwd=None, door=None):
     texts = list(_strings(args))
     joined = "\n".join(texts)
     stop = Path(stop_file) if stop_file else STOP_FILE
-    if CREDENTIAL.search(joined):
+    cmd = next((v for k, v in args.items() if k.lower() in COMMAND_KEYS and isinstance(v, str)), None)
+    if cmd is not None:
+        cmd = _sink_heredocs_out(cmd)                     # a note's text is not a command (#108 fix 4)
+    # #108 fix 2: a command is judged on its command text (+ its path arguments); any other tool on the places it
+    # names, not on what it writes or searches for; a tool that names no place is judged on its whole input
+    place = _place_text(args, name)
+    if cmd is not None:
+        place = _patterns_out(cmd) + ("\n" + place if place else "")
+    judged = joined if place is None else place
+    if CREDENTIAL.search(judged):
         return "deny", "HARD LINE 5: a credential file is never read or written by a model"
     if name in READ_TOOLS:
         return "allow", "read"
@@ -268,8 +352,7 @@ def decide(tool, args, stop_file=None, cwd=None, door=None):
         return "deny", f"STOPPED by the owner ({stop}): only reads until the owner removes it (fieldkit autopilot resume)"
     if MANDATE_ENV.search(joined):
         return "deny", "HARD LINE 3: FIELDKIT_MANDATE_HOME would bring a trust store of its own; the mandate is the owner's"
-    cmd = next((v for k, v in args.items() if k.lower() in COMMAND_KEYS and isinstance(v, str)), None)
-    if cmd is not None and MANDATE_STORE.search(_norm(cmd)) and WRITE.search(cmd):
+    if cmd is not None and MANDATE_STORE.search(_norm(cmd)) and _writes(cmd):
         return "deny", "HARD LINE 3: this would change the owner's mandate store; models may only read it"
     if cmd is not None and KERNEL_BOOT.search(cmd):
         return "deny", ("HARD LINE 4: installing or booting a kernel (or rebooting) on this machine is the owner's "
@@ -302,20 +385,21 @@ def decide(tool, args, stop_file=None, cwd=None, door=None):
         if INSTALLER.search(cmd) and not INSTALL_WRAP.match(cmd) and door.in_force():
             return "deny", ("MANDATE: while a project mandate is in force, installs go through "
                             "fieldkit mandate install GB WHAT -- COMMAND (the budget, measured and logged)")
-        if DELETE.search(cmd) and not _scratch_only(cmd):
+        # each deleting statement on its own paths (`rm -rf /tmp/x; cd C:/repo && git status` deletes only scratch)
+        if any(DELETE.search(s) and not _scratch_only(s) for s in _statements(_delete_text(cmd))):
             return "deny", ("HARD LINE 2: deleting or discarding work outside the scratch folders; move it to a "
                             "labelled holding folder instead and say so")
         for seg in _statements(cmd):
             what = _protected(seg)
-            if what and WRITE.search(seg):
+            if what and _writes(seg):
                 return "deny", f"HARD LINE 3: this would change {what}; report the need in the owner inbox"
         return "allow", "command inside the hard lines"
-    if MANDATE_STORE.search(_norm(joined)):
+    if MANDATE_STORE.search(_norm(judged)):
         return "deny", "HARD LINE 3: the owner's mandate store may not be changed by a model; models may only read it"
-    what = _protected(joined)
+    what = _protected(judged)
     if what and (name in EDIT_TOOLS or name not in READ_TOOLS):
         return "deny", f"HARD LINE 3: {what} may not be changed by a model; report the need in the owner inbox"
-    if name == "delete_directory" and not _scratch_only(joined):
+    if name == "delete_directory" and not _scratch_only(judged):
         return "deny", "HARD LINE 2: deleting a folder outside the scratch folders"
     return "allow", "inside the hard lines"
 
@@ -327,14 +411,19 @@ def scratch_roots():
 
 def _scratch_only(text):
     """A delete whose every path argument lies under a scratch root (TEMP, /tmp, the autopilot scratch)."""
-    paths = re.findall(r"[a-z]:[\\/][^\s\"';|&]+|/[^\s\"';|&]+|\$env:temp[^\s\"';|&]*|%temp%[^\s\"';|&]*", text, re.I)
+    # 2026-10-27 (#108 fix 3): $TEMP / ${TMP} / $TMPDIR are the scratch root too; a path that climbs out with .. never is
+    paths = re.findall(r"[a-z]:[\\/][^\s\"';|&]+|/[^\s\"';|&]+|\$env:temp[^\s\"';|&]*|%temp%[^\s\"';|&]*|"
+                       r"\$\{?(?:temp|tmp|tmpdir)\}?(?=[/\\\s\"']|$)[^\s\"';|&]*", text, re.I)
     if not paths:
         return False
     roots = scratch_roots()
+    temp = _norm(os.environ.get("TEMP", "~temp"))
     ok = 0
     for p in paths:
-        n = _norm(p).replace("$env:temp", _norm(os.environ.get("TEMP", "~temp"))).replace(
-            "%temp%", _norm(os.environ.get("TEMP", "~temp")))
+        n = re.sub(r"^\$\{?(temp|tmp|tmpdir)\}?", lambda _: temp, _norm(p))
+        n = n.replace("$env:temp", temp).replace("%temp%", temp)
+        if re.search(r"(^|/)\.\.(/|$)", n):
+            return False
         if any(n.startswith(r) for r in roots):
             ok += 1
         elif n.startswith(("/dev/", "/proc/")) or re.fullmatch(r"/[a-z]{1,2}", n):
