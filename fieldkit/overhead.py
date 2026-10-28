@@ -42,6 +42,7 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from .core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / "fieldkit.local.json"
@@ -427,7 +428,7 @@ def sweep(intervals, t0, t1):
 
 # ---- jobs ---------------------------------------------------------------------------------------------------------
 def state_dir(state=None):
-    return Path(state or os.environ.get("FIELDKIT_OVERHEAD_STATE") or ROOT / "state")
+    return Path(state or os.environ.get("FIELDKIT_OVERHEAD_STATE") or _state_root(ROOT) / "state")
 
 
 def _segments(events):

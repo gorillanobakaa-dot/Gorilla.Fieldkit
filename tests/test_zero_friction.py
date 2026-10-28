@@ -483,3 +483,15 @@ def test_fieldkit_cli_dispatches(monkeypatch):
     cli.main(["task", "status"])
     cli.main(["sessions", "sweep"])
     assert seen == [["friction", "--here"], ["task", "status"], ["sweep"]]
+
+
+def test_a_task_whose_process_ended_with_no_report_is_died_not_started(tmp_path):
+    a = tasks.start(brief(tmp_path), cwd=tmp_path, launch=lambda a: {"pid": 7, "log": "L7"}, now=NOW)
+    b = tasks.start(brief(tmp_path, "Do the other job."), cwd=tmp_path, launch=lambda a: {"pid": 8, "log": "L8"},
+                    now=NOW + 1)
+    tasks.report(b["id"], "done", note="ok")
+    led = tasks.ledger()
+    assert tasks.settle(led, alive=lambda pid: False) == [a["id"]]
+    assert led[a["id"]]["status"] == "died" and "L7" in led[a["id"]]["answer"] and led[b["id"]]["status"] == "done"
+    led = tasks.ledger()
+    assert tasks.settle(led, alive=lambda pid: True) == [] and led[a["id"]]["status"] == "started"

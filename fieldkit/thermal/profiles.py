@@ -49,7 +49,7 @@ DANGER, HOT, REPEAT_HOT, REPEAT_DANGER, NO_DATA_AFTER = 95, 85, 600, 300, 60
 
 
 def _dir():
-    d = Path(settings.ROOT) / "state" / "thermal"
+    d = settings.state_root() / "state" / "thermal"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

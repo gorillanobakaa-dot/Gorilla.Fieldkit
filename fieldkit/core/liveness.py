@@ -100,7 +100,7 @@ MODES = [
 
 def state_dir():
     from . import settings
-    d = Path(os.environ.get("FIELDKIT_LIVENESS_DIR") or (settings.ROOT / "state" / "liveness"))
+    d = Path(os.environ.get("FIELDKIT_LIVENESS_DIR") or (settings.state_root() / "state" / "liveness"))
     (d / "runs").mkdir(parents=True, exist_ok=True)
     return d
 

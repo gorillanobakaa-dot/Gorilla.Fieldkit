@@ -360,7 +360,7 @@ def spec(project, version, release=None):
 
 def pipeline(project, version, state_root=None, release=None):
     from ..core.pipeline import Pipeline
-    root = Path(state_root) if state_root else settings.ROOT / "state"
+    root = Path(state_root) if state_root else settings.state_root() / "state"
     pl = Pipeline(spec(project, version, release), source=f"release-cycle:{project}",
                   state_dir=root / "release-cycle" / project / version)
     fk = settings.self_cmd()                              # the full path: a person can paste it from any folder

@@ -56,6 +56,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import session_cost as sc
+from ..core.settings import state_root as _state_root
 
 VERSION = "1.1.0"
 DEFAULTS = {"ctx_warn": 250_000, "ctx_rotate": 350_000, "usd_warn": 40.0, "usd_rotate": 75.0,
@@ -84,13 +85,13 @@ def config():
 
 
 def state_dir():
-    d = Path(os.environ.get("FIELDKIT_ROTATE_DIR") or (_root() / "state" / "rotate"))
+    d = Path(os.environ.get("FIELDKIT_ROTATE_DIR") or (_state_root(_root()) / "state" / "rotate"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def coordination_dir():
-    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (_root() / "state" / "coordination"))
+    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (_state_root(_root()) / "state" / "coordination"))
 
 
 # ---------------------------------------------------------------- the verdict (pure)

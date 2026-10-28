@@ -69,7 +69,7 @@ ASSETS = {"windows": "gorilla-opencode.exe", "deb": "gorilla-opencode_{v}_amd64.
 
 
 def state_dir():
-    return Path(os.environ.get("FIELDKIT_PARITY_STATE") or (settings.ROOT / "state" / "parity"))
+    return Path(os.environ.get("FIELDKIT_PARITY_STATE") or (settings.state_root() / "state" / "parity"))
 
 
 def _run(cmd, timeout=30):

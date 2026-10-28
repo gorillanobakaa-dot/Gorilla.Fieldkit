@@ -36,9 +36,10 @@ import yaml
 
 from . import hardlines
 from .budget import EXIT_PAUSED
+from ..core.settings import state_root as _state_root
 
 BLOCK = re.compile(r"```runbook\s*\n(.*?)```", re.S)
-JOBS = Path(__file__).resolve().parents[2] / "state" / "jobs"
+JOBS = _state_root(Path(__file__).resolve().parents[2]) / "state" / "jobs"
 PAUSED = "paused-resumable"
 
 

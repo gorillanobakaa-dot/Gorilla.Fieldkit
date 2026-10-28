@@ -30,7 +30,7 @@ NEEDS_YOU_HOURS = 48
 
 def state_dir():
     from ..core import settings
-    d = Path(os.environ.get("FIELDKIT_LIFECYCLE_DIR") or (settings.ROOT / "state" / "lifecycle"))
+    d = Path(os.environ.get("FIELDKIT_LIFECYCLE_DIR") or (settings.state_root() / "state" / "lifecycle"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 

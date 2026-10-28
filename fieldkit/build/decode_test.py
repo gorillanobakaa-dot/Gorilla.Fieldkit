@@ -297,7 +297,7 @@ def stock_firefox(version, root=None, run=subprocess.run):
     state/stock-firefox/<version>, checked against Mozilla's SHA256SUMS, reused after. -> path of the firefox binary,
     or raises with the reason. Never installed: it runs from its folder in a throwaway profile."""
     from ..core import settings
-    d = Path(root or settings.ROOT / "state" / "stock-firefox") / version
+    d = Path(root or settings.state_root() / "state" / "stock-firefox") / version
     exe = d / "firefox" / "firefox"
     if exe.is_file():
         return exe

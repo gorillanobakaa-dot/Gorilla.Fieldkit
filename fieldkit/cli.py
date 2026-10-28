@@ -517,7 +517,7 @@ def cmd_office(a):
         for f in a.files:
             key = hashlib.sha256(str(Path(f).resolve()).lower().encode()).hexdigest()[:12]
             pipe = Pipeline.load(PIPE_DIR / "office-deliver.yaml", overrides={"file": f, "no_backup": "1" if a.no_backup else ""},
-                                 state_dir=settings.ROOT / "state" / "office-deliver" / key)
+                                 state_dir=settings.state_root() / "state" / "office-deliver" / key)
             reps.append({"file": f} | pipe.run(force=True))
 
         def show(rs):
@@ -564,7 +564,7 @@ def _pipeline_in_screen(a):
     if subprocess.run(["screen", "-ls", name], capture_output=True, text=True).stdout.count(f".{name}\t"):
         print(f"fieldkit pipeline: a screen session named {name} is already running; nothing was started")
         return 2
-    logs = settings.ROOT / "state" / "pipelines"
+    logs = settings.state_root() / "state" / "pipelines"
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"{a.name}-{name}-{time.strftime('%y-%m-%d-%H-%M')}.log"
     cmd = screen_command(a, log)
@@ -854,7 +854,7 @@ def _release_files(a):
         if not a.repo:
             print("REFUSED: verify needs --repo OWNER/NAME")
             return 2
-        folder = Path(a.dir) if a.dir else (settings.ROOT / "state" / "release-verify" /
+        folder = Path(a.dir) if a.dir else (settings.state_root() / "state" / "release-verify" /
                                             f"{a.repo.replace('/', '_')}-{a.spec}-{time.strftime('%Y%m%d-%H%M%S')}")
         r = relfiles.verify(a.spec, a.repo, folder, dispatch=not a.no_dispatch, run_id=a.run_id, wait=a.wait,
                             xz_cap_mib=a.xz_cap_mib)
@@ -2614,7 +2614,7 @@ def cmd_thermal(a):
             s = vaio.snapshot()
             _emit(s, a.json, lambda s: print(vaio.line(s)))
             return 0 if s.get("tool") else 2
-        out = Path(a.value) if a.value else settings.ROOT / "state" / "thermal" / f"vaio-{time.strftime('%y-%m-%d-%H-%M')}.log"
+        out = Path(a.value) if a.value else settings.state_root() / "state" / "thermal" / f"vaio-{time.strftime('%y-%m-%d-%H-%M')}.log"
         out.parent.mkdir(parents=True, exist_ok=True)
         n = vaio.log(out, interval=a.interval, until_pid=a.until_pid, seconds=None if a.until_pid else a.seconds)
         print(f"{n} line(s) in {out}")

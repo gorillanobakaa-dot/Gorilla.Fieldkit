@@ -169,7 +169,7 @@ class Recipe:
         self.spec, self.source, self.strict, self._run = spec, str(source), strict, run
         self.name = spec["name"]
         self.overrides = dict(overrides or {})
-        self.state_dir = Path(state_root or settings.ROOT / "state" / "emerge") / self.name
+        self.state_dir = Path(state_root or settings.state_root() / "state" / "emerge") / self.name
         self.state_dir.mkdir(parents=True, exist_ok=True)
         overlay = spec.get("stages") if spec.get("pipeline") else {}
         if spec.get("pipeline"):

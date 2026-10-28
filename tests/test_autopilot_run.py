@@ -132,3 +132,25 @@ def test_the_prompt_goes_on_stdin_so_a_dash_prompt_is_not_an_option(state, monke
     assert run.claude(brief, popen=P)["ok"]
     assert seen["input"] == brief and brief not in seen["args"]
     assert seen["args"][:2] == ["claude", "-p"]
+
+
+def test_the_same_open_question_is_one_inbox_item_with_a_count():
+    a = inbox.add("vaio does not answer on the cable", "first", "fieldkit peers link heal vaio")
+    b = inbox.add("vaio does not answer on the cable", "second")
+    assert b["n"] == a["n"] and b["repeats"] == 2 and b["why"] == "second" and b["command"].endswith("heal vaio")
+    assert len(inbox.items()) == 1 and "(x2, last " in inbox.lines(inbox.items())[1]
+    inbox.done(a["n"])
+    assert inbox.add("vaio does not answer on the cable", "again")["n"] != a["n"]
+
+
+def test_claude_found_where_the_installers_put_it_when_not_on_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(run.shutil, "which", lambda name: None)
+    monkeypatch.setattr(run.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "none"))
+    assert run.claude_exe() is None or not run.claude_exe().startswith(str(tmp_path))
+    exe = tmp_path / ".local" / "bin" / ("claude.exe" if run.sys.platform == "win32" else "claude")
+    exe.parent.mkdir(parents=True)
+    exe.write_text("", encoding="utf-8")
+    exe.chmod(0o755)
+    assert run.claude_exe() == str(exe)

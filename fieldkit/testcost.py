@@ -32,6 +32,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from .core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,7 +49,7 @@ CODE_TREES = ("fieldkit/", "tests/", "skills/", "hooks/", "kits/")
 
 
 def state_dir():
-    d = Path(os.environ.get("FIELDKIT_TESTCOST_DIR") or ROOT / "state" / "testcost")
+    d = Path(os.environ.get("FIELDKIT_TESTCOST_DIR") or _state_root(ROOT) / "state" / "testcost")
     d.mkdir(parents=True, exist_ok=True)
     return d
 

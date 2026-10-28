@@ -31,7 +31,7 @@ def source_dir():
 
 
 def bin_dir():
-    return settings.ROOT / "state" / "bin"
+    return settings.state_root() / "state" / "bin"
 
 
 def locate():

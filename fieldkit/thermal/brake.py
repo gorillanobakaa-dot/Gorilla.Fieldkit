@@ -39,7 +39,7 @@ LEASE_S = 15.0           # the machine governor rewrites its lease every 3 s
 
 def _dir():
     from ..core import settings
-    return Path(settings.ROOT) / "state" / "thermal"
+    return settings.state_root() / "state" / "thermal"
 
 
 def fan_flag_path():

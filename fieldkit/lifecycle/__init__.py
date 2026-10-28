@@ -99,6 +99,7 @@ def cmd_task(argv):
         return 0
     new = tasks.ingest()
     led = tasks.ledger()
+    tasks.settle(led)
     if a.json:
         print(json.dumps(list(led.values()), indent=1, ensure_ascii=False))
     else:
