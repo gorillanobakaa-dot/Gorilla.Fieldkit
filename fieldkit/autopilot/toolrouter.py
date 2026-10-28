@@ -1,4 +1,4 @@
-# Version: 1.5.0 · updated 27-10-26
+# Version: 1.6.0 · updated 26-10-28-17-16
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -20,7 +20,10 @@ FK = "python -m fieldkit"                       # examples for a model; no perso
 #: (name, pattern on the command, the tool to use instead, an example)
 ROUTES = [
     ("recursive-file-search",
-     re.compile(r"(Get-ChildItem|\bgci\b|\bdir\b|\bls\b)[^|;\n]*\s-(Recurse|r\b|s\b)|\bdir\s+[^|;\n]*/s\b|"
+     # ls: only -R or --recursive recurses (R5, 2026-10-28: `ls -r` sorts in reverse, `ls -s` shows sizes and
+     # `git ls-files -s` lists the index; all three were refused). In PowerShell ls is Get-ChildItem: PS_LS below.
+     re.compile(r"(Get-ChildItem|\bgci\b|(?<![\w-])dir(?![\w-]))[^|;\n]*\s-(Recurse|r\b|s\b)|"
+                r"(?<![\w-])ls(?![\w-])[^|;\n]*\s(-(?-i:[a-zA-Z]*R[a-zA-Z]*)\b|--recursive\b)|\bdir\s+[^|;\n]*/s\b|"
                 r"(^|[;&|]\s*)find\s+(/|[A-Za-z]:|~|\$HOME|\.\.?/?\s)[^|;\n]*-(i?name|type|size|mtime)\b|"
                 r"\bwhere(\.exe)?\s+/r\b", re.I),
      "fieldkit size find (gorilla-size: every core, read-only, no junction loops)",
@@ -108,10 +111,21 @@ ROUTES = [
      "a Windows 11 tweaks module (backup, preview, apply, undo): fieldkit win11 run MODULE preview|apply|undo",
      FK + " win11 run copilot preview"),
     ("sleep-to-wait",
-     re.compile(r"\bStart-Sleep\s+(-s(econds)?\s+)?([1-9]\d|\d{3,})\b|(^|[;&|]\s*)sleep\s+([1-9]\d|\d{3,})\b", re.I),
+     re.compile(r"\bStart-Sleep\s+(-s(econds)?\s+)?([1-9]\d|\d{3,})\b|(^|[;&|]\s*|\bdo\s+|\bthen\s+)sleep\s+([1-9]\d|\d{3,})\b", re.I),
      "fieldkit wait --until CMD --matches RE --timeout S (wait on the condition, never on a clock)",
      FK + ' wait --until "git log -1 --format=%h" --matches c75f600 --timeout 600'),
 ]
+#: PowerShell: ls is Get-ChildItem, so -r and -s are -Recurse there (the bash row above lets them through)
+PS_LS = re.compile(r"(?<![\w-])ls(?![\w-])[^|;\n]*\s-(r|s)\b", re.I)
+#: rows whose habit IS a search command: a search statement is judged for them (R5 fix 4 exempts it for the others)
+SEARCH_ROWS = {"lmstudio-log-by-hand", "text-search-in-tree"}
+#: rows judged on the raw command line: the delete exemption needs the quoted path
+RAW_ROWS = {"permanent-delete"}
+#: a script handed to a shell or an interpreter (`grep -c "x" f` is a count, not a script)
+INNER = re.compile(r"\b(?:(?:ba|z|da)?sh|pwsh|powershell|python[\d.]*|py|cmd)(?:\.exe)?(?![\w.-])[\"']?[^|;&\n]*?"
+                   r"\s(?:-c|-Command|/c)\s+"
+                   r"([\"'])(.*?)\1", re.S | re.I)
+SLEEP = re.compile(r"^\s*(Start-Sleep\s+(-s(econds)?\s+)?|sleep\s+)([1-9]\d|\d{3,})\b", re.I)
 #: a refusal can be overridden only by saying why in the command itself, so the reason is on record
 OVERRIDE = re.compile(r"#\s*toolrouter-ok:\s*\S", re.I)
 
@@ -288,24 +302,74 @@ HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M
 #: Python or PowerShell code fed through a shell heredoc that contains backslashes: the Bash tool's quoting turns
 #: '\\\\' into '\\' and '\\n' into a newline inside the code (2026-10-18: about eight broken edits in one night, NUL
 #: bytes, a form feed in a release page, regexes that matched nothing; a memory had warned for a week)
-CODE_HEREDOC = re.compile(r"\b(python[0-9.]*|py)(\.exe)?\s+-\s*<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n(.*?)^\s*\3\s*$", re.S | re.M)
+#: R5 (2026-10-28, 247 refusals): with a quoted delimiter (<<'EOF') bash passes the body byte for byte; unquoted, it
+#: rewrites only a double backslash, backslash-dollar, backslash-backtick and backslash-newline. Only that is refused.
+CODE_HEREDOC = re.compile(r"\b(python[0-9.]*|py)(\.exe)?\s+-\s*<<-?\s*(['\"]?)(\w+)\3[^\n]*\n(.*?)^\s*\4\s*$", re.S | re.M)
+SHELL_ESCAPE = re.compile(r"\\[\\$`\n]")
 
 
-def route(command, cwd=""):
+def _statements(cmd):
+    """-> [(start, end, text)] of the statements between ; && || | and newlines."""
+    out, pos = [], 0
+    for m in re.finditer(r";|&&|\|\||\||\n", cmd):
+        out.append((pos, m.start(), cmd[pos:m.start()]))
+        pos = m.end()
+    return out + [(pos, len(cmd), cmd[pos:])]
+
+
+def _hit(name, pat, cmd):
+    """R5 fix 4 (2026-10-28): a row's match counts only when its first word stands outside a quoted string and outside
+    a search statement (`git commit -m "no robocopy"`, `grep -n Get-FileHash f` were refused). A shell's -c / -Command
+    script is judged as a command of its own. The delete row reads the raw line (its exemption needs the quoted path)."""
+    if name in RAW_ROWS:
+        return bool(pat.search(cmd))
+    dead = [m.span() for m in re.finditer(r"\"[^\"\n]*\"|'[^'\n]*'", cmd)]
+    searches = [(a, b) for a, b, t in _statements(cmd) if SEARCH.match(t)]
+    if name not in SEARCH_ROWS:
+        dead += searches
+    for m in pat.finditer(cmd):
+        first = m.start() + len(m.group(0)) - len(m.group(0).lstrip(" \t;&|"))
+        if not any(a <= first < b for a, b in dead):
+            return True
+    for m in INNER.finditer(cmd):
+        if _hit(name, pat, m.group(2)):
+            return True
+    return False
+
+
+def _sampling(cmd):
+    """R5 fix 2: every long sleep has a real statement before AND after it, outside a loop: a sampling interval
+    (measure, wait, measure again), not a wait for something to finish."""
+    if re.search(r"(^|[;&|\s])(while|until|for|do|foreach)\b", cmd, re.I):
+        return False
+    parts = [t.strip() for _, _, t in _statements(cmd)]
+    for i, t in enumerate(parts):
+        if SLEEP.match(t):
+            real = [x for x in parts if x and not SLEEP.match(x)]
+            if not ([x for x in parts[:i] if x in real] and [x for x in parts[i + 1:] if x in real]):
+                return False
+    return True
+
+
+def route(command, cwd="", shell=""):
     """-> None (allowed) or {"route", "use", "example"} for the first route the command matches. A heredoc's body is
     data written to a file or a program, not a command (2026-10-18: appending the rule that NAMES these commands to
-    GEMINI.md was refused), so it is not judged - except Python code with backslashes, which the shell mangles.
-    `cwd`: the folder the command runs in (the hook call's cwd), for the git-push row."""
+    GEMINI.md was refused), so it is not judged - except Python code the shell would mangle (an unquoted delimiter and
+    a backslash the shell rewrites). `cwd`: the folder the command runs in (the hook call's cwd), for the git-push row.
+    `shell`: the hook's tool name ("powershell": ls is Get-ChildItem)."""
     m = CODE_HEREDOC.search(command or "")
-    if m and "\\" in m.group(4) and not OVERRIDE.search(command or ""):
+    if m and not m.group(3) and SHELL_ESCAPE.search(m.group(5)) and not OVERRIDE.search(command or ""):
         return {"route": "code-with-backslashes-in-a-heredoc",
-                "use": "the Write tool for the script (it keeps every backslash), then run the file",
-                "example": "Write the script to the scratchpad, then: python <scratchpad>/fix.py"}
+                "use": "a quoted delimiter (<<'EOF': the body reaches Python byte for byte), or the Write tool for "
+                       "the script, then run the file",
+                "example": "python - <<'EOF'"}
     cmd = HEREDOC.sub("<<heredoc", command or "")
     if OVERRIDE.search(cmd):
         return None
     for name, pat, use, example in ROUTES:
-        if pat.search(cmd):
+        hit = _hit(name, pat, cmd) or (name == "recursive-file-search" and shell.lower() == "powershell"
+                                       and _hit(name, PS_LS, cmd))
+        if hit and not (name == "sleep-to-wait" and _sampling(cmd)):
             return {"route": name, "use": use, "example": example}
     return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)
 
@@ -363,7 +427,7 @@ def hook(stdin=None):
     tool = (call.get("tool_name") or "").lower()
     if tool not in ("bash", "powershell"):
         return 0
-    r = route((call.get("tool_input") or {}).get("command", ""), call.get("cwd") or "")
+    r = route((call.get("tool_input") or {}).get("command", ""), call.get("cwd") or "", tool)
     if r:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": message(r)}}))
