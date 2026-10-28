@@ -509,6 +509,32 @@ def test_the_inventory_and_the_recipes_name_each_other():
     assert named == set(R.available())
 
 
+def test_every_inventory_project_has_a_recipe():
+    # HARNESS-PLAN R6: no project without a recipe; a new repository enters the inventory with its recipe
+    inv = yaml.safe_load((R.HERE / "inventory.yaml").read_text(encoding="utf-8"))["projects"]
+    assert [n for n, p in inv.items() if not p.get("recipe")] == []
+
+
+def test_an_offloaded_stage_names_a_device_and_a_mandate_project_and_runs_itself_there():
+    # an offload is a run job of this same recipe and stage on the other machine: a wrong recipe name, stage id or
+    # project in the argv sends a job that builds something else, or nothing
+    owner = yaml.safe_load((R.HERE.parent / "mandate" / "owner-wide.yaml").read_text(encoding="utf-8"))
+    seen = 0
+    for name in R.available():
+        stages = yaml.safe_load(R.find(name).read_text(encoding="utf-8")).get("stages") or []
+        if isinstance(stages, dict):          # a pipeline's overlay: {stage id: fields}
+            stages = [dict(v or {}, id=k) for k, v in stages.items()]
+        for s in stages:
+            if not s.get("offload"):
+                continue
+            o, seen = s["offload"], seen + 1
+            assert o.get("device") and o.get("tree"), (name, s["id"])
+            assert o["project"] in owner["repos"], (name, s["id"], o["project"])
+            assert o["argv"][:5] == ["emerge", "run", name, "--only", s["id"]], (name, s["id"], o["argv"])
+            assert "--local" in o["argv"], (name, s["id"])
+    assert seen >= 3
+
+
 def test_a_recipes_mandate_entry_is_the_inventory_project_that_lists_it():
     # config.mandate keys the build to one repository's mandate entry: it must be the inventory project naming this
     # recipe, and a repository of the owner-wide mandate (a typo there silently keys the build to "none")

@@ -1,0 +1,50 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# Windows.11.tweaks.optimisation: PowerShell modules (modules/NN-*) that turn Windows 11 features off and back on,
+# each with its launchers, a read-only Test- script and a safety self-test. Nothing is compiled or packaged: the
+# folder is the product. Keyed by what they read:
+#   iterate  -> every module's Test-SafetyLogic.ps1 (read-only, no administrator rights; MODULE-STANDARD.md R2.8),
+#               run in Windows PowerShell 5.1 as the launchers run it, and a telemetry scan
+# The self-tests run on Windows only: from the VAIO they are offloaded to the L15 over the cable (a run job of this
+# recipe there, --only safety --local). Every other stage of the repository changes the machine it runs on.
+# Not a stage: Test-RoundTrip.ps1 and the apply/undo launchers (they write the registry and services to prove the
+# writes) and the services self-test workflow's SUPER profile check (a fact about the machine, not the source).
+name: windows-11-tweaks
+description: >-
+  Windows.11.tweaks.optimisation from its tree: every module's read-only safety self-test in Windows PowerShell 5.1
+  (offloaded to the L15 from Linux), a telemetry scan.
+baseline_minutes: 3
+vars:
+  src: "${DOCUMENTS}/Windows.11.tweaks.optimisation"
+  powershell: powershell.exe
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: Windows.11.tweaks.optimisation
+  files: ["{src}/modules/MODULE-STANDARD.md", "{src}/VERSION"]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+x-offload: &l15
+  device: l15
+  project: Windows.11.tweaks.optimisation
+  tree: "${FIELDKIT}/fieldkit/emerge/recipes"
+  wall: 30
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: safety
+    platforms: [windows]
+    offload: {<<: *l15, argv: [emerge, run, windows-11-tweaks, --only, safety, --local, --no-fix]}
+    run:
+      cmd: ["{powershell}", -NoProfile, -ExecutionPolicy, Bypass, -Command,
+            'Get-ChildItem modules -Filter Test-SafetyLogic.ps1 -Recurse | ForEach-Object { & $_.FullName; if ($LASTEXITCODE -ne 0) { Write-Host "FAIL $($_.FullName)"; exit 1 } }']
+      cwd: "{src}"
+    timeout: 900
+    inputs: ["{src}/modules/**/*.ps1"]
+    uses: [config, inputs]
+    needs: []
+    bucket: tests

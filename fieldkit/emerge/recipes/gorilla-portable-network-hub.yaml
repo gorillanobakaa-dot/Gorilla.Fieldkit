@@ -1,0 +1,111 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# Gorilla Portable Network Hub (repository Gorilla.Portable.Network.Hub): one Rust binary (src/hub) and its packages.
+# The stages are the repository's own packaging scripts taken apart so each is keyed by what it reads:
+#   iterate  -> cargo test, the release binary, the .deb (packaging/build-deb.sh), the static musl binary
+#               (build-linux-static.sh, zig as the linker) and its tarball, a telemetry scan; on Windows hub.exe and
+#               the Windows zip (build-windows-zip.py)
+# The Windows stages are offloaded to the L15 from the VAIO over the cable (run jobs of this recipe there,
+# --only STAGE --local), so the two builds run at the same time; their outputs stay on the L15.
+# The crates are not vendored: the cargo stages are --locked but fetch from crates.io once.
+# Not a stage: the Arch package (build-arch.sh needs makepkg, not on Debian), check-both-builds.sh (it cross-builds
+# with mingw on the host; the two native builds here cover it) and testing/*.sh (they change the network setup).
+name: gorilla-portable-network-hub
+description: >-
+  Gorilla Portable Network Hub: cargo test, the release binary, the .deb, the static musl binary and its tarball on
+  Linux; hub.exe and the Windows zip on Windows (offloaded to the L15 from Linux); a telemetry scan.
+baseline_minutes: 10
+vars:
+  src: "${DOCUMENTS}/Gorilla.Portable.Network.Hub"
+  py: python3                       # Windows: --var py=python
+  version: "0.11.0"                 # src/hub/Cargo.toml; the packaging scripts refuse a mismatch
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: Gorilla.Portable.Network.Hub
+  files: ["{src}/src/hub/Cargo.toml", "{src}/src/hub/Cargo.lock"]
+toolchain:
+  - [cargo, --version]
+  - [rustc, --version]
+preflight: {disk_gb: 3, ram_gb: 2, path: "{src}"}
+docs_only: {source: src}
+x-offload: &l15
+  device: l15
+  project: Gorilla.Portable.Network.Hub
+  tree: "${FIELDKIT}/fieldkit/emerge/recipes"
+  wall: 60
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  # -- Linux ------------------------------------------------------------------------------------------------------
+  - id: test
+    platforms: [linux]
+    run: {cmd: [cargo, test, --locked, --release], cwd: "{src}/src/hub"}
+    timeout: 1800
+    inputs: ["{src}/src/hub/src/**/*.rs", "{src}/src/hub/build.rs"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: build
+    platforms: [linux]
+    run: {cmd: [cargo, build, --release, --locked], cwd: "{src}/src/hub"}
+    timeout: 1800
+    inputs: ["{src}/src/hub/src/**/*.rs", "{src}/src/hub/build.rs"]
+    outputs: ["{src}/src/hub/target/release/hub"]
+    uses: [config, toolchain, inputs]
+    needs: [test]
+
+  - id: deb
+    platforms: [linux]
+    run: {cmd: [bash, "{src}/packaging/build-deb.sh"], cwd: "{src}"}
+    timeout: 300
+    inputs: ["{src}/packaging/build-deb.sh", "{src}/packaging/*.in", "{src}/packaging/copyright",
+             "{src}/packaging/postinst", "{src}/packaging/postrm", "{src}/packaging/hub.1",
+             "{src}/packaging/*.desktop", "{src}/packaging/icon/**/*", "{src}/packaging/etc/**/*"]
+    outputs: ["{src}/packaging/build/gorilla-portable-network-hub_{version}_amd64.deb"]
+    uses: [config, inputs]
+    needs: [build]
+
+  - id: static
+    platforms: [linux]
+    run: {cmd: [bash, "{src}/packaging/build-linux-static.sh"], cwd: "{src}"}
+    timeout: 1800
+    inputs: ["{src}/src/hub/src/**/*.rs", "{src}/src/hub/build.rs", "{src}/packaging/build-linux-static.sh"]
+    outputs: ["{src}/src/hub/target/x86_64-unknown-linux-musl/release/hub"]
+    uses: [config, toolchain, inputs]
+    needs: [test]
+
+  - id: tarball
+    platforms: [linux]
+    run: {cmd: ["{py}", -I, "{src}/packaging/build-linux-tarball.py"], cwd: "{src}"}
+    timeout: 300
+    inputs: ["{src}/packaging/build-linux-tarball.py", "{src}/packaging/linux-README.txt", "{src}/LICENSE"]
+    outputs: ["{src}/dist/hub-{version}-linux-x86_64-static.tar.gz"]
+    uses: [config, inputs]
+    needs: [static]
+
+  # -- Windows (the L15) ------------------------------------------------------------------------------------------
+  - id: build-windows
+    platforms: [windows]
+    offload: {<<: *l15, argv: [emerge, run, gorilla-portable-network-hub, --only, build-windows, --local, --no-fix]}
+    run: {cmd: [cargo, build, --release, --locked], cwd: "{src}/src/hub"}
+    timeout: 1800
+    inputs: ["{src}/src/hub/src/**/*.rs", "{src}/src/hub/build.rs", "{src}/packaging/icon/**/*"]
+    outputs: ["{src}/src/hub/target/release/hub.exe"]
+    uses: [config, toolchain, inputs]
+    needs: []
+
+  - id: zip-windows
+    platforms: [windows]
+    offload: {<<: *l15, argv: [emerge, run, gorilla-portable-network-hub, --only, zip-windows, --local, --no-fix]}
+    run: {cmd: ["{py}", -I, "{src}/packaging/build-windows-zip.py"], cwd: "{src}"}
+    timeout: 300
+    inputs: ["{src}/packaging/build-windows-zip.py", "{src}/packaging/windows-README.txt", "{src}/LICENSE"]
+    outputs: ["{src}/dist/hub-{version}-windows-x86_64.zip"]
+    uses: [config, inputs]
+    needs: [build-windows]
