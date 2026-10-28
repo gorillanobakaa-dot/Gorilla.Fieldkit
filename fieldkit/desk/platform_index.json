@@ -1439,6 +1439,17 @@
    "cost"
   ]
  },
+ "cost firstcall": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cost-firstcall"
+  ]
+ },
  "cv": {
   "platforms": [
    "linux",
@@ -2885,6 +2896,17 @@
   "why": "",
   "ids": [
    "skills"
+  ]
+ },
+ "skills sets": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-sets"
   ]
  },
  "snapshot diff": {

@@ -20,6 +20,9 @@ platforms read it. A skill is prose a model may skip; this tool runs the same ev
     fieldkit skills vendor UPSTREAM_DIR [--apply]
         rebuild third_party/anthropic-skills/ from an extracted upstream tree at the pinned commit: the listed skills
         only, the manifest's strips applied, CHANGES.md written; then the doors check must pass
+    fieldkit skills sets [--apply]
+        a skill set per project (fieldkit/skills/skillsets.yaml) written into Claude Code's skillOverrides, plus the
+        user settings this machine never uses (fieldkit/skills/sets.py)
     fieldkit skills package | benchmark | eval ...
         the adopted skill-creator's scripts as commands (fieldkit/skills/adopted.py)
 
@@ -299,6 +302,9 @@ def main(argv=None):
     if argv[:1] and argv[0] in PASS_THROUGH:      # the adopted skill-creator scripts parse their own arguments
         from . import adopted
         return getattr(adopted, PASS_THROUGH[argv[0]])(argv[1:])
+    if argv[:1] == ["sets"]:                       # a skill set per project, as data (O1)
+        from . import sets
+        return sets.main(argv[1:])
     try:
         a = build_parser().parse_args(argv)
     except SystemExit as e:

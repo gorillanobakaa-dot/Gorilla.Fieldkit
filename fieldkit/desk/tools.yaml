@@ -5954,7 +5954,7 @@ tools:
   entry: [python, -m, fieldkit, skills]
   path: ${FIELDKIT}/fieldkit/skills/__init__.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [validate, doors, installed, align, vendor, package, benchmark, eval], help: "validate (default roots, or PATHs; --installed, --staged, --json) | doors [PATH] | installed | align [--apply] | vendor UPSTREAM --apply | package SKILL_DIR [OUT] | benchmark DIR | eval --eval-set F --skill-path P --yes"}
+    - {name: action, flag: null, type: str, required: true, choices: [validate, doors, installed, align, vendor, sets, package, benchmark, eval], help: "validate (default roots, or PATHs; --installed, --staged, --json) | doors [PATH] | installed | align [--apply] | vendor UPSTREAM --apply | sets [--apply] (its own card, skill-sets) | package SKILL_DIR [OUT] | benchmark DIR | eval --eval-set F --skill-path P --yes"}
     - {name: json, flag: --json, type: flag, required: false, help: "validate/doors/installed: JSON"}
   effects: [reads-files, writes-files]
   safety: reversible
@@ -6120,7 +6120,7 @@ tools:
   entry: [python, -m, fieldkit, cost]
   path: ${FIELDKIT}/fieldkit/tokens/cost_daily.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [daily, report], help: "daily: one line for one day; report: both machines per day over a window, the bill beside it"}
+    - {name: action, flag: null, type: str, required: true, choices: [daily, report, firstcall], help: "daily: one line for one day; report: both machines per day over a window, the bill beside it; firstcall: a real headless first call, its tokens by part (its own card, cost-firstcall)"}
     - {name: date, flag: --date, type: str, required: false, help: "daily: the day, YYYY-MM-DD (default yesterday, local midnight to midnight)"}
     - {name: since, flag: --since, type: str, required: false, help: "report (required): first day, YYYY-MM-DD local midnight, or an ISO time"}
     - {name: until, flag: --until, type: str, required: false, help: "report: end, exclusive (default now)"}
@@ -6136,6 +6136,42 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_since_daily.py", "${FIELDKIT}/tests/test_tokens_cost_report.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "I4 of docs/HARNESS-PLAN.md, 2026-10-28 (the owner lost track of the spend over 4 days). Read-only, no model, no network: the other machine runs `fieldkit cost daily --json > cost-daily-<TAG>-<DATE>.json` and `fieldkit peers link put` of it; the line reads the newest file for the same day from another machine (link received/ or the scratch link-* jobs) and says so when none came. `cost report` (I1, 2026-10-28): both machines per local day and per source (Antigravity's Gemini and Claude priced from the dated tables in prices.json), the other machine's days from its `cost report --mine --json` or `cost daily --json` put over the cable, each missing day named, and with --bill the gap between the real bill and the API-equivalent. Mutations: tests/tokens_mutations.yaml."
+
+- id: cost-firstcall
+  title: "What a Claude Code session's first call carries on this machine, in tokens, measured by a real headless call (input + cache creation + cache read), the tools, skills and MCP servers it loaded, and with --parts the split by switching MCP, skills and tools off one at a time; the rules files by their size"
+  harness: core
+  entry: [python, -m, fieldkit, cost, firstcall]
+  path: ${FIELDKIT}/fieldkit/tokens/first_call.py
+  inputs:
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "the project folder to measure in (default: here)"}
+    - {name: parts, flag: --parts, type: flag, required: false, help: "four calls: full, no MCP, no skills, no tools"}
+    - {name: model, flag: --model, type: str, required: false, help: "the model (default: what a session there would use)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object, nothing else on stdout"}
+  effects: [network, processes, reads-files]
+  safety: reversible             # each call costs money (about $0.25 on Opus at 30k tokens) and leaves no transcript
+  output: own
+  exits: {0: "measured", 1: "no call was made (not signed in, rate-limited)", 2: "--cwd is not a folder"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skill_sets_first_call.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "O1 of docs/HARNESS-PLAN.md, 2026-10-28. `claude -p ... --output-format stream-json --verbose --max-turns 1 --no-session-persistence`; parts by --strict-mcp-config, --disable-slash-commands, --tools \"\". The parts overlap (skills off also drops the Skill tool's text), so the rest can be negative. Run by hand to measure a change, never in a loop. Mutations: tests/o1_mutations.yaml."
+
+- id: skill-sets
+  title: "A skill set per project, as data (fieldkit/skills/skillsets.yaml), written into Claude Code's own skillOverrides: skills outside the everywhere set hidden from the model in ~/.claude/settings.json, each project's own set turned on in its .claude/settings.local.json (kept out of git through .git/info/exclude); plus the user settings this machine never uses (claude.ai connectors off, unused tools denied)"
+  harness: core
+  entry: [python, -m, fieldkit, skills, sets]
+  path: ${FIELDKIT}/fieldkit/skills/sets.py
+  inputs:
+    - {name: apply, flag: --apply, type: flag, required: false, help: "write the settings (default: say what would change, change nothing)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, git]
+  safety: reversible             # only skillOverrides, permissions.deny (added) and the user_settings keys; a write that changes the hooks text is refused
+  output: own
+  exits: {0: "every settings file current, or written", 1: "changes still to apply, or a write refused"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skill_sets_first_call.py"]
+  skill: skills/fieldkit-skills/SKILL.md
+  notes: "O1 of docs/HARNESS-PLAN.md, 2026-10-28. skillOverrides states (Claude Code 2.1.302): on | name-only | user-invocable-only | off; a Skill(name) deny does NOT shrink the listing (measured: 30,735 both ways). L15 Fieldkit headless first call with the data applied as --settings: 30,697 -> 25,928 tokens. Measure with fieldkit cost firstcall. Mutations: tests/o1_mutations.yaml."
 
 - id: rotate
   title: "Session rotation - every live agent session measured (context per call, dollars), one verdict each OK / WARN / ROTATE, a monster session told at every prompt to hand over and start a fresh one, autopilot jobs restarted from their checkpoint in a new session, finished sessions listed for archive"

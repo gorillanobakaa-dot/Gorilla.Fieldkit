@@ -1,0 +1,114 @@
+# Skill sets per project (O1 of docs/HARNESS-PLAN.md): every skill in the listing is re-sent on every call, so a
+# project's sessions see in full only the skills its work needs. `fieldkit skills sets --apply` writes this data into
+# Claude Code's own setting, skillOverrides:
+#   ~/.claude/settings.json                     every skill not in `everywhere`: the `outside` state
+#   <project>/.claude/settings.local.json       the project's own set: on (git-ignored there, through .git/info/exclude)
+# A project is found by its folder name under the roots (first match wins). A skill no list names stays as Claude Code
+# has it (on). States (Claude Code 2.1.302): on | name-only (listed without its description) | user-invocable-only
+# (hidden from the model, /name still works) | off (hidden from both).
+outside: user-invocable-only
+
+roots: ["~/Documents", "~/Documents/Scripts", "~"]
+
+# harness work in any project (rules/CORE.md: builds, tests, guard, scratch, net, inbox, sizes)
+everywhere:
+  - fieldkit-tools
+  - fieldkit-methods
+  - fieldkit-net
+  - fieldkit-lifecycle
+  - fieldkit-emerge
+  - fieldkit-build
+  - fieldkit-scratch
+  - fieldkit-hog
+  - fieldkit-size
+  - fieldkit-sitrep
+  - fieldkit-peers
+  - fieldkit-autopilot
+  - fieldkit-admin-unattended
+  - claude-api                     # its TRIGGER rules must fire wherever a model or the API is named
+  - update-config
+  - code-review
+  - simplify
+  - anthropic-skills:computer-use  # the desktop app's own tools; used on this laptop
+  - anthropic-skills:built-in-browser
+
+projects:
+  Fieldkit:
+    - fieldkit-skills
+    - fieldkit-token-audit
+    - fieldkit-overhead
+    - fieldkit-machine-catchup
+    - fieldkit-evidence
+    - fieldkit-office
+    - gorilla-documentation-ibm-style
+    - skill-creator
+    - mcp-builder
+    - plugin-authoring
+    - workflow-authoring
+  Gorilla.firefox:
+    - fieldkit-gpudecode
+    - fieldkit-screen-compare
+    - fieldkit-macair-browser
+    - fieldkit-old-mac
+    - webapp-testing
+  Gorilla.Opencode:
+    - fieldkit-evidence
+    - fieldkit-old-mac
+    - mcp-builder
+    - webapp-testing
+  Gorilla.FanControl:
+    - fieldkit-fan-control-test
+  Gorilla-Icons:
+    - fieldkit-icons
+    - icon-kit
+
+# skills that are not Fieldkit's own folders (Claude Code's bundled ones, the claude.ai synced ones, adopted
+# third-party ones); Fieldkit's own (skills/, local/skills/) are read from the folders
+others:
+  - icon-kit
+  - mcp-builder
+  - skill-creator
+  - webapp-testing
+  - dataviz
+  - deep-research
+  - design
+  - design-sync
+  - verify
+  - debug
+  - batch
+  - fewer-permission-prompts
+  - doctor
+  - loop
+  - schedule
+  - workflow-authoring
+  - run
+  - run-skill-generator
+  - plugin-authoring
+  - anthropic-skills:chrome-browser
+  - anthropic-skills:deep-research
+  - anthropic-skills:docs
+  - anthropic-skills:docx
+  - anthropic-skills:google-workspace
+  - anthropic-skills:import-memory
+  - anthropic-skills:pdf
+  - anthropic-skills:pptx
+  - anthropic-skills:skill-creator
+  - anthropic-skills:xlsx
+
+# user settings this machine's sessions never use (L15 2026-10-28: 0 calls in 227 transcripts); deny removes a tool
+# from the list sent to the model. disableClaudeAiConnectors: the claude.ai cloud connectors (Claude Docs, Google
+# Drive) are not fetched or connected: two vendor channels closed, about 1,900 tokens a call.
+user_settings:
+  disableClaudeAiConnectors: true
+deny_tools:
+  - CronCreate
+  - CronDelete
+  - CronList
+  - RemoteTrigger
+  - DesignSync
+  - NotebookEdit
+  - EnterWorktree
+  - ExitWorktree
+  - ListMcpResourcesTool
+  - ReadMcpResourceTool
+  - ReadMcpResourceDirTool

@@ -189,6 +189,9 @@ def main(argv=None):
     if argv[:1] == ["report"]:                        # both machines over a window, the bill beside it (I1)
         from . import cost_report
         return cost_report.main(argv[1:])
+    if argv[:1] == ["firstcall"]:                     # the first call's tokens, measured here, by part (O1)
+        from . import first_call
+        return first_call.main(argv[1:])
     # the report's options are listed here too: one `fieldkit cost --help` shows both actions (its card's inputs are
     # checked against this help, 2026-10-28)
     p = argparse.ArgumentParser(prog="fieldkit cost", description="One daily cost line for the owner.",
@@ -196,7 +199,7 @@ def main(argv=None):
                                 epilog="report: both machines per day over a window, the real bill beside it\n"
                                        "  fieldkit cost report --since DATE [--until DATE] [--peer FILE] [--bill USD] "
                                        "[--mine] [--json]\n  (fieldkit cost report --help)")
-    p.add_argument("action", choices=["daily", "report"])
+    p.add_argument("action", choices=["daily", "report", "firstcall"])
     p.add_argument("--date", help="the day, YYYY-MM-DD (default yesterday, local)")
     p.add_argument("--peer", action="append", default=[], help="the other machine's `cost daily --json` file")
     p.add_argument("--json", action="store_true", help="one JSON object, nothing else on stdout")
