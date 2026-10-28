@@ -6190,6 +6190,26 @@ tools:
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
 
+- id: board
+  title: "Board rows - every finished session has its row in state/coordination/PLAN.md (plan R3): check counts sessions with a row / all for a day and lists each one without, add writes the row from the session's own transcript (title, id, branch, PRs, cost), no model"
+  harness: core
+  entry: [python, -m, fieldkit, board]
+  path: ${FIELDKIT}/fieldkit/lifecycle/board.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [check, add], help: "check: with / all for the day; add: the rows the Board lacks"}
+    - {name: sessions, flag: null, type: str, required: false, help: "add: session ids (or their first characters) or transcript paths"}
+    - {name: missing, flag: --missing, type: flag, required: false, help: "add: every finished session of the day without a row"}
+    - {name: date, flag: --date, type: str, required: false, help: "the day, YYYY-MM-DD (default today)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON only on stdout"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "no PLAN.md here (never made)", 2: "bad usage or a session not found", 3: "check: a finished session has no row"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_board.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Plan R3, 2026-10-28: 58 of 75 sessions ($703) left no Board row with their id. A row counts when a PLAN.md table line names the session id's first 8 characters, or the job or task id in its first message (fieldkit task report rows). Claude Code transcripts on this computer; the other computer through fieldkit friction (kind board, over the cable) and fieldkit sessions sweep there. The Zero handover writes the old Zero's row (zero/net.py _board_row_of). Append-only to PLAN.md; appends a row only when none names the session."
+
 - id: task
   title: "Headless tasking - start a job from a brief file with no click: a one-step autopilot runbook in its own window here, or the peer's link listener over the cable (verb ask: fieldkit autopilot claude under that computer's approved link.yaml); the done protocol appended; reports come back by themselves (here: task report, over the cable: the link inbox) to the ledger, the ROOM log and the Board"
   harness: core
