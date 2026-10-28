@@ -1,0 +1,52 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# kernel-7.0.9-unleashed: the archived Gorilla kernel 7.0.9 release (kernel.config, the patched source files, the
+# one-click rebuilder and the installer). The maintained kernel is built by the debian-kernel recipe; this one only
+# keeps the archive checked. Keyed by what they read:
+#   iterate  -> kernel.config is there and not empty, recreate_success.sh parses (bash -n, nothing runs), the
+#               installer compiles, a telemetry scan
+# Not a stage: recreate_success.sh itself (it runs sudo apt-get before it downloads and compiles) and
+# universal_freedom_installer.py (it installs a kernel: the owner's alone). A rebuild goes through debian-kernel.
+name: kernel-7.0.9-unleashed
+description: >-
+  The archived kernel 7.0.9 release from its tree: kernel.config present, the rebuild script parses, the installer
+  compiles, a telemetry scan. No compile of the kernel (debian-kernel builds the maintained kernel).
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/kernel-7.0.9-unleashed"
+  py: python3
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: kernel-7.0.9-unleashed
+  files: ["{src}/kernel.config"]
+toolchain:
+  - [bash, --version]
+  - ["{py}", --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: syntax
+    platforms: [linux]
+    run:
+      cmd: [bash, -c, 'test -s kernel.config || exit 1; bash -n recreate_success.sh']
+      cwd: "{src}"
+    timeout: 120
+    inputs: ["{src}/recreate_success.sh", "{src}/kernel.config"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: compile
+    run: {cmd: ["{py}", -I, -m, py_compile, "{src}/universal_freedom_installer.py"], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/universal_freedom_installer.py"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests

@@ -1,0 +1,60 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# black-gorilla-theme (folder Documents/gtk-high-contrast-theme): the Black-Gorilla GTK theme (CSS and assets under
+# theme/) and its Debian package. Keyed by what they read:
+#   iterate  -> the shell scripts parse (bash -n), the .deb (build-deb.sh; fakeroot, nothing installed) and its file
+#               list read back (dpkg-deb -c), a telemetry scan
+# The .deb version is the VERSION line of build-deb.sh: --var version=V when it changes.
+# Not a stage: install.sh and get-microsoft-fonts.sh (they install into the machine; the fonts are Microsoft's and
+# are never redistributed) and adwaita/build-adwaita.sh (it rebuilds the Adwaita base from a downloaded GTK tree).
+name: black-gorilla-theme
+description: >-
+  Black-Gorilla GTK theme from its tree: the scripts parse, the .deb is built (no install) and its contents read
+  back, a telemetry scan.
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/gtk-high-contrast-theme"
+  version: "26.10.22-14-03"
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: black-gorilla-theme
+  files: ["{src}/build-deb.sh"]
+toolchain:
+  - [bash, --version]
+  - [dpkg-deb, --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: syntax
+    platforms: [linux]
+    run: {cmd: [bash, -c, 'for f in *.sh adwaita/*.sh; do bash -n "$f" || exit 1; done'], cwd: "{src}"}
+    timeout: 60
+    inputs: ["{src}/*.sh", "{src}/adwaita/*.sh"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: deb
+    platforms: [linux]
+    run: {cmd: [bash, "{src}/build-deb.sh"], cwd: "{src}"}
+    timeout: 300
+    inputs: ["{src}/build-deb.sh", "{src}/install.sh", "{src}/get-microsoft-fonts.sh", "{src}/README.md",
+             "{src}/theme/**/*"]
+    outputs: ["{src}/dist/black-gorilla-theme_{version}_all.deb"]
+    uses: [config, toolchain, inputs]
+    needs: [syntax]
+
+  - id: deb-check
+    platforms: [linux]
+    run: {cmd: [bash, -c, 'dpkg-deb -c "$1" | grep -q "usr/share/themes/Black-Gorilla/index.theme"', _, "{src}/dist/black-gorilla-theme_{version}_all.deb"], cwd: "{src}"}
+    timeout: 60
+    uses: [toolchain]
+    needs: [deb]
+    bucket: tests
