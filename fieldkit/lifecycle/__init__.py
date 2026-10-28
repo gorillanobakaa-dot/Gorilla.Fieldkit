@@ -4,6 +4,8 @@
     fieldkit friction [--here] [--json]          everything that can wait on a person, here and on every peer over
                                                  the cable; one line each with the fix; exit 0 none, 1 some
     fieldkit friction ack KEY [KEY ...]          a line that is handled (state/lifecycle/friction-ack.json)
+    fieldkit friction jobs [--since DATE] [--json]   owner actions per job, counted, with each cause (target 0;
+                                                 WARN above it; exit 3 when any): what DID wait on the owner
     fieldkit task start BRIEF.md [--on DEVICE] [--cwd DIR] [--wall MIN] [--title T]
                                                  a headless job from a brief: autopilot here, the peer's link
                                                  listener with --on; never a desktop card
@@ -31,7 +33,7 @@ import argparse
 import json
 import sys
 
-from . import friction, protocol, sweep, tasks
+from . import friction, owner_actions, protocol, sweep, tasks
 
 
 def _gb(n):
@@ -39,6 +41,8 @@ def _gb(n):
 
 
 def cmd_friction(argv):
+    if argv[:1] == ["jobs"]:
+        return owner_actions.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit friction", description=friction.__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", nargs="?", choices=["check", "ack", "local"], default="check")
@@ -100,6 +104,7 @@ def cmd_task(argv):
     new = tasks.ingest()
     led = tasks.ledger()
     tasks.settle(led)
+    tasks.attach_owner_actions(led)
     if a.json:
         print(json.dumps(list(led.values()), indent=1, ensure_ascii=False))
     else:

@@ -146,9 +146,27 @@ def report(tid, status, branch="", pr="", note="", source="local"):
     return rec
 
 
-def board(tid):
+def attach_owner_actions(tasks, jobs=None):
+    """Each task whose job ran on this computer gets `owner_actions` (its count) and `owner_causes` (HARNESS-PLAN I9;
+    owner_actions.py). In place; a task that ran elsewhere is counted there and keeps no number here."""
+    if jobs is None:
+        try:
+            from . import owner_actions
+            starts = [t.get("at") for t in tasks.values() if t.get("at")]
+            jobs = owner_actions.count(min(starts)[:10]) if starts else []
+        except Exception:  # noqa: BLE001 - the count is a courtesy on the status; `friction jobs` says why
+            return tasks
+    from .owner_actions import by_task
+    for tid, j in by_task(jobs).items():
+        if tid in tasks:
+            tasks[tid]["owner_actions"] = j["count"]
+            tasks[tid]["owner_causes"] = [f"{a['cause']}: {a['detail']}" for a in j["actions"]]
+    return tasks
+
+
+def board(tid, jobs=None):
     """One row per task in state/coordination/PLAN.md (only when the plan exists: a missing plan is said, not made)."""
-    t = ledger().get(tid) or {}
+    t = attach_owner_actions({tid: dict(ledger().get(tid) or {})}, jobs).get(tid) or {}
     try:
         from ..tokens.rotate import coordination_dir
         plan = coordination_dir() / "PLAN.md"
@@ -162,8 +180,16 @@ def board(tid):
     with open(plan, "a", encoding="utf-8") as f:
         f.write(f"| Task (fieldkit task) {cell(tid)} | {cell(t.get('on'))} | {cell(t.get('status'))} | "
                 f"{cell(title)} | branch {cell(t.get('branch'))}, PR {cell(t.get('pr'))} | "
-                f"{cell(t.get('note'))} |\n")
+                f"{cell(t.get('note'))}{owner_cell(t)} |\n")
     return True
+
+
+def owner_cell(t):
+    """'; owner actions N' (WARN above 0) when the task was counted here; nothing when it ran elsewhere."""
+    if "owner_actions" not in t:
+        return ""
+    from .owner_actions import label
+    return f"; {label(t['owner_actions'])}"
 
 
 def ingest(items=None):
@@ -215,5 +241,6 @@ def lines(tasks):
     for t in tasks.values():
         L.append(f"{t['id']}  {t.get('status', '?'):<11} {t.get('on', '?'):<10} {t.get('title', '')[:60]}"
                  + (f"  branch {t['branch']}" if t.get("branch") else "") + (f"  PR {t['pr']}" if t.get("pr") else "")
-                 + (f"  ({t['answer'][:120]})" if t.get("status") in ("not-started", "died") else ""))
+                 + (f"  ({t['answer'][:120]})" if t.get("status") in ("not-started", "died") else "")
+                 + (f"  {owner_cell(t)[2:]}" if "owner_actions" in t else ""))
     return L or ["no tasks"]
