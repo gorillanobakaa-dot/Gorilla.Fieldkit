@@ -1,0 +1,124 @@
+# C4 (docs/HARNESS-PLAN.md phase 6): every listener start and link drop on the Windows laptop [L15-WIN], 2026-10-22
+# to 2026-10-28 19:15, with its cause. Read on 2026-10-28 from:
+#   link.log    ~/.fieldkit/link/link.log (383 lines; "serving on" = a listener started, so the one before it ended)
+#   events      Windows System log: Kernel-Power 506/507 (Modern Standby in/out), 42/107 (sleep), Kernel-General 12/13
+#               (boot/shutdown), EventLog 6005/6006/6008 (6008 = the previous shutdown was unexpected),
+#               e1dexpress 27/32/33 (Intel I219-V cable card: link down / up / up at a lower speed)
+#   tasks       schtasks: \fieldkit-link (at logon + every 5 min: pythonw -m fieldkit peers link serve),
+#               \Fieldkit net comms check (every 15 min: fieldkit net check --scheduled, which calls link_heal.revive)
+# Not read: the VAIO's own logs (its side of each drop). No watchdog.log or rescue.log exists on this laptop.
+# All times are the laptop's local time (both logs use it).
+
+causes:
+  setup: the listener was started by the pairing or a deliberate restart (new code, keep-alive install)
+  standby: Windows Modern Standby before the start; NOT shown to cut the link (notes were heard during standby)
+  reboot: the laptop booted; the listener came back from the \fieldkit-link logon task
+  crash: Windows logged the previous shutdown as unexpected (6008); no Kernel-Power 41 or bugcheck was logged, so
+    the cause (power, heat, hang) is NOT in these logs
+  peer-off: 'the peer was shut down or asleep, ours was fine (heal said "peer is down or asleep, or the cable is out")'
+  stale-code: a listener kept serving code loaded at its start after newer code landed
+  unknown: no power, card or crash event near it; most likely a hand restart on a day of link development
+
+listener_starts:
+  - {at: "2026-10-22 15:44:23", cause: setup, evidence: "pairing files written 15:44 (link.json, link.key)"}
+  - {at: "2026-10-22 19:47:29", cause: standby, evidence: "standby 18:30:52-19:45:04; started 2 min after resume, by hand (no
+      logon task yet); whether the old listener was still up is not in the log"}
+  - {at: "2026-10-22 20:07:57", cause: unknown, evidence: "no event; note #6 heard 20:05:26 by the previous one"}
+  - {at: "2026-10-22 20:47:20", cause: unknown, evidence: "standby 20:29:21-20:33:31 ended 14 min before; note #12 heard 20:45:58,
+      after it, so the old listener was up"}
+  - {at: "2026-10-22 22:18:50", cause: unknown, evidence: "cable card down/up 21:30:30-21:30:31 (1 s blip); note #21 heard 21:45 after it"}
+  - {at: "2026-10-23 00:17:01", cause: unknown, evidence: "standby 22:55-23:01 survived: notes #24-#35 heard after it"}
+  - {at: "2026-10-23 01:06:55", cause: unknown, evidence: "no event"}
+  - {at: "2026-10-23 19:15:18", cause: unknown, evidence: "notes #75-#84 heard 18:33-18:58, DURING standby 14:07:05-18:42:04"}
+  - {at: "2026-10-25 23:59:35", cause: reboot, evidence: "boot 2026-10-25 14:43:25 (clean shutdown 14:42:59); no logon task yet, so
+      the listener stayed down 9 h until started by hand; nothing in link.log from 10-23 23:56 to 10-25 23:59"}
+  - {at: "2026-10-26 00:20:26", cause: unknown, evidence: "stream stopped 00:02:53 'the other side closed'; no local event"}
+  - {at: "2026-10-26 14:11:19", cause: setup, evidence: "serve.log written 14:11 by link setup ('The system cannot find the path
+      specified'); silent 00:37-14:11, standbys 01:01-01:06 and 02:22-02:33 in between"}
+  - {at: "2026-10-26 14:39:24", cause: setup, evidence: "keep-alive work that day (link_keepalive 26-10-26-15-00); no event"}
+  - {at: "2026-10-26 14:52:13", cause: setup, evidence: "as above"}
+  - {at: "2026-10-26 15:26:25", cause: setup, evidence: "as above"}
+  - {at: "2026-10-26 15:29:08", cause: setup, evidence: "as above"}
+  - {at: "2026-10-26 19:13:26", cause: unknown, evidence: "no event"}
+  - {at: "2026-10-26 20:09:18", cause: unknown, evidence: "no event"}
+  - {at: "2026-10-27 02:54:29", cause: unknown, evidence: "no event"}
+  - {at: "2026-10-27 04:23:38", cause: crash, evidence: "6008: unexpected shutdown 04:13:50; boot 04:22:54; listener up 44 s
+      after boot from the logon task"}
+  - {at: "2026-10-27 17:12:03", cause: crash, evidence: "6008: unexpected shutdown 16:53:12; boot 17:11:36; up 27 s after boot"}
+  - {at: "2026-10-28 07:39:18", cause: crash, evidence: "6008: unexpected shutdown 04:01:51; boot 07:29:15; heal 07:30 and 07:32
+      'this computer's cable interface' (address not up yet); listener 10 min after boot. This is PID 11572 (found
+      2026-10-28): it ran the 07:39 code until 19:07 (stale-code below)"}
+  - {at: "2026-10-28 19:07:30", cause: stale-code, evidence: "the stale listener replaced (commit 5607838: new code reaches a running
+      listener); 19:08:12 and 19:09:18 the same restart repeated"}
+
+link_drops:   # windows when the peer could not reach this laptop, or this laptop the peer
+  - {from: "2026-10-25 14:42:53", to: "2026-10-25 23:59:35", cause: reboot, side: L15, evidence: "no autostart then"}
+  - {from: "2026-10-27 04:13:50", to: "2026-10-27 04:23:38", cause: crash, side: L15}
+  - {from: "2026-10-27 16:53:12", to: "2026-10-27 17:12:03", cause: crash, side: L15}
+  - {from: "2026-10-27 17:28:23", to: "2026-10-28 04:01:51", cause: peer-off, side: VAIO, evidence: "cable card down 17:28:23 with no
+      up; heal every 15 min 17:30-04:00 'peer is down or asleep' (none revived it); owner 10-27: the Linux laptop
+      was shut down on purpose"}
+  - {from: "2026-10-28 04:01:51", to: "2026-10-28 07:39:18", cause: crash, side: L15}
+  - {from: "2026-10-28 09:16:55", to: "2026-10-28 09:22:48", cause: unknown, side: both, evidence: "one stream aborted (WinError 10053)
+      and resent 6 min later; cable card down/up 09:01:13-09:01:41 (33 = up at a lower speed) 15 min earlier"}
+
+stale_listener:
+  pid: 11572
+  from: "2026-10-28 07:39:18"
+  to: "2026-10-28 19:07:30"
+  effect: "it answered (notes #147-#225 heard), but with the code of 07:39; fixes merged in between did not reach it"
+  verified_here: "start and end times from link.log; the PID is from the brief, not re-read from a process list"
+
+findings:
+  - >-
+    The listener process never died on its own while Windows was up: every start follows a boot, a crash or a deliberate
+    restart. No "listener crash" cause was found.
+  - >-
+    Modern Standby is not a drop cause: notes #75-#84 were heard 18:33-18:58 on 10-23, inside the 14:07-18:42 standby,
+    and #61 at 11:02 inside the 05:23-11:25 one; the listener survived every standby with no restart. The card logs
+    "link down" (e1dexpress 27) at some standby entries on 10-25 with no matching gap in the notes. Card power saving
+    is not shown as a cause: awake, the card dropped only for 1 s (10-22 21:30) and renegotiated once (10-28 09:01).
+  - >-
+    Three unexpected shutdowns (10-27 04:13, 10-27 16:53, 10-28 04:01) caused three of the drops. Their cause is not
+    in these logs (no Kernel-Power 41); heat during long builds is the first suspect (fieldkit-fan-control-test).
+  - >-
+    The longest drop (10-27 17:28 to 10-28 04:01, 10.5 h) was the peer switched off, which the heal treated as lost
+    and retried every 15 minutes, 42 times in that window.
+  - >-
+    C5: 70 "REFUSED a connection from 10.77.0.1" lines; all from this laptop's own checks (link_setup.listening at each
+    start, link_heal rung "own" at each 15-min comms check). Fixed on fix/c5-self-knock.
+
+mechanisms:   # the five keep-alive mechanisms named in C4, judged on this log
+  keepalive-task:
+    what: "\\fieldkit-link task (Windows: at logon + every 5 min) / systemd user service with linger (Linux)"
+    record: "brought the listener back after all three crashes, 27-44 s after boot"
+    verdict: KEEP
+    why: "the one mechanism that brought the link back on this log"
+  watchdog:
+    what: "fieldkit peers link watchdog: restart a deaf listener"
+    record: "never ran on this laptop (no watchdog.log); its restart is what the service manager already does"
+    verdict: DROP
+    why: "its restart duplicates the service manager (Linux: systemd Restart=); the job supervision it also hosts on the
+      boss needs its own timer first (not checked here)"
+  heal:
+    what: "fieldkit peers link heal, run by the 15-min comms check"
+    record: "49 runs logged, 0 revived; 47 of them against a peer switched off on purpose"
+    verdict: DROP
+    why: "as a timer; it stays a command run on purpose; a peer with no neighbor entry is off, not retried"
+  rescue:
+    what: "the rescue door (rescue-status) when the listener is down"
+    record: "never used on this laptop (no rescue.log)"
+    verdict: NOT-A-KEEP-ALIVE
+    why: "a manual door, kept as one"
+  zero-check:
+    what: "fieldkit net check --scheduled every 15 min"
+    record: "its cable row is what called heal; its own job is the net's leases"
+    verdict: KEEP-WITHOUT-CABLE-REVIVE
+    why: "its own job is the net's leases"
+
+proposal: >
+  Keep one keep-alive: the service manager (Windows logon task with its 5-minute re-run, Linux systemd user service
+  with Restart=always and linger). Remove the cable revive from the comms check and the watchdog's restart; heal and
+  rescue stay commands a person or a model runs on purpose. Mark a peer with no neighbor entry and no ping as "off",
+  not "lost", and stop retrying it until it is heard again. Separately, find the cause of the three unexpected
+  shutdowns (thermal log during the next long build).
