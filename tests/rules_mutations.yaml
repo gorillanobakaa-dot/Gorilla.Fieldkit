@@ -1,0 +1,34 @@
+# fieldkit rules (2026-10-28): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/rules_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_rules.py
+- file: fieldkit/rules.py
+  swap:
+  - '    if size > LIMIT:'
+  - '    if size > LIMIT * 4:'
+  why: a rules file over 8 KB fails
+- file: fieldkit/rules.py
+  swap:
+  - '        elif have != block:'
+  - '        elif False:'
+  why: an old core block fails
+- file: fieldkit/rules.py
+  swap:
+  - '        if have or rep:'
+  - '        if have:'
+  why: a repeated core line fails a project file
+- file: fieldkit/rules.py
+  swap:
+  - '        new = text.replace(have, block) if have else block + "\n\n" + text'
+  - '        new = block + "\n\n" + text'
+  why: an old block is replaced in place, not doubled
+- file: fieldkit/rules.py
+  swap:
+  - '        shutil.copy2(p, b)
+
+    '
+  - ''
+  why: every change is backed up first
+- file: fieldkit/rules.py
+  swap:
+  - "        if text is None:\n            out.append("
+  - "        if False:\n            out.append("
+  why: a missing file is never created

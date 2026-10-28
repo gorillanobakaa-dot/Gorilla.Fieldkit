@@ -5890,6 +5890,23 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
 
+- id: rules
+  title: The one core (rules/CORE.md) in every agent's global rules file (Claude Code, Codex, Gemini), every rules file under 8 KB, a project file never repeating the core; install puts in or updates only the block, with a backup
+  harness: core
+  entry: [python, -m, fieldkit, rules]
+  path: ${FIELDKIT}/fieldkit/rules.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check | install"}
+    - {name: repo_only, flag: --repo-only, type: flag, required: false, help: "check: only this repository's rules files (the pre-commit hook)"}
+    - {name: file, flag: --file, type: path, required: false, help: "install: a rules file, repeatable (default: every global one)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "every rules file passes (check) or the block is in (install)", 3: "a rules file fails the check", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rules.py"]
+
 - id: plan
   title: Where the harness plan stands - the current phase of docs/HARNESS-PLAN.md's Order table, its open items, the items merged pull requests finished; --write marks them DONE; the one line zero, the handovers and the room hook carry
   harness: core
