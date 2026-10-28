@@ -500,6 +500,15 @@ def test_every_shipped_recipe_loads_and_plans(name, tmp_path, monkeypatch):
     assert raw.get("baseline_minutes")
 
 
+def test_the_inventory_and_the_recipes_name_each_other():
+    inv = yaml.safe_load((R.HERE / "inventory.yaml").read_text(encoding="utf-8"))["projects"]
+    named = set()
+    for p in inv.values():
+        r = p.get("recipe")
+        named.update(r if isinstance(r, list) else [r] if r else [])
+    assert named == set(R.available())
+
+
 def test_firefox_tiers_match_the_audit(tmp_path):
     r = R.Recipe(yaml.safe_load(R.find("firefox-windows").read_text(encoding="utf-8")), state_root=tmp_path,
                  strict=False)
