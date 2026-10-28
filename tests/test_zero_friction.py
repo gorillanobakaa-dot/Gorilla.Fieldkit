@@ -238,11 +238,25 @@ def test_needs_you_rows_in_the_window_only():
     assert [r["key"] for r in rows] == ["needs-you:vaio:1"] and "approve O4" in rows[0]["line"]
 
 
+def test_needs_you_counts_only_notes_for_the_owner_and_unread_notes_are_one_row():
+    """Plan C7: a [NEEDS YOU] note addressed to a session is not an owner wait; a note nobody read is `unread`."""
+    at = lambda m: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(NOW - m * 60))   # noqa: E731
+    items = [{"n": 1, "kind": "message", "from_host": "win", "at": at(30), "to": "main", "text": "[NEEDS YOU] go"},
+             {"n": 2, "kind": "message", "from_host": "win", "at": at(30), "to": "owner", "text": "[NEEDS YOU] ok"},
+             {"n": 3, "kind": "message", "from_host": "win", "at": at(30), "text": "phase 3 is yours"},
+             {"n": 4, "kind": "message", "from_host": "win", "at": at(30), "text": "read", "handed": "main"}]
+    assert [r["key"] for r in friction.needs_you_rows(items, now=NOW)] == ["needs-you:win:2"]
+    rows = friction.unread_rows(items, now=NOW, upto=0)
+    assert [r["key"] for r in rows] == ["unread:win:1", "unread:win:3"]
+    assert "for main unread after 30 min" in rows[0]["line"] and "task start" in rows[0]["fix"]
+    assert friction.unread_rows(items, now=NOW, upto=3) == []
+
+
 def test_inbox_rows_and_ack_filter(monkeypatch):
     inbox_rows = friction.inbox_rows
     rows = inbox_rows([{"n": 4, "title": "decide"}])
     assert rows[0]["key"] == "inbox:4"
-    for name in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows"):
+    for name in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "unread_rows"):
         monkeypatch.setattr(friction, name, lambda *a, **k: [])
     monkeypatch.setattr(friction, "inbox_rows", lambda *a, **k: rows + inbox_rows([{"n": 5, "title": "b"}]))
     monkeypatch.setattr(desktop, "sessions", lambda dirs=None: [])
