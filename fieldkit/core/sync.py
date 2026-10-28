@@ -17,6 +17,10 @@ catchup.
 
     fieldkit sync [--apply] [--repo DIR ...]     report, or take the verified upstream commits (exit 3 when not in sync)
                                                  and install the agent skills of this checkout (an "agent skills" row)
+
+A waiter reads the exit code (0 = every row in sync, 3 = not) or `--json` ({"in_sync", "exit", "repos"}), never the
+words: 2026-10-28 a wait matched "IN SYNC" inside "NOT IN SYNC". The summary line is "SYNC: OK" or "SYNC: DIFFERS",
+and no text this tool prints for a row not in sync contains "IN SYNC" or "IN-SYNC".
 """
 import json
 import subprocess
@@ -172,9 +176,24 @@ def run(do_apply=False, extra=(), fetch=True):
     return rows
 
 
+def in_sync(rows):
+    return bool(rows) and all(r["ok"] for r in rows)
+
+
+def exit_code(rows):
+    return 0 if in_sync(rows) else 3
+
+
+def as_json(rows):
+    return {"in_sync": in_sync(rows), "exit": exit_code(rows), "repos": rows}
+
+
 def lines(rows):
     out = []
     for r in rows:
-        out.append(f"  [{'ok' if r['ok'] else 'NO'}] {r['verdict']:<11} {r['repo']}: {r['why']}")
-    out.append("SYNC: " + ("OK" if all(r["ok"] for r in rows) else "NOT IN SYNC"))
+        # a row that is not ok never prints its IN-SYNC verdict (a branch level with upstream but behind main)
+        verdict = r["verdict"] if r["ok"] or r["verdict"] != "IN-SYNC" else "LEVEL"
+        out.append(f"  [{'ok' if r['ok'] else 'NO'}] {verdict:<11} {r['repo']}: {r['why']}")
+    bad = sum(1 for r in rows if not r["ok"])
+    out.append("SYNC: OK" if in_sync(rows) else f"SYNC: DIFFERS ({bad or 'no'} of {len(rows)} rows; exit 3)")
     return out

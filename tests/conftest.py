@@ -330,3 +330,14 @@ def _room_in_tmp(tmp_path, monkeypatch):
     # the relay line depends on whether THIS computer's relay listens: off in tests, except the test of it
     monkeypatch.setattr(room, "_relay", lambda call, event, ctx: ctx)
     yield
+
+
+# Every job gets its own git worktree (lifecycle/worktrees.py, 2026-10-28). A test never adds or removes a worktree of
+# the checkout it runs in: tasks start in place, and reap sees nothing. tests/test_lessons_to_tools.py imports the
+# real functions before this runs and gives them a repository of its own.
+@pytest.fixture(autouse=True)
+def _no_real_worktrees(monkeypatch):
+    from fieldkit.lifecycle import worktrees
+    monkeypatch.setattr(worktrees, "make", lambda repo, name, **k: (None, "tests: in place"))
+    monkeypatch.setattr(worktrees, "reap", lambda repo, **k: {"removed": [], "kept": []})
+    yield

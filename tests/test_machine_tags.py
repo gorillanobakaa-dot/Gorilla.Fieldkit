@@ -294,7 +294,8 @@ def test_task_start_titles_with_the_tag_of_where_it_runs(tmp_path, monkeypatch):
                     now=NOW)
     assert r["title"] == "[L15-WIN] Fix the thing." and r["tag"] == "[L15-WIN]"
     assert "SESSION TITLE: [L15-WIN] Fix the thing." in sent[0]["brief"]
-    here = tasks.start(b, launch=lambda a: {"pid": 1, "log": "L"}, now=NOW + 1, cwd=tmp_path)
+    here = tasks.start(b, launch=lambda a: {"pid": 1, "log": "L"}, now=NOW + 1, cwd=tmp_path,
+                        again=True)                    # the same brief twice, on purpose: the titles differ
     assert here["title"] == "[TEST-LNX] Fix the thing."
     tasks.report(r["id"], "done", branch="feat/x")
     assert "| [L15-WIN] Fix the thing. |" in (tmp_path / "coord" / "PLAN.md").read_text(encoding="utf-8")

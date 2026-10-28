@@ -13,6 +13,9 @@ than the plan are not read: they used O1-O4 for other stages.
 --write sets each PLANNED status cell the merges finished to "DONE (PR #N)". Every run saves the one-line summary to
 state/plan-next.json; `fieldkit zero`, both handovers and the room hook show that line (the hook reads only the file,
 no git call per tool call).
+
+The line also counts the lessons in docs/LESSONS.yaml with no tool yet (no `tool`, or a `test` file this checkout does
+not have): a mistake written down but not made a check stays on every session's screen until it is one (I8).
 """
 import argparse
 import json
@@ -27,6 +30,7 @@ from .core.settings import state_root
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = "docs/HARNESS-PLAN.md"
+LESSONS = "docs/LESSONS.yaml"
 ID = re.compile(r"\b([RLOCIW]\d+)\b")
 ROW_ID = re.compile(r"^\|\s*([RLOCI]\d+)\s*\|")
 TAIL_PAREN = re.compile(r"\(([^()]*)\)\s*$")
@@ -92,6 +96,25 @@ def merged(root, run=subprocess.run):
     return out
 
 
+def lessons(root):
+    """-> {"total", "untooled": [ids]} from docs/LESSONS.yaml; None when the file is missing or unreadable."""
+    try:
+        import yaml
+        data = yaml.safe_load((Path(root) / LESSONS).read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, ImportError):
+        return None
+    rows = [r for r in (data.get("lessons") or []) if isinstance(r, dict)]
+    bad = [str(r.get("id") or r.get("what", "?")[:30]) for r in rows
+           if not str(r.get("tool") or "").strip() or not r.get("test") or not (Path(root) / str(r["test"])).is_file()]
+    return {"total": len(rows), "untooled": bad}
+
+
+def lessons_note(ls):
+    if ls is None:
+        return f"; {LESSONS} missing"
+    return f"; lessons with no tool yet: {len(ls['untooled'])} of {ls['total']}" if ls["untooled"] else ""
+
+
 def is_done(status):
     return status.upper().startswith("DONE")
 
@@ -115,7 +138,9 @@ def next_(root=None, run=subprocess.run):
         line = (f"PLAN: phase {cur['phase']}: open {' '.join(cur['open'])}"
                 + (f" (done {' '.join(cur['done'])})" if cur["done"] else "")
                 + " - docs/HARNESS-PLAN.md, fieldkit plan next")
-    return {"ok": True, "phase": cur and cur["phase"], "open": cur["open"] if cur else [],
+    ls = lessons(root)
+    line += lessons_note(ls)
+    return {"ok": True, "lessons": ls, "phase": cur and cur["phase"], "open": cur["open"] if cur else [],
             "done": cur["done"] if cur else [], "merged": mg, "statuses": st, "phases": phases, "line": line,
             "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
@@ -138,7 +163,7 @@ def save(r, root=None):
     f = state_file(root)
     try:
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps({k: r.get(k) for k in ("line", "phase", "open", "done", "at")}, indent=1),
+        f.write_text(json.dumps({k: r.get(k) for k in ("line", "phase", "open", "done", "lessons", "at")}, indent=1),
                      encoding="utf-8")
     except OSError:
         pass
@@ -179,6 +204,8 @@ def main(argv=None):
     for ph in r["phases"]:
         mark = "done" if not ph["open"] else ("NOW " if ph["phase"] == r["phase"] else "open")
         print(f"  {mark}  {ph['phase']}: " + " ".join(i + ("*" if i in ph["done"] else "") for i in ph["items"]))
+    if r.get("lessons") and r["lessons"]["untooled"]:
+        print(f"  lessons with no tool yet ({LESSONS}): {' '.join(r['lessons']['untooled'])}")
     stale = [i for i in r["merged"] if r["statuses"].get(i) == "PLANNED" and i not in r["written"]]
     if r["written"]:
         print(f"written DONE: {' '.join(r['written'])} in {PLAN}")

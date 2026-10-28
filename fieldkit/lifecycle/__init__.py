@@ -34,6 +34,7 @@ is the household link (cable, HMAC-signed) to the peers the owner paired.
 """
 import argparse
 import json
+import os
 import sys
 
 from . import friction, owner_actions, protocol, sweep, tasks
@@ -78,6 +79,7 @@ def cmd_task(argv):
     ap.add_argument("--cwd", help="start here: the folder the job works in (default: this one)")
     ap.add_argument("--wall", type=int, default=120, help="start here: wall-clock budget in minutes")
     ap.add_argument("--title")
+    ap.add_argument("--again", action="store_true", help="start: even though the same brief is started and unfinished")
     ap.add_argument("--status", choices=list(tasks.STATUSES[1:]))
     ap.add_argument("--branch", default="")
     ap.add_argument("--pr", default="")
@@ -89,7 +91,10 @@ def cmd_task(argv):
             print("task start BRIEF.md [--on DEVICE]")
             return 2
         try:
-            rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title)
+            rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again)
+        except tasks.AlreadyStarted as e:
+            print(f"NOT STARTED  {e}")
+            return 3
         except ValueError as e:
             print(f"NOT STARTED  {e}")
             return 2
@@ -105,6 +110,8 @@ def cmd_task(argv):
         print(f"TASK {rec['id']}  {rec['status']}")
         return 0
     new = tasks.ingest()
+    from . import worktrees
+    gone = worktrees.reap(a.cwd or os.getcwd())          # job worktrees whose work is on origin
     led = tasks.ledger()
     tasks.settle(led)
     tasks.attach_owner_actions(led)
@@ -114,6 +121,10 @@ def cmd_task(argv):
         print("\n".join(tasks.lines(led)))
         if new:
             print(f"{len(new)} report(s) came over the cable")
+        for w in gone["removed"]:
+            print(f"worktree removed (its work is on origin): {w}")
+        for w, why in gone["kept"]:
+            print(f"worktree kept: {w} ({why})")
     return 0
 
 
