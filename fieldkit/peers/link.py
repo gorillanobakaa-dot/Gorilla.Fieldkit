@@ -955,17 +955,23 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         from ..lifecycle import friction
         return {"ok": True, "rows": friction.local_rows()}
     if verb == "message":
+        from . import link_receipt
         item = store("message", req)
-        handed = ""
+        handed, took = "", ""
         if req.get("to"):
             try:
                 r = local_peers.send(req["to"], f"[from {req.get('from_host')} over the cable] {item['text']}",
                                      as_name=f"link-{req.get('from_host')}")
                 handed = f"; handed to session {req['to']}" if r.get("ok") else f"; session {req['to']}: {r.get('error')}"
+                took = req["to"] if r.get("ok") else ""
             except Exception as e:  # noqa: BLE001
                 handed = f"; no session {req['to']} ({e})"
-        _log(f"message #{item['n']} from {req.get('from_host')}{handed}")
-        return {"ok": True, "stored": item["n"], "note": handed.strip("; ")}
+        if took:
+            link_receipt.mark_handed(item["n"], took)
+        # the receipt (plan C7, 2026-10-28): an idle computer stored Zero's hand-off and answered only "ok"
+        heard, why = link_receipt.heard(took)
+        _log(f"message #{item['n']} from {req.get('from_host')}{handed}{'' if heard else '; NOT HEARD'}")
+        return {"ok": True, "stored": item["n"], "note": handed.strip("; "), "heard": heard, "heard_why": why}
     if verb == "mandate-receive":
         # `fieldkit mandate share` on the other side (2026-10-26): install the pair it just put here, ONLY if the owner
         # key pinned on THIS computer verifies it (mandate.receive); every other answer is a refusal, and logged
@@ -1337,9 +1343,15 @@ def main(argv=None):
             print(f"PEER {r['host']} ({r['os']})\n" + "\n".join(agent_lines(r["agents"])))
         return 0 if r.get("ok") else 3
     if a.action == "send":
+        if a.needs_you and a.to and a.to.lower() != "owner":
+            # [NEEDS YOU] is for the owner; a note to a session is not an owner wait (plan C7: misused 5 times)
+            print(f"REFUSED: --needs-you is for the owner, not session {a.to}: drop one of them")
+            return 2
         r = call({"verb": "message", "text": " ".join(a.rest), "to": a.to, "needs_you": a.needs_you, "done": a.done,
                   "evidence": a.evidence}, device=a.device)
         print(json.dumps(r, ensure_ascii=False))
+        if r.get("ok") and r.get("heard") is False:
+            print(f"NOT HEARD on the other computer: {r.get('heard_why')}", file=sys.stderr)
         return 0 if r.get("ok") else 3
     if a.action == "ask":
         if not a.brief:
@@ -1349,7 +1361,10 @@ def main(argv=None):
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") and r.get("started") else 2 if r.get("ok") else 3
     if a.action == "inbox":
-        print("\n".join(fenced(inbox(a.wait, a.since))))
+        from . import link_receipt
+        items = inbox(a.wait, a.since)
+        print("\n".join(fenced(items)))
+        link_receipt.mark_seen(max([i["n"] for i in items] or [0]))     # read: no `unread` row in friction
         return 0
     if a.action == "put":
         return put_main(a)
