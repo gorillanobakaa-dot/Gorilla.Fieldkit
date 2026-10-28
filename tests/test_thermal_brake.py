@@ -120,3 +120,19 @@ def test_watch_forever_writes_no_cap_and_is_one_per_computer(fake, monkeypatch):
     brake.lease_write(fake.dir)
     assert watch.forever(target=67, say=said.append, sensor=(lambda: 50.0, True), ticks=1, folder=fake.dir) == 0
     assert "already runs" in said[-1]
+
+
+def test_a_stale_cap_marker_at_the_current_cap_writes_nothing(tmp_path, monkeypatch):
+    from fieldkit.thermal import governor
+    m = tmp_path / "cap-original.json"
+    monkeypatch.setattr(governor, "_marker", lambda: m)
+    writes = []
+    monkeypatch.setattr(governor, "set_cap", lambda pct: writes.append(pct))
+    monkeypatch.setattr(governor, "read_cap", lambda: 100)
+    m.write_text('{"original": 100}', encoding="utf-8")
+    said = []
+    assert governor.restore_stale_cap(said.append) is None and writes == [] and not m.exists()
+    assert "nothing written" in said[0]
+    monkeypatch.setattr(governor, "read_cap", lambda: 40)
+    m.write_text('{"original": 100}', encoding="utf-8")
+    assert governor.restore_stale_cap(said.append) == 100 and writes == [100] and not m.exists()
