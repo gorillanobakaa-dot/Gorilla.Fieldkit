@@ -73,6 +73,7 @@
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
+    fieldkit cost daily                          one line: yesterday's $, the most expensive session, both machines
     fieldkit rotate check|handover|finished      OK / WARN / ROTATE per session; hand a monster session over to a fresh one
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
@@ -1577,6 +1578,8 @@ def build_parser():
                                         "Antigravity; fieldkit session-cost)"),
                        ("token-audit", "where the tokens of Claude Code sessions went: context per call, cache reads, "
                                        "hook text (fieldkit token-audit)"),
+                       ("cost", "one daily cost line: yesterday's dollars here, the most expensive session and what it "
+                                "did, both machines' total when the other's numbers came over the cable (fieldkit cost)"),
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
@@ -2767,6 +2770,9 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
+    if args[:1] == ["cost"]:                          # one daily cost line for the owner (fieldkit/tokens/cost_daily)
+        from .tokens import cost_daily
+        return cost_daily.main(args[1:])
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
