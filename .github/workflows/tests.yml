@@ -1,7 +1,13 @@
-# Every push runs the whole test suite on Windows and on Linux, so "runs on both"
-# is proven by a machine that is not the author's.
+# Tests once (R7 in docs/HARNESS-PLAN.md; owner, 2026-10-28): a pull request and a push to main run only the tests
+# covering the change, on Windows and on Linux, so "runs on both" is still proven by a machine that is not the
+# author's. The whole suite runs once, when a project is finished: run this workflow by hand (Run workflow; and
+# every release runs it, release.yml). Other branch pushes run nothing here: their pull request does.
 name: tests
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
 jobs:
   test:
     strategy:
@@ -11,8 +17,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
-      - run: python -m pytest -q -rs
+      - name: the tests covering the change
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+          else
+            base="full"
+          fi
+          python .github/ci_tests.py "$base"
