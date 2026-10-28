@@ -11,7 +11,7 @@ device), so a deny printed as JSON still reaches the caller; the exit code never
 import os
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 NO_WINDOW = 0x08000000                 # CREATE_NO_WINDOW
 
@@ -20,11 +20,11 @@ def windowless(python, platform=None, exists=None):
     """-> the pythonw.exe beside a python.exe on Windows when it exists, else `python` unchanged."""
     if (platform or sys.platform) != "win32":
         return python
-    p = Path(str(python))
+    p = PureWindowsPath(str(python))
     if p.name.lower() != "python.exe":
         return python
-    w = p.with_name("pythonw.exe")
-    return str(w) if (exists or Path.is_file)(w) else python
+    w = str(p.with_name("pythonw.exe"))
+    return w if (exists or os.path.isfile)(w) else python
 
 
 def has_console(platform=None):
