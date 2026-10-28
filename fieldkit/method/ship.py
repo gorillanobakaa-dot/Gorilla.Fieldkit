@@ -174,7 +174,9 @@ def refused_not_network(out):
     "the network kept failing", its reasons cut to the last 300 characters)."""
     low = out.lower()
     return any(s in low for s in ("rejected", "non-fast-forward", "denied", "refused", "pre-push hook",
-                                  "hook declined", "failed to push some refs"))
+                                  "hook declined", "failed to push some refs",
+                                  # no credential (an autopilot run has none, 2026-10-27): not the network either
+                                  "could not read username", "authentication failed", "terminal prompts disabled"))
 
 
 def ship_env():
