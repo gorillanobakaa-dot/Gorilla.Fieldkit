@@ -1,4 +1,4 @@
-# Version: 1.7.0 · updated 26-10-28-18-00
+# Version: 1.8.0 · updated 26-10-28-20-30
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -8,7 +8,8 @@ actually use them". A skill and a memory had said "folder sizes and file searche
 the model typed the hand-rolled scan anyway. An instruction is forgotten; a refusal at the moment of the command is
 not. The table is data: one row per tool, each with a test (tests/test_autopilot_toolrouter.py).
 
-    python -m fieldkit.autopilot.toolrouter --hook        (Claude Code PreToolUse: reads the tool call on stdin)
+    python -m fieldkit.autopilot.toolrouter --hook        (Claude Code PreToolUse: reads the tool call on stdin;
+                                                           an allowed call also gets the room's part, room.pretool)
     python -m fieldkit.autopilot.toolrouter "<command>"   (prints the verdict; exit 2 when refused)
 """
 import json
@@ -416,29 +417,52 @@ def _breaker(call):
         return None
 
 
+def _deny(reason):
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                   "permissionDecisionReason": reason}}
+
+
+def verdict(call):
+    """-> the deny JSON for a tool call, or None: ground claims, the rotation stop, the circuit breaker, then (Bash and
+    PowerShell) the route table."""
+    deny = _claims(call)
+    if deny:
+        return deny
+    stop = _rotate_stop(call) or _breaker(call)
+    if stop:
+        return _deny(stop)
+    tool = (call.get("tool_name") or "").lower()
+    if tool not in ("bash", "powershell"):
+        return None
+    r = route((call.get("tool_input") or {}).get("command", ""), call.get("cwd") or "", tool)
+    return _deny(message(r)) if r else None
+
+
+def _room(call):
+    """The shared room, the hog's registry, the net lease and the rotation line, for an allowed call, in this process
+    (C6, 2026-10-28: they were a second Python start per tool call, PostToolUse). Fails open."""
+    try:
+        from . import room
+        return room.pretool(call)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def hook(stdin=None):
-    """Claude Code PreToolUse: Bash and PowerShell commands, and (ground claims only) Edit / Write / MultiEdit /
-    NotebookEdit; fails open on a malformed call (the hard lines are the safety layer; this one teaches)."""
+    """Claude Code PreToolUse, the one hook process per tool call: Bash and PowerShell commands, and (ground claims
+    only) Edit / Write / MultiEdit / NotebookEdit; an allowed call then gets the room's part (room.pretool) as added
+    context. Fails open on a malformed call (the hard lines are the safety layer; this one teaches)."""
     try:
         call = json.loads((stdin or sys.stdin).read() or "{}")
     except ValueError:
         return 0
-    deny = _claims(call)
+    deny = verdict(call)
     if deny:
         print(json.dumps(deny))
         return 0
-    stop = _rotate_stop(call) or _breaker(call)
-    if stop:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                                 "permissionDecisionReason": stop}}))
-        return 0
-    tool = (call.get("tool_name") or "").lower()
-    if tool not in ("bash", "powershell"):
-        return 0
-    r = route((call.get("tool_input") or {}).get("command", ""), call.get("cwd") or "", tool)
-    if r:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                                 "permissionDecisionReason": message(r)}}))
+    ctx = _room(call)
+    if ctx:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": ctx}}))
     return 0
 
 

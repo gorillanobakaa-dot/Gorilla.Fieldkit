@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-28-18-46
+# Version: 1.3.0 · updated 26-10-28-20-30
 """The shared room: every AI session on this machine sees what the others did on shared ground, without anyone having
 to remember to say it.
 
@@ -6,7 +6,7 @@ Owner, 2026-10-19: "is there any way for you guys to sit in the same room and se
 i have noticed that he forgets to inform you and you sometimes need to be reminded". Messages and PLAN.md rows are
 written by hand, so they are forgotten. Here the harness writes the record:
 
-  write   a PostToolUse hook appends ONE line to state/coordination/ROOM.log for each action on shared ground
+  write   the tool-call hook appends ONE line to state/coordination/ROOM.log for each action on shared ground
           (VERBS: commits, history changes, edits to shared or owner-only files, processes started or stopped,
           network and heavy steps, messages to another session and the owner approvals they carry). Reads and
           ordinary work are not logged. Secrets and home paths are redacted before anything is written.
@@ -19,10 +19,14 @@ Line: "<YYYY-MM-DD HH:MM:SS>\t<who>\t<session id>\t<verb>\t<object, no spaces>[\
 Local text only, git-ignored (state/): nothing leaves the machine, and there is no dashboard (owner). The hook never
 blocks and never fails the tool call (it informs; the hard lines are the safety layer).
 
-    python -m fieldkit.autopilot.room --hook          Claude Code PostToolUse / UserPromptSubmit (stdin: the hook call)
+One Python start per tool call (C6, 2026-10-28): the tool router's PreToolUse hook (toolrouter.hook) runs pretool()
+after its own checks, in the same process, for an allowed call; the line is written as the call is let through. A
+PostToolUse call to this module does nothing (settings from before C6; `room doctor --apply` removes it).
+
+    python -m fieldkit.autopilot.room --hook          Claude Code UserPromptSubmit (stdin: the hook call)
     python -m fieldkit.autopilot.room tail [N]        the last N lines (default 40)
     python -m fieldkit.autopilot.room name ID NAME    a readable name for a session id
-    python -m fieldkit.autopilot.room doctor          are the hooks installed? prints the settings change if not
+    python -m fieldkit.autopilot.room doctor [--apply]  are the hooks wired the C6 way? prints (or makes) the change
 """
 import json
 import os
@@ -301,16 +305,64 @@ def context(lines, cap=MAX_CHARS):
             + "\n".join(shown) + more)
 
 
-def _hog(call, event, ctx):
-    """fieldkit hog rides on this hook (2026-10-26): after a shell call it registers the session's test runners,
-    listeners and browsers (the only processes the hog may stop); at a prompt it adds ONE line when the last watch
-    found something. Never fails the hook."""
+#: a shell command that may start a process outside the session's tree (Start-Process detaches): its output is read
+#: from the transcript's tail at the next hook, the only transcript read this hook makes for the hog
+DETACHES = re.compile(r"\b(Start-Process|nohup|setsid|disown)\b|Invoke-CimMethod[^|;\n]*Create|"
+                      r"\bfieldkit\b[^|;\n]*\b(task\s+start|peers\s+link\s+relay)\b", re.I)
+TAIL_BYTES = 65536
+
+
+def _pending(session_id):
+    return ROOM_DIR / "room-cursors" / f"{re.sub(r'[^A-Za-z0-9_-]', '_', session_id or '?')}.hog-pending"
+
+
+def _last_result(text):
+    """-> the text of the last tool result in a transcript tail (Claude Code JSONL), or ""."""
+    for line in reversed(text.splitlines()):
+        try:
+            content = (json.loads(line).get("message") or {}).get("content")
+        except ValueError:
+            continue                                  # the first, cut line
+        for c in reversed(content if isinstance(content, list) else []):
+            if isinstance(c, dict) and c.get("type") == "tool_result":
+                return json.dumps(c.get("content"))
+    return ""
+
+
+def _printed(call):
+    """-> the output of the previous detaching call (the last tool result in the transcript's last TAIL_BYTES), once;
+    "" when none is pending (a stat, no read)."""
+    f = _pending(call.get("session_id"))
+    if not f.is_file():
+        return ""
     try:
-        from .. import hog
-        if event == "PostToolUse" and (call.get("tool_name") or "").lower() in SHELL_TOOLS:
-            from ..hog import registry
-            registry.observe(call, hog.config()["orphan_classes"])
-        elif event in ("UserPromptSubmit", "SessionStart"):
+        f.unlink()
+        tp = Path(call.get("transcript_path") or "")
+        with open(tp, "rb") as t:
+            t.seek(max(0, tp.stat().st_size - TAIL_BYTES))
+            return _last_result(t.read().decode("utf-8", "replace"))
+    except OSError:
+        return ""
+
+
+def _hog(call, event, ctx):
+    """fieldkit hog rides on this hook (2026-10-26): before a shell call it registers the session's test runners,
+    listeners and browsers that earlier calls started (the only processes the hog may stop), and the PIDs a detaching
+    call printed (read at the next hook); at a prompt it adds ONE line when the last watch found something. Never
+    fails the hook."""
+    try:
+        shell = (call.get("tool_name") or "").lower() in SHELL_TOOLS
+        printed = _printed(call) if event in ("PreToolUse", "UserPromptSubmit") else ""
+        if (event == "PreToolUse" and shell) or printed:
+            from ..hog import registry, config
+            registry.observe(dict(call, tool_response=printed), config()["orphan_classes"])
+        if event == "PreToolUse" and shell:
+            ti = call.get("tool_input") or {}
+            if DETACHES.search(ti.get("command") or ""):     # a background Bash stays in the tree
+                _pending(call.get("session_id")).parent.mkdir(parents=True, exist_ok=True)
+                _pending(call.get("session_id")).write_text(str(time.time()), encoding="utf-8")
+        if event in ("UserPromptSubmit", "SessionStart"):
+            from .. import hog
             line = hog.hook_line()
             if line:
                 return (ctx + "\n" if ctx else "") + line
@@ -411,27 +463,44 @@ def only_new(session_id, text):
     return "\n".join(out)
 
 
+def _context(call, event):
+    """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
+    rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
+    ctx = ""
+    if event == "UserPromptSubmit":                   # the mandate's expiry warning, once per session per day
+        try:
+            from ..mandate import upkeep
+            ctx = upkeep.session_warning(call.get("session_id")) or ""
+        except Exception:
+            pass
+    ctx = _hog(call, event, ctx)
+    ctx = _rotate(call, event, ctx)
+    ctx = _net(call, event, ctx)
+    ctx = _plan(call, event, ctx)
+    ctx = _relay(call, event, ctx)
+    return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
+
+
+def pretool(call):
+    """The room's half of the one tool-call hook (C6): called by toolrouter.hook, in its process, for a call it lets
+    through. Writes the room line, registers the hog's processes, renews the net lease. -> the added context or "".
+    Never raises."""
+    try:
+        write(call)
+        return _context(call, "PreToolUse")
+    except Exception:
+        return ""
+
+
 def hook(stdin=None):
-    """Claude Code hook (PostToolUse and UserPromptSubmit). Never blocks, never fails the call."""
+    """Claude Code hook (UserPromptSubmit). Never blocks, never fails the call. PostToolUse: nothing (C6: the tool
+    router's PreToolUse hook does it, one Python start per tool call, not two)."""
     try:
         call = json.loads((stdin or sys.stdin).read() or "{}")
         event = call.get("hook_event_name") or ("PostToolUse" if call.get("tool_name") else "UserPromptSubmit")
         if event == "PostToolUse":
-            write(call)
-        rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
-        ctx = ""
-        if event == "UserPromptSubmit":                   # the mandate's expiry warning, once per session per day
-            try:
-                from ..mandate import upkeep
-                ctx = upkeep.session_warning(call.get("session_id")) or ""
-            except Exception:
-                pass
-        ctx = _hog(call, event, ctx)
-        ctx = _rotate(call, event, ctx)
-        ctx = _net(call, event, ctx)
-        ctx = _plan(call, event, ctx)
-        ctx = _relay(call, event, ctx)
-        ctx = "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
+            return 0
+        ctx = _context(call, event)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
     except Exception:
@@ -453,25 +522,86 @@ def set_name(session_id, name):
 
 
 HOOK_CMD = '"{py}" -m fieldkit.autopilot.room --hook'
+ROUTER_CMD = '"{py}" -m fieldkit.autopilot.toolrouter --hook'
+#: the tools the one tool-call hook must see: the router's checks and the room's lines (SendMessage: ask / approve)
+TOOL_MATCH = "Bash|Edit|MultiEdit|NotebookEdit|PowerShell|Write|SendMessage"
+
+
+def _has(groups, module):
+    return [m for m in groups for h in m.get("hooks", []) if module in (h.get("command") or "")]
 
 
 def doctor(settings=None, python=None):
-    """-> {"ok", "missing": [events], "snippet"}: are both hook events wired to the room in Claude Code settings?
-    It never edits the settings (the owner's file): it prints the change."""
+    """-> {"ok", "missing", "stale", "settings", "snippet"}: is the room wired the C6 way in Claude Code settings? One
+    tool-call process: the tool router's PreToolUse hook sees every tool in TOOL_MATCH; the room's own hook only on
+    UserPromptSubmit; no room hook on PostToolUse (a second Python start per call that does nothing since C6)."""
     settings = Path(settings or (Path.home() / ".claude" / "settings.json"))
     try:
         data = json.loads(settings.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
     hooks = data.get("hooks") or {}
-    missing = [ev for ev in ("PostToolUse", "UserPromptSubmit")
-               if not any("fieldkit.autopilot.room" in (h.get("command") or "")
-                          for m in hooks.get(ev, []) for h in m.get("hooks", []))]
-    cmd = HOOK_CMD.format(py=python or sys.executable)
-    # PostToolUse only for the tools that can act on shared ground: a Python start after every Read would cost ~0.2 s each
-    match = {"PostToolUse": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|SendMessage", "UserPromptSubmit": "*"}
-    snippet = {ev: [{"matcher": match[ev], "hooks": [{"type": "command", "command": cmd, "timeout": 10}]}] for ev in missing}
-    return {"ok": not missing, "missing": missing, "settings": str(settings), "snippet": snippet}
+    missing, stale = [], []
+    router = _has(hooks.get("PreToolUse", []), "fieldkit.autopilot.toolrouter")
+    if not router or not any((m.get("matcher") or "*") in ("*", "") or
+                             set(TOOL_MATCH.split("|")) <= set((m.get("matcher") or "").split("|")) for m in router):
+        missing.append("PreToolUse")
+    if not _has(hooks.get("UserPromptSubmit", []), "fieldkit.autopilot.room"):
+        missing.append("UserPromptSubmit")
+    if _has(hooks.get("PostToolUse", []), "fieldkit.autopilot.room"):
+        stale.append("PostToolUse")
+    py = python or sys.executable
+    snippet = {"PreToolUse": [{"matcher": TOOL_MATCH, "hooks": [{"type": "command", "command": ROUTER_CMD.format(py=py),
+                                                                 "timeout": 15}]}],
+               "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command", "command": HOOK_CMD.format(py=py),
+                                                                "timeout": 10}]}]}
+    snippet = {ev: snippet[ev] for ev in missing}
+    return {"ok": not missing and not stale, "missing": missing, "stale": stale, "settings": str(settings),
+            "snippet": snippet}
+
+
+def apply(settings=None, python=None, keep_dir=None):
+    """Make the doctor's change in the settings file: the router's matcher widened (or its entry added), the room on
+    UserPromptSubmit, the room's PostToolUse entry removed; every other hook is left as it is. The old file is copied
+    aside first (overwriting is deleting). -> (code, lines); the artefact is read back."""
+    import shutil
+    p = Path(settings or (Path.home() / ".claude" / "settings.json"))
+    r = doctor(p, python)
+    if r["ok"]:
+        return 0, [f"ROOM HOOKS OK  ({p}): nothing to change"]
+    data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    keep = Path(keep_dir or Path.home() / "Agents.Work.Trash" / "claude-settings")
+    if p.is_file():
+        keep.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, keep / f"settings.json.{time.strftime('%y-%m-%d-%H-%M-%S')}")
+    hooks = data.setdefault("hooks", {})
+    done = []
+    if "PreToolUse" in r["missing"]:
+        router = _has(hooks.get("PreToolUse", []), "fieldkit.autopilot.toolrouter")
+        if router:
+            router[0]["matcher"] = TOOL_MATCH
+        else:
+            hooks.setdefault("PreToolUse", []).extend(r["snippet"]["PreToolUse"])
+        done.append("PreToolUse: tool router sees " + TOOL_MATCH)
+    if "UserPromptSubmit" in r["missing"]:
+        hooks.setdefault("UserPromptSubmit", []).extend(r["snippet"]["UserPromptSubmit"])
+        done.append("UserPromptSubmit: room added")
+    if "PostToolUse" in r["stale"]:
+        groups = []
+        for m in hooks.get("PostToolUse", []):
+            m["hooks"] = [h for h in m.get("hooks", []) if "fieldkit.autopilot.room" not in (h.get("command") or "")]
+            if m["hooks"]:
+                groups.append(m)
+        if groups:
+            hooks["PostToolUse"] = groups
+        else:
+            hooks.pop("PostToolUse", None)
+        done.append("PostToolUse: room removed (the router's hook does it)")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    back = doctor(p, python)                              # the artefact: read back
+    return (0 if back["ok"] else 3), [f"{p}: " + "; ".join(done), f"previous copy in {keep}",
+                                      "checked: ROOM HOOKS OK" if back["ok"] else f"NOT OK after writing: {back}"]
 
 
 def main(argv=None):
@@ -485,10 +615,18 @@ def main(argv=None):
         set_name(argv[1], argv[2])
         return 0
     if argv[:1] == ["doctor"]:
+        if "--apply" in argv:
+            code, lines = apply()
+            print("\n".join(x for x in lines if x))
+            return code
         r = doctor()
-        print("ROOM HOOKS " + ("OK" if r["ok"] else "MISSING: " + ", ".join(r["missing"])) + f"  ({r['settings']})")
+        print("ROOM HOOKS " + ("OK" if r["ok"] else "; ".join(
+            x for x in ("MISSING: " + ", ".join(r["missing"]) if r["missing"] else "",
+                        "STALE (a second process per tool call): " + ", ".join(r["stale"]) if r["stale"] else "") if x))
+              + f"  ({r['settings']})")
         if not r["ok"]:
-            print("add under \"hooks\" (the owner applies it):\n" + json.dumps(r["snippet"], indent=1))
+            print("fix: python -m fieldkit.autopilot.room doctor --apply  (copies the old file aside)"
+                  + ("\nadds under \"hooks\":\n" + json.dumps(r["snippet"], indent=1) if r["snippet"] else ""))
         return 0 if r["ok"] else 3
     print(__doc__)
     return 0

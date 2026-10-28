@@ -126,7 +126,7 @@ tools:
   entry: [python, -m, fieldkit.autopilot.toolrouter]
   path: ${FIELDKIT}/fieldkit/autopilot/toolrouter.py
   inputs:
-    - {name: command, flag: null, type: str, required: false, help: "a command to judge; --hook reads a Claude Code PreToolUse call on stdin"}
+    - {name: command, flag: null, type: str, required: false, help: "a command to judge; --hook reads a Claude Code PreToolUse call on stdin (an allowed call then gets the room's part in the same process, C6)"}
   effects: [reads-files]
   safety: read-only
   notes: 'wired as a PreToolUse hook in ~/.claude/settings.json and in ~/.gemini/config/hooks/guard.py 1.5.0; an override needs "# toolrouter-ok: <why>" in the command'
@@ -182,10 +182,10 @@ tools:
   entry: [python, -m, fieldkit.autopilot.room]
   path: ${FIELDKIT}/fieldkit/autopilot/room.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, help: "tail [N] | name SESSION_ID NAME | doctor; --hook reads a Claude Code PostToolUse or UserPromptSubmit call on stdin"}
+    - {name: action, flag: null, type: str, required: false, help: "tail [N] | name SESSION_ID NAME | doctor [--apply]; --hook reads a Claude Code UserPromptSubmit call on stdin (tool calls: the tool router's PreToolUse hook runs room.pretool, one process per call)"}
   effects: [reads-files, writes-files]
   safety: reversible
-  notes: 'state/coordination/ROOM.log (git-ignored), one locked line per action with a fixed verb (commit rebase ff edit start stop net heavy approve ask done); secrets, home paths and addresses redacted before writing; the reader shows at most 20 new lines from the OTHER sessions; never blocks a tool call. doctor checks ~/.claude/settings.json and prints the hook change, it never edits settings. Owner 2026-10-19.'
+  notes: 'state/coordination/ROOM.log (git-ignored), one locked line per action with a fixed verb (commit rebase ff edit start stop net heavy approve ask done); secrets, home paths and addresses redacted before writing; the reader shows at most 20 new lines from the OTHER sessions; never blocks a tool call. doctor checks ~/.claude/settings.json and prints the hook change; doctor --apply makes it (old file copied aside, every other hook kept). C6 2026-10-28: one Python start per tool call (the PreToolUse process of the tool router), no PostToolUse entry. Owner 2026-10-19.'
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_room.py"]
 
