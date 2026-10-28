@@ -39,7 +39,7 @@ NOWIN = 0x08000000
 
 
 def _state_file():
-    return Path(settings.ROOT) / "state" / "cpu-guard.json"
+    return settings.state_root() / "state" / "cpu-guard.json"
 
 
 def _local():

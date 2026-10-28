@@ -28,9 +28,10 @@ import time
 import zlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from .settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
-MACHINES = ROOT / "state" / "machines"
+MACHINES = _state_root(ROOT) / "state" / "machines"
 WORKLOAD = "fk-cal-1"            # change it whenever a workload below changes: scores of different workloads never compare
 CAP_C = 70.0                     # the owner's thermal cap on this laptop (memory: thermal-cap-and-build-time)
 FUNCS = 400                      # functions in the generated module

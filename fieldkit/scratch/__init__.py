@@ -96,7 +96,7 @@ def stale_hours():
 
 def state_dir():
     from ..core import settings
-    d = Path(os.environ.get("FIELDKIT_SCRATCH_STATE") or (settings.ROOT / "state" / "scratch"))
+    d = Path(os.environ.get("FIELDKIT_SCRATCH_STATE") or (settings.state_root() / "state" / "scratch"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -438,7 +438,7 @@ def exclusion(r=None, run=subprocess.run):
 def write_owner_script(out=None):
     """Copy the owner's elevated script into state/proposed/scratch-exclusion-<date>/ with a README. -> folder."""
     from ..core import settings
-    out = Path(out or (settings.ROOT / "state" / "proposed" / "scratch-exclusion-2026-10-26"))
+    out = Path(out or (settings.state_root() / "state" / "proposed" / "scratch-exclusion-2026-10-26"))
     out.mkdir(parents=True, exist_ok=True)
     shutil.copy2(OWNER_SCRIPT, out / OWNER_SCRIPT.name)
     q = lambda s: "'" + str(s).replace("'", "''") + "'"          # a PowerShell single-quoted literal

@@ -51,9 +51,10 @@ import yaml
 
 from . import budget as bud
 from . import hardlines
+from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
-GOALS = Path(os.environ.get("FIELDKIT_GOALS") or (ROOT / "state" / "goals"))
+GOALS = Path(os.environ.get("FIELDKIT_GOALS") or (_state_root(ROOT) / "state" / "goals"))
 LOCK_STALE = 15 * 60                 # a supervisor whose heartbeat is older than this is dead
 MAX_ROUNDS = 200                     # planner calls per goal before it is called blocked
 IDLE_POLL = 10 * 60                  # how often a waiting goal looks at the inbox again

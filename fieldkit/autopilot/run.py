@@ -104,6 +104,17 @@ def claude_exe():
     found = shutil.which("claude")
     if found:
         return found
+    # 2026-10-28: the VAIO's link listener (started at logon, a short PATH) refused two `task start --on peer` with
+    # "claude found: not on PATH" while claude ran there. The installers' own places come next, on every system.
+    home = Path.home()
+    exe = "claude.exe" if sys.platform == "win32" else "claude"
+    for c in (home / ".local" / "bin" / exe, home / ".claude" / "local" / exe, home / ".npm-global" / "bin" / exe,
+              Path("/usr/local/bin/claude"), Path("/opt/homebrew/bin/claude"), Path("/usr/bin/claude")):
+        if (sys.platform == "win32") == c.name.endswith(".exe") and c.is_file() and os.access(c, os.X_OK):
+            return str(c)
+    nvm = sorted(glob.glob(str(home / ".nvm" / "versions" / "node" / "*" / "bin" / "claude")))
+    if nvm and sys.platform != "win32":
+        return nvm[-1]
     # the desktop app is an MSIX package: what it writes to %APPDATA% really lives in its package folder, and only
     # processes inside the package see the redirected path (2026-10-18: the owner's PowerShell could not find the
     # %APPDATA% path this session saw). The package folder is real for everyone, so it comes first.

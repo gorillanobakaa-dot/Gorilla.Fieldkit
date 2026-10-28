@@ -71,6 +71,7 @@ from pathlib import Path
 import yaml
 
 from . import channels as ch
+from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
 STATES = ("WORKING", "BLOCKED", "WAITING", "DONE", "IDLE")
@@ -93,7 +94,7 @@ class Refused(Exception):
 # ---------------------------------------------------------------- places, lock, identity
 
 def coord():
-    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (ROOT / "state" / "coordination"))
+    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (_state_root(ROOT) / "state" / "coordination"))
 
 
 def machine():

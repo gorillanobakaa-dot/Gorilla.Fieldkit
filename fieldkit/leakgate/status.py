@@ -130,7 +130,7 @@ def status(task_id, name=None, thermal_log=None, hot=70.0, launcher_dir=None):
     from ..thermal import watchlog
     d = run_dir(task_id, name)
     t0 = started_at(d)
-    pl = plan(d, launcher_dir or settings.ROOT / "state" / "leakgate-launcher")
+    pl = plan(d, launcher_dir or settings.state_root() / "state" / "leakgate-launcher")
     profiles = sorted((d / "runs").glob("profile-*"), key=lambda p: p.stat().st_mtime) if (d / "runs").is_dir() else []
     started = [p.name[len("profile-"):] for p in profiles]
     pid = pl.get("pid") or writer_pid(task_id)

@@ -38,7 +38,7 @@ STAMP = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})")
 
 
 def _state_file():
-    return Path(settings.ROOT) / "state" / "backup-usb.json"
+    return settings.state_root() / "state" / "backup-usb.json"
 
 
 def _read(p):

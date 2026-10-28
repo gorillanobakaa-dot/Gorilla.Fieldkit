@@ -244,3 +244,20 @@ def test_a_pipeline_stage_reports_its_start_and_end_on_stderr_as_it_runs(tmp_pat
     Pipeline({"name": "demo", "stages": stages}, state_dir=tmp_path / "st").run(force=True)
     err = capsys.readouterr().err
     assert "demo: stage hello started" in err and "demo: stage hello " in err.split("started", 1)[1]
+
+
+def test_state_root_of_a_linked_worktree_is_the_main_checkout(tmp_path):
+    from fieldkit.core import settings
+    main = tmp_path / "Fieldkit"
+    (main / "fieldkit").mkdir(parents=True)
+    gd = main / ".git" / "worktrees" / "wt1"
+    gd.mkdir(parents=True)
+    (gd / "commondir").write_text("../..\n", encoding="utf-8")
+    wt = main / ".claude" / "worktrees" / "wt1"
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {gd}\n", encoding="utf-8")
+    assert settings.state_root(wt) == main.resolve()
+    assert settings.state_root(main) == main                       # .git is a folder: a main checkout
+    assert settings.state_root(tmp_path / "nogit") == tmp_path / "nogit"
+    (main / "fieldkit").rmdir()
+    assert settings.state_root(wt) == wt                            # not a Fieldkit main checkout: stay put

@@ -29,9 +29,10 @@ import re
 import sys
 import time
 from pathlib import Path
+from ..core.settings import state_root as _state_root
 
 FK = Path(__file__).resolve().parents[2]
-ROOM_DIR = Path(os.environ.get("FIELDKIT_ROOM_DIR") or (FK / "state" / "coordination"))
+ROOM_DIR = Path(os.environ.get("FIELDKIT_ROOM_DIR") or (_state_root(FK) / "state" / "coordination"))
 MAX_SHOW = 20
 MAX_CHARS = 400                                           # rows per injection (#108 fix 6)
 ROW_CHARS = 160

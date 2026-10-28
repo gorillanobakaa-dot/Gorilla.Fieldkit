@@ -339,7 +339,7 @@ def check(run_tests=False, only=None, timeout=300):
             # its own under state/, unless the caller already chose one.
             env = dict(os.environ)
             if "PYTEST_ADDOPTS" not in env:
-                base = settings.ROOT / "state" / "pytest-tmp" / t["id"]
+                base = settings.state_root() / "state" / "pytest-tmp" / t["id"]
                 shutil.rmtree(base, ignore_errors=True)
                 base.mkdir(parents=True, exist_ok=True)
                 env["PYTEST_ADDOPTS"] = f'--basetemp="{base}" -p no:cacheprovider'

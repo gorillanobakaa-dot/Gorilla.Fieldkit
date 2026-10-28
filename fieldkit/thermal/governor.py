@@ -137,7 +137,7 @@ def read_cap():
 
 def _marker():
     from ..core import settings
-    return settings.ROOT / "state" / "cap-original.json"
+    return settings.state_root() / "state" / "cap-original.json"
 
 
 def set_cap(pct):

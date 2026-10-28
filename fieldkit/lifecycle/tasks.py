@@ -190,10 +190,30 @@ def ingest(items=None):
     return out
 
 
+def settle(tasks, alive=None):
+    """A task started here whose process is gone and that never reported is `died`, not `started` forever
+    (2026-10-28: 5 of 12 ledger tasks said "started" for days; one died in the 10-27 17:10 cutoff). In place; -> the
+    ids it marked. A peer task is the peer's to report."""
+    if alive is None:
+        from ..peers.peers import pid_alive as alive
+    out = []
+    for t in tasks.values():
+        if t.get("status") == "started" and t.get("on") == "here" and t.get("pid"):
+            try:
+                gone = not alive(int(t["pid"]))
+            except (OSError, ValueError):
+                gone = False
+            if gone:
+                t["status"] = "died"
+                t.setdefault("answer", f"process {t['pid']} ended with no report; its log: {t.get('log') or '-'}")
+                out.append(t["id"])
+    return out
+
+
 def lines(tasks):
     L = []
     for t in tasks.values():
         L.append(f"{t['id']}  {t.get('status', '?'):<11} {t.get('on', '?'):<10} {t.get('title', '')[:60]}"
                  + (f"  branch {t['branch']}" if t.get("branch") else "") + (f"  PR {t['pr']}" if t.get("pr") else "")
-                 + (f"  ({t['answer'][:120]})" if t.get("status") == "not-started" else ""))
+                 + (f"  ({t['answer'][:120]})" if t.get("status") in ("not-started", "died") else ""))
     return L or ["no tasks"]

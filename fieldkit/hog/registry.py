@@ -30,7 +30,7 @@ RECENT_S = 900
 
 def state_dir():
     from ..core import settings
-    d = Path(os.environ.get("FIELDKIT_HOG_DIR") or (settings.ROOT / "state" / "hog"))
+    d = Path(os.environ.get("FIELDKIT_HOG_DIR") or (settings.state_root() / "state" / "hog"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
