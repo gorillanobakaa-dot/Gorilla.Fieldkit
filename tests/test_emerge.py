@@ -96,6 +96,11 @@ class Inbox:
         return len(self.items)
 
 
+# household.json as the link keeps it: devices by their host names, each with its tag (never this machine's file)
+HOUSE = {"me": "vaio-host", "devices": [{"name": "vaio-host", "tag": "[VAIO-LNX]", "link": "cable"},
+                                       {"name": "l15-host", "tag": "[L15-WIN]", "link": "cable"}]}
+
+
 def emerge(r, **kw):
     kw.setdefault("say", lambda m: None)
     kw.setdefault("guard", False)
@@ -103,6 +108,7 @@ def emerge(r, **kw):
     kw.setdefault("fixer", Fixer())
     kw.setdefault("inbox_add", Inbox())
     kw.setdefault("who", "testhost")
+    kw.setdefault("household", HOUSE)
     return E.Emerge(r, **kw)
 
 
@@ -533,6 +539,68 @@ def test_an_offloaded_stage_names_a_device_and_a_mandate_project_and_runs_itself
             assert o["argv"][:5] == ["emerge", "run", name, "--only", s["id"]], (name, s["id"], o["argv"])
             assert "--local" in o["argv"], (name, s["id"])
     assert seen >= 3
+
+
+def _offloads():
+    for name in R.available():
+        stages = yaml.safe_load(R.find(name).read_text(encoding="utf-8")).get("stages") or []
+        if isinstance(stages, dict):
+            stages = [dict(v or {}, id=k) for k, v in stages.items()]
+        for s in stages:
+            if s.get("offload"):
+                yield name, s
+
+
+def test_every_offload_stage_of_every_recipe_resolves_to_a_household_cable_device():
+    # R6 + C1: recipes say l15 / vaio, household.json says the host names; both must mean one household device,
+    # reached over the cable, and the link must be handed the household.json name
+    from fieldkit.peers import household as hh
+    plan, seen = hh.load(), set()
+    for name, s in _offloads():
+        row = hh.resolve(s["offload"]["device"], plan)
+        assert row["path"] == "cable", (name, s["id"], row["tag"])
+        r, link_name, why = E.offload_target(s["offload"]["device"], HOUSE)
+        assert link_name == {"[L15-WIN]": "l15-host", "[VAIO-LNX]": "vaio-host"}[row["tag"]] and why == "", (name, s)
+        seen.add((name, row["id"]))
+    assert {("gorilla-portable-network-hub", "l15"), ("windows-11-tweaks", "l15"), ("firefox-debian", "vaio"),
+            ("debian-kernel", "vaio")} <= seen
+
+
+def test_every_name_of_a_device_resolves_to_its_one_id_and_an_unknown_name_is_refused():
+    from fieldkit.peers import household as hh
+    for n in ("l15", "L15", "[L15-WIN]", "thinkpad"):
+        assert hh.resolve(n)["id"] == "l15"
+    assert hh.resolve("l15-host", h=HOUSE)["id"] == "l15" and hh.resolve("vaio-host", h=HOUSE)["id"] == "vaio"
+    for n in ("pigeon", "", None, "l15-host"):        # a host name means nothing without household.json
+        with pytest.raises(ValueError, match="unknown device"):
+            hh.resolve(n)
+
+
+def test_a_recipe_offloading_to_an_unknown_device_is_refused(env):
+    tmp, work = env
+    s = offload_spec(work)
+    s["stages"][-1]["offload"]["device"] = "pigeon"
+    with pytest.raises(R.RecipeError, match="unknown device 'pigeon'"):
+        recipe(tmp, s)
+
+
+def test_the_plan_names_the_resolved_device_and_the_link_is_handed_its_household_name(env, monkeypatch):
+    tmp, work = env
+    s = offload_spec(work)
+    s["stages"][-1]["offload"].update(device="l15", tree=str(work), argv=["x"])
+    rows = {r["id"]: r for r in emerge(recipe(tmp, s)).plan()["stages"]}
+    assert rows["deb"]["action"] == "offload" and rows["deb"]["why"].startswith("to l15 [L15-WIN] = l15-host")
+    from fieldkit import orchestrate_work as ow
+    sent = []
+    monkeypatch.setattr(ow, "send", lambda kind, device, *a, **k: sent.append(device) or ("j1", "sent", {}))
+    r = recipe(tmp, s)
+    assert E.LinkOffloader(HOUSE).dispatch(r, r.by_id["deb"], "k")["ok"] and sent == ["l15-host"]
+    h = E.LinkOffloader({"me": "vaio-host", "devices": []}).dispatch(r, r.by_id["deb"], "k")
+    assert not h["ok"] and "[L15-WIN]" in h["why"] and sent == ["l15-host"]
+    s["stages"][-1]["offload"]["device"] = "air"           # SSH only: never handed to the cable
+    r = recipe(tmp, s)
+    h = E.LinkOffloader(HOUSE).dispatch(r, r.by_id["deb"], "k")
+    assert not h["ok"] and "never the cable" in h["why"] and sent == ["l15-host"]
 
 
 def test_a_recipes_mandate_entry_is_the_inventory_project_that_lists_it():

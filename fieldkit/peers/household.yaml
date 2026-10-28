@@ -11,14 +11,23 @@
 #        ssh    SSH only (fieldkit mac): the device runs no listener and must never be put on the cable
 # never: paths this device must not be reached by; a household.json row that says otherwise is an error
 # from:  the machine tags that hold the SSH key; on any other machine the device is NOT FROM HERE, never "down"
+# id:    the ONE name recipes and commands use for the device (emerge `offload: {device: ID}`); the tag, the aliases
+#        and the device's name in this machine's household.json (found by its tag) resolve to it, nothing else does
+# aliases: other names that mean this device (no host names: those stay in household.json)
 devices:
-  - tag: "[L15-WIN]"
+  - id: l15
+    tag: "[L15-WIN]"
+    aliases: [thinkpad, windows]
     what: ThinkPad L15, Windows (Windows builds and Windows-only tests)
     path: cable
-  - tag: "[VAIO-LNX]"
+  - id: vaio
+    tag: "[VAIO-LNX]"
+    aliases: [linux]
     what: Sony VAIO, Linux (the owner's main laptop; heavy non-Windows work)
     path: cable
-  - tag: "[AIR-MAC]"
+  - id: air
+    tag: "[AIR-MAC]"
+    aliases: [macair, macbook-air]
     what: MacBook Air 2011, macOS 10.13, 4 GB
     path: ssh
     mac: macair

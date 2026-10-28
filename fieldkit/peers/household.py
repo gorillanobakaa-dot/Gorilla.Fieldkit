@@ -6,6 +6,10 @@
                                                    and one `ssh ... true`; exit 0 all up, 3 a device down or wrongly
                                                    wired (a SSH-only device on the cable)
 
+Each device has ONE id (l15, vaio, air) that recipes and commands use; `resolve` maps an id, an alias, the tag or the
+device's household.json name to its row, and refuses any other name (plan items R6 + C1: recipes said l15 / vaio,
+the cable said the host names).
+
 Plan item C1 (owner 2026-10-27): the comms layer knew only the cable, one peer, no household list, and the MacBook Air
 (which cannot take the cable) was not in it. Now the list is data and each row says its path; the comms check
 (`fieldkit zero check`) reports the same rows, without the ping sweep.
@@ -42,7 +46,43 @@ def load(path=None):
             raise ValueError(f"{p}: {r.get('tag')}: path {r['path']} is also under never")
         if r["path"] == "ssh" and not r.get("mac"):
             raise ValueError(f"{p}: {r.get('tag')}: an ssh device names its `mac` (fieldkit mac list)")
+        if not r.get("id"):
+            raise ValueError(f"{p}: {r.get('tag')}: a device needs its `id` (the one name recipes use)")
+    seen = {}
+    for r in rows:
+        for n in names(r):
+            if seen.setdefault(n, r["id"]) != r["id"]:
+                raise ValueError(f"{p}: the name {n!r} means both {seen[n]} and {r['id']}")
     return rows
+
+
+def names(row):
+    """-> the lower-cased names that mean this device: its id, its tag and its aliases."""
+    return [str(n).lower() for n in [row.get("id"), row.get("tag"), *(row.get("aliases") or [])] if n]
+
+
+def resolve(name, plan=None, h=None):
+    """-> the household.yaml row `name` means: an id, an alias, a tag, or (with h, household.json) the device's name
+    there, matched by its tag. Any other name is a ValueError that lists the ids: never a guess."""
+    plan = load() if plan is None else plan
+    key = str(name or "").strip().lower()
+    for r in plan:
+        if key in names(r):
+            return r
+    for d in (h or {}).get("devices", []):
+        if str(d.get("name", "")).lower() == key and d.get("tag"):
+            row = next((r for r in plan if r["tag"] == d["tag"]), None)
+            if row:
+                return row
+    raise ValueError(f"unknown device {name!r}; the household (fieldkit/peers/household.yaml) has "
+                     + ", ".join(f"{r['id']} {r['tag']}" + (f" (also {', '.join(r['aliases'])})"
+                                                           if r.get("aliases") else "") for r in plan))
+
+
+def cable_name(row, h):
+    """-> the name of the household.json device with this row's tag (the name the link calls), or None."""
+    return next((d["name"] for d in (h or {}).get("devices", []) if d.get("tag") == row["tag"] and d.get("name")),
+                None)
 
 
 def wrong_paths(plan, h):

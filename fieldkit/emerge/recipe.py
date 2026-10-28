@@ -28,7 +28,8 @@ knowledge) and lays an overlay on its stages, or carries its stages inline in th
         needs: [test]                    # the stages whose keys feed this one (default: the stage before)
         uses: [sources, toolchain]       # which recipe parts feed the key (default: all five)
         tier: every                      # every | install (installed build) | release (once per release)
-        offload: {device: vaio, ...}     # distcc-style: run on the other machine (see runner.py)
+        offload: {device: vaio, ...}     # distcc-style: run on the other machine (see runner.py); device is
+                                         # an id of fieldkit/peers/household.yaml (l15, vaio)
         always_run: false                # re-run every time (preflights, restoring the power scheme)
         advisory: false                  # a failure is reported, the run goes on (reproducibility checks)
         fix: true                        # on failure, one fix-on-failure model run per attempt
@@ -207,6 +208,12 @@ class Recipe:
             for n in s.get("needs") or []:
                 if n not in self.by_id:
                     raise RecipeError(f"{source}: stage {s['id']} needs {n!r}, which is not a stage")
+            if s.get("offload"):            # one name per machine: the household's id, alias or tag
+                from ..peers import household
+                try:
+                    household.resolve((s["offload"] or {}).get("device"))
+                except ValueError as e:
+                    raise RecipeError(f"{source}: stage {s['id']}: offload: {e}") from None
         self.sources = self._resolve(spec.get("sources") or [])
         self.patches = self._resolve(spec.get("patches") or {})
         self.config_spec = self._resolve(spec.get("config") or {})
