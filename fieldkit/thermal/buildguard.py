@@ -69,7 +69,7 @@ def kill_children(pid=None):
     if sys.platform == "win32":
         ps = (f"function k($p) {{ Get-CimInstance Win32_Process -Filter \"ParentProcessId=$p\" | ForEach-Object "
               f"{{ k $_.ProcessId; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }} }}; k {pid}")
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     else:
         subprocess.run(["pkill", "-TERM", "-P", str(pid)], capture_output=True)
 
@@ -101,27 +101,42 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
     if sys.platform != "win32":
         yield None
         return
+    from ..buildh import buildrun
+    from . import brake
     if sensor is None:
-        from ..buildh import buildrun
         name, fn, surface = buildrun.thermal_sensor(say)
         if fn is None:
             raise BuildRefused("no CPU temperature source responds to load (fieldkit thermal prove): not building blind")
     else:
-        fn = sensor
+        fn, surface = sensor, False
     csv_path = Path(csv_dir) / f"thermal-{label}-{time.strftime('%Y%m%d-%H%M%S')}.csv" if csv_dir else None
     target = gv.build_target()
-    say(f"  governor: CPU cap comes down above {target + 3:.0f} C (thermal.build_target {target:.0f})")
-    gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(), on_event=say,
-                      csv_path=csv_path)
-    gov.start()
-    if rg is not None:
-        rg.governor = gov                             # the end line counts the seconds the cap was under 100%
-    try:
-        yield gov
-    finally:
-        gov.stop()
-        gov.join(timeout=15)
-        say(f"  governor stopped: peak {gov.peak} C" + (f"; {gov.verdict}" if gov.verdict else ""))
+    # 2026-10-27 (crash ~17:10): the surface ceiling was printed and never applied; turbo stayed on; a governor per
+    # command fought nothing outside the guard. Now: a hold (turbo off while any guarded job runs), and the cap is the
+    # machine governor's when `fieldkit thermal watch --forever` runs (it lowers to SURFACE_CAP while a hold lives);
+    # otherwise this governor applies the ceiling itself.
+    with brake.hold(label, say=say):
+        if brake.machine_alive():
+            say(f"  governor: the machine governor holds the cap (target {target:.0f} C"
+                + (f", ceiling {buildrun.SURFACE_CAP}% while this job runs)" if surface else ")")
+                + "; this one only watches for the kill line")
+            gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(),
+                              on_event=lambda m: None if "thermal: cap" in m else say(m), csv_path=csv_path,
+                              set_cap=lambda pct: True, read_cap=lambda: 100, dead_check=not surface)
+        else:
+            say(f"  governor: CPU cap comes down above {target + 3:.0f} C (thermal.build_target {target:.0f})")
+            gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(), on_event=say,
+                              csv_path=csv_path, max_cap=buildrun.SURFACE_CAP if surface else None,
+                              dead_check=not surface, set_cap=gv.set_cap, read_cap=gv.read_cap)
+        gov.start()
+        if rg is not None:
+            rg.governor = gov                             # the end line counts the seconds the cap was under 100%
+        try:
+            yield gov
+        finally:
+            gov.stop()
+            gov.join(timeout=15)
+            say(f"  governor stopped: peak {gov.peak} C" + (f"; {gov.verdict}" if gov.verdict else ""))
 
 
 def run(cmd, cwd=None, say=print, check_fan=True):

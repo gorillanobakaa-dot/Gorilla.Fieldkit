@@ -802,6 +802,24 @@ def cmd_agent(a):
 
 def cmd_release(a):
     from . import release
+    if a.action == "page":
+        from .build import relpage
+        if not a.src or not a.dir:
+            print("REFUSED: page needs --src REPO and --dir FOLDER-WITH-SHA256SUMS")
+            return 2
+        try:
+            page = relpage.compose(a.src, a.spec, a.dir, a.commit)
+        except ValueError as e:
+            print(f"REFUSED: {e}")
+            return 2
+        if not a.out:
+            print(page, end="")
+            return 0
+        from pathlib import Path
+        Path(a.out).write_text(page, encoding="utf-8", newline="\n")
+        print(f"{a.out}: {len(page):,} chars" + chr(10) + f"NEXT: fieldkit ship gh-release {a.spec} -- --title ... "
+              f"--notes-file {a.out} FILES...")
+        return 0
     if a.action in ("table", "verify"):
         return _release_files(a)
     if a.action == "prove":
@@ -1685,11 +1703,15 @@ def build_parser():
     ag.set_defaults(fn=cmd_agent)
 
     rl = sub.add_parser("release", parents=[common])
-    rl.add_argument("action", choices=["check", "prove", "table", "verify"],
+    rl.add_argument("action", choices=["check", "prove", "table", "verify", "page"],
                     help="table: the page's File|Bytes|SHA-256 table measured from SHA256SUMS; verify: download a "
-                         "published tag, check it, run linux-install.yml (fieldkit/build/relfiles.py)")
+                         "published tag, check it, run linux-install.yml (fieldkit/build/relfiles.py); page: the "
+                         "whole release page from the notes + the measured table (fieldkit/build/relpage.py)")
     rl.add_argument("spec", help="check/prove: release spec YAML (see fieldkit/release.py); table: a SHA256SUMS "
-                                 "file; verify: the tag, e.g. v0.1.152")
+                                 "file; verify, page: the tag, e.g. v0.1.152")
+    rl.add_argument("--src", help="page: the repository (holds ReleaseNotes/openings and Changelogs)")
+    rl.add_argument("--commit", default="", help="page: the commit every file was built from, for the table line")
+    rl.add_argument("--out", help="page: write the page here (default: print it)")
     rl.add_argument("--dir", help="table: the folder with the files (default: next to SHA256SUMS); verify: a new "
                                   "empty folder for the downloads (default: state/release-verify/<repo>-<tag>-<time>)")
     rl.add_argument("--check", metavar="PAGE", help="table: check this page's table instead of printing one")
@@ -2031,6 +2053,8 @@ def build_parser():
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
+    th.add_argument("--forever", action="store_true",
+                    help="watch: the always-on machine-wide governor (started at logon); one per computer")
     th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
     th.add_argument("--interval", type=int, default=60, help="log (Linux): seconds between lines")
     th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux), monitor (both systems): run until this "
@@ -2623,6 +2647,9 @@ def cmd_thermal(a):
         name, fn, detail = sensors.best(prove=True)
         print(f"{'PROVEN' if name else 'NO LIVE SOURCE'}: {name}: {detail}")
         return 0 if name else 3
+    if getattr(a, "forever", False):
+        from .thermal import watch
+        return watch.forever(target=a.target)
     name, fn, detail = sensors.best(prove=True)
     if not name:
         print("no live source: " + detail)
