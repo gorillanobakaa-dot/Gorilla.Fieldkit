@@ -1,0 +1,63 @@
+# The listener keeps its branch-return promise across restarts (2026-10-28): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/link_resume_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link_resume.py
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    record(jobd, getattr(proc, "pid", None), cwd, before, brief)
+
+    '
+  - ''
+  why: follow leaves follow.json
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '        if (d / "branch-return.json").exists() or s is None or now - s > RESUME_HOURS * 3600:'
+  - '        if s is None:'
+  why: returned and old jobs are not owed
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '        if (d / "follow.json").is_file() or (d / "CHECKPOINT.json").is_file():'
+  - '        if (d / "follow.json").is_file():'
+  why: an older listener's run is owed too
+- file: fieldkit/peers/link_return.py
+  swap:
+  - "    if _checkpoint(jobd).get(\"ended_at\"):\n        return True"
+  - "    if False:\n        return True"
+  why: a checkpoint's end counts
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '        return bool(pid) and not alive(pid)'
+  - '        return not alive(pid)'
+  why: no pid is not an end
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    while not ended(jobd, (rec or {}).get("pid"), alive):'
+  - '    while False:'
+  why: finish waits for the end
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '        if rc == 0 and t.isdigit() and start - 60 <= int(t) <= float(end) + 120 and remote != sha:'
+  - '        if rc == 0 and t.isdigit() and remote != sha:'
+  why: only the job's window counts
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '        if rc == 0 and t.isdigit() and start - 60 <= int(t) <= float(end) + 120 and remote != sha:'
+  - '        if rc == 0 and t.isdigit() and start - 60 <= int(t) <= float(end) + 120:'
+  why: a branch origin has is not pushed again
+- file: fieldkit/peers/link_return.py
+  swap:
+  - "        if not b.startswith(PREFIXES):\n            continue\n        rc, t"
+  - '        rc, t'
+  why: only feat/ and fix/
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    to_push, local = (list(branches), []) if branches is not None else moved(before, heads(cwd, run=run))'
+  - '    to_push, local = moved(before, heads(cwd, run=run))'
+  why: given branches are pushed
+- file: fieldkit/peers/link_keepalive.py
+  swap:
+  - 'KillMode=process
+
+    '
+  - 'KillMode=control-group
+
+    '
+  why: a restart stops the listener only

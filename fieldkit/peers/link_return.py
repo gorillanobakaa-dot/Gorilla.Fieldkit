@@ -87,12 +87,12 @@ def _send(text, needs_you=False):
     return link.call({"verb": "message", "text": text, "needs_you": needs_you})
 
 
-def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship_push, send=_send):
+def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship_push, send=_send, branches=None):
     """Waits for the started session, then pushes its branches and tells the command post. -> the report dict, also
-    written to JOB/branch-return.json."""
+    written to JOB/branch-return.json. `branches`: the branches to push when there is no `before` snapshot."""
     if hasattr(proc, "wait"):
         proc.wait()
-    to_push, local = moved(before, heads(cwd, run=run))
+    to_push, local = (list(branches), []) if branches is not None else moved(before, heads(cwd, run=run))
     results = [push_branch(cwd, b, run=run, push=push) for b in to_push]
     m = TASK_ID.search(brief or "")
     rep = {"task": m.group(1) if m else "", "at": time.strftime("%Y-%m-%d %H:%M:%S"), "pushed": results,
@@ -115,8 +115,111 @@ def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship
 
 
 def follow(proc, cwd, before, jobd, brief=""):
-    """bring_home on a daemon thread of the listener, so the listener keeps answering."""
+    """bring_home on a daemon thread of the listener, so the listener keeps answering. The job folder keeps what is
+    needed to finish it (follow.json), so a listener that restarts while the run goes on still brings it home."""
+    record(jobd, getattr(proc, "pid", None), cwd, before, brief)
     t = threading.Thread(target=bring_home, args=(proc, cwd, before, jobd, brief), daemon=True,
                          name="link-branch-return")
     t.start()
     return t
+
+
+# ---- a listener that restarts keeps its promise ---------------------------------------------------------------------
+# 2026-10-28: the I9 job ended with feat/i9-owner-actions local only. The listener running then had started at 15:17,
+# before this module existed; the checkout moved to new code under it, but a running process keeps the code it
+# loaded. A restart alone would not help either: the follow lived only in the old process's memory.
+RESUME_HOURS = 24                                    # older job folders are history, never pushed from here
+POLL_S = 30
+
+
+def record(jobd, pid, cwd, before, brief=""):
+    try:
+        (Path(jobd) / "follow.json").write_text(json.dumps({"pid": pid, "cwd": str(cwd), "before": before,
+                                                            "brief": (brief or "")[:4000], "at": time.time()}),
+                                                encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _checkpoint(jobd):
+    try:
+        return json.loads((Path(jobd) / "CHECKPOINT.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _pid_alive(pid):
+    from .peers import pid_alive
+    return pid_alive(int(pid))
+
+
+def ended(jobd, pid=None, alive=_pid_alive):
+    """The run is over: its checkpoint says so, or its process is gone."""
+    if _checkpoint(jobd).get("ended_at"):
+        return True
+    try:
+        return bool(pid) and not alive(pid)
+    except (OSError, ValueError):
+        return False
+
+
+def started_at(jobd):
+    try:
+        return time.mktime(time.strptime(Path(jobd).name[:15], "%Y%m%d-%H%M%S"))
+    except ValueError:
+        return None
+
+
+def window_branches(cwd, jobd, run=subprocess.run, now=None):
+    """A job started before follow.json existed has no `before`: its branches are the feat/ and fix/ ones whose newest
+    commit falls inside the job's time and that origin does not have at that commit."""
+    start, end = started_at(jobd), _checkpoint(jobd).get("ended_at") or (now or time.time())
+    if start is None:
+        return []
+    out = []
+    for b, sha in heads(cwd, run=run).items():
+        if not b.startswith(PREFIXES):
+            continue
+        rc, t = _git(cwd, "log", "-1", "--format=%ct", sha, run=run)
+        rc2, remote = _git(cwd, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{b}", run=run)
+        if rc == 0 and t.isdigit() and start - 60 <= int(t) <= float(end) + 120 and remote != sha:
+            out.append(b)
+    return out
+
+
+def finish(jobd, alive=_pid_alive, sleep=time.sleep, bring=None, run=subprocess.run):
+    """Wait (in this thread) for the job to end, then bring its branches home. -> the report, or None."""
+    bring = bring or bring_home
+    f = Path(jobd) / "follow.json"
+    rec = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else None
+    cp = _checkpoint(jobd)
+    cwd = (rec or {}).get("cwd") or cp.get("cwd")
+    if not cwd:
+        return None
+    while not ended(jobd, (rec or {}).get("pid"), alive):
+        sleep(POLL_S)
+    if rec:
+        return bring(None, cwd, rec.get("before") or {}, jobd, rec.get("brief") or "", run=run)
+    return bring(None, cwd, {}, jobd, cp.get("result") or "", run=run, branches=window_branches(cwd, jobd, run=run))
+
+
+def pending(jobs_dir, now=None):
+    """The job folders a starting listener still owes a branch return: recent, not returned yet, and either followed
+    (follow.json) or a run with a checkpoint (started by an older listener)."""
+    now = now or time.time()
+    out = []
+    for d in sorted(Path(jobs_dir).glob("*")) if Path(jobs_dir).is_dir() else []:
+        s = started_at(d)
+        if (d / "branch-return.json").exists() or s is None or now - s > RESUME_HOURS * 3600:
+            continue
+        if (d / "follow.json").is_file() or (d / "CHECKPOINT.json").is_file():
+            out.append(d)
+    return out
+
+
+def resume(jobs_dir, now=None, start=True):
+    """At listener start: one daemon thread per job still owed a return. -> the job folders."""
+    jobs = pending(jobs_dir, now)
+    for d in jobs if start else []:
+        threading.Thread(target=finish, args=(d,), daemon=True, name=f"link-branch-return-{d.name}").start()
+    return jobs

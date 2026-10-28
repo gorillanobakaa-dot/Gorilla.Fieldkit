@@ -1016,8 +1016,34 @@ def _stream_thread(c, req, pre):
         _log(f"stream {req.get('tid')} from {req.get('from_host')} stopped: {type(e).__name__}: {e}")
 
 
-def serve(seconds=None, allow_loopback=False, ready=None, **kw):
+def code_head(root=None):
+    """The commit of the checkout this listener runs from, or "" when git cannot say."""
+    try:
+        r = subprocess.run(["git", "-C", str(root or LINK_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+                           timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+RELOAD_S = 60
+
+
+def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
+    """`reload` (default: when serving for good): re-execute this listener in place when its checkout moved to new code
+    (2026-10-28: the listener of 15:17 kept running #160-less code for hours after the checkout moved). In place = the
+    same PID, so systemd sees no restart and the runs it started keep running; their branch returns resume from the job
+    folders (link_return.resume)."""
     import selectors
+    reload = (seconds is None) if reload is None else reload
+    started_head, checked = (code_head() if reload else ""), time.time()
+    try:
+        from . import link_return
+        owed = link_return.resume(home() / "jobs", start=seconds is None)
+        if owed:
+            _log(f"branch return resumed for {len(owed)} job(s): {', '.join(d.name for d in owed)}")
+    except Exception as e:  # noqa: BLE001 - the listener answers even if this fails; the log says why
+        _log(f"branch return resume failed: {e}")
     h, k = household(), key()
     if not h or not k:
         raise SystemExit("not paired: fieldkit peers link pair init | import first")
@@ -1048,6 +1074,14 @@ def serve(seconds=None, allow_loopback=False, ready=None, **kw):
     try:
         while end is None or time.time() < end:
             ev = sel.select(timeout=1.0)
+            if reload and started_head and time.time() - checked > RELOAD_S:
+                checked = time.time()
+                now_head = code_head()
+                if now_head and now_head != started_head:
+                    _log(f"code moved {started_head[:10]} -> {now_head[:10]}: re-executing in place (same PID)")
+                    for s in socks:
+                        s.close()
+                    os.execv(sys.executable, list(getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv))
             if not ev:
                 continue
             try:
