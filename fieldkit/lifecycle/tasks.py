@@ -99,10 +99,12 @@ def full_brief(text, tid, on=None, title=""):
     return text.rstrip() + "\n" + head + protocol.brief_tail(None if on else tid, headless=True) + back
 
 
-def runbook_text(tid, brief, cwd, wall):
+def runbook_text(tid, brief, cwd, wall, model=None):
     import yaml
     step = {"id": "work", "title": f"task {tid}", "agent": brief, "cwd": str(cwd),
             "budget": {"wall_minutes": int(wall)}}
+    if model:
+        step["model"] = model                  # the worker's model, from roles.yaml or --model (HARNESS-PLAN I5)
     return (f"# fieldkit task {tid}\n\nWritten by `fieldkit task start`; run headless by fieldkit autopilot.\n\n"
             "```runbook\n" + yaml.safe_dump({"steps": [step]}, sort_keys=False, allow_unicode=True) + "```\n")
 
@@ -130,14 +132,18 @@ def running_twin(h, title, now=None, tasks=None):
 
 
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
-          worktree=None):
-    """-> the ledger record. Raises ValueError when the brief is missing or empty, AlreadyStarted when the same brief
-    is still started somewhere (unless again). `worktree`: (repo, tid) -> (path or None, why); default worktrees.make."""
+          worktree=None, model=None, accept=None, allow_expensive=False):
+    """-> the ledger record. Raises ValueError when the brief is missing or empty or the worker model is an expensive
+    one, AlreadyStarted when the same brief is still started somewhere (unless again). `worktree`: (repo, tid) ->
+    (path or None, why); default worktrees.make. `model`: the worker's model (default: roles.yaml worker.default);
+    `accept`: the acceptance command a reviewer verdict needs before the task counts as done (I5, I7, gate())."""
     p = Path(brief_path)
     text = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
     if not text:
         raise ValueError(f"no brief in {brief_path}")
     tid = task_id(text, now)
+    from . import roles
+    model = roles.worker_model(model, allow_expensive=allow_expensive)
     from ..peers import machine
     title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))
     h = brief_hash(text)
@@ -149,10 +155,13 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     brief = full_brief(text, tid, on, title)
     rec = {"id": tid, "title": title, "brief": str(p.resolve()), "on": on or "here", "tag": tag_for(on),
            "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
-           "status": "started", "hash": h, "wall": int(wall)}
+           "status": "started", "hash": h, "wall": int(wall), "model": model}
+    if accept:
+        rec.update(accept=accept, accept_cwd=str(Path(cwd or os.getcwd()).resolve()), failures=0)
     if on:
         from ..peers import link
-        r = (call or link.call)({"verb": "ask", "agent": "claude", "brief": brief}, timeout=30, device=on)
+        r = (call or link.call)({"verb": "ask", "agent": "claude", "brief": brief, "model": model}, timeout=30,
+                                device=on)
         ok = bool(r.get("ok") and r.get("started"))
         rec.update(how="link ask", answer=r.get("why") or r.get("error") or "",
                    status="started" if ok else "not-started")
@@ -169,7 +178,8 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
             _room(f"task:{tid}", f"task not-started {rec['on']}: {rec['title']} ({rec['answer']})")
             return rec
         rec.update(worktree=str(wt) if wt else "", worktree_why=wwhy)
-        rb.write_text(runbook_text(tid, brief, wt or Path(cwd or os.getcwd()).resolve(), wall), encoding="utf-8")
+        rb.write_text(runbook_text(tid, brief, wt or Path(cwd or os.getcwd()).resolve(), wall, model),
+                      encoding="utf-8")
         if launch is None:
             from ..buildh import window
             launch = window.launch
@@ -255,11 +265,40 @@ def collect_jobs(tasks, result_of=None, check=None):
     return out
 
 
-def report(tid, status, branch="", pr="", note="", source="local"):
+def gate(tid, task, result, reviewer=None, fixer=None):
+    """C3b: an AI task that has an acceptance command is done only on a passing verdict (roles.py). -> the verdict
+    {kind, why}; a task without one is not gated (None). The worker's own report of done is only the claim; the
+    verdict is recorded on the task (verdict, failures) and sent back/fixed by the reviewer per roles.yaml."""
+    if not task.get("accept"):
+        return None
+    from . import roles
+    cwd = task.get("worktree") or task.get("accept_cwd")
+    failures = int(task.get("failures") or 0)
+    brief = Path(task["brief"]).read_text(encoding="utf-8") if task.get("brief") and Path(task["brief"]).is_file() \
+        else task.get("title", "")
+    v = (reviewer or roles.review)(brief, result, task["accept"], failures, cwd=cwd)
+    if v["kind"] == "fix_itself":
+        f = (fixer or roles.fix_itself)(brief, result, v["why"], task["accept"], cwd=cwd)
+        v = dict(v, kind=f["kind"], why=f["why"], fixed_by=roles.reviewer_model() if f["kind"] == "pass" else "")
+    return v
+
+
+def report(tid, status, branch="", pr="", note="", source="local", reviewer=None, fixer=None):
     if status not in STATUSES[1:]:
         raise ValueError(f"status is one of {', '.join(STATUSES[1:])}")
+    task = ledger().get(tid) or {}
+    verdict = {}
+    if status == "done" and task.get("accept") and source != "verdict":
+        verdict = gate(tid, task, note, reviewer, fixer) or {}
+        if verdict and verdict["kind"] != "pass":
+            # not done: the worker's claim failed its acceptance. send_back: the task goes again (failures + 1)
+            status = "failed"
+            note = f"verdict {verdict['kind']}: {verdict['why']} | worker said: {note}"
     rec = {"id": tid, "status": status, "branch": branch, "pr": pr, "note": note[:300], "source": source,
            "reported": time.strftime("%Y-%m-%d %H:%M:%S")}
+    if verdict:
+        rec.update(verdict=verdict["kind"], verdict_why=verdict["why"][:300],
+                   failures=int(task.get("failures") or 0) + (0 if verdict["kind"] == "pass" else 1))
     _append(rec)
     _room(f"task:{tid}", f"task {status}: branch {branch or '-'} PR {pr or '-'} {note[:200]}")
     board(tid)
