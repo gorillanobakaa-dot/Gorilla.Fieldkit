@@ -335,6 +335,15 @@ def _rotate_stop(call):
         return None
 
 
+def _breaker(call):
+    """Circuit breakers (fieldkit/autopilot/breaker.py): the same call LIMIT times in a row is refused. Fails open."""
+    try:
+        from . import breaker
+        return breaker.repeat_refusal(call)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def hook(stdin=None):
     """Claude Code PreToolUse: Bash and PowerShell commands, and (ground claims only) Edit / Write / MultiEdit /
     NotebookEdit; fails open on a malformed call (the hard lines are the safety layer; this one teaches)."""
@@ -346,7 +355,7 @@ def hook(stdin=None):
     if deny:
         print(json.dumps(deny))
         return 0
-    stop = _rotate_stop(call)
+    stop = _rotate_stop(call) or _breaker(call)
     if stop:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": stop}}))
