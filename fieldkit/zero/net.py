@@ -508,7 +508,21 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
     pl = plan.line()
     e = append("handover", me, text=f"Zero is now {to} ({how})" + (f". {pl}" if pl else ""), data={"net": _public(net), "previous": old, "how": how},
                now=now, epoch=net["epoch"])
-    return {"net": net, "entry": e, "previous": old, "pushed": _push(e, net, channels or ch.default(), now)}
+    return {"net": net, "entry": e, "previous": old, "pushed": _push(e, net, channels or ch.default(), now),
+            "board": _board_row_of(old)}
+
+
+def _board_row_of(station):
+    """Plan R3: the Zero that hands over leaves its Board row (from its transcript, when it has none). Only a Claude
+    session on this computer can be read here. -> "written" / "present" / "no plan" / "unknown" / "not here"."""
+    m = re.match(r"claude:(\w{8})@", str(station or ""))
+    if not m or machine_of(station) != machine():
+        return "not here"
+    try:
+        from ..lifecycle import board
+        return board.ensure(m[1])
+    except Exception:  # noqa: BLE001 - the Board row never breaks a handover
+        return "unknown"
 
 
 def on_rotate(session_id, now=None):

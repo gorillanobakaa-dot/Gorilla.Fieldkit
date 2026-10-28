@@ -14,7 +14,10 @@
                                                  the job's own report: ledger, ROOM line, Board row
     fieldkit sessions sweep [--idle-minutes N] [--keep ID] [--json]
                                                  finished / idle desktop sessions with their measured RAM and CPU,
-                                                 for the command post to archive; exit 1 when one is to archive
+                                                 for the command post to archive; exit 1 when one is to archive;
+                                                 a finished one without its Board row says so
+    fieldkit board check|add [SESSION ... | --missing] [--date D]
+                                                 every finished session has its row in PLAN.md (plan R3)
     fieldkit sessions protocol [--task ID] [--headless]   the done protocol every brief ends with
     fieldkit sessions rule [--install PATH ... | --all]   the standing rule block in the agents' instruction files
     fieldkit sessions doctor                    rule files, the desktop session store, the link, the ledger
@@ -120,6 +123,9 @@ def main(argv=None, prog="fieldkit sessions"):
         return cmd_friction(argv[1:])
     if argv[:1] == ["task"]:
         return cmd_task(argv[1:])
+    if argv[:1] == ["board"]:                     # every finished session leaves its Board row (plan R3)
+        from . import board
+        return board.main(argv[1:])
     if argv[:1] == ["tag"]:                       # session titles carry their machine's tag (peers/machine.py)
         from ..peers import machine
         return machine.sessions_main(argv[1:])
@@ -151,7 +157,9 @@ def main(argv=None, prog="fieldkit sessions"):
             for x in rows:
                 cpu = "-" if x["cpu_pct"] is None else f"{x['cpu_pct']:.0f}%"
                 print(f"{x['state'].upper():<9} {x['id'][:14]}  {_gb(x['rss']):>9} {cpu:>5}  "
-                      f"{x['title'][:50]:<50} {x['why']}" + (f"\n          fix: {x['fix']}" if x["fix"] else ""))
+                      f"{x['title'][:50]:<50} {x['why']}" + (f"\n          fix: {x['fix']}" if x["fix"] else "")
+                      + (f"\n          no Board row: fieldkit board add {x['cli']}" if x.get("board") == "missing"
+                         else ""))
             print(sweep.summary(rows))
         return 1 if sweep.totals(rows)["finished"] else 0
     if cmd == "protocol":

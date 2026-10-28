@@ -328,6 +328,17 @@
    "fieldkit-backup-usb"
   ]
  },
+ "board": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "board"
+  ]
+ },
  "build-harness about-pages": {
   "platforms": [
    "linux",

@@ -232,7 +232,7 @@ def test_friction_flags_an_untagged_session():
 def test_friction_local_rows_include_untagged(tmp_path, monkeypatch):
     from fieldkit.lifecycle import friction
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
-    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows"):
+    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows", "board_rows"):
         monkeypatch.setattr(friction, n, lambda *a, **k: [])
     monkeypatch.setattr(friction.desktop, "sessions", lambda dirs=None: [sess("s1", "job")])
     assert [r["kind"] for r in friction.local_rows()] == ["untagged"]

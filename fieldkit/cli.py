@@ -1591,7 +1591,9 @@ def build_parser():
                                      "protocol and the standing rule; `sessions tag --check`: titles without "
                                      "their machine tag (fieldkit/lifecycle)"),
                        ("machine", "this machine's tag ([VAIO-LNX]) from the household registry; every device "
-                                   "with tag, OS, address, last seen (fieldkit/peers/machine.py)")):
+                                   "with tag, OS, address, last seen (fieldkit/peers/machine.py)"),
+                       ("board", "every finished session has its Board row in PLAN.md: check (with / all today), "
+                                 "add from the transcript, no model (fieldkit/lifecycle/board.py)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     em = sub.add_parser("emerge", add_help=False,
                         help="compile jobs like Gentoo's Portage: a recipe per product, every stage content-addressed "
@@ -2776,7 +2778,7 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
-    if args[:1] in (["friction"], ["task"], ["sessions"]):   # zero friction: no clicks, no idle sessions
+    if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)

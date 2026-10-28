@@ -14,6 +14,7 @@
     inbox        an open item in the owner inbox (fieldkit inbox)
     untagged     a live session whose title does not start with its machine's tag ([VAIO-LNX]; peers/machine.py):
                  a notification from it does not say which computer spoke
+    board        a session that ended in the last 24 h with no Board row in PLAN.md (plan R3; fieldkit board)
     peer         a peer that cannot be audited (no answer, or an older Fieldkit without the friction verb)
 
 Acknowledge a line that is handled with `fieldkit friction ack KEY` (state/lifecycle/friction-ack.json). Read-only
@@ -261,12 +262,20 @@ def untagged_rows(sessions, tag=None):
             for x in machine.untagged(sessions, tag, "")]
 
 
+def board_rows():
+    try:
+        from . import board
+        return board.friction_rows()
+    except Exception:  # noqa: BLE001 - an unreadable transcript store must not switch the audit off
+        return []
+
+
 def local_rows(dirs=None, me=None):
     """Every friction line on THIS computer (also what the link verb `friction` answers a peer)."""
     me = me if me is not None else os.environ.get(desktop.HOST_ENV, "")
     sessions = desktop.sessions(dirs)
     rows = (desktop_rows(sessions, me=me) + untagged_rows(sessions) + remote_rows(dirs) + link_rows()
-            + prereq_rows() + needs_you_rows() + unread_rows() + inbox_rows())
+            + prereq_rows() + needs_you_rows() + unread_rows() + inbox_rows() + board_rows())
     done = acked()
     return [r for r in rows if r["key"] not in done]
 
