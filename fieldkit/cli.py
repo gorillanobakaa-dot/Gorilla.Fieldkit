@@ -75,6 +75,7 @@
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
     fieldkit cost daily                          one line: yesterday's $, the most expensive session, both machines
     fieldkit cost report --since DATE [--bill $] both machines per day, by source, the real bill beside it
+    fieldkit cost firstcall [--parts]            a session's first call here, in tokens, by part (MCP, skills, tools)
     fieldkit rotate check|handover|finished      OK / WARN / ROTATE per session; hand a monster session over to a fresh one
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
