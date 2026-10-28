@@ -253,21 +253,19 @@ def test_with_no_other_worker_a_silent_job_is_reported(tmp_path, linkhome):
     assert f"job {jid} silent" in "\n".join(project.report())
 
 
-def test_the_watchdog_restarts_a_deaf_listener_and_stops_after_two_failures(linkhome):
+def test_the_watchdog_reports_a_deaf_listener_once_and_never_restarts_it(linkhome):
     from fieldkit.peers import link_watchdog as W
     reported = []
-    assert W.tick(listening=lambda: True, restart=None, report=reported.append) == "listening"
-    assert "restarted" in W.tick(listening=lambda: False, restart=lambda: (0, ["listening on x"]),
-                                 report=reported.append)
-    bad = lambda: (3, ["NOT LISTENING after 10 s"])
-    assert "restart 1 failed" in W.tick(listening=lambda: False, restart=bad, report=reported.append)
-    assert "STOPPED" in W.tick(listening=lambda: False, restart=bad, report=reported.append) and len(reported) == 1
+    assert W.tick(listening=lambda: True, report=reported.append) == "listening"
     calls = []
-    W.tick(listening=lambda: False, restart=lambda: calls.append(1) or (0, []), report=reported.append)
-    assert calls == [] and len(reported) == 1                                    # no third restart, no second report
-    assert W.tick(listening=lambda: True, restart=None, report=reported.append) == "listening"
+    for _ in range(3):
+        what = W.tick(listening=lambda: False, restart=lambda: calls.append(1) or (0, []), report=reported.append)
+    assert calls == [] and "no restart" in what and len(reported) == 1             # C4: the service manager restarts
+    assert W.tick(listening=lambda: True, report=reported.append) == "listening"
+    W.tick(listening=lambda: False, report=reported.append)
+    assert len(reported) == 2                                                      # heard again, then deaf again: new report
     log = (linkhome / "watchdog.log").read_text()
-    assert "restarted" in log and "STOPPED" in log and "resumes" in log
+    assert "reported once" in log and "listening again" in log
 
 
 def test_the_watchdog_timer_on_linux(tmp_path):

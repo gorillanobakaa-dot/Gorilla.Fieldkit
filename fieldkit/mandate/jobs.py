@@ -12,7 +12,7 @@ is the only approval. 20 devices = 20 one-time setups (pair, trust pin), never 2
 
 The shapes (both travel signed by the link's HMAC):
     job     {verb: job, id, kind: test, repo, commit, mandate: <sha256 of the sealed mandate file>}
-    result  {verb: result, result: {id, kind, repo, commit, status: pass | fail | not-run, passed?, evidence,
+    result  {verb: result, result: {id, kind, repo, commit, status: pass | fail | not-run, verdict? (agent jobs: pass | send-back | fix-itself | unreviewed), passed?, evidence,
              concerns: [{text, fix_offered}], os, host, at, key, sig}}
 The result is also signed by the worker's own Ed25519 result key (fingerprint `key`), over the canonical JSON of every
 field but `sig`: PROVENANCE, which device ran what, never an approval. The orchestrator pins each worker's key once, at

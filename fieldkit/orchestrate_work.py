@@ -53,6 +53,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import review_verdict
 from .mandate import jobs
 from .peers import link
 
@@ -411,7 +412,7 @@ def job_concerns(o, wall, idle_s):
     return rc, out
 
 
-def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unload=None):
+def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unload=None, reviewer=None):
     """The job itself (a detached process on the worker). -> the result, delivered to the boss.
     run: the contained runner (run_contained): (argv, cwd, env, log, deadline_s, idle_s, label) -> contain.Outcome."""
     run = run or run_contained
@@ -424,7 +425,7 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
     tree = d / "tree"
     log = d / "job.log"
     guard_log = d / "guard.log"
-    concerns, t0, rc = [], time.time(), None
+    concerns, t0, rc, verdict = [], time.time(), None, None
     boss = job.get("from_host") if link.device(link.household(), job.get("from_host")) else None
     try:
         if tree.exists():
@@ -490,6 +491,14 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
         ok, why = judge(job["kind"], job.get("argv"), rc, output, job.get("artefacts"))
         concerns += why
         status = "pass" if ok and not missing and not bad else "fail"
+        if job["kind"] == "agent" and status == "pass":          # C3b: an AI result passes only on a reviewer's verdict
+            verdict = review_verdict.review(job, rc, output, arts, reviewer)
+            if verdict["verdict"] != review_verdict.PASS:
+                status = "fail"
+                concerns.append({"text": f"review verdict {verdict['verdict']}: {verdict['explanation']}",
+                                 "fix_offered": "send the explanation back to the worker" if verdict["verdict"] ==
+                                 review_verdict.SEND_BACK else "the reviewer fixes it" if verdict["verdict"] ==
+                                 review_verdict.FIX_ITSELF else "wire the reviewer (I7), then send the job again"})
         evidence = (f"{o.status} exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} "
                     f"artefact(s) sent, sha256 in this result\n{evidence_tail(log, guard_log)}")
         if guard_log.is_file():
@@ -505,7 +514,7 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
             pass
     r = sign({"id": jid, "kind": job["kind"], "repo": job["repo"], "commit": job["tree_digest"], "status": status,
               "evidence": evidence[:1900], "concerns": concerns, "os": link.os_tag(), "host": socket.gethostname(),
-              "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+              "at": time.strftime("%Y-%m-%d %H:%M:%S"), "verdict": verdict["verdict"] if verdict else None,
               "artefacts": [{k: a[k] for k in ("name", "size", "sha256")} for a in arts]})
     (d / "result.json").write_text(json.dumps(r, indent=1, ensure_ascii=False), encoding="utf-8")
     deliver(r)

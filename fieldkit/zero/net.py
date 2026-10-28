@@ -15,7 +15,8 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
                                           ask every station for its sitrep (alias: sitrep); LATE / MISSING listed
     fieldkit zero checkin [--ref ID] [--job .. --state .. --branch .. --waiting .. --not-verified .. --shared ..]
                                           what a station runs at start and on its interval (and to answer a roll)
-    fieldkit zero check [--no-heal]       the comms check (alias: comms): leases, misses, cable revive, retries
+    fieldkit zero check [--revive-cable] the comms check (alias: comms): leases, misses, retries; a peer that is off is
+                                          reported off and not retried (C4); the cable revive only on request
     fieldkit zero time                    the clocks: this OS's sync state, each cable peer's skew
     fieldkit zero handover --to ST | --take | --assume [--2ic ST]
                                           change of Zero; epoch +1, announced to every station
@@ -69,6 +70,7 @@ import uuid
 from pathlib import Path
 
 from . import channels as ch
+from ..peers import link_off
 from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -883,7 +885,17 @@ def unacked(net, now):
     return out
 
 
-def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None, command_kw=None):
+def _cable_layer(device):
+    """True when the ladder finds the peer silent on every rung (down, asleep or unplugged): it is off, not lost."""
+    from ..peers import link_heal
+    try:
+        rows, facts = link_heal.ladder(device)
+        return link_off.looks_off(link_heal.verdict(rows, facts)[0])
+    except (ValueError, OSError):
+        return False
+
+
+def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None, command_kw=None, classify=None):
     now = time.time() if now is None else now
     ingest_cable()
     net = load_net()
@@ -948,7 +960,14 @@ def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, boar
     for d in cab.devices():
         r = cab.hello(d)
         row = {"device": d, "ok": bool(r.get("ok")), "detail": "answers" if r.get("ok") else str(r.get("error"))}
-        if not r.get("ok") and heal:
+        if r.get("ok"):
+            link_off.clear(d)
+        elif link_off.is_off(d):
+            row.update(off=True, detail="off: switched off or asleep, not retried until it answers")
+        elif (classify or _cable_layer)(d):
+            row.update(off=True, detail="off: no ping and no neighbor entry; marked off, not retried until it answers")
+            link_off.mark(d, row["detail"])
+        elif heal:
             try:
                 if reviver:
                     rc = reviver(d)
@@ -966,7 +985,7 @@ def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, boar
         cmd = command.sweep(net, now, inbox_add=inbox_add, board=board, **(command_kw or {}))
     except Exception as e:  # noqa: BLE001 - the comms check still reports the net
         cmd = {"error": str(e), "findings": [], "new": []}
-    level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") for x in links)
+    level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") and not x.get("off") for x in links)
              else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings") else OK)
     out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried,
            "undelivered": undelivered, "links": links, "level": level, "command": cmd}
@@ -1288,7 +1307,8 @@ def main(argv=None, prog="fieldkit zero"):
     ap.add_argument("--no-ack", action="store_true", help="send: wants no ack")
     ap.add_argument("--wait", type=float, default=0, help="rollcall: wait up to N minutes for the answers")
     ap.add_argument("--status", action="store_true", help="rollcall: show the last roll call, send nothing")
-    ap.add_argument("--no-heal", action="store_true", help="check: do not revive a dead cable")
+    ap.add_argument("--revive-cable", action="store_true", help="check: run the heal ladder on a dead cable (off by default: "
+                    "the service manager is the one keep-alive; heal is a command run on purpose)")
     ap.add_argument("--scheduled", action="store_true", help="check: run by the schedule (prints only problems)")
     ap.add_argument("--verify", action="store_true", help="log: check the hash chain and the signatures")
     ap.add_argument("--apply", action="store_true", help="schedule: install it")
@@ -1362,7 +1382,7 @@ def main(argv=None, prog="fieldkit zero"):
             _emit(a, {k: v for k, v in r.items() if k != "rec"}, lines)
             return OK
         if verb == "check":
-            r = check(heal=not a.no_heal)
+            r = check(heal=a.revive_cable)
             if not r["established"]:
                 if not a.scheduled:
                     _emit(a, r, status_lines(status()))

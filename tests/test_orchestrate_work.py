@@ -139,12 +139,16 @@ class Ran:
                                why="no job object: refused" if not self.contained else "")
 
 
-def go(home, req, ran, sent=None, unload=None):
+def passing(request):
+    return {"verdict": "pass", "explanation": "out.txt holds what the brief asked for"}
+
+
+def go(home, req, ran, sent=None, unload=None, reviewer=passing):
     sent = [] if sent is None else sent
     delivered = []
     put = lambda p, device=None: sent.append((Path(p).name, device)) or {"ok": True, "sha256": "x"}  # noqa: E731
     r = ow.work(start(home, req), run=ran, put=put, deliver=delivered.append, sign=lambda r: r, health_fn=list,
-                unload=unload)
+                unload=unload, reviewer=reviewer)
     assert delivered == [r]
     return r
 
@@ -327,7 +331,7 @@ def test_an_agent_job_with_a_local_brain_unloads_what_it_loaded(home, monkeypatc
     sent, delivered = [], []
     put = lambda p, device=None: sent.append(Path(p).name) or {"ok": True, "sha256": "x"}  # noqa: E731
     r = ow.work(start(home, req), run=ran, put=put, deliver=delivered.append, sign=lambda r: r, health_fn=list,
-                unload=lambda brain: unloaded.append(brain) or "unloaded: lms unload --all")
+                unload=lambda brain: unloaded.append(brain) or "unloaded: lms unload --all", reviewer=passing)
     cfg = json.loads((Path(ran.calls[0]["env"]["XDG_CONFIG_HOME"]) / "gorilla-opencode" / "config.json").read_text())
     assert cfg["localEndpoints"] == [{"name": "brain", "baseURL": "http://127.0.0.1:1234/v1"}]
     assert unloaded == ["http://127.0.0.1:1234/v1"] and r["status"] == "pass", r["evidence"]
@@ -505,3 +509,44 @@ def test_off_windows_the_job_runs_unguarded_with_no_guard_log(home, monkeypatch)
     ran = Said("1 passed in 0.1s\n")
     r = go(home, run_req(argv=["admit", "suite", "tests/test_x.py"], artefacts=[]), ran)
     assert r["status"] == "pass" and GUARD_LOG not in ran.calls[0]["env"] and "--- the guard" not in r["evidence"]
+
+
+# ---- C3 part b: an AI job passes only on a reviewer's verdict ---------------------------------------------------------
+def agent_req():
+    return run_req(kind="agent", argv=None, brief="write out.txt", model="", artefacts=["out.txt"])
+
+
+@pytest.mark.parametrize("reviewer,verdict,word", [
+    (None, "unreviewed", "no reviewer is wired"),
+    (lambda q: {"verdict": "send-back", "explanation": "out.txt is empty"}, "send-back", "out.txt is empty"),
+    (lambda q: {"verdict": "fix-itself", "explanation": "failed twice"}, "fix-itself", "failed twice"),
+    (lambda q: {"verdict": "pass", "explanation": ""}, "unreviewed", "no explanation"),
+    (lambda q: {"verdict": "great"}, "unreviewed", "not one of"),
+    (lambda q: 1 / 0, "unreviewed", "the reviewer failed"),
+])
+def test_an_agent_result_without_a_pass_verdict_does_not_pass(home, monkeypatch, reviewer, verdict, word):
+    monkeypatch.setattr(ow, "opencode_exe", lambda: "/usr/bin/gorilla-opencode")
+    r = go(home, agent_req(), Ran(make=("out.txt",)), reviewer=reviewer)
+    assert r["status"] == "fail" and r["verdict"] == verdict
+    assert any(word in c["text"] for c in r["concerns"])
+
+
+def test_the_reviewer_is_given_the_task_and_the_result_only(home, monkeypatch):
+    monkeypatch.setattr(ow, "opencode_exe", lambda: "/usr/bin/gorilla-opencode")
+    seen = []
+    r = go(home, agent_req(), Ran(make=("out.txt",)), reviewer=lambda q: seen.append(q) or passing(q))
+    assert r["status"] == "pass" and r["verdict"] == "pass"
+    assert set(seen[0]) == {"task", "model", "exit", "output_tail", "artefacts"} and seen[0]["task"] == "write out.txt"
+    assert [a["name"] for a in seen[0]["artefacts"]] == ["out.txt"]
+
+
+def test_a_failed_agent_job_is_not_sent_to_the_reviewer(home, monkeypatch):
+    monkeypatch.setattr(ow, "opencode_exe", lambda: "/usr/bin/gorilla-opencode")
+    asked = []
+    r = go(home, agent_req(), Ran(make=()), reviewer=lambda q: asked.append(q) or passing(q))   # no out.txt made
+    assert r["status"] == "fail" and asked == [] and r["verdict"] is None
+
+
+def test_a_run_job_needs_no_verdict(home):
+    r = go(home, run_req(), Ran(), reviewer=None)
+    assert r["status"] == "pass" and r["verdict"] is None

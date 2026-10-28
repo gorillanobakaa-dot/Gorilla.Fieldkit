@@ -17,6 +17,7 @@
     fieldkit pipeline reset NAME [--stage S]
 
     fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
+    fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails]
     fieldkit gather [--only NAME...] [--check|--test] [--offline]   bring tools in per imports.yaml
     fieldkit harvest [--root DIR] | --find WORDS...   index every script; search it
@@ -640,6 +641,22 @@ def cmd_triage(a):
             print("\n  " + r["hint"])
     _emit(rep, a.json, human)
     return 0 if rep["verdict"] == "known" else 3
+
+
+def cmd_triage_learn(a):
+    from .build import review_fix
+    if a.audit:
+        rows = review_fix.audit(a.set)
+        _emit({"rows": rows}, a.json, lambda r: [print(f"{'ok  ' if x['ok'] else 'FAIL'} {x['set']}/{x['id']}: {x['why']}")
+                                                  for x in r["rows"]] or print("no signature stores a log line yet"))
+        return 3 if any(not x["ok"] for x in rows) else 0
+    need = ("id", "pattern", "cause", "fix", "log_line")
+    if a.set == "auto" or any(not getattr(a, k) for k in need):
+        print("triage-learn needs --set (a real set) and " + ", ".join("--" + k.replace("_", "-") for k in need))
+        return 2
+    res = review_fix.learn(a.set, a.id, a.pattern, a.cause, a.fix, a.log_line, a.check, a.repair or None)
+    _emit(res, a.json, lambda r: print(f"recorded {r['id']} in {r['file']}" if r["ok"] else f"NOT recorded: {r['why']}"))
+    return 0 if res["ok"] else 3
 
 
 def cmd_privacy(a):
@@ -1685,6 +1702,18 @@ def build_parser():
     tr.add_argument("log")
     tr.add_argument("--set", default="auto")
     tr.set_defaults(fn=cmd_triage)
+
+    tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
+    tl.add_argument("--set", default="auto")
+    tl.add_argument("--id")
+    tl.add_argument("--pattern")
+    tl.add_argument("--log-line", dest="log_line")
+    tl.add_argument("--cause")
+    tl.add_argument("--fix")
+    tl.add_argument("--check")
+    tl.add_argument("--repair", nargs="+", help="the deterministic repair as an argv; without it the entry is advice only")
+    tl.add_argument("--audit", action="store_true", help="every stored log line must still select its signature")
+    tl.set_defaults(fn=cmd_triage_learn)
 
     pr = sub.add_parser("privacy", parents=[common])
     pr.add_argument("action", choices=["scan", "push-check", "install-hook"])

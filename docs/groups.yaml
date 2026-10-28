@@ -135,6 +135,7 @@ groups:
       - testcost.py
       - parity.py
       - plan.py
+      - review_verdict.py
       - rules.py
       - suite_offload.py
 

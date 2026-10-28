@@ -63,13 +63,6 @@ def test_restart_goes_through_the_manager_when_it_is_installed():
     assert [c[1] for c in calls] == ["/Query", "/End", "/Run"]
 
 
-def test_the_watchdog_uses_the_manager_first(monkeypatch):
-    monkeypatch.setattr(K, "restart_via_manager", lambda: (True, 0, ["systemctl ok"]))
-    import fieldkit.peers.link_ops as O
-    monkeypatch.setattr(O, "restart", lambda: (_ for _ in ()).throw(AssertionError("old way used")))
-    assert W._restart() == (0, ["systemctl ok"])
-
-
 def test_install_on_linux_writes_units_enables_them_and_linger(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "link"))
     run, calls = _run({"daemon-reload": (0, ""), "enable": (0, ""), "enable-linger": (0, "")})

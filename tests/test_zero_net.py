@@ -372,12 +372,39 @@ def test_check_revives_a_dead_cable():
     opened()
     cab = FakeCable(["VAIO"])
     called = []
-    r = net.check(now=T0 + 1, cable=cab, reviver=lambda d: called.append(d) or 0, board=False)
+    r = net.check(heal=True, classify=lambda d: False, now=T0 + 1, cable=cab, reviver=lambda d: called.append(d) or 0, board=False)
     assert called == ["VAIO"] and r["links"][0]["revived"] and "REVIVED" in r["links"][0]["detail"]
-    r = net.check(now=T0 + 2, cable=cab, reviver=lambda d: 3, board=False)
+    r = net.check(heal=True, classify=lambda d: False, now=T0 + 2, cable=cab, reviver=lambda d: 3, board=False)
     assert r["level"] == net.ALARM and not r["links"][0].get("revived")
     r = net.check(heal=False, now=T0 + 3, cable=FakeCable(["VAIO"], {"VAIO": {"ok": True}}), board=False)
     assert r["links"][0]["ok"] and r["level"] == net.OK
+
+
+@pytest.fixture
+def linkhome_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "link"))
+
+
+def test_a_peer_that_is_off_is_off_not_lost_and_is_not_retried(linkhome_off):
+    from fieldkit.peers import link_off
+    opened()
+    cab, asked = FakeCable(["VAIO"]), []
+    r = net.check(now=T0 + 1, cable=cab, classify=lambda d: asked.append(d) or True, board=False)
+    assert r["links"][0]["off"] and r["level"] != net.ALARM and link_off.is_off("VAIO")
+    r = net.check(now=T0 + 2, cable=cab, classify=lambda d: asked.append(d) or True, board=False)
+    assert asked == ["VAIO"] and r["links"][0]["off"]                        # the ladder ran once, not at every check
+    net.check(now=T0 + 3, cable=FakeCable(["VAIO"], {"VAIO": {"ok": True}}), board=False)
+    assert not link_off.is_off("VAIO")                                       # it answered: no longer off
+    r = net.check(now=T0 + 4, cable=cab, classify=lambda d: False, board=False)
+    assert not r["links"][0].get("off") and r["level"] == net.ALARM          # silent but not provably off: lost
+
+
+def test_the_comms_check_does_not_revive_the_cable_unless_asked():
+    opened()
+    called = []
+    r = net.check(now=T0 + 1, cable=FakeCable(["VAIO"]), classify=lambda d: False,
+                  reviver=lambda d: called.append(d) or 0, board=False)
+    assert called == [] and r["level"] == net.ALARM
 
 
 def test_board_row_is_replaced_not_duplicated(tmp_path):
@@ -612,15 +639,16 @@ def run(argv, capsys):
     return rc, capsys.readouterr()
 
 
-def test_cli_alias_words_reach_the_same_verbs(monkeypatch, capsys):
+def test_cli_alias_words_reach_the_same_verbs(monkeypatch, capsys, tmp_path):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "aaaaaaaa-1")
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "link"))        # no household: the real cable is never touched
     rc, out = run([], capsys)
     assert rc == net.NONET and "ZERO NOT ESTABLISHED" in out.out
     rc, out = run(["establish", "--name", "command post", "--2ic", "claude:bbbbbbbb"], capsys)
     assert rc == 0 and "ZERO HAS BEEN ESTABLISHED" in out.out and f"2IC = {TWO}" in out.out
     rc, out = run(["sitrep"], capsys)
     assert "ROLL CALL R-" in out.out
-    rc, out = run(["comms", "--no-heal"], capsys)
+    rc, out = run(["comms"], capsys)
     assert out.out.startswith("COMMS CHECK")
     rc, out = run(["log", "--verify"], capsys)
     assert rc == 0 and "INTACT" in out.out
