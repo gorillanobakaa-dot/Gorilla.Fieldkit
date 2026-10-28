@@ -1,4 +1,4 @@
-# Version: 1.6.0 · updated 26-10-28-17-16
+# Version: 1.7.0 · updated 26-10-28-18-00
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -110,6 +110,14 @@ ROUTES = [
      re.compile(r"\breg(\.exe)?\s+(add|delete|import)\b|\b(Set|New|Remove)-ItemProperty\b[^|;\n]*HK(LM|CU)", re.I),
      "a Windows 11 tweaks module (backup, preview, apply, undo): fieldkit win11 run MODULE preview|apply|undo",
      FK + " win11 run copilot preview"),
+    # -- 2026-10-28 (O4): before sleep-to-wait, so a CI loop gets the CI tool. 103 hand-written wait loops and 210 gh
+    #    status polls in 41 VAIO transcripts in one week; gh's own exit code merged #124 during a re-run
+    ("ci-wait-by-hand",
+     re.compile(r"\bgh\s+pr\s+checks\b[^|;\n]*--watch\b|\bgh\s+run\s+watch\b|"
+                r"\b(until|while)\b[^\n]*\bgh\s+(pr\s+(checks|view)|run\s+(list|view))\b", re.I),
+     "fieldkit ship ci-wait PR [--merge], in the background: one wake when CI ends, the train's verdict (every check "
+     "and workflow run of the head), the failed log tail on red",
+     FK + " ship ci-wait 166 --merge"),
     ("sleep-to-wait",
      re.compile(r"\bStart-Sleep\s+(-s(econds)?\s+)?([1-9]\d|\d{3,})\b|(^|[;&|]\s*|\bdo\s+|\bthen\s+)sleep\s+([1-9]\d|\d{3,})\b", re.I),
      "fieldkit wait --until CMD --matches RE --timeout S (wait on the condition, never on a clock)",

@@ -21,6 +21,8 @@
     fieldkit ship ready PR [--pending T]   the session declares its PR final (label + head sha); --pending: not yet
     fieldkit ship train [--dry-run]        merge the declared PRs one at a time, dependencies first, never red, with
                                            --match-head-commit; resumable (train.py); --modes lists what it prevents
+    fieldkit ship ci-wait PR [--merge]     one wake when the PR's CI ends (run it in the background): green, or red
+                                           with the failed log tail; --merge merges on green (train.py)
     fieldkit ship overlap [--files F...]   open PRs and live stations on the same files as this work
     fieldkit ship freeze|unfreeze          a checkout that must not move: ff pending, then parity baseline --set
 
@@ -276,7 +278,7 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
     return dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
 
 
-TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze")             # train.py
+TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze", "ci-wait")             # train.py
 PROOF = {"update": "update", "proof": "prove", "ci-record": "ci-record"}  # mergeproof.py
 
 
