@@ -122,7 +122,7 @@ Its essentials are now in [VISION.md](VISION.md).
 | I8 | Teach the harness, measured: every review fix becomes a deterministic tool + test (as triage signatures already do), and the next similar task is checked to need no reviewer fix | the goal; rule "the same failure is never diagnosed twice" | repeat failures of the same kind | PLANNED |
 | I9 | Owner presence measured per job: every prompt, approval, click and paste the owner had to do is counted; the target is 0 (`fieldkit friction` lists what could wait on a person; this counts what did) | owner: "50 hours in front of the computer to click accept" | owner actions per job | PLANNED |
 
-## Proposed order (2026-10-28, NOT YET APPROVED by the owner)
+## Order (proposed 2026-10-28, approved by the owner the same evening)
 
 | phase | items | why first |
 |---|---|---|
@@ -143,5 +143,8 @@ Its essentials are now in [VISION.md](VISION.md).
   hand-run (2026-10-27).
 - **Ask before work stays out of git**: before a job ends, every needed document written into a git-ignored folder
   is named, and the owner is asked once whether to add it to git.
+- **The order above is approved** (2026-10-28), with R7 (CI runs only the tests covering a change) and R8 (old
+  worktrees that are no longer needed go to the recycle bin). Sessions may merge their own pull requests on green
+  CI without the owner's click.
 - **Fieldkit stays public.** Everything published here is sanitized and in English only; private paths, names and
   machine details stay in git-ignored local files.
