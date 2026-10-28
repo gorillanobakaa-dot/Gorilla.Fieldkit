@@ -70,6 +70,30 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 _os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
 _os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
 _os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
+# Tests never reach the real cable (2026-10-28, item 22: the C6 hook test's child process checked fixture stations
+# in to a "far" Zero over the REAL cable; the VAIO got claude:zzzzzzzz@... -> claude:aaaaaaaa@HOSTA). Every address
+# of the real household (and the cable's own 10.77.0.0/30) is refused at socket.connect, here and in every child
+# (fieldkit/core/offline.py), each refusal is logged so a test that swallows it still fails (_no_real_cable below),
+# and the Zero cable channel writes to a fake file instead of calling the link (fieldkit/zero/channels.py).
+def _real_peer_addresses():
+    import json as _json
+    real = Path(_os.environ.get("FIELDKIT_LINK_HOME") or (Path.home() / ".fieldkit" / "link"))
+    out = {"10.77.0.0/30"}
+    try:
+        h = _json.loads((real / "household.json").read_text(encoding="utf-8"))
+        out.update(a for d in h.get("devices", []) if d.get("name") != h.get("me") for a in d.get("address", []))
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        out.add(_json.loads((real / "link.json").read_text(encoding="utf-8"))["peer"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return sorted(a for a in out if a)
+
+
+_os.environ["FIELDKIT_BLOCKED_PEERS"] = ",".join(_real_peer_addresses())
+_os.environ["FIELDKIT_BLOCKED_PEERS_LOG"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-cable-"), "refused")
+_os.environ["FIELDKIT_FAKE_CABLE"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-cable-"), "sent.jsonl")
 # The net's hook also reads what came over the cable (C2): never the real link inbox (the owner's notes) in a test.
 _os.environ["FIELDKIT_LINK_HOME"] = _tempfile.mkdtemp(prefix="fieldkit-test-link-")
 
@@ -107,6 +131,30 @@ _socket.gethostbyaddr = _offline_gethostbyaddr
 from fieldkit.core import offline as _offline
 
 _os.environ.update(_offline.child_env())
+_offline.install_peer_guard()
+
+
+_REFUSED_LOG = _os.environ["FIELDKIT_BLOCKED_PEERS_LOG"]
+
+
+def _refused_size():
+    try:
+        return _os.path.getsize(_REFUSED_LOG)
+    except OSError:
+        return 0
+
+
+@pytest.fixture(autouse=True)
+def _no_real_cable():
+    """A test (or a child it started) that tried to connect to a real cable peer fails, even if the code swallowed
+    the ConnectionRefusedError (the Zero hook does: a far check-in never stalls a hook). The suite's own log: a test
+    of the guard points FIELDKIT_BLOCKED_PEERS_LOG at its own file."""
+    before = _refused_size()
+    yield
+    if _refused_size() > before:
+        with open(_REFUSED_LOG, encoding="utf-8") as f:
+            f.seek(before)
+            pytest.fail("this test tried to reach the REAL cable: " + ", ".join(f.read().split()))
 
 
 # Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
