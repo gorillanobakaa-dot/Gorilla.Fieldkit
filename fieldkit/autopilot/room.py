@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-28-17-28
+# Version: 1.2.0 · updated 26-10-28-18-46
 """The shared room: every AI session on this machine sees what the others did on shared ground, without anyone having
 to remember to say it.
 
@@ -360,6 +360,28 @@ def _plan(call, event, ctx):
     return ctx
 
 
+def _relay(call, event, ctx):
+    """A cable note is heard only while a session on this computer runs the relay listener in the background
+    (fieldkit/peers/link_relay.py: it ends when a note arrives, which wakes that session). On a prompt, a session on a
+    computer whose relay is not listening is told so, with the line that starts it: the first to start it is the
+    relay, and when that session ends its listener ends and the next session is told (owner, 2026-10-28: "make it FULL
+    WORKING", after 100 notes sat stored and unheard on the VAIO). Not in a headless run: it ends too soon to listen
+    for others. Never fails the hook."""
+    if event != "UserPromptSubmit" or os.environ.get("FIELDKIT_AUTOPILOT") == "1":
+        return ctx
+    try:
+        from ..peers import link, link_relay
+        if not link.household() or link_relay.other_listener():
+            return ctx
+        stored = max(link_relay.numbers() or [0])
+        line = ("RELAY NOT LISTENING: notes from the other computer are stored here but nobody hears them. Start it as "
+                f"its own background command: {link_relay.fieldkit_command()} peers link relay listen --since {stored}"
+                " ; when it ends, read the notes, pass each to the session it is for, and start it again")
+        return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        return ctx
+
+
 SAID_MAX = 200
 
 
@@ -408,6 +430,7 @@ def hook(stdin=None):
         ctx = _rotate(call, event, ctx)
         ctx = _net(call, event, ctx)
         ctx = _plan(call, event, ctx)
+        ctx = _relay(call, event, ctx)
         ctx = "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
