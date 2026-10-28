@@ -1,0 +1,70 @@
+# Version: 1.0.0 · updated 26-10-28-19-02
+# Mistakes the harness made, each with the tool or check that now prevents it (HARNESS-PLAN I8).
+# Read by `fieldkit plan next` (fieldkit/plan.py lessons()): a lesson with no `tool`, or whose `test` file is missing
+# in this checkout, is counted as "no tool yet" on the plan line that `fieldkit zero`, the handovers and the room hook
+# show. A lesson is data first: write the entry the moment the mistake is understood, with tool and test empty, and
+# fill them in the pull request that makes the check.
+#
+# keys: id (L-YYYYMMDD-N), date, what (the mistake, plain words), tool (the command or check that now prevents it),
+#       pr (#N, or the branch until it merges), test (the test file that fails without it)
+lessons:
+  - id: L-20261028-1
+    date: 2026-10-28
+    what: Sessions forgot where the harness plan stood and worked on the wrong item, or none.
+    tool: fieldkit plan next (the plan line in fieldkit zero, both handovers and the room hook)
+    pr: "#164"
+    test: tests/test_plan.py
+  - id: L-20261028-2
+    date: 2026-10-28
+    what: A note sent to an idle computer was never heard and nobody knew (C7 wake).
+    tool: fieldkit peers link send says when the peer did not hear it; unread notes are a friction row
+    pr: "#171"
+    test: tests/test_peers_link_receipt.py
+  - id: L-20261028-3
+    date: 2026-10-28
+    what: A running cable listener kept old code after the checkout moved, and its branch return died with a restart.
+    tool: the listener re-execs on new code and resumes follow.json after a restart
+    pr: "#175"
+    test: tests/test_peers_link_resume.py
+  - id: L-20261028-4
+    date: 2026-10-28
+    what: Two listeners raced to return the same branch and pushed what origin already had.
+    tool: one owner per returned branch, no push of what origin has (link_return)
+    pr: fix/listener-return-one-owner
+    test: tests/test_peers_link_resume.py
+  - id: L-20261028-5
+    date: 2026-10-28
+    what: A prompt on a computer whose cable relay was not listening was never relayed, silently.
+    tool: the room hook says the relay is not listening and how to start it
+    pr: fix/relay-always-heard
+    test: tests/test_autopilot_room.py
+  - id: L-20261028-6
+    date: 2026-10-28
+    what: Zero started 4 jobs in the cable listener's own checkout; only a line appended to each brief stopped them switching branches under each other.
+    tool: fieldkit task start and the listener put every job in its own git worktree from origin/main, removed once its work is on origin (fieldkit/lifecycle/worktrees.py)
+    pr: feat/lessons-to-tools
+    test: tests/test_lessons_to_tools.py
+  - id: L-20261028-7
+    date: 2026-10-28
+    what: The mutate proof was started twice from the same brief and ran twice.
+    tool: fieldkit task start refuses a brief (same hash or title) that is still started, unless --again
+    pr: feat/lessons-to-tools
+    test: tests/test_lessons_to_tools.py
+  - id: L-20261028-8
+    date: 2026-10-28
+    what: A wait matched "IN SYNC" inside "NOT IN SYNC" and went on as if the machines were in sync.
+    tool: fieldkit sync exits 0 only in sync, 3 otherwise; --json has in_sync; the failure line says DIFFERS
+    pr: feat/lessons-to-tools
+    test: tests/test_lessons_to_tools.py
+  - id: L-20261028-9
+    date: 2026-10-28
+    what: Orders were re-sent to the other computer without reading its cable inbox first, so it got them twice.
+    tool: the room relay shows the cable inbox at every prompt
+    pr: fix/relay-always-heard
+    test: tests/test_autopilot_room.py
+  - id: L-20261028-10
+    date: 2026-10-28
+    what: Sessions passed --needs-you notes to each other for things the mandate covers, so they waited on the owner.
+    tool: unread and needs-you notes are friction rows (C7)
+    pr: "#171"
+    test: tests/test_zero_friction.py

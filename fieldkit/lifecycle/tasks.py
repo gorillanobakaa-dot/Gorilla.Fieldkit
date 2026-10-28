@@ -26,6 +26,11 @@ from . import protocol
 REPORT = re.compile(r"fieldkit-task (?P<id>T-[\w.-]+) (?P<status>done|failed|blocked)"
                     r"(?: branch=(?P<branch>\S+))?(?: pr=(?P<pr>\S+))?(?: (?P<note>.*))?")
 STATUSES = ("started", "done", "failed", "blocked")
+SLACK_MINUTES = 30                      # past wall + this, a started task cannot still run: the budget stopped it
+
+
+class AlreadyStarted(ValueError):
+    """The same brief is started and not finished; the message names the task."""
 
 
 def state_dir():
@@ -98,8 +103,32 @@ def runbook_text(tid, brief, cwd, wall):
             "```runbook\n" + yaml.safe_dump({"steps": [step]}, sort_keys=False, allow_unicode=True) + "```\n")
 
 
-def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None):
-    """-> the ledger record. Raises ValueError when the brief is missing or empty."""
+def brief_hash(text):
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+
+def running_twin(h, title, now=None, tasks=None):
+    """-> the started task with this brief hash or title that may still run, or None. A task whose process is gone
+    (settle) or whose wall budget plus SLACK_MINUTES has passed does not count."""
+    tasks = ledger() if tasks is None else tasks
+    settle(tasks)
+    now = time.time() if now is None else now
+    for t in tasks.values():
+        if t.get("status") != "started" or not (t.get("hash") == h or t.get("title") == title):
+            continue
+        try:
+            age = (now - time.mktime(time.strptime(t["at"], "%Y-%m-%d %H:%M:%S"))) / 60
+        except (KeyError, ValueError):
+            age = 0
+        if age <= int(t.get("wall") or 120) + SLACK_MINUTES:
+            return t
+    return None
+
+
+def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
+          worktree=None):
+    """-> the ledger record. Raises ValueError when the brief is missing or empty, AlreadyStarted when the same brief
+    is still started somewhere (unless again). `worktree`: (repo, tid) -> (path or None, why); default worktrees.make."""
     p = Path(brief_path)
     text = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
     if not text:
@@ -107,10 +136,16 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     tid = task_id(text, now)
     from ..peers import machine
     title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))
+    h = brief_hash(text)
+    twin = None if again else running_twin(h, title, now)
+    if twin:
+        raise AlreadyStarted(f"already started: {twin['id']} on {twin.get('on')} at {twin.get('at')} "
+                             f"({twin.get('title', '')[:60]}); `fieldkit task status` says how it stands; "
+                             "--again starts it anyway")
     brief = full_brief(text, tid, on, title)
     rec = {"id": tid, "title": title, "brief": str(p.resolve()), "on": on or "here", "tag": tag_for(on),
            "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
-           "status": "started"}
+           "status": "started", "hash": h, "wall": int(wall)}
     if on:
         from ..peers import link
         r = (call or link.call)({"verb": "ask", "agent": "claude", "brief": brief}, timeout=30, device=on)
@@ -121,15 +156,26 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
         d = state_dir() / "tasks" / tid
         d.mkdir(parents=True, exist_ok=True)
         rb = d / f"{tid}.md"
-        rb.write_text(runbook_text(tid, brief, Path(cwd or os.getcwd()).resolve(), wall), encoding="utf-8")
+        from . import worktrees
+        try:
+            wt, wwhy = (worktree or worktrees.make)(Path(cwd or os.getcwd()).resolve(), tid)
+        except worktrees.Refused as e:
+            rec.update(how="autopilot runbook", status="not-started", answer=f"no worktree of its own: {e}"[:300])
+            _append(rec)
+            _room(f"task:{tid}", f"task not-started {rec['on']}: {rec['title']} ({rec['answer']})")
+            return rec
+        rec.update(worktree=str(wt) if wt else "", worktree_why=wwhy)
+        rb.write_text(runbook_text(tid, brief, wt or Path(cwd or os.getcwd()).resolve(), wall), encoding="utf-8")
         if launch is None:
             from ..buildh import window
             launch = window.launch
         try:
             r = launch(["runbook", "run", str(rb)])
             rec.update(how="autopilot runbook", runbook=str(rb), pid=r.get("pid"), log=r.get("log"))
+            worktrees.own(wt, r.get("pid"), tid)
         except Exception as e:  # noqa: BLE001 - the refusal is the answer, recorded
             rec.update(how="autopilot runbook", runbook=str(rb), status="not-started", answer=str(e)[:300])
+            worktrees.own(wt, -1, tid)               # no process: reap takes the tree back once it is clean
     _append(rec)
     _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec.get('answer') or rec.get('how')})")
     return rec

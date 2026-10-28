@@ -87,7 +87,13 @@ def _send(text, needs_you=False):
     return link.call({"verb": "message", "text": text, "needs_you": needs_you})
 
 
-def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship_push, send=_send, branches=None):
+def _reap(cwd):
+    from ..lifecycle import worktrees
+    return worktrees.reap(cwd)
+
+
+def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship_push, send=_send, branches=None,
+               reap=_reap):
     """Waits for the started session, then pushes its branches and tells the command post. -> the report dict, also
     written to JOB/branch-return.json. `branches`: the branches to push when there is no `before` snapshot."""
     if hasattr(proc, "wait"):
@@ -101,6 +107,10 @@ def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship
         (Path(jobd) / "branch-return.json").write_text(json.dumps(rep, indent=1), encoding="utf-8")
     except OSError:
         pass
+    try:
+        rep["worktrees"] = reap(cwd)            # the job's own worktree goes once its branch is on origin
+    except Exception as e:  # noqa: BLE001  (a tree left behind is reaped by the next job or `fieldkit task status`)
+        rep["worktrees"] = {"error": f"{type(e).__name__}: {e}"}
     if results or local:
         words = "; ".join(f"{r['branch']} {'pushed' if r['pushed'] else 'NOT pushed: ' + r['detail']}"
                           for r in results)

@@ -713,7 +713,7 @@ def startcheck(agent="claude", run_check=None):
 
 
 def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
-                  grace=START_GRACE, check_fn=startcheck, follow=None):
+                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
     text = (f"--- {FENCE.format(host=from_host)} ---\n{local_peers.sanitize(brief)[:12000]}\n--- end ---\n\n"
@@ -733,14 +733,29 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
         return False, f"not started: precheck failed: {cwhy}"
     jobd = home() / "jobs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{agent}"
     jobd.mkdir(parents=True, exist_ok=True)
-    argv = [a.format(brief=text, cwd=reg["cwd"], job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
+    # 2026-10-28: four jobs from the cable ran in this one checkout and switched branches under each other. Each job
+    # gets its own worktree from origin/main (lifecycle/worktrees.py); the branches it makes are still refs of
+    # reg["cwd"], so the branch return below sees and pushes them, then removes the tree.
+    from ..lifecycle import worktrees
+    try:
+        worktrees.reap(reg["cwd"])
+    except Exception:  # noqa: BLE001  (a tree left behind is only space)
+        pass
+    m = re.search(r"fieldkit-task (T-[\w.-]+)", text)
+    try:
+        wt, wwhy = (worktree or worktrees.make)(reg["cwd"], m.group(1) if m else jobd.name)
+    except worktrees.Refused as e:
+        return False, f"not started: no worktree of its own ({e}); job {jobd}"
+    work = str(wt or reg["cwd"])
+    argv = [a.format(brief=text, cwd=work, job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
     if tmpl is DEFAULT_START.get(agent):
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
     from . import link_return
     before = link_return.heads(reg["cwd"])           # what the run makes or moves is pushed when it ends
     log = open(jobd / "session.log", "a", encoding="utf-8")
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)) if os.name == "nt" else 0
-    p = popen(argv, cwd=reg["cwd"], stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=link_env())
+    p = popen(argv, cwd=work, stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=link_env())
+    worktrees.own(wt, p.pid, jobd.name)
     # "started" only for a process that is still alive after a moment (2026-10-22: one died on its arguments at
     # once and the caller was told it ran)
     sleep(grace)
@@ -751,7 +766,8 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
         return False, f"died at start (exit {rc}, PID {p.pid}, job {jobd}): {tail}"
     # 2026-10-28: the run cannot push (no credential, the hard line), so its branch stayed here; the listener pushes it
     (follow or link_return.follow)(p, reg["cwd"], before, jobd, text)
-    return True, f"started {agent} (PID {p.pid}, job {jobd}; alive after {grace:g} s; its branch comes home at the end)"
+    return True, (f"started {agent} (PID {p.pid}, job {jobd}; alive after {grace:g} s; its branch comes home at the "
+                  f"end; {wwhy})")
 
 
 # ---- files over the cable (put) -----------------------------------------------------------------------------------

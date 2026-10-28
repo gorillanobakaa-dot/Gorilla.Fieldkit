@@ -1208,8 +1208,8 @@ def cmd_goal(a):
 def cmd_sync(a):
     from .core import sync
     rows = sync.run(do_apply=a.apply, extra=a.repo, fetch=not a.no_fetch)
-    print(json.dumps(rows, indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
-    return 0 if all(r["ok"] for r in rows) else 3
+    print(json.dumps(sync.as_json(rows), indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
+    return sync.exit_code(rows)
 
 
 def cmd_sweep(a):
