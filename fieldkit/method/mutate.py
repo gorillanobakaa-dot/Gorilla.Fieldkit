@@ -80,14 +80,20 @@ def msys_refusal(m, text, roots=None):
     return None
 
 
+def _decode(data):
+    """Child output as UTF-8, never the locale: text=True used cp1252 on Windows and a byte it leaves undefined
+    (0x81 in a Go test's UTF-8) crashed the whole plan (2026-10-26). Bad bytes become U+FFFD, never an error."""
+    return (data or b"").decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
 def run_test(test, cwd=None, timeout=1800):
     try:
-        r = subprocess.run(test, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+        r = subprocess.run(test, capture_output=True, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired:
         return None, "the test timed out"
     except OSError as e:
         return None, str(e)
-    return r.returncode == 0, (r.stdout + r.stderr)[-1500:]
+    return r.returncode == 0, (_decode(r.stdout) + _decode(r.stderr))[-1500:]
 
 
 def mutate_once(file, old, new, test, count=1, cwd=None, timeout=1800):
