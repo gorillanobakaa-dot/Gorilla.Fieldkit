@@ -420,6 +420,9 @@ def hook_line(call, event, now=None):
         return ""
 
 
+from .rotate_stop import HANDOVER_CMD, HANDOVER_FILES, stop_refusal  # noqa: E402,F401 - R1, kept light for the PreToolUse hook
+
+
 def hook(stdin=None):
     """Standalone hook (for a setup without the room hook): prints additionalContext when there is something."""
     try:
