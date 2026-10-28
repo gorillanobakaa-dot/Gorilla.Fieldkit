@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-28-20-30
+# Version: 1.2.0 · updated 26-10-28-21-00
 """How a net message reaches a station: every channel the harness already has, and nothing new.
 
     room      Claude Code sessions on this computer. PULL: the room hook (fieldkit/autopilot/room.py, run by the tool
@@ -20,6 +20,7 @@ paired computer on the cable (cable). No port is opened here, no address is call
 call, nothing leaves the household.
 """
 import json
+import os
 
 NET1 = "NET1 "
 PUSH_MAX = 12 * 1024            # an OpenCode note is at most 16 KB, a link request 64 KB: stay well under both
@@ -101,6 +102,23 @@ class OpenCode:
         return out
 
 
+def fake_cable_call(req, device=None, timeout=None):
+    """The cable in tests (FIELDKIT_FAKE_CABLE=PATH, set by tests/conftest.py and inherited by every child): each
+    request is appended to PATH as one JSON line and nothing is sent (2026-10-28: a Zero test's child hook process
+    sent fixture check-ins over the real cable)."""
+    with open(os.environ["FIELDKIT_FAKE_CABLE"], "a", encoding="utf-8") as f:
+        f.write(json.dumps({"device": device, "req": req}, ensure_ascii=False) + "\n")
+    return {"ok": False, "error": "fake cable (tests): nothing sent"}
+
+
+def link_call():
+    """-> the function a Cable sends with: the fake cable in tests, else the link's signed call."""
+    if os.environ.get("FIELDKIT_FAKE_CABLE"):
+        return fake_cable_call
+    from ..peers import link
+    return link.call
+
+
 class Cable:
     name, mode = "cable", "push"
 
@@ -116,8 +134,7 @@ class Cable:
         return [d.get("name") for d in link.others(h)] if h else []
 
     def push(self, entry, net):
-        from ..peers import link
-        call = self._call or link.call
+        call = self._call or link_call()
         devs = self.devices()
         if not devs:
             return [{"channel": self.name, "target": "-", "ok": False, "detail": "not paired (fieldkit peers link)"}]
@@ -132,8 +149,7 @@ class Cable:
         return out
 
     def hello(self, device):
-        from ..peers import link
-        call = self._call or link.call
+        call = self._call or link_call()
         try:
             return call({"verb": "hello"}, device=device)
         except Exception as e:  # noqa: BLE001
