@@ -142,3 +142,56 @@ def test_repeated_edits_of_one_file_are_one_line(_room_dir):
 def test_a_powershell_here_string_body_is_data():
     cmd = "$code=@'\nimport re, sys\nfrom pip import x\ngh = 1\n'@; python -c $code"
     assert room.write(call("s1", "PowerShell", command=cmd)) is None
+
+
+def test_a_rider_line_is_shown_once_and_again_only_when_it_changes(monkeypatch, capsys):
+    """HARNESS-PLAN O2 (2026-10-28): the Zero session got the same 8 MISSING stations on every message."""
+    said = {"line": "NET (you are Zero): a MISSING; b MISSING - fieldkit zero rollcall"}
+    monkeypatch.setattr(room, "_net", lambda call, event, ctx: (ctx + "\n" if ctx else "") + said["line"])
+    monkeypatch.setattr(room, "_hog", lambda call, event, ctx: ctx + "\nhog: RAM 7.1/8.0 GB (89%) now")
+    monkeypatch.setattr(room, "_rotate", lambda call, event, ctx: ctx)
+    prompt = json.dumps({"session_id": "z", "hook_event_name": "UserPromptSubmit", "prompt": "go"})
+
+    def injected():
+        room.hook(io.StringIO(prompt))
+        out = capsys.readouterr().out
+        return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
+
+    first = injected()
+    assert "a MISSING; b MISSING" in first and "hog: RAM" in first
+    assert injected() == ""                                         # nothing changed: nothing injected
+    monkeypatch.setattr(room, "_hog", lambda call, event, ctx: ctx + "\nhog: RAM 7.3/8.0 GB (91%) now")
+    assert injected() == ""                                         # only its numbers moved: the same line
+    said["line"] = "NET (you are Zero): a MISSING; b MISSING; c SILENT - fieldkit zero rollcall"
+    assert injected() == said["line"]                               # the list changed: shown, once
+    assert injected() == ""
+    other = json.dumps({"session_id": "y", "hook_event_name": "UserPromptSubmit", "prompt": "go"})
+    room.hook(io.StringIO(other))
+    assert "c SILENT" in capsys.readouterr().out                    # another session has its own record
+
+
+def test_room_rows_still_reach_a_session_that_has_seen_the_riders(monkeypatch, capsys):
+    monkeypatch.setattr(room, "_net", lambda call, event, ctx: (ctx + "\n" if ctx else "") + "NET: same")
+    monkeypatch.setattr(room, "_hog", lambda call, event, ctx: ctx)
+    monkeypatch.setattr(room, "_rotate", lambda call, event, ctx: ctx)
+    prompt = json.dumps({"session_id": "s2", "hook_event_name": "UserPromptSubmit", "prompt": "go"})
+    room.hook(io.StringIO(prompt))
+    capsys.readouterr()
+    room.hook(io.StringIO(json.dumps(call("s1", "Bash", command="git commit -m a"))))
+    capsys.readouterr()
+    room.hook(io.StringIO(prompt))
+    ctx = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    assert "commit" in ctx and "NET: same" not in ctx
+
+
+def test_a_reader_with_nothing_new_writes_nothing(_room_dir):
+    room.append(room.line_for("s1", "", "commit", "x"))
+    room.unseen("s2")
+    room.unseen("s2")
+    cur = _room_dir / "room-cursors" / "s2.json"
+    t = cur.stat().st_mtime_ns
+    cur.touch()
+    import os
+    os.utime(cur, ns=(t - 10**9, t - 10**9))
+    room.unseen("s2")
+    assert cur.stat().st_mtime_ns == t - 10**9
