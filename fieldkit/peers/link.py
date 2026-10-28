@@ -1257,7 +1257,9 @@ def inbox(wait=0, since=0):
     end = time.time() + wait
     while True:
         d = home() / "inbox"
-        items = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("*.json"))] if d.is_dir() else []
+        # a file's name starts with its number (store): older ones are not read at all (C6: the hook reads this)
+        items = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("*.json"))
+                 if not (p.stem.split("-")[0].isdigit() and int(p.stem.split("-")[0]) <= since)] if d.is_dir() else []
         items = [i for i in items if i["n"] > since]
         if items or time.time() >= end:
             return items

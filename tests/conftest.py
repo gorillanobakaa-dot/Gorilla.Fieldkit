@@ -70,6 +70,8 @@ _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test
 _os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
 _os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
 _os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
+# The net's hook also reads what came over the cable (C2): never the real link inbox (the owner's notes) in a test.
+_os.environ["FIELDKIT_LINK_HOME"] = _tempfile.mkdtemp(prefix="fieldkit-test-link-")
 
 
 # Tests never look a name up on the real network (2026-10-06: during the build 27 release leak test the commit hook's

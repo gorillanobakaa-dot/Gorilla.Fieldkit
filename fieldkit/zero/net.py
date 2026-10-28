@@ -807,12 +807,13 @@ def ingest_cable(items=None, now=None):
     and refused. -> number ingested."""
     now = time.time() if now is None else now
     st = load_stations()
-    since = int(st["meta"].get("cable_since") or 0)
+    since = since0 = int(st["meta"].get("cable_since") or 0)
     try:
         got = items if items is not None else ch.inbox_items(since)
     except Exception:  # noqa: BLE001 - not paired, no inbox: nothing came
         return 0
     seen = set(st["meta"].get("seen_ids") or [])
+    seen0 = len(seen)
     n = 0
     for num, e in got:
         since = max(since, int(num))
@@ -851,6 +852,8 @@ def ingest_cable(items=None, now=None):
                data=dict(e.get("data") or {}, relayed=e.get("from_host")), want_ack=e.get("want_ack", False),
                eid=e["id"], now=now, epoch=e.get("epoch"))
         n += 1
+    if since == since0 and len(seen) == seen0:       # C6: nothing came, nothing rewritten
+        return n
     with _Lock():
         s3 = load_stations()
         s3["meta"].update(cable_since=since, seen_ids=sorted(seen)[-2000:])
@@ -1038,13 +1041,20 @@ def _hook_ingest(now):
     try:
         with _Lock():
             st = load_stations()
-            if now - float(st["meta"].get("hook_ingest_at") or 0) < RENEW_EVERY_S:
+            if not _ingest_due(st, now):
                 return 0
-            st["meta"]["hook_ingest_at"] = now
             save_stations(st)
         return ingest_cable(now=now)
     except Exception:  # noqa: BLE001
         return 0
+
+
+def _ingest_due(st, now):
+    """True (and the time stamped in st, which the caller saves before ingesting) once a minute per computer."""
+    if now - float(st["meta"].get("hook_ingest_at") or 0) < RENEW_EVERY_S:
+        return False
+    st["meta"]["hook_ingest_at"] = now
+    return True
 
 
 def _net_line(call, event, now=None):
@@ -1056,10 +1066,15 @@ def _net_line(call, event, now=None):
         sid = call.get("session_id")
         if not sid:
             return ""
-        _hook_ingest(now)
         net = load_net()
         if not is_open(net):
-            return ""
+            _hook_ingest(now)                         # the cable may be what opens the net here (C2)
+            net = load_net()
+            if not is_open(net):
+                return ""
+            ingest = False
+        else:
+            ingest = None
         me = hook_station(sid)
         out = []
         far = machine_of(me) != (net.get("zero") or {}).get("machine")
@@ -1068,6 +1083,8 @@ def _net_line(call, event, now=None):
             rec = st["stations"].get(me)
             new = rec is None
             before = json.dumps(rec, sort_keys=True, default=str)
+            if ingest is None:                        # C6: the ingest stamp rides the lease's write, not its own
+                ingest = _ingest_due(st, now)
             if new or now - float(rec.get("last") or 0) >= RENEW_EVERY_S or rec.get("off"):
                 rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me))
             items = pending_for(me, rec, net, now)
@@ -1078,8 +1095,13 @@ def _net_line(call, event, now=None):
             tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60)
             if tell_far:
                 rec["cable_at"] = now                 # tried or not: the next try waits an interval (no hook stalls)
-            if json.dumps(rec, sort_keys=True, default=str) != before:   # C6: no rewrite on every tool call
+            if ingest or json.dumps(rec, sort_keys=True, default=str) != before:   # C6: no rewrite on every call
                 save_stations(st)
+        if ingest:
+            try:
+                ingest_cable(now=now)
+            except Exception:  # noqa: BLE001
+                pass
         if new or tell_far:
             e = append("checkin", me, to=zero_of(net), data={k: v for k, v in {"by": "hook", "tag": tag_of(me)}.items()
                                                              if v}, now=now)
