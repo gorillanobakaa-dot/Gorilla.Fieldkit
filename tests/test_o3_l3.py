@@ -68,10 +68,13 @@ def mk(criteria, **kw):
 
 
 def fake_run(codes):
-    """-> a stand-in for subprocess.run: the exit code is looked up by the command text."""
+    """-> a stand-in for subprocess.run: the exit code is looked up by the command text. On Windows the runner wraps
+    the command in a PowerShell string, so the one known command that string contains is the key."""
     def run(shell, **kw):
-        cmd = shell[-1]
-        return SimpleNamespace(stdout="", stderr="", returncode=codes[cmd])
+        text = shell[-1]
+        hits = [c for c in codes if c in text]
+        assert len(hits) == 1, (text, list(codes))
+        return SimpleNamespace(stdout="", stderr="", returncode=codes[hits[0]])
     return run
 
 
