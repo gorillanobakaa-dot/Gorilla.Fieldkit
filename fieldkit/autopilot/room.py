@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 27-10-26
+# Version: 1.2.0 · updated 26-10-28-17-09
 """The shared room: every AI session on this machine sees what the others did on shared ground, without anyone having
 to remember to say it.
 
@@ -11,7 +11,8 @@ written by hand, so they are forgotten. Here the harness writes the record:
           network and heavy steps, messages to another session and the owner approvals they carry). Reads and
           ordinary work are not logged. Secrets and home paths are redacted before anything is written.
   read    the same hook (and UserPromptSubmit) shows a session the OTHER sessions' new lines since it last looked,
-          as added context, at most MAX_SHOW lines with "+N more"; nothing when there is nothing new.
+          as added context, at most MAX_SHOW lines with "+N more"; nothing when there is nothing new. The lines the
+          riders add (net, hog, rotate, mandate) are shown to a session once each, again only when they change.
 
 Line: "<YYYY-MM-DD HH:MM:SS>\t<who>\t<session id>\t<verb>\t<object, no spaces>[\t<detail>]". The verb list is fixed
 (grep-able), anything else is refused at write time. One locked append per line (two writers, one file, Windows).
@@ -253,17 +254,19 @@ def unseen(session_id):
             cur.write_text(json.dumps({"pos": 0}), encoding="utf-8")
         return []
     size = log.stat().st_size
+    known = True
     try:
         pos = json.loads(cur.read_text(encoding="utf-8")).get("pos", 0)
     except (OSError, ValueError):
-        pos = size                                        # a new session starts from now, not from the whole history
+        pos, known = size, False                          # a new session starts from now, not from the whole history
     if pos > size:
         pos = 0                                           # the log was rotated
     with open(log, "rb") as f:
         f.seek(pos)
         chunk = f.read(size - pos).decode("utf-8", "replace")
-    cur_dir.mkdir(parents=True, exist_ok=True)
-    cur.write_text(json.dumps({"pos": size}), encoding="utf-8")
+    if pos != size or not known:                          # nothing new: no write (C6, every call rewrote it)
+        cur_dir.mkdir(parents=True, exist_ok=True)
+        cur.write_text(json.dumps({"pos": size}), encoding="utf-8")
     return [l for l in chunk.splitlines() if len(l.split("\t")) >= 5 and l.split("\t")[2] != session_id]
 
 
@@ -342,6 +345,35 @@ def _net(call, event, ctx):
     return ctx
 
 
+SAID_MAX = 200
+
+
+def only_new(session_id, text):
+    """-> the lines of `text` this session has not been shown yet; records them (2026-10-28, HARNESS-PLAN O2: the
+    riders' lines (net, hog, rotate) came back on every message, the Zero session got the same 8 MISSING stations
+    each time; 6,026 injections, 6.7 M characters). A line that differs only in its numbers (dollars, percent, pids)
+    is the same line. Nothing is written when nothing is new."""
+    lines = [x for x in (text or "").splitlines() if x.strip()]
+    if not lines or not session_id:
+        return "\n".join(lines)
+    f = ROOM_DIR / "room-cursors" / f"{re.sub(r'[^A-Za-z0-9_-]', '_', session_id)}.said.json"
+    try:
+        said = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        said = []
+    seen, out = set(said), []
+    for x in lines:
+        k = re.sub(r"\d+(\.\d+)?", "N", x.strip())[:300]
+        if k not in seen:
+            seen.add(k)
+            said.append(k)
+            out.append(x)
+    if out:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(said[-SAID_MAX:]), encoding="utf-8")
+    return "\n".join(out)
+
+
 def hook(stdin=None):
     """Claude Code hook (PostToolUse and UserPromptSubmit). Never blocks, never fails the call."""
     try:
@@ -349,17 +381,18 @@ def hook(stdin=None):
         event = call.get("hook_event_name") or ("PostToolUse" if call.get("tool_name") else "UserPromptSubmit")
         if event == "PostToolUse":
             write(call)
-        ctx = context(unseen(call.get("session_id")))
+        rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
+        ctx = ""
         if event == "UserPromptSubmit":                   # the mandate's expiry warning, once per session per day
             try:
                 from ..mandate import upkeep
-                w = upkeep.session_warning(call.get("session_id"))
-                ctx = (ctx + "\n" + w).strip() if w else ctx
+                ctx = upkeep.session_warning(call.get("session_id")) or ""
             except Exception:
                 pass
         ctx = _hog(call, event, ctx)
         ctx = _rotate(call, event, ctx)
         ctx = _net(call, event, ctx)
+        ctx = "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
     except Exception:
