@@ -162,13 +162,40 @@ def refused_not_network(out):
                                   "hook declined", "failed to push some refs"))
 
 
+def _real_gh_config(env):
+    """gh's own config folder (where it keeps the account), as it was before an autopilot run hid it."""
+    import os
+    if env.get("FIELDKIT_REAL_GH_CONFIG_DIR"):
+        return env["FIELDKIT_REAL_GH_CONFIG_DIR"]
+    if os.name == "nt":
+        return os.path.join(env.get("APPDATA") or os.path.expanduser("~"), "GitHub CLI")
+    return os.path.join(env.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "gh")
+
+
 def ship_env():
     """The environment of a push made by this tool: FIELDKIT_SHIP_PUSH=1 tells a repository's pre-push hook to ask the
     mandate gate (fieldkit/mandate/gate.py) instead of wanting the owner's flag. A marker, not a credential.
     FIELDKIT_SHIP_PYTHON (2026-10-26) is the Python running this tool, so the hook asks the SAME Fieldkit's gate even
-    where fieldkit is not on PATH (a Mac installed from the zip keeps it in FOLDER/.venv). Same-user, like PATH."""
+    where fieldkit is not on PATH (a Mac installed from the zip keeps it in FOLDER/.venv). Same-user, like PATH.
+
+    Inside an autopilot run (FIELDKIT_AUTOPILOT=1, fieldkit/autopilot/run.py hides every git/gh credential) the owner
+    decided, 2026-10-28 on inbox #145, "Yes, ship only": "headless autopilot runs may use the GitHub credential for
+    `fieldkit ship push` / ship ci-wait --merge only". So for ship's own git and gh calls the hiding is undone: git's
+    credential helper and gh's config folder come back, and each tool reads the credential itself at call time. No
+    token is ever put in the environment, an argument or a log; the run's own environment stays without one."""
     import os
-    return dict(os.environ, FIELDKIT_SHIP_PUSH="1", FIELDKIT_SHIP_PYTHON=sys.executable)
+    env = dict(os.environ, FIELDKIT_SHIP_PUSH="1", FIELDKIT_SHIP_PYTHON=sys.executable)
+    if env.get("FIELDKIT_AUTOPILOT") == "1":
+        for k in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GIT_ASKPASS",
+                  "SSH_ASKPASS"):
+            if not env.get(k):                        # the run's blanks; a real value was never put there
+                env.pop(k, None)
+        if env.get("GIT_CONFIG_KEY_0") == "credential.helper" and not env.get("GIT_CONFIG_VALUE_0"):
+            for k in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"):
+                env.pop(k, None)
+        env["GH_CONFIG_DIR"] = _real_gh_config(env)
+        env.pop("FIELDKIT_REAL_GH_CONFIG_DIR", None)
+    return env
 
 
 def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate):
@@ -206,7 +233,7 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run)
                 "next": "publishing a release is the owner's unless a mandate allows it"}
     from ..core import sync
     r = run(["gh", "release", "create", tag, "--verify-tag", "-R", sync._slug(repo), *extra], cwd=str(repo),
-            capture_output=True, text=True)
+            capture_output=True, text=True, env=ship_env())
     if r.returncode != 0:
         return {"ok": False, "state": "refused", "tag": tag, "error": (r.stderr or r.stdout).strip()[-300:],
                 "next": "nothing was published"}
@@ -259,10 +286,10 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
         if base_ref and git(repo, "merge-base", "--is-ancestor", base_ref, commit).returncode != 0:
             return dict(rep, ok=False, state="not-fast-forward", error=f"origin/{base} has commits this branch lacks",
                         next=f"merge origin/{base} into {branch}, push, and have it reviewed again")
-        r = git(repo, "push", "origin", f"{commit}:refs/heads/{base}")
+        r = git(repo, "push", "origin", f"{commit}:refs/heads/{base}", env=ship_env())
     elif how == "pull-request":
         r = run(["gh", "pr", "merge", branch, "--merge", "--match-head-commit", commit],
-                cwd=str(repo), capture_output=True, text=True)
+                cwd=str(repo), capture_output=True, text=True, env=ship_env())
     else:
         return dict(rep, ok=False, state="unknown-how", error=f"merge_to_main.how is {how!r}",
                     next="the mandate says fast-forward or pull-request")

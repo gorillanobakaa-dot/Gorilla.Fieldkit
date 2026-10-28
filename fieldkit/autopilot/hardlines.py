@@ -128,6 +128,11 @@ OWNER_ONLY = [
     # 2026-10-26: installing a push hook changes a protection: the owner's paste or a session the owner talks to
     (r"\bmandate\s+install-hooks\b[^\n]*--yes\b", "installing a repository's push hook"),
 ]
+# 2026-10-28 (inbox #145, "Yes, ship only"): only fieldkit ship gets the credential back inside a run; a command
+# that points gh or git at it by itself is refused (setting the variables, a credential helper, gh auth)
+REARM = re.compile(r"(\$env:|\b)(GH_CONFIG_DIR|GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN|GIT_ASKPASS|SSH_ASKPASS|"
+                   r"GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)|FIELDKIT_REAL_GH_CONFIG_DIR)\s*=|credential\.helper|"
+                   r"\bgh\s+auth\s+(token|login|setup-git|refresh)\b|\bunset\s+[^\n;&|]*\b(GH_CONFIG_DIR|GIT_CONFIG_)", re.I)
 CREDENTIAL = re.compile(
     r"(^|[/\\\s\"'])(\.env(\.[a-z]+)?|id_rsa|id_ed25519|[^/\\\s\"']+\.(pem|pfx|p12|key)|hosts\.yml|"
     r"\.git-credentials|credentials\.json|\.netrc|token(s)?\.(json|txt))([\s\"']|$)", re.I)
@@ -446,6 +451,9 @@ def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
         return "deny", "HARD LINE 3: FIELDKIT_MANDATE_HOME would bring a trust store of its own; the mandate is the owner's"
     if cmd is not None and MANDATE_STORE.search(_norm(cmd)) and _writes(cmd):
         return "deny", "HARD LINE 3: this would change the owner's mandate store; models may only read it"
+    if cmd is not None and REARM.search(cmd):
+        return "deny", ("HARD LINE 5: re-arming a git or gh credential inside a run is fieldkit ship's alone "
+                        "(owner, 2026-10-28, inbox #145: \"Yes, ship only\")")
     if cmd is not None and KERNEL_BOOT.search(cmd):
         return "deny", ("HARD LINE 4: installing or booting a kernel (or rebooting) on this machine is the owner's "
                         "alone, mandate or not; build, push and publish it, then put the install in the owner inbox")
