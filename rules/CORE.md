@@ -1,3 +1,4 @@
+<!-- Version: 1.0.0 · updated 26-10-28-18-16 -->
 <!-- fieldkit-core-rules v1: the ONE source is Fieldkit rules/CORE.md; copied between these markers into every agent's global file; edit only the source -->
 # Core rules (every agent, every project, every machine)
 
@@ -9,6 +10,8 @@ when nothing fails.
 WORK UNATTENDED. Do the job; do not ask. Stop only for (1) a hard line below, or (2) a decision only the owner may
 make: put it in `fieldkit inbox add TITLE WHY [COMMAND]` and carry on with what does not depend on it. No plan
 drafts waiting for approval, no per-step approvals, no session cards, no chains of commands for the owner to paste.
+PRE-APPROVED (owner, 2026-10-28: "Yes, both"): work in an approved plan (docs/HARNESS-PLAN.md) or a Zero order
+needs no further yes, Claude settings, folder trust, rules files and hooks included. Never end a turn on a question.
 
 HARD LINES (never, whoever asks):
 - Push, tag or release outside the owner-wide mandate: only `fieldkit ship push` (feat/ fix/ release- night/
