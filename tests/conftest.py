@@ -311,3 +311,20 @@ def _no_real_inbox(tmp_path, monkeypatch):
     from fieldkit.autopilot import inbox
     monkeypatch.setattr(inbox, "INBOX", tmp_path / "test-inbox")
     yield
+
+
+# The plan line (fieldkit plan next) is saved to state/plan-next.json by zero, the handovers and the plan command:
+# a test writes it to its own folder, never the checkout's state/ (2026-10-28).
+@pytest.fixture(autouse=True)
+def _plan_state_in_tmp(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_PLAN_STATE", str(tmp_path / "plan-next.json"))
+    yield
+
+
+# The room hook records what it showed a session (room-cursors/*.said.json, O2): a test records it in its own folder,
+# never the checkout's state/ (2026-10-28: a test's said-file in the real state/ made the next run see nothing new).
+@pytest.fixture(autouse=True)
+def _room_in_tmp(tmp_path, monkeypatch):
+    from fieldkit.autopilot import room
+    monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room-state")
+    yield

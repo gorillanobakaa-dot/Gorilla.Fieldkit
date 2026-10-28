@@ -1,0 +1,50 @@
+# fieldkit plan next (2026-10-28): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/plan_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_plan.py
+- file: fieldkit/plan.py
+  swap:
+  - f"{added[-1]}..{tip}"
+  - tip
+  why: merges older than the plan are not read
+- file: fieldkit/plan.py
+  swap:
+  - '        m = TAIL_PAREN.search(title)
+
+    '
+  - '        m = re.search(r"(.*)", title)
+
+    '
+  why: only the trailing parenthesis names items
+- file: fieldkit/plan.py
+  swap:
+  - line.rstrip().endswith("| PLANNED |")
+  - 'True'
+  why: only PLANNED cells are written
+- file: fieldkit/plan.py
+  swap:
+  - '        done = [i for i in ids if i in mg or is_done(st.get(i, ""))]'
+  - '        done = [i for i in ids if i in mg]'
+  why: a DONE status counts without a merge
+- file: fieldkit/plan.py
+  swap:
+  - '    cur = next((ph for ph in phases if ph["open"]), None)'
+  - '    cur = next((ph for ph in phases), None)'
+  why: the current phase is the first with an open item
+- file: fieldkit/autopilot/room.py
+  swap:
+  - "open items change. Never fails the hook.\"\"\"\n    if event != \"UserPromptSubmit\":\n        return ctx\n"
+  - 'open items change. Never fails the hook."""
+
+    '
+  why: the plan line rides prompts only
+- file: fieldkit/autopilot/room.py
+  swap:
+  - '        ctx = _plan(call, event, ctx)
+
+    '
+  - ''
+  why: the room hook carries the plan line
+- file: fieldkit/zero/net.py
+  swap:
+  - '    r["plan"] = plan.line()'
+  - '    r["plan"] = ""'
+  why: zero status prints the plan first

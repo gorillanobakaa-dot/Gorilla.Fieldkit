@@ -470,6 +470,9 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     brief += protocol.brief_tail()
     from ..zero import net as zero_net                # a rotated Zero leaves a pending handover for its relief
     brief += zero_net.on_rotate(row["session"], now)
+    from .. import plan                               # where the harness plan stands, so the successor does not forget
+    pl = plan.line()
+    brief += f"\n{pl}\n" if pl else ""
     note.write_text(
         f"# Session rotated: {title}\n\n"
         f"- when: {stamp} (local)\n- session: {row['session']} ({row['source']}, {row.get('entrypoint') or '?'})\n"

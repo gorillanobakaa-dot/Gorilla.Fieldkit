@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-28-17-09
+# Version: 1.2.0 · updated 26-10-28-17-28
 """The shared room: every AI session on this machine sees what the others did on shared ground, without anyone having
 to remember to say it.
 
@@ -345,6 +345,21 @@ def _net(call, event, ctx):
     return ctx
 
 
+def _plan(call, event, ctx):
+    """The harness plan's one line (fieldkit plan next) on a prompt, read from its saved file (no git call here); shown
+    once per session by only_new and again when the phase or its open items change. Never fails the hook."""
+    if event != "UserPromptSubmit":
+        return ctx
+    try:
+        from .. import plan
+        line = plan.line(live=False)
+        if line:
+            return (ctx + "\n" if ctx else "") + line
+    except Exception:
+        pass
+    return ctx
+
+
 SAID_MAX = 200
 
 
@@ -392,6 +407,7 @@ def hook(stdin=None):
         ctx = _hog(call, event, ctx)
         ctx = _rotate(call, event, ctx)
         ctx = _net(call, event, ctx)
+        ctx = _plan(call, event, ctx)
         ctx = "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
         if ctx:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": ctx}}))
