@@ -495,3 +495,25 @@ def test_a_task_whose_process_ended_with_no_report_is_died_not_started(tmp_path)
     assert led[a["id"]]["status"] == "died" and "L7" in led[a["id"]]["answer"] and led[b["id"]]["status"] == "done"
     led = tasks.ledger()
     assert tasks.settle(led, alive=lambda pid: True) == [] and led[a["id"]]["status"] == "started"
+
+
+def test_settle_leaves_peer_tasks_and_unchecked_pids_alone_and_status_says_why_a_task_died():
+    # fieldkit mutate (2026-10-28): each assert kills a mutant the test above let through
+    def alive(pid):
+        if pid == 10:
+            raise OSError("access denied")
+        return False
+    led = {"p": {"id": "p", "status": "started", "on": "vaio", "pid": 9},
+           "e": {"id": "e", "status": "started", "on": "here", "pid": 10}}
+    assert tasks.settle(led, alive=alive) == [] and led["p"]["status"] == led["e"]["status"] == "started"
+    led = {"d": {"id": "d", "status": "started", "on": "here", "pid": 11, "log": "L11", "title": "x"}}
+    assert tasks.settle(led, alive=alive) == ["d"] and "L11" in tasks.lines(led)[0]
+
+
+def test_task_status_shows_a_task_whose_process_is_gone_as_died(tmp_path, monkeypatch, capsys):
+    a = tasks.start(brief(tmp_path), cwd=tmp_path, launch=lambda a: {"pid": 7, "log": "L7"}, now=NOW)
+    from fieldkit.peers import peers
+    monkeypatch.setattr(peers, "pid_alive", lambda pid: False)
+    assert lc.cmd_task(["status", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert [t["status"] for t in out if t["id"] == a["id"]] == ["died"]

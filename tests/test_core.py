@@ -261,3 +261,27 @@ def test_state_root_of_a_linked_worktree_is_the_main_checkout(tmp_path):
     assert settings.state_root(tmp_path / "nogit") == tmp_path / "nogit"
     (main / "fieldkit").rmdir()
     assert settings.state_root(wt) == wt                            # not a Fieldkit main checkout: stay put
+
+
+def test_state_root_follows_only_a_gitdir_line_into_a_fieldkit_git_folder(tmp_path):
+    # fieldkit mutate (2026-10-28): each case below kills a mutant the test above let through
+    from fieldkit.core import settings
+    main = tmp_path / "Fieldkit"
+    (main / "fieldkit").mkdir(parents=True)
+    gd = main / ".git" / "worktrees" / "wt1"
+    gd.mkdir(parents=True)
+    wt = tmp_path / "wt1"
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {gd}\n", encoding="utf-8")
+    assert settings.state_root(wt) == wt                            # no commondir: stay put
+    (gd / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text("gitdir: ../Fieldkit/.git/worktrees/wt1\n", encoding="utf-8")
+    assert settings.state_root(wt) == main.resolve()                # a relative gitdir is read from the worktree
+    (wt / ".git").write_text(f"GITDIR:{gd}\n", encoding="utf-8")
+    assert settings.state_root(wt) == wt                            # not a gitdir line: stay put
+    bare = tmp_path / "repos" / "fk.git"
+    (tmp_path / "repos" / "fieldkit").mkdir(parents=True)
+    (bare / "worktrees" / "wt1").mkdir(parents=True)
+    (bare / "worktrees" / "wt1" / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {bare / 'worktrees' / 'wt1'}\n", encoding="utf-8")
+    assert settings.state_root(wt) == wt                            # a bare repository has no main checkout
