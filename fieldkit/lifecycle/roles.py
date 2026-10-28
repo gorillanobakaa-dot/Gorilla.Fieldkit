@@ -12,6 +12,7 @@
 
 A task is done on a passing verdict only (lifecycle/tasks.py gate; autopilot/goal.py _end_job).
 """
+import os
 import re
 import shlex
 import subprocess
@@ -65,7 +66,8 @@ def run_acceptance(cmd, cwd=None, run=subprocess.run, timeout=None):
     if not cmd:
         return None, "no acceptance command"
     try:
-        r = run(shlex.split(cmd), cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        # Windows: shlex (POSIX) eats the backslashes of C:\... paths; CreateProcess parses the string itself
+        r = run(cmd if os.name == "nt" else shlex.split(cmd), cwd=cwd, capture_output=True, text=True, timeout=timeout)
     except (OSError, ValueError, subprocess.TimeoutExpired) as e:
         return False, f"acceptance command could not finish: {type(e).__name__}: {e}"
     out = ((r.stdout or "") + (r.stderr or "")).strip()
