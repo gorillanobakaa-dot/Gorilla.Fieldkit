@@ -100,7 +100,7 @@ def test_bring_home_pushes_the_given_branches_when_there_is_no_snapshot(tmp_path
     rep = lr.bring_home(None, tmp_path, {}, tmp_path, "fieldkit-task T-9 x", branches=["feat/made"],
                         push=lambda path: pushed.append(path) or {"ok": True, "pushed": True},
                         send=lambda text, needs_you=False: sent.append(text),
-                        run=lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+                        run=lambda argv, **k: subprocess.CompletedProcess(argv, 0, "1" if "rev-list" in argv else "", ""))
     assert [r["branch"] for r in rep["pushed"]] == ["feat/made"] and rep["task"] == "T-9"
     assert json.loads((tmp_path / "branch-return.json").read_text(encoding="utf-8"))["task"] == "T-9"
     assert sent and "feat/made" in sent[0]
@@ -151,13 +151,13 @@ def test_a_push_another_return_already_made_counts_as_pushed(tmp_path):
         calls.append(argv)
         seen_remote = sum("ls-remote" in c for c in calls)
         out = {"rev-parse": "abc\n", "ls-remote": "def\trefs/heads/feat/x\n" if seen_remote == 1 else
-               "abc\trefs/heads/feat/x\n", "worktree": ""}
+               "abc\trefs/heads/feat/x\n", "worktree": "", "rev-list": "1\n"}
         key = next((k for k in out if k in argv), None)
         return subprocess.CompletedProcess(argv, 0, out.get(key, ""), "")
     r = lr.push_branch(tmp_path, "feat/x", run=run, push=lambda path: {"ok": False, "error": "rejected"})
     assert r == {"branch": "feat/x", "pushed": True, "detail": "already on origin at this commit"}
     run2 = lambda argv, **kw: subprocess.CompletedProcess(  # noqa: E731
-        argv, 0, "def\trefs/heads/feat/x\n" if "ls-remote" in argv else "abc\n", "")
+        argv, 0, "def\trefs/heads/feat/x\n" if "ls-remote" in argv else "1\n" if "rev-list" in argv else "abc\n", "")
     assert lr.push_branch(tmp_path, "feat/x", run=run2, push=lambda p: {"ok": False, "error": "no"})["pushed"] is False
 
 

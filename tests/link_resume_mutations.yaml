@@ -78,8 +78,8 @@
   why: a running job waits, finished ones go first
 - file: fieldkit/peers/link_return.py
   swap:
-  - "    if on_origin(cwd, branch, run=run):\n        return {\"branch\": branch, \"pushed\": True, \"detail\": ALREADY}\n    path, made"
-  - '    path, made'
+  - "    if on_origin(cwd, branch, run=run):\n        return {\"branch\": branch, \"pushed\": True, \"detail\": ALREADY}\n    if held_by"
+  - '    if held_by'
   why: a branch already on origin is not pushed
 - file: fieldkit/peers/link_return.py
   swap:
@@ -93,6 +93,6 @@
   why: on origin means at this commit
 - file: fieldkit/peers/link_return.py
   swap:
-  - '    news = [r for r in results if r["detail"] != ALREADY]   # a branch that was already there is no news'
+  - '    news = [r for r in results if r["detail"] not in QUIET]'
   - '    news = results'
   why: a branch already there is no news

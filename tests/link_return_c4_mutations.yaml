@@ -1,0 +1,39 @@
+# Version: 1.0.0 · updated 26-10-28-20-20
+# C4 (cable notes #127, #174): a branch return never says [NEEDS YOU], and never pushes another live run's branch or one
+# with nothing beyond origin/main. Every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/link_return_c4_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link_return.py
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    return link.call({"verb": "message", "text": text})'
+  - '    return link.call({"verb": "message", "text": text, "needs_you": True})'
+  why: a branch return is session to session
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    if held_by_other_run(cwd, branch, jobd, run=run, alive=alive or _pid_alive):'
+  - '    if False:'
+  why: another live run's branch is left for its own return
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    if not pid or (jobd and owner.get("task") == Path(jobd).name):'
+  - '    if not pid:'
+  why: the job's own tree never holds its branch back
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '        return pid if (alive or _pid_alive)(int(pid)) else None'
+  - '        return pid'
+  why: a run that is gone holds nothing
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    if not ahead_of_main(cwd, branch, run=run):'
+  - '    if False:'
+  why: an empty branch is not pushed
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    return rc == 0 and out.isdigit() and int(out) > 0'
+  - '    return rc != 0 or (out.isdigit() and int(out) > 0)'
+  why: no origin/main fails closed
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    news = [r for r in results if r["detail"] not in QUIET]'
+  - '    news = [r for r in results if r["detail"] != ALREADY]'
+  why: another run's or an empty branch is no news

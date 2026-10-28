@@ -22,6 +22,7 @@ def repo(tmp_path):
     (r / "a").write_text("1")
     _git(r, "add", "a")
     _git(r, "commit", "-qm", "one")
+    _git(r, "update-ref", "refs/remotes/origin/main", "main")        # what "beyond origin/main" is measured against
     return r
 
 
@@ -59,7 +60,8 @@ def test_the_branch_a_run_made_is_pushed_and_the_command_post_told(repo, tmp_pat
     assert "fk-return-" not in _git(repo, "worktree", "list")          # the scratch worktree is gone
     assert json.loads((tmp_path / "branch-return.json").read_text())["task"] == "T-1-x"
     (text, needs_you), = sent
-    assert "fix/thing pushed" in text and "wip/job" in text and needs_you    # something stayed: the owner hears
+    assert "fix/thing pushed" in text and "wip/job" in text
+    assert not needs_you                         # session to session: never [NEEDS YOU] (C4, cable note #127)
 
 
 def test_a_refused_push_is_reported_not_swallowed(repo, tmp_path):
@@ -69,7 +71,50 @@ def test_a_refused_push_is_reported_not_swallowed(repo, tmp_path):
     rep = R.bring_home(object(), repo, before, tmp_path, push=lambda p: {"ok": False, "error": "rejected"},
                        send=lambda text, needs_you=False: sent.append((text, needs_you)))
     assert rep["pushed"] == [{"branch": "fix/thing", "pushed": False, "detail": "rejected"}]
-    assert "NOT pushed: rejected" in sent[0][0] and sent[0][1]
+    assert "NOT pushed: rejected" in sent[0][0] and not sent[0][1]
+
+
+def test_a_branch_return_never_asks_for_the_owner(repo, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(link, "call", lambda req: calls.append(req) or {"ok": True})
+    before = R.heads(repo)
+    _commit_on(repo, "fix/thing")
+    _commit_on(repo, "wip/job")                  # left local and a refused push: still no [NEEDS YOU]
+    R.bring_home(object(), repo, before, tmp_path, push=lambda p: {"ok": False, "error": "rejected"})
+    (req,) = calls
+    assert req["verb"] == "message" and "NOT pushed" in req["text"] and not req.get("needs_you")
+
+
+def test_a_branch_another_run_still_works_in_is_left_for_its_own_return(repo, tmp_path):
+    # 2026-10-28 19:51 (cable note #174): C1/C2 ended first and pushed C3's and R6's branches while they still ran
+    before = R.heads(repo)
+    mine, theirs, gone = tmp_path / "wt-job-mine", tmp_path / "wt-job-theirs", tmp_path / "wt-job-gone"
+    _commit_on(repo, "feat/mine", wt=mine)
+    _commit_on(repo, "feat/theirs", wt=theirs)
+    _commit_on(repo, "feat/gone", wt=gone)
+    jobd = tmp_path / "20261028-194339-claude"
+    jobd.mkdir()
+    for wt, pid, task in ((mine, 11, jobd.name), (theirs, 22, "20261028-194342-claude"), (gone, 33, "old")):
+        (tmp_path / (wt.name + ".json")).write_text(json.dumps({"pid": pid, "task": task}))
+    pushed, sent = [], []
+    rep = R.bring_home(object(), repo, before, jobd, push=lambda p: pushed.append(p) or {"ok": True, "pushed": True},
+                       send=lambda text: sent.append(text), reap=lambda c: {}, alive=lambda pid: pid in (11, 22))
+    assert sorted(pushed) == [str(gone), str(mine)]                 # its own tree counts even while its PID lingers
+    assert {r["branch"]: r["detail"] for r in rep["pushed"]}["feat/theirs"] == R.HELD
+    assert "feat/theirs" not in sent[0]                              # the other run's return reports it
+
+
+def test_a_branch_with_nothing_beyond_origin_main_is_not_pushed(repo, tmp_path):
+    before = R.heads(repo)
+    _git(repo, "branch", "feat/just-made")                          # made at origin/main, no commit yet
+    _commit_on(repo, "fix/real")
+    pushed, sent = [], []
+    rep = R.bring_home(object(), repo, before, tmp_path, push=lambda p: pushed.append(p) or {"ok": True, "pushed": True},
+                       send=lambda text: sent.append(text), reap=lambda c: {})
+    assert len(pushed) == 1 and {r["branch"]: r["detail"] for r in rep["pushed"]}["feat/just-made"] == R.EMPTY
+    assert "feat/just-made" not in sent[0]
+    _git(repo, "update-ref", "-d", "refs/remotes/origin/main")      # nothing to compare with: fail closed
+    assert R.ahead_of_main(repo, "fix/real") is False
 
 
 def test_a_run_that_moved_nothing_pushes_nothing_and_says_nothing(repo, tmp_path):

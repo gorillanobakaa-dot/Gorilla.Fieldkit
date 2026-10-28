@@ -61,11 +61,16 @@ def _ship_push(repo):
     return ship.push(repo=repo)
 
 
-def push_branch(cwd, branch, run=subprocess.run, push=_ship_push):
+def push_branch(cwd, branch, run=subprocess.run, push=_ship_push, jobd=None, alive=None):
     """-> {"branch", "pushed", "detail"}. Pushes from the worktree holding it, else from a scratch worktree made and
-    removed here. A branch origin already has at this commit is done: no push (Zero, 2026-10-28)."""
+    removed here. A branch origin already has at this commit is done: no push (Zero, 2026-10-28). A branch another
+    run still works in (HELD) or with no commit beyond origin/main (EMPTY) is not pushed (C4, cable note #174)."""
     if on_origin(cwd, branch, run=run):
         return {"branch": branch, "pushed": True, "detail": ALREADY}
+    if held_by_other_run(cwd, branch, jobd, run=run, alive=alive or _pid_alive):
+        return {"branch": branch, "pushed": False, "detail": HELD}
+    if not ahead_of_main(cwd, branch, run=run):
+        return {"branch": branch, "pushed": False, "detail": EMPTY}
     path, made = worktree_of(cwd, branch, run=run), None
     if not path:
         made = tempfile.mkdtemp(prefix="fk-return-")
@@ -87,6 +92,38 @@ def push_branch(cwd, branch, run=subprocess.run, push=_ship_push):
 
 
 ALREADY = "already on origin at this commit"
+HELD = "another run still has it checked out: its own return pushes it"
+EMPTY = "no commit beyond origin/main"
+QUIET = (ALREADY, HELD, EMPTY)                    # no news for the command post
+
+
+# 2026-10-28 19:51 (cable note #174): three jobs ran at once, each from its own worktree of the listener checkout. The
+# worktrees share one set of branches, so every job's `before` snapshot missed the branches the other two made; the
+# first to end (C1/C2) pushed feat/c3-workers and feat/r6-recipes-3, made a minute before at origin/main, while their
+# runs still went on. ended() was right: it was the attribution that was wrong.
+def held_by_other_run(cwd, branch, jobd=None, run=subprocess.run, alive=None):
+    """-> the PID of a live run whose own job worktree (lifecycle/worktrees.py) has `branch` checked out, else None.
+    This job's own tree (its owner record names jobd) never counts."""
+    path = worktree_of(cwd, branch, run=run)
+    if not path:
+        return None
+    try:
+        owner = json.loads(Path(path + ".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    pid = owner.get("pid")
+    if not pid or (jobd and owner.get("task") == Path(jobd).name):
+        return None
+    try:
+        return pid if (alive or _pid_alive)(int(pid)) else None
+    except (OSError, ValueError):
+        return None
+
+
+def ahead_of_main(cwd, branch, run=subprocess.run):
+    """True when `branch` has a commit origin/main does not. No origin/main to compare with: False (fail closed)."""
+    rc, out = _git(cwd, "rev-list", "--count", f"refs/remotes/origin/main..refs/heads/{branch}", run=run)
+    return rc == 0 and out.isdigit() and int(out) > 0
 
 
 def on_origin(cwd, branch, run=subprocess.run):
@@ -96,9 +133,11 @@ def on_origin(cwd, branch, run=subprocess.run):
     return rc == 0 and rc2 == 0 and bool(local) and remote.split()[:1] == [local]
 
 
-def _send(text, needs_you=False):
+def _send(text):
+    """A branch return is session to session (C4, cable note #127): never [NEEDS YOU]. What the owner must do goes to
+    the inbox by whoever reads this."""
     from . import link
-    return link.call({"verb": "message", "text": text, "needs_you": needs_you})
+    return link.call({"verb": "message", "text": text})
 
 
 def _reap(cwd):
@@ -107,13 +146,13 @@ def _reap(cwd):
 
 
 def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship_push, send=_send, branches=None,
-               reap=_reap):
+               reap=_reap, alive=None):
     """Waits for the started session, then pushes its branches and tells the command post. -> the report dict, also
     written to JOB/branch-return.json. `branches`: the branches to push when there is no `before` snapshot."""
     if hasattr(proc, "wait"):
         proc.wait()
     to_push, local = (list(branches), []) if branches is not None else moved(before, heads(cwd, run=run))
-    results = [push_branch(cwd, b, run=run, push=push) for b in to_push]
+    results = [push_branch(cwd, b, run=run, push=push, jobd=jobd, alive=alive) for b in to_push]
     m = TASK_ID.search(brief or "")
     rep = {"task": m.group(1) if m else "", "at": time.strftime("%Y-%m-%d %H:%M:%S"), "pushed": results,
            "left_local": local}
@@ -125,15 +164,14 @@ def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship
         rep["worktrees"] = reap(cwd)            # the job's own worktree goes once its branch is on origin
     except Exception as e:  # noqa: BLE001  (a tree left behind is reaped by the next job or `fieldkit task status`)
         rep["worktrees"] = {"error": f"{type(e).__name__}: {e}"}
-    news = [r for r in results if r["detail"] != ALREADY]   # a branch that was already there is no news
+    news = [r for r in results if r["detail"] not in QUIET]   # already there, another run's, or empty: no news
     if news or local:
         words = "; ".join(f"{r['branch']} {'pushed' if r['pushed'] else 'NOT pushed: ' + r['detail']}"
                           for r in news)
         if local:
             words += ("; " if words else "") + "left here (not feat/ or fix/): " + ", ".join(local)
-        clean = all(r["pushed"] for r in results) and not local
         try:
-            send(f"branch return{' for ' + rep['task'] if rep['task'] else ''}: {words}", needs_you=not clean)
+            send(f"branch return{' for ' + rep['task'] if rep['task'] else ''}: {words}")
         except Exception:  # noqa: BLE001  (the json file still holds it)
             pass
     return rep
