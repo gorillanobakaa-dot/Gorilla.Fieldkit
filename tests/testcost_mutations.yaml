@@ -24,3 +24,6 @@
 - file: hooks/pre-commit
   swap: ['if [ -n "$KEY" ] && "$PY" -m fieldkit.testcost seen full-suite --key "$KEY"; then', 'if [ -n "$KEY" ] && false; then']
   why: the hook skips the suite on a tree that already passed
+- file: fieldkit/testcost.py
+  swap: ["        if hit:\n            print(f\"testcost: these", "        if False:\n            print(f\"testcost: these"]
+  why: "run --fast skips tests that already passed on the identical tree"

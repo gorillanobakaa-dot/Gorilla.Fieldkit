@@ -15,3 +15,6 @@
 - file: .github/ci_tests.py
   swap: ["    if tests == []:\n        return 0", "    if False:\n        return 0"]
   why: "an empty selection runs no pytest"
+- file: .github/ci_tests.py
+  swap: ["    return bool(a) and a == b", "    return bool(a)"]
+  why: "only an equal tree skips the push run"
