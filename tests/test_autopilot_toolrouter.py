@@ -211,7 +211,7 @@ def test_a_sleep_between_two_measurements_is_a_sampling_interval():
 
 
 def test_a_habit_named_inside_quotes_or_a_search_is_data():
-    for cmd in ['git commit -m "tree copy: robocopy is routed"', "grep -n Get-FileHash docs/x.md",
+    for cmd in ['gh pr create --title "tree copy: robocopy is routed"', "grep -n Get-FileHash docs/x.md",
                 'echo "wget https://example.org/x"', "rg -n 'taskkill /IM' fieldkit", 'grep -c "robocopy" f']:
         assert tr.route(cmd) is None, cmd
     for cmd, name in [("robocopy C:\\src D:\\dst /E", "tree-copy-by-hand"),
