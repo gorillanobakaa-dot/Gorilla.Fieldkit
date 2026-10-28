@@ -124,6 +124,12 @@ HABITS = {
          "Set-ItemProperty -Path HKCU:\\Software\\X -Name Y -Value 0",
          "reg delete HKCU\\Software\\X /f"],
         ["reg query HKLM\\SOFTWARE\\X", "Get-ItemProperty HKCU:\\Software\\X", "python -m fieldkit win11 run copilot preview"]),
+    "ci-wait-by-hand": (
+        ["gh pr checks 166 --watch --interval 60", "gh run watch 123456 --exit-status",
+         "until ! gh pr checks 92 2>/dev/null | grep -q pending; do sleep 30; done; gh pr checks 92",
+         "while gh run list --branch feat/x --json status | grep -q in_progress; do sleep 20; done"],
+        ["gh pr checks 166", "gh run view 123456 --log-failed", "gh pr view 166 --json state",
+         "python -m fieldkit ship ci-wait 166 --merge"]),
     "sleep-to-wait": (
         ["Start-Sleep -Seconds 60", "Start-Sleep 30", "while true; do ls; sleep 30; done"],
         ["Start-Sleep -Milliseconds 300", "Start-Sleep -Seconds 2", "sleep 1",

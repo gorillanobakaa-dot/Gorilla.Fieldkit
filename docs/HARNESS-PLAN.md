@@ -82,7 +82,7 @@ wins over a merge. Every fix is measured before and after with the same
 | O1 | Smaller base prompt: fewer skills, MCP servers and tool lists loaded per project | 72k tokens on the first call, re-sent on every call: about $166 (17%) | first-call context | PLANNED |
 | O2 | The room hook injects about 1,100 characters on every message: inject only when something changed | 6,026 injections, 6.7M characters, about $37 re-read | hook characters per call | DONE (PR #162) |
 | O3 | Fewer sessions started by sessions; short briefs; a subagent or a headless run when only the result comes back | 58 of 75 sessions were started by another session, $703 | sessions started by sessions, $ each | PLANNED |
-| O4 | Waiting costs calls: one wake when CI or a job ends, no polling | 424 background wake-ups (about $44), 190 CI-wait commands | wake-ups per session | PLANNED |
+| O4 | Waiting costs calls: one wake when CI or a job ends, no polling | 424 background wake-ups (about $44), 190 CI-wait commands. VAIO, 41 transcripts 10-21..10-28: 326 background wakes, 103 hand-written wait loops (41 with gh, 62 on a log), 210 gh status polls | wake-ups per session | DONE (`fieldkit ship ci-wait PR [--merge]`: one background call, the train's verdict, the failed log tail on red; the tool router sends `gh pr checks --watch`, `gh run watch` and gh loops to it; a job or log wait is `fieldkit wait` in the background, already routed). After-numbers not measured yet: re-run the count a week after merge |
 | O5 | Guard preflight takes 4-7 s per command | a 4.4 s preflight warning; 10 recorded runs averaging 7.0 s | seconds per guarded command | DONE (PR #161) |
 
 ## Long Horizon (the 2026-10-22 design)

@@ -5635,9 +5635,9 @@ tools:
     preview: [python, -m, fieldkit, ship, train, --dry-run]
     verify: [python, -m, fieldkit, ship, train, --doctor]
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_train.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_train.py", "${FIELDKIT}/tests/test_ci_wait.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "2026-10-26: #126 merged with a commit still in its session's hook; #124 CONFLICTING twice (generated index + tools.yaml), ~75 min of re-run suites; #124 merged during its windows CI re-run. Verbs on fieldkit ship: ready PR [--pending T|--withdraw], train, update (merge main the train's way), proof, ci-record, overlap, freeze/unfreeze. MERGES into main through gh pr merge only under the mandate's merge_to_main; pushes branch updates only through fieldkit ship push (the pre-push gate) or GitHub's update-branch on a mandate push pattern. State: <git common dir>/fieldkit/train.json (resumable), ci-green.jsonl, frozen.json, the train's own clone train-clone/. Generated files: fieldkit/method/generated.yaml. Never force-pushes or rebases. Mutations: tests/train_mutations.yaml."
+  notes: "2026-10-26: #126 merged with a commit still in its session's hook; #124 CONFLICTING twice (generated index + tools.yaml), ~75 min of re-run suites; #124 merged during its windows CI re-run. Verbs on fieldkit ship: ready PR [--pending T|--withdraw], ci-wait PR [--merge] (O4: one background wake when CI ends, the failed log tail on red; tests/test_ci_wait.py, tests/ci_wait_mutations.yaml), train, update (merge main the train's way), proof, ci-record, overlap, freeze/unfreeze. MERGES into main through gh pr merge only under the mandate's merge_to_main; pushes branch updates only through fieldkit ship push (the pre-push gate) or GitHub's update-branch on a mandate push pattern. State: <git common dir>/fieldkit/train.json (resumable), ci-green.jsonl, frozen.json, the train's own clone train-clone/. Generated files: fieldkit/method/generated.yaml. Never force-pushes or rebases. Mutations: tests/train_mutations.yaml."
 
 - id: handover
   title: Fixes to someone else's tool as a handover - before/after, why, test, proof; checked to apply on their copy
