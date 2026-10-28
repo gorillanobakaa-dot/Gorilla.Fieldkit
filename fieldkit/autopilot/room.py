@@ -34,6 +34,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from ..core import nowindow
 from ..core.settings import state_root as _state_root
 
 FK = Path(__file__).resolve().parents[2]
@@ -527,6 +528,20 @@ ROUTER_CMD = '"{py}" -m fieldkit.autopilot.toolrouter --hook'
 TOOL_MATCH = "Bash|Edit|MultiEdit|NotebookEdit|PowerShell|Write|SendMessage"
 
 
+def _console_hooks(groups):
+    """The fieldkit hook entries whose command still starts python.exe although a pythonw.exe sits beside it."""
+    return [h for m in groups for h in m.get("hooks", [])
+            if "-m fieldkit." in (h.get("command") or "") and _windowless_cmd(h["command"]) != h["command"]]
+
+
+def _windowless_cmd(cmd):
+    m = re.match(r'^"?([^"]+?python\.exe)"?(\s.*)$', cmd, re.I)
+    if not m:
+        return cmd
+    w = nowindow.windowless(m.group(1))
+    return f'"{w}"{m.group(2)}' if w != m.group(1) else cmd
+
+
 def _has(groups, module):
     return [m for m in groups for h in m.get("hooks", []) if module in (h.get("command") or "")]
 
@@ -550,7 +565,10 @@ def doctor(settings=None, python=None):
         missing.append("UserPromptSubmit")
     if _has(hooks.get("PostToolUse", []), "fieldkit.autopilot.room"):
         stale.append("PostToolUse")
-    py = python or sys.executable
+    py = nowindow.windowless(python or sys.executable)
+    for ev in ("PreToolUse", "UserPromptSubmit", "Stop"):             # open item 38: a console python flashes a window
+        if _console_hooks(hooks.get(ev, [])):
+            stale.append("console:" + ev)
     snippet = {"PreToolUse": [{"matcher": TOOL_MATCH, "hooks": [{"type": "command", "command": ROUTER_CMD.format(py=py),
                                                                  "timeout": 15}]}],
                "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command", "command": HOOK_CMD.format(py=py),
@@ -586,6 +604,11 @@ def apply(settings=None, python=None, keep_dir=None):
     if "UserPromptSubmit" in r["missing"]:
         hooks.setdefault("UserPromptSubmit", []).extend(r["snippet"]["UserPromptSubmit"])
         done.append("UserPromptSubmit: room added")
+    for ev in ("PreToolUse", "UserPromptSubmit", "Stop"):
+        if "console:" + ev in r["stale"]:
+            for h in _console_hooks(hooks.get(ev, [])):
+                h["command"] = _windowless_cmd(h["command"])
+            done.append(f"{ev}: hook runs under pythonw (no console window)")
     if "PostToolUse" in r["stale"]:
         groups = []
         for m in hooks.get("PostToolUse", []):
@@ -607,6 +630,8 @@ def apply(settings=None, python=None, keep_dir=None):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--hook"]:
+        from ..core import nowindow
+        nowindow.prepare()
         return hook()
     if argv[:1] == ["tail"]:
         print("\n".join(tail(argv[1] if len(argv) > 1 else 40)))
@@ -622,7 +647,7 @@ def main(argv=None):
         r = doctor()
         print("ROOM HOOKS " + ("OK" if r["ok"] else "; ".join(
             x for x in ("MISSING: " + ", ".join(r["missing"]) if r["missing"] else "",
-                        "STALE (a second process per tool call): " + ", ".join(r["stale"]) if r["stale"] else "") if x))
+                        "STALE (a second process per tool call, or a console window per call): " + ", ".join(r["stale"]) if r["stale"] else "") if x))
               + f"  ({r['settings']})")
         if not r["ok"]:
             print("fix: python -m fieldkit.autopilot.room doctor --apply  (copies the old file aside)"

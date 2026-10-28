@@ -132,7 +132,9 @@ def stop_hook(stdin=sys.stdin, stdout=sys.stdout):
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--stop-hook":
-        sys.exit(stop_hook())
+        from ..core import nowindow
+        nowindow.prepare()
+        sys.exit(stop_hook(sys.stdin, sys.stdout))
     found = check(open(sys.argv[1], encoding="utf-8").read())
     for n, p in found:
         print(f"block {n}: {p}")
