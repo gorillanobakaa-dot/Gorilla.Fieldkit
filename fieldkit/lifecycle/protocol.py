@@ -24,7 +24,8 @@ def done_protocol(task_id=None, headless=False):
             "archive yourself: Claude desktop `archive_session \"self\"` (turn Remote Control off first with "
             "`set_remote_control` if it is on: it blocks the archive); any other agent ends its session")
     return ("DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):\n"
-            "1. tests + `fieldkit mutate` + `fieldkit telemetry scan .` pass; commit on your own branch (never main).\n"
+            "1. the tests covering your changes pass (the full suite runs once, when the project is finished); commit "
+            "on your own branch (never main).\n"
             "2. push with `fieldkit ship push` (the owner-wide mandate covers it; never a GORILLA_OWNER_APPROVED line).\n"
             "3. open the pull request where your agent can (a headless run reports the branch; the command post opens "
             "it).\n"
