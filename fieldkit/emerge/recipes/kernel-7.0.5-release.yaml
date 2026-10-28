@@ -1,0 +1,42 @@
+# Version: 1.0.0 · updated 26-10-28-19-15
+# kernel-7.0.5-release: the archived Gorilla kernel 7.0.5 release (its config, scripts and notes). The maintained
+# kernel is built by the debian-kernel recipe; this one only keeps the archive checked. Keyed by what they read:
+#   iterate  -> the kernel config is there and not empty, every shell script parses (bash -n, nothing runs), a
+#               telemetry scan
+# Not a stage: scripts/ULTIMATE_GORILLA_KERNEL.sh. Besides compiling it runs sudo apt-get, writes /etc/sysctl.d and
+# installs the kernel on the machine it runs on, so it is not a build step a runner may start unattended; a rebuild
+# of 7.0.5 goes through debian-kernel with its config.
+name: kernel-7.0.5-release
+description: >-
+  The archived kernel 7.0.5 release from its tree: every shell script parses, the config is present, a telemetry
+  scan. No compile (debian-kernel builds the maintained kernel).
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/kernel-7.0.5-release"
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: kernel-7.0.5-release
+  files: ["{src}/configs/final_kernel_config.txt"]
+toolchain:
+  - [bash, --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: syntax
+    platforms: [linux]
+    run:
+      cmd: [bash, -c, 'test -s configs/final_kernel_config.txt || exit 1; for f in scripts/*.sh releases/*/*.sh; do bash -n "$f" || exit 1; done']
+      cwd: "{src}"
+    timeout: 120
+    inputs: ["{src}/scripts/*.sh", "{src}/releases/*/*.sh", "{src}/configs/final_kernel_config.txt"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tests
