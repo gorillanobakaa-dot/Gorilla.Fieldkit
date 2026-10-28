@@ -5,7 +5,8 @@ Owner, 2026-10-22: "A turn cap can end an unfinished task, so the caller needs a
 ... set it high to 10000". The night run's job 2 ran out of its 40 turns after 31 min, mid-mutate, nothing committed;
 a hidden 7200 s timeout sat behind it. Here:
 
-  budget      {turns, wall_minutes, cost_usd} per attempt; defaults turns 10000, wall 12 h, no dollar cap
+  budget      {turns, wall_minutes, cost_usd} per attempt; defaults turns 10000, wall 12 h, $25 (I3 in
+              docs/HARNESS-PLAN.md: no job runs uncapped; a session in the 10-23..27 audit averaged $13)
   meter       the job's own counter, kept by the hook (claude_hook.py) in <job>/meter.json: tool calls (the turn
               proxy), wall time since the attempt started, dollars from the transcript (fieldkit/tokens/session_cost.py)
   thresholds  50 / 80 / 95 %: the job is told where it stands; at 80 % it must checkpoint (HANDOFF.md) before any
@@ -20,7 +21,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-DEFAULT = {"turns": 10000, "wall_minutes": 720, "cost_usd": None}
+DEFAULT = {"turns": 10000, "wall_minutes": 720, "cost_usd": 25.0}
 LEVELS = (50, 80, 95)
 EXIT_PAUSED = 75                     # sysexits EX_TEMPFAIL: budget exhausted, resumable from the checkpoint
 COST_EVERY = 10                      # the hook re-reads the transcript's cost every N tool calls

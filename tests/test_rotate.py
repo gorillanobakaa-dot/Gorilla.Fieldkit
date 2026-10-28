@@ -423,3 +423,51 @@ def test_facts_ignore_sidechain_lines_in_the_main_transcript(tmp_path):
           mode="a")
     r = rotate.measure(sc.ClaudeCode(tmp_path / "projects"), p)
     assert (r["cwd"], r["branch"]) == ("C:/work/repo", "feat/x")
+
+
+# ---------------------------------------------------------------- R1: past ROTATE the session may only hand over
+
+def _said(tmp_path, level, stem="s1"):
+    d = tmp_path / "rot" / "said"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{stem}.json").write_text(json.dumps({"level": level, "t": 0}), encoding="utf-8")
+    return str(tmp_path / f"{stem}.jsonl")
+
+
+def pre(tp, tool, **ti):
+    return {"transcript_path": tp, "tool_name": tool, "tool_input": ti, "hook_event_name": "PreToolUse"}
+
+
+def test_stop_refuses_new_work_past_rotate(tmp_path):
+    tp = _said(tmp_path, "ROTATE")
+    assert rotate.stop_refusal(pre(tp, "Bash", command="python -m pytest tests")).startswith("SESSION ROTATION STOP")
+    assert rotate.stop_refusal(pre(tp, "Edit", file_path="C:/r/fieldkit/core/x.py"))
+    assert rotate.stop_refusal(pre(tp, "Write", file_path="C:/r/new.py"))
+
+
+def test_stop_lets_the_handover_through(tmp_path):
+    tp = _said(tmp_path, "ROTATE")
+    for cmd in ("python -m fieldkit rotate handover --title x", "python -m fieldkit guard -- git commit -m x",
+                "python -m fieldkit ship push", "git status", "gh pr create --title x"):
+        assert rotate.stop_refusal(pre(tp, "Bash", command=cmd)) is None, cmd
+    assert rotate.stop_refusal(pre(tp, "Write", file_path="C:/r/state/coordination/PLAN.md")) is None
+    assert rotate.stop_refusal(pre(tp, "Edit", file_path="C:/r/HANDOFF.md")) is None
+    assert rotate.stop_refusal(pre(tp, "Read", file_path="C:/r/x.py")) is None
+
+
+def test_stop_only_at_rotate_and_never_inside_a_job(tmp_path, monkeypatch):
+    for level in ("OK", "WARN"):
+        assert rotate.stop_refusal(pre(_said(tmp_path, level), "Bash", command="make")) is None
+    assert rotate.stop_refusal(pre(str(tmp_path / "none.jsonl"), "Bash", command="make")) is None   # no mark
+    tp = _said(tmp_path, "ROTATE")
+    monkeypatch.setenv("FIELDKIT_JOB_DIR", str(tmp_path))
+    assert rotate.stop_refusal(pre(tp, "Bash", command="make")) is None
+
+
+def test_toolrouter_hook_denies_past_rotate(tmp_path, capsys):
+    from fieldkit.autopilot import toolrouter
+    tp = _said(tmp_path, "ROTATE")
+    toolrouter.hook(io.StringIO(json.dumps(pre(tp, "Bash", command="echo new work"))))
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "ROTATION STOP" in out["hookSpecificOutput"]["permissionDecisionReason"]
