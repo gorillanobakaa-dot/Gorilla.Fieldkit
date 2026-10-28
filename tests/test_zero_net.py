@@ -115,7 +115,9 @@ def test_status_without_a_net_says_not_established():
 
 # ---------------------------------------------------------------- fencing / handover
 
-def test_only_zero_hands_over_and_a_stale_epoch_is_refused():
+def test_only_zero_hands_over_and_a_stale_epoch_is_refused(monkeypatch):
+    from fieldkit import plan                       # the relief learns where the harness plan stands
+    monkeypatch.setattr(plan, "line", lambda *a, **k: "PLAN: phase 3. X: open R2")
     opened(second=TWO)
     with pytest.raises(net.Refused, match="not Zero"):
         net.handover(GEM, to=TWO, now=T0 + 1)
@@ -123,6 +125,7 @@ def test_only_zero_hands_over_and_a_stale_epoch_is_refused():
         net.handover(ZERO, to=TWO, epoch=7, now=T0 + 1)
     r = net.handover(ZERO, to=TWO, epoch=1, channels=[FakeChannel()], now=T0 + 1)
     assert r["net"]["epoch"] == 2 and net.zero_of(r["net"]) == TWO and r["previous"] == ZERO
+    assert r["entry"]["text"].endswith(". PLAN: phase 3. X: open R2")
     assert r["net"]["2ic"] is None                       # the 2IC became Zero: no 2IC left
     with pytest.raises(net.Refused, match="not Zero"):     # the old Zero can no longer act
         net.rollcall(ZERO, now=T0 + 2)

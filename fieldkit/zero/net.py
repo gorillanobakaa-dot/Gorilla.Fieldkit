@@ -504,7 +504,9 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
     if take:                                          # the rotated Zero's order and ground go with the net
         from . import command
         command.carry(old, to, now)
-    e = append("handover", me, text=f"Zero is now {to} ({how})", data={"net": _public(net), "previous": old, "how": how},
+    from .. import plan                               # the relief learns where the plan stands
+    pl = plan.line()
+    e = append("handover", me, text=f"Zero is now {to} ({how})" + (f". {pl}" if pl else ""), data={"net": _public(net), "previous": old, "how": how},
                now=now, epoch=net["epoch"])
     return {"net": net, "entry": e, "previous": old, "pushed": _push(e, net, channels or ch.default(), now)}
 
@@ -1207,11 +1209,14 @@ def main(argv=None, prog="fieldkit zero"):
     try:
         if verb == "status":
             r = status()
+            from .. import plan                       # the plan first: phase and open items (2026-10-28)
+            r["plan"] = plan.line()
+            head = [r["plan"], ""] if r["plan"] else []
             if r["established"] and (r["net"].get("rollcall") or {}):
                 rr = roll(r["net"], time.time())
-                _emit(a, dict(r, roll=rr), status_lines(r) + [""] + roll_lines(rr))
+                _emit(a, dict(r, roll=rr), head + status_lines(r) + [""] + roll_lines(rr))
             else:
-                _emit(a, r, status_lines(r))
+                _emit(a, r, head + status_lines(r))
             return r["level"]
         if verb == "open":
             r = open_net(me, a.second, a.interval, a.answer, a.quiet_hours, a.name)

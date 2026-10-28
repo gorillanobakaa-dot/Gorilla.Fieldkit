@@ -5890,6 +5890,23 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
 
+- id: plan
+  title: Where the harness plan stands - the current phase of docs/HARNESS-PLAN.md's Order table, its open items, the items merged pull requests finished; --write marks them DONE; the one line zero, the handovers and the room hook carry
+  harness: core
+  entry: [python, -m, fieldkit, plan]
+  path: ${FIELDKIT}/fieldkit/plan.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "next"}
+    - {name: write, flag: --write, type: flag, required: false, help: "set each PLANNED status cell a merge finished to DONE (PR #N)"}
+    - {name: repo, flag: --repo, type: path, required: false, help: "the Fieldkit checkout (default: this one)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [git, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "the plan was read", 1: "docs/HARNESS-PLAN.md is missing", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_plan.py"]
+
 - id: overhead
   title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
   harness: core

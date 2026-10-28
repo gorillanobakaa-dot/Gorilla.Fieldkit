@@ -2381,6 +2381,16 @@
    "gorilla-opencode-release-build"
   ]
  },
+ "plan": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "plan"
+  ]
+ },
  "prefix-diff": {
   "platforms": [
    "darwin",

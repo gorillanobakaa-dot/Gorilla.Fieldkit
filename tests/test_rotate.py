@@ -230,7 +230,9 @@ def test_cli_session_is_told_to_start_claude_not_archive(tmp_path):
 
 # ---------------------------------------------------------------- handover
 
-def test_handover_writes_note_and_plan_section(tmp_path):
+def test_handover_writes_note_and_plan_section(tmp_path, monkeypatch):
+    from fieldkit import plan as harness_plan        # the successor is told where the harness plan stands
+    monkeypatch.setattr(harness_plan, "line", lambda *a, **k: "PLAN: phase 3. X: open R2")
     p = monster(tmp_path)
     (tmp_path / "coord").mkdir()
     plan = tmp_path / "coord" / "PLAN.md"
@@ -246,6 +248,7 @@ def test_handover_writes_note_and_plan_section(tmp_path):
     assert "Do NOT start over" in r["brief"] and r["note"] in r["brief"] and "Build the rotation tool" in r["brief"]
     # the relief starts side jobs headless and archives itself when done (fieldkit/lifecycle)
     assert "fieldkit task start" in r["brief"] and "archive_session \"self\"" in r["brief"]
+    assert "PLAN: phase 3. X: open R2" in r["brief"] and "PLAN: phase 3. X: open R2" in note
     h = (tmp_path / "rot" / "handovers.jsonl").read_text(encoding="utf-8")
     assert json.loads(h)["plan_written"] is True
 
