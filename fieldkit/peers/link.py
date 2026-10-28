@@ -1043,6 +1043,38 @@ def code_head(root=None):
 
 
 RELOAD_S = 60
+UPDATE_S = 300
+
+
+def self_update(root=None, run=subprocess.run):
+    """Bring the listener's own checkout to origin/main: only a clean checkout on main, only a fast-forward (main
+    moves only by PRs merged on green CI). -> "moved", "same" or why it was left alone. 2026-10-28: #181 (a worktree
+    per job) was merged at 2af3d7d while this checkout sat at f70d592, so three jobs started without one; a merge
+    reached the listener only when a person fast-forwarded it. With this and the re-execute below, a merge is live
+    on the listener within UPDATE_S + RELOAD_S."""
+    root = str(root or LINK_ROOT)
+
+    def git(*a, timeout=60):
+        try:
+            r = run(["git", "-C", root, *a], capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.SubprocessError) as e:
+            return 1, str(e)
+        return r.returncode, (r.stdout or r.stderr or "").strip()
+    rc, branch = git("branch", "--show-current")
+    if rc != 0 or branch != "main":
+        return f"left alone: on {branch or 'no branch'}, not main"
+    rc, dirty = git("status", "--porcelain", "--untracked-files=no")
+    if rc != 0 or dirty:
+        return "left alone: tracked changes in the checkout"
+    rc, out = git("fetch", "--quiet", "origin", "main", timeout=120)
+    if rc != 0:
+        return f"left alone: fetch failed ({out[:120]})"
+    rc, before = git("rev-parse", "HEAD")
+    rc2, after = git("rev-parse", "origin/main")
+    if rc or rc2 or before == after:
+        return "same"
+    rc, out = git("merge", "--ff-only", "--quiet", "origin/main")
+    return "moved" if rc == 0 else f"left alone: not a fast-forward ({out[:120]})"
 
 
 def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
@@ -1052,7 +1084,7 @@ def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
     folders (link_return.resume)."""
     import selectors
     reload = (seconds is None) if reload is None else reload
-    started_head, checked = (code_head() if reload else ""), time.time()
+    started_head, checked, updated = (code_head() if reload else ""), time.time(), time.time()
     try:
         from . import link_return
         owed = link_return.resume(home() / "jobs", start=seconds is None)
@@ -1090,6 +1122,11 @@ def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
     try:
         while end is None or time.time() < end:
             ev = sel.select(timeout=1.0)
+            if reload and started_head and time.time() - updated > UPDATE_S:
+                updated = time.time()
+                why = self_update()
+                if why != "same":
+                    _log(f"self-update: {why}")
             if reload and started_head and time.time() - checked > RELOAD_S:
                 checked = time.time()
                 now_head = code_head()

@@ -1,0 +1,27 @@
+# listener self-update (2026-10-28): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/link_self_update_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_peers_link_self_update.py
+- file: fieldkit/peers/link.py
+  swap:
+  - '    if rc != 0 or branch != "main":'
+  - '    if rc != 0:'
+  why: a job's branch is never moved
+- file: fieldkit/peers/link.py
+  swap:
+  - '    if rc != 0 or dirty:'
+  - '    if rc != 0:'
+  why: a job's edit is never lost
+- file: fieldkit/peers/link.py
+  swap:
+  - '    rc, dirty = git("status", "--porcelain", "--untracked-files=no")'
+  - '    rc, dirty = git("status", "--porcelain")'
+  why: untracked state does not stop it
+- file: fieldkit/peers/link.py
+  swap:
+  - '    rc, out = git("merge", "--ff-only", "--quiet", "origin/main")'
+  - '    rc, out = git("merge", "--quiet", "--no-edit", "origin/main")'
+  why: only a fast-forward
+- file: fieldkit/peers/link.py
+  swap:
+  - "    if rc or rc2 or before == after:\n        return \"same\""
+  - "    if rc or rc2:\n        return \"same\""
+  why: same when already there
