@@ -2181,6 +2181,16 @@
    "orchestrate-place"
   ]
  },
+ "orchestrate split": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "inventory and split run live 2026-10-28 on the Linux VAIO with the Windows L15 answering over the cable; a Windows boss not run",
+  "ids": [
+   "orchestrate-split"
+  ]
+ },
  "overhead": {
   "platforms": [
    "darwin",

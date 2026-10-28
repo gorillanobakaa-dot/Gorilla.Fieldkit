@@ -10,6 +10,9 @@
                                                               there; no click (orchestrate_session.py)
     fieldkit orchestrate load | place ...                     each device's load; a suite placed where there is
                                                               room (orchestrate_load.py)
+    fieldkit orchestrate inventory | split ...                which devices are up and what each runs; a suite
+                                                              split into pieces with a PASS line each, placed and
+                                                              run, pieces per hour (orchestrate_split.py)
     fieldkit orchestrate offload [--tree REPO] [--json]      the pre-commit suite on an idle Linux device, only
                                                               what it skipped here (suite_offload.py)
 
@@ -77,6 +80,9 @@ def main(argv=None):
     if argv and argv[0] in ("load", "place"):         # stage O4: the load of each device, placement of a suite
         from . import orchestrate_load
         return orchestrate_load.main(argv)
+    if argv and argv[0] in ("inventory", "split"):    # I6: which devices are up, a suite split into checkable pieces
+        from . import orchestrate_split
+        return orchestrate_split.main(argv)
     if argv[:1] == ["offload"]:                       # the Windows pre-commit suite on the VAIO (owner, 2026-10-26)
         from . import suite_offload
         return suite_offload.main(argv[1:])

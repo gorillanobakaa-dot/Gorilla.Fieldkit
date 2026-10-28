@@ -1904,6 +1904,27 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_load.py"]
   notes: "Stage O4 of local/PROJECT-MANDATE-PLAN.md section 19. The link verb `load` is read-only (not a JOB_VERB, so it answers on the LAN too) and reuses the hog's RAM and CPU-sensor probes. Idle = a free slot, CPU under 50 %, below the hot line (build governor target + 3). Exit 3 when a device gave no report (an older Fieldkit says unknown verb)."
 
+- id: orchestrate-split
+  title: "Which devices of the household are up and what each can run (OS, cores, RAM, slots, toolchains, a local model); a test suite split into pieces, each accepted only by its pytest PASS line, placed on those devices and run as a queue, with pieces finished per hour"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate, split]
+  path: ${FIELDKIT}/fieldkit/orchestrate_split.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [inventory, split], help: "inventory: the devices; split: the pieces"}
+    - {name: tree, flag: --tree, type: str, required: false, help: "split: the git checkout whose suite is split (.)"}
+    - {name: pieces, flag: --pieces, type: int, required: false, help: "split: how many pieces (12)"}
+    - {name: run, flag: --run, type: bool, required: false, help: "split: run them, here and over the cable"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "split --run: seconds a piece may take (3600)"}
+    - {name: out, flag: --out, type: str, required: false, help: "split --run: the result as JSON to this file"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable output"}
+  effects: [network, writes-files, processes]
+  safety: reversible             # read-only probes; --run runs tests on tree copies, here and on the worker
+  output: third-party            # load reports and job results come from other computers
+  platforms: [windows, linux]
+  platforms_why: 'inventory and split run live 2026-10-28 on the Linux VAIO with the Windows L15 answering over the cable; a Windows boss not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_split.py"]
+  notes: "Plan item I6. The inventory joins fieldkit machine reach (household.yaml, each device by its path) and the link verb load (orchestrate_load.capabilities, now with cargo and a local model runtime: lms, Ollama or the LM Studio folder, installed not loaded). An SSH-only device answers no load and takes no piece. Pieces: tests/test_*.py weighed by def test_ count + 1, largest first into the lightest. Acceptance: orchestrate_work.test_counts on the output, >= 1 passed, 0 failed, 0 errors; never the exit code. A remote piece is a C3 run job (lifecycle/tasks.start_run of fieldkit admit suite FILES), accepted only from a result signed by a pinned worker key."
+
 - id: orchestrate-place
   title: "A test suite placed where there is room: here when a slot is free, else on an idle capable device over the cable (signed result recorded in testcost for that tree hash and OS), else here after the queue"
   harness: peers
