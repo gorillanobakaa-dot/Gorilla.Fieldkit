@@ -22,6 +22,7 @@ The gate tiers that WEAKEN a check (docs-only commits without the suite, ...) ar
 """
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -338,9 +339,16 @@ def main(argv=None, prog="fieldkit testcost"):
         if not pl["tests"]:
             print("testcost: no test covers the changed files" + (" (documentation only)" if pl["docs_only"] else ""))
             return 0
+        # the identical test files on the identical tree already passed: a repeat proves nothing (tests once, R7)
+        check = "fast:" + hashlib.sha1("\n".join(sorted(pl["tests"])).encode()).hexdigest()[:12]
+        key = tree_key(a.repo)
+        hit = seen(check, key)
+        if hit:
+            print(f"testcost: these {len(pl['tests'])} test file(s) passed on this exact tree at {hit['t']}: not run again")
+            return 0
         t0 = time.time()
         rc = subprocess.call([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *pl["tests"]], cwd=a.repo)
-        record("fast", "pass" if rc == 0 else "fail", time.time() - t0, note=f"{len(pl['tests'])} files")
+        record(check, "pass" if rc == 0 else "fail", time.time() - t0, key=key, note=f"{len(pl['tests'])} files")
         return rc
     if a.cmd == "budget":
         b = budget(a.check)

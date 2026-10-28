@@ -136,3 +136,16 @@ def test_the_run_guard_gets_the_budget_line_and_never_a_stop(repo):
     assert st == "ok" and "10.0 min" in line
     from fieldkit.core import preflight
     assert "fieldkit.testcost:preflight_check" in preflight.STEPS
+
+
+def test_run_fast_does_not_repeat_the_same_tests_on_the_same_tree(repo, monkeypatch, capsys):
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 1\n# edit\n")
+    calls = []
+    monkeypatch.setattr(testcost.subprocess, "call", lambda cmd, **kw: calls.append(cmd) or 0)
+    assert testcost.main(["run", "--fast", "--base", "HEAD", "--repo", str(repo)]) == 0
+    assert testcost.main(["run", "--fast", "--base", "HEAD", "--repo", str(repo)]) == 0
+    assert len(calls) == 1, "the second run on the identical tree must be skipped"
+    assert "not run again" in capsys.readouterr().out
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 1\n# edit 2\n")      # a changed tree runs again
+    assert testcost.main(["run", "--fast", "--base", "HEAD", "--repo", str(repo)]) == 0
+    assert len(calls) == 2

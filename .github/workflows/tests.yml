@@ -30,7 +30,8 @@ jobs:
             base="origin/${{ github.base_ref }}"
           elif [ "${{ github.event_name }}" = "push" ]; then
             base="${{ github.event.before }}"
+            merged="--merged"
           else
             base="full"
           fi
-          python .github/ci_tests.py "$base"
+          python .github/ci_tests.py "$base" $merged
