@@ -2442,6 +2442,16 @@
    "release-check"
   ]
  },
+ "release page": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-page"
+  ]
+ },
  "release table": {
   "platforms": [
    "linux",

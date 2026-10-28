@@ -79,7 +79,95 @@ def _src(ctx):
     if not (src / "go.mod").is_file():
         raise ValueError(f"{src} has no go.mod: not a Go module")
     ref = (v.get("git_ref") or "").strip()
-    return checkout(src, ref, v.get("out") or "") if ref else src
+    if not ref:
+        return src
+    dest = checkout(src, ref, v.get("out") or "")
+    copy_embeds(src, dest, v.get("embed_dirs") or "")
+    return dest
+
+
+# ---- build tags and the git-ignored files they embed (2026-10-27) -------------------------------------------------
+# v0.1.155 of Gorilla OpenCode shipped without its toolbox: `go version -m` on the published exe listed no -tags. The
+# release is `go build -tags toolbox`, and the helpers it embeds (internal/toolbox/bin/windows-amd64/*.gz, 162 MB,
+# git-ignored on purpose) are not in a clean clone of the tag. This pipeline passed no -tags at all, and a git_ref
+# build could not have embedded the helpers anyway. vars.tags names the tags per target; vars.embed_dirs are copied
+# from the source checkout into the clone; vars.embed_sums pins every embedded file by sha256 before a byte is built.
+def target_tags(ctx, goos, goarch):
+    """vars.tags: entries split by ';', each `os/arch=tag1,tag2` for one target or `tag1,tag2` for every target.
+    -> the comma-joined tags for this target ('' for none)."""
+    out = []
+    for entry in (x.strip() for x in (ctx.vars.get("tags") or "").split(";") if x.strip()):
+        target, eq, tags = entry.partition("=")
+        if not eq:
+            target, tags = "", entry
+        if target and target.strip() != f"{goos}/{goarch}":
+            continue
+        out += [t.strip() for t in tags.split(",") if t.strip() and t.strip() not in out]
+    return ",".join(out)
+
+
+def copy_embeds(repo, dest, dirs):
+    """Copy each folder of `dirs` (comma-separated, relative to the module) from the source checkout into the clone.
+    They must be git-ignored there (else the clone is no longer clean and go records vcs.modified=true: refused) and
+    must hold files (an empty one is what made v0.1.155: refused). Raises ValueError."""
+    for rel in (d.strip() for d in dirs.split(",") if d.strip()):
+        a, b = Path(repo) / rel, Path(dest) / rel
+        files = sorted(p for p in a.rglob("*") if p.is_file()) if a.is_dir() else []
+        if not files:
+            raise ValueError(f"embed_dirs: {a} holds no files; the build would embed nothing. Put the files there "
+                             "(for Gorilla OpenCode: scripts/build-toolbox.ps1 -HelpersDir ...) and run again")
+        ign = subprocess.run(["git", "-C", str(dest), "check-ignore", "-q", rel + "/x"], capture_output=True,
+                             timeout=60)
+        if ign.returncode != 0:
+            raise ValueError(f"embed_dirs: {rel} is not git-ignored in the clone; copying it there would make the "
+                             "build record vcs.modified=true")
+        for f in files:
+            t = b / f.relative_to(a)
+            if not t.is_file() or _sha(t) != _sha(f):
+                t.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, t)
+
+
+def embed_digest(src, dirs):
+    """One hash of the files under vars.embed_dirs (git-ignored, so fingerprint() does not see them)."""
+    h = hashlib.sha256()
+    for rel in (d.strip() for d in (dirs or "").split(",") if d.strip()):
+        base = Path(src) / rel
+        for f in sorted(p for p in base.rglob("*") if p.is_file()) if base.is_dir() else []:
+            h.update(f.relative_to(base).as_posix().encode() + b"\0" + _sha(f).encode())
+    return h.hexdigest()[:20]
+
+
+def check_embeds(ctx, src, goos, goarch):
+    """vars.embed_sums (a SHA256SUMS file in the module, `<sha256>  <os>-<arch>/<file>`) and vars.embed_root (the
+    folder those names are under): every line for this target must be there, as the file or <file>.gz, and its
+    (unpacked) bytes must have that hash. -> (count checked, problems). Nothing set: (0, [])."""
+    import gzip
+    v = ctx.vars
+    sums, root = (v.get("embed_sums") or "").strip(), (v.get("embed_root") or "").strip()
+    if not sums or not target_tags(ctx, goos, goarch):
+        return 0, []
+    plat, n, problems = f"{goos}-{goarch}/", 0, []
+    for line in (Path(src) / sums).read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) != 2 or line.lstrip().startswith("#") or not parts[1].startswith(plat):
+            continue
+        want, rel = parts
+        f = Path(src) / root / rel
+        gz = f.with_name(f.name + ".gz")
+        if f.is_file():
+            data = f.read_bytes()
+        elif gz.is_file():
+            data = gzip.decompress(gz.read_bytes())
+        else:
+            problems.append(f"{rel} missing")
+            continue
+        n += 1
+        if hashlib.sha256(data).hexdigest() != want:
+            problems.append(f"{rel} is not the pinned bytes")
+    if n == 0 and not problems:
+        problems.append(f"{sums} pins nothing for {goos}-{goarch}")
+    return n, problems
 
 
 def _guess_clone(name, local=None):
@@ -483,19 +571,29 @@ def stage_build(ctx):
         with buildguard.guard(say, label=f"go-{v.get('name') or 'app'}"):
             for goos, goarch in _targets(ctx):
                 f = out / _file_name(ctx, version, goos, goarch)
-                cmd = [go, "build", "-trimpath", "-ldflags", ld, "-o", str(f), v.get("main") or "."]
+                tags = target_tags(ctx, goos, goarch)
+                embedded, problems = check_embeds(ctx, src, goos, goarch)
+                if problems:
+                    return {"ok": False, "detail": f"{goos}/{goarch} not built, embedded files wrong: "
+                                                   + "; ".join(problems[:5])}
+                cmd = [go, "build", "-trimpath"] + (["-tags", tags] if tags else []) + \
+                      ["-ldflags", ld, "-o", str(f), v.get("main") or "."]
                 r = _run(ctx, cmd, src, f"go-build-{goos}-{goarch}",
                          env={"GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": str(v.get("cgo") or "0")}, timeout=3600)
                 if not r.ok or not f.is_file():
                     first = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][:6]
                     return {"ok": False, "detail": f"{goos}/{goarch} failed: " + " | ".join(first)[:400], "log": r.log}
-                built.append({"target": f"{goos}/{goarch}", "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size})
+                built.append({"target": f"{goos}/{goarch}", "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size,
+                              "tags": tags, "embedded": embedded})
     except buildguard.BuildRefused as e:
         return {"ok": False, "detail": f"not built: {e}"}
     rec = {"ok": True, "version": version, "go": (_load(ctx, src, "toolchain") or {}).get("have"), "ldflags": ld,
            "fingerprint": fp, "built": built, "when": time.strftime("%Y-%m-%d %H:%M:%S"),
+           "embed_digest": embed_digest(src, v.get("embed_dirs")),
            "git_ref": (v.get("git_ref") or "").strip() or None, "commit": source_commit(src),
-           "detail": f"{version}: " + ", ".join(f"{Path(b['file']).name} ({b['bytes']:,} bytes)" for b in built)}
+           "detail": f"{version}: " + ", ".join(
+               f"{Path(b['file']).name} ({b['bytes']:,} bytes" + (f", -tags {b['tags']}" if b["tags"] else "")
+               + (f", {b['embedded']} pinned file(s) embedded" if b["embedded"] else "") + ")" for b in built)}
     return _save(ctx, src, "build", rec)
 
 
@@ -509,11 +607,24 @@ def verify_build(ctx):
     why = stale(rec, src, "the build")
     if why:
         return {"ok": False, "detail": why}
+    if rec.get("embed_digest", embed_digest(src, "")) != embed_digest(src, ctx.vars.get("embed_dirs")):
+        return {"ok": False, "detail": "the embedded files (embed_dirs) changed since the build"}
     want = ctx.vars.get("version")
     if want and want != rec.get("version"):
         return {"ok": False, "detail": f"built {rec.get('version')}, asked for {want}"}
     if {b["target"] for b in rec["built"]} != {f"{o}/{a}" for o, a in _targets(ctx)}:
         return {"ok": False, "detail": "the targets changed since the build"}
+    go = find_go()
+    for b in rec["built"]:
+        want = target_tags(ctx, *b["target"].split("/"))
+        if (b.get("tags") or "") != want:
+            return {"ok": False, "detail": f"{b['target']} was built with tags {b.get('tags')!r}, asked for {want!r}"}
+        # what go itself recorded in the binary, not what this record says (v0.1.155: no -tags in `go version -m`)
+        got = next((l.split("=", 1)[1] for l in _buildinfo(go, b["file"]) if l.startswith("build\t-tags=")
+                    or l.startswith("build -tags=")), "") if go else None
+        if go and got != want:
+            return {"ok": False, "detail": f"`go version -m {Path(b['file']).name}` records -tags={got!r}, "
+                                           f"asked for {want!r}"}
     stamp = rec["version"].encode()
     for b in rec["built"]:
         p = Path(b["file"])
@@ -560,7 +671,8 @@ def stage_repro(ctx):
     for b in rec["built"]:
         goos, _, goarch = b["target"].partition("/")
         f = base / "out" / Path(b["file"]).name
-        cmd = [go, "build", "-trimpath", "-ldflags", rec["ldflags"], "-o", str(f), v.get("main") or "."]
+        cmd = [go, "build", "-trimpath"] + (["-tags", b["tags"]] if b.get("tags") else []) + \
+              ["-ldflags", rec["ldflags"], "-o", str(f), v.get("main") or "."]
         r = ctx.runner.run(cmd, cwd=str(other), env=_env({**env, "GOOS": goos, "GOARCH": goarch,
                                                          "CGO_ENABLED": str(v.get("cgo") or "0")}),
                            timeout=3600, name=f"go-repro-{goos}-{goarch}")
