@@ -33,6 +33,10 @@ STATUSES = ("started", "done", "failed", "blocked")
 SLACK_MINUTES = 30                      # past wall + this, a started task cannot still run: the budget stopped it
 
 
+class BriefRefused(ValueError):
+    """The brief fails the lint (brieflint): no plan id. The message says what to add."""
+
+
 class AlreadyStarted(ValueError):
     """The same brief is started and not finished; the message names the task."""
 
@@ -130,13 +134,20 @@ def running_twin(h, title, now=None, tasks=None):
 
 
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
-          worktree=None):
-    """-> the ledger record. Raises ValueError when the brief is missing or empty, AlreadyStarted when the same brief
+          worktree=None, plan=None):
+    """-> the ledger record. Raises ValueError when the brief is missing or empty, BriefRefused when it names no plan
+    id (HARNESS-PLAN O3; `plan` gives one from outside), AlreadyStarted when the same brief
     is still started somewhere (unless again). `worktree`: (repo, tid) -> (path or None, why); default worktrees.make."""
     p = Path(brief_path)
     text = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
     if not text:
         raise ValueError(f"no brief in {brief_path}")
+    from . import brieflint
+    findings = brieflint.lint(text, cwd or os.getcwd(), plan)
+    if any(sev == "refuse" for sev, _ in findings):
+        raise BriefRefused("; ".join(m for sev, m in findings if sev == "refuse"))
+    if plan:
+        text += f"\nPLAN ITEM: {plan}"
     tid = task_id(text, now)
     from ..peers import machine
     title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))
@@ -150,6 +161,9 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     rec = {"id": tid, "title": title, "brief": str(p.resolve()), "on": on or "here", "tag": tag_for(on),
            "from": socket.gethostname(), "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
            "status": "started", "hash": h, "wall": int(wall)}
+    warns = [m for sev, m in findings if sev == "warn"]
+    if warns:
+        rec["warnings"] = warns
     if on:
         from ..peers import link
         r = (call or link.call)({"verb": "ask", "agent": "claude", "brief": brief}, timeout=30, device=on)

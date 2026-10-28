@@ -39,6 +39,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 from . import friction, owner_actions, protocol, sweep, tasks
 
@@ -76,12 +77,13 @@ def cmd_friction(argv):
 def cmd_task(argv):
     ap = argparse.ArgumentParser(prog="fieldkit task", description=tasks.__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["start", "status", "report"])
+    ap.add_argument("action", choices=["start", "status", "report", "lint"])
     ap.add_argument("arg", nargs="?", help="start: the brief file; report: the task id")
     ap.add_argument("--on", help="start: a device of the household (the job runs there, over the cable)")
     ap.add_argument("--cwd", help="start here: the folder the job works in (default: this one)")
     ap.add_argument("--wall", type=int, default=120, help="start here: wall-clock budget in minutes")
     ap.add_argument("--title")
+    ap.add_argument("--plan", help="start, lint: the plan item (a row id of docs/HARNESS-PLAN.md) the brief serves")
     ap.add_argument("--again", action="store_true", help="start: even though the same brief is started and unfinished")
     ap.add_argument("--status", choices=list(tasks.STATUSES[1:]))
     ap.add_argument("--branch", default="")
@@ -108,12 +110,22 @@ def cmd_task(argv):
               f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec['how']}): job {rec['job'] or '-'}: "
               f"{rec['answer']}\nNEXT: fieldkit task status (done or failed once the worker's signed result is here)")
         return 0 if rec["status"] == "started" else 3
+    if a.action == "lint":
+        from . import brieflint
+        try:
+            text = Path(a.arg).read_text(encoding="utf-8")
+        except (OSError, TypeError):
+            print("task lint BRIEF.md [--plan ID]")
+            return 2
+        found = brieflint.lint(text, a.cwd or os.getcwd(), a.plan)
+        print("\n".join(f"{sev.upper()}  {m}" for sev, m in found) or f"OK  plan id and length (~{brieflint.tokens(text)} tokens)")
+        return 3 if found else 0
     if a.action == "start":
         if not a.arg:
             print("task start BRIEF.md [--on DEVICE]")
             return 2
         try:
-            rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again)
+            rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again, plan=a.plan)
         except tasks.AlreadyStarted as e:
             print(f"NOT STARTED  {e}")
             return 3
