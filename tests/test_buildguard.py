@@ -54,3 +54,12 @@ def test_a_refused_build_never_starts_the_command(tmp_path, monkeypatch):
     said = []
     rc = buildguard.run([sys.executable, "-c", f"open(r'{marker}', 'w').write('x')"], say=said.append)
     assert rc == 2 and not marker.exists() and any("REFUSED" in s for s in said)
+
+
+def test_the_guard_s_own_lines_never_reach_the_command_s_stdout(tmp_path, monkeypatch, capfd):
+    # R4 (2026-10-28): `guard -- token-audit --json` gave invalid JSON because the guard printed to stdout
+    monkeypatch.setattr(buildguard, "fan_check", lambda *a, **k: (True, "fan check: test pass"))
+    rc = buildguard.run([sys.executable, "-c", "print('{\"ok\": true}')"], check_fan=True)
+    out, err = capfd.readouterr()
+    assert rc == 0 and out == '{"ok": true}\n'
+    assert "fan check: test pass" in err

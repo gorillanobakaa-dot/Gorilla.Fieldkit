@@ -130,8 +130,13 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
             say(f"  governor stopped: peak {gov.peak} C" + (f"; {gov.verdict}" if gov.verdict else ""))
 
 
-def run(cmd, cwd=None, say=print, check_fan=True):
-    """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused)."""
+def _err(line):
+    print(line, file=sys.stderr, flush=True)
+
+
+def run(cmd, cwd=None, say=_err, check_fan=True):
+    """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused). The guard's own lines go to
+    stderr: stdout is CMD's alone (2026-10-28, R4: `guard -- token-audit --json` gave invalid JSON)."""
     try:
         with guard(say, label=Path(cmd[0]).stem, check_fan=check_fan) as gov:
             rc = subprocess.run(cmd, cwd=cwd).returncode

@@ -199,10 +199,7 @@ def capabilities(home=None, cache=None):
     skills = sorted(p.parent.name for p in (home / ".claude" / "skills").glob("*/SKILL.md"))
     out = {"skills": skills}
     try:
-        from .desk import platformcheck
-        cards = platformcheck.cards()
-        out["cards"] = sorted(c["id"] for c in cards if "local" not in Path(c["_file"]).parts and c.get("id"))
-        out["local_cards"] = sorted(c["id"] for c in cards if "local" in Path(c["_file"]).parts and c.get("id"))
+        out["cards"], out["local_cards"] = card_ids(cache if cache is not None else {})
     except Exception:  # noqa: BLE001
         out["cards"], out["local_cards"] = None, None
     out["opencode"] = opencode_config(home)
@@ -214,6 +211,20 @@ def capabilities(home=None, cache=None):
     out["mandates"] = mandates_in_force(cache if cache is not None else {})
     out["mandate_files"] = mandate_files()
     return out
+
+
+def card_ids(cache, files=None):
+    """-> (shared card ids, local card ids). Parsing the cards takes 1.3 s (measured 2026-10-28, VAIO), so the ids are
+    cached by the card files' path, size and time: an edited card file is read afresh."""
+    from .desk import platformcheck
+    files = [Path(f) for f in (files or [platformcheck.HERE / "tools.yaml", platformcheck.ROOT / "local" / "tools.yaml"])]
+    key = "cards|" + "|".join(f"{f}:{f.stat().st_size}:{f.stat().st_mtime_ns}" if f.is_file() else f"{f}:-"
+                              for f in files)
+    if key not in cache:
+        cards = platformcheck.cards(files)
+        cache[key] = [sorted(c["id"] for c in cards if "local" not in Path(c["_file"]).parts and c.get("id")),
+                      sorted(c["id"] for c in cards if "local" in Path(c["_file"]).parts and c.get("id"))]
+    return list(cache[key][0]), list(cache[key][1])
 
 
 def mandate_files():
@@ -513,34 +524,59 @@ def _inside(path, top):
     return p == top or p.startswith(top.rstrip("\\/") + os.sep)
 
 
+_PRIMED = {}
+PRIME_MAX_S = 30.0               # a first reading older than this is taken again
+
+
+def _start_sample():
+    import psutil
+    live = []
+    for p in psutil.process_iter(["pid", "name"]):
+        try:
+            p.cpu_percent(None)
+            live.append(p)
+        except (psutil.Error, OSError):
+            pass
+    return live
+
+
+def preflight_prime():
+    """The run guard calls this before its checks: the CPU sample's first reading, so its window passes while the
+    other checks run (fieldkit/core/preflight.py _prime)."""
+    _PRIMED.clear()
+    _PRIMED.update(at=time.monotonic(), live=_start_sample())
+
+
+def sample_procs(sample_s=0.5):
+    """-> [{pid, name, cwd, exe, cpu}] of every process, cpu over sample_s seconds at least; cwd and exe for WORKERS
+    only. A first reading taken by preflight_prime is used once (its window already running), else taken here."""
+    import psutil
+    at, live = _PRIMED.pop("at", None), _PRIMED.pop("live", None)
+    if live is None or time.monotonic() - at > PRIME_MAX_S:       # a stale first reading misses new processes
+        at, live = time.monotonic(), _start_sample()
+    time.sleep(max(0.0, sample_s - (time.monotonic() - at)))
+    procs = []
+    for p in live:
+        try:
+            row = {"pid": p.pid, "name": (p.info.get("name") or "").lower(), "cpu": p.cpu_percent(None),
+                   "cwd": None, "exe": None}
+            if row["name"].rsplit(".", 1)[0] in WORKERS:
+                try:
+                    row["cwd"], row["exe"] = p.cwd(), p.exe()
+                except (psutil.Error, OSError):
+                    pass
+            procs.append(row)
+        except (psutil.Error, OSError):
+            pass
+    return procs
+
+
 def shared_ground(procs=None, mine=None, checkout=None, binary=None, sample_s=0.5, proc_mod=None):
     """-> [one line per thing another session holds]: a worker process in this checkout, the pinned binary running,
     a process pinning a core. procs = [{pid, name, cwd, exe, cpu}] (tests pass them; else measured with psutil,
     cpu over sample_s seconds); `mine` = this process's ancestors and descendants, never counted."""
     if procs is None:
-        import psutil
-        proc_mod = proc_mod or psutil
-        live = []
-        for p in psutil.process_iter(["pid", "name"]):
-            try:
-                p.cpu_percent(None)
-                live.append(p)
-            except (psutil.Error, OSError):
-                pass
-        time.sleep(sample_s)
-        procs = []
-        for p in live:
-            try:
-                row = {"pid": p.pid, "name": (p.info.get("name") or "").lower(), "cpu": p.cpu_percent(None),
-                       "cwd": None, "exe": None}
-                if row["name"].rsplit(".", 1)[0] in WORKERS:
-                    try:
-                        row["cwd"], row["exe"] = p.cwd(), p.exe()
-                    except (psutil.Error, OSError):
-                        pass
-                procs.append(row)
-            except (psutil.Error, OSError):
-                pass
+        procs = sample_procs(sample_s)
     mine = mine if mine is not None else _tree(proc_mod or __import__("psutil"))
     top = checkout if checkout is not None else _toplevel()
     binary = os.path.normcase(str(binary)) if binary else None
@@ -557,12 +593,13 @@ def shared_ground(procs=None, mine=None, checkout=None, binary=None, sample_s=0.
     return lines
 
 
-def loaded_models(ctx):
-    """-> names of local models loaded that the run did not declare (ctx["models"])."""
+def loaded_models(ctx, rows=None):
+    """-> names of local models loaded that the run did not declare (ctx["models"]). rows: [{name}] of the processes
+    already walked (sample_procs), else walked here."""
     try:
         from . import hog
         from .hog import probe
-        rows = probe.processes(top=400)[0]
+        rows = rows if rows is not None else probe.processes(top=400)[0]
         got = probe.lms(rows, hog.config())
         names = [m["id"] for m in got.get("models", [])]
     except Exception:  # noqa: BLE001
@@ -576,7 +613,17 @@ def preflight_check(ctx=None, m=None, p=None, ground=None, models=None, quiet=No
     os.environ[ENV] for every result written under this run."""
     ctx = ctx or {}
     strict = ctx.get("kind") in STRICT_KINDS
-    m = m if m is not None else manifest()
+    # one process walk (its 0.5 s CPU sample) beside the manifest feeds both the shared-ground and the model check:
+    # the same answers, without a second walk of every process (O5, 2026-10-28)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        f_procs = ex.submit(sample_procs) if ground is None or models is None else None
+        m = m if m is not None else manifest()
+        procs = f_procs.result() if f_procs else None
+    if ground is None:
+        ground = shared_ground(procs=procs, binary=opencode_path())
+    if models is None:
+        models = loaded_models(ctx, rows=procs)
     p = p if p is not None else pin()
     os.environ[ENV] = m["hash"]
     problems = [d["detail"] for d in against_pin(m, p)]
@@ -586,10 +633,7 @@ def preflight_check(ctx=None, m=None, p=None, ground=None, models=None, quiet=No
     os.environ[ENV_COMPARABLE] = "0" if off_base else "1" if base else ""
     os.environ[ENV_DEFENDER] = canon(state)
     problems += off_base
-    if ground is None:
-        ground = shared_ground(binary=opencode_path())
     problems += ground
-    models = models if models is not None else loaded_models(ctx)
     problems += [f"model {n} is loaded and this run did not load it" for n in models]
     if strict and quiet is None:
         try:
