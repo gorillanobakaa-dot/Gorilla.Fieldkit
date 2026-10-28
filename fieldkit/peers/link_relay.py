@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-22-23-26
+# Version: 1.3.0 · updated 26-10-28-20-45
 """A relay session: one AI session per computer whose only job is the cable, so notes are answered as they come.
 
     fieldkit peers link relay listen [--since N] [--seconds S]   wait until a note arrives (no time limit by
@@ -23,6 +23,12 @@ refused, because two relays would each take the notes and answer twice.
 Notes sent with `--to NAME` are already handed to a Fieldkit peers session of that name by `serve` (link.py). What
 the relay adds is the rest: notes for nobody in particular, and passing notes to Claude app sessions, which only an
 AI session can reach (the app's own messaging).
+
+Quiet net traffic (2026-10-28, plan open item 26): since C2 every session check-in on the other computer is a cable
+note whose text carries `NET1 {json}`. Each one used to end `listen` and wake the relay for a full model call (5+
+wakes in 2 minutes at 20:17). Now `listen` hands such notes to the net (`fieldkit zero` ingest_cable), marks them
+read and keeps waiting; only a note a session must read ends it. A relay with no saved number starts after the last
+stored note instead of printing the whole inbox again.
 """
 import argparse
 import json
@@ -36,6 +42,7 @@ from . import peers as local_peers
 
 POLL = 2.0
 ROOT = Path(__file__).resolve().parents[2]       # the Fieldkit checkout this code runs from (has the link code)
+QUIET = {"checkin", "ack", "time"}               # net kinds that only renew a lease or confirm: no session reads them
 
 BRIEF = """\
 You are the RELAY session for this computer's cable link to the other computer. Your job is the link, not the
@@ -75,11 +82,11 @@ def pid_path():
     return link.home() / "relay-listen.pid"
 
 
-def last_read():
+def last_read(default=0):
     try:
         return int(json.loads(cursor_path().read_text(encoding="utf-8")).get("last", 0))
     except (OSError, ValueError, AttributeError):
-        return 0
+        return default
 
 
 def mark_read(n):
@@ -105,14 +112,35 @@ def other_listener(alive=local_peers.pid_alive):
     return pid if pid != os.getpid() and alive(pid) else None
 
 
-def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=local_peers.pid_alive):
-    """-> (code, notes). 0 notes arrived, 1 none within `seconds`, 2 another listener runs."""
+def quiet(note):
+    """True for net traffic no session must read: a check-in (it renews a lease), an ack, a clock check."""
+    from ..zero import channels
+    e = channels.parse_envelope(note.get("text", ""))
+    return bool(e) and e.get("kind") in QUIET
+
+
+def ingest_net():
+    """Hand the cable's net notes to this computer's net log (once each, by id). A broken net never stops the relay."""
+    try:
+        from ..zero import net
+        return net.ingest_cable()
+    except Exception:  # noqa: BLE001 - the relay's job is the cable; the next `fieldkit zero` ingests again
+        return 0
+
+
+def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=local_peers.pid_alive, ingest=ingest_net):
+    """-> (code, notes). 0 notes arrived, 1 none within `seconds`, 2 another listener runs. Quiet net notes are
+    ingested and marked read without ending the wait."""
     if other_listener(alive):
         return 2, []
     link.home().mkdir(parents=True, exist_ok=True)
     pid_path().write_text(str(os.getpid()))
     try:
-        since = last_read() if since is None else since
+        if since is None:
+            since = last_read(default=None)
+            if since is None:                        # no saved number: start after the last stored note, and say so
+                since = max(numbers() or [0])
+                mark_read(since)
         end = None if seconds is None else now() + seconds
         while True:
             new = sorted(n for n in numbers() if n > since)
@@ -120,7 +148,13 @@ def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=loca
                 files = numbers()
                 notes = [json.loads(files[n].read_text(encoding="utf-8")) for n in new]
                 mark_read(new[-1])
-                return 0, notes
+                since = new[-1]
+                loud = [x for x in notes if not quiet(x)]
+                if len(loud) < len(notes):
+                    ingest()
+                if loud:
+                    return 0, loud
+                continue
             if end is not None and now() >= end:
                 return 1, []
             sleep(POLL)
