@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-16-23-05
+# Version: 1.1.0 · updated 26-10-28-20-50
 """2026-10-16, owner: the Windows and Linux machines in sync, every tool working on both. fieldkit sync takes only
 fast-forwards CI proved on both systems; platformcheck holds every card's `platforms` to its tests."""
 import subprocess
@@ -40,6 +40,31 @@ def test_a_commit_from_the_other_machine_is_taken_only_when_ci_proved_it(tmp_pat
     monkeypatch.setattr(sync, "_slug", lambda repo: "o/r")      # a local hub has no GitHub slug
     yes = sync.apply(sync.state(win), ci=lambda slug, sha: (True, "CI green on windows, ubuntu"))
     assert yes["verdict"] == "TAKEN" and (win / "tool.py").exists()
+
+
+def test_a_pending_tip_takes_the_newest_green_commit_below_it(tmp_path, monkeypatch):
+    """2026-10-28, plan item 30: main's tip is always mid-CI while PRs merge; the tip-only rule never took anything."""
+    win, lin = _machines(tmp_path)
+    green = _g(lin, "rev-parse", "HEAD")
+    (lin / "late.py").write_text("print('merged a minute ago')\n")
+    _g(lin, "add", "-A")
+    _g(lin, "commit", "-qm", "still in CI")
+    _g(lin, "push", "-q", "origin", "HEAD:main")
+    tip = _g(lin, "rev-parse", "HEAD")
+    monkeypatch.setattr(sync, "_slug", lambda repo: "o/r")
+    seen = []
+
+    def ci(slug, sha):
+        seen.append(sha)
+        return (True, f"CI green for {sha[:10]}") if sha == green else (False, f"CI not green for {sha[:10]}: test (pending)")
+    r = sync.apply(sync.state(win), ci=ci)
+    assert seen == [tip, green]
+    assert r["verdict"] == "TAKEN-PART" and not r["ok"] and r["behind"] == 1 and r["taken_sha"] == green
+    assert _g(win, "rev-parse", "HEAD") == green and (win / "tool.py").exists() and not (win / "late.py").exists()
+    assert f"to {green[:10]}" in r["why"] and "stayed 1 commit(s) behind the tip" in r["why"] and "pending" in r["why"]
+    # nothing green at all: refused, the tree stays where it was
+    r = sync.apply(sync.state(win), ci=lambda s, h: (False, "CI not green: red"))
+    assert r["verdict"] == "BEHIND" and "refused: CI not green: red" in r["why"] and not (win / "late.py").exists()
 
 
 def test_dirty_or_diverged_is_never_taken(tmp_path):
