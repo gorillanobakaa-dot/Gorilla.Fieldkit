@@ -140,18 +140,18 @@ def skills_row(do_apply=False, installer=None):
         spec = importlib.util.spec_from_file_location("install_skills", ROOT / "install_skills.py")
         installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(installer)
-    stale = [r for r in installer.status() if r[2] in ("missing", "outdated")]
+    stale = [r for r in installer.status() if r[2] in ("missing", "outdated", "off-os")]
     row = {"repo": "agent skills", "ok": True, "verdict": "IN-SYNC", "why": "every installed copy matches"}
     if stale and do_apply:
         import contextlib
         import io
         with contextlib.redirect_stdout(io.StringIO()):
             installer.main([])
-        left = [r for r in installer.status() if r[2] in ("missing", "outdated")]
+        left = [r for r in installer.status() if r[2] in ("missing", "outdated", "off-os")]
         row.update(verdict="INSTALLED" if not left else "ERROR", ok=not left,
                    why=f"{len(stale) - len(left)} copy(ies) installed" + (f", {len(left)} still stale" if left else ""))
     elif stale:
-        row.update(verdict="STALE", ok=False, why=f"{len(stale)} copy(ies) missing or outdated: fieldkit sync --apply")
+        row.update(verdict="STALE", ok=False, why=f"{len(stale)} copy(ies) missing, outdated or off this OS: fieldkit sync --apply")
     foreign = [f"{t.parent.name}/{n}" for t, n, s in installer.status() if s == "foreign"]
     if foreign:
         row["why"] += "; name taken by someone else's folder, left alone: " + ", ".join(foreign)

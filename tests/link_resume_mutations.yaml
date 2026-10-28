@@ -61,3 +61,38 @@
 
     '
   why: a restart stops the listener only
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    return bring(None, cwd, {}, jobd, cp.get("result") or "", run=run, branches=named(said, window) or window)'
+  - '    return bring(None, cwd, {}, jobd, cp.get("result") or "", run=run, branches=window)'
+  why: a branch the job names is its own
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    return [b for b in branches if re.search(r"(?<![\w/.-])" + re.escape(b) + r"(?![\w/.-])", text or "")]'
+  - '    return [b for b in branches if b in (text or "")]'
+  why: a longer name is another branch
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '        for d in [d for d in left if ended(d, _pid_of(d), alive)]:'
+  - '        for d in list(left):'
+  why: a running job waits, finished ones go first
+- file: fieldkit/peers/link_return.py
+  swap:
+  - "    if on_origin(cwd, branch, run=run):\n        return {\"branch\": branch, \"pushed\": True, \"detail\": ALREADY}\n    path, made"
+  - '    path, made'
+  why: a branch already on origin is not pushed
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    if not ok and on_origin(cwd, branch, run=run):'
+  - '    if False:'
+  why: a push another return made counts
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    return rc == 0 and rc2 == 0 and bool(local) and remote.split()[:1] == [local]'
+  - '    return rc == 0 and rc2 == 0 and bool(local)'
+  why: on origin means at this commit
+- file: fieldkit/peers/link_return.py
+  swap:
+  - '    news = [r for r in results if r["detail"] != ALREADY]   # a branch that was already there is no news'
+  - '    news = results'
+  why: a branch already there is no news

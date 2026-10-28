@@ -3,8 +3,11 @@
 usage:
     python token_audit.py [TRANSCRIPT.jsonl ...]   one or more session transcripts
     python token_audit.py --all [--min-mb 1]       every transcript under ~/.claude/projects
+    python token_audit.py --all --since 2026-10-27 [--until 2026-10-28]
+                                                   only the calls in that window (local midnight; ISO times too)
     python token_audit.py --doctor                 what this computer has for the audit
-    add --json for one JSON object per session instead of the table
+    add --json for one JSON object per session instead of the table: stdout then carries JSON lines and
+    nothing else (warnings go to stderr), so it pipes into jq or json.loads without filtering by hand
 
 Per session: wall-clock span, API calls, input / cache-write / cache-read / output tokens
 (deduplicated by message id: one reply is written as several lines), the context sent per call
@@ -23,7 +26,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 PROJECTS = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
 # Anthropic first-party API prices, US dollars per million tokens, from prices.json (shared with
 # session_cost.py; every number there was read off the provider's price page, with the date).
@@ -50,6 +53,16 @@ def _ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def when(s):
+    """--since / --until: a date (local midnight) or an ISO time (local when it names no zone) -> aware datetime."""
+    t = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
+    return t if t.tzinfo else t.astimezone()
+
+
+def _inside(t, since, until):
+    return t is not None and (since is None or t >= since) and (until is None or t < until)
+
+
 def _strings(v):
     """Every string inside a JSON value."""
     if isinstance(v, str):
@@ -62,11 +75,13 @@ def _strings(v):
             yield from _strings(x)
 
 
-def audit(path):
+def audit(path, since=None, until=None):
+    """One session's numbers. With since/until only the lines stamped inside [since, until) count; a line with
+    no time of its own takes the time of the line before it."""
     seen, calls, tools, models = set(), [], {}, {}
     usd = usd_read = 0.0
     unpriced_calls = 0
-    first = last = None
+    first = last = stamp = None
     hook_hits = dict.fromkeys(HOOK_MARKERS, 0)
     hook_chars = dict.fromkeys(HOOK_MARKERS, 0)
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -78,9 +93,15 @@ def audit(path):
             if not isinstance(d, dict):
                 continue
             if d.get("timestamp"):
-                t = _ts(d["timestamp"])
-                first = first or t
-                last = t
+                try:
+                    stamp = _ts(d["timestamp"])
+                except ValueError:
+                    pass
+            if (since or until) and not _inside(stamp, since, until):
+                continue
+            if d.get("timestamp") and stamp is not None:
+                first = first or stamp
+                last = stamp
             if d.get("type") != "assistant":
                 # injected text: from the marker to the end of the string that carries it
                 for s in _strings(d):
@@ -161,9 +182,13 @@ def table(rows):
                  if unpriced else ""))
 
 
-def doctor():
+def doctor(as_json=False):
     ok = sys.version_info >= (3, 8)
     found = sorted(PROJECTS.glob("*/*.jsonl")) if PROJECTS.is_dir() else []
+    if as_json:
+        print(json.dumps({"version": VERSION, "ok": ok, "python": sys.version.split()[0],
+                          "projects": str(PROJECTS), "transcripts": len(found)}))
+        return 0 if ok else 1
     print(f"token-audit {VERSION} doctor")
     print(f"  [{'ok' if ok else '--'}] Python {sys.version.split()[0]} (needs 3.8+)")
     print(f"  [{'ok' if found else '--'}] transcripts under {PROJECTS}: {len(found)}")
@@ -175,22 +200,40 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="token_audit", description="Where the tokens of Claude Code sessions went.")
     p.add_argument("transcripts", nargs="*", help="session .jsonl files")
     p.add_argument("--all", action="store_true", help="every transcript under ~/.claude/projects")
-    p.add_argument("--min-mb", type=float, default=1.0, help="with --all: skip files smaller than this (default 1)")
-    p.add_argument("--json", action="store_true", help="one JSON object per session")
+    p.add_argument("--min-mb", type=float, help="with --all: skip files smaller than this (default 1; 0 with --since)")
+    p.add_argument("--since", help="only calls at or after this date or ISO time (a date is local midnight)")
+    p.add_argument("--until", help="only calls before this date or ISO time")
+    p.add_argument("--json", action="store_true", help="one JSON object per session, nothing else on stdout")
     p.add_argument("--doctor", action="store_true", help="check this computer and stop")
     a = p.parse_args(argv)
     if a.doctor:
-        return doctor()
+        return doctor(a.json)
+    try:
+        since = when(a.since) if a.since else None
+        until = when(a.until) if a.until else None
+    except ValueError as e:
+        p.error(f"--since/--until: {e} (use YYYY-MM-DD or an ISO time)")
     paths = [Path(t) for t in a.transcripts]
     if a.all:
-        paths += [f for f in PROJECTS.glob("*/*.jsonl") if f.stat().st_size >= a.min_mb * 1e6]
+        # a session is a short file of a busy day too: --since looks at every file it may hold calls for
+        min_mb = a.min_mb if a.min_mb is not None else (0.0 if since else 1.0)
+        for f in PROJECTS.glob("*/*.jsonl"):
+            st = f.stat()
+            if st.st_size >= min_mb * 1e6 and (since is None or st.st_mtime >= since.timestamp()):
+                paths.append(f)
     if not paths:
+        if since and a.all:
+            return 0                     # nothing written in the window: an empty answer, not an error
         p.error("name a transcript, or use --all")
     missing = [str(x) for x in paths if not x.is_file()]
     if missing:
         print("token_audit: not found: " + ", ".join(missing), file=sys.stderr)
         return 2
-    rows = [audit(x) for x in paths]
+    rows = [audit(x, since, until) for x in paths]
+    if since or until:
+        rows = [r for r in rows if r["api_calls"]]
+        for r in rows:
+            r["since"], r["until"] = (since.isoformat() if since else None), (until.isoformat() if until else None)
     if a.json:
         for r in rows:
             print(json.dumps(r))

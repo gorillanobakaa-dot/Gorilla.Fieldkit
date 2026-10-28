@@ -8,6 +8,8 @@ import pytest
 
 from fieldkit.autopilot import room
 
+REAL_RELAY = room._relay
+
 
 @pytest.fixture(autouse=True)
 def _room_dir(tmp_path, monkeypatch):
@@ -195,3 +197,33 @@ def test_a_reader_with_nothing_new_writes_nothing(_room_dir):
     os.utime(cur, ns=(t - 10**9, t - 10**9))
     room.unseen("s2")
     assert cur.stat().st_mtime_ns == t - 10**9
+
+
+def test_a_prompt_on_a_computer_whose_relay_is_deaf_says_how_to_start_it(monkeypatch, capsys):
+    """2026-10-28, owner: "make it FULL WORKING": 100 cable notes sat stored and unheard on the VAIO."""
+    from fieldkit.peers import link, link_relay
+    monkeypatch.setattr(room, "_relay", REAL_RELAY)                 # conftest turns it off for every other test
+    for f in ("_net", "_hog", "_rotate", "_plan"):
+        monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
+    monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
+    monkeypatch.setattr(link, "household", lambda: {"me": "vaio"})
+    monkeypatch.setattr(link_relay, "numbers", lambda: {208: 0, 209: 0})
+    listener = {"pid": None}
+    monkeypatch.setattr(link_relay, "other_listener", lambda *a, **k: listener["pid"])
+
+    def said(event="UserPromptSubmit", sid="r1"):
+        room.hook(io.StringIO(json.dumps({"session_id": sid, "hook_event_name": event, "prompt": "go"})))
+        out = capsys.readouterr().out
+        return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
+    first = said()
+    assert first.startswith("RELAY NOT LISTENING") and "relay listen --since 209" in first
+    assert said() == ""                                              # once per session
+    assert said(sid="r2").startswith("RELAY NOT LISTENING")          # every session is told
+    listener["pid"] = 4242
+    assert said(sid="r3") == ""                                      # a relay listens: nothing to say
+    listener["pid"] = None
+    monkeypatch.setenv("FIELDKIT_AUTOPILOT", "1")
+    assert said(sid="r4") == ""                                      # a headless run is never the relay
+    monkeypatch.delenv("FIELDKIT_AUTOPILOT")
+    monkeypatch.setattr(link, "household", lambda: {})
+    assert said(sid="r5") == ""                                      # no cable on this computer
