@@ -270,12 +270,40 @@ def test_cap_applies_to_registered_not_to_tree(cfg):
     assert rules.orphans(facts(alive=alive), [_entry(ctime=NOW - 3.9 * 3600, source="register")], cfg, NOW) == []
 
 
+def test_link_listener_outlives_its_session_and_is_never_stopped(cfg):
+    """2026-10-28 19:43, the L15: "orphan python.exe 8040 (link-listener, started by 8dc32564): its session ended:
+    stop"; the L15 had no link listener until 20:37. A service class is never an orphan, nor past a cap."""
+    lis = _entry(pid=8040, name="python.exe", cls="link-listener", session="8dc32564", source="printed")
+    rel = _entry(pid=8041, name="python.exe", cls="link-relay", session="8dc32564", source="register")
+    alive = [[8040, NOW - 600], [8041, NOW - 600]]
+    assert rules.orphans(facts(alive=alive), [lis, rel], cfg, NOW) == []
+    old = [dict(lis, ctime=NOW - 9 * 3600)]
+    assert rules.orphans(facts(alive=[[8040, NOW - 9 * 3600]]), old, cfg, NOW) == []
+    found = rules.evaluate(facts(alive=alive), [], [lis, rel], cfg)
+    assert not [f for f in found if f.get("action")]
+    assert rules.orphans(facts(alive=alive), [dict(lis, cls="pytest")], cfg, NOW)   # the same entry otherwise goes
+
+
+def test_dead_service_is_reported_with_its_restart_line_not_acted_on(cfg):
+    lis = _entry(pid=8040, cls="link-listener", session="8dc32564")
+    f = rules.services(facts(alive=[]), [lis], cfg)
+    assert len(f) == 1 and f[0]["check"] == "service" and f[0]["action"] is None
+    assert "fieldkit peers link restart" in f[0]["line"] and "8040" in f[0]["line"]
+    assert [x for x in rules.evaluate(facts(alive=[]), [], [lis], cfg) if x["check"] == "service"]
+    assert rules.services(facts(alive=[[8040, NOW - 600]]), [lis], cfg) == []              # alive: nothing to say
+    new = _entry(pid=9000, ctime=NOW - 60, cls="link-listener")
+    assert rules.services(facts(alive=[[9000, NOW - 60]]), [lis, new], cfg) == []          # a live one replaced it
+    assert rules.services(facts(alive=[]), [_entry(cls="pytest")], cfg) == []              # a dead runner is no news
+
+
 def test_orphan_classes(cfg):
     c = cfg["orphan_classes"]
     assert rules.orphan_class("python.exe", "python -m pytest -q tests", c) == "pytest"
     assert rules.orphan_class("go.exe", "go test ./...", c) == "go-test"
     assert rules.orphan_class("firefox.exe", "firefox.exe -headless", c) == "browser"
     assert rules.orphan_class("python.exe", "python -m fieldkit peers link serve", c) == "link-listener"
+    assert rules.orphan_class("python.exe", "python -P -m fieldkit peers link relay listen", c) == "link-relay"
+    assert set(cfg["service_classes"]) == {"link-listener", "link-relay"}
     assert rules.orphan_class("WINWORD.EXE", "WINWORD.EXE", c) is None
     assert rules.orphan_class("python.exe", "python -m fieldkit hog watch", c) is None
 
