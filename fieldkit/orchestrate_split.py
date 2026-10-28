@@ -224,9 +224,12 @@ def run(pieces, devices, tree, me, wait=3600, here=None, there=None, now=time.ti
             out, secs = here(p) if local else there(p, dev)
             ok, line = accept(out)
             with lock:
+                failed = [ln.strip() for ln in out.splitlines() if ln.startswith(("FAILED ", "ERROR "))]
                 done.append({"id": p["id"], "device": dev, "accepted": ok, "line": line, "seconds": round(secs, 1),
-                             "files": p["files"]})
-            say(f"PIECE  {p['id']} on {dev}: {'ACCEPTED' if ok else 'NOT ACCEPTED'} in {secs:.0f} s: {line}")
+                             "files": p["files"], "failed": failed,
+                             "tail": "" if ok else "\n".join(out.splitlines()[-15:])})
+            say(f"PIECE  {p['id']} on {dev}: {'ACCEPTED' if ok else 'NOT ACCEPTED'} in {secs:.0f} s: {line}"
+                + "".join(f"\n  {f}" for f in failed))
 
     t0 = now()
     threads = [threading.Thread(target=worker, args=(d["device"] or d["tag"], d["state"] == "HERE"), daemon=True)

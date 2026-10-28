@@ -125,6 +125,7 @@ def test_run_is_a_queue_counts_only_accepted_pieces_and_gives_pieces_per_hour():
     assert r["of"] == 6 and r["wall_s"] == 1800.0
     failed = [p for p in r["pieces"] if not p["accepted"]]
     assert all(p["device"] == "win" and p["id"] == "p00" for p in failed)
+    assert all(p["tail"] and not p["failed"] for p in failed)                  # the evidence is kept for a FAIL
     assert r["finished"] == 6 - len(failed)
     assert r["per_hour"] == pytest.approx(r["finished"] / 0.5)
     assert sum(x["pieces"] for x in r["per_device"].values()) == 6
