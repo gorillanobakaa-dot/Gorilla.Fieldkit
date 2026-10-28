@@ -453,7 +453,7 @@ def test_cable_channel_not_paired_is_said():
 def test_cable_channel_sends_the_envelope_to_each_device():
     calls = []
     c = CABLE(household=lambda: {"me": "A", "devices": [{"name": "A"}, {"name": "VAIO"}]},
-                 call=lambda req, device: calls.append((req, device)) or {"ok": True})
+                 call=lambda req, device, **k: calls.append((req, device)) or {"ok": True})
     r = c.push({"kind": "msg", "id": "M-1"}, {})
     assert r[0]["ok"] and calls[0][1] == "VAIO" and calls[0][0]["text"].startswith(ch.NET1)
 
@@ -678,3 +678,50 @@ def test_guard_a_missing_station_reaches_only_the_tmp_inbox(tmp_path):
     assert got and any(GEM in p.read_text(encoding="utf-8") for p in got)
     after = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
     assert after == before
+
+
+# ---------------------------------------------------------------- C2: a station on the other computer checks in
+
+def test_hook_on_the_far_computer_learns_the_net_from_the_cable_and_checks_in_there(monkeypatch):
+    """2026-10-28 on the VAIO: Zero's open and 8 handovers sat unread in the link inbox, no NET.yaml, so the hook
+    said nothing and no VAIO station ever reached Zero. Now the hook ingests the cable and pushes its check-in."""
+    monkeypatch.setattr(net, "ingest_cable", INGEST)
+    monkeypatch.setattr(net, "machine", lambda: "VAIO")
+    monkeypatch.setattr(net, "tag_of", lambda s: "[VAIO-LNX]" if s.endswith("@VAIO") else "")
+    cab = FakeCable(["HOSTA"])
+    monkeypatch.setattr(ch, "Cable", lambda *a, **k: cab)
+    far_open = {"kind": "open", "id": "E-open", "from": ZERO, "epoch": 1,
+                "data": {"net": {"net": "open", "epoch": 1, "interval_min": 15,
+                                 "zero": {"station": ZERO, "machine": HOST}}}}
+    monkeypatch.setattr(ch, "inbox_items", lambda since: [(3, far_open)] if since < 3 else [])
+    call = {"session_id": "ffffffff-1", "cwd": "/x"}
+    assert "Zero is " + ZERO in net._net_line(call, "UserPromptSubmit", now=T0)
+    me = "claude:ffffffff@VAIO"
+    assert [e["kind"] for e in cab.pushed] == ["checkin"] and cab.pushed[0]["from"] == me
+    assert cab.pushed[0]["data"]["tag"] == "[VAIO-LNX]"
+    net._net_line(call, "UserPromptSubmit", now=T0 + 120)             # within the interval: not sent again
+    assert len(cab.pushed) == 1
+    net._net_line(call, "UserPromptSubmit", now=T0 + 15 * 60 + 1)     # an interval later: the far lease renewed
+    assert len(cab.pushed) == 2 and cab.pushed[1]["id"] != cab.pushed[0]["id"]
+
+
+def test_a_hook_on_zeros_own_computer_sends_nothing_over_the_cable(monkeypatch):
+    cab = FakeCable(["VAIO"])
+    monkeypatch.setattr(ch, "Cable", lambda *a, **k: cab)
+    opened()
+    net._net_line({"session_id": "cccccccc-1"}, "UserPromptSubmit", now=T0)
+    assert cab.pushed == []
+
+
+def test_a_far_checkin_keeps_its_machine_tag_and_status_counts_each_machine(monkeypatch):
+    monkeypatch.setattr(net, "ingest_cable", INGEST)
+    opened()
+    far = {"kind": "checkin", "id": "E-far2", "from": "claude:eeeeeeee@VAIO", "to": ZERO,
+           "data": {"by": "hook", "tag": "[VAIO-LNX]"}, "epoch": 1}
+    net.ingest_cable([(9, far)], now=T0)
+    assert net.load_stations()["stations"]["claude:eeeeeeee@VAIO"]["tag"] == "[VAIO-LNX]"
+    r = net.status(now=T0)
+    row = next(x for x in r["rows"] if x["station"] == "claude:eeeeeeee@VAIO")
+    assert row["tag"] == "[VAIO-LNX]"
+    text = "\n".join(net.status_lines(r, now=T0))
+    assert "[VAIO-LNX] claude:eeeeeeee@VAIO" in text and "[VAIO-LNX] 1 (1 UP)" in text

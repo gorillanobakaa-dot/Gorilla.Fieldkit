@@ -1592,7 +1592,8 @@ def build_parser():
                                      "protocol and the standing rule; `sessions tag --check`: titles without "
                                      "their machine tag (fieldkit/lifecycle)"),
                        ("machine", "this machine's tag ([VAIO-LNX]) from the household registry; every device "
-                                   "with tag, OS, address, last seen (fieldkit/peers/machine.py)"),
+                                   "with tag, OS, address, last seen; `machine reach`: each device of household.yaml by its "
+                                   "own path, which are up (fieldkit/peers/machine.py, household.py)"),
                        ("board", "every finished session has its Board row in PLAN.md: check (with / all today), "
                                  "add from the transcript, no model (fieldkit/lifecycle/board.py)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)

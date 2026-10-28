@@ -1,0 +1,26 @@
+# Version: 1.0.0 · updated 26-10-28-19-48
+# The household: every device the harness works with, and the ONE path each is reached by (plan item C1, owner
+# 2026-10-27). Data, not code: a new device is a new row here. Read by fieldkit/peers/household.py
+# (`fieldkit machine reach`, and the comms check of `fieldkit zero check`).
+#
+# A device is named by its machine tag (machine_tags.yaml makes it from the hardware). Nothing private lives here:
+# addresses, host names and keys stay on each machine (the link's household.json for the cable, local/macs.json,
+# git-ignored, for SSH), found by the tag or the `mac` name below.
+#
+# path:  cable  the signed link (fieldkit peers link) over the direct cable; the device answers its hello
+#        ssh    SSH only (fieldkit mac): the device runs no listener and must never be put on the cable
+# never: paths this device must not be reached by; a household.json row that says otherwise is an error
+# from:  the machine tags that hold the SSH key; on any other machine the device is NOT FROM HERE, never "down"
+devices:
+  - tag: "[L15-WIN]"
+    what: ThinkPad L15, Windows (Windows builds and Windows-only tests)
+    path: cable
+  - tag: "[VAIO-LNX]"
+    what: Sony VAIO, Linux (the owner's main laptop; heavy non-Windows work)
+    path: cable
+  - tag: "[AIR-MAC]"
+    what: MacBook Air 2011, macOS 10.13, 4 GB
+    path: ssh
+    mac: macair
+    never: [cable]
+    from: ["[VAIO-LNX]"]
