@@ -1,4 +1,4 @@
-# python -m fieldkit mutate --plan tests/tokens_mutations.yaml -- python -m pytest -q tests/test_tokens_session_cost.py tests/test_tokens_token_audit.py tests/test_tokens_since_daily.py -p no:cacheprovider
+# python -m fieldkit mutate --plan tests/tokens_mutations.yaml -- python -m pytest -q tests/test_tokens_session_cost.py tests/test_tokens_token_audit.py tests/test_tokens_since_daily.py tests/test_tokens_cost_report.py -p no:cacheprovider
 # Every rule the session-cost and token-audit tests claim to hold, broken on purpose once. All must be CAUGHT.
 # (moved with the meters from the local kit TokenAudit, 2026-10-26)
 - file: fieldkit/tokens/session_cost.py
@@ -87,3 +87,18 @@
 - file: fieldkit/tokens/cost_daily.py
   swap: ['and d.get("machine") != mine', ""]
   why: "cost daily: this machine's own file is never counted as the other machine"
+- file: fieldkit/tokens/cost_report.py
+  swap: ["day = days.get(local_day(c[\"ts\"]))", "day = next(iter(days.values()))"]
+  why: "cost report: each call counts on its own local day"
+- file: fieldkit/tokens/cost_report.py
+  swap: ["day[\"by_source\"][ad.name] = day[\"by_source\"].get(ad.name, 0.0) + c[\"usd\"]", "pass"]
+  why: "cost report: the split by source (Claude Code, Antigravity) is kept per day"
+- file: fieldkit/tokens/cost_report.py
+  swap: ["if day in wanted and day not in got:", "if day in wanted:"]
+  why: "cost report: the newest file over the cable wins for a day"
+- file: fieldkit/tokens/cost_report.py
+  swap: ["d.get(\"machine\") == mine or", "False or"]
+  why: "cost report: this machine's own file is never counted as the other machine's"
+- file: fieldkit/tokens/cost_report.py
+  swap: ["\"complete\": not missing}", "\"complete\": True}"]
+  why: "cost report: a bill compared with a window missing the other machine's days says INCOMPLETE"

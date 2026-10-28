@@ -6,6 +6,7 @@ usage:
     fieldkit cost daily --date 2026-10-27     that day
     fieldkit cost daily --json                the same as one JSON object, nothing else on stdout
     fieldkit cost daily --peer FILE           the other machine's --json output (else looked for, see below)
+    fieldkit cost report --since DATE         both machines over a window, the bill beside it (cost_report.py)
 
 The other machine's numbers: there, `fieldkit cost daily --json > cost-daily-<TAG>-<DATE>.json`, then
 `fieldkit peers link put cost-daily-<TAG>-<DATE>.json`. Here the line reads the newest cost-daily-*.json for the same
@@ -185,6 +186,9 @@ def line(r):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["report"]:                        # both machines over a window, the bill beside it (I1)
+        from . import cost_report
+        return cost_report.main(argv[1:])
     p = argparse.ArgumentParser(prog="fieldkit cost", description="One daily cost line for the owner.")
     p.add_argument("action", choices=["daily"])
     p.add_argument("--date", help="the day, YYYY-MM-DD (default yesterday, local)")
