@@ -326,6 +326,15 @@ def _claims(call):
         return None
 
 
+def _rotate_stop(call):
+    """Past the ROTATE line a session may only hand over (fieldkit/tokens/rotate_stop.py). Fails open."""
+    try:
+        from ..tokens import rotate_stop
+        return rotate_stop.stop_refusal(call)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def hook(stdin=None):
     """Claude Code PreToolUse: Bash and PowerShell commands, and (ground claims only) Edit / Write / MultiEdit /
     NotebookEdit; fails open on a malformed call (the hard lines are the safety layer; this one teaches)."""
@@ -336,6 +345,11 @@ def hook(stdin=None):
     deny = _claims(call)
     if deny:
         print(json.dumps(deny))
+        return 0
+    stop = _rotate_stop(call)
+    if stop:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                 "permissionDecisionReason": stop}}))
         return 0
     tool = (call.get("tool_name") or "").lower()
     if tool not in ("bash", "powershell"):

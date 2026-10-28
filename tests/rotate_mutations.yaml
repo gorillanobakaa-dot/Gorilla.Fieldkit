@@ -102,3 +102,12 @@
 - file: fieldkit/desk/registry.py
   swap: ["            if t.get(\"id\") in shipped and", "            if True and"]
   why: "only a card whose id is shipped is superseded"
+- file: fieldkit/tokens/rotate_stop.py
+  swap: ["        if said.get(\"level\") != \"ROTATE\":", "        if said.get(\"level\") == \"OK\":"]
+  why: "R1: only ROTATE stops the session; WARN still works"
+- file: fieldkit/tokens/rotate_stop.py
+  swap: ["            if HANDOVER_CMD.search(ti.get(\"command\") or \"\"):\n                return None", "            if False:\n                return None"]
+  why: "R1: the handover commands still run past ROTATE"
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ["    stop = _rotate_stop(call)\n    if stop:", "    stop = _rotate_stop(call)\n    if False:"]
+  why: "R1: the PreToolUse hook enforces the stop"
