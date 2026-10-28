@@ -197,11 +197,13 @@ def orphan_class(name, cmd, classes):
 
 def orphans(facts, registry, cfg, now):
     """A registered process (same pid AND creation time, so a reused number is never touched) whose session process
-    is gone, or that is older than its cap, is killed. Nothing outside the registry is ever a candidate."""
+    is gone, or that is older than its cap, is killed. Nothing outside the registry is ever a candidate. A service
+    class (thresholds.json service_classes: the link listener, the relay) outlives its session by design: never."""
     alive = {(p[0], p[1]) for p in facts.get("alive") or []}
+    svc = cfg.get("service_classes") or {}
     out = []
     for e in registry:
-        if (e["pid"], e["ctime"]) not in alive:
+        if (e["pid"], e["ctime"]) not in alive or e.get("cls") in svc:
             continue
         owner = (e.get("owner_pid"), e.get("owner_ctime"))
         gone = owner[0] is not None and owner not in alive
@@ -216,6 +218,24 @@ def orphans(facts, registry, cfg, now):
                           {"pid": e["pid"], "name": e.get("name"), "cls": e.get("cls"), "age_h": round(age / 3600, 2),
                            "session": e.get("session"), "why": why},
                           {"kind": "kill", "pid": e["pid"], "ctime": e["ctime"], "name": e.get("name")}))
+    return out
+
+
+def services(facts, registry, cfg):
+    """A registered service (thresholds.json service_classes) that is no longer alive, with no live registered one of
+    its class left, is reported with its restart line. Report only: the hog never starts or stops a service."""
+    alive = {(p[0], p[1]) for p in facts.get("alive") or []}
+    svc = cfg.get("service_classes") or {}
+    live = {e.get("cls") for e in registry if (e["pid"], e["ctime"]) in alive}
+    out = []
+    for e in registry:
+        cls = e.get("cls")
+        if cls not in svc or cls in live or (e["pid"], e["ctime"]) in alive:
+            continue
+        out.append(_f("service", "warn", f"{cls} {e.get('name')} {e['pid']} (started by {(e.get('session') or '?')[:8]})"
+                      f" is gone: restart: {svc[cls]}",
+                      {"pid": e["pid"], "name": e.get("name"), "cls": cls, "session": e.get("session"),
+                       "restart": svc[cls]}))
     return out
 
 
@@ -276,7 +296,7 @@ def evaluate(facts, history, registry, cfg, now=None):
     return (ram(facts, cfg) + commit(facts, cfg) + lms_models(facts, cfg, now, crit)
             + ollama_models(facts, history, cfg, now, crit) + leaks(facts, history, cfg)
             + cpu_pinned(facts, history, cfg) + temp(facts, cfg) + disk(facts, cfg)
-            + orphans(facts, registry, cfg, now) + pileup(facts, cfg))
+            + orphans(facts, registry, cfg, now) + services(facts, registry, cfg) + pileup(facts, cfg))
 
 
 def summary(findings, now=None):
