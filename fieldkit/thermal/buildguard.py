@@ -111,23 +111,14 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
         fn, surface = sensor, False
     csv_path = Path(csv_dir) / f"thermal-{label}-{time.strftime('%Y%m%d-%H%M%S')}.csv" if csv_dir else None
     target = gv.build_target()
-    # 2026-10-27 (crash ~17:10): the surface ceiling was printed and never applied; turbo stayed on; a governor per
-    # command fought nothing outside the guard. Now: a hold (turbo off while any guarded job runs), and the cap is the
-    # machine governor's when `fieldkit thermal watch --forever` runs (it lowers to SURFACE_CAP while a hold lives);
-    # otherwise this governor applies the ceiling itself.
+    # 2026-10-28 (three cutoffs in 28 h, 439/408 powercfg resets a day): this governor watches only. It never
+    # writes PROCTHROTTLEMAX; past the kill line it stops the job's children. Heavy work goes to the VAIO.
     with brake.hold(label, say=say):
-        if brake.machine_alive():
-            say(f"  governor: the machine governor holds the cap (target {target:.0f} C"
-                + (f", ceiling {buildrun.SURFACE_CAP}% while this job runs)" if surface else ")")
-                + "; this one only watches for the kill line")
-            gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(),
-                              on_event=lambda m: None if "thermal: cap" in m else say(m), csv_path=csv_path,
-                              set_cap=lambda pct: True, read_cap=lambda: 100, dead_check=not surface)
-        else:
-            say(f"  governor: CPU cap comes down above {target + 3:.0f} C (thermal.build_target {target:.0f})")
-            gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(), on_event=say,
-                              csv_path=csv_path, max_cap=buildrun.SURFACE_CAP if surface else None,
-                              dead_check=not surface, set_cap=gv.set_cap, read_cap=gv.read_cap)
+        say(f"  governor: watch only (target {target:.0f} C); past the kill line the job is stopped; the power plan is "
+            "never changed")
+        gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(),
+                          on_event=lambda m: None if "thermal: cap" in m else say(m), csv_path=csv_path,
+                          set_cap=lambda pct: True, read_cap=lambda: 100, dead_check=not surface)
         gov.start()
         if rg is not None:
             rg.governor = gov                             # the end line counts the seconds the cap was under 100%

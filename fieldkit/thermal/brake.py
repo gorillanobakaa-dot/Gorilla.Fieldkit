@@ -1,4 +1,9 @@
-"""Heavy-job holds, turbo off while one is held, and the lease of the one machine-wide governor.
+"""Heavy-job holds and the lease of the one machine-wide governor. No power-plan or fan levers.
+
+2026-10-28 (owner, after three cutoffs in 28 h): the guard no longer writes PERFBOOSTMODE, PROCTHROTTLEMAX or
+guard-hold.txt. 439 and 408 powercfg scheme resets were logged on 10-27 and 10-28 (7-85 a day before); the
+cutoffs of 10-27 ~04:18, 10-27 ~17:10 and 10-28 ~04:11 all came during them, the 10-28 one at 32 C and 13% load.
+Heavy work goes to the VAIO; on this laptop a hold only registers the job. What follows is the 10-27 history.
 
 Crash 2026-10-27 ~17:10 (the second that day): every `fieldkit guard` command ran at 100% with turbo on. The guard
 printed "cap held at 80%" for a surface sensor but never passed it to its governor, a new governor started and
@@ -130,25 +135,16 @@ def restore_stale_boost(folder=None, read=None, write=None, alive=None, say=prin
 
 @contextmanager
 def hold(label, say=print, folder=None, read=None, write=None, alive=None, pid=None):
-    """Register a guarded job; turbo off while any hold lives. Yields the hold dict."""
+    """Register a guarded job (its file only; no power-plan or fan change). Yields the hold dict."""
     read, write = read or boost_read, write or boost_set
     d = Path(folder or _dir())
     (d / "holds").mkdir(parents=True, exist_ok=True)
     pid = pid or os.getpid()
     me = d / "holds" / f"{pid}.json"
-    marker = d / "boost-original.json"
     h = {"pid": pid, "label": label, "since": time.time()}
     me.write_text(json.dumps(h), encoding="utf-8")
-    if not marker.exists():
-        orig = read()
-        if orig is not None and orig != BOOST_OFF:
-            marker.write_text(json.dumps({"original": orig}), encoding="utf-8")
-    if fan_flag(True, label):
-        say("  fan: full speed while this job runs (guard-hold.txt for Gorilla TPFanControl)")
-    if write(BOOST_OFF):
-        say("  turbo: off while this job runs (boost mode 0; put back when the last guarded job ends)")
-    elif sys.platform == "win32":
-        say("  turbo: could NOT be turned off (powercfg failed)")
+    # 2026-10-28: no turbo switch, no fan flag (see the module text). A marker or flag an older guard left is still
+    # put back once, when no hold lives.
     try:
         yield h
     finally:
@@ -156,10 +152,7 @@ def hold(label, say=print, folder=None, read=None, write=None, alive=None, pid=N
             me.unlink()
         except OSError:
             pass
-        rest = [x for x in holds(d, alive) if x.get("pid") != pid]
-        if rest:
-            say(f"  turbo: stays off, {len(rest)} other guarded job(s) still running")
-        else:
+        if not [x for x in holds(d, alive) if x.get("pid") != pid]:
             restore_stale_boost(d, read, write, alive, say)
 
 
