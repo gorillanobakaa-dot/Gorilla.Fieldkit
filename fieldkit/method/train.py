@@ -116,8 +116,9 @@ class GH:
         self.slug = sync._slug(repo)
 
     def _gh(self, *args, timeout=120):
+        from .ship import ship_env                    # inside an autopilot run: ship's own credential (inbox #145)
         r = self.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                     cwd=self.repo, timeout=timeout)
+                     cwd=self.repo, timeout=timeout, env=ship_env())
         return r.returncode, (r.stdout or ""), (r.stderr or "")
 
     def _json(self, *args):

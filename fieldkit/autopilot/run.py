@@ -39,6 +39,9 @@ def isolated_env(base=None):
     empty.mkdir(exist_ok=True)
     for k in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
         env[k] = ""
+    # where gh kept its account before this run hid it: a folder name, not a credential; only fieldkit ship reads it
+    # (owner, 2026-10-28, inbox #145: "Yes, ship only")
+    env["FIELDKIT_REAL_GH_CONFIG_DIR"] = (base if base is not None else os.environ).get("GH_CONFIG_DIR", "")
     env.update({
         "GH_CONFIG_DIR": str(empty),             # gh finds no hosts.yml, so no account and no keyring lookup
         "GIT_TERMINAL_PROMPT": "0",
