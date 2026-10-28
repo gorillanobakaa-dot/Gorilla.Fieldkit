@@ -109,3 +109,63 @@ def test_bring_home_pushes_the_given_branches_when_there_is_no_snapshot(tmp_path
 def test_a_restart_stops_the_listener_only():
     for text in link_keepalive.units(root="/r", py="/p").values():
         assert "\nKillMode=process\n" in text
+
+
+def test_a_branch_the_jobs_own_result_names_is_that_jobs_alone(tmp_path):
+    assert lr.named("committed on `feat/i2-i4-cost` (commit 13b47f5)", ["feat/i2-i4-cost", "fix/o1-x"]) == \
+        ["feat/i2-i4-cost"]
+    assert lr.named("see feat/i2-i4-cost-old", ["feat/i2-i4-cost"]) == []          # a longer name is another branch
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "t@example.org")
+    git(repo, "config", "user.name", "t")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "base", when=T0 - 3600)
+    for b in ("feat/mine", "fix/theirs"):
+        git(repo, "switch", "-q", "-c", b, "main")
+        git(repo, "commit", "-q", "--allow-empty", "-m", b, when=T0 + 300)
+    seen = {}
+    bring = lambda proc, cwd, before, jobd, brief, run=None, branches=None: seen.update(b=branches)  # noqa: E731
+    d = job(tmp_path, T0, checkpoint={"cwd": str(repo), "ended_at": T0 + 600, "result": "done on `feat/mine`"})
+    lr.finish(d, bring=bring)
+    assert seen["b"] == ["feat/mine"]
+    (d / "CHECKPOINT.json").write_text(json.dumps({"cwd": str(repo), "ended_at": T0 + 600, "result": "done"}))
+    lr.finish(d, bring=bring)
+    assert seen["b"] == ["feat/mine", "fix/theirs"]                               # names nothing: its window
+
+
+def test_finished_jobs_go_home_first_and_one_at_a_time(tmp_path):
+    a = job(tmp_path, T0, follow={"pid": 1, "cwd": "x"})
+    b = job(tmp_path, T0 + 60, follow={"pid": 2, "cwd": "x"})
+    running = {1: [True, True, False], 2: [False]}
+    order, naps = [], []
+    done = lr.finish_all([a, b], alive=lambda pid: running[pid].pop(0) if len(running[pid]) > 1 else running[pid][0],
+                         sleep=naps.append, fin=order.append)
+    assert order == [b, a] and done == [b, a] and len(naps) == 2
+
+
+def test_a_push_another_return_already_made_counts_as_pushed(tmp_path):
+    calls = []
+
+    def run(argv, **kw):                       # origin gets the commit while this push runs (the 18:47 race)
+        calls.append(argv)
+        seen_remote = sum("ls-remote" in c for c in calls)
+        out = {"rev-parse": "abc\n", "ls-remote": "def\trefs/heads/feat/x\n" if seen_remote == 1 else
+               "abc\trefs/heads/feat/x\n", "worktree": ""}
+        key = next((k for k in out if k in argv), None)
+        return subprocess.CompletedProcess(argv, 0, out.get(key, ""), "")
+    r = lr.push_branch(tmp_path, "feat/x", run=run, push=lambda path: {"ok": False, "error": "rejected"})
+    assert r == {"branch": "feat/x", "pushed": True, "detail": "already on origin at this commit"}
+    run2 = lambda argv, **kw: subprocess.CompletedProcess(  # noqa: E731
+        argv, 0, "def\trefs/heads/feat/x\n" if "ls-remote" in argv else "abc\n", "")
+    assert lr.push_branch(tmp_path, "feat/x", run=run2, push=lambda p: {"ok": False, "error": "no"})["pushed"] is False
+
+
+def test_a_branch_already_on_origin_is_not_pushed_and_is_no_news(tmp_path):
+    def run(argv, **kw):
+        out = "abc\trefs/heads/feat/x\n" if "ls-remote" in argv else "abc\n"
+        return subprocess.CompletedProcess(argv, 0, out, "")
+    pushed, sent = [], []
+    rep = lr.bring_home(None, tmp_path, {}, tmp_path, "", branches=["feat/x"], run=run,
+                        push=lambda path: pushed.append(path) or {"ok": True}, send=lambda t, needs_you=False: sent.append(t))
+    assert pushed == [] and sent == [] and rep["pushed"] == [{"branch": "feat/x", "pushed": True, "detail": lr.ALREADY}]

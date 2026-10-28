@@ -63,7 +63,9 @@ def _ship_push(repo):
 
 def push_branch(cwd, branch, run=subprocess.run, push=_ship_push):
     """-> {"branch", "pushed", "detail"}. Pushes from the worktree holding it, else from a scratch worktree made and
-    removed here."""
+    removed here. A branch origin already has at this commit is done: no push (Zero, 2026-10-28)."""
+    if on_origin(cwd, branch, run=run):
+        return {"branch": branch, "pushed": True, "detail": ALREADY}
     path, made = worktree_of(cwd, branch, run=run), None
     if not path:
         made = tempfile.mkdtemp(prefix="fk-return-")
@@ -79,7 +81,19 @@ def push_branch(cwd, branch, run=subprocess.run, push=_ship_push):
         if made:
             _git(cwd, "worktree", "remove", "--force", made, run=run)
     ok = bool(r.get("ok")) and (r.get("pushed") or r.get("state") == "in-step")
+    if not ok and on_origin(cwd, branch, run=run):    # another return pushed the same commit first (2026-10-28 18:47)
+        return {"branch": branch, "pushed": True, "detail": ALREADY}
     return {"branch": branch, "pushed": ok, "detail": (r.get("error") or r.get("state") or "")[:300]}
+
+
+ALREADY = "already on origin at this commit"
+
+
+def on_origin(cwd, branch, run=subprocess.run):
+    """True when origin's branch is at the local branch's commit (asked of origin, not of a stale remote ref)."""
+    rc, local = _git(cwd, "rev-parse", "--verify", "-q", f"refs/heads/{branch}", run=run)
+    rc2, remote = _git(cwd, "ls-remote", "origin", f"refs/heads/{branch}", run=run)
+    return rc == 0 and rc2 == 0 and bool(local) and remote.split()[:1] == [local]
 
 
 def _send(text, needs_you=False):
@@ -101,9 +115,10 @@ def bring_home(proc, cwd, before, jobd, brief="", run=subprocess.run, push=_ship
         (Path(jobd) / "branch-return.json").write_text(json.dumps(rep, indent=1), encoding="utf-8")
     except OSError:
         pass
-    if results or local:
+    news = [r for r in results if r["detail"] != ALREADY]   # a branch that was already there is no news
+    if news or local:
         words = "; ".join(f"{r['branch']} {'pushed' if r['pushed'] else 'NOT pushed: ' + r['detail']}"
-                          for r in results)
+                          for r in news)
         if local:
             words += ("; " if words else "") + "left here (not feat/ or fix/): " + ", ".join(local)
         clean = all(r["pushed"] for r in results) and not local
@@ -187,6 +202,11 @@ def window_branches(cwd, jobd, run=subprocess.run, now=None):
     return out
 
 
+def named(text, branches):
+    """The branches a job's own words name (its result: "committed on `feat/i2-i4-cost`")."""
+    return [b for b in branches if re.search(r"(?<![\w/.-])" + re.escape(b) + r"(?![\w/.-])", text or "")]
+
+
 def finish(jobd, alive=_pid_alive, sleep=time.sleep, bring=None, run=subprocess.run):
     """Wait (in this thread) for the job to end, then bring its branches home. -> the report, or None."""
     bring = bring or bring_home
@@ -200,7 +220,11 @@ def finish(jobd, alive=_pid_alive, sleep=time.sleep, bring=None, run=subprocess.
         sleep(POLL_S)
     if rec:
         return bring(None, cwd, rec.get("before") or {}, jobd, rec.get("brief") or "", run=run)
-    return bring(None, cwd, {}, jobd, cp.get("result") or "", run=run, branches=window_branches(cwd, jobd, run=run))
+    # 2026-10-28 18:47: five jobs that ran at once had overlapping windows, so each claimed every branch and four
+    # pushes raced; a branch the job's own result names is that job's, and only those then
+    window = window_branches(cwd, jobd, run=run)
+    said = " ".join(str(cp.get(k) or "") for k in ("result", "last_end"))
+    return bring(None, cwd, {}, jobd, cp.get("result") or "", run=run, branches=named(said, window) or window)
 
 
 def pending(jobs_dir, now=None):
@@ -217,9 +241,33 @@ def pending(jobs_dir, now=None):
     return out
 
 
+def _pid_of(jobd):
+    try:
+        return json.loads((Path(jobd) / "follow.json").read_text(encoding="utf-8")).get("pid")
+    except (OSError, ValueError):
+        return None
+
+
+def finish_all(jobs, alive=_pid_alive, sleep=time.sleep, fin=None):
+    """One at a time, so two returns never push the same branch at once; on each pass the jobs that have ended, so
+    a run still going never keeps a finished one from home. -> the job folders in the order they were finished."""
+    fin, left, done = fin or finish, list(jobs), []
+    while left:
+        for d in [d for d in left if ended(d, _pid_of(d), alive)]:
+            try:
+                fin(d)
+            except Exception:  # noqa: BLE001 - one job's failure does not keep the next one from home
+                pass
+            left.remove(d)
+            done.append(d)
+        if left:
+            sleep(POLL_S)
+    return done
+
+
 def resume(jobs_dir, now=None, start=True):
-    """At listener start: one daemon thread per job still owed a return. -> the job folders."""
+    """At listener start: one daemon thread that finishes the owed jobs in order. -> the job folders."""
     jobs = pending(jobs_dir, now)
-    for d in jobs if start else []:
-        threading.Thread(target=finish, args=(d,), daemon=True, name=f"link-branch-return-{d.name}").start()
+    if start and jobs:
+        threading.Thread(target=finish_all, args=(jobs,), daemon=True, name="link-branch-return-resume").start()
     return jobs
