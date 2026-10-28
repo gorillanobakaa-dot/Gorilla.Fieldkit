@@ -2513,6 +2513,16 @@
    "rotate"
   ]
  },
+ "rules": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "rules"
+  ]
+ },
  "runbook": {
   "platforms": [
    "linux",

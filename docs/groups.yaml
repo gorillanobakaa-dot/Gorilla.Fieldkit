@@ -134,6 +134,7 @@ groups:
       - testcost.py
       - parity.py
       - plan.py
+      - rules.py
       - suite_offload.py
 
   - name: verify-and-build

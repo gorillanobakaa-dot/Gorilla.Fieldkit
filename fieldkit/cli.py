@@ -66,6 +66,7 @@
     fieldkit release table|verify                the page's file table measured from SHA256SUMS; a published tag checked
     fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
     fieldkit testcost plan|run --fast|report     the cheapest test set that is enough; a passed tree is never re-tested
+    fieldkit rules check|install                 the one core in every agent's rules file; size limit; no repeats
     fieldkit plan next [--write]                 where the harness plan stands: phase, open items, what merges finished
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
@@ -1598,6 +1599,10 @@ def build_parser():
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    ru = sub.add_parser("rules", add_help=False,
+                        help="the one core (rules/CORE.md) in every agent's rules file, every rules file under its size "
+                             "limit, no core text repeated (fieldkit rules check|install)")
+    ru.add_argument("args", nargs=argparse.REMAINDER)
     pl = sub.add_parser("plan", add_help=False,
                         help="where the harness plan stands: the current phase of docs/HARNESS-PLAN.md, its open "
                              "items, the ones merged pull requests finished (fieldkit plan next)")
@@ -2774,6 +2779,9 @@ def main(argv=None):
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["rules"]:                         # the one core in every agent's rules file; every rules file small
+        from . import rules
+        return rules.main(args[1:])
     if args[:1] == ["plan"]:                          # where the harness plan stands: phase, open items, merged ones
         from . import plan
         return plan.main(args[1:])
