@@ -232,6 +232,14 @@ def _tail(path, n=15, chars=1500):
     return "\n".join(lines[-n:])[-chars:]
 
 
+def evidence_tail(log, guard_log=None):
+    """The command's last lines (the pytest summary) first, then the last lines of the guard's report: the guard's
+    preflight once filled the whole tail and the inner output never showed (C3/I6, 2026-10-28)."""
+    inner = _tail(log, 15, 1250)
+    g = _tail(guard_log, 3, 450) if guard_log else ""
+    return inner + (f"\n--- the guard\n{g}" if g else "")
+
+
 PYTEST_SUMMARY = re.compile(r"\b(\d+ (?:passed|failed|errors?|skipped)|no tests ran)\b.* in [\d.]+s")
 REGRESS_LINE = re.compile(r": (\d+) passed, (\d+) failed \((\d+) test names read; exit (-?\d+|None)\)")
 
@@ -415,6 +423,7 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
     d = work_root() / jid
     tree = d / "tree"
     log = d / "job.log"
+    guard_log = d / "guard.log"
     concerns, t0, rc = [], time.time(), None
     boss = job.get("from_host") if link.device(link.household(), job.get("from_host")) else None
     try:
@@ -434,6 +443,12 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
         env["PATH"] = os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])
         if job["kind"] == "run":
             argv = run_argv(job["argv"], plain=bool(job.get("plain")), path=env["PATH"])
+            if argv[4:6] == ["guard", "--"]:
+                # the guard's own lines go to their own file: job.log is the command's output alone, so the
+                # evidence tail ends in the pytest summary, not in the preflight (C3/I6, 2026-10-28)
+                from .thermal.buildguard import GUARD_LOG
+                guard_log.unlink(missing_ok=True)
+                env[GUARD_LOG] = str(guard_log)
         else:
             exe = opencode_exe()
             if not exe:
@@ -476,7 +491,10 @@ def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unloa
         concerns += why
         status = "pass" if ok and not missing and not bad else "fail"
         evidence = (f"{o.status} exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} "
-                    f"artefact(s) sent, sha256 in this result\n{_tail(log)}")
+                    f"artefact(s) sent, sha256 in this result\n{evidence_tail(log, guard_log)}")
+        if guard_log.is_file():
+            with open(log, "a", encoding="utf-8") as out:
+                out.write("=== the guard's report\n" + _read(guard_log))
     except Exception as e:  # noqa: BLE001 - every failure becomes a result the boss sees, never silence
         status, arts = "not-run", []
         evidence = f"the job could not run here: {type(e).__name__}: {e}"

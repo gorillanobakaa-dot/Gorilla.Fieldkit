@@ -69,3 +69,42 @@ def test_the_guard_s_own_lines_never_reach_the_command_s_stdout(tmp_path, monkey
     out, err = capfd.readouterr()
     assert rc == 0 and out.replace("\r\n", "\n") == '{"ok": true}\n'
     assert "fan check: test pass" in err
+
+
+def test_with_a_guard_log_the_guard_s_lines_go_to_that_file_and_not_to_the_command(tmp_path, monkeypatch, capfd):
+    # C3/I6 (2026-10-28): on the L15 worker the guard's preflight filled the job log's tail, never the pytest summary
+    import contextlib
+
+    @contextlib.contextmanager
+    def guard(say, **k):
+        say("  preflight: rotate: test line")
+        yield None
+    monkeypatch.setattr(buildguard, "guard", guard)
+    glog = tmp_path / "guard.log"
+    monkeypatch.setenv(buildguard.GUARD_LOG, str(glog))
+    code = f"import os; print('inner', os.environ.get({buildguard.GUARD_LOG!r}, 'unset'))"
+    rc = buildguard.run([sys.executable, "-c", code])
+    out, err = capfd.readouterr()
+    assert rc == 0 and out.strip() == "inner unset"            # the command never sees the guard's file
+    assert "preflight" not in err and glog.read_text(encoding="utf-8") == "  preflight: rotate: test line\n"
+
+
+@pytest.mark.skipif(sys.platform != "win32" or not os.path.isfile(os.path.join(os.path.dirname(sys.executable),
+                                                                              "pythonw.exe")),
+                    reason="pythonw.exe exists on Windows only")
+def test_under_pythonw_the_guarded_command_s_output_is_kept(tmp_path):
+    # C3/I6: the link worker is pythonw.exe; a child it started with inherited handles had sys.stdout None,
+    # died on its first print with exit 1, and wrote nothing (every L15 run job, 2026-10-28)
+    import subprocess
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(buildguard.__file__)))
+    script = ("import contextlib, sys\n"
+              "from fieldkit.thermal import buildguard as B\n"
+              "B.guard = lambda say, **k: contextlib.nullcontext()\n"
+              "sys.exit(B.run([sys.executable, '-c', 'print(\"inner said it\")']))\n")
+    out = tmp_path / "out.txt"
+    env = dict(os.environ, PYTHONPATH=os.path.dirname(root))
+    with open(out, "wb") as f:
+        rc = subprocess.call([pyw, "-c", script], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT,
+                             env=env, timeout=120)
+    assert rc == 0 and "inner said it" in out.read_text(encoding="utf-8", errors="replace")

@@ -470,3 +470,38 @@ def test_a_real_job_runs_contained_and_its_output_reaches_the_log(home, monkeypa
                 deliver=lambda r: None, sign=lambda r: r, health_fn=list)
     log = (home / "work" / run_req()["id"] / "job.log").read_text()
     assert r["status"] == "pass" and len(log.splitlines()) > 1, (r, log)
+
+
+class Guarded(Said):
+    """A fake guarded run (Windows): the command's output in the job log, the guard's report in the file the worker
+    names in FIELDKIT_GUARD_LOG (what buildguard.run does with it)."""
+
+    def __call__(self, argv, cwd, env, log, deadline_s, idle_s, label):
+        from fieldkit.thermal.buildguard import GUARD_LOG
+        Path(env[GUARD_LOG]).write_text("  preflight: rotate: ROTATE claude-code 8dc32564 - context per call\n" * 12
+                                        + "  run guard pythonw: 0.1 min, peak RAM 16.5/63.7 GB\n", encoding="utf-8")
+        return super().__call__(argv, cwd, env, log, deadline_s, idle_s, label)
+
+
+def test_on_windows_the_evidence_keeps_the_pytest_summary_ahead_of_the_guards_report(home, monkeypatch):
+    """C3/I6 (2026-10-28): the L15's result held only the guard's preflight, never the command's output."""
+    real = ow.run_argv
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None, **kw: real(args, platform="win32", **kw))
+    ran = Guarded("." * 17 + "\n17 passed in 0.43s\n")
+    r = go(home, run_req(argv=["admit", "suite", "tests/test_x.py"], artefacts=[]), ran)
+    ev = r["evidence"]
+    assert r["status"] == "pass", r
+    assert "17 passed in 0.43s" in ev and ev.index("17 passed") < ev.index("run guard pythonw"), ev
+    assert "preflight" not in ev.split("--- the guard")[0], ev
+    log = (home / "work" / run_req()["id"] / "job.log").read_text(encoding="utf-8")
+    assert log.index("17 passed") < log.index("=== the guard's report") < log.index("run guard pythonw")
+
+
+def test_off_windows_the_job_runs_unguarded_with_no_guard_log(home, monkeypatch):
+    from fieldkit.thermal.buildguard import GUARD_LOG
+    real = ow.run_argv
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None, **kw: real(args, platform="linux", **kw))
+    monkeypatch.delenv(GUARD_LOG, raising=False)
+    ran = Said("1 passed in 0.1s\n")
+    r = go(home, run_req(argv=["admit", "suite", "tests/test_x.py"], artefacts=[]), ran)
+    assert r["status"] == "pass" and GUARD_LOG not in ran.calls[0]["env"] and "--- the guard" not in r["evidence"]

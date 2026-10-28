@@ -474,3 +474,27 @@ def test_toolrouter_hook_denies_past_rotate(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "ROTATION STOP" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_check_skips_a_session_the_desktop_app_archived(tmp_path, monkeypatch):
+    # C3/I6 (2026-10-28): the guard's preflight named the archived Zero 8dc32564 as ROTATE on every job, for hours
+    monster(tmp_path, read=400_000, name="archived-zero")
+    monster(tmp_path, read=10_000, name="live")
+    ad = [sc.ClaudeCode(tmp_path / "projects")]
+    rows = rotate.check(hours=1, adapters=ad, cfg=CFG, archived={"archived-zero"})
+    assert [r["session"] for r in rows] == ["live"]
+    monkeypatch.setattr(rotate, "archived_ids", lambda: {"archived-zero"})
+    monkeypatch.setattr(sc, "adapters_for", lambda source: ad)
+    assert rotate.preflight_check() == ("ok", "rotate: no session over the WARN line")
+    assert rotate.check(session="archived-zero", adapters=ad, cfg=CFG)[0]["level"] == "ROTATE"   # asked by name, still judged
+
+
+def test_archived_ids_reads_the_desktop_records(tmp_path, monkeypatch):
+    store = tmp_path / "app" / "claude-code-sessions" / "acct" / "org"
+    store.mkdir(parents=True)
+    (store / "local_a.json").write_text(json.dumps({"sessionId": "local_a", "cliSessionId": "cli-a",
+                                                    "isArchived": True}), encoding="utf-8")
+    (store / "local_b.json").write_text(json.dumps({"sessionId": "local_b", "cliSessionId": "cli-b"}),
+                                        encoding="utf-8")
+    monkeypatch.setenv("FIELDKIT_CLAUDE_APP_DIRS", str(tmp_path / "app"))
+    assert rotate.archived_ids() == {"cli-a"}

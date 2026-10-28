@@ -130,16 +130,40 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
             say(f"  governor stopped: peak {gov.peak} C" + (f"; {gov.verdict}" if gov.verdict else ""))
 
 
+#: a file the guard writes its own lines to instead of stderr (the link worker sets it for a run job, so the job's
+#: log holds the command's output alone and its evidence keeps the pytest summary ahead of the guard's report)
+GUARD_LOG = "FIELDKIT_GUARD_LOG"
+
+
 def _err(line):
     print(line, file=sys.stderr, flush=True)
 
 
-def run(cmd, cwd=None, say=_err, check_fan=True):
+def _sayer(env=None):
+    path = (os.environ if env is None else env).get(GUARD_LOG)
+    if not path:
+        return _err
+
+    def say(line):
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            _err(line)
+    return say
+
+
+def run(cmd, cwd=None, say=None, check_fan=True):
     """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused). The guard's own lines go to
-    stderr: stdout is CMD's alone (2026-10-28, R4: `guard -- token-audit --json` gave invalid JSON)."""
+    stderr: stdout is CMD's alone (2026-10-28, R4: `guard -- token-audit --json` gave invalid JSON); to the file
+    FIELDKIT_GUARD_LOG names when it is set (not passed on to CMD). CMD gets the guard's standard handles explicitly
+    (core/proc.std_handles: under pythonw.exe it got none, and its output was lost)."""
+    from ..core.proc import std_handles
+    say = say or _sayer()
     try:
         with guard(say, label=Path(cmd[0]).stem, check_fan=check_fan) as gov:
-            rc = subprocess.run(cmd, cwd=cwd).returncode
+            env = {k: v for k, v in os.environ.items() if k != GUARD_LOG}
+            rc = subprocess.run(cmd, cwd=cwd, env=env, **std_handles()).returncode
             if gov is not None and gov.verdict:
                 say(f"  STOPPED by the governor: {gov.verdict}")
                 return rc or 3

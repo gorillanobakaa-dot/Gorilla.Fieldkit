@@ -295,9 +295,22 @@ def _under(cwd, folder):
         return False
 
 
-def check(hours=None, session=None, adapters=None, cfg=None, now=None, source="all", cwd=None, newest=False):
+def archived_ids():
+    """-> the transcript ids of the Claude desktop sessions the app has archived (lifecycle/desktop.py, read-only)."""
+    try:
+        from ..lifecycle import desktop
+        return {s["cli"] for s in desktop.sessions() if s["archived"] and s["cli"]}
+    except Exception:  # noqa: BLE001 - an unreadable app store hides nothing: every session is judged
+        return set()
+
+
+def check(hours=None, session=None, adapters=None, cfg=None, now=None, source="all", cwd=None, newest=False,
+          archived=None):
     """Every session active in the last `hours`, judged. source: one adapter's sessions only; cwd: only sessions
-    working in that folder (or under it); newest: only the most recently active one (an agent asking about itself)."""
+    working in that folder (or under it); newest: only the most recently active one (an agent asking about itself).
+    A session the desktop app archived (archived: its transcript ids, default archived_ids()) is not judged: it does
+    no more calls, and its transcript stays "active" for hours after (C3/I6, 2026-10-28: the guard's preflight named
+    the archived Zero 8dc32564 as ROTATE on every job)."""
     cfg = cfg or config()
     adapters = adapters or sc.adapters_for(source)
     if session:
@@ -306,7 +319,8 @@ def check(hours=None, session=None, adapters=None, cfg=None, now=None, source="a
             raise FileNotFoundError(session)
         targets = [(a, p)]
     else:
-        targets = sessions(hours or cfg["hours"], adapters, now)
+        gone = archived_ids() if archived is None else set(archived)
+        targets = [(a, p) for a, p in sessions(hours or cfg["hours"], adapters, now) if p.stem not in gone]
     targets.sort(key=lambda t: t[1].stat().st_mtime, reverse=True)
     rows = []
     for a, p in targets:
