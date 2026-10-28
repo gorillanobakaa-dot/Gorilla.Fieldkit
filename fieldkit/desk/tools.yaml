@@ -1275,6 +1275,7 @@ tools:
   output: own
   exits: {1: "clean or restore failed, or the login check did not pass", 2: "an id that is not a current finding", 3: findings}
   platforms: [linux]
+  skill: skills/fieldkit-linux-leftovers/SKILL.md
   platforms_why: 'XDG autostart, desktop menu entries, systemd user units and dpkg exist only on a Linux desktop'
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_leftovers.py"]
   notes: "Born 2026-10-22 from a theme scrambled by a removed package's leftover launcher. Never stops a process, never edits a file an installed package owns (a user-level Hidden=true override instead), never touches the current session; copies everything into ~/Agents.Work.Trash/leftovers-<time>/ with a manifest before changing it; after --apply rescans and runs a login-safety check. Masks, TryExec self-hides, OnlyShowIn and DesktopNames are honoured."
@@ -2995,6 +2996,7 @@ tools:
   output: own
   exits: {3: findings}
   platforms: [windows]
+  skill: skills/fieldkit-win11/SKILL.md
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
 
 - id: win11-oem
@@ -3008,6 +3010,7 @@ tools:
   output: own
   exits: {3: findings}
   platforms: [windows]
+  skill: skills/fieldkit-win11/SKILL.md
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
 
 - id: win11-visual-effects-check
@@ -3324,6 +3327,7 @@ tools:
   effects: [reads-files, writes-files, deletes-files, registry, processes, admin]
   safety: reversible
   platforms: [windows]
+  skill: skills/fieldkit-profile-repair/SKILL.md
   platforms_why: "repairs the Windows registry and Windows uninstall entries; Linux has neither (a renamed home is usermod -d -m), and the tool prints not-this-platform there"
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_profilefix.py", -p, "no:cacheprovider"]
   notes: "Dry run unless --apply. fix: every change in a manifest (undo puts it back), keys exported to .reg first; HKLM needs an elevated shell (the elevate tool). purge-app: files to the Recycle Bin (checked gone), keys exported; never touches ~\\.<name> dot folders. Standalone: copy the one file. Skill fieldkit-profile-repair."

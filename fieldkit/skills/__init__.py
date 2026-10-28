@@ -134,19 +134,12 @@ def cmd_installed(a):
     else:
         for t, n, s in rows:
             print(f"{s:<9} {t / n}")
-    return 1 if any(s in ("missing", "outdated") for _, _, s in rows) else 0
+    return 1 if any(s in ("missing", "outdated", "off-os") for _, _, s in rows) else 0
 
 
 def _card_platforms():
     """skill folder name -> sorted platforms, from every tool card whose skill: points at it."""
-    out = {}
-    for f in [ROOT / "fieldkit" / "desk" / "tools.yaml", ROOT / "local" / "tools.yaml"]:
-        if not f.is_file():
-            continue
-        data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-        for card in (data.get("tools") or []) if isinstance(data, dict) else data:
-            if isinstance(card, dict) and card.get("skill") and card.get("platforms"):
-                out.setdefault(Path(card["skill"]).parent.name, set()).update(card["platforms"])
+    out = _installer().card_platforms()
     order = list(PLATFORM)
     return {k: sorted(v, key=lambda p: (order.index(p) if p in order else len(order), p)) for k, v in out.items()}
 
