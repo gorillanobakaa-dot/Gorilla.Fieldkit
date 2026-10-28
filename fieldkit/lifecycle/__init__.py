@@ -9,6 +9,9 @@
     fieldkit task start BRIEF.md [--on DEVICE] [--cwd DIR] [--wall MIN] [--title T]
                                                  a headless job from a brief: autopilot here, the peer's link
                                                  listener with --on; never a desktop card
+    fieldkit task start --on DEVICE --run --tree DIR [--artefact GLOB] [--wall MIN] -- LINE
+                                                 no AI: a build or test line run on a copy of DIR there, the
+                                                 worker's signed result checked by `task status`
     fieldkit task status [--json]                every task, with the reports that came back (here and over the cable)
     fieldkit task report ID --status done|failed|blocked [--branch B] [--pr URL] [--note TEXT]
                                                  the job's own report: ledger, ROOM line, Board row
@@ -84,8 +87,27 @@ def cmd_task(argv):
     ap.add_argument("--branch", default="")
     ap.add_argument("--pr", default="")
     ap.add_argument("--note", default="")
+    ap.add_argument("--run", action="store_true", help="start --on: no AI, the line after -- on --tree there "
+                                                       "(`fieldkit ARGS`, or a build or test program)")
+    ap.add_argument("--tree", help="start --run: the folder the line works on (sent first)")
+    ap.add_argument("--artefact", action="append", default=[], help="start --run: a glob to send back (repeat)")
+    ap.add_argument("--project", default="Gorilla.Fieldkit", help="start --run: the repository the mandate names")
     ap.add_argument("--json", action="store_true")
+    line = []
+    if "--" in argv:
+        i = argv.index("--")
+        argv, line = argv[:i], argv[i + 1:]
     a = ap.parse_args(argv)
+    if a.action == "start" and a.run:
+        try:
+            rec = tasks.start_run(line, a.on, a.tree, a.project, a.artefact, a.wall, again=a.again)
+        except (ValueError, tasks.AlreadyStarted) as e:
+            print(f"NOT STARTED  {e}")
+            return 3 if isinstance(e, tasks.AlreadyStarted) else 2
+        print(json.dumps(rec, indent=1, ensure_ascii=False) if a.json else
+              f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec['how']}): job {rec['job'] or '-'}: "
+              f"{rec['answer']}\nNEXT: fieldkit task status (done or failed once the worker's signed result is here)")
+        return 0 if rec["status"] == "started" else 3
     if a.action == "start":
         if not a.arg:
             print("task start BRIEF.md [--on DEVICE]")
@@ -110,6 +132,7 @@ def cmd_task(argv):
         print(f"TASK {rec['id']}  {rec['status']}")
         return 0
     new = tasks.ingest()
+    done = tasks.collect_jobs(tasks.ledger())          # run jobs whose signed result came back
     from . import worktrees
     gone = worktrees.reap(a.cwd or os.getcwd())          # job worktrees whose work is on origin
     led = tasks.ledger()
@@ -121,6 +144,8 @@ def cmd_task(argv):
         print("\n".join(tasks.lines(led)))
         if new:
             print(f"{len(new)} report(s) came over the cable")
+        if done:
+            print(f"{len(done)} run job result(s) checked")
         for w in gone["removed"]:
             print(f"worktree removed (its work is on origin): {w}")
         for w, why in gone["kept"]:

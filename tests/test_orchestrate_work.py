@@ -275,7 +275,7 @@ def test_a_real_run_job_goes_through_the_container_end_to_end(home, monkeypatch)
     fan check fails closed on a machine without Gorilla TPFanControl (windows-latest: exit 2, status fail). That
     wrapping is checked on its own (test_on_windows_a_run_job_always_goes_through_the_guard); this test is the container."""
     real = ow.run_argv
-    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None: real(args, platform="linux"))
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None, **kw: real(args, platform="linux", **kw))
     sent, delivered = [], []
     req = run_req(argv=["host"], artefacts=[])
     put = lambda p, device=None: sent.append(Path(p).name) or {"ok": True}  # noqa: E731
@@ -465,7 +465,7 @@ def test_a_real_job_runs_contained_and_its_output_reaches_the_log(home, monkeypa
     fan check fails closed without Gorilla TPFanControl (windows-latest: "no fan status file", status fail). That
     wrapping is the owner's rule and is checked on its own (test_on_windows_a_run_job_always_goes_through_the_guard)."""
     real = ow.run_argv
-    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None: real(args, platform="linux"))
+    monkeypatch.setattr(ow, "run_argv", lambda args, platform=None, **kw: real(args, platform="linux", **kw))
     r = ow.work(start(home, run_req(argv=["host"], artefacts=[])), put=lambda p, device=None: {"ok": True},
                 deliver=lambda r: None, sign=lambda r: r, health_fn=list)
     log = (home / "work" / run_req()["id"] / "job.log").read_text()
