@@ -19,6 +19,7 @@ Steps, each checked first and skipped when already true (run it again any time; 
   7 check        doctor; join: hello to the first computer, which proves the whole path
 Starting sessions on this computer stays off until its owner runs `fieldkit peers link approve` (typed yes).
 """
+import errno
 import ipaddress
 import json
 import os
@@ -230,12 +231,24 @@ def write_usb_kit(dest, bundle_from, pair_file, run=subprocess.run):
 
 
 # ---- 6. listen ----------------------------------------------------------------------------------------------------
-def listening(ip, port=link.PORT):
+def listening(ip, port=link.PORT, sock=socket.socket):
+    """Is this computer's own listener holding ip:port? Asked by binding the port, never by connecting to it.
+
+    C5, 2026-10-28: the old check dialled the listener from its own address, and the listener logged each one as
+    "REFUSED a connection from 10.77.0.1": 70 lines since 2026-10-22, at every start and every 15-minute heal, all
+    of them this computer knocking on its own door. A bind fails with "address in use" only when a socket holds the
+    port; no packet is sent and the listener sees nothing. Any other failure (the cable address is gone): not listening.
+    """
+    s = sock(socket.AF_INET6 if ":" in str(ip) else socket.AF_INET, socket.SOCK_STREAM)
     try:
-        socket.create_connection((ip, port), timeout=2).close()
-        return True
-    except OSError:
+        if os.name != "nt":   # skip TIME_WAIT leftovers; on Windows SO_REUSEADDR would take over a live port instead
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((ip, port))
         return False
+    except OSError as e:
+        return e.errno == errno.EADDRINUSE or getattr(e, "winerror", None) == 10048
+    finally:
+        s.close()
 
 
 def start_serve(popen=subprocess.Popen):
