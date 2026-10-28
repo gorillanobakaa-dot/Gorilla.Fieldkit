@@ -6075,14 +6075,16 @@ tools:
     - {name: warn_usd, flag: --warn-usd, type: str, required: false, help: "print a loud warning when a session passes this many dollars; exit 3 in report mode"}
     - {name: calls, flag: --calls, type: flag, required: false, help: "one line per call: time, model, context sent, cost, running total, re-reading share"}
     - {name: assume, flag: --assume, type: str, required: false, help: "NAME=PUBLIC: price an internal model name as a public one (stated in the report, never by default)"}
-    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session"}
+    - {name: since, flag: --since, type: str, required: false, help: "every session with calls at or after this date (local midnight) or ISO time; only those calls are priced"}
+    - {name: until, flag: --until, type: str, required: false, help: "only calls before this date or ISO time"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session, nothing else on stdout"}
     - {name: doctor, flag: --doctor, type: flag, required: false, help: "check Python, the price tables and both session folders, then stop"}
   effects: [reads-files]
   safety: read-only
   output: own
   exits: {2: "session not found", 3: "a session is over --warn-usd"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_session_cost.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_session_cost.py", "${FIELDKIT}/tests/test_tokens_since_daily.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "Moved from the local kit TokenAudit into shipped code 2026-10-26 (session rotation needs it; Queue 15: the skill had no source in the repo). Standard library only, no network, writes nothing. Prices: fieldkit/tokens/prices.json, one table per provider with source URL, fetch date and the page's sha256; unknown or internal model names are unpriced, never guessed. Claude Code transcripts under $CLAUDE_CONFIG_DIR or ~/.claude/projects (Windows, Linux, macOS). Mutations: tests/tokens_mutations.yaml."
 
@@ -6094,17 +6096,38 @@ tools:
   inputs:
     - {name: transcripts, flag: null, type: list, required: false, help: "session .jsonl files"}
     - {name: all, flag: --all, type: flag, required: false, help: "every transcript under ~/.claude/projects"}
-    - {name: min_mb, flag: --min-mb, type: str, required: false, help: "with --all: skip files smaller than this (default 1)"}
-    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session"}
+    - {name: min_mb, flag: --min-mb, type: str, required: false, help: "with --all: skip files smaller than this (default 1; 0 with --since)"}
+    - {name: since, flag: --since, type: str, required: false, help: "only calls at or after this date (local midnight) or ISO time"}
+    - {name: until, flag: --until, type: str, required: false, help: "only calls before this date or ISO time"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session, nothing else on stdout"}
     - {name: doctor, flag: --doctor, type: flag, required: false, help: "check this computer and stop"}
   effects: [reads-files]
   safety: read-only
   output: own
   exits: {2: "a transcript not found, or none named"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_token_audit.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_token_audit.py", "${FIELDKIT}/tests/test_tokens_since_daily.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "Moved from the local kit TokenAudit 2026-10-26. Standard library only, no network, writes nothing. Built 2026-10-21 for 'does the harness cost me a lot of tokens?': tokens are roughly calls x context per call; the harness's always-on text and hooks are a few percent."
+
+- id: cost
+  title: "One daily cost line for the owner - a day's AI dollars on this machine (every agent session-cost measures), the most expensive session with its title and what it did (its Board row, else its first prompt), and both machines' total when the other machine's numbers came over the cable"
+  harness: core
+  entry: [python, -m, fieldkit, cost]
+  path: ${FIELDKIT}/fieldkit/tokens/cost_daily.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [daily], help: "daily"}
+    - {name: date, flag: --date, type: str, required: false, help: "the day, YYYY-MM-DD (default yesterday, local midnight to midnight)"}
+    - {name: peer, flag: --peer, type: str, required: false, help: "the other machine's `cost daily --json` file (else the newest cost-daily-*.json put over the cable)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object, nothing else on stdout"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "a --peer file not found, or a bad --date"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_since_daily.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "I4 of docs/HARNESS-PLAN.md, 2026-10-28 (the owner lost track of the spend over 4 days). Read-only, no model, no network: the other machine runs `fieldkit cost daily --json > cost-daily-<TAG>-<DATE>.json` and `fieldkit peers link put` of it; the line reads the newest file for the same day from another machine (link received/ or the scratch link-* jobs) and says so when none came. Mutations: tests/tokens_mutations.yaml."
 
 - id: rotate
   title: "Session rotation - every live agent session measured (context per call, dollars), one verdict each OK / WARN / ROTATE, a monster session told at every prompt to hand over and start a fresh one, autopilot jobs restarted from their checkpoint in a new session, finished sessions listed for archive"
