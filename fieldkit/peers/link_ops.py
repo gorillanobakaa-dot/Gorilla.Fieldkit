@@ -159,10 +159,43 @@ def startcheck(agent="claude", run=_run):
 
 
 # ---- restart ------------------------------------------------------------------------------------------------------
-def restart(wait=10):
+def port_holder(port=None):
+    """-> the PID listening on the link port, or None when it cannot be told (no psutil, no right to look)."""
+    try:
+        import psutil
+        for c in psutil.net_connections(kind="tcp"):
+            if c.status == "LISTEN" and c.laddr and c.laddr.port == (port or link.PORT) and c.pid:
+                return c.pid
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def pid_alive(pid):
+    try:
+        import psutil
+        p = psutil.Process(pid)
+        return p.is_running() and p.status() != psutil.STATUS_ZOMBIE
+    except Exception:  # noqa: BLE001  (gone, or no psutil)
+        return False
+
+
+def _cmdline(pid):
+    try:
+        import psutil
+        return " ".join(psutil.Process(pid).cmdline())[:160]
+    except Exception:  # noqa: BLE001
+        return "?"
+
+
+def restart(wait=10, start=None, listen=None, holder=port_holder, alive=pid_alive, sleep=time.sleep):
     """-> (code, lines). Stops the listener named in serve.pid (only if it is a `peers link serve`), starts it on this
-    code from this checkout, waits for the port."""
+    code from this checkout, waits for the port, and checks the port is answered by THE NEW listener.
+    2026-10-28: the new listener could not bind (an old one from another checkout held the port), exited, and restart
+    said nothing, because the old one kept the port answering. Now that is FAILED, exit 3."""
     from . import link_setup
+    start = start or link_setup.start_serve
+    listen = listen or link_setup.listening
     lines = []
     pidf = link.home() / "serve.pid"
     try:
@@ -185,17 +218,29 @@ def restart(wait=10):
     here = os.getcwd()
     try:
         os.chdir(link.LINK_ROOT)                 # serve imports from its working folder too: start it from ours
-        new = link_setup.start_serve()
+        new = start()
     finally:
         os.chdir(here)
     cfg = link.config() or {}
     me = cfg.get("me")
+    log = link.home() / "serve.log"
     for _ in range(int(wait * 2)):
-        if me and link_setup.listening(me):
+        if me and listen(me):
+            sleep(1)                             # a listener that cannot bind dies within this second
+            h = holder(link.PORT)
+            if not alive(new) or (h and h != new):
+                who = f"PID {h} ({_cmdline(h)})" if h else "another process"
+                lines.append(f"FAILED: the new listener PID {new} {'exited' if not alive(new) else 'is not the one'}"
+                             f" listening; port {link.PORT} is held by {who}. Stop that one (by its PID), then "
+                             f"restart again; read {log}")
+                return 3, lines
             lines.append(f"listening on {me}:{link.PORT} (PID {new}, code {link.LINK_ROOT})")
             return 0, lines
-        time.sleep(0.5)
-    lines.append(f"NOT LISTENING after {wait:g} s (PID {new}); read {link.home() / 'serve.log'}")
+        if not alive(new):
+            lines.append(f"FAILED: the new listener PID {new} exited and nothing listens; read {log}")
+            return 3, lines
+        sleep(0.5)
+    lines.append(f"NOT LISTENING after {wait:g} s (PID {new}); read {log}")
     return 3, lines
 
 

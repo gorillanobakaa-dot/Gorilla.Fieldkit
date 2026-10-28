@@ -713,7 +713,7 @@ def startcheck(agent="claude", run_check=None):
 
 
 def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
-                  grace=START_GRACE, check_fn=startcheck):
+                  grace=START_GRACE, check_fn=startcheck, follow=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
     text = (f"--- {FENCE.format(host=from_host)} ---\n{local_peers.sanitize(brief)[:12000]}\n--- end ---\n\n"
@@ -736,6 +736,8 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
     argv = [a.format(brief=text, cwd=reg["cwd"], job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
     if tmpl is DEFAULT_START.get(agent):
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
+    from . import link_return
+    before = link_return.heads(reg["cwd"])           # what the run makes or moves is pushed when it ends
     log = open(jobd / "session.log", "a", encoding="utf-8")
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)) if os.name == "nt" else 0
     p = popen(argv, cwd=reg["cwd"], stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=link_env())
@@ -747,7 +749,9 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
         log.flush()
         tail = (jobd / "session.log").read_text(encoding="utf-8", errors="replace")[-600:].strip()
         return False, f"died at start (exit {rc}, PID {p.pid}, job {jobd}): {tail}"
-    return True, f"started {agent} (PID {p.pid}, job {jobd}; alive after {grace:g} s)"
+    # 2026-10-28: the run cannot push (no credential, the hard line), so its branch stayed here; the listener pushes it
+    (follow or link_return.follow)(p, reg["cwd"], before, jobd, text)
+    return True, f"started {agent} (PID {p.pid}, job {jobd}; alive after {grace:g} s; its branch comes home at the end)"
 
 
 # ---- files over the cable (put) -----------------------------------------------------------------------------------
