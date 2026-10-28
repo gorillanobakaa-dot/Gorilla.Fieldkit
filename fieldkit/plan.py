@@ -4,8 +4,9 @@ noone forgets stuff . It costs us a lot of money").
 
 Reads docs/HARNESS-PLAN.md (the item tables and the Order table) and the merge commits on origin/main since that file
 was added. An item id in the trailing parenthesis of a merged pull request's title marks the item done: "(R5)",
-"(O2, C6)", "(R4 + O5)". Name an id there only when the pull request finishes the item. Merges older than the plan
-are not read: they used O1-O4 for other stages.
+"(O2, C6)", "(R4 + O5)". Name an id there only when the pull request finishes the item. A merge counts only while the
+item's status cell says PLANNED: a status written by hand (PARTIAL ..., WINDOWS DONE ...) wins over it. Merges older
+than the plan are not read: they used O1-O4 for other stages.
 
     fieldkit plan next [--json] [--write]
 
@@ -105,7 +106,7 @@ def next_(root=None, run=subprocess.run):
     st, mg = items(text), merged(root, run=run)
     phases = []
     for name, ids in order(text):
-        done = [i for i in ids if i in mg or is_done(st.get(i, ""))]
+        done = [i for i in ids if is_done(st.get(i, "")) or (i in mg and st.get(i, "PLANNED") == "PLANNED")]
         phases.append({"phase": name, "items": ids, "done": done, "open": [i for i in ids if i not in done]})
     cur = next((ph for ph in phases if ph["open"]), None)
     if cur is None:

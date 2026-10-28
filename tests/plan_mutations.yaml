@@ -21,8 +21,8 @@
   why: only PLANNED cells are written
 - file: fieldkit/plan.py
   swap:
-  - '        done = [i for i in ids if i in mg or is_done(st.get(i, ""))]'
-  - '        done = [i for i in ids if i in mg]'
+  - '        done = [i for i in ids if is_done(st.get(i, "")) or (i in mg and st.get(i, "PLANNED") == "PLANNED")]'
+  - '        done = [i for i in ids if i in mg and st.get(i, "PLANNED") == "PLANNED"]'
   why: a DONE status counts without a merge
 - file: fieldkit/plan.py
   swap:
@@ -48,3 +48,8 @@
   - '    r["plan"] = plan.line()'
   - '    r["plan"] = ""'
   why: zero status prints the plan first
+- file: fieldkit/plan.py
+  swap:
+  - '        done = [i for i in ids if is_done(st.get(i, "")) or (i in mg and st.get(i, "PLANNED") == "PLANNED")]'
+  - '        done = [i for i in ids if is_done(st.get(i, "")) or i in mg]'
+  why: a hand-written status (PARTIAL) wins over a merge

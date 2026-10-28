@@ -15,7 +15,7 @@ PLAN_MD = """# plan
 | R2 | rules | WINDOWS DONE (PR #150). Left: Linux |
 | O2 | room | PLANNED |
 | O4 | waits | PLANNED |
-| C6 | hooks | PLANNED |
+| C6 | hooks | PARTIAL (PR #162: no cursor rewrite) |
 | L4 | kept | DONE (exists) |
 
 ## Order (approved)
@@ -64,7 +64,7 @@ def merge(r, n, title, branch):
 
 def test_the_order_and_the_items_are_read_from_the_plan():
     assert plan.items(PLAN_MD) == {"R1": "PLANNED", "R2": "WINDOWS DONE (PR #150). Left: Linux", "O2": "PLANNED",
-                                   "O4": "PLANNED", "C6": "PLANNED", "L4": "DONE (exists)"}
+                                   "O4": "PLANNED", "C6": "PARTIAL (PR #162: no cursor rewrite)", "L4": "DONE (exists)"}
     assert plan.order(PLAN_MD) == [("1. Brakes", ["R1", "L4"]), ("2. Lighter", ["R2", "O2", "O4"]),
                                    ("3. Household", ["C6"]), ("4. One system", ["W10"])]
 
@@ -79,7 +79,7 @@ def test_merged_items_close_and_the_phase_moves_on(repo):
     assert r["merged"] == {"R1": "#152", "O2": "#162", "C6": "#162"}
     assert r["phase"] == "2. Lighter" and r["open"] == ["R2", "O4"] and r["done"] == ["O2"]
     assert r["line"].startswith("PLAN: phase 2. Lighter: open R2 O4 (done O2)")
-    assert [p["open"] for p in r["phases"]][2:] == [[], ["W10"]]
+    assert [p["open"] for p in r["phases"]][2:] == [["C6"], ["W10"]]                   # PARTIAL by hand wins
 
 
 def test_write_marks_only_planned_cells_and_the_line_is_saved(repo, capsys):
