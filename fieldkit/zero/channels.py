@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-26
+# Version: 1.1.0 · updated 26-10-28-20-30
 """How a net message reaches a station: every channel the harness already has, and nothing new.
 
     room      Claude Code sessions on this computer. PULL: the room hook (fieldkit/autopilot/room.py, PostToolUse +
@@ -104,8 +104,8 @@ class OpenCode:
 class Cable:
     name, mode = "cable", "push"
 
-    def __init__(self, household=None, call=None):
-        self._household, self._call = household, call
+    def __init__(self, household=None, call=None, timeout=15):
+        self._household, self._call, self.timeout = household, call, timeout
 
     def devices(self):
         from ..peers import link
@@ -124,7 +124,7 @@ class Cable:
         out = []
         for d in devs:
             try:
-                r = call({"verb": "message", "text": envelope(entry)}, device=d)
+                r = call({"verb": "message", "text": envelope(entry)}, device=d, timeout=self.timeout)
             except Exception as e:  # noqa: BLE001
                 r = {"ok": False, "error": str(e)}
             out.append({"channel": self.name, "target": d, "ok": bool(r.get("ok")),
