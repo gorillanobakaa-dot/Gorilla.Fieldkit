@@ -49,7 +49,8 @@ def main(stdin=sys.stdin, stdout=sys.stdout):
     try:
         payload = json.load(stdin)
         tool, args = payload.get("tool_name"), payload.get("tool_input") or {}
-        decision, why = hardlines.decide(tool, args, cwd=payload.get("cwd"))   # a mandated push is checked where it runs
+        decision, why = hardlines.decide(tool, args, cwd=payload.get("cwd"),
+                                         transcript=payload.get("transcript_path"))   # a mandated push is checked where it runs
         job = os.environ.get("FIELDKIT_JOB_DIR")
         if decision == "allow" and job:
             from fieldkit.autopilot import budget
