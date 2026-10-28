@@ -129,6 +129,7 @@ groups:
       - orchestrate.py
       - orchestrate_session.py
       - orchestrate_load.py
+      - orchestrate_split.py
       - orchestrate_work.py
       - overhead.py
       - testcost.py
