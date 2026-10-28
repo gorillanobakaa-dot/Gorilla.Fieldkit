@@ -52,7 +52,7 @@ def worktree_of(cwd, branch, run=subprocess.run):
         if line.startswith("worktree "):
             path = line[len("worktree "):]
         elif line == f"branch refs/heads/{branch}" and path:
-            return path
+            return str(Path(path))                # git prints C:/x on Windows: a native path
     return None
 
 
