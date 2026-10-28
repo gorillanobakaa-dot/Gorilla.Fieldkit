@@ -509,6 +509,21 @@ def test_the_inventory_and_the_recipes_name_each_other():
     assert named == set(R.available())
 
 
+def test_a_recipes_mandate_entry_is_the_inventory_project_that_lists_it():
+    # config.mandate keys the build to one repository's mandate entry: it must be the inventory project naming this
+    # recipe, and a repository of the owner-wide mandate (a typo there silently keys the build to "none")
+    inv = yaml.safe_load((R.HERE / "inventory.yaml").read_text(encoding="utf-8"))["projects"]
+    owner = yaml.safe_load((R.HERE.parent / "mandate" / "owner-wide.yaml").read_text(encoding="utf-8"))
+    repos = set(owner["repos"])
+    for name in R.available():
+        m = (yaml.safe_load(R.find(name).read_text(encoding="utf-8")).get("config") or {}).get("mandate")
+        if not m:
+            continue
+        r = inv[m]["recipe"]
+        assert name in (r if isinstance(r, list) else [r]), (name, m)
+        assert m in repos, (name, m)
+
+
 def test_firefox_tiers_match_the_audit(tmp_path):
     r = R.Recipe(yaml.safe_load(R.find("firefox-windows").read_text(encoding="utf-8")), state_root=tmp_path,
                  strict=False)

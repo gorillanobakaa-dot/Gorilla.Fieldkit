@@ -1,9 +1,10 @@
-# Version: 1.0.0 · updated 26-10-28-18-36
+# Version: 1.0.0 · updated 26-10-28-19-16
 # Every project and whether `fieldkit emerge` builds it (HARNESS-PLAN R6: a project with no recipe gets one).
 # The list: the repositories of the owner-wide mandate (fieldkit/mandate/owner-wide.yaml), plus the git trees found
 # on the VAIO under Documents (2026-10-28). One entry per repository; worktrees of the same repository are not counted.
 #   recipe:  the file in fieldkit/emerge/recipes/ (null: none yet)
-#   seen:    where this inventory read the tree: vaio (local git tree), github (read from the public repository),
+#   seen:    where this inventory read the tree: vaio (local git tree), github (read from the public repository,
+#            a shallow clone, 2026-10-28),
 #            recipe (known from its recipe only), name-only (only its name in the mandate: not read yet)
 #   builds:  language and outputs, as far as they were read; scripts: the repository's own build/test/package scripts
 # tests/test_emerge.py checks it: every recipe file is listed here and every recipe named here exists.
@@ -60,13 +61,34 @@ projects:
   Windows.11.tweaks.optimisation: {recipe: null, seen: name-only}
   code-review-toolkit: {recipe: null, seen: name-only}
   dual-track-doc-generator: {recipe: null, seen: name-only}
-  Gorilla.HDMI.Harness: {recipe: null, seen: name-only}
-  speaker-loudness-fix: {recipe: null, seen: name-only}
-  searchfox-tools: {recipe: null, seen: name-only}
+  Gorilla.HDMI.Harness:
+    recipe: gorilla-hdmi-harness
+    seen: github
+    builds: {lang: python, outputs: [the folder itself (Windows; START - Connect TV.bat installs it)]}
+    scripts: [bootstrap.ps1, pytest.ini, requirements.txt]
+  speaker-loudness-fix:
+    recipe: speaker-loudness-fix
+    seen: github
+    builds: {lang: python, outputs: [speaker_loudness_setup.py (the release file)]}
+    scripts: [.github/workflows/release.yml]
+  searchfox-tools:
+    recipe: searchfox-tools
+    seen: github
+    builds: {lang: python, outputs: [the scripts themselves]}
   respect-your-llms: {recipe: null, seen: name-only}
   model-eval: {recipe: null, seen: name-only}
-  apple-superdrive-enabler: {recipe: null, seen: name-only}
-  gorillanobakaa-dot: {recipe: null, seen: name-only}
+  apple-superdrive-enabler:
+    recipe: apple-superdrive-enabler
+    seen: github
+    builds: {lang: markdown, outputs: [README.md (a guide)]}
+  gorillanobakaa-dot:
+    recipe: gorillanobakaa-dot
+    seen: github
+    builds: {lang: markdown, outputs: [README.md (the GitHub profile page)]}
   kernel-6.19.13-ultimate: {recipe: null, seen: name-only}
   kernel-7.0.9-unleashed: {recipe: null, seen: name-only}
-  kernel-7.0.5-release: {recipe: null, seen: name-only}
+  kernel-7.0.5-release:
+    recipe: kernel-7.0.5-release
+    seen: github
+    builds: {lang: [c, shell], outputs: [none rebuilt (an archived release; debian-kernel builds the maintained kernel)]}
+    scripts: [scripts/1_CLICK_BUILD_KERNEL.sh, scripts/ULTIMATE_GORILLA_KERNEL.sh]

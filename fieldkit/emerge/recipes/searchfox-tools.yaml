@@ -1,0 +1,45 @@
+# Version: 1.0.0 · updated 26-10-28-19-15
+# searchfox-tools: Python scripts (standard library only) that ask searchfox.org about Firefox's source. Nothing is
+# compiled or packaged; the scripts are the product. Keyed by what they read:
+#   iterate  -> every script compiles, the main command answers --help offline, a telemetry scan
+# Not a stage: any real query (it goes to searchfox.org, so its answer is not a property of the source) and
+# pref_provenance.py (it reads a local Firefox object tree).
+name: searchfox-tools
+description: >-
+  searchfox-tools from its tree: every script compiles, searchfox_tools.py answers --help without the network, a
+  telemetry scan.
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/searchfox-tools"
+  py: python3                       # Windows: --var py=python
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: searchfox-tools
+toolchain:
+  - ["{py}", --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: compile
+    run: {cmd: ["{py}", -I, -m, compileall, -q, -l, "{src}"], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/*.py"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: cli
+    run: {cmd: ["{py}", -I, "{src}/searchfox_tools.py", --help], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/searchfox_tools.py"]
+    uses: [toolchain, inputs]
+    needs: [compile]
+    bucket: tests
