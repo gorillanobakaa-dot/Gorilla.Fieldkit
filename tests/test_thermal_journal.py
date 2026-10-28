@@ -1,4 +1,5 @@
 """The temperature journal (crash 2026-10-27: no record of the temperature existed)."""
+import os
 import time
 
 from fieldkit.thermal import journal
@@ -28,3 +29,15 @@ def test_only_its_own_files_older_than_seven_days_go(tmp_path):
 def test_the_default_folder_is_the_checkouts_state_thermal():
     p = journal.folder()
     assert p.parts[-2:] == ("state", "thermal")
+
+
+def test_a_stale_status_file_is_no_status(tmp_path, monkeypatch):
+    """2026-10-28: after the rollback to gorilla.3 the journal copied gorilla.5's frozen status file as live."""
+    from fieldkit.thermal import buildguard
+    f = tmp_path / "status.txt"
+    f.write_text("cpu=33;max=66;load=21", encoding="ascii")
+    os.utime(f, (1, 1))
+    monkeypatch.setattr(buildguard, "STATUS", f)
+    d = tmp_path / "j"
+    journal.run(d, sleep=lambda _: None, ticks=1)
+    assert next(d.glob("journal-*.csv")).read_text(encoding="ascii").splitlines()[-1].endswith("no-status")
