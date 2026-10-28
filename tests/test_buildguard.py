@@ -67,5 +67,5 @@ def test_the_guard_s_own_lines_never_reach_the_command_s_stdout(tmp_path, monkey
     monkeypatch.setattr(buildguard, "guard", guard)
     rc = buildguard.run([sys.executable, "-c", "print('{\"ok\": true}')"], check_fan=True)
     out, err = capfd.readouterr()
-    assert rc == 0 and out == '{"ok": true}\n'
+    assert rc == 0 and out.replace("\r\n", "\n") == '{"ok": true}\n'
     assert "fan check: test pass" in err
