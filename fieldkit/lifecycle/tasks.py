@@ -7,6 +7,10 @@ side jobs became cards the owner had to click, on the VAIO and on Windows).
     --on DEV   verb `ask` over the cable (HMAC-signed, cable only): the peer's link listener starts `fieldkit
                autopilot claude` under ITS owner's approved link.yaml. No session on the peer is asked anything, so
                none can refuse a relayed order or ask its owner (2026-10-26 18:4x: the VAIO session did both)
+    --on DEV --run --tree DIR -- LINE
+               no AI (HARNESS-PLAN C3 a): the tree and a `run` job go over the cable, the worker runs the build or
+               test line on a copy and signs the exit code, test count, artefact sha256s and log tail (start_run).
+               A model only where one is needed: a brief is an AI task, a command line is not
 
 Every brief gets the side-jobs rule and the done protocol appended (protocol.brief_tail) with the task's id, so the
 job reports back by itself: here `fieldkit task report ID ...`, on a peer `fieldkit peers link send "fieldkit-task ID
@@ -179,6 +183,76 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     _append(rec)
     _room(f"task:{tid}", f"task {rec['status']} {rec['on']}: {rec['title']} ({rec.get('answer') or rec.get('how')})")
     return rec
+
+
+def start_run(argv, on, tree, project="Gorilla.Fieldkit", artefacts=(), wall=60, send=None, now=None, again=False):
+    """A task with no AI (HARNESS-PLAN C3 a): plain heavy work, a build or test line, on a device of the household,
+    which needs no model and no agent there (the VAIO and the Mac run no local model). The tree goes first, then a
+    `run` job (fieldkit/orchestrate_work.py): `fieldkit ARGS` is a Fieldkit command line, anything else a build or
+    test program (orchestrate_work.PROGRAMS). The worker signs a result with the exit code, the test count, every
+    artefact's sha256 and the log tail; `fieldkit task status` turns it into done or failed (collect_jobs).
+    -> the ledger record. Raises ValueError for a bad line, AlreadyStarted as start() does."""
+    from .. import orchestrate_work as ow
+    argv = [str(a) for a in argv or []]
+    if not on:
+        raise ValueError("a run task goes to a device (--on DEVICE); here, run the line itself (fieldkit emerge, "
+                         "fieldkit guard --)")
+    if not argv or not tree or not Path(tree).exists():
+        raise ValueError(f"a run task needs the line after -- and an existing --tree (got {tree!r})")
+    plain = argv[0] != "fieldkit"
+    line = argv if plain else argv[1:]
+    from ..peers import machine
+    title = machine.prefix(f"run: {' '.join(argv)}"[:100], tag_for(on))
+    blob = json.dumps([line, plain, str(Path(tree).resolve()), list(artefacts), on])
+    h = brief_hash(blob)
+    twin = None if again else running_twin(h, title, now)
+    if twin:
+        raise AlreadyStarted(f"already started: {twin['id']} on {twin.get('on')} at {twin.get('at')} "
+                             f"({twin.get('title', '')[:60]}); `fieldkit task status` says how it stands; "
+                             "--again starts it anyway")
+    tid = task_id(blob, now)
+    jid, said, t = (send or ow.send)("run", on, str(tree), project, argv=line, artefacts=list(artefacts), wall=wall,
+                                     plain=plain)
+    rec = {"id": tid, "title": title, "brief": "", "on": on, "tag": tag_for(on), "from": socket.gethostname(),
+           "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "hash": h, "wall": int(wall),
+           "how": "link job run (no AI)", "job": jid or "", "project": project,
+           "digest": (t or {}).get("digest") or "", "answer": said,
+           "status": "started" if said == "sent" or str(said).startswith("already") else "not-started"}
+    _append(rec)
+    _room(f"task:{tid}", f"task {rec['status']} {on}: {title} ({said})")
+    return rec
+
+
+def collect_jobs(tasks, result_of=None, check=None):
+    """Each started run task whose job has a result here -> a done or failed report, once. done needs a result
+    signed by a pinned worker key, status pass, and every artefact here with the sha256 the worker signed (the boss
+    checks the artefact, not the exit code). -> [report records]."""
+    from .. import orchestrate_work as ow
+    from ..mandate import jobs
+    result_of = result_of or ow.verified_result
+    check = check or ow.artefacts_check
+    led = None
+    out = []
+    for t in tasks.values():
+        if t.get("status") != "started" or not t.get("job"):
+            continue
+        led = jobs._ledger() if led is None else led
+        e = led.get(t["job"]) or {}
+        if e.get("status") in (None, "sent"):
+            continue
+        r = result_of(t["job"], t.get("project") or "Gorilla.Fieldkit", t.get("digest") or "")
+        if r is None:
+            status, note = "failed", f"the worker said {e.get('status')}, but no result signed by a pinned worker key"
+        else:
+            bad = [f"{n}: {why}" for n, ok, why in check(r) if not ok]
+            first = (r.get("evidence") or "").splitlines()[:1]
+            status = "done" if r.get("status") == "pass" and not bad else "failed"
+            note = "; ".join([f"{r.get('status')} on {r.get('host')}", *first,
+                              *[c.get("text", "") for c in r.get("concerns") or []], *bad])
+        rec = report(t["id"], status, note=note, source=f"job {t['job']}")
+        t.update(status=status, note=rec["note"])
+        out.append(rec)
+    return out
 
 
 def report(tid, status, branch="", pr="", note="", source="local"):
