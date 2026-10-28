@@ -1,0 +1,72 @@
+# Version: 1.0.0 · updated 26-10-28-18-36
+# Every project and whether `fieldkit emerge` builds it (HARNESS-PLAN R6: a project with no recipe gets one).
+# The list: the repositories of the owner-wide mandate (fieldkit/mandate/owner-wide.yaml), plus the git trees found
+# on the VAIO under Documents (2026-10-28). One entry per repository; worktrees of the same repository are not counted.
+#   recipe:  the file in fieldkit/emerge/recipes/ (null: none yet)
+#   seen:    where this inventory read the tree: vaio (local git tree), github (read from the public repository),
+#            recipe (known from its recipe only), name-only (only its name in the mandate: not read yet)
+#   builds:  language and outputs, as far as they were read; scripts: the repository's own build/test/package scripts
+# tests/test_emerge.py checks it: every recipe file is listed here and every recipe named here exists.
+# Not counted: SECOND.BRAIN/lex.Lawyer (a clone of a third-party repository, i-dot-ai/lex) and the Fieldkit,
+# OpenCode and gorilla-firefox worktrees.
+projects:
+  Gorilla.Fieldkit:
+    recipe: fieldkit
+    seen: vaio
+    builds: {lang: python, outputs: [the GitHub release page (no wheel is published)]}
+    scripts: [install.sh, install.ps1, .github/workflows/tests.yml, .github/workflows/release.yml]
+  TPFanCtrl2:
+    recipe: gorilla-tpfancontrol
+    seen: github
+    path: Documents/Gorilla.FanControl (the L15)
+    builds: {lang: [c++, rust], outputs: [TPFanControl.exe, Setup.exe (Inno Setup), portable zip, gorilla-fan .deb .rpm]}
+    scripts: [installer/build-portable.ps1, installer/GorillaTPFanControl.iss, linux/build-linux.ps1,
+              Documents/Scripts/fan_compile_test.py (install + stress test, outside the recipe)]
+  Gorilla.Opencode:
+    recipe: gorilla-opencode
+    seen: vaio
+    builds: {lang: go, outputs: [linux and windows binaries, mac 10.13 zip, .deb, .rpm, tarball, SHA256SUMS]}
+    scripts: [install.sh, packaging/]
+  gorilla-size:
+    recipe: gorilla-size
+    seen: recipe
+    path: Documents/Gorilla.Size (not on the VAIO)
+    builds: {lang: rust, outputs: [gorilla-size, gorilla-trash, SHA256SUMS]}
+  gorilla-firefox:
+    recipe: [firefox-windows, firefox-debian]
+    seen: vaio
+    builds: {lang: [c++, rust], outputs: [Firefox installer (Windows), .deb (Debian)]}
+    scripts: [recreate.sh]
+  debian-kernel:
+    recipe: debian-kernel
+    seen: vaio
+    path: Documents/Debian.Kernel.Work/Kernel.7.1.2.Patches (remote gorilla-unleashed-kernel-7.1.2)
+    builds: {lang: c, outputs: [kernel .deb, .rpm]}
+    scripts: [verify_patches.sh, kernel_selftest.sh, recreate_success.sh]
+  Gorilla.Portable.Network.Hub:
+    recipe: null
+    seen: vaio
+    builds: {lang: rust, outputs: [hub .deb, Arch .pkg.tar.zst, static linux tarball, windows zip]}
+    scripts: [packaging/build-deb.sh, packaging/build-arch.sh, packaging/build-linux-static.sh,
+              packaging/build-linux-tarball.py, packaging/build-windows-zip.py]
+  black-gorilla-theme:
+    recipe: null
+    seen: vaio
+    path: Documents/gtk-high-contrast-theme
+    builds: {lang: [css, shell], outputs: [theme .deb]}
+    scripts: [build-deb.sh, adwaita/build-adwaita.sh, install.sh]
+  pfind: {recipe: null, seen: name-only}
+  sensors-gorilla: {recipe: null, seen: name-only}
+  Windows.11.tweaks.optimisation: {recipe: null, seen: name-only}
+  code-review-toolkit: {recipe: null, seen: name-only}
+  dual-track-doc-generator: {recipe: null, seen: name-only}
+  Gorilla.HDMI.Harness: {recipe: null, seen: name-only}
+  speaker-loudness-fix: {recipe: null, seen: name-only}
+  searchfox-tools: {recipe: null, seen: name-only}
+  respect-your-llms: {recipe: null, seen: name-only}
+  model-eval: {recipe: null, seen: name-only}
+  apple-superdrive-enabler: {recipe: null, seen: name-only}
+  gorillanobakaa-dot: {recipe: null, seen: name-only}
+  kernel-6.19.13-ultimate: {recipe: null, seen: name-only}
+  kernel-7.0.9-unleashed: {recipe: null, seen: name-only}
+  kernel-7.0.5-release: {recipe: null, seen: name-only}

@@ -1,0 +1,128 @@
+# Version: 1.0.0 · updated 26-10-28-18-36
+# Gorilla TPFanControl (repository TPFanCtrl2, folder Documents/Gorilla.FanControl): the Windows program (C++,
+# MSBuild, Win32), its Inno Setup installer and portable zip, and the Linux port (Rust, linux/) with its .deb and
+# .rpm. The stages are the repository's own scripts (installer/build-portable.ps1, linux/build-linux.ps1) taken
+# apart so each is keyed by what it reads.
+# Toolset v143: the project file says v145, which is not installed on the L15 (MSB8020); the fan-control-test skill
+# builds with v143 the same way.
+# Not a stage here: the install and Compile-mode stress test (fieldkit-fan-control-test). It needs one UAC click and
+# an idle machine, and a fan bug cooks the laptop (2026-10-02), so it stays a separate, owner-started run.
+# The Linux crates are not vendored: the cargo stages are --locked but fetch from crates.io once.
+# Windows paths: --var msbuild=PATH --var iscc=PATH when they are not on PATH.
+name: gorilla-tpfancontrol
+description: >-
+  Gorilla TPFanControl: TPFanControl.exe (MSBuild Release Win32, v143), the Setup.exe and the portable zip on
+  Windows; the Linux gorilla-fan binary (glibc 2.28), .deb and .rpm; SHA256SUMS for each; a telemetry scan.
+baseline_minutes: 10
+vars:
+  src: "${DOCUMENTS}/Gorilla.FanControl"
+  msbuild: MSBuild.exe
+  iscc: ISCC.exe
+  target: x86_64-unknown-linux-gnu
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: TPFanCtrl2
+  files: ["{src}/fancontrol/fancontrol.vcxproj", "{src}/installer/GorillaTPFanControl.iss", "{src}/linux/Cargo.toml",
+          "{src}/linux/Cargo.lock"]
+toolchain:
+  - [cargo, --version]
+  - [rustc, --version]
+preflight: {disk_gb: 3, ram_gb: 2, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  # -- Windows ----------------------------------------------------------------------------------------------------
+  - id: build
+    platforms: [windows]
+    run:
+      cmd: ["{msbuild}", "{src}/fancontrol/fancontrol.sln", /m, /p:Configuration=Release, /p:Platform=Win32,
+            /p:PlatformToolset=v143]
+      cwd: "{src}/fancontrol"
+    timeout: 1800
+    inputs: ["{src}/fancontrol/*.cpp", "{src}/fancontrol/*.h", "{src}/fancontrol/*.vcxproj",
+             "{src}/fancontrol/*.sln", "{src}/fancontrol/res/**/*"]
+    outputs: ["{src}/fancontrol/Release/TPFanControl.exe"]
+    uses: [config, inputs]
+    needs: []
+
+  - id: installer
+    platforms: [windows]
+    run: {cmd: ["{iscc}", "{src}/installer/GorillaTPFanControl.iss"], cwd: "{src}/installer"}
+    timeout: 900
+    inputs: ["{src}/installer/*.iss", "{src}/installer/*.txt", "{src}/fancontrol/TPFanControl.ini",
+             "{src}/fancontrol/pawnio/*", "{src}/LICENSE"]
+    outputs: ["{src}/installer/output/Gorilla-TPFanControl-*-Setup.exe"]
+    uses: [config, inputs]
+    needs: [build]
+
+  - id: portable
+    platforms: [windows]
+    # the script checks PawnIO_setup.exe against winget's SHA-256 and refuses to pack it on a mismatch
+    run: {cmd: [powershell, -NoProfile, -NonInteractive, -File, "{src}/installer/build-portable.ps1"], cwd: "{src}"}
+    timeout: 900
+    inputs: ["{src}/installer/build-portable.ps1", "{src}/installer/portable/*", "{src}/installer/thirdparty/**/*",
+             "{src}/installer/*.iss", "{src}/fancontrol/TPFanControl.ini", "{src}/fancontrol/pawnio/*", "{src}/LICENSE"]
+    outputs: ["{src}/installer/output/Gorilla-TPFanControl-*-portable.zip"]
+    uses: [config, inputs]
+    needs: [build]
+
+  - id: checksums-windows
+    platforms: [windows]
+    run:
+      python: "fieldkit.emerge.stages:sha256sums"
+      args: {files: ["{src}/fancontrol/Release/TPFanControl.exe", "{src}/installer/output/Gorilla-TPFanControl-*-Setup.exe",
+                     "{src}/installer/output/Gorilla-TPFanControl-*-portable.zip"],
+             out: "{src}/installer/output/SHA256SUMS"}
+    outputs: ["{src}/installer/output/SHA256SUMS"]
+    uses: []
+    needs: [installer, portable]
+
+  # -- Linux port (linux/build-linux.ps1, stage by stage) ---------------------------------------------------------
+  - id: linux-test
+    run: {cmd: [cargo, test, --release, --locked], cwd: "{src}/linux"}
+    timeout: 1800
+    inputs: ["{src}/linux/src/**/*.rs", "{src}/linux/Cargo.toml", "{src}/linux/Cargo.lock"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: linux-build
+    # cargo-zigbuild links against glibc 2.28: the binary runs on Debian 10, RHEL 8 and newer
+    run: {cmd: [cargo, zigbuild, --release, --locked, --target, "{target}.2.28"], cwd: "{src}/linux"}
+    timeout: 1800
+    inputs: ["{src}/linux/src/**/*.rs", "{src}/linux/Cargo.toml", "{src}/linux/Cargo.lock"]
+    outputs: ["{src}/linux/target/{target}/release/gorilla-fan"]
+    uses: [config, toolchain, inputs]
+    needs: [linux-test]
+
+  - id: linux-deb
+    run: {cmd: [cargo, deb, --no-build, --target, "{target}", --output, dist], cwd: "{src}/linux"}
+    timeout: 600
+    inputs: ["{src}/linux/packaging/**/*", "{src}/linux/Cargo.toml"]
+    outputs: ["{src}/linux/dist/*.deb"]
+    uses: [config, toolchain, inputs]
+    needs: [linux-build]
+
+  - id: linux-rpm
+    run: {cmd: [cargo, generate-rpm, --target, "{target}", --output, dist], cwd: "{src}/linux"}
+    timeout: 600
+    inputs: ["{src}/linux/packaging/**/*", "{src}/linux/Cargo.toml"]
+    outputs: ["{src}/linux/dist/*.rpm"]
+    uses: [config, toolchain, inputs]
+    needs: [linux-build]
+
+  - id: checksums-linux
+    run:
+      python: "fieldkit.emerge.stages:sha256sums"
+      args: {files: ["{src}/linux/target/{target}/release/gorilla-fan", "{src}/linux/dist/*.deb", "{src}/linux/dist/*.rpm"],
+             out: "{src}/linux/dist/SHA256SUMS"}
+    outputs: ["{src}/linux/dist/SHA256SUMS"]
+    uses: []
+    needs: [linux-deb, linux-rpm]
