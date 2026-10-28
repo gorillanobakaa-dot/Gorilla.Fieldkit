@@ -545,7 +545,7 @@ RULE_BEGIN, RULE_END = "<!-- fieldkit-rotate-rule v1 -->", "<!-- /fieldkit-rotat
 RULE_FILES = {"antigravity": Path.home() / ".gemini" / "GEMINI.md",
               "codex": Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "AGENTS.md"}
 #: how each agent is told: "hook" = the harness adds the line itself; "rule" = the agent runs check itself
-TRIGGER = {"claude-code": "room hook (UserPromptSubmit/PostToolUse) + autopilot budget hook",
+TRIGGER = {"claude-code": "room hook (UserPromptSubmit) + the tool router (PreToolUse) + autopilot budget hook",
            "antigravity": "rule in GEMINI.md + autopilot budget hook",
            "codex": "rule in AGENTS.md",
            "gorilla-opencode": "rule in the project's AGENTS.md (it has no global instruction file)",
@@ -603,7 +603,7 @@ def agents_status(project_agents_md=None):
     out = []
     try:
         from ..autopilot import room
-        hook_ok = bool(room.doctor()["ok"])
+        hook_ok = not room.doctor()["missing"]                # a stale PostToolUse entry still triggers (C6)
     except Exception:  # noqa: BLE001
         hook_ok = False
     project = Path(project_agents_md) if project_agents_md else _root() / "AGENTS.md"

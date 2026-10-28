@@ -1,8 +1,8 @@
 # Version: 1.1.0 · updated 26-10-28-20-30
 """How a net message reaches a station: every channel the harness already has, and nothing new.
 
-    room      Claude Code sessions on this computer. PULL: the room hook (fieldkit/autopilot/room.py, PostToolUse +
-              UserPromptSubmit) shows the session its unseen net traffic and checks it in. A Claude Desktop session
+    room      Claude Code sessions on this computer. PULL: the room hook (fieldkit/autopilot/room.py, run by the tool
+              router's PreToolUse hook + UserPromptSubmit) shows the session its unseen net traffic and checks it in. A Claude Desktop session
               that is idle runs no hook, so it stays LATE until it acts: Zero, if it is a Desktop session, nudges it
               with its own send_message tool (the CLI cannot reach the Desktop app; that door belongs to the app).
     opencode  Gorilla OpenCode sessions on this computer: PUSH, `fieldkit peers send` (its own session protocol,

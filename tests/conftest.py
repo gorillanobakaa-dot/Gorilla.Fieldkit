@@ -65,6 +65,11 @@ for _k in ("EMAIL", "GIT_EDITOR"):
     _os.environ.pop(_k, None)
 _os.environ["FIELDKIT_RECORDER"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-recorder-"), "mcp.jsonl")
 _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test-office-backups-")
+# C6 (2026-10-28): the tool router's hook also runs the room, the net lease and the hog registry, so a test that calls
+# toolrouter.hook must not write a room line, check a station in or register a process in the real state.
+_os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
+_os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
+_os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
 
 
 # Tests never look a name up on the real network (2026-10-06: during the build 27 release leak test the commit hook's

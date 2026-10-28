@@ -5,7 +5,7 @@ stops an entry only while BOTH numbers still match the live process, so a PID re
 is never touched (memory: stop-only-what-I-started). Never by name.
 
 How entries get here, all deterministic:
-  observe()   the shared-room PostToolUse hook (fieldkit.autopilot.room) calls it after every shell call: the
+  observe()   the tool-call hook (fieldkit.autopilot.room.pretool) calls it before every shell call: the
               session process is the nearest claude/opencode/gemini ancestor of the hook; its live descendants of an
               orphan class (thresholds.json orphan_classes: test runners, conhost/tui_shots, link listeners,
               browsers) are recorded, and so is any PID the call's output printed (pid=N, PID N, Id : N) that was
@@ -21,11 +21,16 @@ from pathlib import Path
 
 import psutil
 
-from .probe import ct
-
 SESSION_NAMES = ("claude", "claude.exe", "opencode", "opencode.exe", "gemini", "gemini.exe", "antigravity.exe")
 PID_IN_TEXT = re.compile(r"(?:\bpid\s*[=:]?\s*|\bProcessId\s*[=:]?\s*|\bId\s*:\s*)(\d{2,7})\b", re.I)
 RECENT_S = 900
+
+
+def ct(x):
+    """Creation times compared to 2 decimals everywhere (the registry, the live table): a float round trip through
+    JSON must not make the same process look like a different one. Here, not in probe.py: the tool-call hook imports
+    this module and probe.py pulls in urllib (C6, ~30 ms per call)."""
+    return round(float(x), 2)
 
 
 def state_dir():

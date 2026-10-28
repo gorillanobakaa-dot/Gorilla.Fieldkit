@@ -104,8 +104,8 @@ def test_an_injection_is_capped_and_repeats_are_one_row():
 
 def test_the_hook_writes_shows_and_never_fails(capsys):
     room.unseen("s2")
-    room.hook(io.StringIO(json.dumps(call("s1", "Bash", command="git commit -m a"))))
-    assert capsys.readouterr().out == ""                            # s1 sees nothing of its own
+    assert room.pretool(call("s1", "Bash", command="git commit -m a")) == ""   # s1 sees nothing of its own
+    assert "commit" in room.tail()[-1]
     room.hook(io.StringIO(json.dumps({"session_id": "s2", "hook_event_name": "UserPromptSubmit", "prompt": "go"})))
     out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
     assert out["hookEventName"] == "UserPromptSubmit" and "commit" in out["additionalContext"]
@@ -116,9 +116,66 @@ def test_doctor_reports_the_missing_hooks_and_prints_the_change(tmp_path):
     s = tmp_path / "settings.json"
     s.write_text(json.dumps({"hooks": {}}), encoding="utf-8")
     r = room.doctor(s, python="py")
-    assert not r["ok"] and set(r["missing"]) == {"PostToolUse", "UserPromptSubmit"}
+    assert not r["ok"] and set(r["missing"]) == {"PreToolUse", "UserPromptSubmit"} and r["stale"] == []
     s.write_text(json.dumps({"hooks": r["snippet"]}), encoding="utf-8")
     assert room.doctor(s, python="py")["ok"]
+
+
+def test_doctor_apply_makes_one_process_per_tool_call_and_keeps_every_other_hook(tmp_path):
+    """C6: the pre-C6 wiring (router on Bash..Write, room on PostToolUse) is two Python starts per tool call."""
+    s = tmp_path / "settings.json"
+    other = {"type": "command", "command": "py -m fieldkit.autopilot.claude_hook --post"}
+    old = {"hooks": {
+        "PreToolUse": [{"matcher": "Bash|Edit|MultiEdit|NotebookEdit|PowerShell|Write",
+                        "hooks": [{"type": "command", "command": "py -m fieldkit.autopilot.toolrouter --hook"}]}],
+        "PostToolUse": [{"matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|SendMessage",
+                         "hooks": [{"type": "command", "command": "py -m fieldkit.autopilot.room --hook"}, other]}],
+        "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command",
+                                                          "command": "py -m fieldkit.autopilot.room --hook"}]}],
+        "Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}, "model": "x"}
+    s.write_text(json.dumps(old), encoding="utf-8")
+    r = room.doctor(s, python="py")
+    assert not r["ok"] and r["missing"] == ["PreToolUse"] and r["stale"] == ["PostToolUse"]
+    code, lines = room.apply(s, python="py", keep_dir=tmp_path / "keep")
+    assert code == 0 and "checked: ROOM HOOKS OK" in lines
+    new = json.loads(s.read_text(encoding="utf-8"))
+    assert new["hooks"]["PreToolUse"][0]["matcher"] == room.TOOL_MATCH
+    assert new["hooks"]["PostToolUse"] == [{"matcher": old["hooks"]["PostToolUse"][0]["matcher"], "hooks": [other]}]
+    assert new["hooks"]["Stop"] == old["hooks"]["Stop"] and new["model"] == "x"
+    assert json.loads(next((tmp_path / "keep").iterdir()).read_text(encoding="utf-8")) == old   # copied aside
+    assert room.apply(s, python="py", keep_dir=tmp_path / "keep")[0] == 0                 # nothing left to change
+    assert len(list((tmp_path / "keep").iterdir())) == 1
+
+
+def test_a_post_tool_call_writes_nothing_the_pre_tool_hook_does_it_once(capsys):
+    """C6: a stale PostToolUse entry must not write a second room line for the same call."""
+    room.hook(io.StringIO(json.dumps(call("s1", "Bash", command="git commit -m a"))))
+    assert capsys.readouterr().out == "" and room.tail() == []
+    room.pretool(dict(call("s1", "Bash", command="git commit -m a"), hook_event_name="PreToolUse"))
+    assert len(room.tail()) == 1
+
+
+def test_a_detaching_call_has_its_printed_pid_registered_at_the_next_hook(_room_dir, monkeypatch):
+    """C6: the hog registry used the PostToolUse output to catch a Start-Process'd PID; now the next hook reads the
+    last tool result from the transcript's tail, and only after a call that can detach."""
+    from fieldkit.hog import registry
+    seen = []
+    monkeypatch.setattr(registry, "observe", lambda c, classes: seen.append(c.get("tool_response")))
+    tp = _room_dir / "t.jsonl"
+    tp.write_text("\n".join(json.dumps(x) for x in (
+        {"type": "user", "message": {"content": [{"type": "tool_result", "content": "old pid=1111"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "PowerShell"}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "content": "Id : 4242"}]}})) + "\n",
+        encoding="utf-8")
+    pre = {"session_id": "s1", "transcript_path": str(tp), "hook_event_name": "PreToolUse", "tool_name": "PowerShell"}
+    room.pretool(dict(pre, tool_input={"command": "Get-Date"}))
+    assert seen == [""]                                             # no detaching call before: no transcript read
+    room.pretool(dict(pre, tool_input={"command": "Start-Process python -PassThru"}))
+    assert seen == ["", ""]
+    room.pretool(dict(pre, tool_input={"command": "Get-Date"}))
+    assert "4242" in seen[-1] and "1111" not in seen[-1]            # only the last tool result
+    room.pretool(dict(pre, tool_input={"command": "Get-Date"}))
+    assert seen[-1] == ""                                           # once
 
 
 def test_a_note_that_mentions_approvals_is_an_ask_and_a_marked_one_is_an_approve():
@@ -179,8 +236,7 @@ def test_room_rows_still_reach_a_session_that_has_seen_the_riders(monkeypatch, c
     prompt = json.dumps({"session_id": "s2", "hook_event_name": "UserPromptSubmit", "prompt": "go"})
     room.hook(io.StringIO(prompt))
     capsys.readouterr()
-    room.hook(io.StringIO(json.dumps(call("s1", "Bash", command="git commit -m a"))))
-    capsys.readouterr()
+    room.pretool(call("s1", "Bash", command="git commit -m a"))
     room.hook(io.StringIO(prompt))
     ctx = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
     assert "commit" in ctx and "NET: same" not in ctx

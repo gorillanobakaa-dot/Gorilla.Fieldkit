@@ -510,6 +510,33 @@ def test_hook_renews_the_lease_at_most_once_a_minute():
     assert net.load_stations()["stations"][TWO]["last"] == T0 + 61
 
 
+def test_a_hook_call_inside_the_lease_rewrites_nothing(monkeypatch):
+    """C6: every tool call rewrote net-stations.json although nothing in it had changed."""
+    opened()
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0)
+    saved = []
+    real = net.save_stations
+    monkeypatch.setattr(net, "save_stations", lambda st: (saved.append(1), real(st)))
+    net.hook_line(hook_call("bbbbbbbb-1", "PreToolUse"), "PreToolUse", now=T0 + 30)
+    assert saved == []
+    net.hook_line(hook_call("bbbbbbbb-1", "PreToolUse"), "PreToolUse", now=T0 + 61)    # the lease is renewed
+    assert saved == [1] and net.load_stations()["stations"][TWO]["last"] == T0 + 61
+
+
+def test_the_net_is_read_from_its_json_cache_until_net_yaml_changes(monkeypatch):
+    """C6: importing the YAML parser was ~16 ms of every tool call."""
+    import sys
+    opened()
+    first = net.load_net()
+    assert (net.coord() / "NET.cache.json").is_file()
+    monkeypatch.setitem(sys.modules, "yaml", None)                  # any import of yaml now fails
+    assert net.load_net() == first
+    monkeypatch.undo()
+    n = dict(first, epoch=first["epoch"] + 7, note="a longer file than before")
+    net.save_net(n)
+    assert net.load_net()["epoch"] == first["epoch"] + 7            # a changed file is parsed again
+
+
 def test_hook_tells_zero_once_per_change_which_stations_went_quiet():
     opened()
     net.checkin(GEM, now=T0, env={})

@@ -68,8 +68,6 @@ import time
 import uuid
 from pathlib import Path
 
-import yaml
-
 from . import channels as ch
 from ..core.settings import state_root as _state_root
 
@@ -190,15 +188,37 @@ def _atomic(path, text):
 
 
 def load_net():
+    """NET.yaml, parsed. The parse is kept in NET.cache.json next to it, keyed by the file's size and mtime: the
+    tool-call hook reads the net on every call, and importing the YAML parser was ~16 ms of it (C6)."""
     p = coord() / "NET.yaml"
+    cache = coord() / "NET.cache.json"
     try:
-        d = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        st = p.stat()
+    except OSError:
+        return {}
+    key = [st.st_size, st.st_mtime_ns]
+    try:
+        c = json.loads(cache.read_text(encoding="utf-8"))
+        if c.get("key") == key and isinstance(c.get("net"), dict):
+            return c["net"]
+    except (OSError, ValueError):
+        pass
+    import yaml
+    try:
+        d = yaml.safe_load(p.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
         return {"broken": True}
-    return d if isinstance(d, dict) else {"broken": True}
+    if not isinstance(d, dict):
+        return {"broken": True}
+    try:
+        _atomic(cache, json.dumps({"key": key, "net": d}))      # a value JSON cannot hold (a date): no cache
+    except (OSError, TypeError, ValueError):
+        pass
+    return d
 
 
 def save_net(net):
+    import yaml
     _atomic(coord() / "NET.yaml", "# the agent net: written by fieldkit net (fieldkit/zero/net.py); do not edit by hand\n"
             + yaml.safe_dump(net, sort_keys=False, allow_unicode=True))
 
@@ -1047,6 +1067,7 @@ def _net_line(call, event, now=None):
             st = load_stations()
             rec = st["stations"].get(me)
             new = rec is None
+            before = json.dumps(rec, sort_keys=True, default=str)
             if new or now - float(rec.get("last") or 0) >= RENEW_EVERY_S or rec.get("off"):
                 rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me))
             items = pending_for(me, rec, net, now)
@@ -1057,7 +1078,8 @@ def _net_line(call, event, now=None):
             tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60)
             if tell_far:
                 rec["cable_at"] = now                 # tried or not: the next try waits an interval (no hook stalls)
-            save_stations(st)
+            if json.dumps(rec, sort_keys=True, default=str) != before:   # C6: no rewrite on every tool call
+                save_stations(st)
         if new or tell_far:
             e = append("checkin", me, to=zero_of(net), data={k: v for k, v in {"by": "hook", "tag": tag_of(me)}.items()
                                                              if v}, now=now)

@@ -195,6 +195,63 @@ def test_the_claude_hook_denies_with_the_tool_command(capsys):
     assert capsys.readouterr().out == ""
 
 
+# -- C6 (2026-10-28): one Python start per tool call. The room's part (room line, net lease, hog registry, rotation
+# line) runs in the router's PreToolUse process, after every guard, and only for a call that is let through.
+def _guards(tmp_path, monkeypatch):
+    """-> {guard: a call it refuses}; each guard is the one that refuses it."""
+    from fieldkit.autopilot import breaker
+    from fieldkit.zero import claims
+    monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
+    monkeypatch.delenv("FIELDKIT_JOB_DIR", raising=False)
+    monkeypatch.delenv("FIELDKIT_ROTATE", raising=False)
+    monkeypatch.delenv("FIELDKIT_BREAKER", raising=False)
+    said = tmp_path / "rot" / "said"
+    said.mkdir(parents=True)
+    (said / "rot.json").write_text(json.dumps({"level": "ROTATE"}), encoding="utf-8")
+    deny = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                   "permissionDecisionReason": "GROUND CLAIM test"}}
+    monkeypatch.setattr(claims, "pretool", lambda c: deny if "claimed" in json.dumps(c) else None)
+    loop = {"transcript_path": str(tmp_path / "loop.jsonl"), "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m same"}}
+    for _ in range(breaker.LIMIT - 1):
+        breaker.repeat_refusal(loop)
+    return {"route": ({"tool_name": "Bash", "tool_input": {"command": "du -sh ~/x # git commit"}}, "TOOL ROUTER"),
+            "claims": ({"tool_name": "Edit", "tool_input": {"file_path": "C:/claimed/Documents/Scripts/Fieldkit/a"}},
+                       "GROUND CLAIM"),
+            "rotate": ({"tool_name": "Bash", "transcript_path": str(tmp_path / "rot.jsonl"),
+                        "tool_input": {"command": "pip install six"}}, "ROTATION STOP"),
+            "breaker": (loop, "CIRCUIT BREAKER")}
+
+
+@pytest.mark.parametrize("guard", ["route", "claims", "rotate", "breaker"])
+def test_every_guard_still_refuses_in_the_one_hook_and_a_refused_call_is_not_in_the_room(guard, tmp_path,
+                                                                                           monkeypatch, capsys):
+    from fieldkit.autopilot import room
+    monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
+    c, word = _guards(tmp_path, monkeypatch)[guard]
+    tr.hook(io.StringIO(json.dumps(dict(c, session_id="s1", cwd="C:/x/Documents/Scripts/Fieldkit"))))
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and word in out["permissionDecisionReason"]
+    assert room.tail() == []                                        # the call does not run: no room line
+
+
+def test_an_allowed_call_gets_the_room_in_the_same_process(tmp_path, monkeypatch, capsys):
+    from fieldkit.autopilot import room
+    monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
+    monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
+    room.unseen("s2")
+    commit = {"session_id": "s1", "cwd": "C:/x/Fieldkit", "tool_name": "Bash", "transcript_path": "C:/t/s1.jsonl",
+              "tool_input": {"command": "git commit -m a"}, "hook_event_name": "PreToolUse"}
+    tr.hook(io.StringIO(json.dumps(commit)))
+    assert "permissionDecision" not in capsys.readouterr().out
+    assert room.tail()[-1].split("\t")[3] == "commit"              # written by the router's process
+    tr.hook(io.StringIO(json.dumps(dict(commit, session_id="s2", transcript_path="C:/t/s2.jsonl",
+                                        tool_name="Read", tool_input={"file_path": "x"}))))
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PreToolUse" and "permissionDecision" not in out
+    assert "commit" in out["additionalContext"]                     # the other session is shown it
+
+
 # -- R5 (2026-10-28): no false refusals. Each fix: what must now pass, and what must still be refused.
 def test_ls_recurses_only_with_capital_r_in_bash_and_with_r_in_powershell():
     for cmd in ["ls -r x", "ls -s", "ls -lrt logs", "git ls-files -s", "git ls-remote origin"]:
