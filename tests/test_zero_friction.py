@@ -508,6 +508,9 @@ def test_settle_leaves_peer_tasks_and_unchecked_pids_alone_and_status_says_why_a
     assert tasks.settle(led, alive=alive) == [] and led["p"]["status"] == led["e"]["status"] == "started"
     led = {"d": {"id": "d", "status": "started", "on": "here", "pid": 11, "log": "L11", "title": "x"}}
     assert tasks.settle(led, alive=alive) == ["d"] and "L11" in tasks.lines(led)[0]
+    led = {"k": {"id": "k", "status": "started", "on": "here", "pid": 12, "answer": "its own last words"}}
+    assert tasks.settle(led, alive=alive) == ["k"] and led["k"]["answer"] == "its own last words"
+    assert "its own last words" in tasks.lines(led)[0]                # an answer already recorded is kept
 
 
 def test_task_status_shows_a_task_whose_process_is_gone_as_died(tmp_path, monkeypatch, capsys):
