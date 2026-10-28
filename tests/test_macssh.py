@@ -1,7 +1,8 @@
-# Version: 1.0.0 · updated 26-10-22-16-50
+# Version: 1.1.0 · updated 26-10-28-09-40
 """fieldkit mac: an old Mac is found by its mDNS name, else by its hardware address, else after a ping sweep (all three
 proven on the owner's MacBook Air 2011 on 2026-10-22); the ssh alias is replaced with the old file kept; nothing
 private lives in the code."""
+import ipaddress
 import json
 import os
 import stat
@@ -12,7 +13,12 @@ import pytest
 
 from fieldkit.mac import macssh as M
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Linux-only tool: the Mac is reached from the Linux box (avahi, ip neigh, POSIX key modes)")
+
+
+@pytest.fixture(autouse=True)
+def linux_path(monkeypatch):
+    """The Linux path by default, on any machine (2026-10-28: the tool runs on Windows too; the Windows tests set it)."""
+    monkeypatch.setattr(M, "WINDOWS", False)
 
 MAC = {"user": "user1", "key": "~/.ssh/id_test", "mdns": "Old-Mac.local", "hw_addr": "aa:bb:cc:dd:ee:ff",
        "host_key_alias": "old-mac.local", "note": "an old Mac"}
@@ -100,7 +106,8 @@ def test_fix_alias_replaces_only_its_block_and_keeps_the_old_file(tmp_path):
     assert new.count("Host macair") == 1 and "HostKeyAlias old-mac.local" in new
     assert "Host other\n    HostName 10.0.0.1" in new and "Host last\n    HostName 10.0.0.2" in new
     assert new.startswith("# keep me")
-    assert stat.S_IMODE(os.stat(cfg).st_mode) == 0o600
+    if sys.platform != "win32":                                  # Windows: the profile's ACL, no POSIX mode
+        assert stat.S_IMODE(os.stat(cfg).st_mode) == 0o600
 
 
 def test_fix_alias_adds_a_block_when_there_is_none(tmp_path):
@@ -173,3 +180,108 @@ def test_doctor_points_at_the_address_when_the_name_does_not_resolve(tmp_path, m
         return 0, "10.13.6"
     rows = M.doctor("macair", mac, runner=runner, ssh_config=cfg)
     assert any(not ok and "fix-alias macair --ip --apply" in line for ok, line in rows)
+
+
+# ── Windows (2026-10-28: the Windows laptop could not reach the Air; same commands, Windows' own tools) ──────────
+
+ARP = """
+Interface: 192.168.7.197 --- 0x7
+  Internet Address      Physical Address      Type
+  192.168.7.1           11-22-33-44-55-66     dynamic
+  192.168.7.51          AA-BB-CC-DD-EE-FF     dynamic
+  192.168.7.255         ff-ff-ff-ff-ff-ff     static
+  224.0.0.22            01-00-5e-00-00-16     static
+"""
+
+
+class WinNet:
+    """A fake Windows network: getaddrinfo, arp -a, Get-NetIPAddress; the Mac enters arp -a only after a ping."""
+
+    def __init__(self, mdns_ok, in_table):
+        self.mdns_ok, self.in_table, self.calls = mdns_ok, in_table, []
+
+    def __call__(self, argv):
+        self.calls.append(argv[0])
+        if argv == ["arp", "-a"]:
+            return 0, ARP if self.in_table else ARP.replace("  192.168.7.51          AA-BB-CC-DD-EE-FF     dynamic\n", "")
+        if argv[0] == "powershell":
+            return 0, "inet 127.0.0.1/8\ninet 169.254.3.4/16\ninet 192.168.7.197/24"
+        return 1, ""
+
+    def resolve(self, name, port, family):
+        if not self.mdns_ok:
+            raise OSError("getaddrinfo failed")
+        return [(family, 1, 6, "", ("192.168.7.51", 0))]
+
+    def ping(self, ip):
+        if str(ip) == "192.168.7.51":
+            self.in_table = True
+        return 0, ""
+
+
+@pytest.fixture
+def win(monkeypatch):
+    monkeypatch.setattr(M, "WINDOWS", True)
+
+
+def test_windows_resolves_the_local_name_with_its_own_resolver(win):
+    net = WinNet(mdns_ok=True, in_table=False)
+    assert M.resolve_mdns("Old-Mac.local", runner=net, resolve=net.resolve) == "192.168.7.51"
+    assert net.calls == []                                       # no avahi-resolve, no program at all
+    assert M.resolve_mdns("Old-Mac.local", runner=net, resolve=WinNet(False, False).resolve) is None
+
+
+def test_windows_reads_arp_and_skips_broadcast_and_multicast(win):
+    table = M.neighbours(runner=WinNet(mdns_ok=False, in_table=True))
+    assert table == {"11:22:33:44:55:66": "192.168.7.1", "aa:bb:cc:dd:ee:ff": "192.168.7.51"}
+
+
+def test_windows_finds_the_mac_after_a_sweep(win, monkeypatch):
+    net = WinNet(mdns_ok=False, in_table=False)
+    monkeypatch.setattr(M, "resolve_mdns", lambda name, runner=None: None)
+    assert M.local_networks(runner=net) == [ipaddress.ip_network("192.168.7.0/24")]     # no loopback, no link-local
+    ip, how = M.find(MAC, runner=net, ping=net.ping)
+    assert ip == "192.168.7.51" and "after waking 254 addresses" in how
+    assert "ip" not in net.calls and "avahi-resolve" not in net.calls
+
+
+def test_windows_sweep_pings_the_windows_way(win):
+    seen = []
+    M.sweep([ipaddress.ip_network("10.0.0.0/30")], runner=lambda a: seen.append(a) or (0, ""))
+    assert sorted(a[-1] for a in seen) == ["10.0.0.1", "10.0.0.2"]
+    assert all(a[:5] == ["ping", "-n", "1", "-w", "1000"] for a in seen)
+
+
+def test_windows_uses_its_own_openssh_by_full_path(win, tmp_path, monkeypatch):
+    (tmp_path / "ssh.exe").write_text("")
+    monkeypatch.setattr(M, "OPENSSH_DIR", tmp_path)
+    assert M.ssh_argv(MAC, "1.2.3.4")[0] == str(tmp_path / "ssh.exe")
+    assert M.scp_argv(MAC, "1.2.3.4", "/tmp/a", "a")[0] == "scp"          # not there: from PATH, never invented
+
+
+def test_windows_key_permissions_come_from_icacls(win, tmp_path):
+    key = tmp_path / "k"
+    key.write_text("")
+    owner_only = f"{key} L15\\user1:(F)\n         NT AUTHORITY\\SYSTEM:(F)\n\nSuccessfully processed 1 files"
+    ok, line = M.key_check(key, runner=lambda a: (0, owner_only))
+    assert ok and "owner only" in line
+    ok, line = M.key_check(key, runner=lambda a: (0, owner_only + "\n         BUILTIN\\Users:(RX)"))
+    assert not ok and "BUILTIN\\Users" in line and "/inheritance:r" in line
+    ok, line = M.key_check(key, runner=lambda a: (5, "Access is denied."))
+    assert not ok and "icacls could not read" in line
+
+
+def test_authorize_sends_only_a_public_key_and_adds_it_once():
+    pub = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample fieldkit-mac"
+    assert M.public_key_line(pub + "\n") == pub
+    fake_private = "-----BEGIN OPENSSH " + "PRIVATE KEY-----\nb3Blbn\n"       # split: the privacy scan reads this file
+    assert M.public_key_line(fake_private) is None
+    assert M.public_key_line(pub + "\n" + pub) is None and M.public_key_line("rm -rf ~") is None
+    line = M.authorize_line(pub)
+    assert "grep -qxF 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample fieldkit-mac' ~/.ssh/authorized_keys" in line
+    assert "chmod 600 ~/.ssh/authorized_keys" in line and ">> ~/.ssh/authorized_keys" in line
+
+
+def test_add_without_a_key_says_how_to_make_one(tmp_path):
+    hint = M.keygen_hint(str(tmp_path / "id_mac"), "macair")
+    assert "-t ed25519" in hint and "mac authorize macair id_mac.pub" in hint
