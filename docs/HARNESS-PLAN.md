@@ -55,7 +55,7 @@ explained from that machine alone (item I1).
 | W7 | Cheap workers do the work; Opus/Fable/Qwen only reviews | Opus ran 73 of 75 sessions and did the work itself (7,958 Bash calls, 2,020 edits); the cheap workers ran a few test sessions under $0.02 | I5 I7 |
 | W8 | Teach the harness: each fix becomes a deterministic tool, so the same problem never costs again | the mechanism exists for build logs (triage signatures); not wired into reviews | I8 |
 | W9 | The owner knows what every session did | 58 of 75 sessions left no Board row with their id | R3 I4 |
-| W10 | Fieldkit, once flawless, is baked into Gorilla OpenCode as one system | Fieldkit is a separate Python harness; OpenCode v0.1.156 carries an embedded toolbox; no merge plan yet | later, after W1-W9 |
+| W10 | Fieldkit, once flawless, is baked into Gorilla OpenCode as one system | Fieldkit is a separate Python harness; OpenCode v0.1.156 carries an embedded toolbox; no merge plan yet | FINAL GOAL, not now: only when the owner says the harness works perfectly (owner, 2026-10-29: "not today, tomorrow or the day after"); no agent proposes or starts it |
 
 Status words: PLANNED = agreed in the list, nothing built yet. `fieldkit plan next` reads this file: a merged pull request whose title ends in
 "(ID)" marks a PLANNED item DONE (`--write` writes it); any other status written by hand (PARTIAL, WINDOWS DONE)
