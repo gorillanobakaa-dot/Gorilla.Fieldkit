@@ -13,6 +13,7 @@
                                                  no AI: a build or test line run on a copy of DIR there, the
                                                  worker's signed result checked by `task status`
     fieldkit task status [--json]                every task, with the reports that came back (here and over the cable)
+    fieldkit task start BRIEF.md --model sonnet --accept "CMD"   worker model; done only on a reviewer pass + CMD
     fieldkit task report ID --status done|failed|blocked [--branch B] [--pr URL] [--note TEXT]
                                                  the job's own report: ledger, ROOM line, Board row
     fieldkit sessions sweep [--idle-minutes N] [--keep ID] [--json]
@@ -82,6 +83,10 @@ def cmd_task(argv):
     ap.add_argument("--cwd", help="start here: the folder the job works in (default: this one)")
     ap.add_argument("--wall", type=int, default=120, help="start here: wall-clock budget in minutes")
     ap.add_argument("--title")
+    ap.add_argument("--model", help="start: the worker's model (default: roles.yaml worker.default; Opus/Fable "
+                                    "are reviewers and refused as workers)")
+    ap.add_argument("--allow-expensive", action="store_true", help="start: let the worker be an expensive model")
+    ap.add_argument("--accept", help="start: the acceptance command; done needs a passing reviewer verdict on it")
     ap.add_argument("--again", action="store_true", help="start: even though the same brief is started and unfinished")
     ap.add_argument("--status", choices=list(tasks.STATUSES[1:]))
     ap.add_argument("--branch", default="")
@@ -113,7 +118,8 @@ def cmd_task(argv):
             print("task start BRIEF.md [--on DEVICE]")
             return 2
         try:
-            rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again)
+            rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again,
+                             model=a.model, accept=a.accept, allow_expensive=a.allow_expensive)
         except tasks.AlreadyStarted as e:
             print(f"NOT STARTED  {e}")
             return 3
@@ -129,8 +135,9 @@ def cmd_task(argv):
             print("task report ID --status done|failed|blocked [--branch B] [--pr URL] [--note TEXT]")
             return 2
         rec = tasks.report(a.arg, a.status, a.branch, a.pr, a.note)
-        print(f"TASK {rec['id']}  {rec['status']}")
-        return 0
+        print(f"TASK {rec['id']}  {rec['status']}" + (f"  verdict {rec['verdict']}: {rec['verdict_why']}"
+                                                       if rec.get("verdict") else ""))
+        return 0 if rec["status"] == a.status else 3
     new = tasks.ingest()
     done = tasks.collect_jobs(tasks.ledger())          # run jobs whose signed result came back
     from . import worktrees

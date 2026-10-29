@@ -70,7 +70,7 @@ DEFAULT_START = {"claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot",
 # 2026-10-22, found on the VAIO by its Claude: --job and --wall-minutes exist only where the long horizon code is
 # (feat/long-horizon); an older `fieldkit autopilot` refused them and the session died at once. Options this
 # computer's autopilot does not offer are dropped (with their value), never passed blind.
-OPTIONAL_START_FLAGS = ("--job", "--wall-minutes")
+OPTIONAL_START_FLAGS = ("--job", "--wall-minutes", "--model")
 START_GRACE = 2.0           # a started process must still be alive this many seconds later to count as started
 # 2026-10-22, found on the VAIO by its Claude: a started session runs with cwd = the approved folder (the main
 # checkout), and `python -m fieldkit` there loaded THAT checkout's code, not the link's, so no fix on this branch
@@ -713,7 +713,7 @@ def startcheck(agent="claude", run_check=None):
 
 
 def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
-                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None):
+                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
     text = (f"--- {FENCE.format(host=from_host)} ---\n{local_peers.sanitize(brief)[:12000]}\n--- end ---\n\n"
@@ -749,6 +749,8 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
     work = str(wt or reg["cwd"])
     argv = [a.format(brief=text, cwd=work, job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
     if tmpl is DEFAULT_START.get(agent):
+        if model and re.fullmatch(r"[\w.\-\[\]]{1,60}", str(model)):   # the worker's model (I5); a peer without --model drops it
+            argv += ["--model", str(model)]
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
     from . import link_return
     before = link_return.heads(reg["cwd"])           # what the run makes or moves is pushed when it ends
@@ -1017,7 +1019,7 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     if verb == "ask":
         item = store("ask", req)
         started, why = start_session(str(req.get("agent")), str(req.get("brief") or ""), req.get("from_host"),
-                                     popen=popen, inbox_add=inbox_add)
+                                     popen=popen, inbox_add=inbox_add, model=req.get("model"))
         _log(f"ask #{item['n']} from {req.get('from_host')} for {req.get('agent')}: {why}")
         return {"ok": True, "stored": item["n"], "started": started, "why": why}
     return {"ok": False, "error": f"unknown verb {verb!r}"}

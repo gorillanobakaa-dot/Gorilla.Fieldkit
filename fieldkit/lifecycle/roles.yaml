@@ -1,0 +1,17 @@
+# HARNESS-PLAN I5 + I7: who does the work, who only reviews. Data first: change a model here, not in the code.
+# A worker is a cheap model (Sonnet, Haiku or a local one). The reviewer (Opus/Fable or a local Qwen) never works
+# a task from the start: it reads the task and the result, checks the job's acceptance command, and gives a verdict.
+worker:
+  default: sonnet              # fieldkit task start --model overrides it for one task
+  allowed: [sonnet, haiku, local]
+  expensive: [opus, fable]     # a worker on these is refused unless --allow-expensive says why
+reviewer:
+  model: opus
+  max_task_chars: 4000         # the small context: the task and the result, never the history
+  max_result_chars: 6000
+  turns: 12                    # a verdict needs a read, not a session
+  wall_minutes: 15
+verdict:
+  kinds: [pass, send_back, fix_itself]
+  worker_failures_before_fix: 2   # two failed worker rounds, then the reviewer fixes it itself
+  accept_timeout_s: 1800

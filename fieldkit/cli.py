@@ -1016,12 +1016,12 @@ def cmd_autopilot(a):
             b = json.loads(os.environ.get("FIELDKIT_JOB_BUDGET") or "{}")
             b.update({k: v for k, v in (("turns", a.max_turns), ("wall_minutes", a.wall_minutes),
                                         ("cost_usd", a.cost_usd)) if v is not None})
-            r = job.run_job(job_dir, " ".join(a.rest), a.cwd or os.getcwd(), budget=b,
+            r = job.run_job(job_dir, " ".join(a.rest), a.cwd or os.getcwd(), budget=b, model=a.model,
                             max_continuations=int(os.environ.get("FIELDKIT_JOB_CONTINUATIONS") or a.max_continuations))
             print(json.dumps({k: v for k, v in r.items() if k != "checkpoint"}, indent=1, ensure_ascii=False))
             return r["rc"]
         r = run.claude(" ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns or 10000,
-                       timeout=a.wall_minutes * 60 if a.wall_minutes else None)
+                       timeout=a.wall_minutes * 60 if a.wall_minutes else None, model=a.model)
     elif a.action == "quiet" and getattr(a, "restore", False):
         print("started again: " + (", ".join(quiet.restore_units()) or "nothing was recorded"))
         return 0
@@ -1805,6 +1805,7 @@ def build_parser():
     apl.add_argument("--wall-minutes", type=float, help="claude: wall time per session; the tree is killed after it")
     apl.add_argument("--cost-usd", type=float, help="claude --job: dollars per session")
     apl.add_argument("--job", help="claude: a job folder: budgeted, checkpointed, resumable (exit 75 = paused)")
+    apl.add_argument("--model", help="claude: the model the run uses (a worker: sonnet, haiku; roles.yaml)")
     apl.add_argument("--max-continuations", type=int, default=3, help="claude --job: resumes after a budget end")
     apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
     apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")

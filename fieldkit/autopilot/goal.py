@@ -757,6 +757,12 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
     _WORKERS.setdefault(gid, {})[jid] = {"future": fut, "spend": spend_log}
 
 
+def _checks_pass(results):
+    """-> (ok, text) for roles.fix_itself from verify() results."""
+    bad = [f"{x['id']} {x['why']}" for x in results if x["verdict"] != "PASS"]
+    return not bad, "; ".join(bad) or f"{len(results)} check(s) passed"
+
+
 def _end_job(gid, goal, st, jid, claude, run):
     """A finished worker -> its spend into state, the verifier on its checks, the job's new status."""
     w = _WORKERS[gid].pop(jid)
@@ -774,13 +780,35 @@ def _end_job(gid, goal, st, jid, claude, run):
         # after every job: a 20-minute job took hours. The goal's criteria run once, at the end (verify ... "final").
         res = verify(gid, goal, st, ids=[], extra=checks, claude=claude, run=run, who=f"job {jid}")
         own = [x for x in res if str(x["id"]).startswith(f"{jid}:")]
-        if all(x["verdict"] == "PASS" for x in own):
-            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
+        # HARNESS-PLAN I5 + I7: the verdict is one of three kinds (lifecycle/roles.py). A job is verified only on pass;
+        # send_back puts the explained mistake into the brief and the cheap worker goes again; after two failed
+        # worker rounds the reviewer model fixes it itself and its own acceptance check decides.
+        from ..lifecycle import roles
+        v = roles.verdict_from_checks(own, j["attempts"] - 1)
+        j["verdict"] = v["kind"]
+        if v["kind"] == "fix_itself":
+            res2 = roles.fix_itself(s["brief"], r.get("why", ""), v["why"], cwd=s["cwd"], claude=claude,
+                                    check=lambda: _checks_pass(verify(gid, goal, st, ids=[], extra=checks,
+                                                                      claude=claude, run=run, who=f"job {jid} fix")))
+            if res2["kind"] == "pass":
+                v = res2
+                j["fixed_by"] = roles.reviewer_model()
+            else:
+                v = dict(res2, kind="fix_itself")
+            if res2.get("usd"):
+                st["spend"].append({"t": time.time(), "usd": float(res2["usd"]), "who": f"reviewer fix {jid}"})
+        if v["kind"] == "pass":
+            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)"
+                     + (f"; fixed by the reviewer ({j['fixed_by']})" if j.get("fixed_by") else ""))
         else:
             bad = [f"{x['id']} {x['verdict']} {x['why']}" for x in own if x["verdict"] != "PASS"]
             j.update(status="failed-verify", why=f"the worker said done; the verifier says FAIL: {bad}")
-            if j["attempts"] < 3:
-                j["status"] = "queued"          # the planner gets the gap and a better brief may follow
+            if v["kind"] == "send_back":
+                s["brief"] = (s["brief"] + f"\n\nSENT BACK (round {j['attempts']}): your last result failed its "
+                              f"checks. What is wrong: {v['why']}")
+                j["status"] = "queued"          # the cheap worker goes again with the explained mistake
+            elif j["attempts"] < 3:
+                j["status"] = "queued"          # the reviewer's fix failed too: the planner gets the gap
     elif r["status"] == "paused-resumable":
         cp = r.get("checkpoint") or {}
         j.update(status="paused-resumable", why=r.get("why", ""), paused_until=cp.get("paused_until"))
