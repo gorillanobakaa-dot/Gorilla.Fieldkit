@@ -570,7 +570,7 @@ TRIGGER = {"claude-code": "room hook (UserPromptSubmit) + the tool router (PreTo
 def rule_text():
     return (f"{RULE_BEGIN}\n"
             "## Session rotation (fieldkit rotate)\n\n"
-            "Every call re-sends the whole conversation, so a long session costs more with every call. At the start "
+            "At the start "
             "of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` "
             "(agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`).\n"
             "- exit 0 OK: carry on.\n"
