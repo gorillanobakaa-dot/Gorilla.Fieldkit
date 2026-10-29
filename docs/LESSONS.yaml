@@ -68,3 +68,9 @@ lessons:
     tool: unread and needs-you notes are friction rows (C7)
     pr: "#171"
     test: tests/test_zero_friction.py
+  - id: L-20261029-1
+    date: 2026-10-29
+    what: Tag v0.7.0 was pushed without releases/notes/v0.7.0/ (opening, layman, developer, page); the release workflow failed at release-page check, a pushed tag can never be moved, so the version was burned (v0.7.1 shipped). gh-release was also the wrong path, the tag workflow publishes by itself.
+    tool: fieldkit ship push --tag refuses (exit 3, with the fix command) unless version, notes, page, CI on every mandate ci_os and a free tag all hold at the tagged commit; fieldkit ship release-ready vX is the dry run; ship gh-release does nothing when release.yml publishes on tags
+    pr: feat/tag-guard
+    test: tests/test_tag_guard.py
