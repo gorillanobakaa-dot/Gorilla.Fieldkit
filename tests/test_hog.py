@@ -441,12 +441,13 @@ def test_observe_registers_printed_pid_of_an_orphan_class(monkeypatch, cfg):
         monkeypatch.setattr(registry, "session_process", lambda me=None: fake_sess)
         got = registry.observe({"session_id": "s9", "tool_response": {"stdout": f"started pid={p.pid}"}},
                                cfg["orphan_classes"])
-        assert [(g["pid"], g["cls"]) for g in got] == [(p.pid, "pytest")]
+        # this process is the fake session: its real children (a runner's conhost.exe) are not the test's business
+        assert [(g["pid"], g["cls"]) for g in got if g["pid"] == p.pid] == [(p.pid, "pytest")]
         assert got[0]["owner_pid"] == fake_sess.pid
         registry.save([])
         later = registry.observe({"session_id": "s9", "tool_response": f"pid={p.pid}"}, cfg["orphan_classes"],
                                  now=time.time() + 3600)       # printed an hour after it started: not ours to claim
-        assert later == []
+        assert [g for g in later if g["pid"] == p.pid] == []
     finally:
         p.kill()
 

@@ -469,6 +469,8 @@ def hook(stdin=None):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--hook"]:
+        from ..core import nowindow
+        nowindow.prepare()                 # pythonw: a real stdout for the deny, no console for the children
         return hook()
     r = route(" ".join(argv))
     print(message(r) if r else "allowed")
