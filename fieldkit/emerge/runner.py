@@ -157,6 +157,26 @@ def snapshot(repos):
                 "dirty": _git(r, "status", "--porcelain", "--untracked-files=no")} for r in repos}
 
 
+def watched_repos(recipe):
+    """The checkouts a run must find as it left them: the recipe's own and every git source no stage fetches (a
+    fetched source moves by design). Owner order 2026-10-29: a session committed on a new branch in the checkout a
+    release emerge was running in."""
+    fetched = {Path(s["git"]) for s in recipe.sources if s.get("git") and s.get("fetched_by")}
+    out = []
+    for d in [Path(recipe.source).parent] + [Path(s["git"]) for s in recipe.sources if s.get("git")]:
+        top = _git(d, "rev-parse", "--show-toplevel") if d.exists() and d not in fetched else None
+        if top and top not in out:
+            out.append(top)
+    return out
+
+
+def moved(before, after):
+    """-> a sentence naming each checkout whose branch or HEAD changed between two snapshots, else None."""
+    parts = [f"{r}: {b['branch']}@{(b['head'] or '?')[:9]} -> {after[r]['branch']}@{(after[r]['head'] or '?')[:9]}"
+             for r, b in before.items() if r in after and (b["branch"], b["head"]) != (after[r]["branch"], after[r]["head"])]
+    return "; ".join(parts) or None
+
+
 def judge(before, after):
     """-> (ok, why). A fix is a commit on a branch; anything else stops the run."""
     moved = []
@@ -509,6 +529,8 @@ class Emerge:
         fixes = {}
         while True:
             t = self.clock()
+            watch = watched_repos(self.recipe)
+            base = snapshot(watch)
             self.recipe.forget()
             keys = self.recipe.keys()
             docs, _ = self._docs_mode()
@@ -529,6 +551,12 @@ class Emerge:
                 if hardlines.STOP_FILE.exists():
                     report.update(ok=False, stopped="the owner's STOP file")
                     self.say(f"STOPPED before {sid}: the owner's STOP file")
+                    return
+                if x["action"] not in SKIPS and (why := moved(base, snapshot(watch))):
+                    report.update(ok=False, refused=f"the checkout moved during the run ({why})")
+                    ent["status"] = "aborted"
+                    self.say(f"ABORTED before {sid}: the checkout moved during the run ({why}). Another writer used "
+                             "it; work in a worktree (git worktree add ../wt-NAME -b BRANCH origin/main)")
                     return
                 if x["action"] in SKIPS:
                     ent["status"] = x["action"]
