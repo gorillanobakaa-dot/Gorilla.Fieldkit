@@ -43,8 +43,25 @@ EVALUATION = VENDOR / "mcp-builder" / "scripts" / "evaluation.py"
 SKILL_CREATOR = VENDOR / "skill-creator"
 
 
+def _call(argv, **kw):
+    """subprocess.call that hands the child OUR stdout/stderr. A console-less parent (a hook, a pipe from an agent
+    or CI) starts children with CREATE_NO_WINDOW (core/nowindow), and a child given no explicit handles then gets a
+    fresh hidden console, so its output vanished (measured 2026-10-29: prefix-diff and webtest printed nothing)."""
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.flush()
+        except (AttributeError, ValueError, OSError):
+            pass
+    for name, stream in (("stdout", sys.stdout), ("stderr", sys.stderr)):
+        try:
+            kw[name] = stream.fileno()
+        except (AttributeError, ValueError, OSError):
+            pass
+    return subprocess.call(argv, **kw)
+
+
 def _run(argv, cwd=None, env=None):
-    return subprocess.call(argv, cwd=cwd, env=env)
+    return _call(argv, cwd=cwd, env=env)
 
 
 def _script(path, args, isolated=True):
@@ -141,7 +158,7 @@ def webtest(args):
                 print(f"webtest: {err} - see {logs / f'server-{n}.log'}")
                 return 1
         print(f"webtest: {len(procs)} server(s) ready; running: {' '.join(command)}", flush=True)
-        return subprocess.call(command)
+        return _call(command)
     finally:
         for p in procs:
             _stop_tree(p)
