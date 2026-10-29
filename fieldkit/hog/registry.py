@@ -142,9 +142,6 @@ def observe(call, classes, now=None):
             c = _cls(p, classes)
             if c:
                 found.append(entry(p, c, sid, owner, source="tree", now=now))
-        # the console host of a registered process (a windowless start gets one) dies with it: not its own entry
-        pids = {e["pid"] for e in found}
-        found = [e for e in found if not (e["cls"] == "conhost" and _ppid(e["pid"]) in pids)]
         out = json.dumps(call.get("tool_response") or "")[:20000]
         for m in PID_IN_TEXT.finditer(out):
             try:
@@ -156,6 +153,10 @@ def observe(call, classes, now=None):
                     found.append(entry(p, c, sid, owner, source="printed", now=now))
             except (psutil.Error, ValueError):
                 continue
+        # the console host of a registered process (a windowless start gets one) dies with it: not its own entry.
+        # Its parent may be registered by tree or printed pid; a conhost whose parent is not registered stays
+        pids = {e["pid"] for e in found}
+        found = [e for e in found if not (e["cls"] == "conhost" and _ppid(e["pid"]) in pids)]
         return add(found)
     except Exception:
         return []
