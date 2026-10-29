@@ -149,3 +149,45 @@ def test_run_fast_does_not_repeat_the_same_tests_on_the_same_tree(repo, monkeypa
     (repo / "fieldkit" / "a" / "b.py").write_text("X = 1\n# edit 2\n")      # a changed tree runs again
     assert testcost.main(["run", "--fast", "--base", "HEAD", "--repo", str(repo)]) == 0
     assert len(calls) == 2
+
+
+VERSION_BUMP = ["-version = \"0.6.0\"", "+version = \"0.6.1\""]
+
+
+def _plan(paths, diffs):
+    return testcost.plan(".", paths=paths, diff_lines=lambda p: diffs.get(p, []))
+
+
+def test_a_version_only_diff_is_no_code_and_selects_nothing():
+    pl = _plan(["pyproject.toml", "fieldkit/__init__.py"],
+               {"pyproject.toml": VERSION_BUMP, "fieldkit/__init__.py": ["-__version__ = \"0.6.0\"", "+__version__ = \"0.6.1\""]})
+    assert pl["no_code"] and pl["tests"] == [] and pl["unmapped"] == []
+
+
+def test_a_version_file_with_another_changed_line_is_code():
+    pl = _plan(["pyproject.toml"], {"pyproject.toml": VERSION_BUMP + ["+name = \"x\""]})
+    assert not pl["no_code"] and (pl["tests"] or pl["unmapped"])
+
+
+def test_a_version_file_with_no_readable_diff_is_code():
+    assert not _plan(["pyproject.toml"], {})["no_code"]
+
+
+def test_a_file_that_is_not_a_version_file_is_never_version_only():
+    assert not _plan(["fieldkit/testcost.py"], {"fieldkit/testcost.py": VERSION_BUMP})["no_code"]
+
+
+def test_docs_state_and_version_together_are_no_code_but_one_code_file_is_not():
+    paths = ["docs/HARNESS-PLAN.md", "state/coordination/PLAN.md", "pyproject.toml"]
+    assert _plan(paths, {"pyproject.toml": VERSION_BUMP})["no_code"]
+    assert not _plan(paths + ["fieldkit/testcost.py"], {"pyproject.toml": VERSION_BUMP})["no_code"]
+
+
+def test_only_the_named_version_files_can_be_version_only():
+    assert testcost.is_version_only("pyproject.toml", VERSION_BUMP)
+    assert not testcost.is_version_only("setup.cfg", VERSION_BUMP)
+
+
+def test_a_file_under_state_selects_no_test_whatever_its_suffix():
+    pl = _plan(["state/coordination/run.py"], {})
+    assert pl["no_code"] and pl["tests"] == [] and pl["unmapped"] == []

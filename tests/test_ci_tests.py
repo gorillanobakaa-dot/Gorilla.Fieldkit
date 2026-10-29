@@ -30,7 +30,12 @@ def test_only_the_covering_tests(monkeypatch):
 
 def test_docs_only_runs_nothing(monkeypatch):
     fake(monkeypatch, {"tests": [], "unmapped": [], "docs_only": True})
-    assert ci.selection("origin/main") == ([], "docs only: no test covers the change")
+    assert ci.selection("origin/main") == ([], "no code changed - no tests")
+
+
+def test_no_code_runs_nothing_even_when_docs_only_is_false(monkeypatch):
+    fake(monkeypatch, {"tests": [], "unmapped": [], "docs_only": False, "no_code": True})
+    assert ci.selection("origin/main") == ([], "no code changed - no tests")
 
 
 def test_unmapped_runs_the_whole_suite_but_mutation_plans_do_not(monkeypatch):
