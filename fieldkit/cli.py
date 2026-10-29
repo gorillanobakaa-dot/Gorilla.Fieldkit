@@ -2718,6 +2718,8 @@ def cmd_thermal(a):
 
 
 def main(argv=None):
+    from .core import nowindow
+    nowindow.prepare()                               # no console of its own (pythonw): children start windowless
     for stream in (sys.stdout, sys.stderr):          # Windows consoles default to cp1252
         try:
             stream.reconfigure(encoding="utf-8")

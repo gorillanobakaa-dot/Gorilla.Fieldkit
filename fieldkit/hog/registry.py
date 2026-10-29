@@ -117,6 +117,13 @@ def _cls(proc, classes):
         return None
 
 
+def _ppid(pid):
+    try:
+        return psutil.Process(pid).ppid()
+    except psutil.Error:
+        return None
+
+
 def observe(call, classes, now=None):
     """The room hook's half: register this session's orphan-class processes. Never raises."""
     try:
@@ -146,6 +153,10 @@ def observe(call, classes, now=None):
                     found.append(entry(p, c, sid, owner, source="printed", now=now))
             except (psutil.Error, ValueError):
                 continue
+        # the console host of a registered process (a windowless start gets one) dies with it: not its own entry.
+        # Its parent may be registered by tree or printed pid; a conhost whose parent is not registered stays
+        pids = {e["pid"] for e in found}
+        found = [e for e in found if not (e["cls"] == "conhost" and _ppid(e["pid"]) in pids)]
         return add(found)
     except Exception:
         return []
