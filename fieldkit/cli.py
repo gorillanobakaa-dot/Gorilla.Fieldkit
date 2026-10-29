@@ -1418,6 +1418,8 @@ METHODS = {
     "i18n": ("i18n", "translation tables: complete, unique per language, every used string covered; disjoint word lists"),
     "ship": ("ship", "the git side of shipping: status, sync a squash-merged branch (merge -s ours), push, "
                      "merge into main only under a project mandate; never forces"),
+    "strikes": ("strikes", "TWO STRIKES: a branch or PR that failed CI twice is parked, never tried a third time "
+                           "(list | park ID | unpark ID | check BRANCH)"),
     "handover": ("handover", "fixes to someone else's tool as a handover: before/after, why, test, proof; checked to apply"),
     "survey": ("survey", "facts about a repository before reading it: languages, tests, licence, big files, privacy"),
     "flaky": ("flaky", "a test that fails sometimes: failure rate over fresh runs, the swallowed thread error, shared OS names (repeat TEST | log | scan)"),

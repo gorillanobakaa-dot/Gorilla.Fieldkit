@@ -2939,6 +2939,16 @@
    "stranger"
   ]
  },
+ "strikes": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "strikes"
+  ]
+ },
  "survey": {
   "platforms": [
    "linux",

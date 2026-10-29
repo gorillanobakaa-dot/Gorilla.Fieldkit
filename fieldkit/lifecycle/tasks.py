@@ -131,8 +131,12 @@ def running_twin(h, title, now=None, tasks=None):
     return None
 
 
+class Parked(ValueError):
+    """The brief names a branch or PR that failed CI twice (TWO STRIKES); the message says which."""
+
+
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
-          worktree=None, model=None, accept=None, allow_expensive=False):
+          worktree=None, model=None, accept=None, allow_expensive=False, unpark=None):
     """-> the ledger record. Raises ValueError when the brief is missing or empty or the worker model is an expensive
     one, AlreadyStarted when the same brief is still started somewhere (unless again). `worktree`: (repo, tid) ->
     (path or None, why); default worktrees.make. `model`: the worker's model (default: roles.yaml worker.default);
@@ -141,6 +145,12 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     text = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
     if not text:
         raise ValueError(f"no brief in {brief_path}")
+    from ..method import strikes
+    if unpark:                                         # owner-only flag; strikes logs it
+        strikes.unpark(unpark, "task start --unpark")
+    hits = strikes.named_in(text)
+    if hits:
+        raise Parked(strikes.refusal(hits))
     tid = task_id(text, now)
     from . import roles
     model = roles.worker_model(model, allow_expensive=allow_expensive)

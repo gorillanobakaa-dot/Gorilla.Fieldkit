@@ -196,11 +196,15 @@ def main(argv=None):
         print(r["line"])
         return 1
     r["written"] = write_statuses(a.repo, r["merged"]) if a.write else []
+    from .method import strikes
+    r["parked"] = strikes.parked_line()
     save(r, a.repo)
     if a.json:
         print(json.dumps(r, indent=1))
         return 0
     print(r["line"])
+    if r["parked"]:
+        print(r["parked"])
     for ph in r["phases"]:
         mark = "done" if not ph["open"] else ("NOW " if ph["phase"] == r["phase"] else "open")
         print(f"  {mark}  {ph['phase']}: " + " ".join(i + ("*" if i in ph["done"] else "") for i in ph["items"]))

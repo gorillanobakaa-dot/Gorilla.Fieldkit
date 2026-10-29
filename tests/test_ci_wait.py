@@ -1,5 +1,12 @@
 """fieldkit ship ci-wait (O4): one blocking call per PR, the train's CI verdict, the failed log tail, a proven merge."""
-from fieldkit.method import train
+import pytest
+
+from fieldkit.method import strikes, train
+
+
+@pytest.fixture(autouse=True)
+def _own_registry(tmp_path, monkeypatch):
+    monkeypatch.setenv(strikes.ENV, str(tmp_path / "parked.json"))     # a red test must not park a real branch
 
 
 class GH:

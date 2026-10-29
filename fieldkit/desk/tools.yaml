@@ -5733,6 +5733,23 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Read-only on the project; with --binary it starts that program once. Born 2026-10-19 (TPFanControl installer gorilla.3 vs program gorilla.4)."
 
+- id: strikes
+  title: TWO STRIKES - a branch or PR that failed CI twice is parked (ci-wait, push and task start refuse it) and the plan goes on
+  harness: method
+  entry: [python, -m, fieldkit, strikes]
+  path: ${FIELDKIT}/fieldkit/method/strikes.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "list | park | unpark | check"}
+    - {name: ident, flag: null, type: str, required: false, help: "a branch name or PR number (check: the branch)"}
+  effects: [writes-files, network]
+  safety: reversible
+  output: own
+  exits: {1: "the registry state/parked.json cannot be read or its folder is missing", 3: "refused or not parked"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_strikes.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner order 2026-10-29. Registry state/parked.json (git-ignored). A failed round is one red verdict on one head commit. ship ci-wait exits 4 when it parks."
+
 - id: xzcheck
   title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)
   harness: method

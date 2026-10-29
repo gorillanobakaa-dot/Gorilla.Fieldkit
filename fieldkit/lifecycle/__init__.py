@@ -88,6 +88,8 @@ def cmd_task(argv):
     ap.add_argument("--allow-expensive", action="store_true", help="start: let the worker be an expensive model")
     ap.add_argument("--accept", help="start: the acceptance command; done needs a passing reviewer verdict on it")
     ap.add_argument("--again", action="store_true", help="start: even though the same brief is started and unfinished")
+    ap.add_argument("--unpark", metavar="ID", help="start: owner only; a parked branch or PR the brief names may be "
+                                                   "tried again (logged in state/parked.json)")
     ap.add_argument("--status", choices=list(tasks.STATUSES[1:]))
     ap.add_argument("--branch", default="")
     ap.add_argument("--pr", default="")
@@ -119,8 +121,8 @@ def cmd_task(argv):
             return 2
         try:
             rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again,
-                             model=a.model, accept=a.accept, allow_expensive=a.allow_expensive)
-        except tasks.AlreadyStarted as e:
+                             model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark)
+        except (tasks.AlreadyStarted, tasks.Parked) as e:
             print(f"NOT STARTED  {e}")
             return 3
         except ValueError as e:
