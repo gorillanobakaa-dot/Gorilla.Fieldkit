@@ -5,7 +5,7 @@
 #   release  -> the full test suite (owner rule 2026-10-28: the full suite runs once, when the work is finished),
 #               the release page carrying both tracks in full, the privacy scan of the git tree
 # The Fieldkit tree: the checkout this command runs from, or --var src=PATH.
-# Python: the checkout's venv on Linux; Windows: --var py=${FIELDKIT}/.venv/Scripts/python.exe
+# Python: the editable install on PATH (Windows and Linux); a checkout venv: --var py=${FIELDKIT}/.venv/bin/python (Scripts/python.exe on Windows)
 name: fieldkit
 description: >-
   Fieldkit from its own tree: a telemetry scan and a CLI smoke run on every change; the full test suite, the release
@@ -13,7 +13,7 @@ description: >-
 baseline_minutes: 15
 vars:
   src: "${FIELDKIT}"
-  py: "${FIELDKIT}/.venv/bin/python"
+  py: python                        # the editable install on PATH; a venv: --var py=${FIELDKIT}/.venv/bin/python
   tag: "v0.6.0"                     # the release being checked: --var tag=vX
 sources:
   - {id: src, git: "{src}", track: tree}
