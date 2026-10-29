@@ -1,14 +1,14 @@
 # Version: 1.0.0 · updated 26-10-23-16-17
-"""The relay watchdog: the listener is checked on a heartbeat and restarted with no person involved, every step logged.
+"""The relay heartbeat: the listener is checked and the open jobs are looked after; it does NOT restart the listener.
 
     fieldkit peers link watchdog [--once] [--every S]    one check (a timer runs it), or a loop every S seconds
     fieldkit peers link watchdog --install               Linux: a systemd user timer that runs --once every 2 minutes
 
-2026-10-23: the listener went deaf silently, and notes waited until a person noticed. The rules of every recovery loop
-(the owner, "incepe cu toate"): the same failure twice means stop and report, never a third try; progress is measured
-(listening again or not); every attempt is logged (watchdog.log). After two restarts in a row that did not bring the
-listener back, the watchdog stops restarting and puts one line in the owner's inbox; it starts again by itself once
-the listener is heard. On the boss, each check also looks after the open jobs (fieldkit/mandate/jobs.py supervise).
+2026-10-23: the listener went deaf silently, and notes waited until a person noticed. 2026-10-28 (C4,
+docs/findings/c4-link-drops.yaml): the restart here duplicated the service manager (systemd Restart=, the Windows
+logon task), the one keep-alive that brought the link back on the real log. So a deaf listener is now reported once to
+the owner's inbox and logged (watchdog.log); the restart is the service manager's. On the boss, each check also looks
+after the open jobs (fieldkit/mandate/jobs.py supervise), which is why this timer still exists.
 """
 import json
 import sys
@@ -34,14 +34,6 @@ def _listening():
     return bool(me) and link_setup.listening(me)
 
 
-def _restart():
-    # 2026-10-26: through the service manager when keep-alive is installed (the listener then outlives this check);
-    # the old way only when it is not
-    from . import link_keepalive, link_ops
-    handled, code, lines = link_keepalive.restart_via_manager()
-    return (code, lines) if handled else link_ops.restart()
-
-
 def _report(text):
     try:
         from ..autopilot.inbox import add
@@ -50,7 +42,7 @@ def _report(text):
         pass
 
 
-def tick(listening=_listening, restart=_restart, report=_report, supervise=None):
+def tick(listening=_listening, restart=None, report=_report, supervise=None):   # restart: kept so old callers work, unused
     """One heartbeat -> what happened, in words."""
     sp = _state_path()
     try:
@@ -60,27 +52,19 @@ def tick(listening=_listening, restart=_restart, report=_report, supervise=None)
     if not (link.config() or {}) and listening is _listening:
         return "not paired: nothing to watch"
     if listening():
-        if st.get("failed_restarts") or st.get("stopped"):
-            _log("listening again: the watchdog resumes")
+        if st.get("reported"):
+            _log("listening again")
         st = {"last_ok": time.strftime("%Y-%m-%d %H:%M:%S")}
         what = "listening"
-    elif st.get("stopped"):
-        what = "not listening; restarts stopped after two failures (reported); waiting for a person or a reboot"
     else:
-        code, lines = restart()
-        if code == 0:
-            st["restarts"] = st.get("restarts", 0) + 1
-            st["failed_restarts"] = 0
-            what = "was deaf; restarted: " + "; ".join(lines)[-200:]
-        else:
-            st["failed_restarts"] = st.get("failed_restarts", 0) + 1
-            what = f"restart {st['failed_restarts']} failed: " + "; ".join(lines)[-200:]
-            if st["failed_restarts"] >= 2:                # the same failure twice: stop and report
-                st["stopped"] = True
-                report(f"two restarts in a row did not bring the listener back. Last: {'; '.join(lines)[-300:]}. "
-                       f"Log: {link.home() / 'watchdog.log'}")
-                what += "; STOPPED restarting, reported to the owner's inbox"
-        _log(what)
+        # C4 (docs/findings/c4-link-drops.yaml): the service manager (systemd Restart=, the Windows logon task) is the one
+        # keep-alive. Restarting here as well made two mechanisms fight over one port. A deaf listener is reported once.
+        if not st.get("reported"):
+            report("the listener is not answering and the service manager has not brought it back. "
+                   f"Log: {link.home() / 'watchdog.log'}")
+            st["reported"] = True
+            _log("not listening; reported once, not restarting (the service manager does that)")
+        what = "not listening; reported, no restart (the service manager is the keep-alive)"
     if supervise is not None:
         try:
             for line in supervise():
