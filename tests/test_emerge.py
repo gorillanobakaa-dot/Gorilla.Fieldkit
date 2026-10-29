@@ -631,3 +631,31 @@ def test_cli_lists_and_routes():
     assert emerge_main(["list"]) == 0
     assert cli.main(["emerge", "list"]) == 0
     assert emerge_main(["plan"]) == 2
+
+
+def test_a_run_aborts_when_another_writer_moves_the_checkout(env):
+    """Owner order 2026-10-29: a session branched and committed in the checkout a release emerge was running in."""
+    tmp, work = env
+    s = spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, "-c",
+        "import os,shutil,subprocess; os.makedirs(r'%s/out',exist_ok=True); shutil.copyfile(r'%s/a.txt',r'%s/out/a.bin'); g=lambda *a: subprocess.run(['git','-C',r'%s',*a],check=True); "
+        "g('checkout','-q','-b','intruder'); g('commit','-q','--allow-empty','-m','x')" % (work, work, work, work)]}
+    rep = emerge(recipe(tmp, s)).run()
+    assert not rep["ok"] and "checkout moved" in rep["refused"] and "intruder" in rep["refused"]
+    assert [e["id"] for e in rep["stages"] if e.get("status") == "pass"] == ["one"]
+    assert next(e for e in rep["stages"] if e["id"] == "two")["status"] == "aborted"
+
+
+def test_an_unmoved_checkout_does_not_abort_the_run(env):
+    tmp, work = env
+    assert emerge(recipe(tmp, spec(work))).run()["ok"]
+
+
+def test_a_branch_switch_with_the_same_head_is_a_move_too(env):
+    tmp, work = env
+    s = spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, "-c",
+        "import os,shutil,subprocess; os.makedirs(r'%s/out',exist_ok=True); shutil.copyfile(r'%s/a.txt',r'%s/out/a.bin'); "
+        "subprocess.run(['git','-C',r'%s','checkout','-q','-b','sibling'],check=True)" % (work, work, work, work)]}
+    rep = emerge(recipe(tmp, s)).run()
+    assert not rep["ok"] and "sibling" in rep["refused"]

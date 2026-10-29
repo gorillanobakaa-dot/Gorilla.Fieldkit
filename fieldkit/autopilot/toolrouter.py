@@ -399,6 +399,15 @@ def _claims(call):
         return None
 
 
+def _checkout(call):
+    """One writer per primary checkout (fieldkit/zero/checkout_guard.py): only Zero changes the main checkout. Fails open."""
+    try:
+        from ..zero import checkout_guard
+        return checkout_guard.pretool(call)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _rotate_stop(call):
     """Past the ROTATE line a session may only hand over (fieldkit/tokens/rotate_stop.py). Fails open."""
     try:
@@ -423,9 +432,9 @@ def _deny(reason):
 
 
 def verdict(call):
-    """-> the deny JSON for a tool call, or None: ground claims, the rotation stop, the circuit breaker, then (Bash and
+    """-> the deny JSON for a tool call, or None: ground claims, the primary checkout, the rotation stop, the circuit breaker, then (Bash and
     PowerShell) the route table."""
-    deny = _claims(call)
+    deny = _claims(call) or _checkout(call)
     if deny:
         return deny
     stop = _rotate_stop(call) or _breaker(call)
