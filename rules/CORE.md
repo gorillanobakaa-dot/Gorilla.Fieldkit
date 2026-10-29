@@ -33,6 +33,10 @@ packages, never `./...`; Rust: the touched crate). A passed test is never re-run
 project is finished (owner, 2026-10-28). On the Windows laptop every heavy command runs under `fieldkit guard --`,
 one at a time.
 
+TWO STRIKES (owner, 2026-10-29; a hard rule). A PR, job or fix that fails CI twice is PARKED: stop its retries,
+`fieldkit inbox add` the note (PR, branch, both failures), leave the PR open for a stronger model's repair, and go on
+with the plan. No third try. Never merge red or weaken a check.
+
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
 
