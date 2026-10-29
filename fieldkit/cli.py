@@ -1632,6 +1632,10 @@ def build_parser():
                         help="where the harness plan stands: the current phase of docs/HARNESS-PLAN.md, its open "
                              "items, the ones merged pull requests finished (fieldkit plan next)")
     pl.add_argument("args", nargs=argparse.REMAINDER)
+    idp = sub.add_parser("ideas", add_help=False,
+                         help="parked suggestions: written down while a job runs, never added to the running plan; "
+                              "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
+    idp.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
