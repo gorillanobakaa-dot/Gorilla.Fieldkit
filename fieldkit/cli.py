@@ -2828,6 +2828,9 @@ def main(argv=None):
     if args[:1] == ["plan"]:                          # where the harness plan stands: phase, open items, merged ones
         from . import plan
         return plan.main(args[1:])
+    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+        from . import ideas
+        return ideas.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])
