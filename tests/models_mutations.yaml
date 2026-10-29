@@ -1,0 +1,32 @@
+# Rules of the cost guard (HARNESS-PLAN I5 follow-up, 2026-10-29). Every one must be CAUGHT:
+#   fieldkit mutate --plan tests/models_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_models.py
+- file: fieldkit/lifecycle/models.py
+  swap: ['    return "premium"', '    return "cheap"']
+  why: an unknown model name is premium (fail closed)
+- file: fieldkit/lifecycle/models.py
+  swap: ['        elif tier == "review" and role == "reviewer":', '        elif tier == "review":']
+  why: Opus is allowed for the reviewer role only
+- file: fieldkit/lifecycle/models.py
+  swap: ['    for t in ("premium", "review", "cheap"):', '    for t in ("cheap", "premium", "review"):']
+  why: a premium name hidden among cheap words is still premium
+- file: fieldkit/lifecycle/models.py
+  swap: ['            ok, _ = M.verify(p, today)', '            ok = True']
+  why: the owner-signed allow needs a verified, unexpired mandate
+- file: fieldkit/lifecycle/models.py
+  swap: ['    if log and (not ok or tier != "cheap"):', '    if False:']
+  why: every refusal and every allowed expensive start is written to the ledger
+- file: fieldkit/lifecycle/models.py
+  swap: ['        require(env["ANTHROPIC_MODEL"], role, origin, **kw)', '        pass']
+  why: an ANTHROPIC_MODEL env cannot slip past the flag
+- file: fieldkit/lifecycle/models.py
+  swap: ['        env["ANTHROPIC_MODEL"] = model', '        pass']
+  why: the launched process gets the checked model in its env
+- file: fieldkit/peers/link.py
+  swap: ['    if not chk["ok"]:', '    if False:']
+  why: the listener refuses a premium or unknown model from the cable
+- file: fieldkit/lifecycle/tasks.py
+  swap: ['    model = models.require(model, "worker"', '    model = (model or "x") if True else models.require(model, "worker"']
+  why: task start checks the model
+- file: fieldkit/autopilot/run.py
+  swap: ['    except models.Refused as e:', '    except ZeroDivisionError as e:']
+  why: the spawn guard refuses before a process starts

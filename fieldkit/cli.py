@@ -1604,6 +1604,8 @@ def build_parser():
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
+                                  "(models report; fieldkit/lifecycle/models.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
@@ -2813,6 +2815,9 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
+    if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
+        from .lifecycle import models
+        return models.main(args[1:])
     if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])

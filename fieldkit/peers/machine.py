@@ -28,6 +28,7 @@ The check is plain code on fixed data: a title is tagged when, leading spaces as
 model judgment anywhere in the check path. Zero tokens.
 """
 import json
+import os
 import platform
 import re
 import socket
@@ -333,8 +334,12 @@ def hook_line(call, event):
                 return ""
             mark.parent.mkdir(parents=True, exist_ok=True)
             mark.write_text(json.dumps({"tag": tag, "event": event, "t": time.time()}), encoding="utf-8")
-        return (f"MACHINE: this machine is {tag}: title yourself {tag} <job> (the session title starts with the "
+        line = (f"MACHINE: this machine is {tag}: title yourself {tag} <job> (the session title starts with the "
                 "tag; `fieldkit sessions tag --check` lists every session that does not).")
+        if event == "SessionStart":                    # advisory: the owner chooses interactive models
+            from ..lifecycle import models
+            line += " " + models.session_line(call.get("model") or os.environ.get("ANTHROPIC_MODEL"))
+        return line.rstrip()
     except Exception:  # noqa: BLE001 - a courtesy line must never break the session's hook
         return ""
 

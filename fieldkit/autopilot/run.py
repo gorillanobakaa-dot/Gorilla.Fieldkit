@@ -225,7 +225,7 @@ def parse_result(text):
 
 
 def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resume=None, model=None,
-           popen=subprocess.Popen, idle_minutes=None):
+           popen=subprocess.Popen, idle_minutes=None, role="worker"):
     """One headless Claude Code run in autopilot (bypass mode + the hard-line hook, no credential).
     max_turns 10000 (owner 2026-10-22; 40 ended the first night run's job 2 mid-mutate). timeout = the job's wall
     budget in seconds (None: no limit; the hidden 7200 s is gone): on expiry the whole process tree is killed by
@@ -247,8 +247,13 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
         "--max-turns", str(max_turns), "--output-format", "stream-json", "--verbose"]
     if resume:
         args += ["--resume", resume]
-    if model:
-        args += ["--model", model]
+    # Spawn-time guard (lifecycle/models.py): the model flag and ANTHROPIC_MODEL are checked and rewritten; a headless
+    # run naming none gets the cheap default; a premium or unknown model is refused (and logged) without a signed allow.
+    from ..lifecycle import models
+    try:
+        args, env = models.guard_launch(args + (["--model", model] if model else []), env, role, "autopilot")
+    except models.Refused as e:
+        return {"ok": False, "rc": 1, "why": f"model refused: {e}", "refused": True}
     # In a container (fieldkit/core/contain.py): the timeout stops the WHOLE tree, orphans included, output goes to
     # files (a leftover child can never hold a pipe open), and what the run leaves behind is stopped when it ends.
     # stream-json makes progress visible: no output and no CPU for idle_minutes is a STALL (FM-9, 2026-10-26: a relief
