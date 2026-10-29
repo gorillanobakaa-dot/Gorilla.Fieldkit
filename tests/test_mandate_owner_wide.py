@@ -303,6 +303,9 @@ if os.environ.get("FK_E2E_HOME"):
     M.home = lambda: Path(os.environ["FK_E2E_HOME"])
     G.root = lambda: Path(os.environ["FK_E2E_STORE"])
     G.guarded = lambda path=None: (True, "the e2e test store")
+    # this test is about the hook and the mandate; the tag guard (no notes, no CI here) has its own tests/test_tag_guard.py
+    from fieldkit.method import tagguard
+    tagguard.check = lambda repo, tag, **kw: {"ok": True, "rows": []}
 """
 
 

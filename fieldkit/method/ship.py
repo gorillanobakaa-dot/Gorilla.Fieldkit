@@ -4,9 +4,12 @@
     fieldkit ship sync   [--base main]     make the next push a fast-forward, safely (see below); never force
     fieldkit ship push   [--base main]     sync if needed, then push with retries on network errors; the push carries
                                            FIELDKIT_SHIP_PUSH=1, so a repository's pre-push hook asks the mandate gate
-    fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern
+    fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern, and only when
+                                           its commit can publish: version, notes, page, CI green (tagguard.py)
+    fieldkit ship release-ready vX.Y.Z     the same checks as a dry run: what is missing, in order, and the fix for each
     fieldkit ship gh-release vX.Y.Z -- ARGS   gh release create --verify-tag of a tag on origin, under a mandate's
-                                           release: from_tag, once CI is green on the tag's commit
+                                           release: from_tag, once CI is green on the tag's commit; does nothing when
+                                           the repository's release.yml publishes on tags
     fieldkit ship commit --message-file F  commit what is staged; a known hook refusal fixed and tried again, the same
                                            one twice or an unknown one stops and is reported; never --no-verify
     fieldkit ship merge  [--base main]     merge the branch into main ONLY when a project mandate allows it, every
@@ -47,6 +50,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from . import emit
 
@@ -198,14 +202,22 @@ def ship_env():
     return env
 
 
-def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate):
-    """Push ONE new tag, never moved: allowed when a mandate's `tags:` pattern matches and its commit is on origin."""
+def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guard=None):
+    """Push ONE new tag, never moved: allowed when a mandate's `tags:` pattern matches and its commit is on origin,
+    and the tagged commit can publish (tagguard: version, release notes, page, CI, tag not on origin)."""
     if not tag or not _rev(repo, f"refs/tags/{tag}"):
         return {"ok": False, "state": "no-tag", "tag": tag, "next": f"make the tag first: git tag -a {tag} -m ..."}
     verdict, why, mpath = mandate("tag", repo_path=repo, tag=tag)
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
+    from . import tagguard
+    g = (guard or tagguard.check)(repo, tag)
+    if not g["ok"]:
+        bad = [x for x in g["rows"] if not x["ok"]]
+        return {"ok": False, "state": "not-release-ready", "tag": tag, "rows": g["rows"],
+                "error": "; ".join(f"{x['check']}: {x['say']}" for x in bad),
+                "next": bad[0]["run"] or f"fieldkit ship release-ready {tag}"}
     delay, last = 2, ""
     for _ in range(tries):
         r = git(repo, "push", "origin", f"refs/tags/{tag}", env=ship_env())
@@ -223,6 +235,10 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate):
 def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
+    wf = Path(repo) / ".github" / "workflows" / "release.yml"
+    if wf.is_file() and re.search(r"(?m)^\s*tags\s*:", wf.read_text(encoding="utf-8", errors="replace")):
+        return {"ok": True, "state": "tag-workflow-publishes", "tag": tag,
+                "next": "the tag workflow publishes; do not run gh-release"}
     bad = [x for x in extra if x in ("--target", "-t", "-R", "--repo") or x.startswith(("--target=", "--repo=", "-R"))]
     if bad:
         return {"ok": False, "state": "bad-input", "tag": tag, "error": f"not allowed here: {' '.join(bad)}",
@@ -319,7 +335,7 @@ def main(argv=None, prog="fieldkit ship"):
         return mergeproof.main([PROOF[argv[0]], *argv[1:]], f"{prog} {argv[0]}")
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune",
-                                       "gh-release", *TRAIN, *PROOF])
+                                       "gh-release", "release-ready", *TRAIN, *PROOF])
     ap.add_argument("--tag", dest="push_tag", help="push: this NEW tag (never moved) instead of the branch")
     ap.add_argument("--message-file", help="commit: the commit message file")
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
@@ -333,6 +349,13 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--json", action="store_true")
     extra = argv[argv.index("--") + 1:] if "--" in argv else []      # gh-release: what gh release create gets
     a = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
+    if a.action == "release-ready":
+        from . import tagguard
+        if not a.tag:
+            ap.error("release-ready needs a tag: fieldkit ship release-ready vX.Y.Z")
+        r = tagguard.check(a.repo, a.tag, dry_run=True)
+        emit(r, a.json, tagguard.lines)
+        return 0 if r["ok"] else 3
     if a.action == "gh-release" or (a.action == "push" and a.push_tag):
         if a.action == "gh-release" and not a.tag:
             ap.error("gh-release needs a tag: fieldkit ship gh-release vX.Y.Z -- --title ... --notes-file F FILES")
