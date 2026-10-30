@@ -44,7 +44,7 @@ def _repo(tmp_path):
     return co
 
 
-def brief(tmp_path, text="Do the job.\nMore.", name="brief.md"):
+def brief(tmp_path, text="Do the job.\nMore. Plan O3.", name="brief.md"):
     p = tmp_path / name
     p.write_text(text, encoding="utf-8")
     return p
@@ -149,7 +149,7 @@ def test_a_second_start_of_the_same_brief_is_refused_while_the_first_runs(tmp_pa
         tasks.start(brief(tmp_path, name="copy.md"), cwd=tmp_path, launch=go, now=NOW + 60)    # same text
     assert first["id"] in str(e.value) and "--again" in str(e.value) and len(launched) == 1
     with pytest.raises(tasks.AlreadyStarted):                                           # same title, other text
-        tasks.start(brief(tmp_path, "Do the job.\nOther words.", "b2.md"), cwd=tmp_path, launch=go, now=NOW + 60)
+        tasks.start(brief(tmp_path, "Do the job.\nOther words O3.", "b2.md"), cwd=tmp_path, launch=go, now=NOW + 60)
     with pytest.raises(tasks.AlreadyStarted):                                           # on another machine too
         tasks.start(brief(tmp_path), on="vaio", now=NOW + 60,
                     call=lambda req, timeout, device: {"ok": True, "started": True})

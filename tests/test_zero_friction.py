@@ -369,7 +369,7 @@ def test_cli_sweep_exit_one_when_something_is_to_archive(monkeypatch, capsys):
 
 # ---------------------------------------------------------------- headless tasking
 
-def brief(tmp_path, text="Do the job.\nMore."):
+def brief(tmp_path, text="Do the job.\nMore. Plan O3."):
     p = tmp_path / "brief.md"
     p.write_text(text, encoding="utf-8")
     return p
@@ -409,7 +409,7 @@ def test_task_start_on_a_peer_asks_its_link_listener(tmp_path):
     assert dev == "vaio" and req["verb"] == "ask" and req["agent"] == "claude"
     assert f"fieldkit-task {r['id']} done" in req["brief"] and "fieldkit peers link send" in req["brief"]
     assert r["status"] == "started" and "PID 5" in r["answer"]
-    r2 = tasks.start(brief(tmp_path, "Other"), on="vaio", now=NOW + 1,
+    r2 = tasks.start(brief(tmp_path, "Other O3"), on="vaio", now=NOW + 1,
                      call=lambda req, timeout, device: {"ok": True, "started": False, "why": "not started: x"})
     assert r2["status"] == "not-started"
 
@@ -501,7 +501,7 @@ def test_fieldkit_cli_dispatches(monkeypatch):
 
 def test_a_task_whose_process_ended_with_no_report_is_died_not_started(tmp_path):
     a = tasks.start(brief(tmp_path), cwd=tmp_path, launch=lambda a: {"pid": 7, "log": "L7"}, now=NOW)
-    b = tasks.start(brief(tmp_path, "Do the other job."), cwd=tmp_path, launch=lambda a: {"pid": 8, "log": "L8"},
+    b = tasks.start(brief(tmp_path, "Do the other job. O3"), cwd=tmp_path, launch=lambda a: {"pid": 8, "log": "L8"},
                     now=NOW + 1)
     tasks.report(b["id"], "done", note="ok")
     led = tasks.ledger()
