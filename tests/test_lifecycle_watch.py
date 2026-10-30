@@ -113,3 +113,22 @@ def test_schedule_plan_uses_its_own_unit_every_5_minutes():
     w = schedule.plan("win32", python="py", root="/r", job=schedule.WATCH)
     assert "PT5M" in w[0][2] and "Fieldkit task watch" in w[1][1]
     assert "PT15M" in schedule.plan("win32", python="py", root="/r")[0][2]       # the comms check is unchanged
+
+
+def note(n, minutes_ago, text="[FROM Linux #3] [NEEDS YOU]\nphase 3 is ready", **kw):
+    return {"n": n, "kind": "message", "at": at(minutes_ago), "from_host": "vaio", "text": text, **kw}
+
+
+def test_a_needs_you_note_unread_for_ten_minutes_is_an_unread_finding():
+    """Plan C7 (inbox 204): an idle session never reads the cable; Zero is told to poke it."""
+    got = find({}, notes=[note(5, 12)], read_upto=0)
+    assert got == {"note-5": "UNREAD"}
+    line = watch.findings({}, now=NOW, notes=[note(5, 12)], read_upto=0)[0]
+    assert "NEEDS YOU" in line["line"] and "send_message" in line["next"]
+
+
+def test_a_fresh_read_or_plain_note_is_not_an_unread_finding():
+    assert find({}, notes=[note(5, 3)], read_upto=0) == {}                       # younger than the wait
+    assert find({}, notes=[note(5, 30)], read_upto=5) == {}                      # already read
+    assert find({}, notes=[note(5, 30, text="[FROM Linux #3]\nfyi")], read_upto=0) == {}   # not a NEEDS YOU note
+    assert find({}, notes=[note(5, 30, handed="claude")], read_upto=0) == {}     # handed to a session
