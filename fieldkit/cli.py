@@ -1675,6 +1675,11 @@ def build_parser():
     ev.add_argument("args", nargs=argparse.REMAINDER)
     ev.set_defaults(fn=lambda a: __import__("fieldkit.evidence.cli", fromlist=["main"]).main(a.args))
 
+    wb = sub.add_parser("web", add_help=False, help="web pages through a real headless browser when the HTTP reader is "
+                                                     "blocked or gets nothing (fieldkit web fetch|doctor)")
+    wb.add_argument("args", nargs=argparse.REMAINDER)
+    wb.set_defaults(fn=lambda a: __import__("fieldkit.web.cli", fromlist=["main"]).main(a.args))
+
     sub.add_parser("audio", parents=[common],
                    help="Linux: every stage the sound passes through, what is done twice, and the fix (changes nothing)"
                    ).set_defaults(fn=cmd_audio)
@@ -2861,6 +2866,9 @@ def main(argv=None):
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])
+    if args[:1] == ["web"]:                           # pages through a real browser when HTTP is blocked (fieldkit/web)
+        from .web import cli as web_cli
+        return web_cli.main(args[1:])
     if args[:1] == ["evidence"]:                      # and the evidence store (fieldkit/evidence)
         from .evidence import cli as evidence_cli
         return evidence_cli.main(args[1:])

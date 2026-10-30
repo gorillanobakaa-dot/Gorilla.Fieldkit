@@ -2334,6 +2334,38 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
 
+- id: web-fetch
+  title: "A web page as text: the HTTP reader first, a real headless browser (Selenium + Gorilla Firefox, throwaway profile, no telemetry, no downloads) only when the page is blocked or empty"
+  harness: research
+  entry: [python, -m, fieldkit, web, fetch]
+  path: ${FIELDKIT}/fieldkit/web/cli.py
+  inputs:
+    - {name: url, flag: null, type: str, required: true, help: "an http(s) URL"}
+    - {name: browser, flag: --browser, type: str, required: false, help: "auto (default), firefox or safari (macOS)"}
+    - {name: timeout, flag: --timeout, type: str, required: false, help: "seconds"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {1: error, 3: findings}
+  answer_lines: 30
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
+
+- id: web-doctor
+  title: "What the browser fallback needs (selenium, pinned geckodriver, Gorilla Firefox path), what is missing and the exact commands; --install asks a person y/n and refuses in a headless run"
+  harness: research
+  entry: [python, -m, fieldkit, web, doctor]
+  path: ${FIELDKIT}/fieldkit/web/doctor.py
+  inputs:
+    - {name: install, flag: --install, type: flag, required: false, help: "ask a person at a terminal, then install what is missing"}
+  effects: [reads-files, network, writes-files]
+  safety: reversible
+  output: first-party
+  exits: {1: error, 3: findings}
+  answer_lines: 20
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
+
 - id: evidence-import
   title: "A research run's findings file as records: one per lane, one per claim (tier or grade, URLs, quote)"
   harness: research

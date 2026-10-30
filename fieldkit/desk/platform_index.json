@@ -3210,6 +3210,26 @@
    "watchdog-test"
   ]
  },
+ "web doctor": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "web-doctor"
+  ]
+ },
+ "web fetch": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "web-fetch"
+  ]
+ },
  "webtest": {
   "platforms": [
    "darwin",
