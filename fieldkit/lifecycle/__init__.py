@@ -12,6 +12,7 @@
     fieldkit task start --on DEVICE --run --tree DIR [--artefact GLOB] [--wall MIN] -- LINE
                                                  no AI: a build or test line run on a copy of DIR there, the
                                                  worker's signed result checked by `task status`
+    fieldkit task watch [--once] [--act]         Z1 NO PASSIVE WAITING: UNHANDLED / STALLED / DIED tasks, exit 3 (watch.py)
     fieldkit task status [--json]                every task, with the reports that came back (here and over the cable)
     fieldkit task start BRIEF.md --model sonnet --accept "CMD"   worker model; done only on a reviewer pass + CMD
     fieldkit task report ID --status done|failed|blocked [--branch B] [--pr URL] [--note TEXT]
@@ -78,7 +79,7 @@ def cmd_friction(argv):
 def cmd_task(argv):
     ap = argparse.ArgumentParser(prog="fieldkit task", description=tasks.__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["start", "status", "report", "lint"])
+    ap.add_argument("action", choices=["start", "status", "report", "watch", "lint"])
     ap.add_argument("arg", nargs="?", help="start: the brief file; report: the task id")
     ap.add_argument("--on", help="start: a device of the household (the job runs there, over the cable)")
     ap.add_argument("--cwd", help="start here: the folder the job works in (default: this one)")
@@ -99,6 +100,15 @@ def cmd_task(argv):
     ap.add_argument("--tree", help="start --run: the folder the line works on (sent first)")
     ap.add_argument("--artefact", action="append", default=[], help="start --run: a glob to send back (repeat)")
     ap.add_argument("--project", default="Gorilla.Fieldkit", help="start --run: the repository the mandate names")
+    ap.add_argument("--once", action="store_true", help="watch: look once (default: look every --every s until a task needs you)")
+    ap.add_argument("--act", action="store_true", help="watch: ping silent peers, add owner-inbox lines, write the findings Zero's hook reads")
+    ap.add_argument("--stalled", type=int, default=10, help="watch: minutes of silence that make a running task STALLED")
+    ap.add_argument("--hours", type=int, default=24, help="watch: an ended task older than this is history")
+    ap.add_argument("--every", type=int, default=60, help="watch: seconds between looks")
+    ap.add_argument("--scheduled", action="store_true", help="watch: run by the timer (once, prints only findings)")
+    ap.add_argument("--schedule", action="store_true", help="watch: show the 5-minute timer (with --apply: install it)")
+    ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--remove", action="store_true", help="watch: remove the timer")
     ap.add_argument("--json", action="store_true")
     line = []
     if "--" in argv:
@@ -150,6 +160,9 @@ def cmd_task(argv):
         print(f"TASK {rec['id']}  {rec['status']}" + (f"  verdict {rec['verdict']}: {rec['verdict_why']}"
                                                        if rec.get("verdict") else ""))
         return 0 if rec["status"] == a.status else 3
+    if a.action == "watch":
+        from . import watch
+        return watch.main(a)
     new = tasks.ingest()
     done = tasks.collect_jobs(tasks.ledger())          # run jobs whose signed result came back
     from . import worktrees

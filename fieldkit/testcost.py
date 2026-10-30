@@ -47,6 +47,11 @@ FLAGS = {
 DOC_SUFFIXES = {".md", ".rst", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
 #: a documentation file inside these trees can still be read by a test (skills, cards): never "docs only"
 CODE_TREES = ("fieldkit/", "tests/", "skills/", "hooks/", "kits/")
+#: files whose only change may be the version line: such a diff holds no code
+VERSION_FILES = ("pyproject.toml", "fieldkit/__init__.py")
+VERSION_LINE = re.compile(r"^\s*(version|__version__)\s*=")
+#: trees that hold plans and reports, never code
+NON_CODE_TREES = ("state/",)
 
 
 def state_dir():
@@ -151,6 +156,30 @@ def is_docs_only(paths):
     return bool(paths) and all(Path(p).suffix.lower() in DOC_SUFFIXES and not p.startswith(CODE_TREES) for p in paths)
 
 
+def _line_diff(repo, base, path):
+    """The changed lines of one file (committed since `base`, staged and unstaged), no context, no headers."""
+    text = ""
+    if base:
+        text += _git(repo, "diff", "-U0", f"{base}...HEAD", "--", path)
+    text += _git(repo, "diff", "-U0", "HEAD", "--", path)
+    return [l for l in text.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+
+
+def is_version_only(path, lines):
+    """True when `path` may carry a version line and every changed line in `lines` is one (at least one line)."""
+    path = path.replace("\\", "/")
+    return path in VERSION_FILES and bool(lines) and all(VERSION_LINE.match(l[1:]) for l in lines)
+
+
+def is_no_code(paths, diff_lines=lambda path: []):
+    """True when nothing in `paths` is code: documentation no test reads, files under state/, or a version-only diff.
+    `diff_lines(path)` -> the changed lines of that file (injectable; the default sees none, so a version file counts
+    as code unless the caller reads the diff)."""
+    paths = [p.replace("\\", "/") for p in paths if p]
+    return bool(paths) and all(
+        p.startswith(NON_CODE_TREES) or is_docs_only([p]) or is_version_only(p, diff_lines(p)) for p in paths)
+
+
 def changed_files(repo=".", base=None):
     """Paths changed against `base` (default: HEAD), staged, unstaged and untracked."""
     out = set()
@@ -193,8 +222,11 @@ def _imports(test_file):
     return mods
 
 
-def plan(repo=".", base=None, paths=None):
-    """{"tests": [...], "unmapped": [...], "docs_only": bool}: the tests that cover the changed files.
+def plan(repo=".", base=None, paths=None, diff_lines=None):
+    """{"tests": [...], "unmapped": [...], "docs_only": bool, "no_code": bool}: the tests that cover the changed files.
+
+    "no_code": nothing changed but documentation, state/ files or version lines (read from the diff, `diff_lines`
+    is injectable): zero tests are selected for those paths.
 
     A test covers a module when it imports it or a submodule of it (`import fieldkit` alone covers nothing: every test
     has it). A changed test runs itself. A changed module no test imports is matched by name in the test sources (a CLI
@@ -204,9 +236,12 @@ def plan(repo=".", base=None, paths=None):
     tests_dir = repo / "tests"
     test_files = sorted(tests_dir.glob("test_*.py")) if tests_dir.is_dir() else []
     imports = {t: _imports(t) for t in test_files}
+    diff_lines = diff_lines or (lambda path: _line_diff(repo, base, path))
     chosen, unmapped = set(), []
     for p in paths:
         q = p.replace("\\", "/")
+        if q.startswith(NON_CODE_TREES) or is_version_only(q, diff_lines(q) if q in VERSION_FILES else []):
+            continue
         if q.startswith("tests/") and Path(q).name.startswith("test_") and q.endswith(".py"):
             chosen.add(str(repo / q))
             continue
@@ -227,7 +262,9 @@ def plan(repo=".", base=None, paths=None):
             chosen |= hits
         else:
             unmapped.append(q)
-    return {"tests": sorted(chosen), "unmapped": unmapped, "docs_only": is_docs_only(paths), "changed": paths}
+    return {"tests": sorted(chosen), "unmapped": unmapped, "docs_only": is_docs_only(paths),
+            "no_code": is_no_code(paths, lambda q: diff_lines(q) if q.replace("\\", "/") in VERSION_FILES else []),
+            "changed": paths}
 
 
 def report(last=200):

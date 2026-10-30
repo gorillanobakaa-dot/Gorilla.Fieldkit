@@ -464,6 +464,21 @@ def only_new(session_id, text):
     return "\n".join(out)
 
 
+def _ideas(call, event, ctx):
+    """Parked ideas (fieldkit ideas): the one line on every prompt of a session, the brief on its first. Silent when the
+    store is empty or missing. Never fails the hook."""
+    if event != "UserPromptSubmit":
+        return ctx
+    try:
+        from .. import ideas
+        t = ideas.hook_text(call.get("session_id"))
+        if t:
+            return (ctx + "\n" if ctx else "") + t
+    except Exception:
+        pass
+    return ctx
+
+
 def _context(call, event):
     """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
     rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
@@ -478,6 +493,7 @@ def _context(call, event):
     ctx = _rotate(call, event, ctx)
     ctx = _net(call, event, ctx)
     ctx = _plan(call, event, ctx)
+    ctx = _ideas(call, event, ctx)
     ctx = _relay(call, event, ctx)
     return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
 
