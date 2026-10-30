@@ -1,0 +1,87 @@
+# fieldkit ideas (2026-10-29): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/ideas_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ideas.py tests/test_backup_usb.py
+- file: fieldkit/ideas.py
+  swap:
+  - "    _owner_only()\n    if status not in STATUSES:"
+  - "    if status not in STATUSES:"
+  why: a model can accept or forget (no terminal guard on set_status)
+- file: fieldkit/ideas.py
+  swap:
+  - "    _owner_only()\n    ps = listing"
+  - "    ps = listing"
+  why: a model can run the review
+- file: fieldkit/ideas.py
+  swap:
+  - "    if not task.owner_terminal():"
+  - "    if False:"
+  why: the guard never refuses
+- file: fieldkit/ideas.py
+  swap:
+  - "if i[\"status\"] == \"forgotten\" else i[\"title\"]"
+  - "if False else i[\"title\"]"
+  why: a forgotten idea is not struck through
+- file: fieldkit/ideas.py
+  swap:
+  - "    if not session_id or mark.exists():"
+  - "    if not session_id:"
+  why: the brief is shown on every prompt, not only the first
+- file: fieldkit/ideas.py
+  swap:
+  - "        if e[\"status\"] != \"parked\":"
+  - "        if False:"
+  why: a decided idea is decided again
+- file: fieldkit/ideas.py
+  swap:
+  - "        if all(1 <= x <= n for x in ix):"
+  - "        if True:"
+  why: a number outside the list is accepted
+- file: fieldkit/ideas.py
+  swap:
+  - "    return f\"{n} parked ideas - fieldkit ideas review\" if n else \"\""
+  - "    return f\"{n} parked ideas - fieldkit ideas review\""
+  why: the line shows with nothing parked
+- file: fieldkit/ideas.py
+  swap:
+  - "    return f\"P{max(used or [0]) + 1}\""
+  - "    return \"P1\""
+  why: the plan id is not the next free one
+- file: fieldkit/ideas.py
+  swap:
+  - "    if t in (\"\", \"p\"):"
+  - "    if t in (\"p\",):"
+  why: Enter does not keep the ideas parked
+- file: fieldkit/plan.py
+  swap:
+  - "[RLOCIWP]"
+  - "[RLOCIW]"
+  why: a P id in the Order table is not read
+- file: fieldkit/plan.py
+  swap:
+  - "[RLOCIP]"
+  - "[RLOCI]"
+  why: a P plan row is not read
+- file: fieldkit/plan.py
+  swap:
+  - "\"parked_ideas\": parked,"
+  - "\"parked_ideas\": 0,"
+  why: plan next hides the parked ideas
+- file: fieldkit/ideas.py
+  swap:
+  - "        if m.is_file() and m.read_text(encoding=\"utf-8\") == want:"
+  - "        if m.is_file():"
+  why: a stale markdown is never rebuilt
+- file: fieldkit/ideas.py
+  swap:
+  - "    ensure_md(root)\n    return [e for"
+  - "    return [e for"
+  why: listing does not repair a missing markdown
+- file: fieldkit/autopilot/room.py
+  swap:
+  - "    ctx = _ideas(call, event, ctx)\n"
+  - ""
+  why: the room hook never shows the parked ideas
+- file: fieldkit/core/backup.py
+  swap:
+  - " + ideas_files(root)"
+  - ""
+  why: backup drops the shared state/ideas

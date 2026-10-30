@@ -124,6 +124,7 @@ Its essentials are now in [VISION.md](VISION.md).
 | I8 | Teach the harness, measured: every review fix becomes a deterministic tool + test (as triage signatures already do), and the next similar task is checked to need no reviewer fix | the goal; rule "the same failure is never diagnosed twice" | repeat failures of the same kind | DONE (PR #206) |
 | I9 | Owner presence measured per job: every prompt, approval, click and paste the owner had to do is counted; the target is 0 (`fieldkit friction` lists what could wait on a person; this counts what did) | owner: "50 hours in front of the computer to click accept" | owner actions per job | DONE (PR #174) |
 | Z1 | NO PASSIVE WAITING: a deterministic task watch. `fieldkit task watch [--once] [--act]` flags UNHANDLED (ended blocked/failed, no follow-up), STALLED (alive, silent > N min) and DIED (no process, no report); a scheduled run every 5 min plus a prompt hook inject the findings into Zero; `peers link relay listen --follow` never exits after a message; rule in rules/CORE.md | 2026-10-29 23:17 to 00:04: a VAIO job ended blocked, Zero sat idle about 45 min because nothing woke it; the relay was restarted by hand 7 times (owner 2026-10-30: "waiting costs us money") | minutes from a task ending to Zero acting; hand restarts of the relay (0) | DONE (branch feat/task-watch) |
+| P1 | Parked ideas reach the owner, never the running plan: the room hook shows "N parked ideas - fieldkit ideas review" and the brief on a session's first prompt; CORE.md says a mid-job suggestion goes to `fieldkit ideas add`; the markdown is rebuilt from ideas.json when missing or stale; `fieldkit backup` carries state/ideas/ | owner, 2026-10-30: `fieldkit ideas` was merged (#220) but nothing used it; the finish line kept moving as suggestions entered the plan | parked ideas the owner reviewed; plan rows added mid-job (target 0) | PLANNED |
 
 ## Order (proposed 2026-10-28, approved by the owner the same evening)
 
@@ -137,6 +138,8 @@ Its essentials are now in [VISION.md](VISION.md).
 | 6. The household | C4, C5, C7, C1, C2, C3 + I6, C6 | the extra firepower |
 | 7. Cheap workers, Opus reviews | I5, I7, O3, L3, I8 | the multi-agent vision |
 | 8. One system | Z1 (no passive waiting), W10: bake Fieldkit into Gorilla OpenCode | only when 1-7 are measured green |
+| 7b. Ideas never move the finish line | P1 (parked ideas surface to the owner, not into the running plan) | the plan kept growing mid-job |
+| 8. One system | W10: bake Fieldkit into Gorilla OpenCode | only when 1-7 are measured green |
 
 ## Owner decisions already made
 

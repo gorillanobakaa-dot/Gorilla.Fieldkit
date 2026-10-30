@@ -5949,6 +5949,27 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_plan.py"]
 
+- id: ideas
+  title: Parked ideas - a suggestion made while a job runs is written down (add, list, brief) instead of added to the running plan; only the owner at a terminal accepts (a plan id and a brief for a small PR job), keeps parked or forgets (struck through, never deleted)
+  harness: core
+  entry: [python, -m, fieldkit, ideas]
+  path: ${FIELDKIT}/fieldkit/ideas.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "add | list | brief | review"}
+    - {name: title, flag: null, type: str, required: false, help: "add: the idea's title"}
+    - {name: why, flag: --why, type: str, required: false, help: "add: what it would do"}
+    - {name: what, flag: --what, type: str, required: false, help: "add: 2-3 plain sentences (default: --why)"}
+    - {name: source, flag: --from, type: str, required: false, help: "add: owner (default) or agent:NAME"}
+    - {name: status, flag: --status, type: str, required: false, help: "list: parked | accepted | forgotten"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 1: "refused (review without a person at a terminal, bad input) or the store unreadable", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ideas.py"]
+  notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
+
 - id: overhead
   title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
   harness: core
