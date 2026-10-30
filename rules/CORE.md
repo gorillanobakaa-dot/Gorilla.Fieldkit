@@ -37,6 +37,9 @@ TWO STRIKES (owner, 2026-10-29; a hard rule). A PR, job or fix that fails CI twi
 `fieldkit inbox add` the note (PR, branch, both failures), leave the PR open for a stronger model's repair, and go on
 with the plan. No third try. Never merge red or weaken a check.
 
+MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
+model-spend guard allows it (`fieldkit/lifecycle/models.py`, once PR #223 is merged).
+
 IDEAS. While a job or plan runs, a new owner suggestion is parked (`fieldkit ideas add TITLE --why W`), never added
 to the current plan, unless the owner says "now" or "add to the plan". Reply in one line: "parked as I-NN".
 A suggestion mid-job goes to `fieldkit ideas add`, never into the running plan; the room hook shows "N parked ideas"
