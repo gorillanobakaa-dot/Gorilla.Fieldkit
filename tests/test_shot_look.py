@@ -2,6 +2,7 @@
 """fieldkit shot grid|crop|zoom|stack|sheet|text|text-compare, and fieldkit mac shot. Born 2026-10-22 from the owner's
 question about thin Linux text against thick Mac text (measured that day: Mac strokes 1.40x). The pictures are
 drawn here, so the expected numbers are known exactly."""
+import os
 import pytest
 
 PIL = pytest.importorskip("PIL")
@@ -89,15 +90,18 @@ def test_mac_shot_retries_a_dropped_connection_then_cleans_up():
     calls = []
     fail_once = {"capture": 1}
 
+    def prog(c):                       # Windows runs its own OpenSSH by full path (C:\Windows\System32\OpenSSH\ssh.exe)
+        return os.path.basename(c[0]).lower().removesuffix(".exe")
+
     def runner(argv):
         calls.append(argv)
-        if argv[0] == "ssh" and "screencapture" in argv[-1] and fail_once["capture"]:
+        if prog(argv) == "ssh" and "screencapture" in argv[-1] and fail_once["capture"]:
             fail_once["capture"] -= 1
             return 255, "ssh: connect to host port 22: Connection timed out"
         return 0, ""
     mac = {"user": "u", "key": "~/.ssh/k", "host_key_alias": "old-mac.local"}
     assert M.take_shot(mac, "192.0.2.5", "/tmp/x.png", "out.png", runner=runner) == 0
     kinds = [("capture" if "screencapture" in c[-1] else "rm" if c[-1].startswith("rm ") else "")
-             if c[0] == "ssh" else c[0] for c in calls]
+             if prog(c) == "ssh" else prog(c) for c in calls]
     assert kinds == ["capture", "capture", "scp", "rm"]
     assert M.take_shot(mac, "192.0.2.5", "/tmp/x.png", "out.png", runner=lambda a: (255, "down")) == 1
