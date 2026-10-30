@@ -17,13 +17,15 @@ A pending rotation (`handover_pending`) is not a handover: the old Zero still ho
 """
 import time
 
-from . import net
+# net is imported inside each function: the tool router imports this module on every call, and only an archive call
+# may load the net code (tests/test_zero_command.py::test_the_whole_hook_process_measured_and_loads_no_yaml)
 
 ARCHIVE_TOOLS = ("archive_session",)
 
 
 def _last_handover_from(me):
     """-> the newest handover entry that took the seat from `me`, or None."""
+    from . import net
     last = None
     for _off, e in net.entries():
         if e.get("kind") == "handover" and (e.get("data") or {}).get("previous") == me:
@@ -33,6 +35,7 @@ def _last_handover_from(me):
 
 def verdict(me, now=None):
     """-> {"ok", "reason", "zero", "handover"} for station `me` archiving itself."""
+    from . import net
     now = time.time() if now is None else now
     n = net.load_net()
     zero = net.zero_of(n)
@@ -64,6 +67,7 @@ def verdict(me, now=None):
 def _target_station(call, n):
     """The station an archive_session call would end: "self" is the caller; else the Zero whose desktop session id
     matches. -> station or None (an unrelated session: not this guard's business)."""
+    from . import net
     target = str((call.get("tool_input") or {}).get("session_id") or "")
     if target == "self":
         return net.hook_station(call.get("session_id"))
@@ -80,6 +84,7 @@ def pretool(call):
         tool = str(call.get("tool_name") or "")
         if not tool.endswith(ARCHIVE_TOOLS):
             return None
+        from . import net
         me = _target_station(call, net.load_net())
         if not me:
             return None
