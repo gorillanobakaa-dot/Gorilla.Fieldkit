@@ -73,7 +73,7 @@ wins over a merge. Every fix is measured before and after with the same
 | R5 | Tool-router refusals cost a retry each. By rule: heredoc with backslashes 247 (30%, with false positives), recursive search 151, sleep-to-wait 102, tree copy 95, hashing 69, heavy work outside guard 55, delete 25, download 25, git push 11. Fix each top rule at its cause: no false positive, or the router runs the right tool itself instead of refusing | 568 refusals in the window, about $47 in retry calls | refusals per 100 calls | DONE (PR #163) |
 | R6 | `fieldkit emerge` (the Portage idea, PR #127, 5 recipes including firefox-windows) must be THE way to build. It was in no rules file and never run on the Windows laptop. Step 1 done 2026-10-27: the rule is in AGENTS.md (PR #150). Next: run the firefox-windows recipe once and measure it against the plain-script baseline (about 2 h compile + package) | Firefox 158 took 80-90 h with AI ($384, before emerge existed) | hours per Firefox build; AI tokens per build (target 0 when nothing fails) | DONE (PR #176, #183, #190): every project in fieldkit/emerge/inventory.yaml has a recipe, 23 of 23 |
 | R7 | Tests once: a test runs once for the change it covers, a passed test is never re-run, the whole-project suite runs once at the end. Today every PR runs the full suite in CI on Windows and Ubuntu, and goal criteria re-run suites every round. Owner decided 2026-10-28: the full suite only at the end, when a project is finished ("there is no point wasting time and money"); per change only the tests covering it, locally and in CI. This changes the CI workflows and the mandate's "merge only on green full CI" | 673 CI runs in 14 days; 133 broad pytest runs in the window; one goal produced 284 verdicts in 16 rounds | test minutes per change | DONE (PR #155) |
-| R8 | 26 old Fieldkit worktrees left in the Documents folder, each a full checkout with its own stale AGENTS.md (16-24 KB): list each with its branch and whether it is merged, then recycle the merged ones (made by earlier sessions, so listed for the owner, not removed silently) | a listing of the worktrees' AGENTS.md files | worktrees left | PLANNED |
+| R8 | 26 old Fieldkit worktrees left in the Documents folder, each a full checkout with its own stale AGENTS.md (16-24 KB): list each with its branch and whether it is merged, then recycle the merged ones (made by earlier sessions, so listed for the owner, not removed silently) | a listing of the worktrees' AGENTS.md files | worktrees left | DONE (checked 2026-10-30: `git worktree list` shows only the main checkout and no old worktree folders remain in Documents; HANDOFF says the dirty ones were saved and removed) |
 
 ## Optimizations (works, but costs too much)
 
@@ -139,7 +139,6 @@ Its essentials are now in [VISION.md](VISION.md).
 | 7. Cheap workers, Opus reviews | I5, I7, O3, L3, I8 | the multi-agent vision |
 | 8. One system | Z1 (no passive waiting), W10: bake Fieldkit into Gorilla OpenCode | only when 1-7 are measured green |
 | 7b. Ideas never move the finish line | P1 (parked ideas surface to the owner, not into the running plan) | the plan kept growing mid-job |
-| 8. One system | W10: bake Fieldkit into Gorilla OpenCode | only when 1-7 are measured green |
 
 ## Owner decisions already made
 
