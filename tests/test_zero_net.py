@@ -135,10 +135,22 @@ def test_the_2ic_assumes_only_when_zero_is_missing():
     opened(second=TWO)
     with pytest.raises(net.Refused, match="not MISSING"):
         net.handover(TWO, assume=True, now=T0 + 60)
-    with pytest.raises(net.Refused, match="only the 2IC"):
+    with pytest.raises(net.Refused, match="not UP"):                 # a station that is not live never assumes
         net.handover(GEM, assume=True, now=T0 + 3 * 3600)
     r = net.handover(TWO, assume=True, channels=[FakeChannel()], now=T0 + 30 * 60 * 2 + 1)
     assert net.zero_of(r["net"]) == TWO and "2IC assumed" in r["entry"]["text"]
+
+
+def test_a_dead_zero_with_no_live_2ic_cannot_hold_the_net_hostage():
+    opened()                                                        # no 2IC named
+    late = T0 + 3 * 3600
+    st = net.load_stations()
+    net.renew(st, GEM, net.load_net(), late - 10)
+    net.save_stations(st)
+    with pytest.raises(net.Refused, match="not MISSING"):
+        net.handover(GEM, assume=True, now=T0 + 60)
+    r = net.handover(GEM, assume=True, channels=[FakeChannel()], now=late)
+    assert net.zero_of(r["net"]) == GEM and "MISSING" in r["entry"]["text"]
 
 
 def test_a_rotated_zero_leaves_a_pending_handover_its_relief_takes():
