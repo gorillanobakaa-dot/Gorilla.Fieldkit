@@ -51,9 +51,10 @@ import yaml
 
 from . import budget as bud
 from . import hardlines
+from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
-GOALS = Path(os.environ.get("FIELDKIT_GOALS") or (ROOT / "state" / "goals"))
+GOALS = Path(os.environ.get("FIELDKIT_GOALS") or (_state_root(ROOT) / "state" / "goals"))
 LOCK_STALE = 15 * 60                 # a supervisor whose heartbeat is older than this is dead
 MAX_ROUNDS = 200                     # planner calls per goal before it is called blocked
 IDLE_POLL = 10 * 60                  # how often a waiting goal looks at the inbox again
@@ -372,6 +373,12 @@ def run_check(c, default_cwd, run=subprocess.run, timeout=None, hist=()):
     shell = (["powershell", "-NoProfile", "-Command",
               "$global:LASTEXITCODE = 0; " + c["run"] + "; if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } "
               "else { exit 1 } }; exit $LASTEXITCODE"] if os.name == "nt" else ["bash", "-lc", c["run"]])
+    from ..thermal import buildguard
+    if os.name == "nt" and run is subprocess.run and buildguard.STATUS.is_file() and not os.environ.get("FIELDKIT_ADMITTED"):
+        # 2026-10-27 (crash ~04:14, owner: "guard obligatoriu"): a criterion on the laptop (the fan control's status
+        # file is there) runs under fieldkit guard (one machine-wide slot, the fan check, the governor at
+        # thermal.build_target), never beside another heavy job; inside a guard already: no second one
+        shell = [sys.executable, "-m", "fieldkit", "guard", "--"] + shell
     deadline = liveness.deadline_for(hist, c.get("timeout") or timeout)
     t0 = time.time()
     extra, timed = "", False
@@ -750,6 +757,12 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
     _WORKERS.setdefault(gid, {})[jid] = {"future": fut, "spend": spend_log}
 
 
+def _checks_pass(results):
+    """-> (ok, text) for roles.fix_itself from verify() results."""
+    bad = [f"{x['id']} {x['why']}" for x in results if x["verdict"] != "PASS"]
+    return not bad, "; ".join(bad) or f"{len(results)} check(s) passed"
+
+
 def _end_job(gid, goal, st, jid, claude, run):
     """A finished worker -> its spend into state, the verifier on its checks, the job's new status."""
     w = _WORKERS[gid].pop(jid)
@@ -762,22 +775,50 @@ def _end_job(gid, goal, st, jid, claude, run):
     s = j["spec"]
     if r["status"] == "done":
         checks = [dict(v, id=f"{jid}:{i}") for i, v in enumerate(s.get("verify") or [], 1)]
-        res = verify(gid, goal, st, extra=checks, claude=claude, run=run, who=f"job {jid}")
+        # 2026-10-27 (owner: "implementeaza cea mai rapida functie ... parte integranta din harnasament"): a finished
+        # job runs ITS OWN checks only. Every goal criterion (a full go test, vet, cross builds, every AI verifier) ran
+        # after every job: a 20-minute job took hours. The goal's criteria run once, at the end (verify ... "final").
+        res = verify(gid, goal, st, ids=[], extra=checks, claude=claude, run=run, who=f"job {jid}")
         own = [x for x in res if str(x["id"]).startswith(f"{jid}:")]
-        if all(x["verdict"] == "PASS" for x in own):
-            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
+        # HARNESS-PLAN I5 + I7: the verdict is one of three kinds (lifecycle/roles.py). A job is verified only on pass;
+        # send_back puts the explained mistake into the brief and the cheap worker goes again; after two failed
+        # worker rounds the reviewer model fixes it itself and its own acceptance check decides.
+        from ..lifecycle import roles
+        v = roles.verdict_from_checks(own, j["attempts"] - 1)
+        j["verdict"] = v["kind"]
+        if v["kind"] == "fix_itself":
+            res2 = roles.fix_itself(s["brief"], r.get("why", ""), v["why"], cwd=s["cwd"], claude=claude,
+                                    check=lambda: _checks_pass(verify(gid, goal, st, ids=[], extra=checks,
+                                                                      claude=claude, run=run, who=f"job {jid} fix")))
+            if res2["kind"] == "pass":
+                v = res2
+                j["fixed_by"] = roles.reviewer_model()
+            else:
+                v = dict(res2, kind="fix_itself")
+            if res2.get("usd"):
+                st["spend"].append({"t": time.time(), "usd": float(res2["usd"]), "who": f"reviewer fix {jid}"})
+        if v["kind"] == "pass":
+            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)"
+                     + (f"; fixed by the reviewer ({j['fixed_by']})" if j.get("fixed_by") else ""))
         else:
             bad = [f"{x['id']} {x['verdict']} {x['why']}" for x in own if x["verdict"] != "PASS"]
             j.update(status="failed-verify", why=f"the worker said done; the verifier says FAIL: {bad}")
-            if j["attempts"] < 3:
-                j["status"] = "queued"          # the planner gets the gap and a better brief may follow
+            if v["kind"] == "send_back":
+                s["brief"] = (s["brief"] + f"\n\nSENT BACK (round {j['attempts']}): your last result failed its "
+                              f"checks. What is wrong: {v['why']}")
+                j["status"] = "queued"          # the cheap worker goes again with the explained mistake
+            elif j["attempts"] < 3:
+                j["status"] = "queued"          # the reviewer's fix failed too: the planner gets the gap
     elif r["status"] == "paused-resumable":
         cp = r.get("checkpoint") or {}
         j.update(status="paused-resumable", why=r.get("why", ""), paused_until=cp.get("paused_until"))
     else:
         j.update(status="failed", why=r.get("why", "")[:400])
     event(gid, f"job {jid}: {j['status']} - {j.get('why', '')[:200]}")
-    st["needs_plan"] = True
+    # the planner (an AI call) only when it has something to decide: a job that did not verify, or nothing left queued
+    queued = any(v["status"] in ("queued", "paused-resumable") for k, v in st["jobs"].items() if k != jid)
+    if j["status"] != "verified" or not queued:
+        st["needs_plan"] = True
     return f"job {jid}: {j['status']}"
 
 
@@ -788,6 +829,18 @@ def _end_finished(gid, goal, st, claude, run):
 
 def _all_done(st):
     return all_pass(st) and not any(v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values())
+
+
+def _final_if_due(gid, goal, st, claude, run):
+    """The planner said done while a worker ran: the goal's criteria run once, when the last worker has ended (a
+    finished job runs only its own checks, so nothing else would verify them)."""
+    if not st.get("final_due") or running(gid) or any(
+            v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values()):
+        return
+    st["final_due"] = False
+    verify(gid, goal, st, claude=claude, run=run, who="final")
+    if not all_pass(st):
+        st["needs_plan"] = True
 
 
 def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inbox_items=None, now=time.time,
@@ -824,6 +877,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         event(gid, f"paused: {why}")
         return {"status": "waiting", "why": why, "wait_until": until}
     ended = _end_finished(gid, goal, st, claude, run)
+    _final_if_due(gid, goal, st, claude, run)
     if collect_answers(gid, st, inbox_items()):
         st["needs_plan"] = True
     reg, _ = preapprovals(gid)
@@ -851,6 +905,8 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         apply_plan(gid, goal, st, p, reg, inbox_add, say)
         event(gid, f"plan round {st['rounds']}: {p['signal']} - {p.get('why', '')[:150]}; "
                    f"jobs {[j['id'] for j in p.get('jobs') or []]}")
+        if p["signal"] == "done" and running(gid):
+            st["final_due"] = True
         if (p["signal"] == "done" or (p["signal"] == "blocked" and not p.get("jobs"))) and not running(gid):
             verify(gid, goal, st, claude=claude, run=run, who="final")
             if all_pass(st):
@@ -887,6 +943,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
     save_state(gid, st)
     futures.wait([w["future"] for w in _WORKERS[gid].values()], return_when=futures.FIRST_COMPLETED)
     ended = _end_finished(gid, goal, st, claude, run)
+    _final_if_due(gid, goal, st, claude, run)
     if _all_done(st):
         _actions(gid, goal, st, reg, action, say)
         return _finish(gid, st, "done", "every criterion PASSed (verifier)", inbox_add)

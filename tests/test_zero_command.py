@@ -279,9 +279,10 @@ def test_the_toolrouter_hook_denies_never_asks_and_logs_the_refusal(tmp_path, ca
     assert out["permissionDecision"] != "ask"
     refused = [e for _, e in net.entries() if e["kind"] == "refused"]
     assert refused and refused[-1]["to"] == W1 and refused[-1]["data"]["tool"] == "Write"
-    # an allowed edit prints nothing; a Bash command still goes through the router's own routes
+    # an allowed edit is not refused (C6: it may carry the room's context, here the order sent to the station); a
+    # Bash command still goes through the router's own routes
     toolrouter.hook(io.StringIO(json.dumps(call("cccccccc-1", "Edit", W(tmp_path, "a", "f.py")))))
-    assert capsys.readouterr().out == ""
+    assert "permissionDecision" not in capsys.readouterr().out
     toolrouter.hook(io.StringIO(json.dumps(call("cccccccc-1", "Bash", command_="du -sh /"))))
     assert "TOOL ROUTER" in capsys.readouterr().out
 
@@ -320,22 +321,26 @@ def test_hook_decision_is_well_under_100_ms_with_no_subprocess(tmp_path, monkeyp
 
 def test_the_whole_hook_process_measured_and_loads_no_yaml(tmp_path):
     """The full PreToolUse process (Python start + the router + the claims): measured; Python's own start on this
-    laptop is ~150-200 ms, so the bar here is that the claims add no YAML parser and no net code on an allowed call."""
+    laptop is ~150-200 ms, so the bar here is that the claims add no YAML parser and no net code on an allowed call.
+    C6: the same process then runs the room's part (room line, net lease, hog registry), which was a second Python
+    start per call; it is measured after the decision and must cost less than the start it replaces."""
     _big_state(tmp_path)
     c = json.dumps(call("zzzzzzzz-1", "Edit", W(tmp_path, "free.py")))
     code = ("import sys,json,io,time;t=time.perf_counter();from fieldkit.autopilot import toolrouter;"
-            "toolrouter.hook(io.StringIO(sys.argv[1]));"
-            "print(json.dumps({'yaml':'yaml' in sys.modules,'net':'fieldkit.zero.net' in sys.modules,"
-            "'ms':(time.perf_counter()-t)*1000}))")
+            "c=json.loads(sys.argv[1]);toolrouter.verdict(c);"
+            "d={'yaml':'yaml' in sys.modules,'net':'fieldkit.zero.net' in sys.modules,"
+            "'ms':(time.perf_counter()-t)*1000};"
+            "toolrouter._room(c);d['all_ms']=(time.perf_counter()-t)*1000;print(json.dumps(d))")
     env = dict(os.environ, FIELDKIT_COORDINATION_DIR=str(tmp_path / "coord"))
     t = time.perf_counter()
     r = subprocess.run([sys.executable, "-c", code, c], capture_output=True, text=True, env=env,
                        cwd=str(Path(__file__).resolve().parents[1]), timeout=60)
     wall = (time.perf_counter() - t) * 1000
     got = json.loads(r.stdout.strip().splitlines()[-1])
-    print(f"hook process: {wall:.0f} ms wall, {got['ms']:.1f} ms after Python start")
+    print(f"hook process: {wall:.0f} ms wall, {got['ms']:.1f} ms decision, {got['all_ms']:.1f} ms with the room")
     assert not got["yaml"] and not got["net"]
     assert got["ms"] < 100
+    assert got["all_ms"] < 150
 
 
 # ---------------------------------------------------------------- 3. drift

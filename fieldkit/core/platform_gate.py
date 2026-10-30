@@ -75,7 +75,7 @@ def _local_index():
     src = registry.LOCAL_REGISTRY
     if not src.is_file():
         return {}
-    cache = settings.ROOT / "state" / "platform_index.local.json"
+    cache = settings.state_root() / "state" / "platform_index.local.json"
     stamp = src.stat().st_mtime_ns
     try:
         c = json.loads(cache.read_text(encoding="utf-8"))

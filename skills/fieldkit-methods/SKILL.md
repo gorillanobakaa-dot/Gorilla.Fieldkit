@@ -139,9 +139,12 @@ fieldkit ship train               Zero: merge the declared PRs one at a time (gh
                                   --match-head-commit), never red, never a head nobody declared; resumable
 fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff + `fieldkit parity baseline --set`
 fieldkit ship train --modes       every failure mode this closes, with its check
+fieldkit ship ci-wait PR [--merge]   one PR: run it in the BACKGROUND, one wake when CI ends (green, or red with
+                                  the failed log tail); --merge merges on green and checks the PR reads MERGED
 ```
-Never `gh pr checks --watch && gh pr merge` by hand: the exit code of a watch is not the CI of the head (a re-run
-still running read as green). Never `git merge origin/main` by hand on a PR branch when `ship update` can do it.
+Never `gh pr checks --watch && gh pr merge` or an `until gh pr checks ...; sleep` loop by hand (the tool router
+refuses both): the exit code of a watch is not the CI of the head (a re-run still running read as green).
+Never `git merge origin/main` by hand on a PR branch when `ship update` can do it.
 
 ## Someone else's tool
 Reproduce the bug on THEIR untouched copy; fix a scratch copy; `fieldkit regress` their own suite before and after;

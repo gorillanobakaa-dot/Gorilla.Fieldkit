@@ -328,6 +328,17 @@
    "fieldkit-backup-usb"
   ]
  },
+ "board": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "board"
+  ]
+ },
  "build-harness about-pages": {
   "platforms": [
    "linux",
@@ -1417,6 +1428,28 @@
    "canary"
   ]
  },
+ "cost": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cost"
+  ]
+ },
+ "cost firstcall": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cost-firstcall"
+  ]
+ },
  "cv": {
   "platforms": [
    "linux",
@@ -1752,6 +1785,16 @@
    "fieldkit-icons-cache"
   ]
  },
+ "ideas": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ideas"
+  ]
+ },
  "inbox": {
   "platforms": [
    "linux",
@@ -1886,6 +1929,17 @@
   "why": "the Mac browser is cross-built on Linux (an old Mac cannot build a modern browser); install and verify reach the Mac over SSH (fieldkit mac)",
   "ids": [
    "fieldkit-macair"
+  ]
+ },
+ "machine": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "machine"
   ]
  },
  "mandate": {
@@ -2128,6 +2182,16 @@
    "orchestrate-load"
   ]
  },
+ "orchestrate offload": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "written for a Windows boss (auto sends only from Windows; suite_offload \"on\" in fieldkit.local.json from Linux); unit tests on both systems, no live Windows commit through it yet (the hook line waits for the owner)",
+  "ids": [
+   "orchestrate-offload"
+  ]
+ },
  "orchestrate place": {
   "platforms": [
    "linux",
@@ -2136,6 +2200,16 @@
   "why": "run live 2026-10-26: boss on Linux, the suite placed on the Windows laptop over the cable and back signed; a Windows boss not yet run",
   "ids": [
    "orchestrate-place"
+  ]
+ },
+ "orchestrate split": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "inventory and split run live 2026-10-28 on the Linux VAIO with the Windows L15 answering over the cable; a Windows boss not run",
+  "ids": [
+   "orchestrate-split"
   ]
  },
  "overhead": {
@@ -2360,6 +2434,16 @@
    "gorilla-opencode-release-build"
   ]
  },
+ "plan": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "plan"
+  ]
+ },
  "prefix-diff": {
   "platforms": [
    "darwin",
@@ -2421,6 +2505,16 @@
    "release-check"
   ]
  },
+ "release page": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "release-page"
+  ]
+ },
  "release table": {
   "platforms": [
    "linux",
@@ -2472,6 +2566,16 @@
    "rotate"
   ]
  },
+ "rules": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "rules"
+  ]
+ },
  "runbook": {
   "platforms": [
    "linux",
@@ -2513,6 +2617,17 @@
   "why": "",
   "ids": [
    "sessions"
+  ]
+ },
+ "sessions tag": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "sessions-tag"
   ]
  },
  "ship": {
@@ -2801,6 +2916,17 @@
   "why": "",
   "ids": [
    "skills"
+  ]
+ },
+ "skills sets": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-sets"
   ]
  },
  "snapshot diff": {

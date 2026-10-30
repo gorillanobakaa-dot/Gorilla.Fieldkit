@@ -270,12 +270,40 @@ def test_cap_applies_to_registered_not_to_tree(cfg):
     assert rules.orphans(facts(alive=alive), [_entry(ctime=NOW - 3.9 * 3600, source="register")], cfg, NOW) == []
 
 
+def test_link_listener_outlives_its_session_and_is_never_stopped(cfg):
+    """2026-10-28 19:43, the L15: "orphan python.exe 8040 (link-listener, started by 8dc32564): its session ended:
+    stop"; the L15 had no link listener until 20:37. A service class is never an orphan, nor past a cap."""
+    lis = _entry(pid=8040, name="python.exe", cls="link-listener", session="8dc32564", source="printed")
+    rel = _entry(pid=8041, name="python.exe", cls="link-relay", session="8dc32564", source="register")
+    alive = [[8040, NOW - 600], [8041, NOW - 600]]
+    assert rules.orphans(facts(alive=alive), [lis, rel], cfg, NOW) == []
+    old = [dict(lis, ctime=NOW - 9 * 3600)]
+    assert rules.orphans(facts(alive=[[8040, NOW - 9 * 3600]]), old, cfg, NOW) == []
+    found = rules.evaluate(facts(alive=alive), [], [lis, rel], cfg)
+    assert not [f for f in found if f.get("action")]
+    assert rules.orphans(facts(alive=alive), [dict(lis, cls="pytest")], cfg, NOW)   # the same entry otherwise goes
+
+
+def test_dead_service_is_reported_with_its_restart_line_not_acted_on(cfg):
+    lis = _entry(pid=8040, cls="link-listener", session="8dc32564")
+    f = rules.services(facts(alive=[]), [lis], cfg)
+    assert len(f) == 1 and f[0]["check"] == "service" and f[0]["action"] is None
+    assert "fieldkit peers link restart" in f[0]["line"] and "8040" in f[0]["line"]
+    assert [x for x in rules.evaluate(facts(alive=[]), [], [lis], cfg) if x["check"] == "service"]
+    assert rules.services(facts(alive=[[8040, NOW - 600]]), [lis], cfg) == []              # alive: nothing to say
+    new = _entry(pid=9000, ctime=NOW - 60, cls="link-listener")
+    assert rules.services(facts(alive=[[9000, NOW - 60]]), [lis, new], cfg) == []          # a live one replaced it
+    assert rules.services(facts(alive=[]), [_entry(cls="pytest")], cfg) == []              # a dead runner is no news
+
+
 def test_orphan_classes(cfg):
     c = cfg["orphan_classes"]
     assert rules.orphan_class("python.exe", "python -m pytest -q tests", c) == "pytest"
     assert rules.orphan_class("go.exe", "go test ./...", c) == "go-test"
     assert rules.orphan_class("firefox.exe", "firefox.exe -headless", c) == "browser"
     assert rules.orphan_class("python.exe", "python -m fieldkit peers link serve", c) == "link-listener"
+    assert rules.orphan_class("python.exe", "python -P -m fieldkit peers link relay listen", c) == "link-relay"
+    assert set(cfg["service_classes"]) == {"link-listener", "link-relay"}
     assert rules.orphan_class("WINWORD.EXE", "WINWORD.EXE", c) is None
     assert rules.orphan_class("python.exe", "python -m fieldkit hog watch", c) is None
 
@@ -413,12 +441,13 @@ def test_observe_registers_printed_pid_of_an_orphan_class(monkeypatch, cfg):
         monkeypatch.setattr(registry, "session_process", lambda me=None: fake_sess)
         got = registry.observe({"session_id": "s9", "tool_response": {"stdout": f"started pid={p.pid}"}},
                                cfg["orphan_classes"])
-        assert [(g["pid"], g["cls"]) for g in got] == [(p.pid, "pytest")]
+        # this process is the fake session: its real children (a runner's conhost.exe) are not the test's business
+        assert [(g["pid"], g["cls"]) for g in got if g["pid"] == p.pid] == [(p.pid, "pytest")]
         assert got[0]["owner_pid"] == fake_sess.pid
         registry.save([])
         later = registry.observe({"session_id": "s9", "tool_response": f"pid={p.pid}"}, cfg["orphan_classes"],
                                  now=time.time() + 3600)       # printed an hour after it started: not ours to claim
-        assert later == []
+        assert [g for g in later if g["pid"] == p.pid] == []
     finally:
         p.kill()
 
@@ -464,7 +493,8 @@ def test_room_hook_carries_the_hog_line(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(hog, "hook_line", lambda: "hog: ACT - RAM 58.6/63.7 GB (92%)")
     room.hook(io.StringIO(json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "abc"})))
     out = json.loads(capsys.readouterr().out)
-    assert out["hookSpecificOutput"]["additionalContext"] == "hog: ACT - RAM 58.6/63.7 GB (92%)"
+    # the machine tag line (peers/machine.py) follows at a session's first prompt
+    assert out["hookSpecificOutput"]["additionalContext"].splitlines()[0] == "hog: ACT - RAM 58.6/63.7 GB (92%)"
 
 
 def test_check_writes_last_and_samples(cfg, tmp_path):

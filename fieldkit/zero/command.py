@@ -515,7 +515,7 @@ def hook_doctor(settings=None):
         data = json.loads(settings.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
-    want = {"Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"}
+    want = {"Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit", "SendMessage"}   # C6: + the room
     for m in (data.get("hooks") or {}).get("PreToolUse", []):
         if any("fieldkit.autopilot.toolrouter" in (h.get("command") or "") for h in m.get("hooks", [])):
             have = set((m.get("matcher") or "").split("|"))

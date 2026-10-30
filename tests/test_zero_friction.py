@@ -238,11 +238,25 @@ def test_needs_you_rows_in_the_window_only():
     assert [r["key"] for r in rows] == ["needs-you:vaio:1"] and "approve O4" in rows[0]["line"]
 
 
+def test_needs_you_counts_only_notes_for_the_owner_and_unread_notes_are_one_row():
+    """Plan C7: a [NEEDS YOU] note addressed to a session is not an owner wait; a note nobody read is `unread`."""
+    at = lambda m: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(NOW - m * 60))   # noqa: E731
+    items = [{"n": 1, "kind": "message", "from_host": "win", "at": at(30), "to": "main", "text": "[NEEDS YOU] go"},
+             {"n": 2, "kind": "message", "from_host": "win", "at": at(30), "to": "owner", "text": "[NEEDS YOU] ok"},
+             {"n": 3, "kind": "message", "from_host": "win", "at": at(30), "text": "phase 3 is yours"},
+             {"n": 4, "kind": "message", "from_host": "win", "at": at(30), "text": "read", "handed": "main"}]
+    assert [r["key"] for r in friction.needs_you_rows(items, now=NOW)] == ["needs-you:win:2"]
+    rows = friction.unread_rows(items, now=NOW, upto=0)
+    assert [r["key"] for r in rows] == ["unread:win:1", "unread:win:3"]
+    assert "for main unread after 30 min" in rows[0]["line"] and "task start" in rows[0]["fix"]
+    assert friction.unread_rows(items, now=NOW, upto=3) == []
+
+
 def test_inbox_rows_and_ack_filter(monkeypatch):
     inbox_rows = friction.inbox_rows
     rows = inbox_rows([{"n": 4, "title": "decide"}])
     assert rows[0]["key"] == "inbox:4"
-    for name in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows"):
+    for name in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "unread_rows"):
         monkeypatch.setattr(friction, name, lambda *a, **k: [])
     monkeypatch.setattr(friction, "inbox_rows", lambda *a, **k: rows + inbox_rows([{"n": 5, "title": "b"}]))
     monkeypatch.setattr(desktop, "sessions", lambda dirs=None: [])
@@ -412,7 +426,7 @@ def test_report_writes_ledger_room_and_board(tmp_path):
     r = tasks.start(brief(tmp_path), launch=lambda a: {"pid": 1}, now=NOW)
     tasks.report(r["id"], "done", branch="feat/x", pr="https://g/pull/9", note="all | green")
     t = tasks.ledger()[r["id"]]
-    assert t["status"] == "done" and t["pr"] == "https://g/pull/9" and t["title"] == "Do the job."
+    assert t["status"] == "done" and t["pr"] == "https://g/pull/9" and t["title"] == "[TEST-LNX] Do the job."
     plan = (tmp_path / "coord" / "PLAN.md").read_text(encoding="utf-8")
     assert f"| Task (fieldkit task) {r['id']} | here | done |" in plan and "all / green" in plan
     with pytest.raises(ValueError):
@@ -483,3 +497,40 @@ def test_fieldkit_cli_dispatches(monkeypatch):
     cli.main(["task", "status"])
     cli.main(["sessions", "sweep"])
     assert seen == [["friction", "--here"], ["task", "status"], ["sweep"]]
+
+
+def test_a_task_whose_process_ended_with_no_report_is_died_not_started(tmp_path):
+    a = tasks.start(brief(tmp_path), cwd=tmp_path, launch=lambda a: {"pid": 7, "log": "L7"}, now=NOW)
+    b = tasks.start(brief(tmp_path, "Do the other job."), cwd=tmp_path, launch=lambda a: {"pid": 8, "log": "L8"},
+                    now=NOW + 1)
+    tasks.report(b["id"], "done", note="ok")
+    led = tasks.ledger()
+    assert tasks.settle(led, alive=lambda pid: False) == [a["id"]]
+    assert led[a["id"]]["status"] == "died" and "L7" in led[a["id"]]["answer"] and led[b["id"]]["status"] == "done"
+    led = tasks.ledger()
+    assert tasks.settle(led, alive=lambda pid: True) == [] and led[a["id"]]["status"] == "started"
+
+
+def test_settle_leaves_peer_tasks_and_unchecked_pids_alone_and_status_says_why_a_task_died():
+    # fieldkit mutate (2026-10-28): each assert kills a mutant the test above let through
+    def alive(pid):
+        if pid == 10:
+            raise OSError("access denied")
+        return False
+    led = {"p": {"id": "p", "status": "started", "on": "vaio", "pid": 9},
+           "e": {"id": "e", "status": "started", "on": "here", "pid": 10}}
+    assert tasks.settle(led, alive=alive) == [] and led["p"]["status"] == led["e"]["status"] == "started"
+    led = {"d": {"id": "d", "status": "started", "on": "here", "pid": 11, "log": "L11", "title": "x"}}
+    assert tasks.settle(led, alive=alive) == ["d"] and "L11" in tasks.lines(led)[0]
+    led = {"k": {"id": "k", "status": "started", "on": "here", "pid": 12, "answer": "its own last words"}}
+    assert tasks.settle(led, alive=alive) == ["k"] and led["k"]["answer"] == "its own last words"
+    assert "its own last words" in tasks.lines(led)[0]                # an answer already recorded is kept
+
+
+def test_task_status_shows_a_task_whose_process_is_gone_as_died(tmp_path, monkeypatch, capsys):
+    a = tasks.start(brief(tmp_path), cwd=tmp_path, launch=lambda a: {"pid": 7, "log": "L7"}, now=NOW)
+    from fieldkit.peers import peers
+    monkeypatch.setattr(peers, "pid_alive", lambda pid: False)
+    assert lc.cmd_task(["status", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert [t["status"] for t in out if t["id"] == a["id"]] == ["died"]

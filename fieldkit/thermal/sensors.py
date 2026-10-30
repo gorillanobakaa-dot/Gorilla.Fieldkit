@@ -128,7 +128,7 @@ def tpfan_csv(path=None):
 def _ps(cmd, timeout=60):
     if sys.platform != "win32":                  # PowerShell is a Windows reader; elsewhere there is no reading
         return ""
-    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, text=True,
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True,
                        encoding="utf-8", errors="replace", timeout=timeout)
     return (r.stdout or "").strip()
 

@@ -31,6 +31,7 @@ import re
 import socket
 import time
 from pathlib import Path
+from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
 PENDING_TTL_S = 24 * 3600            # a pre-tasked station, or a rotated station's relief, has a day to check in
@@ -44,7 +45,7 @@ OPEN = re.compile(r"^net:\s*open\s*$", re.M)
 
 
 def coord():
-    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (ROOT / "state" / "coordination"))
+    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (_state_root(ROOT) / "state" / "coordination"))
 
 
 def norm(p, cwd=""):

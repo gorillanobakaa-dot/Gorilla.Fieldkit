@@ -191,3 +191,12 @@ def test_undo_runs_the_cards_own_undo_command(tmp_path):
     with pytest.raises(agent.Refused, match="already undone"):
         agent.undo(rec["run_id"], cards=[c])
 
+
+def test_every_real_card_input_name_is_text_and_discover_answers():
+    """2026-10-27 (job 07 over MCP): `name: yes` / `name: on` read as YAML booleans and discover crashed on every call
+    (bool + str). Every input name on every real card is a string, and discover over the real cards answers."""
+    cards = cardmod.all_cards()
+    bad = [(c["id"], i.get("name")) for c in cards for i in c.get("inputs") or [] if not isinstance(i.get("name"), str)]
+    assert bad == []
+    assert agent.discover("copy a folder", cards=cards)
+

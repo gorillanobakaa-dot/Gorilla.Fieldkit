@@ -115,7 +115,9 @@ def test_status_without_a_net_says_not_established():
 
 # ---------------------------------------------------------------- fencing / handover
 
-def test_only_zero_hands_over_and_a_stale_epoch_is_refused():
+def test_only_zero_hands_over_and_a_stale_epoch_is_refused(monkeypatch):
+    from fieldkit import plan                       # the relief learns where the harness plan stands
+    monkeypatch.setattr(plan, "line", lambda *a, **k: "PLAN: phase 3. X: open R2")
     opened(second=TWO)
     with pytest.raises(net.Refused, match="not Zero"):
         net.handover(GEM, to=TWO, now=T0 + 1)
@@ -123,6 +125,7 @@ def test_only_zero_hands_over_and_a_stale_epoch_is_refused():
         net.handover(ZERO, to=TWO, epoch=7, now=T0 + 1)
     r = net.handover(ZERO, to=TWO, epoch=1, channels=[FakeChannel()], now=T0 + 1)
     assert r["net"]["epoch"] == 2 and net.zero_of(r["net"]) == TWO and r["previous"] == ZERO
+    assert r["entry"]["text"].endswith(". PLAN: phase 3. X: open R2")
     assert r["net"]["2ic"] is None                       # the 2IC became Zero: no 2IC left
     with pytest.raises(net.Refused, match="not Zero"):     # the old Zero can no longer act
         net.rollcall(ZERO, now=T0 + 2)
@@ -336,6 +339,31 @@ def test_check_flags_silent_then_inbox_on_the_second_miss_once(tmp_path):
     assert [e["data"]["misses"] for e in misses] == [1, 2]
 
 
+def test_an_ended_hook_station_is_logged_once_and_never_reaches_the_inbox():
+    """2026-10-25..27: 59 of 83 inbox items were 'station MISSING' for Claude sessions that had simply ended. A
+    station only the hook checked in is ENDED after two missed leases: one log line, no inbox item, no alarm. A
+    station that checks in by hand, Zero and the 2IC still go to the inbox."""
+    opened(second=GEM)
+    net.hook_line(hook_call("aaaaaaaa-1"), "UserPromptSubmit", now=T0 + 61)     # Zero, renewed by the hook too
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0)          # TWO: checked in by the hook only
+    other = f"gemini:hand@{HOST}"
+    net.checkin(other, now=T0, env={})
+    net.checkin(GEM, now=T0, env={})
+    box = []
+    add = lambda *a: box.append(a)                                   # noqa: E731
+    for t in (T0 + 3601, T0 + 5401, T0 + 9000):
+        r = net.check(heal=False, now=t, inbox_add=add, board=False)
+    rows = {x["station"]: x["state"] for x in r["rows"]}
+    assert rows[TWO] == "ENDED" and rows[other] == "MISSING" and rows[GEM] == "MISSING" and rows[ZERO] == "MISSING"
+    assert net.load_stations()["stations"][ZERO]["via"] == "hook"
+    assert not [b for b in box if TWO in b[0]]
+    assert [b for b in box if other in b[0]] and [b for b in box if GEM in b[0]]
+    assert len([e for _, e in net.entries() if e["kind"] == "miss" and e["to"] == TWO and "ENDED" in e["text"]]) == 1
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0 + 9100)    # it came back: UP again
+    assert {x["station"]: x["state"] for x in net.check(heal=False, now=T0 + 9101, inbox_add=add,
+                                                          board=False)["rows"]}[TWO] == "UP"
+
+
 def test_check_without_a_net():
     assert net.check(heal=False, now=T0)["level"] == net.NONET
 
@@ -344,12 +372,39 @@ def test_check_revives_a_dead_cable():
     opened()
     cab = FakeCable(["VAIO"])
     called = []
-    r = net.check(now=T0 + 1, cable=cab, reviver=lambda d: called.append(d) or 0, board=False)
+    r = net.check(heal=True, classify=lambda d: False, now=T0 + 1, cable=cab, reviver=lambda d: called.append(d) or 0, board=False)
     assert called == ["VAIO"] and r["links"][0]["revived"] and "REVIVED" in r["links"][0]["detail"]
-    r = net.check(now=T0 + 2, cable=cab, reviver=lambda d: 3, board=False)
+    r = net.check(heal=True, classify=lambda d: False, now=T0 + 2, cable=cab, reviver=lambda d: 3, board=False)
     assert r["level"] == net.ALARM and not r["links"][0].get("revived")
     r = net.check(heal=False, now=T0 + 3, cable=FakeCable(["VAIO"], {"VAIO": {"ok": True}}), board=False)
     assert r["links"][0]["ok"] and r["level"] == net.OK
+
+
+@pytest.fixture
+def linkhome_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "link"))
+
+
+def test_a_peer_that_is_off_is_off_not_lost_and_is_not_retried(linkhome_off):
+    from fieldkit.peers import link_off
+    opened()
+    cab, asked = FakeCable(["VAIO"]), []
+    r = net.check(now=T0 + 1, cable=cab, classify=lambda d: asked.append(d) or True, board=False)
+    assert r["links"][0]["off"] and r["level"] != net.ALARM and link_off.is_off("VAIO")
+    r = net.check(now=T0 + 2, cable=cab, classify=lambda d: asked.append(d) or True, board=False)
+    assert asked == ["VAIO"] and r["links"][0]["off"]                        # the ladder ran once, not at every check
+    net.check(now=T0 + 3, cable=FakeCable(["VAIO"], {"VAIO": {"ok": True}}), board=False)
+    assert not link_off.is_off("VAIO")                                       # it answered: no longer off
+    r = net.check(now=T0 + 4, cable=cab, classify=lambda d: False, board=False)
+    assert not r["links"][0].get("off") and r["level"] == net.ALARM          # silent but not provably off: lost
+
+
+def test_the_comms_check_does_not_revive_the_cable_unless_asked():
+    opened()
+    called = []
+    r = net.check(now=T0 + 1, cable=FakeCable(["VAIO"]), classify=lambda d: False,
+                  reviver=lambda d: called.append(d) or 0, board=False)
+    assert called == [] and r["level"] == net.ALARM
 
 
 def test_board_row_is_replaced_not_duplicated(tmp_path):
@@ -425,7 +480,7 @@ def test_cable_channel_not_paired_is_said():
 def test_cable_channel_sends_the_envelope_to_each_device():
     calls = []
     c = CABLE(household=lambda: {"me": "A", "devices": [{"name": "A"}, {"name": "VAIO"}]},
-                 call=lambda req, device: calls.append((req, device)) or {"ok": True})
+                 call=lambda req, device, **k: calls.append((req, device)) or {"ok": True})
     r = c.push({"kind": "msg", "id": "M-1"}, {})
     assert r[0]["ok"] and calls[0][1] == "VAIO" and calls[0][0]["text"].startswith(ch.NET1)
 
@@ -455,6 +510,8 @@ def hook_call(sid, event="UserPromptSubmit"):
 
 
 def test_hook_is_silent_without_a_net():
+    # the machine tag line (peers/machine.py) is said once per session, net or no net; nothing of the net's own
+    assert net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0).startswith("MACHINE: ")
     assert net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0) == ""
 
 
@@ -480,6 +537,33 @@ def test_hook_renews_the_lease_at_most_once_a_minute():
     assert net.load_stations()["stations"][TWO]["last"] == T0 + 61
 
 
+def test_a_hook_call_inside_the_lease_rewrites_nothing(monkeypatch):
+    """C6: every tool call rewrote net-stations.json although nothing in it had changed."""
+    opened()
+    net.hook_line(hook_call("bbbbbbbb-1"), "UserPromptSubmit", now=T0)
+    saved = []
+    real = net.save_stations
+    monkeypatch.setattr(net, "save_stations", lambda st: (saved.append(1), real(st)))
+    net.hook_line(hook_call("bbbbbbbb-1", "PreToolUse"), "PreToolUse", now=T0 + 30)
+    assert saved == []
+    net.hook_line(hook_call("bbbbbbbb-1", "PreToolUse"), "PreToolUse", now=T0 + 61)    # the lease is renewed
+    assert saved == [1] and net.load_stations()["stations"][TWO]["last"] == T0 + 61
+
+
+def test_the_net_is_read_from_its_json_cache_until_net_yaml_changes(monkeypatch):
+    """C6: importing the YAML parser was ~16 ms of every tool call."""
+    import sys
+    opened()
+    first = net.load_net()
+    assert (net.coord() / "NET.cache.json").is_file()
+    monkeypatch.setitem(sys.modules, "yaml", None)                  # any import of yaml now fails
+    assert net.load_net() == first
+    monkeypatch.undo()
+    n = dict(first, epoch=first["epoch"] + 7, note="a longer file than before")
+    net.save_net(n)
+    assert net.load_net()["epoch"] == first["epoch"] + 7            # a changed file is parsed again
+
+
 def test_hook_tells_zero_once_per_change_which_stations_went_quiet():
     opened()
     net.checkin(GEM, now=T0, env={})
@@ -492,6 +576,7 @@ def test_hook_tells_zero_once_per_change_which_stations_went_quiet():
 
 def test_hook_never_raises(monkeypatch):
     monkeypatch.setattr(net, "load_net", lambda: 1 / 0)
+    assert "NET" not in net.hook_line(hook_call("x"), "UserPromptSubmit")
     assert net.hook_line(hook_call("x"), "UserPromptSubmit") == ""
 
 
@@ -554,15 +639,16 @@ def run(argv, capsys):
     return rc, capsys.readouterr()
 
 
-def test_cli_alias_words_reach_the_same_verbs(monkeypatch, capsys):
+def test_cli_alias_words_reach_the_same_verbs(monkeypatch, capsys, tmp_path):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "aaaaaaaa-1")
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "link"))        # no household: the real cable is never touched
     rc, out = run([], capsys)
     assert rc == net.NONET and "ZERO NOT ESTABLISHED" in out.out
     rc, out = run(["establish", "--name", "command post", "--2ic", "claude:bbbbbbbb"], capsys)
     assert rc == 0 and "ZERO HAS BEEN ESTABLISHED" in out.out and f"2IC = {TWO}" in out.out
     rc, out = run(["sitrep"], capsys)
     assert "ROLL CALL R-" in out.out
-    rc, out = run(["comms", "--no-heal"], capsys)
+    rc, out = run(["comms"], capsys)
     assert out.out.startswith("COMMS CHECK")
     rc, out = run(["log", "--verify"], capsys)
     assert rc == 0 and "INTACT" in out.out
@@ -647,3 +733,50 @@ def test_guard_a_missing_station_reaches_only_the_tmp_inbox(tmp_path):
     assert got and any(GEM in p.read_text(encoding="utf-8") for p in got)
     after = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
     assert after == before
+
+
+# ---------------------------------------------------------------- C2: a station on the other computer checks in
+
+def test_hook_on_the_far_computer_learns_the_net_from_the_cable_and_checks_in_there(monkeypatch):
+    """2026-10-28 on the VAIO: Zero's open and 8 handovers sat unread in the link inbox, no NET.yaml, so the hook
+    said nothing and no VAIO station ever reached Zero. Now the hook ingests the cable and pushes its check-in."""
+    monkeypatch.setattr(net, "ingest_cable", INGEST)
+    monkeypatch.setattr(net, "machine", lambda: "VAIO")
+    monkeypatch.setattr(net, "tag_of", lambda s: "[VAIO-LNX]" if s.endswith("@VAIO") else "")
+    cab = FakeCable(["HOSTA"])
+    monkeypatch.setattr(ch, "Cable", lambda *a, **k: cab)
+    far_open = {"kind": "open", "id": "E-open", "from": ZERO, "epoch": 1,
+                "data": {"net": {"net": "open", "epoch": 1, "interval_min": 15,
+                                 "zero": {"station": ZERO, "machine": HOST}}}}
+    monkeypatch.setattr(ch, "inbox_items", lambda since: [(3, far_open)] if since < 3 else [])
+    call = {"session_id": "ffffffff-1", "cwd": "/x"}
+    assert "Zero is " + ZERO in net._net_line(call, "UserPromptSubmit", now=T0)
+    me = "claude:ffffffff@VAIO"
+    assert [e["kind"] for e in cab.pushed] == ["checkin"] and cab.pushed[0]["from"] == me
+    assert cab.pushed[0]["data"]["tag"] == "[VAIO-LNX]"
+    net._net_line(call, "UserPromptSubmit", now=T0 + 120)             # within the interval: not sent again
+    assert len(cab.pushed) == 1
+    net._net_line(call, "UserPromptSubmit", now=T0 + 15 * 60 + 1)     # an interval later: the far lease renewed
+    assert len(cab.pushed) == 2 and cab.pushed[1]["id"] != cab.pushed[0]["id"]
+
+
+def test_a_hook_on_zeros_own_computer_sends_nothing_over_the_cable(monkeypatch):
+    cab = FakeCable(["VAIO"])
+    monkeypatch.setattr(ch, "Cable", lambda *a, **k: cab)
+    opened()
+    net._net_line({"session_id": "cccccccc-1"}, "UserPromptSubmit", now=T0)
+    assert cab.pushed == []
+
+
+def test_a_far_checkin_keeps_its_machine_tag_and_status_counts_each_machine(monkeypatch):
+    monkeypatch.setattr(net, "ingest_cable", INGEST)
+    opened()
+    far = {"kind": "checkin", "id": "E-far2", "from": "claude:eeeeeeee@VAIO", "to": ZERO,
+           "data": {"by": "hook", "tag": "[VAIO-LNX]"}, "epoch": 1}
+    net.ingest_cable([(9, far)], now=T0)
+    assert net.load_stations()["stations"]["claude:eeeeeeee@VAIO"]["tag"] == "[VAIO-LNX]"
+    r = net.status(now=T0)
+    row = next(x for x in r["rows"] if x["station"] == "claude:eeeeeeee@VAIO")
+    assert row["tag"] == "[VAIO-LNX]"
+    text = "\n".join(net.status_lines(r, now=T0))
+    assert "[VAIO-LNX] claude:eeeeeeee@VAIO" in text and "[VAIO-LNX] 1 (1 UP)" in text

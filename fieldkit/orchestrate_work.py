@@ -2,6 +2,9 @@
 
     fieldkit orchestrate job run --device W --tree DIR --project REPO [--artefact GLOB ...] [--wall M] [--wait S]
                                  -- FIELDKIT ARGS ...        a Fieldkit command line, run on a copy of DIR there
+    fieldkit orchestrate job run --plain --device W --tree DIR ... -- PROGRAM ARGS ...
+                                                              no AI, no Fieldkit command: a build or test program
+                                                              (make, go, cargo, pytest...: PROGRAMS) on a copy of DIR
     fieldkit orchestrate job agent --device W --tree DIR --project REPO --brief FILE [--model ID] [--brain URL]
                                  [--artefact GLOB ...] [--wall M] [--wait S]
                                                               Gorilla OpenCode headless with the brief: the model
@@ -17,10 +20,20 @@ of fieldkit/mandate/jobs.py (one boss, many workers; the owner's mandate is the 
     file), and the job names it by the digest both ends compared, so the worker runs exactly those bytes;
   - the worker runs on a COPY of the received tree (received/ is never changed), one job at a time, with a wall
     cap, awake, after a free-space and clock check. It never needs the internet: nothing reaches GitHub;
+  - the job runs in a container (fieldkit/core/contain.py): a Job Object on Windows, its own process group on Linux
+    and macOS, so the wall cap stops the WHOLE tree, orphans included; its output goes to job.log through a file,
+    never a pipe; no output and no CPU for STALL_MINUTES is a STALL, stopped long before the wall cap with the tail
+    of its output kept on disk and a ROOM line; what the job leaves running when it ends is stopped and reported.
+    Before (2026-10-26): a plain subprocess.run with timeout = the wall cap, so a hung `go test` on the VAIO would
+    have sat silent for the whole hour and left its children behind. A job on a worker can never hang silently;
   - `run` is a Fieldkit command line with no shell; the commands that approve, push, publish or start agents are
-    refused (REFUSED). `agent` is a fresh Gorilla OpenCode run with the brief, on the model the job names, through
-    the worker's own configured provider (owner, 2026-10-26: cheap Gemini for tests, never a local model for O3);
-    the model is pinned in the tree copy's .gorilla-opencode.json, the only thing a project folder may set. With
+    refused (REFUSED). `run --plain` (HARNESS-PLAN C3 a, 2026-10-28) is a build or test program from PROGRAMS, with
+    no shell and without the subcommands that publish or log in: the plain heavy work a device with no local model
+    (the VAIO, the Mac) takes. Its result is checked the same way: exit code, the test count of a test job (pytest,
+    go test, cargo test, ctest), every artefact's sha256 and the log tail. The tree's own build files (a Makefile)
+    run as the worker's user, like any job on that tree. `agent` is a fresh Gorilla OpenCode run with the brief, on
+    the model the job names, through the worker's own configured provider (owner, 2026-10-26: cheap Gemini for
+    tests, never a local model for O3); the model is pinned in the tree copy's .gorilla-opencode.json, the only thing a project folder may set. With
     --brain (an OpenAI-compatible URL) the run gets a profile that knows only that endpoint, and a model it loaded
     on this computer is unloaded afterwards (owner rule: an idle 43 GB model woke him);
   - every artefact goes back to the boss with put, and its name, size and sha256 are in the result the worker
@@ -40,17 +53,32 @@ import sys
 import time
 from pathlib import Path
 
+from . import review_verdict
 from .mandate import jobs
 from .peers import link
 
 REFUSED = {"mandate", "ship", "publish", "release", "release-cycle", "autopilot", "peers", "inbox", "orchestrate",
            "agent", "elevate", "build-harness"}       # approvals, pushes, publishing, sessions, admin, the harness
 CMD = re.compile(r"[a-z][a-z0-9-]{0,40}")
+# run --plain: the build and test programs a job line may start, each with the first arguments refused (they publish,
+# log in, install outside the tree or run any code). No shell, no git, no ssh, no curl
+PROGRAMS = {
+    "make": (), "gmake": (), "ninja": (), "cmake": (), "ctest": (), "meson": (), "msbuild": (),
+    "go": (), "gofmt": (),
+    "cargo": ("publish", "login", "logout", "owner", "yank", "install"),
+    "dotnet": ("nuget", "tool"),
+    "npm": ("publish", "unpublish", "login", "logout", "adduser", "owner", "token", "deprecate", "dist-tag", "exec",
+            "x"),
+    "pytest": (), "py.test": (),
+    "python": (), "python3": (), "py": (),
+}
+PY_MODULES = ("pytest", "unittest", "compileall", "py_compile", "build")   # python -m: the ones a plain job may run
 MAX_ARTEFACTS = 50
 MAX_BRIEF = 32 * 1024
 DEFAULT_MODEL = "gemini-flash-lite-latest"            # cheap Gemini, the owner's model for tests (2026-10-26)
 MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,120}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
+STALL_MINUTES = 10                                    # FM-9: no output and no CPU for this long = a silent stall, stopped
 
 
 def work_root():
@@ -93,6 +121,8 @@ def check_work(req):
         argv = req.get("argv")
         if not (isinstance(argv, list) and argv and all(isinstance(a, str) and "\x00" not in a for a in argv)):
             return "run: argv is a list of strings, the Fieldkit command line without `fieldkit`"
+        if req.get("plain"):
+            return check_plain(argv)
         if not CMD.fullmatch(argv[0]):
             return f"run: {argv[0]!r} is not a Fieldkit command"
         if argv[0] == "admit" and argv[1:2] != ["suite"]:
@@ -109,6 +139,23 @@ def check_work(req):
             return "agent: model is a model id the worker's Gorilla OpenCode knows (e.g. gemini-flash-lite-latest)"
     else:
         return f"{kind!r} is not a job on a tree"
+    return None
+
+
+def _bare(prog):
+    return prog[:-4] if prog.lower().endswith(".exe") else prog
+
+
+def check_plain(argv):
+    """-> why this plain program line is not a job, or None (PROGRAMS, PY_MODULES)."""
+    name = _bare(argv[0])
+    if "/" in name or "\\" in name or name not in PROGRAMS:
+        return (f"run --plain: {argv[0]!r} is not a build or test program a job may start (a bare name, one of "
+                f"{', '.join(sorted(PROGRAMS))})")
+    if argv[1:2] and argv[1] in PROGRAMS[name]:
+        return f"run --plain: `{name} {argv[1]}` is not run as a job (it publishes, logs in or runs any code)"
+    if name in ("python", "python3", "py") and (argv[1:2] != ["-m"] or argv[2:3] == [] or argv[2] not in PY_MODULES):
+        return f"run --plain: python runs only `-m` with one of {', '.join(PY_MODULES)}"
     return None
 
 
@@ -131,7 +178,7 @@ def accept(req, mpath, lock, cap=3600, popen=subprocess.Popen):
     jid = req["id"]
     d = work_root() / jid
     d.mkdir(parents=True, exist_ok=True)
-    job = {k: req.get(k) for k in ("id", "kind", "repo", "tree_digest", "argv", "brief", "brain", "model",
+    job = {k: req.get(k) for k in ("id", "kind", "repo", "tree_digest", "argv", "plain", "brief", "brain", "model",
                                    "artefacts", "wall_minutes", "from_host")}
     job.update(mandate_path=str(mpath), tree=rec["saved"], tree_kind=rec.get("kind"), lock=str(lock),
                accepted=time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -144,13 +191,23 @@ def accept(req, mpath, lock, cap=3600, popen=subprocess.Popen):
     return {"ok": True, "started": jid}
 
 
-def run_argv(args, platform=None):
+def run_argv(args, platform=None, plain=False, path=None):
     """The command a run job starts. On Windows it always runs inside `fieldkit guard --` (owner rule: every
-    compile job on the Windows laptop goes through the fan check and the build governor), whatever the boss sent."""
+    compile job on the Windows laptop goes through the fan check and the build governor), whatever the boss sent.
+    plain: args[0] is a program, found on `path` (the job's PATH); a `python` is the worker's own Python (the O3
+    false PASS ran a /usr/bin/python3 with no pytest). Raises RuntimeError when the program is not on this worker."""
     me = [sys.executable, "-P", "-m", "fieldkit"]
+    if plain:
+        name = _bare(args[0])
+        exe = sys.executable if name in ("python", "python3", "py") else shutil.which(args[0], path=path)
+        if not exe:
+            raise RuntimeError(f"{args[0]} is not installed on this worker (not on its PATH)")
+        cmd = [exe, *args[1:]]
+    else:
+        cmd = [*me, *args]
     if (platform or sys.platform) == "win32":
-        return [*me, "guard", "--", *me, *args]
-    return [*me, *args]
+        return [*me, "guard", "--", *cmd]
+    return cmd
 
 
 def _sha(p):
@@ -161,12 +218,113 @@ def _sha(p):
     return h.hexdigest()
 
 
+def _read(path):
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def _tail(path, n=15, chars=1500):
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return ""
     return "\n".join(lines[-n:])[-chars:]
+
+
+def evidence_tail(log, guard_log=None):
+    """The command's last lines (the pytest summary) first, then the last lines of the guard's report: the guard's
+    preflight once filled the whole tail and the inner output never showed (C3/I6, 2026-10-28)."""
+    inner = _tail(log, 15, 1250)
+    g = _tail(guard_log, 3, 450) if guard_log else ""
+    return inner + (f"\n--- the guard\n{g}" if g else "")
+
+
+PYTEST_SUMMARY = re.compile(r"\b(\d+ (?:passed|failed|errors?|skipped)|no tests ran)\b.* in [\d.]+s")
+REGRESS_LINE = re.compile(r": (\d+) passed, (\d+) failed \((\d+) test names read; exit (-?\d+|None)\)")
+
+
+GO_OK = re.compile(r"^ok\s+\S+(?!.*\[no tests to run\])")
+GO_FAIL = re.compile(r"^(?:FAIL\s+\S+|--- FAIL: )")
+CARGO_LINE = re.compile(r"^test result: \w+\. (\d+) passed; (\d+) failed;")
+CTEST_LINE = re.compile(r"\d+% tests passed, (\d+) tests? failed out of (\d+)")
+
+
+def is_test_job(argv):
+    """A run job whose point is to run tests: `admit suite`, `regress record`, pytest anywhere in the line, or (a
+    plain job) `go test`, `cargo test`, `ctest`."""
+    argv = [str(a) for a in argv or []]
+    base = [_bare(a.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]) for a in argv]
+    return argv[:2] == ["admit", "suite"] or argv[:2] == ["regress", "record"] or any(
+        b.startswith("pytest") for b in base) or base[:2] in (["go", "test"], ["cargo", "test"]) or base[:1] == [
+        "ctest"]
+
+
+def test_counts(text):
+    """-> {passed, failed, errors} from the LAST pytest summary or `regress record` line in the output, or None."""
+    found = None
+    for ln in text.splitlines():
+        m = REGRESS_LINE.search(ln)
+        if m:
+            p, f, n, ex = m.groups()
+            found = {"passed": int(p), "failed": int(f), "errors": 0 if ex == "0" else 1, "read": int(n)}
+        elif PYTEST_SUMMARY.search(ln):
+            c = {k: 0 for k in ("passed", "failed", "errors")}
+            for num, word in re.findall(r"(\d+) (passed|failed|errors?)\b", ln):
+                c["errors" if word.startswith("error") else word] += int(num)
+            found = c
+    return found if found is not None else other_counts(text)
+
+
+def other_counts(text):
+    """-> {passed, failed, errors} summed over go test (packages), cargo test and ctest summary lines, or None."""
+    c, seen = {"passed": 0, "failed": 0, "errors": 0}, False
+    for ln in text.splitlines():
+        cargo, ctest = CARGO_LINE.search(ln), CTEST_LINE.search(ln)
+        if GO_OK.search(ln):
+            c["passed"] += 1
+        elif GO_FAIL.search(ln):
+            c["failed"] += 1
+        elif cargo:
+            c["passed"] += int(cargo[1])
+            c["failed"] += int(cargo[2])
+        elif ctest:
+            c["passed"] += int(ctest[2]) - int(ctest[1])
+            c["failed"] += int(ctest[1])
+        else:
+            continue
+        seen = True
+    return c if seen else None
+
+
+def judge(kind, argv, rc, output, declared):
+    """The evidence rule (O3 false PASS, 2026-10-26: two `regress record ... -- python3 -m pytest` jobs said "exit 0
+    in 0 s" and PASS while that python3 had no pytest and nothing was tested). -> (passes, [concern]). Fixed rules:
+      - an exit code other than 0 fails;
+      - a run job that printed nothing and declared no artefact fails: nothing shows the command did anything;
+      - a test job (is_test_job) passes only when its output ends in a test count with at least one test passed and
+        none failed or errored; "0 test names read", "no tests ran" or no count at all is invalid evidence."""
+    if rc != 0:
+        return False, []
+    if kind != "run":
+        return True, []
+    if not output.strip() and not declared:
+        return False, [{"text": "exit 0 with no output and no declared artefact: nothing shows the command ran",
+                        "fix_offered": "declare the file the job makes with --artefact, or run a command that "
+                                       "reports what it did"}]
+    if is_test_job(argv):
+        c = test_counts(output)
+        if c is None or c["passed"] < 1:
+            return False, [{"text": "the tests never ran: no test passed"
+                                    + (f" ({c.get('read', 0)} test names read)" if c and "read" in c else
+                                       " (no test count in the output)" if c is None else ""),
+                            "fix_offered": "check the job log: pytest missing for that Python, or 0 tests "
+                                           "collected"}]
+        if c["failed"] or c["errors"]:
+            return False, [{"text": f"{c['failed']} test(s) failed, {c['errors']} error(s)",
+                            "fix_offered": "fix the failing tests"}]
+    return True, []
 
 
 AGENTS = ("coder", "task", "title", "summarizer")
@@ -214,8 +372,51 @@ def unload_local_models(brain, run=subprocess.run):
         f"NOT UNLOADED: lms unload --all exit {r.returncode}: {(r.stderr or r.stdout).strip()[:160]}"
 
 
-def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=None):
-    """The job itself (a detached process on the worker). -> the result, delivered to the boss."""
+def stall_s():
+    """The stall limit in seconds: FIELDKIT_IDLE_MINUTES (the same knob as autopilot claude), else STALL_MINUTES."""
+    return float(os.environ.get("FIELDKIT_IDLE_MINUTES") or STALL_MINUTES) * 60
+
+
+def run_contained(argv, cwd, env, log, deadline_s, idle_s, label):
+    """The job's command in a container (fieldkit/core/contain.py). -> contain.Outcome.
+    The container's output is APPENDED to log (stdout and stderr merged), through a file, never a pipe; the wall
+    deadline and the stall limit stop the whole tree; the worker is a detached process, so it opens its own liveness
+    beacon when none is current (fieldkit liveness check sees the job, its step and its members)."""
+    from .core import contain, liveness
+    own = liveness.beacon("job", label, label).start() if liveness.current() is None else None
+    try:
+        return contain.run([str(a) for a in argv], label=label, deadline_s=deadline_s, cwd=str(cwd), env=env,
+                           stdout_path=str(log), merge=True, idle_s=idle_s)
+    finally:
+        if own:
+            own.close()
+
+
+def job_concerns(o, wall, idle_s):
+    """What a contained run's Outcome says beyond its exit code, as concerns for the boss. -> (rc, [concern])."""
+    out = []
+    if o.status == "timeout":
+        out.append({"text": f"stopped at the wall cap ({wall // 60} min): the container stopped "
+                            f"{len(o.killed)} process(es)", "fix_offered": "send it again with a larger --wall"})
+    elif o.status == "stalled":
+        out.append({"text": f"STALL: no output and no CPU for {idle_s / 60:g} min; the container stopped "
+                            f"{len(o.killed)} process(es); output tail kept at {o.tail_file}",
+                    "fix_offered": "read the tail; a job that waits on a person or a lock here cannot run as a job"})
+    if o.leftovers:
+        out.append({"text": f"{len(o.leftovers)} process(es) the job left running were stopped: {o.leftovers}",
+                    "fix_offered": "a job ends with its children; check what it started"})
+    if not o.contained:
+        out.append({"text": f"NOT CONTAINED: {o.why}; only the tree kill held",
+                    "fix_offered": "fieldkit liveness doctor on the worker"})
+    rc = o.rc if o.status in ("ok", "fail") else None
+    return rc, out
+
+
+def work(jid, run=None, put=None, deliver=None, sign=None, health_fn=None, unload=None, reviewer=None):
+    """The job itself (a detached process on the worker). -> the result, delivered to the boss.
+    run: the contained runner (run_contained): (argv, cwd, env, log, deadline_s, idle_s, label) -> contain.Outcome."""
+    run = run or run_contained
+    unload = unload or unload_local_models
     put = put or link.put
     deliver = deliver or jobs.deliver
     sign = sign or jobs.sign_result
@@ -223,7 +424,8 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
     d = work_root() / jid
     tree = d / "tree"
     log = d / "job.log"
-    concerns, t0, rc = [], time.time(), None
+    guard_log = d / "guard.log"
+    concerns, t0, rc, verdict = [], time.time(), None, None
     boss = job.get("from_host") if link.device(link.household(), job.get("from_host")) else None
     try:
         if tree.exists():
@@ -237,8 +439,17 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         concerns += (health_fn or _health)()
         wall = int(job.get("wall_minutes") or 60) * 60
         env = link.link_env()
+        # a `python3` in the job's own line is the worker's Python (it has pytest), never a bare system one: the
+        # O3 false PASS ran /usr/bin/python3, which had no pytest
+        env["PATH"] = os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])
         if job["kind"] == "run":
-            argv = run_argv(job["argv"])
+            argv = run_argv(job["argv"], plain=bool(job.get("plain")), path=env["PATH"])
+            if argv[4:6] == ["guard", "--"]:
+                # the guard's own lines go to their own file: job.log is the command's output alone, so the
+                # evidence tail ends in the pytest summary, not in the preflight (C3/I6, 2026-10-28)
+                from .thermal.buildguard import GUARD_LOG
+                guard_log.unlink(missing_ok=True)
+                env[GUARD_LOG] = str(guard_log)
         else:
             exe = opencode_exe()
             if not exe:
@@ -253,18 +464,21 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
             # 0xC000013A, "ended by Ctrl+C", live on Windows 2026-10-26; fieldkit buildh drive passes -q too
             argv = [exe, "-p", job["brief"], "-c", str(tree), "-q"]
         from .mandate import health
-        with health.awake(f"fieldkit job {jid}"), open(log, "w", encoding="utf-8") as out:
-            out.write(f"$ {' '.join(argv[:6])}{' ...' if len(argv) > 6 else ''}\n")
-            out.flush()
-            try:
-                rc = run(argv, cwd=str(tree), env=env, stdin=subprocess.DEVNULL, stdout=out,
-                         stderr=subprocess.STDOUT, timeout=wall).returncode
-            except subprocess.TimeoutExpired:
-                rc = None
-                concerns.append({"text": f"stopped at the wall cap ({wall // 60} min)",
-                                 "fix_offered": "send it again with a larger --wall"})
+        idle_s = stall_s()
+        with open(log, "w", encoding="utf-8") as out:
+            out.write(f"$ {' '.join(argv[:6])}{' ...' if len(argv) > 6 else ''}\n"
+                      f"# contained: wall {wall // 60} min, stall {idle_s / 60:g} min without output or CPU\n")
+        with health.awake(f"fieldkit job {jid}"):
+            o = run(argv, tree, env, log, wall, idle_s, f"job {jid}")
+        if o.status == "error":
+            raise RuntimeError(o.why or "the job's command could not start")
+        rc, more = job_concerns(o, wall, idle_s)
+        concerns += more
+        if more:
+            with open(log, "a", encoding="utf-8") as out:
+                out.write("".join(f"\n=== {c['text']}" for c in more) + "\n")
         if job["kind"] == "agent" and job.get("brain"):
-            said = unload_local_models(job["brain"], run=run)
+            said = unload(job["brain"])
             if said.startswith("NOT"):
                 concerns.append({"text": said, "fix_offered": "unload the model in LM Studio"})
         arts, missing = _artefacts(tree, job.get("artefacts") or [], put, boss)
@@ -273,9 +487,23 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
         bad = [a for a in arts if not a["sent"]]
         concerns += [{"text": f"artefact {a['name']} did not reach the boss: {a['error']}",
                       "fix_offered": "the file is still in the job folder; send the job again"} for a in bad]
-        status = "pass" if rc == 0 and not missing and not bad else "fail"
-        evidence = (f"exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} artefact(s) "
-                    f"sent, sha256 in this result\n{_tail(log)}")
+        output = "".join(_read(log).splitlines(keepends=True)[2:])     # after the "$ command" and "# contained" lines
+        ok, why = judge(job["kind"], job.get("argv"), rc, output, job.get("artefacts"))
+        concerns += why
+        status = "pass" if ok and not missing and not bad else "fail"
+        if job["kind"] == "agent" and status == "pass":          # C3b: an AI result passes only on a reviewer's verdict
+            verdict = review_verdict.review(job, rc, output, arts, reviewer)
+            if verdict["verdict"] != review_verdict.PASS:
+                status = "fail"
+                concerns.append({"text": f"review verdict {verdict['verdict']}: {verdict['explanation']}",
+                                 "fix_offered": "send the explanation back to the worker" if verdict["verdict"] ==
+                                 review_verdict.SEND_BACK else "the reviewer fixes it" if verdict["verdict"] ==
+                                 review_verdict.FIX_ITSELF else "wire the reviewer (I7), then send the job again"})
+        evidence = (f"{o.status} exit {rc} in {time.time() - t0:.0f} s; {len(arts) - len(bad)} of {len(arts)} "
+                    f"artefact(s) sent, sha256 in this result\n{evidence_tail(log, guard_log)}")
+        if guard_log.is_file():
+            with open(log, "a", encoding="utf-8") as out:
+                out.write("=== the guard's report\n" + _read(guard_log))
     except Exception as e:  # noqa: BLE001 - every failure becomes a result the boss sees, never silence
         status, arts = "not-run", []
         evidence = f"the job could not run here: {type(e).__name__}: {e}"
@@ -286,7 +514,7 @@ def work(jid, run=subprocess.run, put=None, deliver=None, sign=None, health_fn=N
             pass
     r = sign({"id": jid, "kind": job["kind"], "repo": job["repo"], "commit": job["tree_digest"], "status": status,
               "evidence": evidence[:1900], "concerns": concerns, "os": link.os_tag(), "host": socket.gethostname(),
-              "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+              "at": time.strftime("%Y-%m-%d %H:%M:%S"), "verdict": verdict["verdict"] if verdict else None,
               "artefacts": [{k: a[k] for k in ("name", "size", "sha256")} for a in arts]})
     (d / "result.json").write_text(json.dumps(r, indent=1, ensure_ascii=False), encoding="utf-8")
     deliver(r)
@@ -315,13 +543,14 @@ def _artefacts(tree, patterns, put, boss):
 
 
 # ---- the boss -------------------------------------------------------------------------------------------------------
-def job_key(kind, argv=None, brief=None, brain=None, model=None, artefacts=()):
-    blob = json.dumps([kind, argv, brief, brain, model, list(artefacts)], sort_keys=True).encode("utf-8")
+def job_key(kind, argv=None, brief=None, brain=None, model=None, artefacts=(), plain=False):
+    blob = json.dumps([kind, argv, brief, brain, model, list(artefacts)] + (["plain"] if plain else []),
+                      sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:8]
 
 
 def send(kind, device, tree, project, argv=None, brief=None, brain=None, model=None, artefacts=(), wall=60,
-         put=None, call=None, find_mandate=None):
+         put=None, call=None, find_mandate=None, plain=False):
     """Send the tree, then the job. -> (job id, what happened, the put answer)."""
     from .mandate import mandate as M
     put = put or link.put
@@ -333,6 +562,8 @@ def send(kind, device, tree, project, argv=None, brief=None, brain=None, model=N
            "wall_minutes": int(wall), "tree_digest": "0" * 64}
     if kind == "run":
         req["argv"] = list(argv or [])
+        if plain:
+            req["plain"] = True
     else:
         req.update(brief=brief, brain=brain, model=model or "")
     why = check_work(req)
@@ -341,7 +572,7 @@ def send(kind, device, tree, project, argv=None, brief=None, brain=None, model=N
     t = put(tree, device=device)
     if not t.get("ok") or not t.get("digest"):
         return None, f"the tree did not arrive: {t.get('error')}", t
-    jid = f"{kind}-{project}-{t['digest'][:12]}-{job_key(kind, argv, brief, brain, model, artefacts)}"
+    jid = f"{kind}-{project}-{t['digest'][:12]}-{job_key(kind, argv, brief, brain, model, artefacts, plain)}"
     req.update(id=jid, tree_digest=t["digest"])
     led = jobs._ledger()
     if led.get(jid, {}).get("status") in ("sent", "pass"):
@@ -416,6 +647,8 @@ def main(argv):
     ap.add_argument("--brain", help="agent: an OpenAI-compatible URL as the WORKER reaches it, only for a worker "
                                     "with no provider of its own")
     ap.add_argument("--brief", help="agent: a file with the brief")
+    ap.add_argument("--plain", action="store_true", help="run: the line after -- is a build or test program "
+                                                         "(PROGRAMS), not a Fieldkit command")
     a = ap.parse_args(rest)
     if a.kind == "status":
         print("\n".join(jobs.lines()))
@@ -425,7 +658,7 @@ def main(argv):
         return 2
     brief = Path(a.brief).read_text(encoding="utf-8") if a.brief else None
     jid, said, t = send(a.kind, a.device, a.tree, a.project, argv=tail, brief=brief, brain=a.brain, model=a.model,
-                        artefacts=a.artefact, wall=a.wall)
+                        artefacts=a.artefact, wall=a.wall, plain=a.plain)
     if t and t.get("ok"):
         print(f"TREE  {t['files']} file(s), {t['bytes'] / 1e6:,.1f} MB, digest {t['digest'][:12]} on {a.device}")
     print(f"JOB   {jid or '-'}: {said}")

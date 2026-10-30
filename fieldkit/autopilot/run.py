@@ -39,6 +39,9 @@ def isolated_env(base=None):
     empty.mkdir(exist_ok=True)
     for k in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
         env[k] = ""
+    # where gh kept its account before this run hid it: a folder name, not a credential; only fieldkit ship reads it
+    # (owner, 2026-10-28, inbox #145: "Yes, ship only")
+    env["FIELDKIT_REAL_GH_CONFIG_DIR"] = (base if base is not None else os.environ).get("GH_CONFIG_DIR", "")
     env.update({
         "GH_CONFIG_DIR": str(empty),             # gh finds no hosts.yml, so no account and no keyring lookup
         "GIT_TERMINAL_PROMPT": "0",
@@ -104,6 +107,17 @@ def claude_exe():
     found = shutil.which("claude")
     if found:
         return found
+    # 2026-10-28: the VAIO's link listener (started at logon, a short PATH) refused two `task start --on peer` with
+    # "claude found: not on PATH" while claude ran there. The installers' own places come next, on every system.
+    home = Path.home()
+    exe = "claude.exe" if sys.platform == "win32" else "claude"
+    for c in (home / ".local" / "bin" / exe, home / ".claude" / "local" / exe, home / ".npm-global" / "bin" / exe,
+              Path("/usr/local/bin/claude"), Path("/opt/homebrew/bin/claude"), Path("/usr/bin/claude")):
+        if (sys.platform == "win32") == c.name.endswith(".exe") and c.is_file() and os.access(c, os.X_OK):
+            return str(c)
+    nvm = sorted(glob.glob(str(home / ".nvm" / "versions" / "node" / "*" / "bin" / "claude")))
+    if nvm and sys.platform != "win32":
+        return nvm[-1]
     # the desktop app is an MSIX package: what it writes to %APPDATA% really lives in its package folder, and only
     # processes inside the package see the redirected path (2026-10-18: the owner's PowerShell could not find the
     # %APPDATA% path this session saw). The package folder is real for everyone, so it comes first.
@@ -211,15 +225,15 @@ def parse_result(text):
 
 
 def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resume=None, model=None,
-           popen=subprocess.Popen, idle_minutes=None):
+           popen=subprocess.Popen, idle_minutes=None, role="worker"):
     """One headless Claude Code run in autopilot (bypass mode + the hard-line hook, no credential).
     max_turns 10000 (owner 2026-10-22; 40 ended the first night run's job 2 mid-mutate). timeout = the job's wall
     budget in seconds (None: no limit; the hidden 7200 s is gone): on expiry the whole process tree is killed by
     PID and the result says timed_out. resume = a session id to continue (claude --resume). A long prompt goes on
     stdin (the Windows command line holds 32k characters)."""
     cmd = claude_cmd()
-    if not cmd:
-        return {"ok": False, "why": "no Claude Code executable found"}
+    missing = not cmd
+    cmd = cmd or ["claude"]
     fk_root = str(Path(__file__).resolve().parents[2])
     env = isolated_env()
     env["PYTHONPATH"] = fk_root + os.pathsep + env.get("PYTHONPATH", "")
@@ -233,8 +247,15 @@ def claude(prompt, cwd=None, max_turns=10000, timeout=None, env_extra=None, resu
         "--max-turns", str(max_turns), "--output-format", "stream-json", "--verbose"]
     if resume:
         args += ["--resume", resume]
-    if model:
-        args += ["--model", model]
+    # Spawn-time guard (lifecycle/models.py): the model flag and ANTHROPIC_MODEL are checked and rewritten; a headless
+    # run naming none gets the cheap default; a premium or unknown model is refused (and logged) without a signed allow.
+    from ..lifecycle import models
+    try:
+        args, env = models.guard_launch(args + (["--model", model] if model else []), env, role, "autopilot")
+    except models.Refused as e:
+        return {"ok": False, "rc": 1, "why": f"model refused: {e}", "refused": True}
+    if missing:  # after the guard: a premium model is refused even where no executable exists (CI)
+        return {"ok": False, "why": "no Claude Code executable found"}
     # In a container (fieldkit/core/contain.py): the timeout stops the WHOLE tree, orphans included, output goes to
     # files (a leftover child can never hold a pipe open), and what the run leaves behind is stopped when it ends.
     # stream-json makes progress visible: no output and no CPU for idle_minutes is a STALL (FM-9, 2026-10-26: a relief

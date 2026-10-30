@@ -17,14 +17,10 @@ from pathlib import Path
 
 import psutil
 
+from .registry import ct  # noqa: F401 - one definition, kept light for the tool-call hook
+
 LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
 LMS_PROC = ("lm studio", "lms", "llmster", "llama-server")
-
-
-def ct(x):
-    """Creation times compared to 2 decimals everywhere (the registry, the live table): a float round trip through
-    JSON must not make the same process look like a different one."""
-    return round(float(x), 2)
 
 
 def ram():

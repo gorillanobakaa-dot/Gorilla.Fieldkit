@@ -136,7 +136,7 @@ def _windows(platform=None):
 
 
 def _dir():
-    d = Path(settings.ROOT) / "state" / "sound"
+    d = settings.state_root() / "state" / "sound"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

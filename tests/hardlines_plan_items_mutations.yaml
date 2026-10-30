@@ -1,0 +1,59 @@
+# Hard line 3 opened for plan items (2026-10-28): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/hardlines_plan_items_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_hardlines_plan_items.py
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '    return next((i for i in ITEM.findall(text) if i in st and not plan.is_done(st[i])), None)'
+  - '    return next((i for i in ITEM.findall(text) if i in st), None)'
+  why: a DONE item opens nothing
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '    return next((i for i in ITEM.findall(text) if i in st and not plan.is_done(st[i])), None)'
+  - '    return next(iter(ITEM.findall(text)), None)'
+  why: an id must be in the plan
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '    return bool(PLAN_GUARD.search(t)) and not ENFORCING.search(t) and _protected(PLAN_GUARD.sub(" ", t)) is None'
+  - '    return bool(PLAN_GUARD.search(t)) and _protected(PLAN_GUARD.sub(" ", t)) is None'
+  why: enforcing files stay refused
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '    return bool(PLAN_GUARD.search(t)) and not ENFORCING.search(t) and _protected(PLAN_GUARD.sub(" ", t)) is None'
+  - '    return bool(PLAN_GUARD.search(t)) and not ENFORCING.search(t)'
+  why: another protection in the same call stays refused
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - (?<!\.git/)hooks/
+  - hooks/
+  why: .git/hooks is not opened
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - "            gate = _commit_gate(seg, cwd, transcript)\n            if gate:\n                return gate\n"
+  - ''
+  why: a commit is gated
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '        if data is None or not mutate.proven(root / f, data):'
+  - '        if data is None:'
+  why: a guard commit needs a proof
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '    names = _git(repo, *(["diff", "HEAD", "--name-only"] if every else ["diff", "--cached", "--name-only"]))'
+  - '    names = _git(repo, "diff", "--cached", "--name-only")'
+  why: commit -a is gated on the working tree
+- file: fieldkit/autopilot/hardlines.py
+  swap:
+  - '    (r"state/mutate-proofs", "a mutate proof (only fieldkit mutate writes one)"),
+
+    '
+  - ''
+  why: a proof is not written by hand
+- file: fieldkit/method/mutate.py
+  swap:
+  - '        if e and e.get("sha256") == sha and e.get("caught", 0) > 0 and not e.get("other"):'
+  - '        if e and e.get("caught", 0) > 0 and not e.get("other"):'
+  why: a proof is for the exact content
+- file: fieldkit/method/mutate.py
+  swap:
+  - '        if e and e.get("sha256") == sha and e.get("caught", 0) > 0 and not e.get("other"):'
+  - '        if e and e.get("sha256") == sha and e.get("caught", 0) > 0:'
+  why: a survivor voids the proof

@@ -64,7 +64,7 @@ def split_args(rest, title=None):
     return [c for c in rest if c != "--"], title
 
 def log_path(now=None):
-    d = settings.ROOT / "state" / "terminal"
+    d = settings.state_root() / "state" / "terminal"
     d.mkdir(parents=True, exist_ok=True)
     # 2026-10-14: strftime refuses None; the first real run crashed here while the test had stubbed this function out
     stamp = time.strftime("%Y%m%d-%H%M%S", now) if now else time.strftime("%Y%m%d-%H%M%S")
@@ -259,7 +259,7 @@ def history(limit=20, root=None):
     """Every window newest first, as the harness or a session reads it: when it opened, whether the person allowed
     the run, when the command started and finished, its exit, and how the window ended. A log with an 'opened'
     line and nothing after it is a window somebody closed, or that is still open."""
-    d = Path(root) if root else settings.ROOT / "state" / "terminal"
+    d = Path(root) if root else settings.state_root() / "state" / "terminal"
     out = []
     for p in sorted(d.glob("*.log"), reverse=True)[:limit]:
         rec = {"log": str(p), "opened": None, "command": "", "allowed": None, "started": None, "finished": None,

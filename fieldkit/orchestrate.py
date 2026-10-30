@@ -10,6 +10,11 @@
                                                               there; no click (orchestrate_session.py)
     fieldkit orchestrate load | place ...                     each device's load; a suite placed where there is
                                                               room (orchestrate_load.py)
+    fieldkit orchestrate inventory | split ...                which devices are up and what each runs; a suite
+                                                              split into pieces with a PASS line each, placed and
+                                                              run, pieces per hour (orchestrate_split.py)
+    fieldkit orchestrate offload [--tree REPO] [--json]      the pre-commit suite on an idle Linux device, only
+                                                              what it skipped here (suite_offload.py)
 
 Stage O1 of the household orchestrator (local/PROJECT-MANDATE-PLAN.md section 19): one boss, many workers, any OS.
 The registry and the wire are fieldkit/peers/link.py (household.json, one household key); this file is only the
@@ -75,6 +80,12 @@ def main(argv=None):
     if argv and argv[0] in ("load", "place"):         # stage O4: the load of each device, placement of a suite
         from . import orchestrate_load
         return orchestrate_load.main(argv)
+    if argv and argv[0] in ("inventory", "split"):    # I6: which devices are up, a suite split into checkable pieces
+        from . import orchestrate_split
+        return orchestrate_split.main(argv)
+    if argv[:1] == ["offload"]:                       # the Windows pre-commit suite on the VAIO (owner, 2026-10-26)
+        from . import suite_offload
+        return suite_offload.main(argv[1:])
     if argv and argv[0] in ("job", "work"):            # stage O3: jobs on a received tree (orchestrate_work.py)
         from . import orchestrate_work
         return orchestrate_work.main(argv)

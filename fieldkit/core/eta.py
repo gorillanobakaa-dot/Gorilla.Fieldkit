@@ -25,9 +25,10 @@ import statistics
 import tempfile
 import time
 from pathlib import Path
+from .settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
-HISTORY = ROOT / "state" / "eta" / "history.jsonl"
+HISTORY = _state_root(ROOT) / "state" / "eta" / "history.jsonl"
 
 
 def answer(remaining_s, basis, evidence, now=None):
@@ -265,7 +266,7 @@ def build_log_durations(log_text):
 
 def import_build_logs(windows_dir=None, product="firefox", path=None):
     """Seed the history from earlier build-run logs (state/windows/*build-run*.log), once per log."""
-    wd = Path(windows_dir or ROOT / "state" / "windows")
+    wd = Path(windows_dir or _state_root(ROOT) / "state" / "windows")
     seen_p = Path(path or HISTORY).with_name("imported-logs.txt")
     seen = set(seen_p.read_text(encoding="utf-8").split("\n")) if seen_p.is_file() else set()
     n = 0

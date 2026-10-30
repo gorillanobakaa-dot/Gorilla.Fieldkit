@@ -119,7 +119,8 @@ def test_close_stops_what_is_still_inside_and_says_so(tmp_path):
     c = contain.Container("close")
     p = c.popen([PY, "-c", "import time; time.sleep(60)"])
     try:
-        assert c.close() == [p.pid] and _gone(p.pid)
+        left = c.close()                    # a venv launcher may sit in front of the real interpreter: both are named
+        assert p.pid in left and all(_gone(x) for x in left)
     finally:
         _hard_kill(p.pid)
 
@@ -129,6 +130,8 @@ def test_a_hung_criterion_with_an_orphan_is_timeout_and_the_supervisor_goes_on(t
     spins; the wall deadline stops the whole container, the verdict is TIMEOUT (not FAIL), verify returns."""
     from fieldkit.autopilot import goal
     monkeypatch.setattr(goal, "GOALS", tmp_path / "goals")
+    from fieldkit.thermal import buildguard           # the container's deadline is under test, not the thermal guard
+    monkeypatch.setattr(buildguard, "STATUS", tmp_path / "no-fan-control")
     parent, pidf = orphan_maker(tmp_path, then="hang")
     g = {"id": "g", "objective": "o", "cwd": str(tmp_path),
          "criteria": [{"id": "go-test", "run": f'& "{PY}" "{parent}"' if os.name == "nt" else f'"{PY}" "{parent}"',

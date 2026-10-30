@@ -1,26 +1,14 @@
-# Rules fieldkit testcost must hold (owner 2026-10-26: no re-testing a passed tree, nothing weakened by default):
-#   fieldkit mutate --plan tests/testcost_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_testcost.py
+# no code, no tests (R7): every rule broken once; all CAUGHT.
+#   python -m fieldkit mutate --plan tests/testcost_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_testcost.py
 - file: fieldkit/testcost.py
-  swap: ['and r.get("key") == key and r.get("status") == "pass":', 'and r.get("key") == key and r.get("status") in ("pass", "fail"):']
-  why: only a PASS lets a check skip; a failure never does
+  swap: ["    return path in VERSION_FILES and bool(lines) and", "    return bool(lines) and"]
+  why: "only the version files may be version-only"
 - file: fieldkit/testcost.py
-  swap: ['if r.get("check") == check and r.get("key") == key and', 'if r.get("check") == check and']
-  why: a pass counts only for the identical tree
+  swap: ["VERSION_LINE.match(l[1:]) for l in lines", "True for l in lines"]
+  why: "a version file with any other changed line is code (the diff is inspected, not the filename)"
 - file: fieldkit/testcost.py
-  swap: ['out[k] = cfg.get(k) is True', 'out[k] = bool(cfg.get(k))']
-  why: a gate tier turns on only on a real True (the owner's yes)
+  swap: ["    return path in VERSION_FILES and bool(lines) and", "    return path in VERSION_FILES and"]
+  why: "a version file with no readable diff is code"
 - file: fieldkit/testcost.py
-  swap: ['and not p.startswith(CODE_TREES) for p in paths)', 'for p in paths)']
-  why: documentation a test can read (skills, cards) is never "documentation only"
-- file: fieldkit/testcost.py
-  swap: ['any(m == mod or m.startswith(mod + ".") for m in ms)', 'any(m.startswith("fieldkit") for m in ms)']
-  why: "importing fieldkit alone covers nothing; a module maps to the tests that import it"
-- file: fieldkit/testcost.py
-  swap: ['return statistics.median(xs) if len(xs) >= minimum else None', 'return statistics.median(xs) if xs else None']
-  why: a budget needs at least three measured passes
-- file: fieldkit/testcost.py
-  swap: ['_git(repo, "add", "-A", env=env)', '_git(repo, "add", "-u", env=env)']
-  why: untracked files are part of what the tests see
-- file: hooks/pre-commit
-  swap: ['if [ -n "$KEY" ] && "$PY" -m fieldkit.testcost seen full-suite --key "$KEY"; then', 'if [ -n "$KEY" ] && false; then']
-  why: the hook skips the suite on a tree that already passed
+  swap: ["        if q.startswith(NON_CODE_TREES) or is_version_only(", "        if is_version_only("]
+  why: "state/ selects no tests"

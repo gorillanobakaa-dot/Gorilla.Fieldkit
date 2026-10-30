@@ -1,0 +1,128 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# Every project and whether `fieldkit emerge` builds it (HARNESS-PLAN R6: a project with no recipe gets one).
+# The list: the repositories of the owner-wide mandate (fieldkit/mandate/owner-wide.yaml), plus the git trees found
+# on the VAIO under Documents (2026-10-28). One entry per repository; worktrees of the same repository are not counted.
+#   recipe:  the file in fieldkit/emerge/recipes/ (null: none yet)
+#   seen:    where this inventory read the tree: vaio (local git tree), github (read from the public repository,
+#            a shallow clone, 2026-10-28),
+#            recipe (known from its recipe only), name-only (only its name in the mandate: not read yet)
+#   builds:  language and outputs, as far as they were read; scripts: the repository's own build/test/package scripts
+# tests/test_emerge.py checks it: every recipe file is listed here and every recipe named here exists.
+# Not counted: SECOND.BRAIN/lex.Lawyer (a clone of a third-party repository, i-dot-ai/lex) and the Fieldkit,
+# OpenCode and gorilla-firefox worktrees.
+projects:
+  Gorilla.Fieldkit:
+    recipe: fieldkit
+    seen: vaio
+    builds: {lang: python, outputs: [the GitHub release page (no wheel is published)]}
+    scripts: [install.sh, install.ps1, .github/workflows/tests.yml, .github/workflows/release.yml]
+  TPFanCtrl2:
+    recipe: gorilla-tpfancontrol
+    seen: github
+    path: Documents/Gorilla.FanControl (the L15)
+    builds: {lang: [c++, rust], outputs: [TPFanControl.exe, Setup.exe (Inno Setup), portable zip, gorilla-fan .deb .rpm]}
+    scripts: [installer/build-portable.ps1, installer/GorillaTPFanControl.iss, linux/build-linux.ps1,
+              Documents/Scripts/fan_compile_test.py (install + stress test, outside the recipe)]
+  Gorilla.Opencode:
+    recipe: gorilla-opencode
+    seen: vaio
+    builds: {lang: go, outputs: [linux and windows binaries, mac 10.13 zip, .deb, .rpm, tarball, SHA256SUMS]}
+    scripts: [install.sh, packaging/]
+  gorilla-size:
+    recipe: gorilla-size
+    seen: recipe
+    path: Documents/Gorilla.Size (not on the VAIO)
+    builds: {lang: rust, outputs: [gorilla-size, gorilla-trash, SHA256SUMS]}
+  gorilla-firefox:
+    recipe: [firefox-windows, firefox-debian]
+    seen: vaio
+    builds: {lang: [c++, rust], outputs: [Firefox installer (Windows), .deb (Debian)]}
+    scripts: [recreate.sh]
+  debian-kernel:
+    recipe: debian-kernel
+    seen: vaio
+    path: Documents/Debian.Kernel.Work/Kernel.7.1.2.Patches (remote gorilla-unleashed-kernel-7.1.2)
+    builds: {lang: c, outputs: [kernel .deb, .rpm]}
+    scripts: [verify_patches.sh, kernel_selftest.sh, recreate_success.sh]
+  Gorilla.Portable.Network.Hub:
+    recipe: gorilla-portable-network-hub
+    seen: vaio
+    builds: {lang: rust, outputs: [hub .deb, Arch .pkg.tar.zst, static linux tarball, windows zip]}
+    scripts: [packaging/build-deb.sh, packaging/build-arch.sh, packaging/build-linux-static.sh,
+              packaging/build-linux-tarball.py, packaging/build-windows-zip.py]
+  black-gorilla-theme:
+    recipe: black-gorilla-theme
+    seen: vaio
+    path: Documents/gtk-high-contrast-theme
+    builds: {lang: [css, shell], outputs: [theme .deb]}
+    scripts: [build-deb.sh, adwaita/build-adwaita.sh, install.sh]
+  pfind:
+    recipe: pfind
+    seen: github
+    builds: {lang: python, outputs: [pfind.py, pfind.cmd (the scripts themselves)]}
+    scripts: [tests/ (pytest)]
+  sensors-gorilla:
+    recipe: sensors-gorilla
+    seen: github
+    builds: {lang: python, outputs: [sensors.gorilla, thermal-profile-daemon (the scripts themselves)]}
+    scripts: [recreate_success.sh (puts them on PATH; outside the recipe)]
+  Windows.11.tweaks.optimisation:
+    recipe: windows-11-tweaks
+    seen: github
+    builds: {lang: powershell, outputs: [the folder itself (modules/NN-*, START HERE launcher)]}
+    scripts: [modules/*/Test-SafetyLogic.ps1, .github/workflows/services-selftest.yml, .github/workflows/release.yml]
+  code-review-toolkit:
+    recipe: code-review-toolkit
+    seen: name-only
+    note: not on the VAIO and not served by GitHub without credentials (2026-10-28); the recipe has only the scans
+  dual-track-doc-generator:
+    recipe: dual-track-doc-generator
+    seen: github
+    builds: {lang: python, outputs: [dual_track.py (the release file)]}
+    scripts: [.github/workflows/release.yml]
+  Gorilla.HDMI.Harness:
+    recipe: gorilla-hdmi-harness
+    seen: github
+    builds: {lang: python, outputs: [the folder itself (Windows; START - Connect TV.bat installs it)]}
+    scripts: [bootstrap.ps1, pytest.ini, requirements.txt]
+  speaker-loudness-fix:
+    recipe: speaker-loudness-fix
+    seen: github
+    builds: {lang: python, outputs: [speaker_loudness_setup.py (the release file)]}
+    scripts: [.github/workflows/release.yml]
+  searchfox-tools:
+    recipe: searchfox-tools
+    seen: github
+    builds: {lang: python, outputs: [the scripts themselves]}
+  respect-your-llms:
+    recipe: respect-your-llms
+    seen: github
+    builds: {lang: markdown, outputs: [How-to-Respect-your-LLMs-Part1.md (an essay)]}
+  model-eval:
+    recipe: model-eval
+    seen: github
+    builds: {lang: python, outputs: [the scripts and the graded results]}
+    scripts: [run_eval.py, grade.py, launch_sweep.sh (remote model APIs; outside the recipe)]
+  apple-superdrive-enabler:
+    recipe: apple-superdrive-enabler
+    seen: github
+    builds: {lang: markdown, outputs: [README.md (a guide)]}
+  gorillanobakaa-dot:
+    recipe: gorillanobakaa-dot
+    seen: github
+    builds: {lang: markdown, outputs: [README.md (the GitHub profile page)]}
+  kernel-6.19.13-ultimate:
+    recipe: kernel-6.19.13-ultimate
+    seen: github
+    builds: {lang: [c, shell], outputs: [none rebuilt (an archived release; debian-kernel builds the maintained kernel)]}
+    scripts: [ULTIMATE_GORILLA_KERNEL.sh, TUNE_AUTONOMOUS.sh]
+  kernel-7.0.9-unleashed:
+    recipe: kernel-7.0.9-unleashed
+    seen: github
+    builds: {lang: [c, shell], outputs: [none rebuilt (an archived release; debian-kernel builds the maintained kernel)]}
+    scripts: [recreate_success.sh, universal_freedom_installer.py, .github/workflows/build-kernel.yml]
+  kernel-7.0.5-release:
+    recipe: kernel-7.0.5-release
+    seen: github
+    builds: {lang: [c, shell], outputs: [none rebuilt (an archived release; debian-kernel builds the maintained kernel)]}
+    scripts: [scripts/1_CLICK_BUILD_KERNEL.sh, scripts/ULTIMATE_GORILLA_KERNEL.sh]

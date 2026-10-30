@@ -1,0 +1,14 @@
+# Circuit breakers (L2): every rule broken once; all CAUGHT.
+#   python -m fieldkit mutate --plan tests/breaker_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_breaker.py
+- file: fieldkit/autopilot/breaker.py
+  swap: ["        n = st.get(\"n\", 0) + 1 if st.get(\"last\") == h else 1", "        n = st.get(\"n\", 0) + 1"]
+  why: "a different call resets the count"
+- file: fieldkit/autopilot/breaker.py
+  swap: ["        if n < LIMIT:", "        if n <= LIMIT:"]
+  why: "the LIMIT-th identical call trips it"
+- file: fieldkit/autopilot/breaker.py
+  swap: ["        f = _dir() / (Path(tp).stem + \".json\")", "        f = _dir() / \"all.json\""]
+  why: "each session is counted on its own"
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ["    stop = _rotate_stop(call) or _breaker(call)", "    stop = _rotate_stop(call)"]
+  why: "the PreToolUse hook enforces the breaker"

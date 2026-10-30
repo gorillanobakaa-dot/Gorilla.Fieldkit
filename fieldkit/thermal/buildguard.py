@@ -69,7 +69,7 @@ def kill_children(pid=None):
     if sys.platform == "win32":
         ps = (f"function k($p) {{ Get-CimInstance Win32_Process -Filter \"ParentProcessId=$p\" | ForEach-Object "
               f"{{ k $_.ProcessId; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }} }}; k {pid}")
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     else:
         subprocess.run(["pkill", "-TERM", "-P", str(pid)], capture_output=True)
 
@@ -101,34 +101,69 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
     if sys.platform != "win32":
         yield None
         return
+    from ..buildh import buildrun
+    from . import brake
     if sensor is None:
-        from ..buildh import buildrun
         name, fn, surface = buildrun.thermal_sensor(say)
         if fn is None:
             raise BuildRefused("no CPU temperature source responds to load (fieldkit thermal prove): not building blind")
     else:
-        fn = sensor
+        fn, surface = sensor, False
     csv_path = Path(csv_dir) / f"thermal-{label}-{time.strftime('%Y%m%d-%H%M%S')}.csv" if csv_dir else None
     target = gv.build_target()
-    say(f"  governor: CPU cap comes down above {target + 3:.0f} C (thermal.build_target {target:.0f})")
-    gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(), on_event=say,
-                      csv_path=csv_path)
-    gov.start()
-    if rg is not None:
-        rg.governor = gov                             # the end line counts the seconds the cap was under 100%
-    try:
-        yield gov
-    finally:
-        gov.stop()
-        gov.join(timeout=15)
-        say(f"  governor stopped: peak {gov.peak} C" + (f"; {gov.verdict}" if gov.verdict else ""))
+    # 2026-10-28 (three cutoffs in 28 h, 439/408 powercfg resets a day): this governor watches only. It never
+    # writes PROCTHROTTLEMAX; past the kill line it stops the job's children. Heavy work goes to the VAIO.
+    with brake.hold(label, say=say):
+        say(f"  governor: watch only (target {target:.0f} C); past the kill line the job is stopped; the power plan is "
+            "never changed")
+        gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(),
+                          on_event=lambda m: None if "thermal: cap" in m else say(m), csv_path=csv_path,
+                          set_cap=lambda pct: True, read_cap=lambda: 100, dead_check=not surface)
+        gov.start()
+        if rg is not None:
+            rg.governor = gov                             # the end line counts the seconds the cap was under 100%
+        try:
+            yield gov
+        finally:
+            gov.stop()
+            gov.join(timeout=15)
+            say(f"  governor stopped: peak {gov.peak} C" + (f"; {gov.verdict}" if gov.verdict else ""))
 
 
-def run(cmd, cwd=None, say=print, check_fan=True):
-    """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused)."""
+#: a file the guard writes its own lines to instead of stderr (the link worker sets it for a run job, so the job's
+#: log holds the command's output alone and its evidence keeps the pytest summary ahead of the guard's report)
+GUARD_LOG = "FIELDKIT_GUARD_LOG"
+
+
+def _err(line):
+    print(line, file=sys.stderr, flush=True)
+
+
+def _sayer(env=None):
+    path = (os.environ if env is None else env).get(GUARD_LOG)
+    if not path:
+        return _err
+
+    def say(line):
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            _err(line)
+    return say
+
+
+def run(cmd, cwd=None, say=None, check_fan=True):
+    """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused). The guard's own lines go to
+    stderr: stdout is CMD's alone (2026-10-28, R4: `guard -- token-audit --json` gave invalid JSON); to the file
+    FIELDKIT_GUARD_LOG names when it is set (not passed on to CMD). CMD gets the guard's standard handles explicitly
+    (core/proc.std_handles: under pythonw.exe it got none, and its output was lost)."""
+    from ..core.proc import std_handles
+    say = say or _sayer()
     try:
         with guard(say, label=Path(cmd[0]).stem, check_fan=check_fan) as gov:
-            rc = subprocess.run(cmd, cwd=cwd).returncode
+            env = {k: v for k, v in os.environ.items() if k != GUARD_LOG}
+            rc = subprocess.run(cmd, cwd=cwd, env=env, **std_handles()).returncode
             if gov is not None and gov.verdict:
                 say(f"  STOPPED by the governor: {gov.verdict}")
                 return rc or 3

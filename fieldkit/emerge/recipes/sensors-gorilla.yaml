@@ -1,0 +1,58 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# sensors-gorilla: two Linux Python scripts (sensors.gorilla, a readable lm-sensors view, and thermal-profile-daemon)
+# and recreate_success.sh, which puts them on PATH. Nothing is compiled or packaged: the scripts are the product.
+# Keyed by what they read:
+#   iterate  -> both scripts compile, sensors.gorilla answers --help, recreate_success.sh parses (bash -n), a
+#               telemetry scan
+# Not a stage: running recreate_success.sh (it installs into the user's PATH) and the daemon itself (it reads and
+# sets this machine's thermal profile, so its answer is not a property of the source).
+name: sensors-gorilla
+description: >-
+  sensors-gorilla from its tree: both scripts compile, sensors.gorilla answers --help, the install script parses, a
+  telemetry scan.
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/sensors-gorilla"
+  py: python3
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: sensors-gorilla
+toolchain:
+  - ["{py}", --version]
+  - [bash, --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: compile
+    run: {cmd: ["{py}", -I, -m, py_compile, "{src}/sensors.gorilla", "{src}/thermal-profile-daemon"], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/sensors.gorilla", "{src}/thermal-profile-daemon"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: cli
+    platforms: [linux]
+    run: {cmd: ["{py}", -I, "{src}/sensors.gorilla", --help], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/sensors.gorilla"]
+    uses: [toolchain, inputs]
+    needs: [compile]
+    bucket: tests
+
+  - id: syntax
+    platforms: [linux]
+    run: {cmd: [bash, -n, "{src}/recreate_success.sh"], cwd: "{src}"}
+    timeout: 60
+    inputs: ["{src}/recreate_success.sh"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests

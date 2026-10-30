@@ -16,11 +16,13 @@ Exit 0 when every mutation was caught, 3 when one survived, 2 for bad input or a
 """
 import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
 import signal
 import subprocess
+import time
 from pathlib import Path
 
 import yaml
@@ -80,14 +82,20 @@ def msys_refusal(m, text, roots=None):
     return None
 
 
+def _decode(data):
+    """Child output as UTF-8, never the locale: text=True used cp1252 on Windows and a byte it leaves undefined
+    (0x81 in a Go test's UTF-8) crashed the whole plan (2026-10-26). Bad bytes become U+FFFD, never an error."""
+    return (data or b"").decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
 def run_test(test, cwd=None, timeout=1800):
     try:
-        r = subprocess.run(test, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+        r = subprocess.run(test, capture_output=True, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired:
         return None, "the test timed out"
     except OSError as e:
         return None, str(e)
-    return r.returncode == 0, (r.stdout + r.stderr)[-1500:]
+    return r.returncode == 0, (_decode(r.stdout) + _decode(r.stderr))[-1500:]
 
 
 def mutate_once(file, old, new, test, count=1, cwd=None, timeout=1800):
@@ -156,6 +164,45 @@ def mutate(plan, test, cwd=None, timeout=1800, roots=None):
             ("fix the refused swaps" if refused else "")}
 
 
+def proof_dir():
+    """Where mutate proofs live: the checkout's shared state/ (a model may not write there: hard line 3)."""
+    from ..core.settings import state_root
+    return Path(os.environ.get("FIELDKIT_MUTATE_PROOFS") or (state_root(Path.cwd()) / "state" / "mutate-proofs"))
+
+
+def write_proof(r, plan, test):
+    """2026-10-28 (owner: a headless run may change a hook or guard for an approved plan item "with tests that prove
+    the check still fails"): the record a commit of a guard file is checked against. Per file: the sha256 of its
+    content (restored, so the content that is committed) and whether every mutation of it was caught. -> the path."""
+    files = {}
+    for m, res in zip(plan, r.get("results") or []):
+        f = Path(m["file"]).resolve()                 # as the plan is read: from this process's folder
+        e = files.setdefault(str(f), {"sha256": _sha(f.read_bytes()), "caught": 0, "other": 0})
+        e["caught" if res.get("verdict") == "caught" else "other"] += 1
+    if not files:
+        return None
+    d = proof_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "test": " ".join(test), "baseline": r.get("baseline"),
+           "files": files}
+    out = d / f"{_sha(repr(sorted((k, v['sha256']) for k, v in files.items())).encode())[:16]}.json"
+    out.write_text(json.dumps(rec, indent=1), encoding="utf-8")
+    return out
+
+
+def proven(path, data):
+    """-> True when a mutate proof covers `path` with this exact content: at least one mutation, every one caught."""
+    key, sha = str(Path(path).resolve()), _sha(data)
+    for f in proof_dir().glob("*.json") if proof_dir().is_dir() else []:
+        try:
+            e = (json.loads(f.read_text(encoding="utf-8")).get("files") or {}).get(key)
+        except (OSError, ValueError):
+            continue
+        if e and e.get("sha256") == sha and e.get("caught", 0) > 0 and not e.get("other"):
+            return True
+    return False
+
+
 def _lines(d):
     if d.get("baseline") == "failed":
         return ["REFUSED: the test fails on the untouched code", d["detail"][-400:]]
@@ -208,5 +255,7 @@ def main(argv=None, prog="fieldkit mutate"):
         r = preflight.call("fieldkit mutate", "test", mutate, plan, test, a.cwd, a.timeout,
                            refused={"ok": False, "baseline": "not run", "results": [], "caught": 0, "survived": 0,
                                     "refused": 0})
+    if r.get("baseline") == "passed":
+        r["proof"] = str(write_proof(r, plan, test) or "")
     emit(r, a.json, _lines)
     return 0 if r["ok"] else (2 if r.get("baseline") in ("failed", "not run") else 3)

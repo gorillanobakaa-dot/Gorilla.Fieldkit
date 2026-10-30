@@ -49,7 +49,7 @@ def build_target(local=None):
 
 
 def _powercfg(*args):
-    r = subprocess.run(["powercfg", *args], capture_output=True, text=True, errors="replace")
+    r = subprocess.run(["powercfg", *args], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True, errors="replace")
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
@@ -137,7 +137,7 @@ def read_cap():
 
 def _marker():
     from ..core import settings
-    return settings.ROOT / "state" / "cap-original.json"
+    return settings.state_root() / "state" / "cap-original.json"
 
 
 def set_cap(pct):
@@ -182,30 +182,40 @@ def restore_stale_cap(say=print):
         orig = int(json.loads(m.read_text(encoding="utf-8"))["original"])
     except (OSError, ValueError, KeyError):
         orig = 100
-    set_cap(orig)
+    # 2026-10-28: the marker outlives the lowering it records; when the cap already is the original, writing it again
+    # is one more powercfg scheme reset on a laptop that must not get them (CLAUDE.md), so only the marker goes
+    already = read_cap() == orig
+    if not already:
+        set_cap(orig)
     try:
         m.unlink()
     except OSError:
         pass
+    if already:
+        say(f"  power cap: a stale marker said {orig}%; the cap already is {orig}%, nothing written")
+        return None
     say(f"  power cap: a crashed run had left it lowered; restored to {orig}%")
     return orig
 
 
 class Governor(threading.Thread):
     def __init__(self, sensor, target_c=75.0, interval=3.0, csv_path=None, kill=None, on_event=print,
-                 set_cap=set_cap, read_cap=read_cap, perf=sensors.perf_percent, clock=time.time, sleep=None, max_cap=None,
-                 dead_check=True):
+                 set_cap=set_cap, read_cap=read_cap, perf=None, clock=time.time, sleep=None, max_cap=None,
+                 dead_check=True, ceiling=None, persistent=False):
         super().__init__(daemon=True)
         self.sensor, self.target, self.interval = sensor, target_c, interval
         self.csv_path = Path(csv_path) if csv_path else None
         self.kill, self.say = kill, on_event
-        self._set_cap, self._read_cap, self._perf, self._clock = set_cap, read_cap, perf, clock
+        self._set_cap, self._read_cap, self._perf, self._clock = set_cap, read_cap, perf or sensors.perf_percent, clock
         self._halt = threading.Event()
         self._sleep = sleep or (lambda s: self._halt.wait(s))
         self.start_cap = None
         self.cap = None
         self.max_cap = max_cap       # a ceiling below the scheme's own cap: 80 while only a surface sensor exists
         self.dead_check = dead_check # the never-moved kill: for die sensors; a skin sensor plateaus for minutes
+        # 2026-10-27 (crash ~17:10): the machine-wide governor (`thermal watch --forever`) lowers its ceiling while a
+        # guarded job holds (brake.holds) and never exits: at the kill line it holds FLOOR and keeps watching
+        self.ceiling, self.persistent = ceiling, persistent
         self._orig_cap = None
         self.peak = 0.0
         self.samples = 0
@@ -228,7 +238,22 @@ class Governor(threading.Thread):
             self.cap = cap
             self._event("cap", f"{cap}% ({why})")
 
+    def _top(self):
+        """The highest cap allowed now: the start cap, lowered by the live ceiling when one is given."""
+        if self.ceiling is None:
+            return self.start_cap
+        try:
+            return max(FLOOR, min(self.start_cap, int(self.ceiling())))
+        except Exception:
+            return self.start_cap
+
     def _die(self, why):
+        if self.persistent:                                   # the machine governor never leaves the cap unwatched
+            if self.verdict != why:
+                self._event("HOLD", why)
+            self.verdict = why
+            self._apply(FLOOR, "hold at the floor")
+            return
         self.verdict = why
         self._event("KILL", why)
         self._apply(FLOOR, "kill")
@@ -261,10 +286,13 @@ class Governor(threading.Thread):
                 if t is None:
                     if now - self._last_reading >= STALE_S:
                         self._die(f"no temperature reading for {STALE_S:.0f} s")
-                        return
+                        if not self.persistent:
+                            return
                     self._sleep(self.interval)
                     continue
                 self._last_reading = now
+                if self.persistent and self.verdict and t < HOT:
+                    self.verdict = None                       # readings back and below HOT: the cool rule climbs again
                 self.peak = max(self.peak, t)
                 busy = p is not None and p > BUSY
                 self._flat = (self._flat + [t])[-DEAD:] if busy else []
@@ -272,10 +300,14 @@ class Governor(threading.Thread):
                 if self.dead_check and len(self._flat) == DEAD and len(self._seen) == 1:   # die sensor that never moved
                     self._die(f"sensor stuck at {t:.2f} C since the start, {DEAD} busy samples")
                     return
+                top = self._top()
+                if self.cap > top:
+                    self._apply(top, "a guarded job holds: ceiling for a surface sensor")
                 if t >= KILL:
                     self._die(f"{t:.1f} C >= {KILL:.0f} C ceiling")
-                    return
-                if t >= HOT:
+                    if not self.persistent:
+                        return
+                elif t >= HOT:
                     self._apply(FLOOR, f"{t:.1f} C >= {HOT:.0f} C")
                     self._cool_since = None
                 elif t > self.target + 3:
@@ -283,8 +315,8 @@ class Governor(threading.Thread):
                     self._cool_since = None
                 elif t < self.target - 6:
                     self._cool_since = self._cool_since or now
-                    if now - self._cool_since >= RELAX_S and self.cap < self.start_cap:
-                        self._apply(self.cap + STEP_UP, f"{t:.1f} C, cool for {RELAX_S:.0f} s")
+                    if now - self._cool_since >= RELAX_S and self.cap < top:
+                        self._apply(min(top, self.cap + STEP_UP), f"{t:.1f} C, cool for {RELAX_S:.0f} s")
                         self._cool_since = now
                 else:
                     self._cool_since = None

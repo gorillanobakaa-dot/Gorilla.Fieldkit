@@ -198,7 +198,8 @@ def doctor():
         from ..autopilot import room
         r = room.doctor()
         lines.append("OK    room hook installed (registry + prompt line ride on it)" if r["ok"]
-                     else f"WARN  room hook missing for {r['missing']}: python -m fieldkit.autopilot.room doctor")
+                     else f"WARN  room hooks: missing {r['missing']}, stale {r['stale']}: "
+                          "python -m fieldkit.autopilot.room doctor --apply")
     except Exception as e:
         lines.append(f"WARN  room hook: {e}")
     last = d / "last.json"

@@ -43,8 +43,13 @@ def test_a_heredoc_body_is_data_but_the_command_around_it_is_judged():
 
 
 def test_python_with_backslashes_in_a_heredoc_goes_to_the_write_tool():
-    bad = "python - <<'EOF'\nimport re\np = re.compile(r'\\s+')\nEOF"
+    # R5 (2026-10-28): only an unquoted delimiter with a backslash the shell rewrites; <<'EOF' is passed byte for byte
+    bad = 'python - <<EOF\nprint("a\\\\b")\nEOF'
     assert tr.route(bad)["route"] == "code-with-backslashes-in-a-heredoc"
+    assert tr.route("python3 - <<EOF\nx = \"\\$HOME\"\nEOF")["route"] == "code-with-backslashes-in-a-heredoc"
+    assert tr.route("python - <<'EOF'\nimport re; re.compile(r'\\s+')\nEOF") is None
+    assert tr.route("python - <<\"EOF\"\nprint('a\\\\b')\nEOF") is None
+    assert tr.route("python - <<EOF\nimport re; re.compile(r'\\s+\\d')\nEOF") is None   # \s, \d: kept as typed
     assert tr.route("python - <<'EOF'\nprint(1 + 1)\nEOF") is None          # no backslash: nothing to mangle
     assert tr.route("cat >> notes.md <<'EOF'\npath C:\\x\\y\nEOF") is None   # text, not code
 
@@ -119,6 +124,12 @@ HABITS = {
          "Set-ItemProperty -Path HKCU:\\Software\\X -Name Y -Value 0",
          "reg delete HKCU\\Software\\X /f"],
         ["reg query HKLM\\SOFTWARE\\X", "Get-ItemProperty HKCU:\\Software\\X", "python -m fieldkit win11 run copilot preview"]),
+    "ci-wait-by-hand": (
+        ["gh pr checks 166 --watch --interval 60", "gh run watch 123456 --exit-status",
+         "until ! gh pr checks 92 2>/dev/null | grep -q pending; do sleep 30; done; gh pr checks 92",
+         "while gh run list --branch feat/x --json status | grep -q in_progress; do sleep 20; done"],
+        ["gh pr checks 166", "gh run view 123456 --log-failed", "gh pr view 166 --json state",
+         "python -m fieldkit ship ci-wait 166 --merge"]),
     "sleep-to-wait": (
         ["Start-Sleep -Seconds 60", "Start-Sleep 30", "while true; do ls; sleep 30; done"],
         ["Start-Sleep -Milliseconds 300", "Start-Sleep -Seconds 2", "sleep 1",
@@ -182,3 +193,99 @@ def test_the_claude_hook_denies_with_the_tool_command(capsys):
     assert out["permissionDecision"] == "deny" and "size find" in out["permissionDecisionReason"]
     tr.hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "x"}})))
     assert capsys.readouterr().out == ""
+
+
+# -- C6 (2026-10-28): one Python start per tool call. The room's part (room line, net lease, hog registry, rotation
+# line) runs in the router's PreToolUse process, after every guard, and only for a call that is let through.
+def _guards(tmp_path, monkeypatch):
+    """-> {guard: a call it refuses}; each guard is the one that refuses it."""
+    from fieldkit.autopilot import breaker
+    from fieldkit.zero import claims
+    monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
+    monkeypatch.delenv("FIELDKIT_JOB_DIR", raising=False)
+    monkeypatch.delenv("FIELDKIT_ROTATE", raising=False)
+    monkeypatch.delenv("FIELDKIT_BREAKER", raising=False)
+    said = tmp_path / "rot" / "said"
+    said.mkdir(parents=True)
+    (said / "rot.json").write_text(json.dumps({"level": "ROTATE"}), encoding="utf-8")
+    deny = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                   "permissionDecisionReason": "GROUND CLAIM test"}}
+    monkeypatch.setattr(claims, "pretool", lambda c: deny if "claimed" in json.dumps(c) else None)
+    loop = {"transcript_path": str(tmp_path / "loop.jsonl"), "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m same"}}
+    for _ in range(breaker.LIMIT - 1):
+        breaker.repeat_refusal(loop)
+    return {"route": ({"tool_name": "Bash", "tool_input": {"command": "du -sh ~/x # git commit"}}, "TOOL ROUTER"),
+            "claims": ({"tool_name": "Edit", "tool_input": {"file_path": "C:/claimed/Documents/Scripts/Fieldkit/a"}},
+                       "GROUND CLAIM"),
+            "rotate": ({"tool_name": "Bash", "transcript_path": str(tmp_path / "rot.jsonl"),
+                        "tool_input": {"command": "pip install six"}}, "ROTATION STOP"),
+            "breaker": (loop, "CIRCUIT BREAKER")}
+
+
+@pytest.mark.parametrize("guard", ["route", "claims", "rotate", "breaker"])
+def test_every_guard_still_refuses_in_the_one_hook_and_a_refused_call_is_not_in_the_room(guard, tmp_path,
+                                                                                           monkeypatch, capsys):
+    from fieldkit.autopilot import room
+    monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
+    c, word = _guards(tmp_path, monkeypatch)[guard]
+    tr.hook(io.StringIO(json.dumps(dict(c, session_id="s1", cwd="C:/x/Documents/Scripts/Fieldkit"))))
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and word in out["permissionDecisionReason"]
+    assert room.tail() == []                                        # the call does not run: no room line
+
+
+def test_an_allowed_call_gets_the_room_in_the_same_process(tmp_path, monkeypatch, capsys):
+    from fieldkit.autopilot import room
+    monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
+    monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
+    room.unseen("s2")
+    commit = {"session_id": "s1", "cwd": "C:/x/Fieldkit", "tool_name": "Bash", "transcript_path": "C:/t/s1.jsonl",
+              "tool_input": {"command": "git commit -m a"}, "hook_event_name": "PreToolUse"}
+    tr.hook(io.StringIO(json.dumps(commit)))
+    assert "permissionDecision" not in capsys.readouterr().out
+    assert room.tail()[-1].split("\t")[3] == "commit"              # written by the router's process
+    tr.hook(io.StringIO(json.dumps(dict(commit, session_id="s2", transcript_path="C:/t/s2.jsonl",
+                                        tool_name="Read", tool_input={"file_path": "x"}))))
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PreToolUse" and "permissionDecision" not in out
+    assert "commit" in out["additionalContext"]                     # the other session is shown it
+
+
+# -- R5 (2026-10-28): no false refusals. Each fix: what must now pass, and what must still be refused.
+def test_ls_recurses_only_with_capital_r_in_bash_and_with_r_in_powershell():
+    for cmd in ["ls -r x", "ls -s", "ls -lrt logs", "git ls-files -s", "git ls-remote origin"]:
+        assert tr.route(cmd) is None, cmd
+    for cmd in ["ls -R /", "ls -laR x", "ls --recursive x", "ls -Recurse C:\\x"]:
+        assert tr.route(cmd)["route"] == "recursive-file-search", cmd
+    assert tr.route("ls -r C:\\x", shell="PowerShell")["route"] == "recursive-file-search"   # Get-ChildItem -Recurse
+    assert tr.route("dir C:\\x -r")["route"] == "recursive-file-search"
+    assert tr.route("git ls-files -s", shell="powershell") is None
+    assert tr.route("git ls-files --recursive x") is None              # a git subcommand is never ls, whatever its flags
+
+
+def test_a_sleep_between_two_measurements_is_a_sampling_interval():
+    assert tr.route("cat /proc/loadavg; sleep 60; cat /proc/loadavg") is None
+    assert tr.route("Get-Counter x; Start-Sleep -Seconds 30; Get-Counter x") is None
+    for cmd in ["sleep 300 && gh run view 123", "gh run view 1; sleep 30",
+                "until grep -q done log; do sleep 30; done", "while true; do ls; sleep 30; done",
+                "cat a; sleep 60; sleep 60"]:
+        assert tr.route(cmd)["route"] == "sleep-to-wait", cmd
+
+
+def test_a_habit_named_inside_quotes_or_a_search_is_data():
+    for cmd in ['gh pr create --title "tree copy: robocopy is routed"', "grep -n Get-FileHash docs/x.md",
+                'echo "wget https://example.org/x"', "rg -n 'taskkill /IM' fieldkit", 'grep -c "robocopy" f']:
+        assert tr.route(cmd) is None, cmd
+    for cmd, name in [("robocopy C:\\src D:\\dst /E", "tree-copy-by-hand"),
+                      ('bash -c "robocopy a b /E"', "tree-copy-by-hand"),
+                      ("grep -n x f; robocopy a b /E", "tree-copy-by-hand"),
+                      ('echo hi && wget https://example.org/x', "download-by-hand"),
+                      ("findstr /s /i telemetry *.py", "text-search-in-tree"),
+                      ("grep -n 'eval' ~/.cache/lm-studio/server-logs/a.log", "lmstudio-log-by-hand"),
+                      ('rm -rf "/srv/x/old"', "permanent-delete")]:
+        assert tr.route(cmd)["route"] == name, cmd
+    # on purpose (R5): the delete row reads the raw line, so a search naming `rm -rf` is still refused
+    assert tr.route('grep -rn "rm -rf ~/x" docs')["route"] == "permanent-delete"
+    assert tr.route('python3.12 -c "import docx"')["route"] == "office-by-hand"
+    assert tr.route('cmd /c "robocopy a b /E"')["route"] == "tree-copy-by-hand"

@@ -16,6 +16,10 @@ vars:
   tests: all               # all | short
   out: ""                  # empty: <src>/dist
   windows_name: ""         # a fixed file name for the Windows build (e.g. the name the releases use)
+  tags: ""                 # go build -tags: `os/arch=t1,t2` for one target or `t1,t2` for all; entries split by ;
+  embed_dirs: ""           # git-ignored folders the tags embed, copied into a git_ref clone (comma-separated)
+  embed_sums: ""           # a SHA256SUMS in the module pinning every embedded file (<sha256>  <os>-<arch>/<file>)
+  embed_root: ""           # the folder embed_sums' names are under
 stages:
   - id: toolchain
     run: {python: "fieldkit.build.goapp:stage_toolchain"}

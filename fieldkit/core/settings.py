@@ -20,6 +20,28 @@ class SettingsError(ValueError):
     pass
 
 
+def state_root(root=None):
+    """The folder whose state/ every checkout shares: the main checkout when `root` (default ROOT) is a linked git
+    worktree, else `root` itself. 2026-10-28: each worktree wrote its own state/, so a task ledger, a hold, a turbo
+    marker or a ROOM line written from a worktree never reached the command post (turbo stayed off with its original
+    value recorded only in a worktree). Pure file reads, no git call."""
+    root = Path(root or ROOT)
+    try:
+        line = (root / ".git").read_text(encoding="utf-8").strip()
+    except OSError:
+        return root                                   # a main checkout (.git is a folder) or no git at all
+    if not line.startswith("gitdir:"):
+        return root
+    gitdir = Path(line[len("gitdir:"):].strip())
+    gitdir = gitdir if gitdir.is_absolute() else (root / gitdir)
+    try:
+        common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+    except OSError:
+        return root
+    main = common.parent if common.name == ".git" else None
+    return main if main is not None and (main / "fieldkit").is_dir() else root
+
+
 def read_file(path):
     """Parse .json / .yaml / .yml / .toml into Python data."""
     path = Path(path)

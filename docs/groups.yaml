@@ -125,14 +125,20 @@ groups:
       - buildh/upstream.py
       - buildh/vault.py
       - buildh/worker.py
+      - ideas.py
       - lmstudio.py
       - orchestrate.py
       - orchestrate_session.py
       - orchestrate_load.py
+      - orchestrate_split.py
       - orchestrate_work.py
       - overhead.py
       - testcost.py
       - parity.py
+      - plan.py
+      - review_verdict.py
+      - rules.py
+      - suite_offload.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

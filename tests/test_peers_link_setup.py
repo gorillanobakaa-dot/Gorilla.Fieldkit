@@ -155,3 +155,22 @@ def test_join_end_to_end_says_hello_to_the_first_computer(tmp_path, monkeypatch)
         p.wait()
     assert code == 0 and v.startswith("LINKED") and fp in v and "approve" in nxt
     assert link.fingerprint(link.key()) == fp
+
+
+def test_the_own_listener_check_binds_and_never_knocks_on_the_listener():
+    # C5, 2026-10-28: 70 "REFUSED a connection from 10.77.0.1" lines on the laptop were its own check dialling itself
+    import socket
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)      # as link.serve binds
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(5)
+    port = srv.getsockname()[1]
+    try:
+        assert ls.listening("127.0.0.1", port) is True
+        srv.settimeout(0.3)
+        with pytest.raises(socket.timeout):
+            srv.accept()                                            # nothing arrived: the listener saw no knock
+    finally:
+        srv.close()
+    assert ls.listening("127.0.0.1", port) is False                # the port is free again: down
+    assert ls.listening("192.0.2.1", port) is False                # an address this computer does not hold: down

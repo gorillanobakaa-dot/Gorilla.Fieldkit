@@ -1,0 +1,132 @@
+# PR #158 checks (state_root, died tasks, inbox dedup, claude_exe off PATH): every mutation must be CAUGHT (2026-10-28):
+#   fieldkit mutate --plan tests/harness_158_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_core.py tests/test_zero_friction.py tests/test_autopilot_run.py
+- file: fieldkit/core/settings.py
+  swap:
+  - '    return main if main is not None and (main / "fieldkit").is_dir() else root'
+  - '    return main if main is not None else root'
+  why: only a Fieldkit main checkout is taken as the shared state root
+- file: fieldkit/core/settings.py
+  swap:
+  - '    main = common.parent if common.name == ".git" else None'
+  - '    main = common.parent'
+  why: a commondir that is not a .git folder (bare repo) keeps the worktree root
+- file: fieldkit/core/settings.py
+  swap:
+  - '    gitdir = gitdir if gitdir.is_absolute() else (root / gitdir)'
+  - '    gitdir = gitdir'
+  why: a relative gitdir line is read against the worktree, not the process cwd
+- file: fieldkit/core/settings.py
+  swap:
+  - '    if not line.startswith("gitdir:"):'
+  - '    if False:'
+  why: a .git file that is not a gitdir pointer keeps the root
+- file: fieldkit/core/settings.py
+  swap:
+  - '        return root                                   # a main checkout'
+  - '        return None                                   # a main checkout'
+  why: a main checkout (.git is a folder) is its own state root
+- file: fieldkit/core/settings.py
+  swap:
+  - "    except OSError:\n        return root\n    main = "
+  - "    except OSError:\n        return gitdir\n    main = "
+  why: a gitdir with no commondir keeps the worktree root
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - '        if t.get("status") == "started" and t.get("on") == "here" and t.get("pid"):'
+  - '        if t.get("status") == "started" and t.get("pid"):'
+  why: a peer task is the peer's to report, never marked died here
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - '                gone = not alive(int(t["pid"]))'
+  - '                gone = alive(int(t["pid"]))'
+  why: died only when the process is gone
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - "            except (OSError, ValueError):\n                gone = False"
+  - "            except (OSError, ValueError):\n                gone = True"
+  why: a pid that cannot be checked is not declared dead
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - '        if t.get("status") == "started" and t.get("on") == "here" and t.get("pid"):'
+  - '        if t.get("status") in ("started", "done") and t.get("on") == "here" and t.get("pid"):'
+  why: only a started task can die; a reported one keeps its status
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - if t.get("status") in ("not-started", "died") else ""
+  - if t.get("status") == "not-started" else ""
+  why: task status shows why a task died
+- file: fieldkit/lifecycle/__init__.py
+  swap:
+  - '    tasks.settle(led)'
+  - '    pass'
+  why: fieldkit task status settles the ledger before printing it
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - '        if it.get("state") == "open" and it.get("title") == title:'
+  - '        if it.get("title") == title:'
+  why: a closed item with the same title is a new question
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - '        if it.get("state") == "open" and it.get("title") == title:'
+  - '        if it.get("state") == "open":'
+  why: only the same title is the same question
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - repeats=int(it.get("repeats") or 1) + 1,
+  - repeats=2,
+  why: the repeat count keeps counting past two
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - '            it.update(why=why, command=command or it.get("command", ""),'
+  - '            it.update(why=why, command=command,'
+  why: an update without a command keeps the old command
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - '            it.update(why=why, command=command or it.get("command", ""),'
+  - '            it.update(command=command or it.get("command", ""),'
+  why: an update carries the newest why
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - "            p.write_text(json.dumps(it, indent=1, ensure_ascii=False), encoding=\"utf-8\")\n            return it"
+  - '            return it'
+  why: the updated item is written back to disk
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - "            continue\n        if it.get(\"state\") == \"open\""
+  - "            break\n        if it.get(\"state\") == \"open\""
+  why: one unreadable item does not stop the search for a match
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - if int(it.get("repeats") or 1) > 1 else ""
+  - if int(it.get("repeats") or 1) > 2 else ""
+  why: the list shows the count from the first repeat
+- file: fieldkit/autopilot/run.py
+  swap:
+  - '    for c in (home / ".local" / "bin" / exe, home'
+  - '    for c in (home'
+  why: ~/.local/bin is searched
+- file: fieldkit/autopilot/run.py
+  swap:
+  - ' and c.is_file() and os.access(c, os.X_OK):'
+  - ' and c.is_file():'
+  why: a file that is not executable is skipped
+- file: fieldkit/autopilot/run.py
+  swap:
+  - ' and c.is_file() and os.access(c, os.X_OK):'
+  - ' and c.exists() and os.access(c, os.X_OK):'
+  why: a folder named claude is not the program
+- file: fieldkit/autopilot/run.py
+  swap:
+  - '        return nvm[-1]'
+  - '        return nvm[0]'
+  why: the newest nvm node version wins
+- file: fieldkit/autopilot/run.py
+  swap:
+  - '    nvm = sorted(glob.glob(str(home / ".nvm" / "versions" / "node" / "*" / "bin" / "claude")))'
+  - '    nvm = []'
+  why: claude installed under nvm is found
+- file: fieldkit/autopilot/run.py
+  swap:
+  - "    found = shutil.which(\"claude\")\n    if found:\n        return found\n    # 2026-10-28"
+  - "    found = shutil.which(\"claude\")\n    # 2026-10-28"
+  why: PATH comes first

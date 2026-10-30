@@ -65,6 +65,37 @@ for _k in ("EMAIL", "GIT_EDITOR"):
     _os.environ.pop(_k, None)
 _os.environ["FIELDKIT_RECORDER"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-recorder-"), "mcp.jsonl")
 _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test-office-backups-")
+# C6 (2026-10-28): the tool router's hook also runs the room, the net lease and the hog registry, so a test that calls
+# toolrouter.hook must not write a room line, check a station in or register a process in the real state.
+_os.environ["FIELDKIT_ROOM_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-room-")
+_os.environ["FIELDKIT_HOG_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-hog-")
+_os.environ["FIELDKIT_COORDINATION_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-coordination-")
+# Tests never reach the real cable (2026-10-28, item 22: the C6 hook test's child process checked fixture stations
+# in to a "far" Zero over the REAL cable; the VAIO got claude:zzzzzzzz@... -> claude:aaaaaaaa@HOSTA). Every address
+# of the real household (and the cable's own 10.77.0.0/30) is refused at socket.connect, here and in every child
+# (fieldkit/core/offline.py), each refusal is logged so a test that swallows it still fails (_no_real_cable below),
+# and the Zero cable channel writes to a fake file instead of calling the link (fieldkit/zero/channels.py).
+def _real_peer_addresses():
+    import json as _json
+    real = Path(_os.environ.get("FIELDKIT_LINK_HOME") or (Path.home() / ".fieldkit" / "link"))
+    out = {"10.77.0.0/30"}
+    try:
+        h = _json.loads((real / "household.json").read_text(encoding="utf-8"))
+        out.update(a for d in h.get("devices", []) if d.get("name") != h.get("me") for a in d.get("address", []))
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        out.add(_json.loads((real / "link.json").read_text(encoding="utf-8"))["peer"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return sorted(a for a in out if a)
+
+
+_os.environ["FIELDKIT_BLOCKED_PEERS"] = ",".join(_real_peer_addresses())
+_os.environ["FIELDKIT_BLOCKED_PEERS_LOG"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-cable-"), "refused")
+_os.environ["FIELDKIT_FAKE_CABLE"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-cable-"), "sent.jsonl")
+# The net's hook also reads what came over the cable (C2): never the real link inbox (the owner's notes) in a test.
+_os.environ["FIELDKIT_LINK_HOME"] = _tempfile.mkdtemp(prefix="fieldkit-test-link-")
 
 
 # Tests never look a name up on the real network (2026-10-06: during the build 27 release leak test the commit hook's
@@ -100,6 +131,30 @@ _socket.gethostbyaddr = _offline_gethostbyaddr
 from fieldkit.core import offline as _offline
 
 _os.environ.update(_offline.child_env())
+_offline.install_peer_guard()
+
+
+_REFUSED_LOG = _os.environ["FIELDKIT_BLOCKED_PEERS_LOG"]
+
+
+def _refused_size():
+    try:
+        return _os.path.getsize(_REFUSED_LOG)
+    except OSError:
+        return 0
+
+
+@pytest.fixture(autouse=True)
+def _no_real_cable():
+    """A test (or a child it started) that tried to connect to a real cable peer fails, even if the code swallowed
+    the ConnectionRefusedError (the Zero hook does: a far check-in never stalls a hook). The suite's own log: a test
+    of the guard points FIELDKIT_BLOCKED_PEERS_LOG at its own file."""
+    before = _refused_size()
+    yield
+    if _refused_size() > before:
+        with open(_REFUSED_LOG, encoding="utf-8") as f:
+            f.seek(before)
+            pytest.fail("this test tried to reach the REAL cable: " + ", ".join(f.read().split()))
 
 
 # Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
@@ -293,10 +348,53 @@ def _no_inherited_autopilot(monkeypatch):
     yield
 
 
+# Tests see one fixed machine tag, never this computer's (fieldkit/peers/machine.py reads the real household file
+# and the hardware otherwise). A test of the tag itself sets machine._CURRENT = None and its own FIELDKIT_LINK_HOME.
+@pytest.fixture(autouse=True)
+def _fixed_machine_tag(tmp_path_factory, monkeypatch):
+    from fieldkit.peers import machine
+    monkeypatch.setattr(machine, "_CURRENT", "[TEST-LNX]")
+    said = tmp_path_factory.mktemp("said-machine")
+    monkeypatch.setattr(machine, "_said_dir", lambda: said)
+    yield
+
+
 # Tests never write the owner's real inbox (2026-10-27: a refused job is an inbox row on the refusing device, and the
 # job protocol's refusal tests would have filed theirs in ~/.fieldkit/autopilot/inbox). A test may set its own.
 @pytest.fixture(autouse=True)
 def _no_real_inbox(tmp_path, monkeypatch):
     from fieldkit.autopilot import inbox
     monkeypatch.setattr(inbox, "INBOX", tmp_path / "test-inbox")
+    yield
+
+
+# The plan line (fieldkit plan next) is saved to state/plan-next.json by zero, the handovers and the plan command:
+# a test writes it to its own folder, never the checkout's state/ (2026-10-28).
+@pytest.fixture(autouse=True)
+def _plan_state_in_tmp(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_PLAN_STATE", str(tmp_path / "plan-next.json"))
+    yield
+
+
+# The room hook records what it showed a session (room-cursors/*.said.json, O2): a test records it in its own folder,
+# never the checkout's state/ (2026-10-28: a test's said-file in the real state/ made the next run see nothing new).
+@pytest.fixture(autouse=True)
+def _room_in_tmp(tmp_path, monkeypatch):
+    from fieldkit.autopilot import room
+    monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room-state")
+    # the relay line depends on whether THIS computer's relay listens: off in tests, except the test of it
+    monkeypatch.setattr(room, "_relay", lambda call, event, ctx: ctx)
+    # the parked-ideas line depends on the checkout's real state/ideas: off in tests, except the test of it
+    monkeypatch.setattr(room, "_ideas", lambda call, event, ctx: ctx)
+    yield
+
+
+# Every job gets its own git worktree (lifecycle/worktrees.py, 2026-10-28). A test never adds or removes a worktree of
+# the checkout it runs in: tasks start in place, and reap sees nothing. tests/test_lessons_to_tools.py imports the
+# real functions before this runs and gives them a repository of its own.
+@pytest.fixture(autouse=True)
+def _no_real_worktrees(monkeypatch):
+    from fieldkit.lifecycle import worktrees
+    monkeypatch.setattr(worktrees, "make", lambda repo, name, **k: (None, "tests: in place"))
+    monkeypatch.setattr(worktrees, "reap", lambda repo, **k: {"removed": [], "kept": []})
     yield

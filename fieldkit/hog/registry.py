@@ -5,7 +5,7 @@ stops an entry only while BOTH numbers still match the live process, so a PID re
 is never touched (memory: stop-only-what-I-started). Never by name.
 
 How entries get here, all deterministic:
-  observe()   the shared-room PostToolUse hook (fieldkit.autopilot.room) calls it after every shell call: the
+  observe()   the tool-call hook (fieldkit.autopilot.room.pretool) calls it before every shell call: the
               session process is the nearest claude/opencode/gemini ancestor of the hook; its live descendants of an
               orphan class (thresholds.json orphan_classes: test runners, conhost/tui_shots, link listeners,
               browsers) are recorded, and so is any PID the call's output printed (pid=N, PID N, Id : N) that was
@@ -21,16 +21,21 @@ from pathlib import Path
 
 import psutil
 
-from .probe import ct
-
 SESSION_NAMES = ("claude", "claude.exe", "opencode", "opencode.exe", "gemini", "gemini.exe", "antigravity.exe")
 PID_IN_TEXT = re.compile(r"(?:\bpid\s*[=:]?\s*|\bProcessId\s*[=:]?\s*|\bId\s*:\s*)(\d{2,7})\b", re.I)
 RECENT_S = 900
 
 
+def ct(x):
+    """Creation times compared to 2 decimals everywhere (the registry, the live table): a float round trip through
+    JSON must not make the same process look like a different one. Here, not in probe.py: the tool-call hook imports
+    this module and probe.py pulls in urllib (C6, ~30 ms per call)."""
+    return round(float(x), 2)
+
+
 def state_dir():
     from ..core import settings
-    d = Path(os.environ.get("FIELDKIT_HOG_DIR") or (settings.ROOT / "state" / "hog"))
+    d = Path(os.environ.get("FIELDKIT_HOG_DIR") or (settings.state_root() / "state" / "hog"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -112,6 +117,13 @@ def _cls(proc, classes):
         return None
 
 
+def _ppid(pid):
+    try:
+        return psutil.Process(pid).ppid()
+    except psutil.Error:
+        return None
+
+
 def observe(call, classes, now=None):
     """The room hook's half: register this session's orphan-class processes. Never raises."""
     try:
@@ -141,6 +153,10 @@ def observe(call, classes, now=None):
                     found.append(entry(p, c, sid, owner, source="printed", now=now))
             except (psutil.Error, ValueError):
                 continue
+        # the console host of a registered process (a windowless start gets one) dies with it: not its own entry.
+        # Its parent may be registered by tree or printed pid; a conhost whose parent is not registered stays
+        pids = {e["pid"] for e in found}
+        found = [e for e in found if not (e["cls"] == "conhost" and _ppid(e["pid"]) in pids)]
         return add(found)
     except Exception:
         return []

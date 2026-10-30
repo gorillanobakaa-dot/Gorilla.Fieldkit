@@ -24,7 +24,8 @@ def done_protocol(task_id=None, headless=False):
             "archive yourself: Claude desktop `archive_session \"self\"` (turn Remote Control off first with "
             "`set_remote_control` if it is on: it blocks the archive); any other agent ends its session")
     return ("DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):\n"
-            "1. tests + `fieldkit mutate` + `fieldkit telemetry scan .` pass; commit on your own branch (never main).\n"
+            "1. the tests covering your changes pass (the full suite runs once, when the project is finished); commit "
+            "on your own branch (never main).\n"
             "2. push with `fieldkit ship push` (the owner-wide mandate covers it; never a GORILLA_OWNER_APPROVED line).\n"
             "3. open the pull request where your agent can (a headless run reports the branch; the command post opens "
             "it).\n"
@@ -50,9 +51,8 @@ def rule_text():
     return (f"{RULE_BEGIN}\n"
             "## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)\n\n"
             f"{side_jobs_rule()}\n\n"
-            "Nothing may wait on the owner: no cards, no permission prompts, no [NEEDS YOU] for what the mandate "
-            "covers. `fieldkit friction` lists everything that could wait on a person, on every machine (exit 0 = "
-            "none). What truly needs the owner goes to `fieldkit inbox`, the ONE morning list.\n\n"
+            "Nothing may wait on the owner (no cards, prompts or [NEEDS YOU] for what the mandate covers): "
+            "`fieldkit friction` lists what could, exit 0 = none.\n\n"
             "Idle sessions eat RAM and CPU. The command post runs `fieldkit sessions sweep` on every watchdog wake "
             "and archives what it lists.\n\n"
             + done_protocol() +

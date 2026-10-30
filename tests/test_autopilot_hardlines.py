@@ -160,6 +160,20 @@ def test_fieldkit_ship_push_is_publishing_without_a_mandate(nostop):
         assert dm(cmd, Door(), nostop) == "deny"
 
 
+def test_cd_then_a_mandated_push_is_the_push_run_in_that_folder(nostop):
+    """Owner "Da" 2026-10-27 (inbox #97): workers write `cd REPO && fieldkit ship push`; it was refused."""
+    door = Door(allow={"push"}, force=True)
+    assert dm('cd "C:/Users/user/Gorilla.Opencode" && fieldkit ship push', door, nostop) == "allow"
+    assert door.asked[-1] == ("push", {"repo_path": "C:/Users/user/Gorilla.Opencode"})
+    assert dm("cd /w/r && fieldkit ship push && git push", door, nostop) == "deny"     # still one statement only
+    assert dm("cd /w/r && fieldkit ship push", Door(), nostop) == "deny"                # no mandate: denied
+
+
+def test_an_inbox_note_that_names_publishing_is_a_note(nostop):
+    assert dm('fieldkit inbox add "publish feat/x" "the hook refused fieldkit ship push"', Door(), nostop) == "allow"
+    assert dm('fieldkit inbox add "x" "y" && fieldkit ship push', Door(), nostop) == "deny"
+
+
 def test_a_mandated_push_is_allowed_logged_and_checked_where_it_runs(nostop):
     door = Door(allow={"push"}, force=True)
     assert dm("fieldkit ship push", door, nostop) == "allow"
@@ -171,7 +185,7 @@ def test_a_mandated_push_is_allowed_logged_and_checked_where_it_runs(nostop):
 @pytest.mark.parametrize("cmd", [
     "git push origin feat/x",                              # the tool is the one door
     "fieldkit ship push; git push origin main",
-    "cd /w/other && fieldkit ship push",                   # checked here, run elsewhere
+    "cd /w/other && fieldkit ship push --tag v1",          # cd + push is a branch push only (2026-10-27)
     "fieldkit ship push --repo $(pwd)/../main",
     "fieldkit ship push | tee log",
     "gh release create v1",
@@ -260,3 +274,112 @@ def test_a_kernel_is_never_installed_or_booted_mandate_or_not(cmd, nostop):
 
 def test_the_word_reboot_in_a_message_is_not_a_reboot(nostop):
     assert dm('git commit -m "fix the reboot loop"', Door(), nostop) == "allow"
+
+
+# -- #108 (owner "Da", 2026-10-27): the 53 false refusals of 10-25..27 pass; the true case next to each stays refused
+
+@pytest.mark.parametrize("cmd", [
+    "wc -l fieldkit/autopilot/hardlines.py 2>&1",
+    "cat CLAUDE.md 2>/dev/null | head",
+    "type .claude\\settings.json 2>nul",
+    "grep -n x hooks/pre-commit >&2",
+])
+def test_fix1_a_fd_redirect_is_not_a_write(cmd, nostop):
+    assert d("Bash", {"command": cmd}, nostop) == "allow"
+
+
+@pytest.mark.parametrize("cmd", [
+    "echo x > CLAUDE.md",
+    "echo x 2>&1 >> fieldkit/autopilot/hardlines.py",
+    "cp a.json .claude/settings.json 2>/dev/null",
+    "cat k.pub 2>&1 > ~/.fieldkit/mandate/trusted/k.pub",
+])
+def test_fix1_a_real_write_to_a_protection_is_still_refused(cmd, nostop):
+    assert d("Bash", {"command": cmd}, nostop) == "deny"
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("Write", {"file_path": "C:/w/HANDOFF.md", "content": "guard lives in fieldkit/autopilot/ and CLAUDE.md"}),
+    ("Edit", {"file_path": "C:/w/main.go", "old_string": "a", "new_string": "cfg.\nkey.pem := x"}),
+    ("Edit", {"file_path": "C:/w/x.py", "old_string": "a", "new_string": 'open(".env")  # docs say never'}),
+    ("Grep", {"pattern": r"\.env\b|id_rsa", "path": "C:/w/src"}),
+    ("Grep", {"pattern": "hosts.yml"}),
+    ("write_to_file", {"TargetFile": "C:/w/notes.md", "CodeContent": "see .git/hooks/ and GEMINI.md"}),
+])
+def test_fix2_content_and_search_patterns_are_not_places(tool, args, nostop):
+    assert d(tool, args, nostop) == "allow"
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("Write", {"file_path": "C:/w/CLAUDE.md", "content": "x"}),
+    ("Edit", {"file_path": "C:/w/fieldkit/autopilot/hardlines.py", "old_string": "a", "new_string": "b"}),
+    ("Write", {"file_path": "C:/w/.env", "content": "A=1"}),
+    ("Read", {"file_path": "C:/Users/user/.config/gh/hosts.yml"}),
+    ("Grep", {"pattern": "token", "path": "C:/w/.env"}),
+    ("Glob", {"pattern": "**/id_rsa"}),
+    ("write_to_file", {"TargetFile": "C:/w/.claude/settings.json", "CodeContent": "{}"}),
+    ("some_new_writer", {"blob": "C:/w/GEMINI.md"}),                    # names no known place: judged whole
+])
+def test_fix2_a_protected_or_credential_place_is_still_refused(tool, args, nostop):
+    assert d(tool, args, nostop) == "deny"
+
+
+@pytest.mark.parametrize("cmd", [
+    "git config core.hooksPath",
+    "git config --get core.hooksPath 2>&1 || echo none",
+    "git commit -m x  # never with --no-verify",
+    '# --no-verify is refused\ngit status',
+])
+def test_fix3_reading_the_hooks_path_and_comments_are_not_deletes(cmd, nostop):
+    assert d("Bash", {"command": cmd}, nostop) == "allow"
+
+
+def test_fix3_an_rm_under_the_temp_variable_is_scratch(nostop, monkeypatch, tmp_path):
+    monkeypatch.setenv("TEMP", str(tmp_path))
+    assert d("Bash", {"command": 'rm -rf "$TEMP/x"'}, nostop) == "allow"
+    assert d("Bash", {"command": "rm -rf ${TMP}/build"}, nostop) == "allow"
+    # replayed from hook.log 10-26: the delete is judged on its own statement, not on a cd next to it
+    assert d("Bash", {"command": "rm -rf /tmp/tmp.M3ZYUfvbTS; cd C:/Users/user/repo; git status --short"}, nostop) == "allow"
+    assert d("Bash", {"command": "rm -rf /tmp/x; rm -rf C:/Users/user/repo"}, nostop) == "deny"
+
+
+def test_fix3_the_hooks_path_read_with_get_all_and_a_grep_pattern(nostop):
+    assert d("Bash", {"command": "git config --show-origin --get-all core.hooksPath; git rev-parse --git-common-dir"},
+             nostop) == "allow"
+    assert d("Bash", {"command": 'grep -n "Env\\b\\|\\.Env =" internal/x/*.go | grep -v _test'}, nostop) == "allow"
+    assert d("Bash", {"command": 'grep -n "x" ".env"'}, nostop) == "deny"          # the file, not the pattern
+    assert d("Bash", {"command": "grep -n x .env"}, nostop) == "deny"
+
+
+@pytest.mark.parametrize("cmd", [
+    "git config core.hooksPath /dev/null",
+    "git config --unset core.hooksPath",
+    "git -c core.hooksPath=x commit -m y",
+    "git commit --no-verify -m x  # tidy",
+    'echo "#" && rm -rf C:/work/src',
+    "cmd /c echo #& rd /s /q C:\\work",
+    'rm -rf "$TEMP/../Documents"',
+    "rm -rf $TEMPLATE/x",
+])
+def test_fix3_real_deletes_and_hook_changes_are_still_refused(cmd, nostop):
+    assert d("Bash", {"command": cmd}, nostop) == "deny"
+
+
+@pytest.mark.parametrize("cmd", [
+    "cat > note.md <<'EOF'\nthen git push origin main and gh release create v1\nEOF",
+    "cat <<EOF > plan.json\n{\"step\": \"fieldkit ship merge\"}\nEOF",
+    "tee a.txt <<'X'\nrm -rf C:/work\nX",
+])
+def test_fix4_the_text_of_a_note_heredoc_is_not_a_command(cmd, nostop):
+    assert d("Bash", {"command": cmd}, nostop) == "allow"
+
+
+@pytest.mark.parametrize("cmd", [
+    "cat <<'EOF' | sh\ngit push\nEOF",
+    "bash <<'EOF'\ngit push\nEOF",
+    "cat <<EOF > a\n$(git push)\nEOF",
+    "cat > a <<'EOF'\nx\nEOF\ngit push",
+    "cat > CLAUDE.md <<'EOF'\nx\nEOF",
+])
+def test_fix4_a_heredoc_that_runs_or_writes_a_protection_is_still_refused(cmd, nostop):
+    assert d("Bash", {"command": cmd}, nostop) == "deny"

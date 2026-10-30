@@ -494,7 +494,7 @@ def judge(runs, dprs=DPRS, blocked=None):
 # ------------------------------------------------------------------------------------------- the run
 def evidence_dir(stamp=None):
     from ..core import settings
-    d = settings.ROOT / "state" / "visual" / (stamp or time.strftime("%Y%m%d-%H%M%S"))
+    d = settings.state_root() / "state" / "visual" / (stamp or time.strftime("%Y%m%d-%H%M%S"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 

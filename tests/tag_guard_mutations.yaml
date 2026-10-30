@@ -1,0 +1,47 @@
+# The tag guard (docs/LESSONS.yaml L-20261029-1): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/tag_guard_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_tag_guard.py
+- file: fieldkit/method/tagguard.py
+  swap:
+  - '    elif remote.stdout.strip():'
+  - '    elif False:'
+  why: a tag already on origin is no longer refused
+- file: fieldkit/method/tagguard.py
+  swap:
+  - '    elif dry_run and local:'
+  - '    elif False:'
+  why: a dry run no longer notices a local tag
+- file: fieldkit/method/tagguard.py
+  swap:
+  - '    row("version", not probs,'
+  - '    row("version", True,'
+  why: a wrong version is no longer refused
+- file: fieldkit/method/tagguard.py
+  swap:
+  - '    row("notes", not missing,'
+  - '    row("notes", True,'
+  why: missing release notes are no longer refused
+- file: fieldkit/method/tagguard.py
+  swap:
+  - '        row("page", ok, say if ok else say,'
+  - '        row("page", True, say,'
+  why: a page that fails release-page check is no longer refused
+- file: fieldkit/method/tagguard.py
+  swap:
+  - '    row("ci", ok, say,'
+  - '    row("ci", True, say,'
+  why: red CI is no longer refused
+- file: fieldkit/method/tagguard.py
+  swap:
+  - '    commit = local or _git(repo, "rev-parse", "HEAD").stdout.strip()'
+  - '    commit = _git(repo, "rev-parse", "HEAD").stdout.strip()'
+  why: the checks read HEAD instead of the tagged commit
+- file: fieldkit/method/ship.py
+  swap:
+  - '    if not g["ok"]:'
+  - '    if False:'
+  why: push --tag no longer asks the guard
+- file: fieldkit/method/ship.py
+  swap:
+  - 'if wf.is_file() and re.search('
+  - 'if False and re.search('
+  why: gh-release publishes even when the tag workflow does

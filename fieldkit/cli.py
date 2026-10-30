@@ -17,6 +17,7 @@
     fieldkit pipeline reset NAME [--stage S]
 
     fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
+    fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails]
     fieldkit gather [--only NAME...] [--check|--test] [--offline]   bring tools in per imports.yaml
     fieldkit harvest [--root DIR] | --find WORDS...   index every script; search it
@@ -66,11 +67,16 @@
     fieldkit release table|verify                the page's file table measured from SHA256SUMS; a published tag checked
     fieldkit lmstudio-log [--day D]              a local model's speed per request (LM Studio log); Vulkan device lost
     fieldkit testcost plan|run --fast|report     the cheapest test set that is enough; a passed tree is never re-tested
+    fieldkit rules check|install                 the one core in every agent's rules file; size limit; no repeats
+    fieldkit plan next [--write]                 where the harness plan stands: phase, open items, what merges finished
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
+    fieldkit cost daily                          one line: yesterday's $, the most expensive session, both machines
+    fieldkit cost report --since DATE [--bill $] both machines per day, by source, the real bill beside it
+    fieldkit cost firstcall [--parts]            a session's first call here, in tokens, by part (MCP, skills, tools)
     fieldkit rotate check|handover|finished      OK / WARN / ROTATE per session; hand a monster session over to a fresh one
     fieldkit kernel localversion --base 7.1.2 --tags unleashed gorilla eapd
     fieldkit kernel fragment INJECTOR.py [--out fragment.yaml]
@@ -162,8 +168,31 @@ def cmd_doctor(a):
         return 0 if r["ready_to_install"] else 3
     way = None if doctor.git_state() == "real" else "zip"
     r = doctor.check(a.pipeline, lean=getattr(a, "lean", False), way=way)
+    if not getattr(a, "lean", False):
+        r = _with_session_tags(r)
     _emit(r, a.json, lambda d: print("\n".join(doctor.lines(d))))
     return 0 if r["ok"] else 3
+
+
+def _with_session_tags(r, check=None):
+    """doctor's row for the session titles on THIS computer (machine.py; the peers: `fieldkit sessions tag --check`).
+    A check that cannot run is said, never a pass."""
+    try:
+        from .peers import machine
+        c = (check or machine.check)(peers=False)
+        bad = c["rows"]
+        row = {"kind": "sessions", "name": "machine-tag", "ok": not bad,
+               "detail": (f"{len(bad)} live session(s) without {c['machines'][0]['tag'] or 'the machine tag'}: "
+                          + "; ".join(x["title"][:40] or x["id"][:12] for x in bad[:3]) if bad else
+                          f"every live session starts with {c['machines'][0]['tag']}"),
+               "install": ""}
+    except Exception as e:  # noqa: BLE001
+        row = {"kind": "sessions", "name": "machine-tag", "ok": False, "detail": f"not checked: {e}"[:200],
+               "install": ""}
+    rows = r["rows"] + [row]
+    ok = r["ok"] and row["ok"]
+    nxt = r["next"] if row["ok"] or not r["ok"] else "rename the sessions listed by `fieldkit sessions tag --check`"
+    return dict(r, rows=rows, ok=ok, next=nxt)
 
 
 def cmd_audio(a):
@@ -494,7 +523,7 @@ def cmd_office(a):
         for f in a.files:
             key = hashlib.sha256(str(Path(f).resolve()).lower().encode()).hexdigest()[:12]
             pipe = Pipeline.load(PIPE_DIR / "office-deliver.yaml", overrides={"file": f, "no_backup": "1" if a.no_backup else ""},
-                                 state_dir=settings.ROOT / "state" / "office-deliver" / key)
+                                 state_dir=settings.state_root() / "state" / "office-deliver" / key)
             reps.append({"file": f} | pipe.run(force=True))
 
         def show(rs):
@@ -541,7 +570,7 @@ def _pipeline_in_screen(a):
     if subprocess.run(["screen", "-ls", name], capture_output=True, text=True).stdout.count(f".{name}\t"):
         print(f"fieldkit pipeline: a screen session named {name} is already running; nothing was started")
         return 2
-    logs = settings.ROOT / "state" / "pipelines"
+    logs = settings.state_root() / "state" / "pipelines"
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / f"{a.name}-{name}-{time.strftime('%y-%m-%d-%H-%M')}.log"
     cmd = screen_command(a, log)
@@ -612,6 +641,22 @@ def cmd_triage(a):
             print("\n  " + r["hint"])
     _emit(rep, a.json, human)
     return 0 if rep["verdict"] == "known" else 3
+
+
+def cmd_triage_learn(a):
+    from .build import review_fix
+    if a.audit:
+        rows = review_fix.audit(a.set)
+        _emit({"rows": rows}, a.json, lambda r: [print(f"{'ok  ' if x['ok'] else 'FAIL'} {x['set']}/{x['id']}: {x['why']}")
+                                                  for x in r["rows"]] or print("no signature stores a log line yet"))
+        return 3 if any(not x["ok"] for x in rows) else 0
+    need = ("id", "pattern", "cause", "fix", "log_line")
+    if a.set == "auto" or any(not getattr(a, k) for k in need):
+        print("triage-learn needs --set (a real set) and " + ", ".join("--" + k.replace("_", "-") for k in need))
+        return 2
+    res = review_fix.learn(a.set, a.id, a.pattern, a.cause, a.fix, a.log_line, a.check, a.repair or None)
+    _emit(res, a.json, lambda r: print(f"recorded {r['id']} in {r['file']}" if r["ok"] else f"NOT recorded: {r['why']}"))
+    return 0 if res["ok"] else 3
 
 
 def cmd_privacy(a):
@@ -779,6 +824,24 @@ def cmd_agent(a):
 
 def cmd_release(a):
     from . import release
+    if a.action == "page":
+        from .build import relpage
+        if not a.src or not a.dir:
+            print("REFUSED: page needs --src REPO and --dir FOLDER-WITH-SHA256SUMS")
+            return 2
+        try:
+            page = relpage.compose(a.src, a.spec, a.dir, a.commit)
+        except ValueError as e:
+            print(f"REFUSED: {e}")
+            return 2
+        if not a.out:
+            print(page, end="")
+            return 0
+        from pathlib import Path
+        Path(a.out).write_text(page, encoding="utf-8", newline="\n")
+        print(f"{a.out}: {len(page):,} chars" + chr(10) + f"NEXT: fieldkit ship gh-release {a.spec} -- --title ... "
+              f"--notes-file {a.out} FILES...")
+        return 0
     if a.action in ("table", "verify"):
         return _release_files(a)
     if a.action == "prove":
@@ -813,7 +876,7 @@ def _release_files(a):
         if not a.repo:
             print("REFUSED: verify needs --repo OWNER/NAME")
             return 2
-        folder = Path(a.dir) if a.dir else (settings.ROOT / "state" / "release-verify" /
+        folder = Path(a.dir) if a.dir else (settings.state_root() / "state" / "release-verify" /
                                             f"{a.repo.replace('/', '_')}-{a.spec}-{time.strftime('%Y%m%d-%H%M%S')}")
         r = relfiles.verify(a.spec, a.repo, folder, dispatch=not a.no_dispatch, run_id=a.run_id, wait=a.wait,
                             xz_cap_mib=a.xz_cap_mib)
@@ -953,12 +1016,12 @@ def cmd_autopilot(a):
             b = json.loads(os.environ.get("FIELDKIT_JOB_BUDGET") or "{}")
             b.update({k: v for k, v in (("turns", a.max_turns), ("wall_minutes", a.wall_minutes),
                                         ("cost_usd", a.cost_usd)) if v is not None})
-            r = job.run_job(job_dir, " ".join(a.rest), a.cwd or os.getcwd(), budget=b,
+            r = job.run_job(job_dir, " ".join(a.rest), a.cwd or os.getcwd(), budget=b, model=a.model,
                             max_continuations=int(os.environ.get("FIELDKIT_JOB_CONTINUATIONS") or a.max_continuations))
             print(json.dumps({k: v for k, v in r.items() if k != "checkpoint"}, indent=1, ensure_ascii=False))
             return r["rc"]
         r = run.claude(" ".join(a.rest), cwd=a.cwd, max_turns=a.max_turns or 10000,
-                       timeout=a.wall_minutes * 60 if a.wall_minutes else None)
+                       timeout=a.wall_minutes * 60 if a.wall_minutes else None, model=a.model)
     elif a.action == "quiet" and getattr(a, "restore", False):
         print("started again: " + (", ".join(quiet.restore_units()) or "nothing was recorded"))
         return 0
@@ -1165,8 +1228,8 @@ def cmd_goal(a):
 def cmd_sync(a):
     from .core import sync
     rows = sync.run(do_apply=a.apply, extra=a.repo, fetch=not a.no_fetch)
-    print(json.dumps(rows, indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
-    return 0 if all(r["ok"] for r in rows) else 3
+    print(json.dumps(sync.as_json(rows), indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
+    return sync.exit_code(rows)
 
 
 def cmd_sweep(a):
@@ -1534,15 +1597,25 @@ def build_parser():
                                         "Antigravity; fieldkit session-cost)"),
                        ("token-audit", "where the tokens of Claude Code sessions went: context per call, cache reads, "
                                        "hook text (fieldkit token-audit)"),
+                       ("cost", "one daily cost line: yesterday's dollars here, the most expensive session and what it "
+                                "did, both machines' total when the other's numbers came over the cable (fieldkit cost)"),
                        ("rotate", "session rotation: OK / WARN / ROTATE per session by context per call and dollars; "
                                   "handover to a fresh session; finished sessions to archive (fieldkit rotate)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
+                                  "(models report; fieldkit/lifecycle/models.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
-                                     "protocol and the standing rule (fieldkit/lifecycle)")):
+                                     "protocol and the standing rule; `sessions tag --check`: titles without "
+                                     "their machine tag (fieldkit/lifecycle)"),
+                       ("machine", "this machine's tag ([VAIO-LNX]) from the household registry; every device "
+                                   "with tag, OS, address, last seen; `machine reach`: each device of household.yaml by its "
+                                   "own path, which are up (fieldkit/peers/machine.py, household.py)"),
+                       ("board", "every finished session has its Board row in PLAN.md: check (with / all today), "
+                                 "add from the transcript, no model (fieldkit/lifecycle/board.py)")):
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     em = sub.add_parser("emerge", add_help=False,
                         help="compile jobs like Gentoo's Portage: a recipe per product, every stage content-addressed "
@@ -1553,6 +1626,18 @@ def build_parser():
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    ru = sub.add_parser("rules", add_help=False,
+                        help="the one core (rules/CORE.md) in every agent's rules file, every rules file under its size "
+                             "limit, no core text repeated (fieldkit rules check|install)")
+    ru.add_argument("args", nargs=argparse.REMAINDER)
+    pl = sub.add_parser("plan", add_help=False,
+                        help="where the harness plan stands: the current phase of docs/HARNESS-PLAN.md, its open "
+                             "items, the ones merged pull requests finished (fieldkit plan next)")
+    pl.add_argument("args", nargs=argparse.REMAINDER)
+    idp = sub.add_parser("ideas", add_help=False,
+                         help="parked suggestions: written down while a job runs, never added to the running plan; "
+                              "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
+    idp.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
@@ -1624,6 +1709,18 @@ def build_parser():
     tr.add_argument("--set", default="auto")
     tr.set_defaults(fn=cmd_triage)
 
+    tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
+    tl.add_argument("--set", default="auto")
+    tl.add_argument("--id")
+    tl.add_argument("--pattern")
+    tl.add_argument("--log-line", dest="log_line")
+    tl.add_argument("--cause")
+    tl.add_argument("--fix")
+    tl.add_argument("--check")
+    tl.add_argument("--repair", nargs="+", help="the deterministic repair as an argv; without it the entry is advice only")
+    tl.add_argument("--audit", action="store_true", help="every stored log line must still select its signature")
+    tl.set_defaults(fn=cmd_triage_learn)
+
     pr = sub.add_parser("privacy", parents=[common])
     pr.add_argument("action", choices=["scan", "push-check", "install-hook"])
     pr.add_argument("--range", help="push-check: the commits a push publishes, A..B")
@@ -1659,11 +1756,15 @@ def build_parser():
     ag.set_defaults(fn=cmd_agent)
 
     rl = sub.add_parser("release", parents=[common])
-    rl.add_argument("action", choices=["check", "prove", "table", "verify"],
+    rl.add_argument("action", choices=["check", "prove", "table", "verify", "page"],
                     help="table: the page's File|Bytes|SHA-256 table measured from SHA256SUMS; verify: download a "
-                         "published tag, check it, run linux-install.yml (fieldkit/build/relfiles.py)")
+                         "published tag, check it, run linux-install.yml (fieldkit/build/relfiles.py); page: the "
+                         "whole release page from the notes + the measured table (fieldkit/build/relpage.py)")
     rl.add_argument("spec", help="check/prove: release spec YAML (see fieldkit/release.py); table: a SHA256SUMS "
-                                 "file; verify: the tag, e.g. v0.1.152")
+                                 "file; verify, page: the tag, e.g. v0.1.152")
+    rl.add_argument("--src", help="page: the repository (holds ReleaseNotes/openings and Changelogs)")
+    rl.add_argument("--commit", default="", help="page: the commit every file was built from, for the table line")
+    rl.add_argument("--out", help="page: write the page here (default: print it)")
     rl.add_argument("--dir", help="table: the folder with the files (default: next to SHA256SUMS); verify: a new "
                                   "empty folder for the downloads (default: state/release-verify/<repo>-<tag>-<time>)")
     rl.add_argument("--check", metavar="PAGE", help="table: check this page's table instead of printing one")
@@ -1710,6 +1811,7 @@ def build_parser():
     apl.add_argument("--wall-minutes", type=float, help="claude: wall time per session; the tree is killed after it")
     apl.add_argument("--cost-usd", type=float, help="claude --job: dollars per session")
     apl.add_argument("--job", help="claude: a job folder: budgeted, checkpointed, resumable (exit 75 = paused)")
+    apl.add_argument("--model", help="claude: the model the run uses (a worker: sonnet, haiku; roles.yaml)")
     apl.add_argument("--max-continuations", type=int, default=3, help="claude --job: resumes after a budget end")
     apl.add_argument("--hold", type=int, help="quiet: keep the apps stopped until this PID exits")
     apl.add_argument("--minutes", type=float, help="quiet: keep the apps stopped this many minutes (or until the STOP file)")
@@ -2001,10 +2103,12 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal"])
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
+    th.add_argument("--forever", action="store_true",
+                    help="watch: the always-on machine-wide governor (started at logon); one per computer")
     th.add_argument("--target", type=float, default=75.0, help="watch: target C for the cap")
     th.add_argument("--interval", type=int, default=60, help="log (Linux): seconds between lines")
     th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux), monitor (both systems): run until this "
@@ -2553,6 +2657,9 @@ def cmd_repro(a):
 
 
 def cmd_thermal(a):
+    if a.action == "journal":
+        from .thermal import journal
+        return 0 if journal.run() else 1
     if sys.platform.startswith("linux") and a.action in ("status", "log"):
         # the Sony VAIO, through the owner's sensors.gorilla (2026-10-15). profile, monitor, prove and watch run on
         # both systems (2026-10-20): sensors.providers() and governor.set_cap pick this system's own sources and cap.
@@ -2561,7 +2668,7 @@ def cmd_thermal(a):
             s = vaio.snapshot()
             _emit(s, a.json, lambda s: print(vaio.line(s)))
             return 0 if s.get("tool") else 2
-        out = Path(a.value) if a.value else settings.ROOT / "state" / "thermal" / f"vaio-{time.strftime('%y-%m-%d-%H-%M')}.log"
+        out = Path(a.value) if a.value else settings.state_root() / "state" / "thermal" / f"vaio-{time.strftime('%y-%m-%d-%H-%M')}.log"
         out.parent.mkdir(parents=True, exist_ok=True)
         n = vaio.log(out, interval=a.interval, until_pid=a.until_pid, seconds=None if a.until_pid else a.seconds)
         print(f"{n} line(s) in {out}")
@@ -2594,6 +2701,9 @@ def cmd_thermal(a):
         name, fn, detail = sensors.best(prove=True)
         print(f"{'PROVEN' if name else 'NO LIVE SOURCE'}: {name}: {detail}")
         return 0 if name else 3
+    if getattr(a, "forever", False):
+        from .thermal import watch
+        return watch.forever(target=a.target)
     name, fn, detail = sensors.best(prove=True)
     if not name:
         print("no live source: " + detail)
@@ -2614,6 +2724,8 @@ def cmd_thermal(a):
 
 
 def main(argv=None):
+    from .core import nowindow
+    nowindow.prepare()                               # no console of its own (pythonw): children start windowless
     for stream in (sys.stdout, sys.stderr):          # Windows consoles default to cp1252
         try:
             stream.reconfigure(encoding="utf-8")
@@ -2701,7 +2813,16 @@ def main(argv=None):
         import importlib
         mod = importlib.import_module(".tokens." + args[0].replace("-", "_"), __package__)
         return mod.main(args[1:])
-    if args[:1] in (["friction"], ["task"], ["sessions"]):   # zero friction: no clicks, no idle sessions
+    if args[:1] == ["cost"]:                          # one daily cost line for the owner (fieldkit/tokens/cost_daily)
+        from .tokens import cost_daily
+        return cost_daily.main(args[1:])
+    if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
+        from .peers import machine
+        return machine.main(args[1:])
+    if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
+        from .lifecycle import models
+        return models.main(args[1:])
+    if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
@@ -2710,6 +2831,15 @@ def main(argv=None):
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["rules"]:                         # the one core in every agent's rules file; every rules file small
+        from . import rules
+        return rules.main(args[1:])
+    if args[:1] == ["plan"]:                          # where the harness plan stands: phase, open items, merged ones
+        from . import plan
+        return plan.main(args[1:])
+    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+        from . import ideas
+        return ideas.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])

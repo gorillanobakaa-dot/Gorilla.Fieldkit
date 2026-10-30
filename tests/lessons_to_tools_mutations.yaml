@@ -1,0 +1,98 @@
+# Version: 1.0.0 · updated 26-10-28-19-02
+# 2026-10-28's lessons made checks (HARNESS-PLAN I8): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/lessons_to_tools_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_lessons_to_tools.py
+- file: fieldkit/lifecycle/worktrees.py
+  swap:
+  - '    rc, out = _git(main, "worktree", "add", "--detach", str(path), base, run=run)'
+  - '    path = main'
+  why: the job gets a tree of its own, not the main checkout
+- file: fieldkit/lifecycle/worktrees.py
+  swap:
+  - '    if path.exists():'
+  - '    if False:'
+  why: two jobs never share one tree
+- file: fieldkit/lifecycle/worktrees.py
+  swap:
+  - '        if running:'
+  - '        if False:'
+  why: a running job's tree is never removed
+- file: fieldkit/lifecycle/worktrees.py
+  swap:
+  - '        if rc != 0 or not on.strip():'
+  - '        if False:'
+  why: a tree whose HEAD is not on origin (not shipped) stays
+- file: fieldkit/lifecycle/worktrees.py
+  swap:
+  - '        if rc != 0 or dirty:'
+  - '        if False:'
+  why: a tree with uncommitted changes stays
+- file: fieldkit/lifecycle/worktrees.py
+  swap:
+  - 'if path.parent.resolve() != root or not path.name.startswith(PREFIX):'
+  - 'if path.parent.resolve() != root:'
+  why: only wt-job-* trees, the ones a job start made, are reaped
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - '        rb.write_text(runbook_text(tid, brief, wt or Path(cwd or os.getcwd()).resolve(), wall), encoding="utf-8")'
+  - '        rb.write_text(runbook_text(tid, brief, Path(cwd or os.getcwd()).resolve(), wall), encoding="utf-8")'
+  why: the job here runs in its worktree
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - "            return rec\n        rec.update(worktree="
+  - "            wt, wwhy = None, \"\"\n        rec.update(worktree="
+  why: no worktree in a git repository is not-started here, never in place
+- file: fieldkit/peers/link.py
+  swap:
+  - '        return False, f"not started: no worktree of its own ({e}); job {jobd}"'
+  - '        wt, wwhy = None, ""'
+  why: no worktree in a git repository is not-started on the cable too
+- file: fieldkit/peers/link.py
+  swap:
+  - '    work = str(wt or reg["cwd"])'
+  - '    work = str(reg["cwd"])'
+  why: the job from the cable runs in its worktree
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - '    twin = None if again else running_twin(h, title, now)'
+  - '    twin = None'
+  why: a second start of a started brief is refused
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - 'not (t.get("hash") == h or t.get("title") == title)'
+  - 'not t.get("hash") == h'
+  why: the same title counts as the same brief
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - '        if age <= int(t.get("wall") or 120) + SLACK_MINUTES:'
+  - '        if True:'
+  why: a task past its wall budget cannot still run and does not block
+- file: fieldkit/lifecycle/tasks.py
+  swap:
+  - '    settle(tasks)'
+  - '    pass'
+  why: a task whose process is gone does not block
+- file: fieldkit/core/sync.py
+  swap:
+  - '    return 0 if in_sync(rows) else 3'
+  - '    return 0'
+  why: not in sync is exit 3
+- file: fieldkit/core/sync.py
+  swap:
+  - 'else f"SYNC: DIFFERS ('
+  - 'else f"SYNC: NOT IN SYNC ('
+  why: the failure line never contains IN SYNC
+- file: fieldkit/core/sync.py
+  swap:
+  - '    return bool(rows) and all(r["ok"] for r in rows)'
+  - '    return all(r["ok"] for r in rows)'
+  why: no rows is not in sync
+- file: fieldkit/plan.py
+  swap:
+  - 'or not (Path(root) / str(r["test"])).is_file()]'
+  - ']'
+  why: a lesson whose test file is missing has no tool yet
+- file: fieldkit/plan.py
+  swap:
+  - '    line += lessons_note(ls)'
+  - '    pass'
+  why: the plan line carries the count

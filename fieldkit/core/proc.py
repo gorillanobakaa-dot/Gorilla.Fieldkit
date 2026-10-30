@@ -17,6 +17,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +61,27 @@ def clean_env(extra=None, strip_agent=True):
             env.pop(k, None)
     env.update(extra or {})
     return env
+
+
+def std_handles(streams=None, platform=None):
+    """-> Popen keyword arguments that hand this process's own stdin/stdout/stderr to a child EXPLICITLY.
+    On Windows a pythonw.exe parent (the link worker, a scheduled task) gives a child started without them no
+    standard handles at all: the child's sys.stdout is None, its first print raises and it exits 1 with no output
+    (C3/I6, 2026-10-28: every run job on the L15 failed that way, `admit suite` -> pythonw -m pytest). Passing the
+    handles sets STARTF_USESTDHANDLES, so the child writes where the parent does. A stream without a real file
+    descriptor (pytest's capture, None) is left out, which is what Popen does with it anyway. Elsewhere: {}."""
+    if (platform or sys.platform) != "win32":
+        return {}
+    out = {}
+    for name, s in zip(("stdin", "stdout", "stderr"), streams or (sys.stdin, sys.stdout, sys.stderr)):
+        try:
+            if s is not None:
+                if name != "stdin":
+                    s.flush()
+                out[name] = s.fileno()
+        except (AttributeError, OSError, ValueError):
+            continue
+    return out
 
 
 # -- process identity: PID + creation time ---------------------------------------

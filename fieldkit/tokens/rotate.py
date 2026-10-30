@@ -56,6 +56,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import session_cost as sc
+from ..core.settings import state_root as _state_root
 
 VERSION = "1.1.0"
 DEFAULTS = {"ctx_warn": 250_000, "ctx_rotate": 350_000, "usd_warn": 40.0, "usd_rotate": 75.0,
@@ -84,13 +85,13 @@ def config():
 
 
 def state_dir():
-    d = Path(os.environ.get("FIELDKIT_ROTATE_DIR") or (_root() / "state" / "rotate"))
+    d = Path(os.environ.get("FIELDKIT_ROTATE_DIR") or (_state_root(_root()) / "state" / "rotate"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def coordination_dir():
-    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (_root() / "state" / "coordination"))
+    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (_state_root(_root()) / "state" / "coordination"))
 
 
 # ---------------------------------------------------------------- the verdict (pure)
@@ -294,9 +295,22 @@ def _under(cwd, folder):
         return False
 
 
-def check(hours=None, session=None, adapters=None, cfg=None, now=None, source="all", cwd=None, newest=False):
+def archived_ids():
+    """-> the transcript ids of the Claude desktop sessions the app has archived (lifecycle/desktop.py, read-only)."""
+    try:
+        from ..lifecycle import desktop
+        return {s["cli"] for s in desktop.sessions() if s["archived"] and s["cli"]}
+    except Exception:  # noqa: BLE001 - an unreadable app store hides nothing: every session is judged
+        return set()
+
+
+def check(hours=None, session=None, adapters=None, cfg=None, now=None, source="all", cwd=None, newest=False,
+          archived=None):
     """Every session active in the last `hours`, judged. source: one adapter's sessions only; cwd: only sessions
-    working in that folder (or under it); newest: only the most recently active one (an agent asking about itself)."""
+    working in that folder (or under it); newest: only the most recently active one (an agent asking about itself).
+    A session the desktop app archived (archived: its transcript ids, default archived_ids()) is not judged: it does
+    no more calls, and its transcript stays "active" for hours after (C3/I6, 2026-10-28: the guard's preflight named
+    the archived Zero 8dc32564 as ROTATE on every job)."""
     cfg = cfg or config()
     adapters = adapters or sc.adapters_for(source)
     if session:
@@ -305,7 +319,8 @@ def check(hours=None, session=None, adapters=None, cfg=None, now=None, source="a
             raise FileNotFoundError(session)
         targets = [(a, p)]
     else:
-        targets = sessions(hours or cfg["hours"], adapters, now)
+        gone = archived_ids() if archived is None else set(archived)
+        targets = [(a, p) for a, p in sessions(hours or cfg["hours"], adapters, now) if p.stem not in gone]
     targets.sort(key=lambda t: t[1].stat().st_mtime, reverse=True)
     rows = []
     for a, p in targets:
@@ -420,6 +435,9 @@ def hook_line(call, event, now=None):
         return ""
 
 
+from .rotate_stop import HANDOVER_CMD, HANDOVER_FILES, stop_refusal  # noqa: E402,F401 - R1, kept light for the PreToolUse hook
+
+
 def hook(stdin=None):
     """Standalone hook (for a setup without the room hook): prints additionalContext when there is something."""
     try:
@@ -446,6 +464,8 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     if a is None:
         raise FileNotFoundError(str(transcript))
     row = judged(measure(a, p), cfg)
+    from ..peers import machine                       # the successor runs here: its title starts with this tag
+    title = machine.prefix(title)
     stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(now))
     sid = row["session"][:8]
     coord = coordination_dir()
@@ -456,13 +476,17 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     brief = (f"You are continuing \"{title}\" from session {sid}, rotated by fieldkit rotate ({row['level']}: "
              f"{'; '.join(row['why']) or 'by hand'}). Do NOT start over. Read {note} first.\n"
              f"Working folder: {where} (branch {branch}).\n"
-             f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n")
+             f"Done: {done or '-'}\nNext: {next_}\nNOT verified: {not_verified or '-'}\n"
+             f"SESSION TITLE: {title} (title yourself exactly this; it starts with the machine's tag)\n")
     if row.get("task"):
         brief += "\nThe original task (its first message, trimmed):\n" + row["task"] + "\n"
     from ..lifecycle import protocol                  # start side jobs headless; clean up and archive when done
     brief += protocol.brief_tail()
     from ..zero import net as zero_net                # a rotated Zero leaves a pending handover for its relief
     brief += zero_net.on_rotate(row["session"], now)
+    from .. import plan                               # where the harness plan stands, so the successor does not forget
+    pl = plan.line()
+    brief += f"\n{pl}\n" if pl else ""
     note.write_text(
         f"# Session rotated: {title}\n\n"
         f"- when: {stamp} (local)\n- session: {row['session']} ({row['source']}, {row.get('entrypoint') or '?'})\n"
@@ -535,7 +559,7 @@ RULE_BEGIN, RULE_END = "<!-- fieldkit-rotate-rule v1 -->", "<!-- /fieldkit-rotat
 RULE_FILES = {"antigravity": Path.home() / ".gemini" / "GEMINI.md",
               "codex": Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "AGENTS.md"}
 #: how each agent is told: "hook" = the harness adds the line itself; "rule" = the agent runs check itself
-TRIGGER = {"claude-code": "room hook (UserPromptSubmit/PostToolUse) + autopilot budget hook",
+TRIGGER = {"claude-code": "room hook (UserPromptSubmit) + the tool router (PreToolUse) + autopilot budget hook",
            "antigravity": "rule in GEMINI.md + autopilot budget hook",
            "codex": "rule in AGENTS.md",
            "gorilla-opencode": "rule in the project's AGENTS.md (it has no global instruction file)",
@@ -546,7 +570,7 @@ TRIGGER = {"claude-code": "room hook (UserPromptSubmit/PostToolUse) + autopilot 
 def rule_text():
     return (f"{RULE_BEGIN}\n"
             "## Session rotation (fieldkit rotate)\n\n"
-            "Every call re-sends the whole conversation, so a long session costs more with every call. At the start "
+            "At the start "
             "of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` "
             "(agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`).\n"
             "- exit 0 OK: carry on.\n"
@@ -593,7 +617,7 @@ def agents_status(project_agents_md=None):
     out = []
     try:
         from ..autopilot import room
-        hook_ok = bool(room.doctor()["ok"])
+        hook_ok = not room.doctor()["missing"]                # a stale PostToolUse entry still triggers (C6)
     except Exception:  # noqa: BLE001
         hook_ok = False
     project = Path(project_agents_md) if project_agents_md else _root() / "AGENTS.md"

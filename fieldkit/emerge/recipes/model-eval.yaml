@@ -1,0 +1,54 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# model-eval: Python scripts (standard library only) that put language models through pressure tasks over their
+# providers' APIs and grade the answers. Nothing is compiled or packaged: the scripts and the graded results are the
+# product. Keyed by what they read:
+#   iterate  -> every script compiles, run_eval.py and grade.py answer --help (no network, no key), a telemetry scan
+# run_eval.py imports its neighbours (pressure, providers, tasks), so it runs with -E -s from its folder, not -I.
+# Not a stage: an evaluation run (it calls remote model APIs with a key, so its answer is not a property of the
+# source) and launch_sweep.sh (it starts such runs).
+name: model-eval
+description: >-
+  model-eval from its tree: every script compiles, run_eval.py and grade.py answer --help offline, a telemetry scan.
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/model-eval"
+  py: python3                       # Windows: --var py=python
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: model-eval
+toolchain:
+  - ["{py}", --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: compile
+    run: {cmd: ["{py}", -I, -m, compileall, -q, -l, "{src}"], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/*.py"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: cli
+    run: {cmd: ["{py}", -E, -s, run_eval.py, --help], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/*.py"]
+    uses: [toolchain, inputs]
+    needs: [compile]
+    bucket: tests
+
+  - id: grade-cli
+    run: {cmd: ["{py}", -I, "{src}/grade.py", --help], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/grade.py"]
+    uses: [toolchain, inputs]
+    needs: [compile]
+    bucket: tests

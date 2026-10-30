@@ -1,0 +1,69 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# dual-track-doc-generator: one Python script (dual_track.py) that writes a document in two tracks, plain language and
+# developer. Nothing is compiled or packaged: the release file is the script itself. The stages are what its CI
+# release workflow (.github/workflows/release.yml) checks, keyed by what they read:
+#   iterate  -> the script compiles and answers --help, a telemetry scan
+#   release  -> the release page exists (release-notes/TAG/page.md, --mode release --var tag=vX) and the privacy
+#               scan of the git tree
+name: dual-track-doc-generator
+description: >-
+  dual-track-doc-generator from its tree: the script compiles and answers --help, a telemetry scan; with --mode
+  release the release page is there and the privacy scan of the git tree.
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/dual-track-doc-generator"
+  py: python3                       # Windows: --var py=python
+  fk: "${FIELDKIT}/.venv/bin/python"
+  tag: "v1.0.0"                     # the release being checked: --var tag=vX
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: dual-track-doc-generator
+toolchain:
+  - ["{py}", --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: compile
+    run: {cmd: ["{py}", -I, -m, py_compile, "{src}/dual_track.py"], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/dual_track.py"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: cli
+    run: {cmd: ["{py}", -I, "{src}/dual_track.py", --help], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/dual_track.py"]
+    uses: [toolchain, inputs]
+    needs: [compile]
+    bucket: tests
+
+  - id: release-page
+    run: {cmd: ["{py}", -I, -c, "import sys, pathlib; sys.exit(0 if pathlib.Path(sys.argv[1]).stat().st_size else 1)", "{src}/release-notes/{tag}/page.md"], cwd: "{src}"}
+    timeout: 60
+    inputs: ["{src}/release-notes/{tag}/*.md"]
+    uses: [inputs]
+    needs: []
+    tier: release
+    fix: false
+    bucket: tests
+
+  - id: secrets
+    run: {cmd: ["{fk}", -P, -m, fieldkit, privacy, scan, "{src}", --git], cwd: "{src}"}
+    timeout: 300
+    uses: [sources]
+    needs: []
+    tier: release
+    privacy: true
+    fix: false
+    bucket: tests
+

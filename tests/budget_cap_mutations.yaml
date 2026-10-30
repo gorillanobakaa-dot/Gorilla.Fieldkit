@@ -1,0 +1,5 @@
+# I3: no autopilot job runs without a dollar cap; the line broken once, CAUGHT.
+#   python -m fieldkit mutate --plan tests/budget_cap_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_long_horizon.py -k dollar_cap
+- file: fieldkit/autopilot/budget.py
+  swap: ["\"cost_usd\": 25.0}", "\"cost_usd\": None}"]
+  why: "I3: a budget that names no cap still has one"

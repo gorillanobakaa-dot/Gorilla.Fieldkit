@@ -423,6 +423,22 @@ def test_a_short_goal_runs_end_to_end_planner_worker_verifier(tmp_path, monkeypa
     assert "PLAN_FILE" in calls(p)[0]["prompt"] and "make made.txt" in calls(p)[1]["prompt"]
 
 
+def test_a_finished_job_runs_its_own_checks_not_every_goal_criterion(tmp_path, monkeypatch):
+    """2026-10-27: every goal criterion (a full go test, AI verifiers) ran after every job; now only the job's own."""
+    r = repo(tmp_path)
+    f = r / "made.txt"
+    check = mkgoal(tmp_path, f)
+    script(tmp_path, [
+        plan_of([{"id": "j1", "brief": "make made.txt", "cwd": str(r), "verify": [{"run": check}]}]),
+        {"do": "success", "write": {"path": str(f), "text": "made"}},
+        plan_of(signal="done")], monkeypatch)
+    for _ in range(4):
+        goal.step("g1", say=lambda m: None)
+    v = [json.loads(l) for l in (goal.gdir("g1") / "verdicts.jsonl").read_text().splitlines()]
+    assert [x["id"] for x in v if x["who"] == "job j1"] == ["j1:1"]
+    assert [x["id"] for x in v if x["who"] == "final"] == ["c1"]
+
+
 def test_planner_and_verifier_disagree_the_verifier_wins(tmp_path, monkeypatch):
     mkgoal(tmp_path, tmp_path / "never.txt")
     script(tmp_path, [plan_of(signal="done"), plan_of(signal="done"), plan_of(signal="done")], monkeypatch)
@@ -749,7 +765,8 @@ def test_the_supervisor_resumes_unfinished_goals_after_a_restart(tmp_path, monke
     check = mkgoal(tmp_path, f)
     script(tmp_path, [plan_of([{"id": "j1", "brief": "make it", "cwd": str(r), "verify": [{"run": check}]},
                                {"id": "j2", "brief": "then this", "cwd": str(r), "needs": ["j1"]}]),
-                      {"do": "success", "write": {"path": str(f), "text": "x"}}, plan_of(), {"do": "success"}],
+                      {"do": "success", "write": {"path": str(f), "text": "x"}}, {"do": "success"},
+                      plan_of(signal="done")],      # j2 is queued when j1 verifies: no planner between them
            monkeypatch)
     assert goal.supervise(once=True, say=lambda m: None, hold=False) == 0     # one round, then "the machine dies"
     assert goal.load("g1")[1]["status"] == "active"
@@ -859,3 +876,11 @@ def test_publish_pushes_a_new_branch_with_upstream_and_checks_its_own_commits(tm
     subprocess.run(["git", "-C", str(r), "switch", "-q", "main"], check=True)
     subprocess.run(["git", "-C", str(r), "branch", "--unset-upstream"], capture_output=True)
     assert "never a new main" in " ".join(inbox.publish_plan(r)["blockers"])
+
+
+def test_no_job_runs_without_a_dollar_cap():
+    # I3 (docs/HARNESS-PLAN.md): a budget that names no cap still has one; a job can only lower or raise it
+    from fieldkit.autopilot import budget as bud
+    assert bud.merge()["cost_usd"] == 25.0
+    assert bud.merge({"cost_usd": None})["cost_usd"] == 25.0
+    assert bud.merge({"cost_usd": 5})["cost_usd"] == 5

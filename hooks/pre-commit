@@ -62,9 +62,17 @@ fi
 # the guard runs the suite bare.
 # 2026-10-26 (stage O4, fieldkit/admission.py): the suite first waits for a slot of the one machine-wide gate for
 # heavy jobs (at most N suites, mutates and builds at once on this computer, the rest queue; nobody is asked).
+# 2026-10-27 (CRASH ~04:14, owner: "guard obligatoriu"): admit + preflight queue and measure but do not brake. On a
+# Windows laptop with the fan control (its status file exists) the suite runs under `fieldkit guard`: the slot, the
+# preflight, the fan check (fail closed) and the governor that brakes at thermal.build_target.
+FAN_STATUS="${ProgramData:-C:/ProgramData}/TPFanControl/status.txt"
 guarded() {
-  if "$PY" -c "import fieldkit.core.preflight" >/dev/null 2>&1; then
-    if "$PY" -c "import fieldkit.admission" >/dev/null 2>&1; then
+  if [ -f "$FAN_STATUS" ] && [ -z "$FIELDKIT_ADMITTED" ] && "$PY" -m fieldkit guard --help >/dev/null 2>&1; then
+    "$PY" -m fieldkit guard -- "$@"
+  elif "$PY" -c "import fieldkit.core.preflight" >/dev/null 2>&1; then
+    # the COMMAND is checked, not the module: an editable install maps fieldkit.admission to the main checkout while
+    # `-m fieldkit` runs a branch cut before stage O4 (2026-10-27: two refusals in 0 s, "tests failed", no test ran)
+    if "$PY" -m fieldkit admit status >/dev/null 2>&1; then
       "$PY" -m fieldkit admit --kind test --label pre-commit -- "$PY" -m fieldkit.core.preflight --label pre-commit --kind test -- "$@"
     else
       "$PY" -m fieldkit.core.preflight --label pre-commit --kind test -- "$@"
@@ -108,10 +116,32 @@ elif [ -n "$KEY" ] && [ -f fieldkit/method/mergeproof.py ] && [ -f "$(git rev-pa
     sed 's/^/pre-commit: /' "$OUT"
   fi
 fi
-if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf >"$OUT" 2>&1; then
+# 2026-10-27, owner (verbatim): "Da: pe laptop doar testele fișierelor atinse, suita completă doar în CI." Locally only
+# the test files that cover the staged files (fieldkit testcost staged); none -> nothing runs here. The full suite runs
+# in CI, and a PR merges only on green CI. FIELDKIT_FULL_SUITE=1 runs the whole suite here when wanted.
+if [ -z "$SKIP" ] && [ -z "$FIELDKIT_FULL_SUITE" ]; then
+  TESTS="$("$PY" -m fieldkit.testcost staged 2>/dev/null | tr -d '\r' | tr '\n' ' ')"   # Windows Python writes CRLF
+  if [ -z "$TESTS" ]; then
+    echo "pre-commit: no test covers the staged files - nothing runs here; the full suite runs in CI"
+    SKIP=1
+  fi
+else
+  TESTS=""
+fi
+if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf $TESTS >"$OUT" 2>&1; then
   if grep -q '^REFUSED by the preflight' "$OUT"; then
     grep -E '^REFUSED by the preflight|preflight' "$OUT"
     echo "pre-commit: the preflight refused the suite (free RAM under the floor) - commit refused, nothing was tested"
+    exit 1
+  fi
+  if grep -q '^REFUSED: ' "$OUT"; then
+    grep -E '^REFUSED: |fan check' "$OUT"
+    echo "pre-commit: the thermal guard refused the suite (fan control or preflight) - commit refused, nothing was tested"
+    exit 1
+  fi
+  if grep -q 'STOPPED by the governor' "$OUT"; then
+    grep -E 'STOPPED by the governor|governor' "$OUT"
+    echo "pre-commit: the governor stopped the suite (too hot) - commit refused, let the laptop cool or commit on the VAIO"
     exit 1
   fi
   # A failure must reproduce before it refuses the commit (2026-10-09: a timing test failed once under load, then
@@ -132,8 +162,12 @@ if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp
   echo "pre-commit: WARNING - failed once and passed when run again (logged in state/flaky-tests.log): $FAILED"
 fi
 if [ -z "$SKIP" ]; then
-  grep -E '^  (preflight|run guard) ' "$OUT" | sed 's/^  /pre-commit: /'
-  "$PY" -m fieldkit.testcost record full-suite pass "$(( $(date +%s) - T0 ))" --key "$KEY" >/dev/null 2>&1 || true
+  grep -E '^  (preflight|run guard|fan check|governor)' "$OUT" | sed 's/^  /pre-commit: /'
+  if [ -n "$TESTS" ]; then
+    "$PY" -m fieldkit.testcost record affected pass "$(( $(date +%s) - T0 ))" --key "$KEY" --note "$(echo $TESTS | wc -w) file(s)" >/dev/null 2>&1 || true
+  else
+    "$PY" -m fieldkit.testcost record full-suite pass "$(( $(date +%s) - T0 ))" --key "$KEY" >/dev/null 2>&1 || true
+  fi
 fi
 # 2026-10-26 (owner: "align our standard with theirs for maximum compatibility"): every Agent Skills spec rule and the
 # doors check of the adopted third-party skills (fieldkit skills validate), ONLY when the commit changes a skill, the
@@ -146,6 +180,15 @@ if git diff --cached --name-only | grep -qE '^(skills/|third_party/anthropic-ski
     exit 1
   fi
   tail -1 "$OUT" | sed 's/^/pre-commit: /'
+fi
+# 2026-10-28 (HARNESS-PLAN R2): a rules file over its size limit, or a project file repeating the core, is refused,
+# only when the commit changes one (the same shell question as above, so other commits pay nothing)
+if git diff --cached --name-only | grep -qE '^(AGENTS\.md|rules/CORE\.md)$'; then
+  if ! "$PY" -m fieldkit rules check --repo-only >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: a rules file is over its size limit or repeats the core - commit refused"
+    exit 1
+  fi
 fi
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"

@@ -7,8 +7,14 @@
     link-start   this computer's link.yaml does not let the peer start a headless job (every ask becomes an inbox item)
     prereq       a machine prerequisite the harness proposes that the sealed mandate in force does not hold (its first
                  run would stop on a UAC prompt or an owner yes)
-    needs-you    a [NEEDS YOU] note over the cable in the last 48 h that nobody acknowledged
+    needs-you    a [NEEDS YOU] note over the cable in the last 48 h for the OWNER that nobody acknowledged (a note
+                 addressed --to a session is a session's business, never an owner wait: plan C7)
+    unread       a note over the cable that no session or relay read within 10 minutes (peers/link_receipt.py): the
+                 computer was idle, so the sender must use another channel
     inbox        an open item in the owner inbox (fieldkit inbox)
+    untagged     a live session whose title does not start with its machine's tag ([VAIO-LNX]; peers/machine.py):
+                 a notification from it does not say which computer spoke
+    board        a session that ended in the last 24 h with no Board row in PLAN.md (plan R3; fieldkit board)
     peer         a peer that cannot be audited (no answer, or an older Fieldkit without the friction verb)
 
 Acknowledge a line that is handled with `fieldkit friction ack KEY` (state/lifecycle/friction-ack.json). Read-only
@@ -28,7 +34,7 @@ NEEDS_YOU_HOURS = 48
 
 def state_dir():
     from ..core import settings
-    d = Path(os.environ.get("FIELDKIT_LIFECYCLE_DIR") or (settings.ROOT / "state" / "lifecycle"))
+    d = Path(os.environ.get("FIELDKIT_LIFECYCLE_DIR") or (settings.state_root() / "state" / "lifecycle"))
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -199,12 +205,39 @@ def needs_you_rows(items=None, now=None):
             at = time.mktime(time.strptime(i.get("at", ""), "%Y-%m-%d %H:%M:%S"))
         except ValueError:
             continue
-        if now - at > NEEDS_YOU_HOURS * 3600 or not NEEDS_YOU.search(i.get("text") or ""):
+        if now - at > NEEDS_YOU_HOURS * 3600 or not NEEDS_YOU.search(i.get("text") or "") or not for_owner(i):
             continue
         first = " ".join((i.get("text") or "").split())[:120]
         rows.append(_row("needs-you", f"needs-you:{i.get('from_host')}:{i.get('n')}", f"[NEEDS YOU] #{i.get('n')} "
                          f"from {i.get('from_host')}: {first}", "do it under the mandate if it covers it, else move "
                          f"it to `fieldkit inbox`; then `fieldkit friction ack needs-you:{i.get('from_host')}:{i.get('n')}`"))
+    return rows
+
+
+def for_owner(item):
+    """A note counts as an owner wait only when it is addressed to nobody in particular or to the owner."""
+    return str(item.get("to") or "owner").strip().lower() == "owner"
+
+
+def unread_rows(items=None, now=None, upto=None):
+    try:
+        from ..peers import link, link_receipt
+        if items is None:
+            items = link.inbox()
+        late = link_receipt.unread(items, now=now, upto=upto)
+    except Exception:  # noqa: BLE001
+        return []
+    rows = []
+    for i in late:
+        if NEEDS_YOU.search(i.get("text") or "") and for_owner(i):
+            continue                                       # already a needs-you row
+        first = " ".join((i.get("text") or "").split())[:100]
+        key = f"unread:{i.get('from_host')}:{i.get('n')}"
+        rows.append(_row("unread", key, f"note #{i.get('n')} from {i.get('from_host')}"
+                         f"{' for ' + i['to'] if i.get('to') else ''} unread after {i['age_minutes']} min: {first}",
+                         "nothing here is listening: send the order as a headless job (`fieldkit task start BRIEF "
+                         "--on DEVICE`) or start the relay (`fieldkit peers link relay listen`); then "
+                         f"`fieldkit friction ack {key}`"))
     return rows
 
 
@@ -219,11 +252,30 @@ def inbox_rows(items=None):
                  f"the morning list: `fieldkit inbox show {i.get('n')}`, then done or decided") for i in items]
 
 
+def untagged_rows(sessions, tag=None):
+    """One row per live session whose title lacks this machine's tag (peers/machine.py: the same check as `fieldkit
+    sessions tag --check`, plain string comparison)."""
+    from ..peers import machine
+    tag = machine.current() if tag is None else tag
+    return [_row("untagged", f"untagged:{x['id']}", f"session \"{x['title'][:60]}\" ({x['id'][:14]}) lacks the "
+                 f"machine tag {tag or '(none known)'}", f"rename it \"{machine.prefix(x['title'], tag)}\"")
+            for x in machine.untagged(sessions, tag, "")]
+
+
+def board_rows():
+    try:
+        from . import board
+        return board.friction_rows()
+    except Exception:  # noqa: BLE001 - an unreadable transcript store must not switch the audit off
+        return []
+
+
 def local_rows(dirs=None, me=None):
     """Every friction line on THIS computer (also what the link verb `friction` answers a peer)."""
     me = me if me is not None else os.environ.get(desktop.HOST_ENV, "")
-    rows = (desktop_rows(desktop.sessions(dirs), me=me) + remote_rows(dirs) + link_rows() + prereq_rows()
-            + needs_you_rows() + inbox_rows())
+    sessions = desktop.sessions(dirs)
+    rows = (desktop_rows(sessions, me=me) + untagged_rows(sessions) + remote_rows(dirs) + link_rows()
+            + prereq_rows() + needs_you_rows() + unread_rows() + inbox_rows() + board_rows())
     done = acked()
     return [r for r in rows if r["key"] not in done]
 
