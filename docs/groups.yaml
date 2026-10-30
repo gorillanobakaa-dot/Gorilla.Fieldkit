@@ -127,6 +127,7 @@ groups:
       - buildh/worker.py
       - ideas.py
       - lmstudio.py
+      - metrics.py
       - orchestrate.py
       - orchestrate_session.py
       - orchestrate_load.py

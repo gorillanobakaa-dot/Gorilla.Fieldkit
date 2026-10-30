@@ -2052,6 +2052,17 @@
    "merge-driver"
   ]
  },
+ "metrics": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "metrics"
+  ]
+ },
  "mutate": {
   "platforms": [
    "linux",
