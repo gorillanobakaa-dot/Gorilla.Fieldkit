@@ -550,3 +550,31 @@ def test_linux_subreaper_is_set():
 def test_doctor_rows_are_ok():
     rows = liveness.doctor()
     assert all(ok for _n, ok, _d in rows), rows
+
+
+# ---- FM-10: busy spin with no children ---------------------------------------------------------------------------
+SPIN = "exec('while True: pass')"
+
+
+def test_a_lone_silent_spinner_is_stopped_as_busy_no_children(tmp_path, monkeypatch):
+    """One process, a core, no output for busy_s: stopped long before the wall deadline, the reason named."""
+    monkeypatch.setattr(liveness, "room_line", lambda verb, text: None)
+    t0 = time.time()
+    o = contain.run([PY, "-c", SPIN], label="verify go-test spin", deadline_s=600, busy_s=3)
+    assert o.status == "stalled" and o.rc == 124 and "BUSY-NO-CHILDREN" in o.why
+    assert time.time() - t0 < 30
+
+
+def test_a_spinner_that_prints_is_not_busy_no_children(tmp_path):
+    prog = ("import time\nend = time.time() + 6\nwhile time.time() < end:\n"
+            "    print('x', flush=True)\n    for _ in range(3000000): pass")
+    o = contain.run([PY, "-c", prog], label="noisy", deadline_s=60, busy_s=3)
+    assert o.status == "ok", o.as_dict()
+
+
+def test_busy_for_reads_the_step_label_from_the_local_settings(monkeypatch):
+    from fieldkit.core import settings
+    monkeypatch.setattr(settings, "local_settings", lambda: {"liveness": {"busy_steps": {
+        "verify go-test*": {"busy_minutes": 5, "on_busy": "warn"}}}})
+    assert contain.busy_for("verify go-test ./x") == (300.0, "warn")
+    assert contain.busy_for("verify pytest") == (None, None)
