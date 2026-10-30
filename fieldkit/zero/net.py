@@ -494,8 +494,12 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
         to, how = me, f"relief of rotated Zero {old}"
     elif assume:
         sec = (net.get("2ic") or {}).get("station")
-        if sec != me:
-            raise Refused(f"only the 2IC ({sec or 'none named'}) assumes Zero; you are {me}")
+        srec = st["stations"].get(sec) if sec else None
+        if sec != me and srec is not None and state_of(srec, now) == "UP":
+            raise Refused(f"only the 2IC ({sec}, UP) assumes Zero; you are {me}")
+        # owner 2026-10-30: a dead Zero with no live 2IC must never hold the net hostage; any UP station may assume
+        if sec != me and not state_of(st["stations"].get(me) or {}, now) == "UP":
+            raise Refused(f"{me} is not UP: only a live station assumes Zero")
         zrec = st["stations"].get(old) or {}
         if state_of(zrec, now) != "MISSING":
             raise Refused(f"Zero {old} is {state_of(zrec, now) if zrec else 'unknown'}, not MISSING: the 2IC assumes "
