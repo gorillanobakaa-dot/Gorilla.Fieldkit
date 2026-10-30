@@ -239,6 +239,10 @@ groups:
     title: "Research evidence that can be checked later: pages kept by hash, every claim of a run against its page"
     sources: ["evidence/*.py"]
 
+  - name: web
+    title: "Web pages through a real headless browser when the plain HTTP reader is blocked or gets nothing"
+    sources: ["web/*.py"]
+
   - name: methods
     title: "How the work gets done, as tools (wait, mutate, regress, drift, mcp-probe, survey, i18n, ship, handover)"
     sources: ["method/*.py"]
