@@ -24,6 +24,8 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
     fieldkit zero ack ID                  acknowledge a message
     fieldkit zero log [N] [--verify]      the net log; --verify checks the hash chain and the signatures
     fieldkit zero close                   Zero closes the net
+    fieldkit zero retire                  may this session archive itself? Zero only after a handover to an UP Zero
+                                          and a fresh HANDOFF.md (retire.py; the tool router enforces it)
     fieldkit zero schedule [--apply | --remove]   the comms check every 15 min (Windows task / systemd / launchd)
     fieldkit zero doctor                  files, chain, hook, schedule, cable key, the agent rules, the clock
     fieldkit zero task ST --objective .. --area PATH[,PATH] --done ..   Zero gives a station its order and ground
@@ -1282,7 +1284,7 @@ def pushed_lines(pushed):
 VERBS = {"status": "status", "open": "open", "establish": "open", "rollcall": "rollcall", "sitrep": "rollcall",
          "checkin": "checkin", "check": "check", "comms": "check", "time": "time", "handover": "handover",
          "send": "send", "ack": "ack", "log": "log", "close": "close", "doctor": "doctor", "schedule": "schedule",
-         "task": "task", "release": "release", "orders": "orders"}
+         "task": "task", "release": "release", "orders": "orders", "retire": "retire"}
 
 
 def _emit(a, data, lines):
@@ -1463,6 +1465,11 @@ def main(argv=None, prog="fieldkit zero"):
             r = close_net(me, a.epoch)
             _emit(a, r, [f"NET CLOSED by {me} (epoch {r['net']['epoch']}). Announced:"] + pushed_lines(r["pushed"]))
             return OK
+        if verb == "retire":
+            from . import retire
+            v = retire.verdict(me)
+            _emit(a, v, retire.lines(v))
+            return OK if v["ok"] else REFUSED
         if verb == "doctor":
             rows = doctor()
             _emit(a, [{"item": i, "ok": o, "detail": d} for i, o, d in rows],

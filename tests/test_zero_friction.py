@@ -455,7 +455,7 @@ def test_done_protocol_has_every_step():
         assert must in d
     assert "exit: the run ends" in protocol.done_protocol(headless=True)
     # 2026-10-30 17:17: Zero epoch 12 archived itself after its PR merged, with no handover
-    assert "Zero never archives while it holds the seat" in d and "fieldkit zero handover --to" in d
+    assert "Zero archives only into a new Zero" in d and "fieldkit zero retire" in d
     tail = protocol.brief_tail()
     assert "fieldkit task start" in tail and "Never propose a desktop session card" in tail
 

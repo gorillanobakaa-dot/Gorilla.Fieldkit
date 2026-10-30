@@ -64,8 +64,10 @@ IDLE (open PR) -> kept until the PR closes. The command post (Zero in NET.yaml) 
 
 `fieldkit sessions protocol` prints the done protocol every brief ends with: tests + mutate + telemetry scan,
 `fieldkit ship push`, PR, report (Board row / `task report`), recycle your leftovers, stop your background jobs,
-then archive yourself (`archive_session "self"`) or exit (headless). Zero never archives while it holds the seat:
-it stays, or hands over first (`fieldkit zero handover --to ST`) and writes state/coordination/HANDOFF.md.
+then archive yourself (`archive_session "self"`) or exit (headless). Zero archives only into a new Zero:
+hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` + the relief's `--take`), the new
+Zero UP, HANDOFF.md written, then `fieldkit zero retire` exits 0. The tool router refuses `archive_session` on Zero
+until it does.
 
 The standing rule block: `fieldkit sessions rule --all` (CLAUDE.md, GEMINI.md, Codex AGENTS.md); check with
 `fieldkit sessions doctor`.

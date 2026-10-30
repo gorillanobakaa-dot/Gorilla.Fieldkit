@@ -426,6 +426,16 @@ def _breaker(call):
         return None
 
 
+def _retire(call):
+    """Zero retires only into a new Zero (fieldkit/zero/retire.py): archive_session on Zero's session is refused until
+    the seat was handed over to an UP station and HANDOFF.md was written. Fails open."""
+    try:
+        from ..zero import retire
+        return retire.pretool(call)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _deny(reason):
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
@@ -437,7 +447,7 @@ def verdict(call):
     deny = _claims(call) or _checkout(call)
     if deny:
         return deny
-    stop = _rotate_stop(call) or _breaker(call)
+    stop = _retire(call) or _rotate_stop(call) or _breaker(call)
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()
