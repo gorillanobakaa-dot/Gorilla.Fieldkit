@@ -76,7 +76,7 @@ def silence(t, notes=()):
     return max(seen)
 
 
-def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), alive=None):
+def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), alive=None, read_upto=None):
     """-> [{state, id, line, next}]. Pure apart from the files `silence` stats. Marks died tasks in `led` (settle)."""
     now = time.time() if now is None else now
     tasks.settle(led, alive)
@@ -103,6 +103,23 @@ def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), aliv
                             f"{int(quiet)} min (limit {stalled_min})",
                             "next": "fieldkit peers link inbox; if the peer is gone: fieldkit task report "
                                     f"{tid} --status failed --note stalled"})
+    # plan C7 (inbox 204): an idle session never reads a cable note. A [NEEDS YOU] note nobody read within the wait
+    # (link_receipt.unread, 10 min) is a finding for Zero, who pokes the addressed session with the app's
+    # send_message (Remote Control) instead of waiting for the next hour
+    try:
+        from ..peers import link_receipt
+        late = link_receipt.unread(list(notes), now=now, upto=read_upto)
+    except Exception:  # noqa: BLE001 - no receipt files: nothing is judged
+        late = []
+    for n in late:
+        if "[NEEDS YOU]" not in (n.get("text") or "").upper():
+            continue
+        first = (n.get("text") or "").strip().splitlines()[0][:100] if (n.get("text") or "").strip() else ""
+        out.append({"state": "UNREAD", "id": f"note-{n.get('n')}",
+                    "line": f"UNREAD note #{n.get('n')} from {n.get('from_host')} ({n['age_minutes']} min, NEEDS YOU): "
+                            f"{first}",
+                    "next": "Zero: send the addressed session a short message with the app's send_message "
+                            f"(Remote Control) saying note #{n.get('n')} waits in `fieldkit peers link inbox`"})
     return out
 
 
