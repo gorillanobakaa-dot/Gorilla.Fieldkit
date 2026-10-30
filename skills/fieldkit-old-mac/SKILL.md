@@ -1,6 +1,6 @@
 ---
 name: fieldkit-old-mac
-description: Reach and support an old Mac that Apple no longer supports (a MacBook Air 2011 on macOS 10.13 High Sierra and the like) from the Linux box over SSH - check the key, find the Mac when its address changes (mDNS name, hardware address, ping sweep), log in, read what it is, fix the ssh alias, run commands and tests on it. Use when asked to connect to the MacBook Air or any Mac, when ssh to a Mac fails or its address changed, before running a test or measurement on a Mac, or when adding a new old Mac to look after.
+description: Reach and support an old Mac that Apple no longer supports (a MacBook Air 2011 on macOS 10.13 High Sierra and the like) over SSH from the Linux box or a Windows PC - check the key, find the Mac when its address changes (mDNS name, hardware address, ping sweep), log in, read what it is, fix the ssh alias, run commands and tests on it. Use when asked to connect to the MacBook Air or any Mac, when ssh to a Mac fails or its address changed, before running a test or measurement on a Mac, or when adding a new old Mac to look after.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
@@ -21,6 +21,19 @@ that have no support anymore and provide them with support".
    Trash). `--ip` writes today's address instead of the mDNS name, for a network where mDNS never answers.
 5. New Mac: `fieldkit mac add NAME --user U --key ~/.ssh/KEY --mdns NAME.local --hw-addr aa:bb:cc:dd:ee:ff`.
    The hardware address is what finds it when mDNS is silent: on the Mac, `ifconfig en0 | grep ether`.
+
+## From Windows (2026-10-28)
+
+The same commands run on Windows with Windows' own OpenSSH client (ssh.exe and scp.exe in System32/OpenSSH, called
+by full path). The .local name goes through Windows' resolver, the neighbour table is `arp -a`, the sweep uses
+Windows' ping, and `doctor` reads the key's permissions with icacls: a key Everyone, Users or Authenticated Users can
+read is a FAULT, and the line gives the icacls fix. A new Windows machine:
+
+1. `fieldkit mac add NAME --user U --key ~/.ssh/id_ed25519_NAME --mdns NAME.local --hw-addr ...` - with no key there
+   yet it prints the `ssh-keygen -t ed25519` line; run it (the private half never leaves the machine).
+2. On a machine that can already log in (the Linux box): `fieldkit mac authorize NAME id_ed25519_NAME.pub` with the
+   Windows machine's PUBLIC key file. It is added once; a private key is refused and nothing is sent.
+3. Back on Windows: `fieldkit mac doctor NAME`.
 
 ## Sensors: temperature, fan, battery, memory (sensors.gorilla)
 

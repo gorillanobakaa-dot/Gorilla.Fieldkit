@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-25-16-05
+# Version: 1.2.0 · updated 26-10-28-09-15
 """fieldkit mac release-install: older copies of the program are MOVED (never deleted) with a manifest, the data and
 other programs are left alone, and the download comes from the release page and nowhere else."""
 import os
@@ -9,7 +9,9 @@ import pytest
 
 from fieldkit.mac import releaseinstall as R
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the script is bash, run on a Mac")
+# The script is bash, run on a Mac: only the tests that RUN it skip on Windows; the ones that read it run everywhere
+# (2026-10-28: fieldkit mac runs on Windows too).
+needs_bash = pytest.mark.skipif(sys.platform == "win32", reason="runs the bash script (it runs on a Mac)")
 
 
 def step1(text):
@@ -31,6 +33,7 @@ def fake_bin(tmp_path, sums_text, asset_bytes=b"zip"):
     return b
 
 
+@needs_bash
 def test_older_copies_are_moved_with_a_manifest_and_nothing_else_is_touched(tmp_path):
     home = tmp_path
     for d in [".local/bin", "Applications/Gorilla OpenCode.app/Contents", "Desktop", "Downloads/gorilla-0.1.149-dev",
@@ -62,6 +65,7 @@ def test_older_copies_are_moved_with_a_manifest_and_nothing_else_is_touched(tmp_
     assert (home / "Downloads/Agents.Work.Trash-old/gorilla-opencode-0.1.1-mac").is_dir()
 
 
+@needs_bash
 def test_nothing_older_leaves_no_empty_quarantine_folder(tmp_path):
     r = subprocess.run(["bash", "-c", step1(R.script("opencode", "v0.1.150", "x"))],
                        env={**os.environ, "HOME": str(tmp_path)}, capture_output=True, text=True)
@@ -96,6 +100,7 @@ def test_latest_reads_the_release_page():
 
 
 @pytest.mark.skipif(not __import__("shutil").which("shasum"), reason="needs shasum (perl)")
+@needs_bash
 def test_a_bad_download_leaves_the_installed_version_where_it_was(tmp_path):
     """2026-10-25: the Air lost v0.1.151 because quarantine ran before the checksum failed."""
     home = tmp_path / "home"
@@ -111,6 +116,7 @@ def test_a_bad_download_leaves_the_installed_version_where_it_was(tmp_path):
 
 
 @pytest.mark.skipif(not __import__("shutil").which("shasum"), reason="needs shasum (perl)")
+@needs_bash
 def test_a_checksum_file_with_windows_line_ends_is_read(tmp_path):
     """v0.1.152's SHA256SUMS was written on Windows (CRLF); macOS 10.13's shasum refused every line."""
     import hashlib

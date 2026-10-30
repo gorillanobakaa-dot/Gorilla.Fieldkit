@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-# Version: 1.4.0 · updated 26-10-23-18-17
+# Version: 1.5.0 · updated 26-10-28-09-30
 """macssh.py - reach an old Mac on the local network over SSH, find it when its address changes, and run things on it.
 
     fieldkit mac list                                  the Macs this machine knows (local/macs.json, never published)
     fieldkit mac add NAME --user U --key PATH --mdns NAME.local [--hw-addr AA:BB:..] [--note TEXT]
+                                                       (no key yet: it prints the ssh-keygen line and the next step)
+    fieldkit mac authorize NAME PUBKEY.pub             put another machine's PUBLIC key on the Mac (run where a
+                                                       login already works); added once, never twice
     fieldkit mac doctor [NAME]                         key, address, login, macOS version, the ssh alias; exit 1 on a fault
     fieldkit mac find NAME [--save]                    its address now: mDNS name, then hardware address on the network
     fieldkit mac info NAME [--json]                    model, CPU, memory, macOS, disk, uptime, read from the Mac
@@ -25,6 +28,14 @@ network's mDNS answers some minutes and not others, and DHCP moves addresses: th
 every time and, when the name does not resolve, finds the Mac by its hardware (MAC) address in the neighbour table,
 after waking the network with a ping sweep. The owner's aim: old computers their makers no longer support get
 support from this harness.
+
+WINDOWS (2026-10-28, owner: the Windows laptop could not reach the Air): the same commands run on Windows with
+Windows' own OpenSSH client (ssh.exe and scp.exe in System32/OpenSSH). The .local name goes through Windows' own
+resolver (getaddrinfo, which answers mDNS on Windows 10 1803 and later), the neighbour table is `arp -a`, the networks
+come from Get-NetIPAddress, the sweep pings with `ping -n 1 -w 1000`, and the key's permissions are read with icacls
+(Windows' OpenSSH refuses a key that Everyone, Users or Authenticated Users can read), not from a POSIX mode.
+~/.ssh/config is the .ssh folder under USERPROFILE. No sub-command needs Linux any more; a Mac as the CONTROLLING
+machine is not tested.
 
 PRIVATE DATA: names, addresses, hardware addresses and key paths live in local/macs.json (git-ignored). This code
 holds none of them.
@@ -48,6 +59,20 @@ CONFIG = ROOT / "local" / "macs.json"
 SSH_CONFIG = Path.home() / ".ssh" / "config"
 TRASH = Path.home() / "Agents.Work.Trash"
 MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
+WINDOWS = sys.platform == "win32"           # tests set it to drive both paths on any machine
+OPENSSH_DIR = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "OpenSSH"
+# who must NOT be able to read a private key on Windows (ssh.exe: "UNPROTECTED PRIVATE KEY FILE")
+OPEN_ACL = ("Everyone", "BUILTIN\\Users", "NT AUTHORITY\\Authenticated Users")
+
+
+def exe(name):
+    """ssh / scp / ssh-keygen: on Windows the OpenSSH client that ships with Windows, by its full path (a Git or
+    MSYS ssh earlier on PATH reads a different config and known_hosts); elsewhere the name, from PATH."""
+    if WINDOWS:
+        path = OPENSSH_DIR / f"{name}.exe"
+        if path.exists():
+            return str(path)
+    return name
 
 
 def _run(argv, timeout=20, runner=None):
@@ -87,17 +112,33 @@ def get(macs, name):
 
 # ── finding it ──────────────────────────────────────────────────────────────
 
-def resolve_mdns(name, runner=None):
-    """IPv4 address of a .local name through Avahi, or None."""
+def resolve_mdns(name, runner=None, resolve=None):
+    """IPv4 address of a .local name through Avahi (Linux) or Windows' own resolver (getaddrinfo), or None."""
     if not name:
         return None
+    if WINDOWS:
+        import socket
+        try:
+            infos = (resolve or socket.getaddrinfo)(name, None, socket.AF_INET)
+        except (OSError, UnicodeError):
+            return None
+        return infos[0][4][0] if infos else None
     rc, out = _run(["avahi-resolve", "-4", "-n", name], timeout=6, runner=runner)
     m = re.search(r"\s(\d+\.\d+\.\d+\.\d+)\s*$", out) if rc == 0 else None
     return m.group(1) if m else None
 
 
 def neighbours(runner=None):
-    """hardware address -> IPv4 address, from the kernel's neighbour table (ip neigh)."""
+    """hardware address -> IPv4 address, from the kernel's neighbour table (ip neigh; on Windows arp -a)."""
+    if WINDOWS:
+        rc, out = _run(["arp", "-a"], timeout=5, runner=runner)
+        table = {}
+        for line in out.splitlines() if rc == 0 else []:
+            m = re.match(r"\s*(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F]{2}(?:-[0-9a-fA-F]{2}){5})\s", line + " ")
+            hw = m.group(2).lower().replace("-", ":") if m else ""
+            if hw and set(hw.split(":")) != {"ff"} and not hw.startswith("01:00:5e"):     # broadcast, multicast
+                table[hw] = m.group(1)
+        return table
     rc, out = _run(["ip", "-4", "neigh", "show"], timeout=5, runner=runner)
     table = {}
     for line in out.splitlines() if rc == 0 else []:
@@ -108,10 +149,18 @@ def neighbours(runner=None):
 
 
 def local_networks(runner=None):
-    """IPv4 networks this machine is on (ip -4 addr), largest /24 per interface to keep a sweep short."""
-    rc, out = _run(["ip", "-4", "-o", "addr", "show", "scope", "global"], timeout=5, runner=runner)
+    """IPv4 networks this machine is on (ip -4 addr; on Windows Get-NetIPAddress), largest /24 per interface to keep a
+    sweep short. Loopback and link-local (169.254, no DHCP answer) are left out."""
+    if WINDOWS:
+        rc, out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                        "Get-NetIPAddress -AddressFamily IPv4 | ForEach-Object { 'inet ' + $_.IPAddress + '/' + $_.PrefixLength }"],
+                       timeout=15, runner=runner)
+    else:
+        rc, out = _run(["ip", "-4", "-o", "addr", "show", "scope", "global"], timeout=5, runner=runner)
     nets = []
     for m in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out if rc == 0 else ""):
+        if m.group(1).startswith(("127.", "169.254.")):
+            continue
         net = ipaddress.ip_network(f"{m.group(1)}/{max(int(m.group(2)), 24)}", strict=False)
         if net not in nets:
             nets.append(net)
@@ -120,7 +169,8 @@ def local_networks(runner=None):
 
 def sweep(nets, runner=None, ping=None):
     """One ping to every address, so silent devices answer ARP and enter the neighbour table."""
-    ping = ping or (lambda ip: _run(["ping", "-c", "1", "-W", "1", str(ip)], timeout=3, runner=runner))
+    argv = ["ping", "-n", "1", "-w", "1000"] if WINDOWS else ["ping", "-c", "1", "-W", "1"]
+    ping = ping or (lambda ip: _run(argv + [str(ip)], timeout=3, runner=runner))
     hosts = [h for n in nets for h in n.hosts()]
     with ThreadPoolExecutor(max_workers=64) as ex:
         list(ex.map(ping, hosts))
@@ -151,7 +201,7 @@ def find(mac, runner=None, ping=None):
 # ── talking to it ───────────────────────────────────────────────────────────
 
 def ssh_argv(mac, address, command=None, batch=True):
-    argv = ["ssh", "-o", "ConnectTimeout=8", "-o", f"HostKeyAlias={mac['host_key_alias']}",
+    argv = [exe("ssh"), "-o", "ConnectTimeout=8", "-o", f"HostKeyAlias={mac['host_key_alias']}",
             "-o", "IdentitiesOnly=yes", "-i", os.path.expanduser(mac["key"])]
     if batch:
         argv[1:1] = ["-o", "BatchMode=yes"]
@@ -171,7 +221,7 @@ def remote_line(words):
 def scp_argv(mac, address, remote, local, upload=False):
     """Fetch remote -> local, or with upload=True send local -> remote."""
     ends = [f"{mac['user']}@{address}:{remote}", local]
-    return ["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", f"HostKeyAlias={mac['host_key_alias']}",
+    return [exe("scp"), "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", f"HostKeyAlias={mac['host_key_alias']}",
             "-o", "IdentitiesOnly=yes", "-i", os.path.expanduser(mac["key"])] + (ends[::-1] if upload else ends)
 
 
@@ -253,11 +303,29 @@ def fix_alias(name, mac, hostname, ssh_config=SSH_CONFIG, trash=TRASH):
     text = text[:span[0]] + block + text[span[1]:] if span else (text.rstrip("\n") + "\n\n" if text else "") + block
     ssh_config.parent.mkdir(mode=0o700, exist_ok=True)
     ssh_config.write_text(text)
-    os.chmod(ssh_config, 0o600)
+    if not WINDOWS:                     # on Windows the file inherits the profile's owner-only ACL
+        os.chmod(ssh_config, 0o600)
     return kept
 
 
 # ── doctor ──────────────────────────────────────────────────────────────────
+
+def key_check(key, runner=None):
+    """(ok, line) for the private key's permissions. POSIX: its mode. Windows: its ACL (icacls), since ssh.exe refuses
+    a key Everyone, Users or Authenticated Users can read; the line gives the icacls fix."""
+    if not WINDOWS:
+        mode = key.stat().st_mode & 0o777
+        return mode & 0o077 == 0, f"key {key} (mode {mode:o}{', ssh refuses a key others can read' if mode & 0o077 else ''})"
+    rc, out = _run(["icacls", str(key)], timeout=10, runner=runner)
+    if rc != 0:
+        return False, f"key {key}: icacls could not read its permissions ({out.splitlines()[-1] if out else rc})"
+    open_to = [who for who in OPEN_ACL if who.lower() in out.lower()]
+    if open_to:
+        user = os.environ.get("USERNAME", "%USERNAME%")
+        return False, (f"key {key} can be read by {', '.join(open_to)}: ssh refuses it; fix: "
+                       f"icacls \"{key}\" /inheritance:r /grant:r \"{user}:F\"")
+    return True, f"key {key} (ACL: owner only)"
+
 
 def doctor(name, mac, runner=None, ping=None, ssh_config=SSH_CONFIG):
     """[(ok, line)] for one Mac; every line says what was tested, not what was assumed."""
@@ -266,8 +334,7 @@ def doctor(name, mac, runner=None, ping=None, ssh_config=SSH_CONFIG):
     if not key.exists():
         rows.append((False, f"key {key} is missing"))
     else:
-        mode = key.stat().st_mode & 0o777
-        rows.append((mode & 0o077 == 0, f"key {key} (mode {mode:o}{', ssh refuses a key others can read' if mode & 0o077 else ''})"))
+        rows.append(key_check(key, runner))
     address, how = find(mac, runner, ping)
     rows.append((bool(address), f"address {address} ({how})" if address else how))
     if not address:
@@ -275,7 +342,7 @@ def doctor(name, mac, runner=None, ping=None, ssh_config=SSH_CONFIG):
     rc, out = _run(ssh_argv(mac, address, "sw_vers -productVersion"), timeout=20, runner=runner)
     rows.append((rc == 0, f"login as {mac['user']}: macOS {out}" if rc == 0 else f"login failed: {out.splitlines()[-1] if out else rc}"))
     if Path(ssh_config).exists() and alias_block(Path(ssh_config).read_text(), name):
-        rc, out = _run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", name, "true"], timeout=20, runner=runner)
+        rc, out = _run([exe("ssh"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", name, "true"], timeout=20, runner=runner)
         # A name the network cannot resolve (mDNS off on this Linux, 2026-10-23) is not fixed by writing the same
         # name again: point at today's address instead.
         ip = " --ip --apply" if "resolve hostname" in (out or "") else ""
@@ -345,6 +412,33 @@ def sensors(mac, address, json_out=False, open_live=False, runner=None):
     return subprocess.run(argv).returncode
 
 
+PUBKEY_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]+( [^\n]*)?$")
+
+
+def public_key_line(text):
+    """The one public-key line in a .pub file, or None. A private key (or anything else) is refused, never sent."""
+    if "PRIVATE KEY" in text:
+        return None
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return lines[0] if len(lines) == 1 and PUBKEY_RE.match(lines[0]) else None
+
+
+def authorize_line(pub):
+    """The Mac's shell line that adds one public key to ~/.ssh/authorized_keys once (a second run adds nothing)."""
+    q = shlex.quote(pub)
+    return ("mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && "
+            f"(grep -qxF {q} ~/.ssh/authorized_keys && echo 'already there' || {{ echo {q} >> ~/.ssh/authorized_keys && echo added; }})")
+
+
+def keygen_hint(key, name="NAME"):
+    """How to make the key a Mac entry names, on this system, and the step after it. Prints no key material."""
+    k = Path(os.path.expanduser(key))
+    return (f"no key at {k} yet. Make one (the private half never leaves this machine):\n"
+            f"  {exe('ssh-keygen')} -t ed25519 -N \"\" -C fieldkit-mac -f {k}\n"
+            f"then, on a machine that can already log in to the Mac, put the PUBLIC half ({k.name}.pub) on it:\n"
+            f"  {self_cmd()} mac authorize {name} {k.name}.pub")
+
+
 def self_cmd():
     try:
         from fieldkit.core.settings import self_cmd as sc
@@ -382,6 +476,9 @@ def main(argv=None, prog="macssh.py"):
     sh = sp.add_parser("shot", help="the Mac's screen now, fetched here (then fieldkit shot crop/stack/text-compare)")
     sh.add_argument("name")
     sh.add_argument("--out", help="where to put it (default: ./NAME-screen-<time>.png)")
+    au = sp.add_parser("authorize", help="put another machine's PUBLIC key on the Mac (once)")
+    au.add_argument("name")
+    au.add_argument("pubkey", help="a .pub file (one line); a private key is refused")
     se = sp.add_parser("sensors", help="the Mac's sensors now (sensors.gorilla); --open: live on the Mac's screen")
     se.add_argument("name", nargs="?", default="macair")
     se.add_argument("--json", action="store_true")
@@ -446,6 +543,8 @@ def main(argv=None, prog="macssh.py"):
                         "host_key_alias": o.host_key_alias or o.mdns.lower(), "note": o.note}
         save(macs)
         print(f"recorded {o.name} in {CONFIG}; next: {self_cmd()} mac doctor {o.name}")
+        if not Path(os.path.expanduser(o.key)).exists():
+            print(keygen_hint(o.key, o.name))
         return 0
     macs = load()
     if o.cmd == "list":
@@ -491,7 +590,7 @@ def main(argv=None, prog="macssh.py"):
             return 0
         kept = fix_alias(o.name, mac, host)
         print(f"written to {SSH_CONFIG}" + (f"; the previous file is kept at {kept}" if kept else ""))
-        rc, _ = _run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", o.name, "true"], timeout=20)
+        rc, _ = _run([exe("ssh"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", o.name, "true"], timeout=20)
         print(f"ssh {o.name}: {'works' if rc == 0 else 'still fails, run doctor'}")
         return 0 if rc == 0 else 1
     if o.cmd == "shot":
@@ -533,6 +632,18 @@ def main(argv=None, prog="macssh.py"):
             code, msg = macdrive.wait_text(fn, o.tty, o.pattern, o.seconds)
         print(msg)
         return code
+    if o.cmd == "authorize":
+        pub = public_key_line(Path(o.pubkey).read_text(encoding="utf-8", errors="replace"))
+        if not pub:
+            print(f"REFUSED: {o.pubkey} is not one public-key line (ssh-ed25519 ... / ssh-rsa ...); nothing sent")
+            return 2
+        address, how = find(mac)
+        if not address:
+            print(f"NOT FOUND: {how}")
+            return 1
+        rc, out = _run(ssh_argv(mac, address, authorize_line(pub)), timeout=30)
+        print(f"{o.name}: {out}" if rc == 0 else f"FAILED: {out}")
+        return 0 if rc == 0 else 1
     if o.cmd == "sensors":
         address, how = find(mac)
         if not address:
