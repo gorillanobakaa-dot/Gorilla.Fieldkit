@@ -95,12 +95,19 @@ MODES = [
               "default 10 min), keep the output tail in state/liveness/tails, log it and put a ROOM line; liveness "
               "STALLED for a step whose progress marker is older than idle_s + grace",
      "test": "tests/test_liveness.py::test_a_silent_child_is_a_stall_with_its_tail_kept_and_reported"},
+    {"id": "FM-10", "name": "busy spin with no children",
+     "what": "a step's only process burns a core and prints nothing (a hung go.exe), so FM-9 sees CPU and calls it "
+             "progress until the wall deadline",
+     "check": "containers with busy_s (or a fieldkit.local.json liveness.busy_steps entry matching the step label) "
+             "stop a lone process above 0.5 core with no new output for that long (on_busy kill, or warn = one "
+             "ROOM line); a child process or new output restarts the window",
+     "test": "tests/test_liveness.py::test_a_lone_silent_spinner_is_stopped_as_busy_no_children"},
 ]
 
 
 def state_dir():
     from . import settings
-    d = Path(os.environ.get("FIELDKIT_LIVENESS_DIR") or (settings.ROOT / "state" / "liveness"))
+    d = Path(os.environ.get("FIELDKIT_LIVENESS_DIR") or (settings.state_root() / "state" / "liveness"))
     (d / "runs").mkdir(parents=True, exist_ok=True)
     return d
 

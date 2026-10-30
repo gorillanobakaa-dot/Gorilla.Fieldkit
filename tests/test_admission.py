@@ -174,3 +174,31 @@ def test_status_lines_name_holders_and_the_hot_rule(tmp_path):
     assert "mutate m1" in out[1]
     assert st["free"] == 0
     s.release()
+
+
+@pytest.mark.skipif(sys.platform != "win32" or not os.path.isfile(os.path.join(os.path.dirname(sys.executable),
+                                                                              "pythonw.exe")),
+                    reason="pythonw.exe exists on Windows only")
+def test_under_pythonw_admit_suite_s_pytest_keeps_its_output(tmp_path):
+    # C3/I6 (2026-10-28): every run job on the L15 worker (pythonw.exe) failed exit 1 in seconds with no output and
+    # no report: `admit suite` started `pythonw -m pytest` with inherited handles, which under pythonw are none
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(A.__file__)))
+    script = ("import sys\n"
+              "from fieldkit import admission as A\n"
+              "sys.exit(A.run([sys.executable, '-c', 'print(\"child said it\")'], root=sys.argv[1]))\n")
+    out = tmp_path / "out.txt"
+    env = {k: v for k, v in os.environ.items() if k != A.NESTED}
+    env["PYTHONPATH"] = root
+    with open(out, "wb") as f:
+        rc = subprocess.call([pyw, "-c", script, str(tmp_path / "slots")], stdin=subprocess.DEVNULL, stdout=f,
+                             stderr=subprocess.STDOUT, env=env, timeout=120)
+    assert rc == 0 and "child said it" in out.read_text(encoding="utf-8", errors="replace")
+
+
+def test_std_handles_hands_over_real_descriptors_only_and_only_on_windows(tmp_path):
+    import io
+    from fieldkit.core.proc import std_handles
+    with open(tmp_path / "o.txt", "w") as real:
+        assert std_handles((None, real, io.StringIO()), platform="win32") == {"stdout": real.fileno()}
+        assert std_handles((None, real, real), platform="linux") == {}

@@ -181,6 +181,15 @@ if git diff --cached --name-only | grep -qE '^(skills/|third_party/anthropic-ski
   fi
   tail -1 "$OUT" | sed 's/^/pre-commit: /'
 fi
+# 2026-10-28 (HARNESS-PLAN R2): a rules file over its size limit, or a project file repeating the core, is refused,
+# only when the commit changes one (the same shell question as above, so other commits pay nothing)
+if git diff --cached --name-only | grep -qE '^(AGENTS\.md|rules/CORE\.md)$'; then
+  if ! "$PY" -m fieldkit rules check --repo-only >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: a rules file is over its size limit or repeats the core - commit refused"
+    exit 1
+  fi
+fi
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
   "$PY" -m fieldkit privacy scan . --git; exit 1

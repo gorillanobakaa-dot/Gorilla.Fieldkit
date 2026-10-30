@@ -29,7 +29,7 @@ import subprocess
 import sys
 import time
 
-from . import link
+from . import link, link_setup
 
 OK, PROBLEM, SKIP = "OK", "PROBLEM", "SKIP"
 REVIVE = ("rescue", "ssh", "wol")
@@ -158,7 +158,8 @@ def ladder(device=None, probes=None):
          "hello": lambda name: link.call({"verb": "hello"}, timeout=8, device=name),
          "rescue": lambda name: __import__("fieldkit.peers.link_rescue", fromlist=["call"]).call(
              "rescue-status", name, timeout=8)}
-    p["own"] = lambda ip, port: probe_tcp(ip, port, 2)[0] == "OPEN"
+    # C5: bind, never dial our own address (each dial was logged as a REFUSED connection from ourselves)
+    p["own"] = lambda ip, port: link_setup.listening(ip, port)
     p.update(probes or {})
     h, dev, mine = _target(device)
     ip = (dev.get("address") or [None])[0]

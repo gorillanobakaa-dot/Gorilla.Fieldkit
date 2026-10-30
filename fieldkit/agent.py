@@ -56,8 +56,8 @@ from .desk import recipes as recipemod
 # Changes to these need the owner's approval even when the tool can undo them:
 # a model does not change system settings on its own.
 SYSTEM_EFFECTS = {"registry", "services", "admin", "power", "hardware"}
-RUNS = settings.ROOT / "state" / "agent-runs"
-BACKUPS = settings.ROOT / "state" / "agent-backups"
+RUNS = settings.state_root() / "state" / "agent-runs"
+BACKUPS = settings.state_root() / "state" / "agent-backups"
 ORDER = {lvl: i for i, lvl in enumerate(cardmod.LEVELS)}
 WORD = re.compile(r"[a-z0-9]+")
 RUN_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")      # what run() makes: %Y%m%d-%H%M%S- + 6 hex
@@ -455,7 +455,7 @@ def run(tool_id, inputs=None, mode="apply", approve=False, cards=None, timeout=6
     safety = card.get("safety")
     modes = card.get("modes") or {}
     run_id = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
-    runner = Runner(settings.ROOT / "state" / "agent", settings.ROOT / "state" / "agent" / "logs")
+    runner = Runner(settings.state_root() / "state" / "agent", settings.state_root() / "state" / "agent" / "logs")
     rec = {"run_id": run_id, "tool": tool_id, "trust": level, "safety": safety, "mode": mode, "inputs": ins}
 
     if safety != "read-only":
@@ -607,7 +607,7 @@ def undo(run_id, cards=None, approve=False, timeout=600):
         answer.append(f"UNDONE: {len(restored)} file(s) put back")
         answer += [f"  {x}" for x in restored]
     if undo_cmd:
-        runner = Runner(settings.ROOT / "state" / "agent", settings.ROOT / "state" / "agent" / "logs")
+        runner = Runner(settings.state_root() / "state" / "agent", settings.state_root() / "state" / "agent" / "logs")
         r = runner.run(_fill(undo_cmd, ins), name=f"undo-{card['id']}", timeout=timeout)
         rec["undo_output"] = (r.stdout + r.stderr)[-4000:]
         answer.append(f"UNDO COMMAND {'ran' if r.ok else f'FAILED (exit {r.returncode})'}: {card['id']}")

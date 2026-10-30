@@ -96,6 +96,11 @@ class Inbox:
         return len(self.items)
 
 
+# household.json as the link keeps it: devices by their host names, each with its tag (never this machine's file)
+HOUSE = {"me": "vaio-host", "devices": [{"name": "vaio-host", "tag": "[VAIO-LNX]", "link": "cable"},
+                                       {"name": "l15-host", "tag": "[L15-WIN]", "link": "cable"}]}
+
+
 def emerge(r, **kw):
     kw.setdefault("say", lambda m: None)
     kw.setdefault("guard", False)
@@ -103,6 +108,7 @@ def emerge(r, **kw):
     kw.setdefault("fixer", Fixer())
     kw.setdefault("inbox_add", Inbox())
     kw.setdefault("who", "testhost")
+    kw.setdefault("household", HOUSE)
     return E.Emerge(r, **kw)
 
 
@@ -500,6 +506,118 @@ def test_every_shipped_recipe_loads_and_plans(name, tmp_path, monkeypatch):
     assert raw.get("baseline_minutes")
 
 
+def test_the_inventory_and_the_recipes_name_each_other():
+    inv = yaml.safe_load((R.HERE / "inventory.yaml").read_text(encoding="utf-8"))["projects"]
+    named = set()
+    for p in inv.values():
+        r = p.get("recipe")
+        named.update(r if isinstance(r, list) else [r] if r else [])
+    assert named == set(R.available())
+
+
+def test_every_inventory_project_has_a_recipe():
+    # HARNESS-PLAN R6: no project without a recipe; a new repository enters the inventory with its recipe
+    inv = yaml.safe_load((R.HERE / "inventory.yaml").read_text(encoding="utf-8"))["projects"]
+    assert [n for n, p in inv.items() if not p.get("recipe")] == []
+
+
+def test_an_offloaded_stage_names_a_device_and_a_mandate_project_and_runs_itself_there():
+    # an offload is a run job of this same recipe and stage on the other machine: a wrong recipe name, stage id or
+    # project in the argv sends a job that builds something else, or nothing
+    owner = yaml.safe_load((R.HERE.parent / "mandate" / "owner-wide.yaml").read_text(encoding="utf-8"))
+    seen = 0
+    for name in R.available():
+        stages = yaml.safe_load(R.find(name).read_text(encoding="utf-8")).get("stages") or []
+        if isinstance(stages, dict):          # a pipeline's overlay: {stage id: fields}
+            stages = [dict(v or {}, id=k) for k, v in stages.items()]
+        for s in stages:
+            if not s.get("offload"):
+                continue
+            o, seen = s["offload"], seen + 1
+            assert o.get("device") and o.get("tree"), (name, s["id"])
+            assert o["project"] in owner["repos"], (name, s["id"], o["project"])
+            assert o["argv"][:5] == ["emerge", "run", name, "--only", s["id"]], (name, s["id"], o["argv"])
+            assert "--local" in o["argv"], (name, s["id"])
+    assert seen >= 3
+
+
+def _offloads():
+    for name in R.available():
+        stages = yaml.safe_load(R.find(name).read_text(encoding="utf-8")).get("stages") or []
+        if isinstance(stages, dict):
+            stages = [dict(v or {}, id=k) for k, v in stages.items()]
+        for s in stages:
+            if s.get("offload"):
+                yield name, s
+
+
+def test_every_offload_stage_of_every_recipe_resolves_to_a_household_cable_device():
+    # R6 + C1: recipes say l15 / vaio, household.json says the host names; both must mean one household device,
+    # reached over the cable, and the link must be handed the household.json name
+    from fieldkit.peers import household as hh
+    plan, seen = hh.load(), set()
+    for name, s in _offloads():
+        row = hh.resolve(s["offload"]["device"], plan)
+        assert row["path"] == "cable", (name, s["id"], row["tag"])
+        r, link_name, why = E.offload_target(s["offload"]["device"], HOUSE)
+        assert link_name == {"[L15-WIN]": "l15-host", "[VAIO-LNX]": "vaio-host"}[row["tag"]] and why == "", (name, s)
+        seen.add((name, row["id"]))
+    assert {("gorilla-portable-network-hub", "l15"), ("windows-11-tweaks", "l15"), ("firefox-debian", "vaio"),
+            ("debian-kernel", "vaio")} <= seen
+
+
+def test_every_name_of_a_device_resolves_to_its_one_id_and_an_unknown_name_is_refused():
+    from fieldkit.peers import household as hh
+    for n in ("l15", "L15", "[L15-WIN]", "thinkpad"):
+        assert hh.resolve(n)["id"] == "l15"
+    assert hh.resolve("l15-host", h=HOUSE)["id"] == "l15" and hh.resolve("vaio-host", h=HOUSE)["id"] == "vaio"
+    for n in ("pigeon", "", None, "l15-host"):        # a host name means nothing without household.json
+        with pytest.raises(ValueError, match="unknown device"):
+            hh.resolve(n)
+
+
+def test_a_recipe_offloading_to_an_unknown_device_is_refused(env):
+    tmp, work = env
+    s = offload_spec(work)
+    s["stages"][-1]["offload"]["device"] = "pigeon"
+    with pytest.raises(R.RecipeError, match="unknown device 'pigeon'"):
+        recipe(tmp, s)
+
+
+def test_the_plan_names_the_resolved_device_and_the_link_is_handed_its_household_name(env, monkeypatch):
+    tmp, work = env
+    s = offload_spec(work)
+    s["stages"][-1]["offload"].update(device="l15", tree=str(work), argv=["x"])
+    rows = {r["id"]: r for r in emerge(recipe(tmp, s)).plan()["stages"]}
+    assert rows["deb"]["action"] == "offload" and rows["deb"]["why"].startswith("to l15 [L15-WIN] = l15-host")
+    from fieldkit import orchestrate_work as ow
+    sent = []
+    monkeypatch.setattr(ow, "send", lambda kind, device, *a, **k: sent.append(device) or ("j1", "sent", {}))
+    r = recipe(tmp, s)
+    assert E.LinkOffloader(HOUSE).dispatch(r, r.by_id["deb"], "k")["ok"] and sent == ["l15-host"]
+    h = E.LinkOffloader({"me": "vaio-host", "devices": []}).dispatch(r, r.by_id["deb"], "k")
+    assert not h["ok"] and "[L15-WIN]" in h["why"] and sent == ["l15-host"]
+    s["stages"][-1]["offload"]["device"] = "air"           # SSH only: never handed to the cable
+    r = recipe(tmp, s)
+    h = E.LinkOffloader(HOUSE).dispatch(r, r.by_id["deb"], "k")
+    assert not h["ok"] and "never the cable" in h["why"] and sent == ["l15-host"]
+
+
+def test_a_recipes_mandate_entry_is_the_inventory_project_that_lists_it():
+    # config.mandate keys the build to one repository's mandate entry: it must be the inventory project naming this
+    # recipe, and a repository of the owner-wide mandate (a typo there silently keys the build to "none")
+    inv = yaml.safe_load((R.HERE / "inventory.yaml").read_text(encoding="utf-8"))["projects"]
+    owner = yaml.safe_load((R.HERE.parent / "mandate" / "owner-wide.yaml").read_text(encoding="utf-8"))
+    repos = set(owner["repos"])
+    for name in R.available():
+        m = (yaml.safe_load(R.find(name).read_text(encoding="utf-8")).get("config") or {}).get("mandate")
+        if not m:
+            continue
+        r = inv[m]["recipe"]
+        assert name in (r if isinstance(r, list) else [r]), (name, m)
+        assert m in repos, (name, m)
+
+
 def test_firefox_tiers_match_the_audit(tmp_path):
     r = R.Recipe(yaml.safe_load(R.find("firefox-windows").read_text(encoding="utf-8")), state_root=tmp_path,
                  strict=False)
@@ -513,3 +631,31 @@ def test_cli_lists_and_routes():
     assert emerge_main(["list"]) == 0
     assert cli.main(["emerge", "list"]) == 0
     assert emerge_main(["plan"]) == 2
+
+
+def test_a_run_aborts_when_another_writer_moves_the_checkout(env):
+    """Owner order 2026-10-29: a session branched and committed in the checkout a release emerge was running in."""
+    tmp, work = env
+    s = spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, "-c",
+        "import os,shutil,subprocess; os.makedirs(r'%s/out',exist_ok=True); shutil.copyfile(r'%s/a.txt',r'%s/out/a.bin'); g=lambda *a: subprocess.run(['git','-C',r'%s',*a],check=True); "
+        "g('checkout','-q','-b','intruder'); g('commit','-q','--allow-empty','-m','x')" % (work, work, work, work)]}
+    rep = emerge(recipe(tmp, s)).run()
+    assert not rep["ok"] and "checkout moved" in rep["refused"] and "intruder" in rep["refused"]
+    assert [e["id"] for e in rep["stages"] if e.get("status") == "pass"] == ["one"]
+    assert next(e for e in rep["stages"] if e["id"] == "two")["status"] == "aborted"
+
+
+def test_an_unmoved_checkout_does_not_abort_the_run(env):
+    tmp, work = env
+    assert emerge(recipe(tmp, spec(work))).run()["ok"]
+
+
+def test_a_branch_switch_with_the_same_head_is_a_move_too(env):
+    tmp, work = env
+    s = spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, "-c",
+        "import os,shutil,subprocess; os.makedirs(r'%s/out',exist_ok=True); shutil.copyfile(r'%s/a.txt',r'%s/out/a.bin'); "
+        "subprocess.run(['git','-C',r'%s','checkout','-q','-b','sibling'],check=True)" % (work, work, work, work)]}
+    rep = emerge(recipe(tmp, s)).run()
+    assert not rep["ok"] and "sibling" in rep["refused"]

@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-26
+# Version: 1.2.0 · updated 26-10-28-20-30
 """fieldkit net / fieldkit zero: the agent net. "Zero has been established", the military way, in deterministic code.
 
 Owner, 2026-10-26 (former soldier, verbatim): "i will always think in terms of 0 has been established the military
@@ -15,7 +15,8 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
                                           ask every station for its sitrep (alias: sitrep); LATE / MISSING listed
     fieldkit zero checkin [--ref ID] [--job .. --state .. --branch .. --waiting .. --not-verified .. --shared ..]
                                           what a station runs at start and on its interval (and to answer a roll)
-    fieldkit zero check [--no-heal]       the comms check (alias: comms): leases, misses, cable revive, retries
+    fieldkit zero check [--revive-cable] the comms check (alias: comms): leases, misses, retries; a peer that is off is
+                                          reported off and not retried (C4); the cable revive only on request
     fieldkit zero time                    the clocks: this OS's sync state, each cable peer's skew
     fieldkit zero handover --to ST | --take | --assume [--2ic ST]
                                           change of Zero; epoch +1, announced to every station
@@ -68,9 +69,9 @@ import time
 import uuid
 from pathlib import Path
 
-import yaml
-
 from . import channels as ch
+from ..peers import link_off
+from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
 STATES = ("WORKING", "BLOCKED", "WAITING", "DONE", "IDLE")
@@ -82,6 +83,7 @@ TRAFFIC = ("open", "handover", "close", "rollcall", "msg")
 COMMAND = ("open", "handover", "close", "rollcall")       # command traffic: never held by quiet hours
 OK, WARN, ALARM, NONET, REFUSED = 0, 1, 2, 3, 4
 RENEW_EVERY_S = 60                                        # the hook renews a lease at most once a minute
+CABLE_HOOK_TIMEOUT_S = 4                                  # a hook check-in to a far Zero waits at most this long
 PENDING_TTL_S = 24 * 3600                                 # a rotated Zero's relief has a day to take over
 HOOK_MAX_LINES = 6
 
@@ -93,7 +95,7 @@ class Refused(Exception):
 # ---------------------------------------------------------------- places, lock, identity
 
 def coord():
-    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (ROOT / "state" / "coordination"))
+    return Path(os.environ.get("FIELDKIT_COORDINATION_DIR") or (_state_root(ROOT) / "state" / "coordination"))
 
 
 def machine():
@@ -163,9 +165,10 @@ def tag_of(station):
         return ""
 
 
-def tagged_station(station):
-    """-> "[VAIO-LNX] claude:ab12cd34@host": the station as lines show it, its machine's tag first."""
-    t = tag_of(station)
+def tagged_station(station, tag=""):
+    """-> "[VAIO-LNX] claude:ab12cd34@host": the station as lines show it, its machine's tag first (`tag`: the one
+    the station reported, used when this computer's registry does not know its machine)."""
+    t = tag_of(station) or tag
     return f"{t} {station}" if t and station else station
 
 
@@ -187,15 +190,37 @@ def _atomic(path, text):
 
 
 def load_net():
+    """NET.yaml, parsed. The parse is kept in NET.cache.json next to it, keyed by the file's size and mtime: the
+    tool-call hook reads the net on every call, and importing the YAML parser was ~16 ms of it (C6)."""
     p = coord() / "NET.yaml"
+    cache = coord() / "NET.cache.json"
     try:
-        d = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        st = p.stat()
+    except OSError:
+        return {}
+    key = [st.st_size, st.st_mtime_ns]
+    try:
+        c = json.loads(cache.read_text(encoding="utf-8"))
+        if c.get("key") == key and isinstance(c.get("net"), dict):
+            return c["net"]
+    except (OSError, ValueError):
+        pass
+    import yaml
+    try:
+        d = yaml.safe_load(p.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
         return {"broken": True}
-    return d if isinstance(d, dict) else {"broken": True}
+    if not isinstance(d, dict):
+        return {"broken": True}
+    try:
+        _atomic(cache, json.dumps({"key": key, "net": d}))      # a value JSON cannot hold (a date): no cache
+    except (OSError, TypeError, ValueError):
+        pass
+    return d
 
 
 def save_net(net):
+    import yaml
     _atomic(coord() / "NET.yaml", "# the agent net: written by fieldkit net (fieldkit/zero/net.py); do not edit by hand\n"
             + yaml.safe_dump(net, sort_keys=False, allow_unicode=True))
 
@@ -503,9 +528,25 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
     if take:                                          # the rotated Zero's order and ground go with the net
         from . import command
         command.carry(old, to, now)
-    e = append("handover", me, text=f"Zero is now {to} ({how})", data={"net": _public(net), "previous": old, "how": how},
+    from .. import plan                               # the relief learns where the plan stands
+    pl = plan.line()
+    e = append("handover", me, text=f"Zero is now {to} ({how})" + (f". {pl}" if pl else ""), data={"net": _public(net), "previous": old, "how": how},
                now=now, epoch=net["epoch"])
-    return {"net": net, "entry": e, "previous": old, "pushed": _push(e, net, channels or ch.default(), now)}
+    return {"net": net, "entry": e, "previous": old, "pushed": _push(e, net, channels or ch.default(), now),
+            "board": _board_row_of(old)}
+
+
+def _board_row_of(station):
+    """Plan R3: the Zero that hands over leaves its Board row (from its transcript, when it has none). Only a Claude
+    session on this computer can be read here. -> "written" / "present" / "no plan" / "unknown" / "not here"."""
+    m = re.match(r"claude:(\w{8})@", str(station or ""))
+    if not m or machine_of(station) != machine():
+        return "not here"
+    try:
+        from ..lifecycle import board
+        return board.ensure(m[1])
+    except Exception:  # noqa: BLE001 - the Board row never breaks a handover
+        return "unknown"
 
 
 def on_rotate(session_id, now=None):
@@ -741,7 +782,7 @@ def roll(net, now, found=None):
             status = state_of(rec, now)
         rows.append({"station": s, "status": status, "sitrep": (answered.get(s) or {}).get("data", {}).get("sitrep"),
                      "last": rec.get("last"), "kind": rec.get("kind") or kind_of(s), "host_session": rec.get("host_session"),
-                     "name": rec.get("name"), "tag": tag_of(s)})
+                     "name": rec.get("name"), "tag": tag_of(s) or rec.get("tag") or ""})
     known = set(st) | set(answered) | ({zero} if zero else set())
     devices_with_stations = {machine_of(s) for s in known}
     for f in found or []:
@@ -768,12 +809,13 @@ def ingest_cable(items=None, now=None):
     and refused. -> number ingested."""
     now = time.time() if now is None else now
     st = load_stations()
-    since = int(st["meta"].get("cable_since") or 0)
+    since = since0 = int(st["meta"].get("cable_since") or 0)
     try:
         got = items if items is not None else ch.inbox_items(since)
     except Exception:  # noqa: BLE001 - not paired, no inbox: nothing came
         return 0
     seen = set(st["meta"].get("seen_ids") or [])
+    seen0 = len(seen)
     n = 0
     for num, e in got:
         since = max(since, int(num))
@@ -804,7 +846,7 @@ def ingest_cable(items=None, now=None):
                 s2 = load_stations()
                 d = e.get("data") or {}
                 renew(s2, e["from"], net, now, via="cable", sitrep=d.get("sitrep"),
-                      sitrep_ref=e.get("ref") if d.get("sitrep") else None, off=d.get("off"))
+                      sitrep_ref=e.get("ref") if d.get("sitrep") else None, off=d.get("off"), tag=d.get("tag"))
                 s2["meta"] = st["meta"]
                 st = s2
                 save_stations(st)
@@ -812,6 +854,8 @@ def ingest_cable(items=None, now=None):
                data=dict(e.get("data") or {}, relayed=e.get("from_host")), want_ack=e.get("want_ack", False),
                eid=e["id"], now=now, epoch=e.get("epoch"))
         n += 1
+    if since == since0 and len(seen) == seen0:       # C6: nothing came, nothing rewritten
+        return n
     with _Lock():
         s3 = load_stations()
         s3["meta"].update(cable_since=since, seen_ids=sorted(seen)[-2000:])
@@ -841,7 +885,17 @@ def unacked(net, now):
     return out
 
 
-def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None, command_kw=None):
+def _cable_layer(device):
+    """True when the ladder finds the peer silent on every rung (down, asleep or unplugged): it is off, not lost."""
+    from ..peers import link_heal
+    try:
+        rows, facts = link_heal.ladder(device)
+        return link_off.looks_off(link_heal.verdict(rows, facts)[0])
+    except (ValueError, OSError):
+        return False
+
+
+def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None, command_kw=None, classify=None):
     now = time.time() if now is None else now
     ingest_cable()
     net = load_net()
@@ -906,7 +960,14 @@ def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, boar
     for d in cab.devices():
         r = cab.hello(d)
         row = {"device": d, "ok": bool(r.get("ok")), "detail": "answers" if r.get("ok") else str(r.get("error"))}
-        if not r.get("ok") and heal:
+        if r.get("ok"):
+            link_off.clear(d)
+        elif link_off.is_off(d):
+            row.update(off=True, detail="off: switched off or asleep, not retried until it answers")
+        elif (classify or _cable_layer)(d):
+            row.update(off=True, detail="off: no ping and no neighbor entry; marked off, not retried until it answers")
+            link_off.mark(d, row["detail"])
+        elif heal:
             try:
                 if reviver:
                     rc = reviver(d)
@@ -924,7 +985,7 @@ def check(heal=True, channels=None, now=None, reviver=None, inbox_add=None, boar
         cmd = command.sweep(net, now, inbox_add=inbox_add, board=board, **(command_kw or {}))
     except Exception as e:  # noqa: BLE001 - the comms check still reports the net
         cmd = {"error": str(e), "findings": [], "new": []}
-    level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") for x in links)
+    level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") and not x.get("off") for x in links)
              else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings") else OK)
     out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried,
            "undelivered": undelivered, "links": links, "level": level, "command": cmd}
@@ -992,6 +1053,29 @@ def hook_line(call, event, now=None):
     return "\n".join(x for x in (tagline, _net_line(call, event, now)) if x)
 
 
+def _hook_ingest(now):
+    """What came over the cable, at most once a minute from the hook: without it a computer that is not Zero's never
+    learns the net is open, so its sessions never check in (C2, 2026-10-28: the VAIO held Zero's open and 8 handovers
+    unread in its link inbox, no NET.yaml, 0 stations). Never raises."""
+    try:
+        with _Lock():
+            st = load_stations()
+            if not _ingest_due(st, now):
+                return 0
+            save_stations(st)
+        return ingest_cable(now=now)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _ingest_due(st, now):
+    """True (and the time stamped in st, which the caller saves before ingesting) once a minute per computer."""
+    if now - float(st["meta"].get("hook_ingest_at") or 0) < RENEW_EVERY_S:
+        return False
+    st["meta"]["hook_ingest_at"] = now
+    return True
+
+
 def _net_line(call, event, now=None):
     """Every Claude Code session on this computer: checked in by the hook (the lease renewed at most once a minute),
     shown its unseen net traffic (acked), told once who Zero is. Zero is told which stations went quiet, once per
@@ -1003,23 +1087,46 @@ def _net_line(call, event, now=None):
             return ""
         net = load_net()
         if not is_open(net):
-            return ""
+            _hook_ingest(now)                         # the cable may be what opens the net here (C2)
+            net = load_net()
+            if not is_open(net):
+                return ""
+            ingest = False
+        else:
+            ingest = None
         me = hook_station(sid)
         out = []
+        far = machine_of(me) != (net.get("zero") or {}).get("machine")
         with _Lock():
             st = load_stations()
             rec = st["stations"].get(me)
             new = rec is None
+            before = json.dumps(rec, sort_keys=True, default=str)
+            if ingest is None:                        # C6: the ingest stamp rides the lease's write, not its own
+                ingest = _ingest_due(st, now)
             if new or now - float(rec.get("last") or 0) >= RENEW_EVERY_S or rec.get("off"):
-                rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid)
+                rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me))
             items = pending_for(me, rec, net, now)
             if items:
                 rec["seen_off"] = log_size()
             elif rec.get("seen_off") is None:
                 rec["seen_off"] = log_size()
-            save_stations(st)
+            tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60)
+            if tell_far:
+                rec["cable_at"] = now                 # tried or not: the next try waits an interval (no hook stalls)
+            if ingest or json.dumps(rec, sort_keys=True, default=str) != before:   # C6: no rewrite on every call
+                save_stations(st)
+        if ingest:
+            try:
+                ingest_cable(now=now)
+            except Exception:  # noqa: BLE001
+                pass
+        if new or tell_far:
+            e = append("checkin", me, to=zero_of(net), data={k: v for k, v in {"by": "hook", "tag": tag_of(me)}.items()
+                                                             if v}, now=now)
+            if tell_far:                              # Zero is on the other computer: its lease is renewed there (C2)
+                (ch.Cable(timeout=CABLE_HOOK_TIMEOUT_S)).push(e, net)
         if new:
-            append("checkin", me, to=zero_of(net), data={"by": "hook"}, now=now)
             out.append(f"NET: Zero is {zero_of(net)} (epoch {net.get('epoch')}); you are station {me}, checked in by "
                        "the hook. Owner words: 'zero', 'sitrep', 'comms check', 'roll call' mean fieldkit zero "
                        "(skill fieldkit-net).")
@@ -1041,6 +1148,11 @@ def _net_line(call, event, now=None):
                     s2 = load_stations()
                     s2["meta"]["zero_alert"] = key
                     save_stations(s2)
+            try:                                      # Z1: a started task needs Zero; the 5-minute timer found it
+                from ..lifecycle import watch
+                out.extend(watch.hook_lines(now=now))
+            except Exception:  # noqa: BLE001
+                pass
         return "\n".join(out)
     except Exception:  # noqa: BLE001 - the hook informs; it never fails a tool call
         return ""
@@ -1050,10 +1162,11 @@ def _net_line(call, event, now=None):
 
 def status(now=None):
     now = time.time() if now is None else now
+    ingest_cable()                                    # a far Zero's net and far check-ins: seen here first (C2)
     net = load_net()
     st = load_stations()["stations"]
     rows = [{"station": s, "state": state_of(r, now), "kind": r.get("kind"), "last": r.get("last"),
-             "sitrep": r.get("sitrep"), "name": r.get("name"), "via": r.get("via"), "tag": tag_of(s)}
+             "sitrep": r.get("sitrep"), "name": r.get("name"), "via": r.get("via"), "tag": tag_of(s) or r.get("tag") or ""}
             for s, r in sorted(st.items())]
     return {"established": is_open(net), "net": net, "rows": rows,
             "level": NONET if not is_open(net) else ALARM if any(r["state"] == "MISSING" for r in rows)
@@ -1115,16 +1228,27 @@ def status_lines(r, now=None):
            f"epoch {net.get('epoch')}, 2IC = {sec}" + (f", mirror of {net['mirror_of']}" if net.get("mirror_of") else ""),
            f"  check-in every {cfg(net, 'interval_min')} min (lease {int(ttl_s(net) // 60)} min), roll answers due in "
            f"{cfg(net, 'answer_min')} min" + (f", quiet hours {net['quiet']}" if net.get("quiet") else ""),
-           f"  {len(r['rows'])} station(s): {n['UP']} UP, {n['SILENT']} SILENT, {n['MISSING']} MISSING, {n['OFF']} OFF"]
+           f"  {len(r['rows'])} station(s): {n['UP']} UP, {n['SILENT']} SILENT, {n['MISSING']} MISSING, {n['OFF']} OFF",
+           "  machines: " + machines_line(r["rows"])]
     for x in r["rows"]:
         tag = "ZERO" if x["station"] == z.get("station") else x["state"]
-        line = f"  {tag:<8} {tagged_station(x['station']):<45} last {_when(x['last'])}"
+        line = f"  {tag:<8} {tagged_station(x['station'], x.get('tag', '')):<45} last {_when(x['last'])}"
         if x.get("sitrep"):
             line += f"  {x['sitrep']['state']}: {x['sitrep']['job']}"
         out.append(line)
     if net.get("handover_pending"):
         out.append(f"  HANDOVER PENDING from {net['handover_pending']['from']}: its relief runs fieldkit zero handover --take")
     return out
+
+
+def machines_line(rows):
+    """-> "[L15-WIN] 3 (2 UP), [VAIO-LNX] 1 (1 UP)": stations per machine, so a machine that never checked in shows."""
+    per = {}
+    for x in rows:
+        k = x.get("tag") or machine_of(x["station"]) or "?"
+        n, up = per.get(k, (0, 0))
+        per[k] = (n + 1, up + (x["state"] == "UP"))
+    return ", ".join(f"{k} {n} ({up} UP)" for k, (n, up) in sorted(per.items())) or "none"
 
 
 def roll_lines(r):
@@ -1188,7 +1312,8 @@ def main(argv=None, prog="fieldkit zero"):
     ap.add_argument("--no-ack", action="store_true", help="send: wants no ack")
     ap.add_argument("--wait", type=float, default=0, help="rollcall: wait up to N minutes for the answers")
     ap.add_argument("--status", action="store_true", help="rollcall: show the last roll call, send nothing")
-    ap.add_argument("--no-heal", action="store_true", help="check: do not revive a dead cable")
+    ap.add_argument("--revive-cable", action="store_true", help="check: run the heal ladder on a dead cable (off by default: "
+                    "the service manager is the one keep-alive; heal is a command run on purpose)")
     ap.add_argument("--scheduled", action="store_true", help="check: run by the schedule (prints only problems)")
     ap.add_argument("--verify", action="store_true", help="log: check the hash chain and the signatures")
     ap.add_argument("--apply", action="store_true", help="schedule: install it")
@@ -1206,11 +1331,14 @@ def main(argv=None, prog="fieldkit zero"):
     try:
         if verb == "status":
             r = status()
+            from .. import plan                       # the plan first: phase and open items (2026-10-28)
+            r["plan"] = plan.line()
+            head = [r["plan"], ""] if r["plan"] else []
             if r["established"] and (r["net"].get("rollcall") or {}):
                 rr = roll(r["net"], time.time())
-                _emit(a, dict(r, roll=rr), status_lines(r) + [""] + roll_lines(rr))
+                _emit(a, dict(r, roll=rr), head + status_lines(r) + [""] + roll_lines(rr))
             else:
-                _emit(a, r, status_lines(r))
+                _emit(a, r, head + status_lines(r))
             return r["level"]
         if verb == "open":
             r = open_net(me, a.second, a.interval, a.answer, a.quiet_hours, a.name)
@@ -1259,7 +1387,7 @@ def main(argv=None, prog="fieldkit zero"):
             _emit(a, {k: v for k, v in r.items() if k != "rec"}, lines)
             return OK
         if verb == "check":
-            r = check(heal=not a.no_heal)
+            r = check(heal=a.revive_cable)
             if not r["established"]:
                 if not a.scheduled:
                     _emit(a, r, status_lines(status()))
@@ -1268,6 +1396,12 @@ def main(argv=None, prog="fieldkit zero"):
                      f"{r['net'].get('epoch')}"]
             lines += [f"  {x['state']:<8} {x['station']} (last {_when(x['last'])})" for x in r["rows"]]
             lines += [f"  cable {x['device']}: {x['detail']}" for x in r["links"]] or ["  cable: not paired"]
+            try:                                      # the SSH-only devices of the household (C1), no ping sweep
+                from ..peers import household
+                r["household"] = household.reach(sweep=False, only=("ssh",))
+            except Exception as e:  # noqa: BLE001 - the comms check still reports the net
+                r["household"] = [{"tag": "?", "path": "ssh", "state": "UNREAD", "detail": str(e)}]
+            lines += [f"  ssh {x['tag']}: {x['state']} - {x['detail']}" for x in r["household"]]
             lines += [f"  event: {x}" for x in r["events"]]
             lines += [f"  retried {x}" for x in r["retried"]]
             lines += [f"  UNDELIVERED {x['id']} to {', '.join(x['missing'])}: {x['text'][:80]}" for x in r["undelivered"]]

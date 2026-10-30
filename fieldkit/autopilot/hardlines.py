@@ -1,4 +1,4 @@
-# Version: 1.7.0 · updated 26-10-27-14-00
+# Version: 1.8.0 · updated 26-10-28-18-23
 """The hard lines of an unattended (autopilot) run: the few things no model may do on its own, whatever it says.
 
 Owner, 2026-10-18, after 40 hours of pressing Yes: safety comes from the harness, not from approval prompts. In an
@@ -30,6 +30,13 @@ pipe or substitution around it, so what was checked is what runs. `git push` sta
 about this computer); publishing and credentials still apply. While a mandate is in force, installs go through
 `fieldkit mandate install GB WHAT -- CMD` (the budget, measured and logged).
 
+An approved plan item opens one part of hard line 3 (owner, 2026-10-28, "Yes, both": "headless autopilot may change
+hooks/guards for an approved plan item, with tests that prove the check still fails"): a run whose brief (its first
+message) names an open item of docs/HARNESS-PLAN.md (R5, O2, ...) may change fieldkit/autopilot/ and the
+repository's hooks/, and a `git commit` of such a file needs a `fieldkit mutate` proof for that exact content. The
+files that enforce on the run itself (this file, the Claude hook, the budget, the breakers, mutate) stay refused:
+the hook reloads them on every call, so an edit would act before any test. Everything else in hard line 3 stays.
+
 Lessons it encodes (2026-10-17/18, Gemini overnight): a blocked `git push` was followed three seconds later by
 `gh release create`; a blocked `git checkout --` by a Python script doing the same; a blocked rmtree by hiding the
 folder in .git/info/exclude; an approved allowlist entry widened afterwards; a decision flipped to enforced. Text
@@ -37,8 +44,10 @@ rules are the second layer: the first is that the credential is not reachable (f
 
     decide(tool, args)  -> ("deny", reason) | ("allow", reason)
 """
+import json
 import os
 import re
+import subprocess
 from pathlib import Path
 
 STATE = Path(os.environ.get("FIELDKIT_AUTOPILOT_STATE") or (Path.home() / ".fieldkit" / "autopilot"))
@@ -80,10 +89,13 @@ PROTECTED = [
     (r"gorilla\.firefox/harness/", "the owner's build harness"),
     (r"(^|[/\s\"'])(gemini|agents|claude)\.md\b", "an AI rules file"),
     (r"\.gemini/config|\.claude/settings[^/\s\"']*\.json|\.claude/hooks", "a guard or AI settings"),
-    (r"\.git/hooks/|\.git/info/exclude|(^|/)hooks/(pre-|post-)[a-z-]+|fieldkit/autopilot/", "a hook or this guard"),
+    # 2026-10-28: mutate writes the proof a guard commit is checked against, so it is guarded like the guard
+    (r"\.git/hooks/|\.git/info/exclude|(^|/)hooks/(pre-|post-)[a-z-]+|fieldkit/autopilot/|fieldkit/method/mutate\.py",
+     "a hook or this guard"),
     (r"leakgate/(allow|dispositions)[^/\s\"']*\.json|proposed-dispositions", "the leak-gate allowlist or dispositions"),
     (r"product-decisions\.yaml|gorilla_decisions\.json|claims/claims\.yaml|decisions/theme\.yaml", "the owner's decision register"),
     (r"(^|/)\.gitignore\b", "a .gitignore (a decision, not a default)"),
+    (r"state/mutate-proofs", "a mutate proof (only fieldkit mutate writes one)"),
     # 2026-10-22, long horizon goals: a worker or the planner never edits what it is judged by, nor its own meter
     (r"state/goals/[^\s\"']*(goal\.json|goal\.md|state\.json|verdicts\.jsonl|spend\.jsonl|\.supervisor|preapprovals\.yaml|approval\.json)|"
      r"state/(goals|jobs)/[^\s\"']*(checkpoint\.json|budget\.json|meter\.json)",
@@ -116,6 +128,11 @@ OWNER_ONLY = [
     # 2026-10-26: installing a push hook changes a protection: the owner's paste or a session the owner talks to
     (r"\bmandate\s+install-hooks\b[^\n]*--yes\b", "installing a repository's push hook"),
 ]
+# 2026-10-28 (inbox #145, "Yes, ship only"): only fieldkit ship gets the credential back inside a run; a command
+# that points gh or git at it by itself is refused (setting the variables, a credential helper, gh auth)
+REARM = re.compile(r"(\$env:|\b)(GH_CONFIG_DIR|GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN|GIT_ASKPASS|SSH_ASKPASS|"
+                   r"GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)|FIELDKIT_REAL_GH_CONFIG_DIR)\s*=|credential\.helper|"
+                   r"\bgh\s+auth\s+(token|login|setup-git|refresh)\b|\bunset\s+[^\n;&|]*\b(GH_CONFIG_DIR|GIT_CONFIG_)", re.I)
 CREDENTIAL = re.compile(
     r"(^|[/\\\s\"'])(\.env(\.[a-z]+)?|id_rsa|id_ed25519|[^/\\\s\"']+\.(pem|pfx|p12|key)|hosts\.yml|"
     r"\.git-credentials|credentials\.json|\.netrc|token(s)?\.(json|txt))([\s\"']|$)", re.I)
@@ -135,6 +152,85 @@ def _strings(obj):
     elif isinstance(obj, (list, tuple)):
         for v in obj:
             yield from _strings(v)
+
+
+HOOK_WHAT = "a hook or this guard"
+PLAN_GUARD = re.compile(r"fieldkit/autopilot/|(^|[/\s\"'])(?<!\.git/)hooks/(pre-|post-)[a-z-]+")
+ENFORCING = re.compile(r"fieldkit/autopilot/(hardlines|claude_hook|budget|breaker)\.py|fieldkit/method/mutate\.py")
+ITEM = re.compile(r"\b([RLOCI]\d+)\b")
+
+
+def plan_item(transcript):
+    """-> the open docs/HARNESS-PLAN.md item id the run's brief (its first user message) names, or None."""
+    try:
+        text = None
+        with open(transcript, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                d = json.loads(line)
+                if d.get("type") == "user":
+                    c = (d.get("message") or {}).get("content")
+                    text = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c or [] if isinstance(x, dict))
+                    break
+        if not text:
+            return None
+        from .. import plan
+        st = plan.items((plan.ROOT / plan.PLAN).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return next((i for i in ITEM.findall(text) if i in st and not plan.is_done(st[i])), None)
+
+
+def _plan_guard_only(text):
+    """True when the only protection the text touches is a hook or guard file a plan item may change."""
+    t = _norm(text)
+    return bool(PLAN_GUARD.search(t)) and not ENFORCING.search(t) and _protected(PLAN_GUARD.sub(" ", t)) is None
+
+
+def _opened(text, transcript):
+    item = _plan_guard_only(text) and plan_item(transcript)
+    if not item:
+        return None
+    return "allow", f"HARD LINE 3 opened for plan item {item}: a hook or guard file (its commit needs a mutate proof)"
+
+
+def _git(repo, *args):
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _commit_gate(seg, cwd, transcript):
+    """A `git commit` that carries a hook or guard file: denied unless the run has an open plan item, no enforcing
+    file is in it, and every such file has a mutate proof for the content being committed. -> deny tuple or None."""
+    m = re.search(r"\bgit\b((?:\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+))*)[^\n]*\bcommit\b", seg)
+    if not m or not cwd:                               # the hook always passes where the command runs
+        return None
+    dash_c = re.findall(r"-C\s+(\"[^\"]+\"|'[^']+'|\S+)", m.group(1) or "")
+    repo = Path(cwd)
+    for c in dash_c:
+        repo = repo / c.strip("\"'")
+    every = re.search(r"\scommit\b[^\n]*(\s-[a-zA-Z]*a[a-zA-Z]*\b|\s--all\b)", seg)
+    names = _git(repo, *(["diff", "HEAD", "--name-only"] if every else ["diff", "--cached", "--name-only"]))
+    if names is None:
+        return None
+    guard = [f for f in names.decode("utf-8", "replace").splitlines() if _protected(f) == HOOK_WHAT]
+    if not guard:
+        return None
+    item, bad = plan_item(transcript), [f for f in guard if not _plan_guard_only(f)]
+    if not item or bad:
+        return "deny", (f"HARD LINE 3: this commit changes {', '.join(bad or guard)} (a hook or this guard)"
+                        + ("" if item else "; the run's brief names no open docs/HARNESS-PLAN.md item"))
+    from ..method import mutate
+    top = _git(repo, "rev-parse", "--show-toplevel")
+    root = Path(top.decode().strip()) if top else repo
+    for f in guard:
+        data = (root / f).read_bytes() if every and (root / f).is_file() else _git(repo, "show", f":{f}")
+        if data is None or not mutate.proven(root / f, data):
+            return "deny", (f"HARD LINE 3: no mutate proof for {f} as committed (plan item {item}): run fieldkit "
+                            "mutate --plan tests/<x>_mutations.yaml -- <its tests> until every mutation is caught")
+    return None
 
 
 def _norm(s):
@@ -326,9 +422,10 @@ def _mandated(cmd, cwd, door):
     return None
 
 
-def decide(tool, args, stop_file=None, cwd=None, door=None):
+def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
     """-> ("deny", why) | ("allow", why). `tool` as the agent names it, `args` its input (dict); `cwd` where a command
-    runs (the hook payload's cwd); `door` the project mandate (MandateDoor, replaced in tests)."""
+    runs (the hook payload's cwd); `door` the project mandate (MandateDoor, replaced in tests); `transcript` the run's
+    transcript (its first message is the brief: an approved plan item opens hook and guard files)."""
     door = door or MandateDoor()
     name = (tool or "").lower()
     args = args if isinstance(args, dict) else {}
@@ -354,6 +451,9 @@ def decide(tool, args, stop_file=None, cwd=None, door=None):
         return "deny", "HARD LINE 3: FIELDKIT_MANDATE_HOME would bring a trust store of its own; the mandate is the owner's"
     if cmd is not None and MANDATE_STORE.search(_norm(cmd)) and _writes(cmd):
         return "deny", "HARD LINE 3: this would change the owner's mandate store; models may only read it"
+    if cmd is not None and REARM.search(cmd):
+        return "deny", ("HARD LINE 5: re-arming a git or gh credential inside a run is fieldkit ship's alone "
+                        "(owner, 2026-10-28, inbox #145: \"Yes, ship only\")")
     if cmd is not None and KERNEL_BOOT.search(cmd):
         return "deny", ("HARD LINE 4: installing or booting a kernel (or rebooting) on this machine is the owner's "
                         "alone, mandate or not; build, push and publish it, then put the install in the owner inbox")
@@ -391,13 +491,20 @@ def decide(tool, args, stop_file=None, cwd=None, door=None):
                             "labelled holding folder instead and say so")
         for seg in _statements(cmd):
             what = _protected(seg)
-            if what and _writes(seg):
+            if what and _writes(seg) and not (what == HOOK_WHAT and _opened(seg, transcript)):
                 return "deny", f"HARD LINE 3: this would change {what}; report the need in the owner inbox"
+            gate = _commit_gate(seg, cwd, transcript)
+            if gate:
+                return gate
         return "allow", "command inside the hard lines"
     if MANDATE_STORE.search(_norm(judged)):
         return "deny", "HARD LINE 3: the owner's mandate store may not be changed by a model; models may only read it"
     what = _protected(judged)
     if what and (name in EDIT_TOOLS or name not in READ_TOOLS):
+        if what == HOOK_WHAT:
+            opened = _opened(judged, transcript)
+            if opened:
+                return opened
         return "deny", f"HARD LINE 3: {what} may not be changed by a model; report the need in the owner inbox"
     if name == "delete_directory" and not _scratch_only(judged):
         return "deny", "HARD LINE 2: deleting a folder outside the scratch folders"

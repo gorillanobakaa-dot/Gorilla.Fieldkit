@@ -62,6 +62,19 @@ def _checks(steps=None):
     return out + (list(_REGISTERED) if steps is None else [])
 
 
+def _prime(steps=None):
+    """Call each step module's preflight_prime() (when it has one) before the checks run: a check that measures over
+    a window (parity's CPU sample) starts its window here, so the window passes while the other checks run instead
+    of in a sleep of its own (O5, 2026-10-28)."""
+    for s in (STEPS if steps is None else steps):
+        try:
+            fn = getattr(importlib.import_module(s.partition(":")[0]), "preflight_prime", None)
+            if fn:
+                fn()
+        except Exception:  # noqa: BLE001 - the check itself says what is wrong
+            pass
+
+
 def skipped():
     return os.environ.get("FIELDKIT_PREFLIGHT") == "0" or bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
@@ -86,6 +99,7 @@ def run(label="heavy work", kind="build", say=print, wait_s=0, poll_s=30, steps=
     t0 = clock()
     ctx = {"label": label, "kind": kind}
     checks = _checks(steps)
+    _prime(steps)
     while True:
         res = _once(ctx, checks)
         status = max((r[1] for r in res), key=RANK.get, default=OK)

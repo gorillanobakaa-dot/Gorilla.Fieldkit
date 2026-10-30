@@ -28,6 +28,9 @@ THE RULES (numbers in thresholds.json; override in state/hog/thresholds.json; se
     orphan     a REGISTERED process (pid and creation time both match) whose session process is gone, or older than
                its cap (4 h; none for one found in a live session's tree) -> stopped, with its own children. Nothing
                outside the registry is ever stopped, never by name (registry.py).
+    service    a registered process of a service class (the link listener, the relay: they outlive the session that
+               started them) is never stopped as an orphan; a dead one is reported with its restart line. Born
+               2026-10-28: the hog stopped the L15's link listener when its session ended; the cable was deaf 54 min.
     pileup     a live parent holding > 20 children of one class (conhost, bash, python, node, powershell, cmd), or
                >= 10 of them started > 12 h before its newest one -> reported with its own parent, the count, their
                working set and the fix. Never stopped. Born 2026-10-26: Claude Desktop's NodeService held 33 consoles

@@ -1,0 +1,77 @@
+# R5 tool router: no false refusals (2026-10-28): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/toolrouter_r5_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_autopilot_toolrouter.py
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '    if m and not m.group(3) and SHELL_ESCAPE'
+  - '    if m and SHELL_ESCAPE'
+  why: a quoted heredoc delimiter is passed byte for byte
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - SHELL_ESCAPE = re.compile(r"\\[\\$`\n]")
+  - SHELL_ESCAPE = re.compile(r"\\")
+  why: only the four escapes the shell rewrites count
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - (?-i:[a-zA-Z]*R[a-zA-Z]*)
+  - '[a-zA-Z]*R[a-zA-Z]*'
+  why: ls -r is not recursive (case matters)
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - (?<![\w-])ls(?![\w-])[^|;\n]*\s(-
+  - \bls\b[^|;\n]*\s(-
+  why: git ls-files is not ls
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - shell.lower() == "powershell"
+  - shell.lower() == "nobody"
+  why: in PowerShell ls -r recurses
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '        if hit and not (name == "sleep-to-wait" and _sampling(cmd)):'
+  - '        if hit:'
+  why: a sampling interval passes
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '            if not ([x for x in parts[:i] if x in real] and [x for x in parts[i + 1:] if x in real]):'
+  - '            if not ([x for x in parts[:i] if x in real] or [x for x in parts[i + 1:] if x in real]):'
+  why: a sleep needs a measurement before AND after
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - "    if re.search(r\"(^|[;&|\\s])(while|until|for|do|foreach)\\b\", cmd, re.I):\n        return False\n"
+  - ''
+  why: a sleep inside a loop is a wait
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '|\bdo\s+|\bthen\s+)sleep'
+  - )sleep
+  why: do sleep 30 is a wait
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - "    if name not in SEARCH_ROWS:\n        dead += searches\n"
+  - ''
+  why: a search statement is data
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - SEARCH_ROWS = {"lmstudio-log-by-hand", "text-search-in-tree"}
+  - SEARCH_ROWS = set()
+  why: rows whose habit is a search still judge it
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '    dead = [m.span() for m in re.finditer(r"\"[^\"\n]*\"|''[^''\n]*''", cmd)]'
+  - '    dead = []'
+  why: quoted text is data
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - "        if _hit(name, pat, m.group(2)):\n            return True\n"
+  - ''
+  why: a shell -c script is judged
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '|python[\d.]*|py|cmd)(?:\.exe)?(?![\w.-])'
+  - '|py|cmd)(?:\.exe)?(?![\w.-])'
+  why: python -c code is judged
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - "    if name in RAW_ROWS:\n        return bool(pat.search(cmd))\n"
+  - ''
+  why: the delete row reads the raw line

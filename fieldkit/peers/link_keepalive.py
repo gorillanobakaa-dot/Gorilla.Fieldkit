@@ -45,6 +45,8 @@ Environment=PYTHONPATH={root}
 ExecStart={py} -P -m fieldkit peers link {verb}
 Restart=always
 RestartSec=5
+# 2026-10-28: a restart stops the listener only; the runs it started (autopilot sessions) keep running
+KillMode=process
 
 [Install]
 WantedBy=default.target

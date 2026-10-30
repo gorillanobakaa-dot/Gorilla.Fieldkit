@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-16-22-50
+# Version: 1.1.0 · updated 26-10-28-20-45
 """fieldkit sync: the Windows and the Linux machine on the same harness, pulled and verified, never pushed at them.
 
 Owner, 2026-10-16: "the claude from the windows and linux can get in sync, and the harness always stays updated".
@@ -9,7 +9,9 @@ controls or compels it can serve a commit to `git fetch`. What this tool lets th
   - only on command (a session start or end), never on a timer;
   - only a FAST-FORWARD of the branch this checkout tracks: history that was rewritten or diverged is refused, so a
     replaced commit cannot slip in under an existing one;
-  - only a commit whose CI ran green on BOTH windows-latest and ubuntu-latest (the check runs GitHub reports);
+  - only a commit whose CI ran green on BOTH windows-latest and ubuntu-latest (the check runs GitHub reports): the
+    NEWEST such commit on the upstream's first-parent line, never one past it (2026-10-28, plan item 30: PRs merge
+    every few minutes, main's tip is always mid-CI, and a tip-only rule left the L15 30 commits behind);
   - never with uncommitted work in the tree.
 Residual: GitHub itself could forge both the commit and its check runs; signed commits checked against a key kept off
 GitHub would close that, and are not set up. Private files (local/, memory) are not in git and still travel by
@@ -17,6 +19,10 @@ catchup.
 
     fieldkit sync [--apply] [--repo DIR ...]     report, or take the verified upstream commits (exit 3 when not in sync)
                                                  and install the agent skills of this checkout (an "agent skills" row)
+
+A waiter reads the exit code (0 = every row in sync, 3 = not) or `--json` ({"in_sync", "exit", "repos"}), never the
+words: 2026-10-28 a wait matched "IN SYNC" inside "NOT IN SYNC". The summary line is "SYNC: OK" or "SYNC: DIFFERS",
+and no text this tool prints for a row not in sync contains "IN SYNC" or "IN-SYNC".
 """
 import json
 import subprocess
@@ -92,20 +98,43 @@ def state(repo, fetch=True):
     return row
 
 
+MAX_WALK = 40   # first-parent commits checked below the tip before giving up (one gh call each)
+
+
 def apply(row, ci=ci_green):
-    """Fast-forward a BEHIND row when the tree is clean and CI proved the upstream tip on both systems."""
+    """Fast-forward a BEHIND row when the tree is clean, to the newest upstream first-parent commit CI proved on both
+    systems. The walk goes from the tip down and stops at the first green one: every commit above it (red, pending
+    or cancelled) stays out. A row that stayed below the tip is TAKEN-PART and not ok (the next run takes the rest)."""
     if row.get("verdict") != "BEHIND":
         return row
     if row["dirty"]:
         row["why"] += "; refused: uncommitted changes in the tree"
         return row
-    ok, ev = ci(_slug(row["repo"]), row["upstream_sha"])
-    row["ci"] = ev
-    if not ok:
-        row["why"] += f"; refused: {ev}"
+    slug = _slug(row["repo"])
+    line = _git(row["repo"], "rev-list", "--first-parent", f"--max-count={MAX_WALK}", f"HEAD..{row['upstream']}").split()
+    skipped, target, ev = [], None, "no upstream commit to check"
+    for sha in line:
+        ok, ev = ci(slug, sha)
+        if ok:
+            target = sha
+            break
+        skipped.append(ev)
+        if ev.startswith("CI unreadable"):
+            break
+    if target is None:
+        row["ci"] = skipped[0] if skipped else ev
+        row["why"] += f"; refused: {row['ci']}" + (f" (and {len(skipped) - 1} commit(s) below it)" if len(skipped) > 1 else "")
         return row
-    _git(row["repo"], "merge", "--ff-only", "--quiet", row["upstream"])
-    row.update(verdict="TAKEN", ok=True, why=f"fast-forwarded {row['behind']} commit(s); {ev}")
+    row["ci"] = ev
+    _git(row["repo"], "merge", "--ff-only", "--quiet", target)
+    left = int(_git(row["repo"], "rev-list", "--count", f"HEAD..{row['upstream']}"))
+    took = row["behind"] - left
+    if not left:
+        row.update(verdict="TAKEN", ok=True, behind=0, why=f"fast-forwarded {took} commit(s); {ev}")
+    else:
+        row.update(verdict="TAKEN-PART", ok=False, behind=left, taken_sha=target,
+                   why=f"fast-forwarded {took} commit(s) to {target[:10]}, the newest green; stayed {left} commit(s) "
+                       f"behind the tip: {skipped[0]}; {ev}")
     return row
 
 
@@ -136,18 +165,18 @@ def skills_row(do_apply=False, installer=None):
         spec = importlib.util.spec_from_file_location("install_skills", ROOT / "install_skills.py")
         installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(installer)
-    stale = [r for r in installer.status() if r[2] in ("missing", "outdated")]
+    stale = [r for r in installer.status() if r[2] in ("missing", "outdated", "off-os")]
     row = {"repo": "agent skills", "ok": True, "verdict": "IN-SYNC", "why": "every installed copy matches"}
     if stale and do_apply:
         import contextlib
         import io
         with contextlib.redirect_stdout(io.StringIO()):
             installer.main([])
-        left = [r for r in installer.status() if r[2] in ("missing", "outdated")]
+        left = [r for r in installer.status() if r[2] in ("missing", "outdated", "off-os")]
         row.update(verdict="INSTALLED" if not left else "ERROR", ok=not left,
                    why=f"{len(stale) - len(left)} copy(ies) installed" + (f", {len(left)} still stale" if left else ""))
     elif stale:
-        row.update(verdict="STALE", ok=False, why=f"{len(stale)} copy(ies) missing or outdated: fieldkit sync --apply")
+        row.update(verdict="STALE", ok=False, why=f"{len(stale)} copy(ies) missing, outdated or off this OS: fieldkit sync --apply")
     foreign = [f"{t.parent.name}/{n}" for t, n, s in installer.status() if s == "foreign"]
     if foreign:
         row["why"] += "; name taken by someone else's folder, left alone: " + ", ".join(foreign)
@@ -164,7 +193,7 @@ def run(do_apply=False, extra=(), fetch=True):
             rows.append({"repo": str(r), "ok": False, "verdict": "ERROR", "why": str(e)})
     if (ROOT / "install_skills.py").is_file():
         here = next((x for x in rows if Path(x["repo"]).resolve() == ROOT.resolve()), None)
-        if here is None or here.get("verdict") in ("IN-SYNC", "TAKEN", "AHEAD", "NO-UPSTREAM"):
+        if here is None or here.get("verdict") in ("IN-SYNC", "TAKEN", "TAKEN-PART", "AHEAD", "NO-UPSTREAM"):
             try:
                 rows.append(skills_row(do_apply))
             except Exception as e:  # noqa: BLE001 - a broken installer is reported as a row, never a crash
@@ -172,9 +201,24 @@ def run(do_apply=False, extra=(), fetch=True):
     return rows
 
 
+def in_sync(rows):
+    return bool(rows) and all(r["ok"] for r in rows)
+
+
+def exit_code(rows):
+    return 0 if in_sync(rows) else 3
+
+
+def as_json(rows):
+    return {"in_sync": in_sync(rows), "exit": exit_code(rows), "repos": rows}
+
+
 def lines(rows):
     out = []
     for r in rows:
-        out.append(f"  [{'ok' if r['ok'] else 'NO'}] {r['verdict']:<11} {r['repo']}: {r['why']}")
-    out.append("SYNC: " + ("OK" if all(r["ok"] for r in rows) else "NOT IN SYNC"))
+        # a row that is not ok never prints its IN-SYNC verdict (a branch level with upstream but behind main)
+        verdict = r["verdict"] if r["ok"] or r["verdict"] != "IN-SYNC" else "LEVEL"
+        out.append(f"  [{'ok' if r['ok'] else 'NO'}] {verdict:<11} {r['repo']}: {r['why']}")
+    bad = sum(1 for r in rows if not r["ok"])
+    out.append("SYNC: OK" if in_sync(rows) else f"SYNC: DIFFERS ({bad or 'no'} of {len(rows)} rows; exit 3)")
     return out

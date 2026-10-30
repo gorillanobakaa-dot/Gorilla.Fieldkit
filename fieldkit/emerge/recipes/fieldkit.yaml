@@ -1,0 +1,74 @@
+# Version: 1.0.0 · updated 26-10-28-18-36
+# Fieldkit itself (Python, installed editable; a release is the GitHub release page, no wheel is published).
+# What the CI release workflow checks, as stages keyed by what they read:
+#   iterate  -> the telemetry scan of the tree and a CLI smoke run (the package imports, the commands route)
+#   release  -> the full test suite (owner rule 2026-10-28: the full suite runs once, when the work is finished),
+#               the release page carrying both tracks in full, the privacy scan of the git tree
+# The Fieldkit tree: the checkout this command runs from, or --var src=PATH.
+# Python: the editable install on PATH (Windows and Linux); a checkout venv: --var py=${FIELDKIT}/.venv/bin/python (Scripts/python.exe on Windows)
+name: fieldkit
+description: >-
+  Fieldkit from its own tree: a telemetry scan and a CLI smoke run on every change; the full test suite, the release
+  page check and the privacy scan once per release (--mode release --var tag=vX).
+baseline_minutes: 15
+vars:
+  src: "${FIELDKIT}"
+  py: python                        # the editable install on PATH; a venv: --var py=${FIELDKIT}/.venv/bin/python
+  tag: "v0.6.0"                     # the release being checked: --var tag=vX
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: Gorilla.Fieldkit
+  files: ["{src}/pyproject.toml"]
+  testcost: true
+toolchain:
+  - ["{py}", --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: cli
+    run: {cmd: ["{py}", -P, -m, fieldkit, emerge, list], cwd: "{src}"}
+    timeout: 300
+    inputs: ["{src}/fieldkit/**/*.py", "{src}/fieldkit/emerge/recipes/*.yaml", "{src}/pyproject.toml"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tools
+
+  - id: test
+    run: {cmd: ["{py}", -m, pytest, -q, -rs], cwd: "{src}"}
+    timeout: 3600
+    inputs: ["{src}/fieldkit/**/*.py", "{src}/fieldkit/**/*.yaml", "{src}/fieldkit/**/*.json", "{src}/tests/**/*.py",
+             "{src}/tests/**/*.yaml", "{src}/pyproject.toml"]
+    uses: [config, toolchain, inputs]
+    needs: [cli]
+    tier: release
+    bucket: tests
+
+  - id: release-page
+    run:
+      cmd: ["{py}", -P, -m, fieldkit, release-page, check, "{src}/releases/notes/{tag}/page.md",
+            --layman, "{src}/releases/notes/{tag}/layman.md", --developer, "{src}/releases/notes/{tag}/developer.md"]
+      cwd: "{src}"
+    timeout: 300
+    inputs: ["{src}/releases/notes/{tag}/*.md"]
+    uses: [toolchain, inputs]
+    needs: []
+    tier: release
+    fix: false                      # the page is the owner's explanation: a model does not rewrite it to pass
+
+  - id: secrets
+    run: {cmd: ["{py}", -P, -m, fieldkit, privacy, scan, "{src}", --git], cwd: "{src}"}
+    timeout: 900
+    uses: [sources, toolchain]
+    needs: []
+    tier: release
+    privacy: true
+    fix: false
+    bucket: tests

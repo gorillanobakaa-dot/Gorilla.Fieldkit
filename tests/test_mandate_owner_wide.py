@@ -303,6 +303,9 @@ if os.environ.get("FK_E2E_HOME"):
     M.home = lambda: Path(os.environ["FK_E2E_HOME"])
     G.root = lambda: Path(os.environ["FK_E2E_STORE"])
     G.guarded = lambda path=None: (True, "the e2e test store")
+    # this test is about the hook and the mandate; the tag guard (no notes, no CI here) has its own tests/test_tag_guard.py
+    from fieldkit.method import tagguard
+    tagguard.check = lambda repo, tag, **kw: {"ok": True, "rows": []}
 """
 
 
@@ -378,6 +381,8 @@ def test_a_hook_refusal_is_not_retried_as_a_network_error():
     assert ship.refused_not_network("  PRE-PUSH REFUSED\n  - not a branch\nerror: failed to push some refs to 'x'")
     assert ship.refused_not_network("error: failed to push some refs to 'origin'")
     assert not ship.refused_not_network("fatal: unable to access 'https://github.com/x/': Could not resolve host")
+    # 2026-10-27: an autopilot run has no credential; five retries said "the network kept failing"
+    assert ship.refused_not_network("fatal: could not read Username for 'https://github.com': terminal prompts disabled")
 
 
 class Run:

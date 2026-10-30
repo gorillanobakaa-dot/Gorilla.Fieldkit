@@ -1,0 +1,23 @@
+# O1 (skill sets per project, first-call measure): every guard must be CAUGHT (2026-10-28):
+#   fieldkit mutate --plan tests/o1_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_skill_sets_first_call.py
+- file: fieldkit/skills/sets.py
+  swap: ['        if raw and _hooks_text(raw) != _hooks_text(text):', '        if False:']
+  why: a write that changes the hooks section's text is refused
+- file: fieldkit/skills/sets.py
+  swap: ['        raw = Path(path).read_bytes().decode("utf-8")', '        raw = Path(path).read_text(encoding="utf-8")']
+  why: a CRLF settings file stays CRLF
+- file: fieldkit/skills/sets.py
+  swap: ['    return {s: data.get("outside", "user-invocable-only") for s in known if s not in keep}', '    return {s: data.get("outside", "user-invocable-only") for s in known}']
+  why: the everywhere set stays on
+- file: fieldkit/skills/sets.py
+  swap: ['    deny += [t for t in data.get("deny_tools") or [] if t not in deny]', '    deny = list(data.get("deny_tools") or [])']
+  why: deny entries already there are kept, none added twice
+- file: fieldkit/skills/sets.py
+  swap: ['    ov.update(project_overrides(data, name))', '    ov = project_overrides(data, name)']
+  why: a project's own overrides are kept
+- file: fieldkit/tokens/first_call.py
+  swap: ['("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")', '("input_tokens", "cache_creation_input_tokens")']
+  why: the first call's tokens include cache reads
+- file: fieldkit/tokens/first_call.py
+  swap: ['           "--no-session-persistence"]', '           ]']
+  why: a measuring call leaves no transcript

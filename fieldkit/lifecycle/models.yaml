@@ -1,0 +1,9 @@
+# HARNESS-PLAN I5 follow-up (owner order 2026-10-29): no device or session starts an expensive model without a
+# deterministic yes. Data first: change a tier here, not in the code. Names match as lower-case substrings.
+# An unknown model name is premium (fail closed). Premium is refused everywhere unless an owner-signed mandate
+# in force carries `models_allowed: [names]` (its `expires:` is the expiry; fieldkit mandate approve signs it).
+default: sonnet                  # a headless launch that names no model gets this one
+cheap: [sonnet, haiku, local, qwen, gemma, llama]
+review: [opus]                   # the reviewer role only (roles.yaml reviewer.model)
+premium: [fable, mythos, carbon, argon, gpt, gemini, o1, o3, grok]
+ledger: model-spend.jsonl        # in the lifecycle state folder (state/lifecycle/)

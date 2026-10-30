@@ -1,0 +1,42 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# kernel-6.19.13-ultimate: the archived Gorilla kernel 6.19.13 release (its configs, build records and scripts). The
+# maintained kernel is built by the debian-kernel recipe; this one only keeps the archive checked. Keyed by what they
+# read:
+#   iterate  -> the kernel configs are there and not empty, every shell script parses (bash -n, nothing runs), a
+#               telemetry scan
+# Not a stage: ULTIMATE_GORILLA_KERNEL.sh and TUNE_AUTONOMOUS.sh. They run sudo and change the machine they run on,
+# so they are not build steps a runner may start unattended; a rebuild goes through debian-kernel with this config.
+name: kernel-6.19.13-ultimate
+description: >-
+  The archived kernel 6.19.13 release from its tree: every shell script parses, the configs are present, a telemetry
+  scan. No compile (debian-kernel builds the maintained kernel).
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/kernel-6.19.13-ultimate"
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: kernel-6.19.13-ultimate
+  files: ["{src}/.config", "{src}/performance_tuned.config", "{src}/stable_baked_kernel.config"]
+toolchain:
+  - [bash, --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: syntax
+    platforms: [linux]
+    run:
+      cmd: [bash, -c, 'for c in .config performance_tuned.config stable_baked_kernel.config; do test -s "$c" || exit 1; done; for f in *.sh; do bash -n "$f" || exit 1; done']
+      cwd: "{src}"
+    timeout: 120
+    inputs: ["{src}/*.sh", "{src}/.config", "{src}/*.config"]
+    uses: [config, toolchain, inputs]
+    needs: []
+    bucket: tests

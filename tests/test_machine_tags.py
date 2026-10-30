@@ -232,7 +232,7 @@ def test_friction_flags_an_untagged_session():
 def test_friction_local_rows_include_untagged(tmp_path, monkeypatch):
     from fieldkit.lifecycle import friction
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
-    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows"):
+    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows", "board_rows"):
         monkeypatch.setattr(friction, n, lambda *a, **k: [])
     monkeypatch.setattr(friction.desktop, "sessions", lambda dirs=None: [sess("s1", "job")])
     assert [r["kind"] for r in friction.local_rows()] == ["untagged"]
@@ -288,13 +288,14 @@ def test_task_start_titles_with_the_tag_of_where_it_runs(tmp_path, monkeypatch):
     (tmp_path / "coord").mkdir()
     (tmp_path / "coord" / "PLAN.md").write_text("# PLAN\n", encoding="utf-8")
     b = tmp_path / "brief.md"
-    b.write_text("Fix the thing.\nmore", encoding="utf-8")
+    b.write_text("Fix the thing.\nmore O3", encoding="utf-8")
     sent = []
     r = tasks.start(b, on="L15HOST", call=lambda req, timeout, device: sent.append(req) or {"ok": True, "started": 1},
                     now=NOW)
     assert r["title"] == "[L15-WIN] Fix the thing." and r["tag"] == "[L15-WIN]"
     assert "SESSION TITLE: [L15-WIN] Fix the thing." in sent[0]["brief"]
-    here = tasks.start(b, launch=lambda a: {"pid": 1, "log": "L"}, now=NOW + 1, cwd=tmp_path)
+    here = tasks.start(b, launch=lambda a: {"pid": 1, "log": "L"}, now=NOW + 1, cwd=tmp_path,
+                        again=True)                    # the same brief twice, on purpose: the titles differ
     assert here["title"] == "[TEST-LNX] Fix the thing."
     tasks.report(r["id"], "done", branch="feat/x")
     assert "| [L15-WIN] Fix the thing. |" in (tmp_path / "coord" / "PLAN.md").read_text(encoding="utf-8")

@@ -83,7 +83,16 @@ def capabilities(which=shutil.which):
         except (ImportError, ValueError):
             return False
     return {"python": sys.version.split()[0], "pytest": has_mod("pytest"), "git": bool(which("git")),
-            "go": bool(which("go")), "opencode": bool(which("gorilla-opencode"))}
+            "go": bool(which("go")), "cargo": bool(which("cargo")), "opencode": bool(which("gorilla-opencode")),
+            "model": local_model(which)}
+
+
+def local_model(which=shutil.which, home=None):
+    """A local model runtime is installed here (LM Studio's `lms` or its folder, or Ollama). Plan item I6: the
+    inventory says which device can run a model job without the cloud. Installed, not loaded: nothing is started."""
+    home = Path(home or Path.home())
+    apps = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local") / "Programs" / "LM Studio"
+    return bool(which("lms") or which("ollama") or (home / ".lmstudio").is_dir() or apps.is_dir())
 
 
 def report(cpu_fn=None, temp_fn=None, procs=None, gate=None):

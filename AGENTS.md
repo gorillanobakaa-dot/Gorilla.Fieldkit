@@ -5,6 +5,7 @@ The rules for every project are in `rules/CORE.md` (the one source; your global 
 every command and its history, is `docs/AGENTS-REFERENCE.md`: read it only when you need a detail. An agent with no
 global rules file (Gorilla OpenCode) reads `rules/CORE.md` first.
 Where the harness is going: `docs/VISION.md`; the work that gets it there, item by item: `docs/HARNESS-PLAN.md`.
+Where a plan, idea, hand-over or brief is kept, and where a new one goes: `docs/WHERE-THINGS-LIVE.md`.
 
 Fieldkit is a set of deterministic tools. The model decides what to do; Fieldkit does it the same way every time and
 reports the result. Prefer a Fieldkit command to a one-off script for the same job.
@@ -76,7 +77,7 @@ security claim is made true and proven, never deleted.
 
 SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless autopilot run here, or the other computer's link listener over the cable). Never propose a desktop session card or ask a person to click: a card waits for the owner, who is asleep.
 
-Nothing may wait on the owner: no cards, no permission prompts, no [NEEDS YOU] for what the mandate covers. `fieldkit friction` lists everything that could wait on a person, on every machine (exit 0 = none). What truly needs the owner goes to `fieldkit inbox`, the ONE morning list.
+Nothing may wait on the owner (no cards, prompts or [NEEDS YOU] for what the mandate covers): `fieldkit friction` lists what could, exit 0 = none.
 
 Idle sessions eat RAM and CPU. The command post runs `fieldkit sessions sweep` on every watchdog wake and archives what it lists.
 

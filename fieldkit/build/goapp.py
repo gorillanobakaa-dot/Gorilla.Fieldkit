@@ -74,7 +74,7 @@ def _src(ctx):
     v = ctx.vars
     src = v.get("src") or ((settings.local_settings().get("goapps") or {}).get(v.get("name", "")) or "")
     if not src:
-        raise ValueError(f"no source folder: --var src=PATH, or set goapps.{v.get('name')} in fieldkit.local.json")
+        raise ValueError(f"no source folder: --var src=PATH, or add to fieldkit.local.json: {src_line(v.get('name'))}")
     src = Path(settings.expand(src)).expanduser()
     if not (src / "go.mod").is_file():
         raise ValueError(f"{src} has no go.mod: not a Go module")
@@ -168,6 +168,73 @@ def check_embeds(ctx, src, goos, goarch):
     if n == 0 and not problems:
         problems.append(f"{sums} pins nothing for {goos}-{goarch}")
     return n, problems
+
+
+def _guess_clone(name, local=None):
+    """A folder in sync.repos of fieldkit.local.json whose name is `name` (Gorilla.Opencode = gorilla-opencode)."""
+    local = settings.local_settings() if local is None else local
+    for r in (local.get("sync") or {}).get("repos") or []:
+        path = r.get("path") if isinstance(r, dict) else r
+        if path and re.sub(r"[^a-z0-9]+", "-", Path(str(path)).name.lower()).strip("-") == name:
+            return str(path).replace("\\", "/")
+    return None
+
+
+def src_line(name, local=None):
+    """The exact entry fieldkit.local.json lacks for `--var src` to be optional (2026-10-27: goapps.gorilla-opencode
+    was missing and the run only said `--var src`)."""
+    return json.dumps({"goapps": {name or "app": _guess_clone(name or "", local) or "FULL/PATH/TO/THE/CLONE"}})
+
+
+def doctor_row(pipeline, local=None):
+    """fieldkit doctor --for PIPELINE: a Go app pipeline whose src is neither a var default nor in goapps -> a MISS
+    row with the entry to add; the entry present -> an ok row; not a Go app pipeline -> None."""
+    import yaml
+    f = Path(__file__).parent / "pipelines" / f"{pipeline}.yaml"
+    try:
+        text = f.read_text(encoding="utf-8")
+        spec = yaml.safe_load(text) or {}
+    except (OSError, ValueError):
+        return None
+    v = spec.get("vars") or {}
+    if "fieldkit.build.goapp:" not in text or v.get("src") or not v.get("name"):
+        return None
+    local = settings.local_settings() if local is None else local
+    have = (local.get("goapps") or {}).get(v["name"])
+    return {"kind": "setting", "name": f"goapps.{v['name']}", "ok": bool(have),
+            "detail": have or "not in fieldkit.local.json: every run needs --var src=PATH",
+            "install": "" if have else f"add to fieldkit.local.json: {src_line(v['name'], local)}"}
+
+
+def source_commit(src):
+    """The commit the source folder is at (40 hex), or None outside git."""
+    try:
+        r = subprocess.run(["git", "-C", str(src), "rev-parse", "--verify", "--quiet", "HEAD"], capture_output=True,
+                           text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    sha = r.stdout.strip()
+    return sha if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", sha) else None
+
+
+def stale(rec, src, what):
+    """2026-10-27: run 2 (git_ref b9ef96e) kept run 1's Mac binary (vcs.revision 19fcb0b) in the same out folder; a
+    release must never mix commits. A stage's artefact is fresh only when it was made from the commit the source is
+    at now. -> the reason it is stale, or None."""
+    cur = source_commit(src)
+    if cur and (rec or {}).get("commit") != cur:
+        was = ((rec or {}).get("commit") or "")[:12] or "an unrecorded commit"
+        return f"{what} was made from {was}; the source is at {cur[:12]} (git_ref changed): run it again"
+    return None
+
+
+def vcs_revision(go, f):
+    """vcs.revision of a Go binary (`go version -m`), or None when go recorded none."""
+    for line in _buildinfo(go, f):
+        m = re.search(r"\bvcs\.revision=([0-9a-f]{7,40})", line)
+        if m:
+            return m.group(1)
+    return None
 
 
 # ---- a build from a git checkout of one commit (2026-10-25) ------------------------------------------------------
@@ -523,7 +590,7 @@ def stage_build(ctx):
     rec = {"ok": True, "version": version, "go": (_load(ctx, src, "toolchain") or {}).get("have"), "ldflags": ld,
            "fingerprint": fp, "built": built, "when": time.strftime("%Y-%m-%d %H:%M:%S"),
            "embed_digest": embed_digest(src, v.get("embed_dirs")),
-           "git_ref": (v.get("git_ref") or "").strip() or None,
+           "git_ref": (v.get("git_ref") or "").strip() or None, "commit": source_commit(src),
            "detail": f"{version}: " + ", ".join(
                f"{Path(b['file']).name} ({b['bytes']:,} bytes" + (f", -tags {b['tags']}" if b["tags"] else "")
                + (f", {b['embedded']} pinned file(s) embedded" if b["embedded"] else "") + ")" for b in built)}
@@ -537,6 +604,9 @@ def verify_build(ctx):
         return {"ok": False, "detail": "nothing built yet"}
     if rec.get("fingerprint") != fingerprint(src):
         return {"ok": False, "detail": "the source changed since the build"}
+    why = stale(rec, src, "the build")
+    if why:
+        return {"ok": False, "detail": why}
     if rec.get("embed_digest", embed_digest(src, "")) != embed_digest(src, ctx.vars.get("embed_dirs")):
         return {"ok": False, "detail": "the embedded files (embed_dirs) changed since the build"}
     want = ctx.vars.get("version")
@@ -844,7 +914,8 @@ def stage_mac(ctx):
     if v.get("mac_go") and gover and f"go{gover}".encode() not in f.read_bytes():
         return {"ok": False, "detail": f"{f.name} does not carry go{gover} in its build info: built by another go"}
     rec = {"ok": True, "version": version, "file": str(f), "sha256": _sha(f), "bytes": f.stat().st_size,
-           "go": gover, "detail": f"{f.name} ({f.stat().st_size:,} bytes, go {gover})", "package": []}
+           "go": gover, "detail": f"{f.name} ({f.stat().st_size:,} bytes, go {gover})", "package": [],
+           "commit": source_commit(src)}
     # the installer's folder (Install/Undo .command, the .tar.gz it checks, SHA256SUMS, a .zip for the release page),
     # by the project's own packager (the Windows side's build_mac_legacy_package.py, 2026-10-23 PR #3)
     pkg = (v.get("mac_package") or "").strip()
@@ -888,6 +959,18 @@ def verify_mac(ctx):
     f = Path(rec["file"])
     if not f.is_file() or _sha(f) != rec["sha256"]:
         return {"ok": False, "detail": f"{f.name} is missing or changed"}
+    why = stale(rec, src, f.name)
+    if why:
+        return {"ok": False, "detail": why}
+    cur = source_commit(src)
+    if cur:
+        try:
+            got = vcs_revision(_go(ctx, src), f)
+        except (ValueError, OSError, subprocess.TimeoutExpired):
+            got = None
+        if got and not cur.startswith(got):
+            return {"ok": False, "detail": f"{f.name} says vcs.revision={got[:12]} (go version -m); the source is at "
+                                           f"{cur[:12]}: a release never mixes commits, run the mac stage again"}
     return {"ok": True, "detail": rec["detail"]}
 
 
@@ -935,6 +1018,7 @@ def stage_packages(ctx):
     if bad:
         return bad
     return _save(ctx, src, "packages", {"ok": True, "version": version, "files": files, "xz": xz,
+                                        "commit": source_commit(src),
                                         "detail": ", ".join(f"{Path(f['file']).name}" for f in files)
                                         + _xz_note(xz)})
 
@@ -962,6 +1046,9 @@ def verify_packages(ctx):
     rec = _load(ctx, src, "packages")
     if not rec or not rec.get("ok"):
         return {"ok": False, "detail": "no packages yet"}
+    why = None if rec.get("skipped") else stale(rec, src, "the packages")
+    if why:
+        return {"ok": False, "detail": why}
     for f in rec.get("files", []):
         p = Path(f["file"])
         if not p.is_file() or _sha(p) != f["sha256"]:
@@ -1152,6 +1239,7 @@ def _packages_nfpm(ctx, src, rec, linux):
             "notes": notes, "log": r.log, "xz": xz,
             "detail": ", ".join(Path(f["file"]).name for f in files) + (f"; {'; '.join(notes)}" if notes else "")
             + _xz_note(xz)}
+    data["commit"] = source_commit(src)
     return _save(ctx, src, "packages", data)
 
 
@@ -1194,6 +1282,11 @@ def verify_checksums(ctx):
     rec = _load(ctx, src, "build")
     if not rec:
         return {"ok": False, "detail": "nothing built"}
+    for name in ("build", "mac", "packages"):
+        r = _load(ctx, src, name) or {}
+        why = None if (r.get("skipped") or not r.get("ok")) else stale(r, src, f"the {name} stage")
+        if why:
+            return {"ok": False, "detail": f"SHA256SUMS would mix commits: {why}"}
     out = _out(ctx, src)
     f = out / f"SHA256SUMS-{rec['version']}.txt"
     if not f.is_file():

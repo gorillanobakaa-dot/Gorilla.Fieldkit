@@ -4,9 +4,12 @@
     fieldkit ship sync   [--base main]     make the next push a fast-forward, safely (see below); never force
     fieldkit ship push   [--base main]     sync if needed, then push with retries on network errors; the push carries
                                            FIELDKIT_SHIP_PUSH=1, so a repository's pre-push hook asks the mandate gate
-    fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern
+    fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern, and only when
+                                           its commit can publish: version, notes, page, CI green (tagguard.py)
+    fieldkit ship release-ready vX.Y.Z     the same checks as a dry run: what is missing, in order, and the fix for each
     fieldkit ship gh-release vX.Y.Z -- ARGS   gh release create --verify-tag of a tag on origin, under a mandate's
-                                           release: from_tag, once CI is green on the tag's commit
+                                           release: from_tag, once CI is green on the tag's commit; does nothing when
+                                           the repository's release.yml publishes on tags
     fieldkit ship commit --message-file F  commit what is staged; a known hook refusal fixed and tried again, the same
                                            one twice or an unknown one stops and is reported; never --no-verify
     fieldkit ship merge  [--base main]     merge the branch into main ONLY when a project mandate allows it, every
@@ -21,6 +24,8 @@
     fieldkit ship ready PR [--pending T]   the session declares its PR final (label + head sha); --pending: not yet
     fieldkit ship train [--dry-run]        merge the declared PRs one at a time, dependencies first, never red, with
                                            --match-head-commit; resumable (train.py); --modes lists what it prevents
+    fieldkit ship ci-wait PR [--merge]     one wake when the PR's CI ends (run it in the background): green, or red
+                                           with the failed log tail; --merge merges on green (train.py)
     fieldkit ship overlap [--files F...]   open PRs and live stations on the same files as this work
     fieldkit ship freeze|unfreeze          a checkout that must not move: ff pending, then parity baseline --set
 
@@ -45,6 +50,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from . import emit
 
@@ -133,7 +139,13 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     if not st.get("ok"):
         return st
     if st["state"] == "in-step":
-        return dict(st, pushed=False)
+        # really nothing to push: say so and nothing else (no NEXT that reads like a step)
+        return dict(st, pushed=False, next="",
+                    said=f"nothing to push: origin/{st['branch']} is already at {(st.get('local') or '')[:12]}")
+    from . import strikes
+    if strikes.parked_for(st["branch"]):               # TWO STRIKES: no third round
+        return dict(st, ok=False, pushed=False, state="parked", error=strikes.refusal([st["branch"]]),
+                    next="parked, go on with the plan; nothing was pushed")
     # an unattended push reaches here only through the hard line, which asked the mandate first; here it is logged
     verdict, why, mpath = mandate("push", repo_path=repo)
     delay, last = 2, ""
@@ -142,7 +154,7 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
         if r.returncode == 0:
             if verdict == "allow":
                 _mandate_log(mpath, "push", why, branch=st["branch"], commit=st.get("local"))
-            return dict(status(repo, base), pushed=True, mandate=why if verdict == "allow" else "")
+            return pushed_report(repo, base, st, why if verdict == "allow" else "")
         last = (r.stderr or r.stdout).strip()
         if refused_not_network(last):
             return dict(st, ok=False, pushed=False, error=last[-1500:],
@@ -152,31 +164,83 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
 
 
+def pushed_report(repo, base, before, mandate_why=""):
+    """After a push that worked: what moved (OLD..NEW, how many commits) and the real next step.
+    2026-10-27: a push that reached origin printed `in-step (pushed)` then `NEXT: nothing to push`; two sessions read
+    it as "nobody pushed"."""
+    old, new = before.get("remote"), before.get("local")
+    after = status(repo, base, fetch=False)
+    since = old or _rev(repo, f"origin/{base}")
+    n = git(repo, "rev-list", "--count", f"{since}..{new}" if since else new).stdout.strip()
+    rng = f"{old[:12]}..{new[:12]}" if old else f"{new[:12]} (new branch)"
+    nxt = (f"open the pull request if none is open yet ({before['branch']} -> {base}); it merges after green CI on "
+           f"{new[:12]}")
+    return dict(after, pushed=True, mandate=mandate_why, range=rng, commits=int(n) if n.isdigit() else None,
+                said=f"pushed {rng} to origin/{before['branch']} ({n or '?'} commit(s))", next=nxt)
+
+
 def refused_not_network(out):
     """A push git or a hook REFUSED (never retried: 2026-10-25, a pre-push hook's refusal was retried five times as
     "the network kept failing", its reasons cut to the last 300 characters)."""
     low = out.lower()
     return any(s in low for s in ("rejected", "non-fast-forward", "denied", "refused", "pre-push hook",
-                                  "hook declined", "failed to push some refs"))
+                                  "hook declined", "failed to push some refs",
+                                  # no credential (an autopilot run has none, 2026-10-27): not the network either
+                                  "could not read username", "authentication failed", "terminal prompts disabled"))
+
+
+def _real_gh_config(env):
+    """gh's own config folder (where it keeps the account), as it was before an autopilot run hid it."""
+    import os
+    if env.get("FIELDKIT_REAL_GH_CONFIG_DIR"):
+        return env["FIELDKIT_REAL_GH_CONFIG_DIR"]
+    if os.name == "nt":
+        return os.path.join(env.get("APPDATA") or os.path.expanduser("~"), "GitHub CLI")
+    return os.path.join(env.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "gh")
 
 
 def ship_env():
     """The environment of a push made by this tool: FIELDKIT_SHIP_PUSH=1 tells a repository's pre-push hook to ask the
     mandate gate (fieldkit/mandate/gate.py) instead of wanting the owner's flag. A marker, not a credential.
     FIELDKIT_SHIP_PYTHON (2026-10-26) is the Python running this tool, so the hook asks the SAME Fieldkit's gate even
-    where fieldkit is not on PATH (a Mac installed from the zip keeps it in FOLDER/.venv). Same-user, like PATH."""
+    where fieldkit is not on PATH (a Mac installed from the zip keeps it in FOLDER/.venv). Same-user, like PATH.
+
+    Inside an autopilot run (FIELDKIT_AUTOPILOT=1, fieldkit/autopilot/run.py hides every git/gh credential) the owner
+    decided, 2026-10-28 on inbox #145, "Yes, ship only": "headless autopilot runs may use the GitHub credential for
+    `fieldkit ship push` / ship ci-wait --merge only". So for ship's own git and gh calls the hiding is undone: git's
+    credential helper and gh's config folder come back, and each tool reads the credential itself at call time. No
+    token is ever put in the environment, an argument or a log; the run's own environment stays without one."""
     import os
-    return dict(os.environ, FIELDKIT_SHIP_PUSH="1", FIELDKIT_SHIP_PYTHON=sys.executable)
+    env = dict(os.environ, FIELDKIT_SHIP_PUSH="1", FIELDKIT_SHIP_PYTHON=sys.executable)
+    if env.get("FIELDKIT_AUTOPILOT") == "1":
+        for k in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GIT_ASKPASS",
+                  "SSH_ASKPASS"):
+            if not env.get(k):                        # the run's blanks; a real value was never put there
+                env.pop(k, None)
+        if env.get("GIT_CONFIG_KEY_0") == "credential.helper" and not env.get("GIT_CONFIG_VALUE_0"):
+            for k in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"):
+                env.pop(k, None)
+        env["GH_CONFIG_DIR"] = _real_gh_config(env)
+        env.pop("FIELDKIT_REAL_GH_CONFIG_DIR", None)
+    return env
 
 
-def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate):
-    """Push ONE new tag, never moved: allowed when a mandate's `tags:` pattern matches and its commit is on origin."""
+def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guard=None):
+    """Push ONE new tag, never moved: allowed when a mandate's `tags:` pattern matches and its commit is on origin,
+    and the tagged commit can publish (tagguard: version, release notes, page, CI, tag not on origin)."""
     if not tag or not _rev(repo, f"refs/tags/{tag}"):
         return {"ok": False, "state": "no-tag", "tag": tag, "next": f"make the tag first: git tag -a {tag} -m ..."}
     verdict, why, mpath = mandate("tag", repo_path=repo, tag=tag)
     if verdict != "allow":
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
+    from . import tagguard
+    g = (guard or tagguard.check)(repo, tag)
+    if not g["ok"]:
+        bad = [x for x in g["rows"] if not x["ok"]]
+        return {"ok": False, "state": "not-release-ready", "tag": tag, "rows": g["rows"],
+                "error": "; ".join(f"{x['check']}: {x['say']}" for x in bad),
+                "next": bad[0]["run"] or f"fieldkit ship release-ready {tag}"}
     delay, last = 2, ""
     for _ in range(tries):
         r = git(repo, "push", "origin", f"refs/tags/{tag}", env=ship_env())
@@ -194,6 +258,10 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate):
 def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run):
     """gh release create TAG --verify-tag -R <origin> EXTRA..., only when a mandate allows release_tag (the tag is on
     origin, matches, release: from_tag, CI green on its commit). Never creates or moves a tag (--verify-tag)."""
+    wf = Path(repo) / ".github" / "workflows" / "release.yml"
+    if wf.is_file() and re.search(r"(?m)^\s*tags\s*:", wf.read_text(encoding="utf-8", errors="replace")):
+        return {"ok": True, "state": "tag-workflow-publishes", "tag": tag,
+                "next": "the tag workflow publishes; do not run gh-release"}
     bad = [x for x in extra if x in ("--target", "-t", "-R", "--repo") or x.startswith(("--target=", "--repo=", "-R"))]
     if bad:
         return {"ok": False, "state": "bad-input", "tag": tag, "error": f"not allowed here: {' '.join(bad)}",
@@ -204,7 +272,7 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run)
                 "next": "publishing a release is the owner's unless a mandate allows it"}
     from ..core import sync
     r = run(["gh", "release", "create", tag, "--verify-tag", "-R", sync._slug(repo), *extra], cwd=str(repo),
-            capture_output=True, text=True)
+            capture_output=True, text=True, env=ship_env())
     if r.returncode != 0:
         return {"ok": False, "state": "refused", "tag": tag, "error": (r.stderr or r.stdout).strip()[-300:],
                 "next": "nothing was published"}
@@ -257,10 +325,10 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
         if base_ref and git(repo, "merge-base", "--is-ancestor", base_ref, commit).returncode != 0:
             return dict(rep, ok=False, state="not-fast-forward", error=f"origin/{base} has commits this branch lacks",
                         next=f"merge origin/{base} into {branch}, push, and have it reviewed again")
-        r = git(repo, "push", "origin", f"{commit}:refs/heads/{base}")
+        r = git(repo, "push", "origin", f"{commit}:refs/heads/{base}", env=ship_env())
     elif how == "pull-request":
         r = run(["gh", "pr", "merge", branch, "--merge", "--match-head-commit", commit],
-                cwd=str(repo), capture_output=True, text=True)
+                cwd=str(repo), capture_output=True, text=True, env=ship_env())
     else:
         return dict(rep, ok=False, state="unknown-how", error=f"merge_to_main.how is {how!r}",
                     next="the mandate says fast-forward or pull-request")
@@ -276,7 +344,7 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
     return dict(rep, ok=True, state="merged", how=how, mandate=why, next=f"{branch} is on {base}")
 
 
-TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze")             # train.py
+TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze", "ci-wait")             # train.py
 PROOF = {"update": "update", "proof": "prove", "ci-record": "ci-record"}  # mergeproof.py
 
 
@@ -290,7 +358,7 @@ def main(argv=None, prog="fieldkit ship"):
         return mergeproof.main([PROOF[argv[0]], *argv[1:]], f"{prog} {argv[0]}")
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune",
-                                       "gh-release", *TRAIN, *PROOF])
+                                       "gh-release", "release-ready", *TRAIN, *PROOF])
     ap.add_argument("--tag", dest="push_tag", help="push: this NEW tag (never moved) instead of the branch")
     ap.add_argument("--message-file", help="commit: the commit message file")
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
@@ -304,6 +372,13 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--json", action="store_true")
     extra = argv[argv.index("--") + 1:] if "--" in argv else []      # gh-release: what gh release create gets
     a = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
+    if a.action == "release-ready":
+        from . import tagguard
+        if not a.tag:
+            ap.error("release-ready needs a tag: fieldkit ship release-ready vX.Y.Z")
+        r = tagguard.check(a.repo, a.tag, dry_run=True)
+        emit(r, a.json, tagguard.lines)
+        return 0 if r["ok"] else 3
     if a.action == "gh-release" or (a.action == "push" and a.push_tag):
         if a.action == "gh-release" and not a.tag:
             ap.error("gh-release needs a tag: fieldkit ship gh-release vX.Y.Z -- --title ... --notes-file F FILES")
@@ -335,8 +410,9 @@ def main(argv=None, prog="fieldkit ship"):
         r = {"status": status, "sync": sync, "push": push, "merge": merge}[a.action](a.repo, a.base)
     except RuntimeError as e:
         r = {"ok": False, "error": str(e), "next": "nothing was pushed"}
-    emit(r, a.json, lambda d: [f"{d.get('branch', '?')}: {d.get('state', 'error')}"
-                               + (" (synced)" if d.get("synced") else "") + (" (pushed)" if d.get("pushed") else "")]
+    emit(r, a.json, lambda d: ([f"{d.get('branch', '?')}: {d['said']}"] if d.get("said") else
+                               [f"{d.get('branch', '?')}: {d.get('state', 'error')}"
+                                + (" (synced)" if d.get("synced") else "")])
          + ([f"error: {d['error']}"] if d.get("error") else [])
          + ([f"mandate: {d['mandate']}"] if d.get("mandate") else []))
     return 0 if r.get("ok") else 3

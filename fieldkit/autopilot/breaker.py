@@ -11,12 +11,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from ..core.settings import state_root as _state_root
 
 LIMIT = 5
 
 
 def _dir():
-    root = os.environ.get("FIELDKIT_ROTATE_DIR") or (Path(__file__).resolve().parents[2] / "state" / "rotate")
+    root = os.environ.get("FIELDKIT_ROTATE_DIR") or (_state_root(Path(__file__).resolve().parents[2]) / "state" / "rotate")
     return Path(root) / "breaker"
 
 

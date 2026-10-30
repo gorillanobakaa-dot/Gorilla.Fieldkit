@@ -157,6 +157,26 @@ def snapshot(repos):
                 "dirty": _git(r, "status", "--porcelain", "--untracked-files=no")} for r in repos}
 
 
+def watched_repos(recipe):
+    """The checkouts a run must find as it left them: the recipe's own and every git source no stage fetches (a
+    fetched source moves by design). Owner order 2026-10-29: a session committed on a new branch in the checkout a
+    release emerge was running in."""
+    fetched = {Path(s["git"]) for s in recipe.sources if s.get("git") and s.get("fetched_by")}
+    out = []
+    for d in [Path(recipe.source).parent] + [Path(s["git"]) for s in recipe.sources if s.get("git")]:
+        top = _git(d, "rev-parse", "--show-toplevel") if d.exists() and d not in fetched else None
+        if top and top not in out:
+            out.append(top)
+    return out
+
+
+def moved(before, after):
+    """-> a sentence naming each checkout whose branch or HEAD changed between two snapshots, else None."""
+    parts = [f"{r}: {b['branch']}@{(b['head'] or '?')[:9]} -> {after[r]['branch']}@{(after[r]['head'] or '?')[:9]}"
+             for r, b in before.items() if r in after and (b["branch"], b["head"]) != (after[r]["branch"], after[r]["head"])]
+    return "; ".join(parts) or None
+
+
 def judge(before, after):
     """-> (ok, why). A fix is a commit on a branch; anything else stops the run."""
     moved = []
@@ -186,20 +206,57 @@ def fix_prompt(recipe, sid, key, attempt, max_fix, tail, repos):
 
 
 # -- offload: a run job over the cable -------------------------------------------------------------------------------
+def _house():
+    """This machine's household.json ({} when not paired or unreadable: the target is then said unknown)."""
+    from ..peers import link
+    try:
+        return link.household()
+    except Exception:  # noqa: BLE001 - an unreadable household is "not paired"
+        return {}
+
+
+def offload_target(device, h=None):
+    """-> (row of household.yaml, the link's name for it or None, why it cannot be called or ""). The recipe's
+    device (an id, alias or tag) resolves through household.yaml; the link name comes from household.json by tag."""
+    from ..peers import household
+    h = _house() if h is None else h
+    row = household.resolve(device, h=h)
+    if row["path"] != "cable":
+        return row, None, f"{row['id']} {row['tag']} is reached by {row['path']} only, never the cable"
+    name = household.cable_name(row, h)
+    return row, name, "" if name else (f"no device of this machine's household.json is {row['tag']} "
+                                       f"(fieldkit machine reach; fieldkit peers link devices)")
+
+
+def target_text(device, h=None):
+    """`l15 [L15-WIN] = NAME` for the plan line; the reason instead of the name when the link cannot call it."""
+    try:
+        row, name, why = offload_target(device, h)
+    except ValueError as e:
+        return f"{device} ({e})"
+    return f"{row['id']} {row['tag']}" + (f" = {name}" if name else f" ({why})")
+
+
 class LinkOffloader:
     """distcc for stages: orchestrate_work.send (the tree by digest), the signed result, the artefacts by sha256."""
+
+    def __init__(self, household=None):
+        self.household = household
 
     def dispatch(self, recipe, stage, key):
         from .. import orchestrate_work as ow
         o = stage["offload"]
         try:
-            jid, said, t = ow.send("run", o["device"], o["tree"], o.get("project", "Gorilla.Fieldkit"),
+            _row, name, why = offload_target(o["device"], self.household)
+            if not name:
+                return {"ok": False, "why": why}
+            jid, said, t = ow.send("run", name, o["tree"], o.get("project", "Gorilla.Fieldkit"),
                                    argv=list(o["argv"]), artefacts=list(o.get("artefacts") or []),
                                    wall=int(o.get("wall", 60)))
         except Exception as e:  # noqa: BLE001 - an unreachable worker is a failed dispatch, said plainly
             return {"ok": False, "why": f"{type(e).__name__}: {e}"}
         good = said == "sent" or str(said).startswith("already")
-        return {"ok": good, "why": said, "jid": jid, "digest": (t or {}).get("digest"), "device": o["device"],
+        return {"ok": good, "why": said, "jid": jid, "digest": (t or {}).get("digest"), "device": name,
                 "project": o.get("project", "Gorilla.Fieldkit"), "wall": int(o.get("wall", 60))}
 
     def collect(self, h):
@@ -270,12 +327,13 @@ def own_checks(recipe, mode, offloads, disk=None, ram=None, longpath_rows=None, 
 class Emerge:
     def __init__(self, recipe, mode="iterate", say=print, fixer=None, offloader=None, inbox_add=None,
                  clock=time.monotonic, hold=False, guard=True, allow_fix=True, local_only=False, who=None,
-                 checks=None):
+                 checks=None, household=None):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {sorted(MODES)}")
         self.recipe, self.mode, self.say = recipe, mode, say
         self.fixer = fixer or default_fixer
-        self.offloader = offloader or LinkOffloader()
+        self.household = household    # tests: household.json given, never this machine's
+        self.offloader = offloader or LinkOffloader(household)
         self.inbox_add = inbox_add
         self.clock, self.hold, self.guard = clock, hold, guard
         self.allow_fix, self.local_only = allow_fix, local_only
@@ -334,7 +392,7 @@ class Emerge:
             elif cached:
                 row.update(action="skip", why=f"key {key[:12]} built on {cached}, outputs verified")
             elif o and not self.local_only and (not here or o.get("prefer")):
-                row.update(action="offload", why=f"to {o.get('device')}"
+                row.update(action="offload", why=f"to {target_text(o.get('device'), self.household)}"
                            + ("" if here else f" (needs {s.get('platforms')})"))
             elif not here:
                 row.update(action="not-here", why=f"needs {s.get('platforms')}, this is {host()['system']}"
@@ -471,6 +529,8 @@ class Emerge:
         fixes = {}
         while True:
             t = self.clock()
+            watch = watched_repos(self.recipe)
+            base = snapshot(watch)
             self.recipe.forget()
             keys = self.recipe.keys()
             docs, _ = self._docs_mode()
@@ -491,6 +551,12 @@ class Emerge:
                 if hardlines.STOP_FILE.exists():
                     report.update(ok=False, stopped="the owner's STOP file")
                     self.say(f"STOPPED before {sid}: the owner's STOP file")
+                    return
+                if x["action"] not in SKIPS and (why := moved(base, snapshot(watch))):
+                    report.update(ok=False, refused=f"the checkout moved during the run ({why})")
+                    ent["status"] = "aborted"
+                    self.say(f"ABORTED before {sid}: the checkout moved during the run ({why}). Another writer used "
+                             "it; work in a worktree (git worktree add ../wt-NAME -b BRANCH origin/main)")
                     return
                 if x["action"] in SKIPS:
                     ent["status"] = x["action"]

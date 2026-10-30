@@ -435,3 +435,73 @@ def test_the_published_stage_counts_line_ends_when_only_the_bytes_differ(tmp_pat
     r = goapp.stage_published(ctx)
     bad = next(x for x in r["results"] if x["file"] == "hello.exe")
     assert bad["crlf"] == [0, 1] and "CRLF pairs 0 built vs 1 published" in r["detail"]
+
+
+def _two_commits(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "go.mod").write_text("module example.com/hello\n\ngo 1.21\n", encoding="utf-8")
+    (repo / "main.go").write_text("package main\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "one")
+    first = _git(repo, "rev-parse", "HEAD")
+    (repo / "README.md").write_text("docs only\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "docs")
+    return repo, first, _git(repo, "rev-parse", "HEAD")
+
+
+def test_a_new_git_ref_makes_the_mac_binary_and_the_sums_stale(tmp_path, monkeypatch):
+    """2026-10-27: run 2 (git_ref b9ef96e, docs only) kept run 1's Mac binary (vcs.revision 19fcb0b): mixed commits."""
+    repo, first, second = _two_commits(tmp_path)
+    out = tmp_path / "out"
+    p = Pipeline.load(PIPE, state_dir=tmp_path / "state", overrides={"src": str(repo), "git_ref": first,
+                                                                     "out": str(out)}, strict=False)
+    ctx = Context(p)
+    src = goapp._src(ctx)
+    mac = out / "hello-darwin"
+    mac.write_bytes(b"\xcf\xfa\xed\xfe mac")
+    goapp._save(ctx, src, "mac", {"ok": True, "file": str(mac), "sha256": goapp._sha(mac), "detail": "mac",
+                                  "commit": goapp.source_commit(src)})
+    rev = {"v": first}
+    monkeypatch.setattr(goapp, "_go", lambda ctx, src: "go")
+    monkeypatch.setattr(goapp, "_buildinfo", lambda go, f: ["path\texample.com/hello", f"build\tvcs.revision={rev['v']}"])
+    assert goapp.verify_mac(ctx)["ok"]                                      # the same ref keeps it
+    ctx.vars["git_ref"] = second                                            # the same out folder, a new commit
+    r = goapp.verify_mac(ctx)
+    assert not r["ok"] and f"made from {first[:12]}" in r["detail"] and second[:12] in r["detail"]
+    goapp._save(ctx, goapp._src(ctx), "build", {"ok": True, "version": "v1", "built": [], "commit": first})
+    r = goapp.verify_checksums(ctx)
+    assert not r["ok"] and "mix commits" in r["detail"]
+    # the record says the new commit, the binary's build info says the old one: go version -m decides
+    goapp._save(ctx, goapp._src(ctx), "mac", {"ok": True, "file": str(mac), "sha256": goapp._sha(mac),
+                                              "detail": "mac", "commit": second})
+    r = goapp.verify_mac(ctx)
+    assert not r["ok"] and f"vcs.revision={first[:12]}" in r["detail"]
+    rev["v"] = second
+    assert goapp.verify_mac(ctx)["ok"]
+
+
+def test_a_record_from_before_the_commit_was_recorded_is_stale(tmp_path):
+    repo, _, second = _two_commits(tmp_path)
+    assert goapp.stale({"ok": True}, repo, "x") .startswith("x was made from an unrecorded commit")
+    assert goapp.stale({"commit": second}, repo, "x") is None
+    assert goapp.stale({}, tmp_path / "not-git", "x") is None                 # outside git: nothing to compare
+
+
+def test_a_missing_goapps_entry_names_the_exact_line(monkeypatch):
+    local = {"sync": {"repos": [{"path": "D:/work/Gorilla.Opencode"}]}}
+    assert goapp.src_line("gorilla-opencode", local) == '{"goapps": {"gorilla-opencode": "D:/work/Gorilla.Opencode"}}'
+    assert "FULL/PATH/TO/THE/CLONE" in goapp.src_line("gorilla-opencode", {})
+    row = goapp.doctor_row("gorilla-opencode", local)
+    assert not row["ok"] and row["install"] == ('add to fieldkit.local.json: '
+                                                '{"goapps": {"gorilla-opencode": "D:/work/Gorilla.Opencode"}}')
+    assert goapp.doctor_row("gorilla-opencode", {"goapps": {"gorilla-opencode": "D:/x"}})["ok"]
+    assert goapp.doctor_row("no-such-pipeline", local) is None
+    monkeypatch.setattr(goapp.settings, "local_settings", lambda: local)
+
+    class Ctx:
+        vars = {"name": "gorilla-opencode"}
+    with pytest.raises(ValueError, match='add to fieldkit.local.json: {"goapps": {"gorilla-opencode": "D:/work/'):
+        goapp._src(Ctx)

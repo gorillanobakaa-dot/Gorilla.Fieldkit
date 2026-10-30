@@ -1,0 +1,36 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# respect-your-llms: an essay in Markdown (How-to-Respect-your-LLMs-Part1.md and the README). Nothing is compiled or
+# packaged: the text is the product, and it is public. Keyed by what they read:
+#   iterate  -> a telemetry scan of the tree
+#   release  -> the privacy scan of the git tree (nothing personal in what is published)
+name: respect-your-llms
+description: >-
+  respect-your-llms from its tree: a telemetry scan; with --mode release the privacy scan of the git tree.
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/respect-your-llms"
+  fk: "${FIELDKIT}/.venv/bin/python"
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: respect-your-llms
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: secrets
+    run: {cmd: ["{fk}", -P, -m, fieldkit, privacy, scan, "{src}", --git], cwd: "{src}"}
+    timeout: 300
+    uses: [sources]
+    needs: []
+    tier: release
+    privacy: true
+    fix: false
+    bucket: tests
+

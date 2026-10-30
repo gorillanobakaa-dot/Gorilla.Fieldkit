@@ -51,9 +51,10 @@ import yaml
 
 from . import budget as bud
 from . import hardlines
+from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
-GOALS = Path(os.environ.get("FIELDKIT_GOALS") or (ROOT / "state" / "goals"))
+GOALS = Path(os.environ.get("FIELDKIT_GOALS") or (_state_root(ROOT) / "state" / "goals"))
 LOCK_STALE = 15 * 60                 # a supervisor whose heartbeat is older than this is dead
 MAX_ROUNDS = 200                     # planner calls per goal before it is called blocked
 IDLE_POLL = 10 * 60                  # how often a waiting goal looks at the inbox again
@@ -62,6 +63,7 @@ VERIFIER_BUDGET = {"turns": 60, "wall_minutes": 30, "cost_usd": 2.0}
 SIGNALS = ("execute", "done", "blocked", "ask")
 ACTIONS = ("push_branch", "open_pr")
 PROTECTED_BRANCHES = ("main", "master", "windows-port")    # windows-port: Gorilla.Opencode's release branch
+STALL_ROUNDS = 3                     # planner rounds in a row with no new criterion met: the goal stops and reports
 MAX_WORKERS = 2                      # jobs of one goal running at once, unless goal.json says "max_workers"
 HEARTBEAT_EVERY = 60                 # the supervisor's lock heartbeat, from its own thread (workers block for hours)
 
@@ -125,6 +127,15 @@ def validate(goal):
     for j in goal.get("seed_jobs") or []:
         out += [f"seed job {j.get('id')}: {p}" for p in check_job(j)]
     return out
+
+
+def lint(goal):
+    """-> advice on a valid goal (HARNESS-PLAN L3): a criterion is a command whenever it can be one, and an agent
+    judges only where no command can decide. A judge: agent criterion with no `run` precheck costs a model call at
+    every verification; with one, the call is made only when the command passes."""
+    return [f"criterion {c.get('id')}: judge agent with no run precheck costs a model call at every verification; "
+            "add a run command that fails while the work is missing" for c in goal.get("criteria") or []
+            if c.get("judge") == "agent" and not c.get("run")]
 
 
 def check_job(j):
@@ -442,15 +453,37 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
     """Run criteria (all, or ids) and extra job checks; record every verdict in verdicts.jsonl and the criteria
     records. -> list of results."""
     out = []
-    for c in [c for c in goal["criteria"] if ids is None or c["id"] in ids] + list(extra):
-        if c.get("judge") == "agent":
-            r = agent_check(c, goal, claude, c.get("cwd") or goal.get("cwd") or str(gdir(gid)))
-            if r.get("usd"):
-                st["spend"].append({"t": time.time(), "usd": float(r["usd"]), "who": f"verifier {c['id']}"})
+    todo = [c for c in goal["criteria"] if ids is None or c["id"] in ids] + list(extra)
+    # deterministic checks first: a model judges only when every command in this pass already passed (L3). A command
+    # that fails settles the round; a model call on top of it would only be paid to say FAIL as well
+    cmds = [c for c in todo if c.get("judge") != "agent"]
+    todo = cmds + [c for c in todo if c.get("judge") == "agent"]
+    failed = []
+    for c in todo:
+        if c.get("judge") == "agent" and c.get("run"):          # precheck: the command can fail the criterion alone
+            cid = c.get("id") or c["run"][:60]
+            _progress(f"verify {cid}")
+            r = run_check(c, goal.get("cwd"), run=run, hist=history(gid, cid))
+            if r["verdict"] == "PASS" and not failed:
+                r = agent_check(c, goal, claude, c.get("cwd") or goal.get("cwd") or str(gdir(gid)))
+                if r.get("usd"):
+                    st["spend"].append({"t": time.time(), "usd": float(r["usd"]), "who": f"verifier {c['id']}"})
+            elif r["verdict"] == "PASS":
+                r = dict(r, verdict="FAIL", why=f"not judged by a model: {failed[0]} failed first", model_calls=0)
+        elif c.get("judge") == "agent":
+            if failed:
+                r = {"verdict": "FAIL", "rc": None, "why": f"not judged by a model: {failed[0]} failed first",
+                     "evidence": "", "model_calls": 0}
+            else:
+                r = agent_check(c, goal, claude, c.get("cwd") or goal.get("cwd") or str(gdir(gid)))
+                if r.get("usd"):
+                    st["spend"].append({"t": time.time(), "usd": float(r["usd"]), "who": f"verifier {c['id']}"})
         else:
             cid = c.get("id") or c.get("run", "")[:60]
             _progress(f"verify {cid}")
             r = run_check(c, goal.get("cwd"), run=run, hist=history(gid, cid))
+        if r["verdict"] != "PASS":
+            failed.append(c.get("id") or c.get("run", "")[:60])
         r.update(id=c.get("id") or c.get("run", "")[:60], at=time.strftime("%Y-%m-%d %H:%M:%S"), who=who)
         if r["verdict"] == "TIMEOUT":
             event(gid, f"criterion {r['id']}: TIMEOUT ({r['why']}); the supervisor goes on")
@@ -756,6 +789,12 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
     _WORKERS.setdefault(gid, {})[jid] = {"future": fut, "spend": spend_log}
 
 
+def _checks_pass(results):
+    """-> (ok, text) for roles.fix_itself from verify() results."""
+    bad = [f"{x['id']} {x['why']}" for x in results if x["verdict"] != "PASS"]
+    return not bad, "; ".join(bad) or f"{len(results)} check(s) passed"
+
+
 def _end_job(gid, goal, st, jid, claude, run):
     """A finished worker -> its spend into state, the verifier on its checks, the job's new status."""
     w = _WORKERS[gid].pop(jid)
@@ -773,13 +812,35 @@ def _end_job(gid, goal, st, jid, claude, run):
         # after every job: a 20-minute job took hours. The goal's criteria run once, at the end (verify ... "final").
         res = verify(gid, goal, st, ids=[], extra=checks, claude=claude, run=run, who=f"job {jid}")
         own = [x for x in res if str(x["id"]).startswith(f"{jid}:")]
-        if all(x["verdict"] == "PASS" for x in own):
-            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)")
+        # HARNESS-PLAN I5 + I7: the verdict is one of three kinds (lifecycle/roles.py). A job is verified only on pass;
+        # send_back puts the explained mistake into the brief and the cheap worker goes again; after two failed
+        # worker rounds the reviewer model fixes it itself and its own acceptance check decides.
+        from ..lifecycle import roles
+        v = roles.verdict_from_checks(own, j["attempts"] - 1)
+        j["verdict"] = v["kind"]
+        if v["kind"] == "fix_itself":
+            res2 = roles.fix_itself(s["brief"], r.get("why", ""), v["why"], cwd=s["cwd"], claude=claude,
+                                    check=lambda: _checks_pass(verify(gid, goal, st, ids=[], extra=checks,
+                                                                      claude=claude, run=run, who=f"job {jid} fix")))
+            if res2["kind"] == "pass":
+                v = res2
+                j["fixed_by"] = roles.reviewer_model()
+            else:
+                v = dict(res2, kind="fix_itself")
+            if res2.get("usd"):
+                st["spend"].append({"t": time.time(), "usd": float(res2["usd"]), "who": f"reviewer fix {jid}"})
+        if v["kind"] == "pass":
+            j.update(status="verified", why=f"verifier PASS on {len(own)} check(s)"
+                     + (f"; fixed by the reviewer ({j['fixed_by']})" if j.get("fixed_by") else ""))
         else:
             bad = [f"{x['id']} {x['verdict']} {x['why']}" for x in own if x["verdict"] != "PASS"]
             j.update(status="failed-verify", why=f"the worker said done; the verifier says FAIL: {bad}")
-            if j["attempts"] < 3:
-                j["status"] = "queued"          # the planner gets the gap and a better brief may follow
+            if v["kind"] == "send_back":
+                s["brief"] = (s["brief"] + f"\n\nSENT BACK (round {j['attempts']}): your last result failed its "
+                              f"checks. What is wrong: {v['why']}")
+                j["status"] = "queued"          # the cheap worker goes again with the explained mistake
+            elif j["attempts"] < 3:
+                j["status"] = "queued"          # the reviewer's fix failed too: the planner gets the gap
     elif r["status"] == "paused-resumable":
         cp = r.get("checkpoint") or {}
         j.update(status="paused-resumable", why=r.get("why", ""), paused_until=cp.get("paused_until"))
@@ -796,6 +857,24 @@ def _end_job(gid, goal, st, jid, claude, run):
 def _end_finished(gid, goal, st, claude, run):
     return [_end_job(gid, goal, st, jid, claude, run)
             for jid, w in list(_WORKERS.get(gid, {}).items()) if w["future"].done()]
+
+
+def stall_check(goal, st):
+    """Called before each planner round. -> why the goal stalls, or ''. A goal stalls when STALL_ROUNDS planner rounds
+    in a row (goal.json "stall_rounds") met no criterion that was not already met (2026-10-28: one goal ran 16
+    rounds, met 7 of 15 criteria and was ended by a STOP file). The first round only sets the baseline."""
+    met = sum(1 for c in st["criteria"].values() if c.get("state") == "completed")
+    if st["rounds"] == 0 or met > st.get("best_met", -1):
+        st.update(best_met=met, stall=0, stall_at=st["rounds"])
+        return ""
+    if st["rounds"] > st.get("stall_at", 0):               # a new round has passed since the last look
+        st["stall"] = st.get("stall", 0) + st["rounds"] - st.get("stall_at", 0)
+        st["stall_at"] = st["rounds"]
+    limit = int(goal.get("stall_rounds", STALL_ROUNDS))
+    if st["stall"] >= limit:
+        return (f"stalled: {st['stall']} planner rounds in a row met no new criterion ({met} of {len(st['criteria'])} "
+                "met); stopped and reported, not 16 more rounds")
+    return ""
 
 
 def _all_done(st):
@@ -856,6 +935,9 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         _actions(gid, goal, st, reg, action, say)
         return _finish(gid, st, "done", "every criterion PASSed (verifier)", inbox_add)
     if st.get("needs_plan"):
+        stalled = stall_check(goal, st)
+        if stalled:
+            return _finish(gid, st, "blocked", stalled, inbox_add)
         if st["rounds"] >= int(goal.get("max_rounds", MAX_ROUNDS)):
             return _finish(gid, st, "blocked", f"{st['rounds']} planner rounds without reaching the criteria", inbox_add)
         p, why = plan(gid, goal, st, claude, say)
@@ -974,11 +1056,36 @@ def _overhead(gid):
         return f"OVERHEAD: not measured ({type(e).__name__})"
 
 
+def verdict_counts(gid):
+    """-> {"PASS": n, "FAIL": n, "TIMEOUT": n, "model_calls": n} from the goal's verdicts.jsonl (L3: counted per goal)."""
+    out = {"PASS": 0, "FAIL": 0, "TIMEOUT": 0, "model_calls": 0}
+    try:
+        lines = (gdir(gid) / "verdicts.jsonl").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        try:
+            v = json.loads(line)
+        except ValueError:
+            continue
+        out[v.get("verdict")] = out.get(v.get("verdict"), 0) + 1
+        if v.get("usd") is not None or str(v.get("who", "")).startswith("verifier"):
+            out["model_calls"] += 1
+    return out
+
+
+def verdict_line(gid):
+    c = verdict_counts(gid)
+    return (f"Verdicts: {c['PASS'] + c['FAIL'] + c['TIMEOUT']} ({c['PASS']} PASS, {c['FAIL']} FAIL, "
+            f"{c['TIMEOUT']} TIMEOUT); model-judged: {c['model_calls']}")
+
+
 def report(gid):
     goal, st = load(gid)
     L = [f"# Goal {gid}: {st['status']}", "", f"Written {time.strftime('%Y-%m-%d %H:%M:%S')} by fieldkit goal from "
          "the verifier's records (no model wrote it).", "", f"Why: {st.get('why', '')}", "",
          f"Spent: ${spent(st):.2f} in {len(st['spend'])} run(s); planner rounds {st['rounds']}", ""]
+    L += [verdict_line(gid), ""]
     oh = _overhead(gid)
     if oh:
         L += [oh, ""]
@@ -1162,6 +1269,7 @@ def status_lines(gid=None):
                    f"round {st['rounds']}" + (f", paused until {time.strftime('%Y-%m-%d %H:%M', time.localtime(st['paused_until']))}"
                                               if st.get("paused_until") else ""))
         out.append(f"  pre-approvals: {reg_why}")
+        out.append("  " + verdict_line(g))
         oh = _overhead(g)
         if oh:
             out.append("  " + oh)

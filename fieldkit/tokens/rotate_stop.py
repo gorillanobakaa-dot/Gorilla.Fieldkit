@@ -8,6 +8,7 @@ import json
 import os
 import re
 from pathlib import Path
+from ..core.settings import state_root as _state_root
 
 # What still runs past ROTATE: committing, pushing, the handover itself, reading state, and writing the handover
 # note or the Board row.
@@ -18,7 +19,7 @@ HANDOVER_FILES = ("PLAN.md", "HANDOFF.md")
 
 
 def _said_dir():
-    root = os.environ.get("FIELDKIT_ROTATE_DIR") or (Path(__file__).resolve().parents[2] / "state" / "rotate")
+    root = os.environ.get("FIELDKIT_ROTATE_DIR") or (_state_root(Path(__file__).resolve().parents[2]) / "state" / "rotate")
     return Path(root) / "said"
 
 

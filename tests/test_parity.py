@@ -553,3 +553,45 @@ def test_a_target_the_pin_does_not_name_is_not_judged():
 def test_the_committed_pin_keeps_go_per_target_and_report_only():
     go = parity.pin()["go"]
     assert go["align"] == "report" and set(go["targets"]) >= {"windows", "linux"}
+
+
+def test_card_ids_are_read_once_until_a_card_file_changes(tmp_path, monkeypatch):
+    from fieldkit.desk import platformcheck
+    f = tmp_path / "tools.yaml"
+    f.write_text("tools:\n- id: hog\n", encoding="utf-8")
+    calls = []
+    real = platformcheck.cards
+    monkeypatch.setattr(platformcheck, "cards", lambda files=None: calls.append(1) or real(files))
+    cache = {}
+    assert parity.card_ids(cache, [f]) == (["hog"], [])
+    assert parity.card_ids(cache, [f]) == (["hog"], []) and len(calls) == 1
+    f.write_text("tools:\n- id: hog\n- id: size\n", encoding="utf-8")
+    assert parity.card_ids(cache, [f]) == (["hog", "size"], []) and len(calls) == 2
+
+
+def test_a_primed_cpu_sample_is_used_once_and_never_shortens_the_window(monkeypatch):
+    slept = []
+    monkeypatch.setattr(parity.time, "sleep", slept.append)
+    monkeypatch.setattr(parity, "_start_sample", lambda: [])
+    clock = [100.0]
+    monkeypatch.setattr(parity.time, "monotonic", lambda: clock[0])
+    parity.preflight_prime()
+    clock[0] = 100.2                                   # 0.2 s of other checks ran since the first reading
+    parity.sample_procs(0.5)
+    assert slept == [pytest.approx(0.3)]               # the window is still 0.5 s in all
+    parity.sample_procs(0.5)                           # the prime is spent: a full window of its own
+    assert slept[-1] == pytest.approx(0.5)
+    parity.preflight_prime()
+    clock[0] = 100.2 + parity.PRIME_MAX_S + 1          # a stale first reading is taken again
+    parity.sample_procs(0.5)
+    assert slept[-1] == pytest.approx(0.5)
+
+
+def test_one_process_walk_feeds_both_the_shared_ground_and_the_model_check(monkeypatch):
+    walks = []
+    monkeypatch.setattr(parity, "sample_procs", lambda sample_s=0.5: walks.append(1) or [])
+    monkeypatch.setattr(parity, "manifest", lambda: load("windows.json"))
+    seen = {}
+    monkeypatch.setattr(parity, "loaded_models", lambda ctx, rows=None: seen.setdefault("rows", rows) and [])
+    parity.preflight_check({"kind": "build"}, p=PIN, quiet=[], base=None)
+    assert walks == [1] and seen["rows"] == []

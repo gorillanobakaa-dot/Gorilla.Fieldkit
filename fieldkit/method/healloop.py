@@ -42,7 +42,7 @@ def count_errors(log, pattern=None):
 
 def _dir(repo, state_root=None):
     name = Path(_git(repo, "rev-parse", "--show-toplevel").stdout.strip() or repo).name
-    d = Path(state_root or settings.ROOT / "state") / "heal-loop" / name
+    d = Path(state_root or settings.state_root() / "state") / "heal-loop" / name
     d.mkdir(parents=True, exist_ok=True)
     return d
 

@@ -232,6 +232,7 @@ def inst(tmp_path, monkeypatch):
     monkeypatch.setattr(install_skills, "SRC", src / "skills")
     monkeypatch.setattr(install_skills, "LOCAL_SRC", src / "local" / "skills")
     monkeypatch.setattr(install_skills, "THIRD", third)
+    monkeypatch.setattr(install_skills, "CARDS", [src / "tools.yaml"])
     (tmp_path / "home" / ".agents").mkdir(parents=True)
     monkeypatch.setattr(install_skills, "TARGETS", [tmp_path / "home" / ".claude" / "skills",
                                                     tmp_path / "home" / ".agents" / "skills"])
@@ -259,6 +260,37 @@ def test_installer_third_party_receipts_skip_targets_and_foreign_names(inst):
     install_skills.main(["--remove"])
     assert sorted(p.name for p in (home / ".claude" / "skills").iterdir()) == []
     assert sorted(p.name for p in (home / ".agents" / "skills").iterdir()) == ["tp-one"]
+
+
+def test_a_windows_only_skill_stays_off_linux_and_an_old_copy_is_recycled(inst, monkeypatch, capsys):
+    home, third = inst
+    src = third.parents[1]
+    mk(src / "skills", "fieldkit-win", "name: fieldkit-win\ndescription: x")
+    (src / "tools.yaml").write_text(json.dumps({"tools": [
+        {"id": "w", "platforms": ["windows"], "skill": "skills/fieldkit-win/SKILL.md"},
+        {"id": "a", "platforms": ["windows", "linux"]}]}), encoding="utf-8")
+    monkeypatch.setattr(install_skills, "recycle", lambda p: (False, "no gorilla-size"))
+    monkeypatch.setattr(sys, "platform", "win32")
+    install_skills.main([])
+    assert (home / ".claude" / "skills" / "fieldkit-win" / "SKILL.md").is_file()      # on Windows: installed
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert [s.name for s in install_skills.sources()[0]] == ["fieldkit-a"]
+    states = {(t.parent.name, n): s for t, n, s in install_skills.status()}
+    assert states[(".claude", "fieldkit-win")] == "off-os"
+    assert install_skills.main(["--check"]) == 1                                     # off-os fails the check
+    install_skills.main([])                                                          # recycle fails: kept, never rmtree
+    assert (home / ".claude" / "skills" / "fieldkit-win").is_dir()
+    assert "kept" in capsys.readouterr().out
+    bin_ = home / "bin"
+    bin_.mkdir()
+    monkeypatch.setattr(install_skills, "recycle", lambda p: (p.rename(bin_ / f"{p.parent.parent.name}-{p.name}"), "")
+                        and (True, ""))
+    install_skills.main([])
+    for t in (".claude", ".agents"):
+        assert not (home / t / "skills" / "fieldkit-win").exists()
+    assert (bin_ / ".claude-fieldkit-win" / "SKILL.md").is_file()                     # in the bin, not deleted
+    assert install_skills.main(["--check"]) == 0
+    assert (home / ".claude" / "skills" / "fieldkit-a").is_dir()
 
 
 def test_same_compares_bytes_at_every_depth(tmp_path):

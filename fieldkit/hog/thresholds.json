@@ -45,7 +45,13 @@
     "cargo": "^cargo(\\.exe)?\\b",
     "node": "^node(\\.exe)?\\b",
     "conhost": "^conhost(\\.exe)?\\b|tui_shots",
+    "link-relay": "fieldkit\\b.*\\blink\\s+relay\\s+listen\\b",
     "link-listener": "fieldkit\\b.*\\blink\\b.*\\b(serve|listen)\\b",
     "browser": "^(firefox|chrome|msedge|chromium|gorilla)(\\.exe)?\\b"
+  },
+  "_service_classes": "orphan classes that outlive the session that started them: never stopped as orphans; a registered one that died is reported with its restart line (2026-10-28: the hog stopped the L15's link listener and the cable was deaf for 54 minutes)",
+  "service_classes": {
+    "link-listener": "fieldkit peers link restart (keep-alive: fieldkit peers link keepalive install)",
+    "link-relay": "fieldkit peers link relay doctor, then start fieldkit peers link relay listen as the relay session's background command"
   }
 }

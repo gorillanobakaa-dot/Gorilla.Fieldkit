@@ -24,7 +24,7 @@ import time
 from ..core import settings
 from . import emit
 
-STORE = settings.ROOT / "state" / "regress"
+STORE = settings.state_root() / "state" / "regress"
 
 PATTERNS = [
     # pytest -rA summary and -v lines

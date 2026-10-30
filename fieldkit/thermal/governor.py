@@ -137,7 +137,7 @@ def read_cap():
 
 def _marker():
     from ..core import settings
-    return settings.ROOT / "state" / "cap-original.json"
+    return settings.state_root() / "state" / "cap-original.json"
 
 
 def set_cap(pct):
@@ -182,11 +182,18 @@ def restore_stale_cap(say=print):
         orig = int(json.loads(m.read_text(encoding="utf-8"))["original"])
     except (OSError, ValueError, KeyError):
         orig = 100
-    set_cap(orig)
+    # 2026-10-28: the marker outlives the lowering it records; when the cap already is the original, writing it again
+    # is one more powercfg scheme reset on a laptop that must not get them (CLAUDE.md), so only the marker goes
+    already = read_cap() == orig
+    if not already:
+        set_cap(orig)
     try:
         m.unlink()
     except OSError:
         pass
+    if already:
+        say(f"  power cap: a stale marker said {orig}%; the cap already is {orig}%, nothing written")
+        return None
     say(f"  power cap: a crashed run had left it lowered; restored to {orig}%")
     return orig
 

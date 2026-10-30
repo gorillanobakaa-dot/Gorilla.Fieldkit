@@ -1,0 +1,27 @@
+# O4 ci-wait (2026-10-28): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/ci_wait_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ci_wait.py tests/test_autopilot_toolrouter.py
+- file: fieldkit/method/train.py
+  swap:
+  - '    if not ok or after != "MERGED":'
+  - '    if not ok:'
+  why: the merge is proven by the PR state, not gh's exit code
+- file: fieldkit/method/train.py
+  swap:
+  - "    if state != \"green\":\n        return dict(r, ok=False, state=\"timeout\""
+  - "    if state == \"none\":\n        return dict(r, ok=False, state=\"timeout\""
+  why: a timeout is never green
+- file: fieldkit/method/train.py
+  swap:
+  - '        return dict(r, ok=False, log=gh.failed_log(head),'
+  - '        return dict(r, ok=False, log=[],'
+  why: red carries the failed log
+- file: fieldkit/method/train.py
+  swap:
+  - '    if not merge:'
+  - '    if merge:'
+  why: no merge unless asked
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '[^|;\n]*--watch\b|'
+  - '|'
+  why: gh pr checks --watch is a CI wait by hand

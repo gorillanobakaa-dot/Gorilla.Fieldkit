@@ -378,13 +378,21 @@ class Server:
         self.bind, self.port, self.allow, self.idle, self.once, self.say = bind, port, allow, idle, once, say
         self.last = time.monotonic()
         self.stop = threading.Event()
-        self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp.bind((bind, port))
-        self.port = self.tcp.getsockname()[1]
+        for attempt in range(20 if port == 0 else 1):   # port 0: the free TCP port may be taken or excluded for UDP (WinError 10013)
+            self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                self.tcp.bind((bind, port))
+                self.port = self.tcp.getsockname()[1]
+                self.udp.bind((bind, self.port))
+                break
+            except OSError:
+                self.tcp.close()
+                self.udp.close()
+                if port != 0 or attempt == 19:
+                    raise
         self.tcp.listen(4)
         self.tcp.settimeout(0.5)
-        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp.bind((bind, self.port))
         self.udp.settimeout(0.5)
 
     def allowed(self, addr) -> bool:

@@ -45,7 +45,8 @@ except ImportError:                     # pragma: no cover - psutil is a require
 IS_WIN = os.name == "nt"
 POLL_S = 1.0                            # how often a waiting container looks at its tree
 IDLE_CPU_S = 2.0                        # CPU seconds within the idle window that still count as progress
-TAIL_KEEP = 8000                        # characters of output kept on disk after a timeout or a stall
+BUSY_CORES = 0.5                        # FM-10: a lone step process above this share of a core, silent, is a spin
+TAIL_KEEP = 8000                       # characters of output kept on disk after a timeout or a stall
 CT_TOL = 0.05
 
 
@@ -385,12 +386,17 @@ class Container:
 
     # -- run to the end, or to the deadline
     def run(self, cmd, cwd=None, env=None, stdin_text=None, stdout_path=None, merge=False, deadline_s=None,
-            on_tick=None, popen=None, keep_tail=200_000, idle_s=None):
+            on_tick=None, popen=None, keep_tail=200_000, idle_s=None, busy_s=None, on_busy=None):
         """Run cmd to completion or its wall deadline. Output to files, never pipes (FM-3). -> Outcome.
         idle_s (FM-9, the silent stall): no PROGRESS for that long (its output did not grow AND its processes used
         less than IDLE_CPU_S of CPU) stops the container: status "stalled", the output tail kept on disk
-        (Outcome.tail_file), the stall logged, put in the ROOM and shown by `fieldkit liveness check`."""
+        (Outcome.tail_file), the stall logged, put in the ROOM and shown by `fieldkit liveness check`.
+        busy_s (FM-10, BUSY-NO-CHILDREN): the step's root process alone, no child, over BUSY_CORES of a core and no
+        new output for that long is a spin (a hung go.exe): on_busy "kill" (default) stops it like a stall, "warn"
+        puts one ROOM line. With busy_s None the label is looked up in fieldkit.local.json liveness.busy_steps."""
         deadline_s = deadline_s if deadline_s is not None else self.deadline_s
+        if busy_s is None:
+            busy_s, on_busy = busy_for(self.label)
         if popen is not None and popen is not subprocess.Popen:
             return _run_seam(popen, cmd, cwd, env, stdin_text, deadline_s)
         tmp = Path(tempfile.mkdtemp(prefix="fk-contain-"))
@@ -414,6 +420,7 @@ class Container:
                 if on_tick:
                     on_tick()
                 status, rc = None, None
+                warned, busy_why = False, ""
                 prog = _Progress(self, (out_p, err_p), idle_s)
                 while True:
                     left = None if not deadline_s else deadline_s - (time.monotonic() - t0)
@@ -428,8 +435,14 @@ class Container:
                             on_tick()
                         except Exception:  # noqa: BLE001
                             pass
-                    if prog.stalled():
-                        self.kill("stall")
+                    spin = prog.spinning(busy_s)
+                    if spin and (on_busy or "kill") == "warn":
+                        if not warned:
+                            warned = True
+                            _report_stall(self.label, spin, None)
+                    elif prog.stalled() or spin:
+                        busy_why = spin
+                        self.kill("busy" if spin else "stall")
                         try:
                             p.wait(timeout=10)
                         except subprocess.TimeoutExpired:
@@ -462,9 +475,11 @@ class Container:
             err = "" if merge else _tail(err_p, keep_tail)
             why = (f"wall deadline {deadline_s:.0f} s passed: the container was stopped "
                    f"({len(self.killed)} process(es))") if status == "timeout" else ""
-            if status == "stalled":
+            if status == "stalled" and not busy_why:
                 why = (f"STALL: no progress for {idle_s:.0f} s (no output, under {IDLE_CPU_S} s CPU): the container "
                        f"was stopped ({len(self.killed)} process(es))")
+            if status == "stalled" and busy_why:
+                why = f"{busy_why}: the container was stopped ({len(self.killed)} process(es))"
             if leftovers:
                 why = f"{len(leftovers)} process(es) left running by it were stopped: {leftovers}"
             o = Outcome(status, rc, out, err, time.monotonic() - t0, p.pid, list(self.killed), leftovers,
@@ -494,6 +509,7 @@ class _Progress:
         self.c, self.paths, self.idle_s = c, [Path(x) for x in dict.fromkeys(paths)], idle_s
         self.size, self.cpu = self._size(), self._cpu()
         self.at = time.monotonic()
+        self.b_size, self.b_cpu, self.b_at = self.size, self.cpu, self.at
         self.told = 0.0
         self._beacon(force=True)
 
@@ -530,6 +546,22 @@ class _Progress:
             except Exception:  # noqa: BLE001
                 pass
 
+    def spinning(self, busy_s):
+        """FM-10: -> a reason when the root process runs alone (no child), above BUSY_CORES of a core, with no new
+        output for busy_s; else "". The window restarts on new output or when a child appears."""
+        if not busy_s or psutil is None:
+            return ""
+        size, cpu, now = self._size(), self._cpu(), time.monotonic()
+        alone = len(self.c.members()) <= 1
+        if size > self.b_size or not alone:
+            self.b_size, self.b_cpu, self.b_at = size, cpu, now
+            return ""
+        span = now - self.b_at
+        if span >= busy_s and (cpu - self.b_cpu) / span > BUSY_CORES:
+            return (f"BUSY-NO-CHILDREN: the step's only process used {(cpu - self.b_cpu) / span:.1f} cores for "
+                    f"{span:.0f} s with no output and no child")
+        return ""
+
     def stalled(self):
         if not self.idle_s:
             return False
@@ -538,6 +570,21 @@ class _Progress:
             self.size, self.cpu, self.at = size, cpu, time.monotonic()
         self._beacon()
         return time.monotonic() - self.at >= self.idle_s
+
+
+def busy_for(label):
+    """-> (busy_s, on_busy) for a step label from fieldkit.local.json liveness.busy_steps, e.g.
+    {"verify go-test*": {"busy_minutes": 5, "on_busy": "kill"}}; (None, None) when none matches."""
+    import fnmatch
+    try:
+        from . import settings
+        cfg = (settings.local_settings().get("liveness") or {}).get("busy_steps") or {}
+    except Exception:  # noqa: BLE001
+        return None, None
+    for pat, v in cfg.items():
+        if fnmatch.fnmatch(label or "", pat) and v.get("busy_minutes"):
+            return 60 * float(v["busy_minutes"]), v.get("on_busy") or "kill"
+    return None, None
 
 
 def keep_tail_file(label, out, err, why):

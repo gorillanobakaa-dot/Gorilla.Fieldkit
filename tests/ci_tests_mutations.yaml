@@ -7,7 +7,7 @@
   swap: ["if not MUTATION_PLAN.match(", "if not MUTATION_PLAN.search(\"^$\" + "]
   why: "mutation plans never pull in the whole suite"
 - file: .github/ci_tests.py
-  swap: ["    if plan.get(\"docs_only\"):", "    if False:"]
+  swap: ["    if plan.get(\"no_code\") or plan.get(\"docs_only\"):", "    if False:"]
   why: "a docs-only change runs nothing"
 - file: .github/ci_tests.py
   swap: ["        return None, f\"testcost plan gave no answer", "        return [], f\"testcost plan gave no answer"]
@@ -15,3 +15,9 @@
 - file: .github/ci_tests.py
   swap: ["    if tests == []:\n        return 0", "    if False:\n        return 0"]
   why: "an empty selection runs no pytest"
+- file: .github/ci_tests.py
+  swap: ["    return bool(a) and a == b", "    return bool(a)"]
+  why: "only an equal tree skips the push run"
+- file: .github/ci_tests.py
+  swap: ["plan.get(\"no_code\") or plan.get(\"docs_only\")", "plan.get(\"docs_only\")"]
+  why: "a no-code diff (version line only) runs nothing"

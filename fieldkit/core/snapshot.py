@@ -36,7 +36,7 @@ from pathlib import Path
 from . import settings
 from .host import host
 
-SNAP_DIR = settings.ROOT / "state" / "snapshots"
+SNAP_DIR = settings.state_root() / "state" / "snapshots"
 HASH_LIMIT = 64 * 1024 * 1024
 NAME_RX = re.compile(r"^[A-Za-z0-9._-]+$")
 NOT_CAPTURED = "_not_captured"          # a part dict holding only this key: the query failed

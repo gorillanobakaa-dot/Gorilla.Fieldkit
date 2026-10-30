@@ -313,6 +313,32 @@ def test_ship_refuses_the_base_and_pushes_a_new_branch(tmp_path):
     assert r["ok"] and r["pushed"] and r["state"] == "in-step"
 
 
+def test_ship_push_says_what_it_pushed_and_nothing_to_push_only_when_true(tmp_path, capsys):
+    # 2026-10-27: a push that reached origin printed `in-step (pushed)` then `NEXT: nothing to push`
+    from fieldkit.method import ship
+    _, work = _remote_and_clone(tmp_path)
+    _git(work, "switch", "-q", "-c", "feature")
+    for name in ("b.txt", "c.txt"):
+        (work / name).write_text(name)
+        _git(work, "add", name)
+        _git(work, "commit", "-q", "-m", name)
+    first = ship.push(work)
+    assert first["commits"] == 2 and "(new branch)" in first["range"]
+    old = _git(work, "rev-parse", "HEAD")
+    (work / "d.txt").write_text("d")
+    _git(work, "add", "d.txt")
+    _git(work, "commit", "-q", "-m", "d")
+    new = _git(work, "rev-parse", "HEAD")
+    assert ship.main(["push", "--repo", str(work)]) == 0
+    out = capsys.readouterr().out
+    assert f"pushed {old[:12]}..{new[:12]} to origin/feature (1 commit(s))" in out
+    assert "nothing to push" not in out and "NEXT: open the pull request" in out
+    assert _git(work, "ls-remote", "origin", "refs/heads/feature").split()[0] == new
+    assert ship.main(["push", "--repo", str(work)]) == 0
+    out = capsys.readouterr().out
+    assert out.strip() == f"feature: nothing to push: origin/feature is already at {new[:12]}"
+
+
 def test_ship_records_a_squash_merged_branch_instead_of_forcing(tmp_path):
     from fieldkit.method import ship
     remote, work = _remote_and_clone(tmp_path)

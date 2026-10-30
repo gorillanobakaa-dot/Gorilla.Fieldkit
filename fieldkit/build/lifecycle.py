@@ -58,7 +58,7 @@ def run(spec_path, approve=False, state_dir=None):
     if not approve:
         raise PermissionError("a lifecycle run installs and removes software: it needs --approve from the owner")
     spec = settings.load(spec_path)
-    runner = Runner(state_dir or settings.ROOT / "state" / "lifecycle" / spec["name"])
+    runner = Runner(state_dir or settings.state_root() / "state" / "lifecycle" / spec["name"])
     snaps, steps, ok = {}, [], True
     _take(spec, "before", snaps)
     for step in ("install", "upgrade", "uninstall"):

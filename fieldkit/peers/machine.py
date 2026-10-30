@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-27-10-00
+# Version: 1.1.0 · updated 26-10-28-20-30
 """Each machine of the household has one tag, [MODEL-OS] ([L15-WIN], [VAIO-LNX], [AIR-MAC]), and every session
 title starts with its machine's tag, so a notification, a roll call or a Board row says at a glance which computer
 spoke.
@@ -7,6 +7,8 @@ spoke.
                                                  then read from the household registry, never retyped)
     fieldkit machine list [--offline] [--json]   every device: tag, OS, link address, last seen (asks each peer's
                                                  hello over the link unless --offline)
+    fieldkit machine reach [--no-sweep] [--json] every device of household.yaml by its own path (cable or SSH):
+                                                 which are up (household.py)
     fieldkit machine hook                        a Claude Code SessionStart hook: the tag and the title rule
     fieldkit sessions tag --check [--here] [--json]
                                                  every live session, here and on each peer over the link, whose
@@ -26,6 +28,7 @@ The check is plain code on fixed data: a title is tagged when, leading spaces as
 model judgment anywhere in the check path. Zero tokens.
 """
 import json
+import os
 import platform
 import re
 import socket
@@ -331,8 +334,12 @@ def hook_line(call, event):
                 return ""
             mark.parent.mkdir(parents=True, exist_ok=True)
             mark.write_text(json.dumps({"tag": tag, "event": event, "t": time.time()}), encoding="utf-8")
-        return (f"MACHINE: this machine is {tag}: title yourself {tag} <job> (the session title starts with the "
+        line = (f"MACHINE: this machine is {tag}: title yourself {tag} <job> (the session title starts with the "
                 "tag; `fieldkit sessions tag --check` lists every session that does not).")
+        if event == "SessionStart":                    # advisory: the owner chooses interactive models
+            from ..lifecycle import models
+            line += " " + models.session_line(call.get("model") or os.environ.get("ANTHROPIC_MODEL"))
+        return line.rstrip()
     except Exception:  # noqa: BLE001 - a courtesy line must never break the session's hook
         return ""
 
@@ -353,9 +360,13 @@ def hook(stdin=None):
 # ---- the command --------------------------------------------------------------------------------------------------
 def main(argv=None):
     import argparse
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["reach"]:
+        from . import household
+        return household.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit machine", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["name", "list", "hook"])
+    ap.add_argument("action", choices=["name", "list", "reach", "hook"])
     ap.add_argument("--offline", action="store_true", help="list: the registry only, no hello over the link")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)

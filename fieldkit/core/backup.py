@@ -58,6 +58,17 @@ def _files(root):
     return out
 
 
+def ideas_files(root):
+    """-> [(path, archive name)] of state/ideas/ (the parked ideas: owner suggestions that exist nowhere else) when it lives
+    outside `root` (a linked worktree shares the main checkout's state/, settings.state_root). Inside root, _files has it."""
+    root = Path(root)
+    shared = settings.state_root(root)
+    if shared.resolve() == root.resolve():
+        return []
+    d = shared / "state" / "ideas"
+    return [(p, Path(root.name) / "state" / "ideas" / p.relative_to(d)) for p in _files(d)] if d.is_dir() else []
+
+
 def verify(zpath, expect_count, expect_bytes):
     with zipfile.ZipFile(zpath) as z:
         bad = z.testzip()
@@ -93,12 +104,13 @@ def backup(to=None, root=None, now=None, local=None, home=None):
         n += 1
         name = f"harness_backup_{stamp}_{n}"
     zpath = dest / f"{name}.zip"
-    files = _files(root)
+    files = [(p, Path(root.name) / p.relative_to(root)) for p in _files(root)] + ideas_files(root)
+    n_ideas = sum(1 for p, a in files if a.parts[1:3] == ("state", "ideas"))
     total = 0
     tmp = zpath.with_suffix(".zip.part")
     with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-        for p in files:
-            z.write(p, Path(root.name) / p.relative_to(root))
+        for p, arc in files:
+            z.write(p, arc)
             total += p.stat().st_size
     v = verify(tmp, len(files), total)
     if not v["ok"]:
@@ -107,7 +119,7 @@ def backup(to=None, root=None, now=None, local=None, home=None):
                 "if it fails twice, check the disk (space, errors) before anything else"}
     tmp.replace(zpath)
     out = {"ok": True, "status": "done", "archive": str(zpath), "size": zpath.stat().st_size, "files": v["files"],
-           "bytes": v["bytes"], "skipped": SKIP_WHY, "verified": "re-opened: every file present, every CRC good, "
+           "bytes": v["bytes"], "ideas_files": n_ideas, "skipped": SKIP_WHY, "verified": "re-opened: every file present, every CRC good, "
            "byte total matches", "next": "done"}
     if (local.get("backup") or {}).get("reminder"):
         out["reminder"] = local["backup"]["reminder"]
@@ -120,7 +132,8 @@ def lines(r):
         out += [f"  {c}" for c in r["candidates"]] or ["  (no folder that looks like a backup folder was found)"]
     elif r["ok"]:
         out = [f"backup: {r['archive']}", f"  {r['files']} files, {r['bytes']:,} bytes read, "
-               f"{r['size']:,} bytes on disk", f"  verified: {r['verified']}", f"  not included: {r['skipped']}"]
+               f"{r['size']:,} bytes on disk", f"  verified: {r['verified']}", f"  not included: {r['skipped']}",
+               f"  parked ideas (state/ideas/): {r['ideas_files']} file(s) included"]
         if r.get("reminder"):
             out.append(f"  {r['reminder']}")
     else:

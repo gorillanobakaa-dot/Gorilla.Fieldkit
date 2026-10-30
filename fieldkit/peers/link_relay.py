@@ -1,8 +1,11 @@
-# Version: 1.2.0 · updated 26-10-22-23-26
+# Version: 1.3.0 · updated 26-10-28-20-45
 """A relay session: one AI session per computer whose only job is the cable, so notes are answered as they come.
 
     fieldkit peers link relay listen [--since N] [--seconds S]   wait until a note arrives (no time limit by
                                                                  default), print it fenced, remember it as read
+    fieldkit peers link relay listen --follow                    Z1: keep listening after each message, one line
+                                                                 per note, end only on an error
+    fieldkit peers link relay doctor --restart                   ... and start `listen --follow` when none runs
     fieldkit peers link relay brief                              what a relay session does: start one with it
     fieldkit peers link relay status                             last note read, last note stored, the listener
     fieldkit peers link relay doctor                             PRECHECK: exit 3 when no listener runs, with the
@@ -23,6 +26,12 @@ refused, because two relays would each take the notes and answer twice.
 Notes sent with `--to NAME` are already handed to a Fieldkit peers session of that name by `serve` (link.py). What
 the relay adds is the rest: notes for nobody in particular, and passing notes to Claude app sessions, which only an
 AI session can reach (the app's own messaging).
+
+Quiet net traffic (2026-10-28, plan open item 26): since C2 every session check-in on the other computer is a cable
+note whose text carries `NET1 {json}`. Each one used to end `listen` and wake the relay for a full model call (5+
+wakes in 2 minutes at 20:17). Now `listen` hands such notes to the net (`fieldkit zero` ingest_cable), marks them
+read and keeps waiting; only a note a session must read ends it. A relay with no saved number starts after the last
+stored note instead of printing the whole inbox again.
 """
 import argparse
 import json
@@ -36,6 +45,7 @@ from . import peers as local_peers
 
 POLL = 2.0
 ROOT = Path(__file__).resolve().parents[2]       # the Fieldkit checkout this code runs from (has the link code)
+QUIET = {"checkin", "ack", "time"}               # net kinds that only renew a lease or confirm: no session reads them
 
 BRIEF = """\
 You are the RELAY session for this computer's cable link to the other computer. Your job is the link, not the
@@ -75,11 +85,11 @@ def pid_path():
     return link.home() / "relay-listen.pid"
 
 
-def last_read():
+def last_read(default=0):
     try:
         return int(json.loads(cursor_path().read_text(encoding="utf-8")).get("last", 0))
     except (OSError, ValueError, AttributeError):
-        return 0
+        return default
 
 
 def mark_read(n):
@@ -105,14 +115,35 @@ def other_listener(alive=local_peers.pid_alive):
     return pid if pid != os.getpid() and alive(pid) else None
 
 
-def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=local_peers.pid_alive):
-    """-> (code, notes). 0 notes arrived, 1 none within `seconds`, 2 another listener runs."""
+def quiet(note):
+    """True for net traffic no session must read: a check-in (it renews a lease), an ack, a clock check."""
+    from ..zero import channels
+    e = channels.parse_envelope(note.get("text", ""))
+    return bool(e) and e.get("kind") in QUIET
+
+
+def ingest_net():
+    """Hand the cable's net notes to this computer's net log (once each, by id). A broken net never stops the relay."""
+    try:
+        from ..zero import net
+        return net.ingest_cable()
+    except Exception:  # noqa: BLE001 - the relay's job is the cable; the next `fieldkit zero` ingests again
+        return 0
+
+
+def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=local_peers.pid_alive, ingest=ingest_net):
+    """-> (code, notes). 0 notes arrived, 1 none within `seconds`, 2 another listener runs. Quiet net notes are
+    ingested and marked read without ending the wait."""
     if other_listener(alive):
         return 2, []
     link.home().mkdir(parents=True, exist_ok=True)
     pid_path().write_text(str(os.getpid()))
     try:
-        since = last_read() if since is None else since
+        if since is None:
+            since = last_read(default=None)
+            if since is None:                        # no saved number: start after the last stored note, and say so
+                since = max(numbers() or [0])
+                mark_read(since)
         end = None if seconds is None else now() + seconds
         while True:
             new = sorted(n for n in numbers() if n > since)
@@ -120,7 +151,13 @@ def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=loca
                 files = numbers()
                 notes = [json.loads(files[n].read_text(encoding="utf-8")) for n in new]
                 mark_read(new[-1])
-                return 0, notes
+                since = new[-1]
+                loud = [x for x in notes if not quiet(x)]
+                if len(loud) < len(notes):
+                    ingest()
+                if loud:
+                    return 0, loud
+                continue
             if end is not None and now() >= end:
                 return 1, []
             sleep(POLL)
@@ -130,6 +167,38 @@ def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=loca
                 pid_path().unlink()
         except OSError:
             pass
+
+
+def one_line(note):
+    """A note as one line: who, number, text with its line breaks folded."""
+    text = " ".join(str(note.get("text", "")).split())
+    return f"NOTE #{note.get('n', '?')} from {note.get('from_host', '?')}: {text}"
+
+
+def follow(since=None, seconds=None, out=print, **kw):
+    """Listen again after every message and print each as one line; end only on an error. -> the code of the
+    listen that ended it: 1 when `seconds` passed with no note, 2 when another listener runs (Z1: the relay was
+    restarted by hand 7 times in one night because `listen` exits after each message)."""
+    while True:
+        code, notes = listen(since, seconds, **kw)
+        if code != 0:
+            return code
+        for n in notes:
+            out(one_line(n))
+        since = None                                 # listen saved the number it reached
+
+
+def restart(spawn=None):
+    """A dead listener -> a new `listen --follow` in its own detached process. -> (started, line)."""
+    if other_listener():
+        return False, "RELAY  OK: already listening"
+    import subprocess
+    cmd = [sys.executable, "-P", "-m", "fieldkit", "peers", "link", "relay", "listen", "--follow"]
+    kwargs = {"cwd": str(ROOT), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL}
+    kwargs["creationflags" if os.name == "nt" else "start_new_session"] = 0x00000208 if os.name == "nt" else True
+    p = (spawn or subprocess.Popen)(cmd, **kwargs)
+    return True, f"RELAY  RESTARTED: listen --follow, PID {getattr(p, 'pid', '?')}"
 
 
 def shell_path(p):
@@ -169,6 +238,9 @@ def main(argv):
     ap.add_argument("action", choices=["listen", "brief", "status", "doctor"])
     ap.add_argument("--since", type=int, help="read from after this note number (default: the last one read)")
     ap.add_argument("--seconds", type=float, help="give up after this long (default: wait until a note comes)")
+    ap.add_argument("--follow", action="store_true", help="listen: keep listening after each message, print each "
+                                                          "as one line, end only on an error")
+    ap.add_argument("--restart", action="store_true", help="doctor: start `listen --follow` when none runs")
     a = ap.parse_args(argv)
     if a.action == "brief":
         print(brief())
@@ -178,7 +250,16 @@ def main(argv):
         return 0
     if a.action == "doctor":
         code, lines = doctor()
+        if code and a.restart:
+            started, line = restart()
+            lines = lines[:-1] + [line]
+            code = 0 if started else code
         print("\n".join(lines))
+        return code
+    if a.follow:
+        code = follow(a.since, a.seconds, out=lambda l: print(l, flush=True))
+        print(f"REFUSED: a relay is already listening (PID {other_listener()})" if code == 2 else
+              f"nothing from the peer in {a.seconds:g} s")
         return code
     code, notes = listen(a.since, a.seconds)
     if code == 2:

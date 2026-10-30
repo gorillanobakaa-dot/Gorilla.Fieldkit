@@ -6,7 +6,10 @@ usage:
     python session_cost.py --list [N]               the N newest sessions per source, with dollars
     python session_cost.py --live [SESSION]         keep running; print the running total after every call
     python session_cost.py --doctor                 what this computer has for the meter
+    python session_cost.py --since 2026-10-27 [--until 2026-10-28]
+                                                    every session with calls in that window, only those calls
   options: --source all|claude-code|antigravity|codex|gorilla-opencode|generic   --warn-usd 5   --calls   --json
+           (--json: JSON lines and nothing else on stdout; warnings and notes go to stderr)
            --assume NAME=PUBLIC (price an internal model name as a public one; shown in the report)
 
 Sources (adapters), each read from files the product already writes; nothing is sent anywhere:
@@ -46,7 +49,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 HERE = Path(__file__).resolve().parent
 PRICES_FILE = HERE / "prices.json"
 # Claude Code honors CLAUDE_CONFIG_DIR (default ~/.claude) on Windows, Linux and macOS alike
@@ -808,9 +811,40 @@ def warning(s, threshold, out=sys.stdout):
               % (bar, threshold, s["usd"], _k(s["context_last"]), s["last_call_usd"], bar))
 
 
-def measure(adapter, path, assume=None):
-    calls = [price_call(c, prices(), assume) for c in adapter.read(path, {})]
+def when(s):
+    """--since / --until: a date (local midnight) or an ISO time (local when it names no zone) -> aware datetime."""
+    t = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
+    return t if t.tzinfo else t.astimezone()
+
+
+def in_window(c, since=None, until=None):
+    """A call inside [since, until). A call with no time is outside any window: it is never guessed in.
+    (Gorilla OpenCode keeps one row per session, stamped with the session's last update.)"""
+    if since is None and until is None:
+        return True
+    if not c.get("ts"):
+        return False
+    t = _parse_ts(c["ts"])
+    return (since is None or t >= since) and (until is None or t < until)
+
+
+def measure(adapter, path, assume=None, since=None, until=None):
+    calls = [price_call(c, prices(), assume) for c in adapter.read(path, {}) if in_window(c, since, until)]
     return calls, summarize(calls, adapter, path)
+
+
+def touched_since(adapters, since):
+    """-> [(adapter, session)] for every session written at or after since (a file older than that holds no call
+    in the window)."""
+    out = []
+    for ad in adapters:
+        for s in ad.sessions():
+            try:
+                if s.stat().st_mtime >= since.timestamp():
+                    out.append((ad, s))
+            except OSError:
+                continue
+    return out
 
 
 def live(adapters, pinned, interval, warn_usd, assume, polls, out=sys.stdout):
@@ -879,11 +913,20 @@ def main(argv=None):
     p.add_argument("--calls", action="store_true", help="one line per call: context, cost, running total")
     p.add_argument("--assume", action="append", default=[], metavar="NAME=PUBLIC",
                    help="price an internal model name as a public one (stated in the report)")
-    p.add_argument("--json", action="store_true", help="one JSON object per session")
+    p.add_argument("--since", help="every session with calls at or after this date or ISO time; only those calls")
+    p.add_argument("--until", help="only calls before this date or ISO time")
+    p.add_argument("--json", action="store_true", help="one JSON object per session, nothing else on stdout")
     p.add_argument("--doctor", action="store_true", help="check this computer and stop")
     a = p.parse_args(argv)
     if a.doctor:
         return doctor()
+    if a.live and a.json:
+        p.error("--live prints text as calls land; --json is for a finished measurement")
+    try:
+        since = when(a.since) if a.since else None
+        until = when(a.until) if a.until else None
+    except ValueError as e:
+        p.error("--since/--until: %s (use YYYY-MM-DD or an ISO time)" % e)
     assume = {}
     for x in a.assume:
         if "=" not in x:
@@ -912,6 +955,10 @@ def main(argv=None):
             print("session_cost: not found: " + x, file=sys.stderr)
             return 2
         targets.append((ad, path))
+    if since and not targets:
+        targets = touched_since(adapters, since)
+        if not targets:
+            return 0                  # nothing written in the window: an empty answer, not an error
     if not targets:
         n = newest(adapters)
         if n is None:
@@ -920,7 +967,11 @@ def main(argv=None):
         targets = [n]
     over = False
     for ad, path in targets:
-        calls, s = measure(ad, path, assume)
+        calls, s = measure(ad, path, assume, since, until)
+        if (since or until) and not calls:
+            continue
+        if since or until:
+            s["since"], s["until"] = (since.isoformat() if since else None), (until.isoformat() if until else None)
         if assume:
             s["assumed"] = assume
         over = over or (a.warn_usd is not None and s["usd"] >= a.warn_usd)

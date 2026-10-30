@@ -1,0 +1,54 @@
+# Version: 1.0.0 · updated 26-10-28-19-50
+# Rules of the no-AI workers (HARNESS-PLAN C3, 2026-10-28). Every one CAUGHT:
+#   fieldkit mutate --plan tests/c3_workers_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_c3_workers.py
+- file: fieldkit/orchestrate_work.py
+  swap: ['        if req.get("plain"):', '        if False:']
+  why: a plain run job is checked against PROGRAMS, not as a Fieldkit command
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if "/" in name or "\\" in name or name not in PROGRAMS:', '    if "/" in name or "\\" in name:']
+  why: a plain job starts only a build or test program (no shell, no git, no curl)
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if "/" in name or "\\" in name or name not in PROGRAMS:', '    if name not in PROGRAMS and "/" not in name:']
+  why: a plain job names a bare program, never a path
+- file: fieldkit/orchestrate_work.py
+  swap: ['    if argv[1:2] and argv[1] in PROGRAMS[name]:', '    if False:']
+  why: the subcommands that publish, log in or run any code are refused
+- file: fieldkit/orchestrate_work.py
+  swap: ['or argv[2] not in PY_MODULES):', 'and False):']
+  why: python in a plain job runs only `-m` with a test or build module
+- file: fieldkit/orchestrate_work.py
+  swap: ['        cmd = [exe, *args[1:]]', '        cmd = [*me, *args]']
+  why: a plain job runs the program itself, not `fieldkit PROGRAM`
+- file: fieldkit/orchestrate_work.py
+  swap: ["        if not exe:\n            raise RuntimeError(f\"{args[0]} is not installed", "        if False:\n            raise RuntimeError(f\"{args[0]} is not installed"]
+  why: a program the worker does not have is not-run with the reason
+- file: fieldkit/orchestrate_work.py
+  swap: ['    return found if found is not None else other_counts(text)', '    return found']
+  why: go test, cargo test and ctest jobs are judged by their own test count
+- file: fieldkit/orchestrate_work.py
+  swap: ['            c["failed"] += int(cargo[2])', '            pass']
+  why: a cargo test failure fails the job
+- file: fieldkit/orchestrate_work.py
+  swap: ['            c["failed"] += int(ctest[1])', '            pass']
+  why: a ctest failure fails the job
+- file: fieldkit/orchestrate_work.py
+  swap: ['GO_OK = re.compile(r"^ok\s+\S+(?!.*\[no tests to run\])")', 'GO_OK = re.compile(r"^ok\s+\S+")']
+  why: a go package with no tests to run is no passing test
+- file: fieldkit/orchestrate_work.py
+  swap: ['            req["plain"] = True', '            pass']
+  why: the boss tells the worker the line is a plain program
+- file: fieldkit/lifecycle/tasks.py
+  swap: ['    plain = argv[0] != "fieldkit"', '    plain = True']
+  why: a run task line that starts with fieldkit is a Fieldkit command line
+- file: fieldkit/lifecycle/tasks.py
+  swap: ['            status = "done" if r.get("status") == "pass" and not bad else "failed"', '            status = "done" if r.get("status") == "pass" else "failed"']
+  why: a run task is done only when every artefact arrived with the sha256 the worker signed
+- file: fieldkit/lifecycle/tasks.py
+  swap: ['        if r is None:', '        if False:']
+  why: a result no pinned worker key signed is never done
+- file: fieldkit/lifecycle/tasks.py
+  swap: ['        if e.get("status") in (None, "sent"):', '        if False:']
+  why: a job still running is not reported
+- file: fieldkit/lifecycle/tasks.py
+  swap: ['        if t.get("status") != "started" or not t.get("job"):', '        if not t.get("job"):']
+  why: a run task is reported once
