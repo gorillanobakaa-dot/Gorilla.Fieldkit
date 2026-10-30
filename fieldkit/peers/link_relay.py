@@ -3,6 +3,9 @@
 
     fieldkit peers link relay listen [--since N] [--seconds S]   wait until a note arrives (no time limit by
                                                                  default), print it fenced, remember it as read
+    fieldkit peers link relay listen --follow                    Z1: keep listening after each message, one line
+                                                                 per note, end only on an error
+    fieldkit peers link relay doctor --restart                   ... and start `listen --follow` when none runs
     fieldkit peers link relay brief                              what a relay session does: start one with it
     fieldkit peers link relay status                             last note read, last note stored, the listener
     fieldkit peers link relay doctor                             PRECHECK: exit 3 when no listener runs, with the
@@ -166,6 +169,38 @@ def listen(since=None, seconds=None, now=time.time, sleep=time.sleep, alive=loca
             pass
 
 
+def one_line(note):
+    """A note as one line: who, number, text with its line breaks folded."""
+    text = " ".join(str(note.get("text", "")).split())
+    return f"NOTE #{note.get('n', '?')} from {note.get('from_host', '?')}: {text}"
+
+
+def follow(since=None, seconds=None, out=print, **kw):
+    """Listen again after every message and print each as one line; end only on an error. -> the code of the
+    listen that ended it: 1 when `seconds` passed with no note, 2 when another listener runs (Z1: the relay was
+    restarted by hand 7 times in one night because `listen` exits after each message)."""
+    while True:
+        code, notes = listen(since, seconds, **kw)
+        if code != 0:
+            return code
+        for n in notes:
+            out(one_line(n))
+        since = None                                 # listen saved the number it reached
+
+
+def restart(spawn=None):
+    """A dead listener -> a new `listen --follow` in its own detached process. -> (started, line)."""
+    if other_listener():
+        return False, "RELAY  OK: already listening"
+    import subprocess
+    cmd = [sys.executable, "-P", "-m", "fieldkit", "peers", "link", "relay", "listen", "--follow"]
+    kwargs = {"cwd": str(ROOT), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL}
+    kwargs["creationflags" if os.name == "nt" else "start_new_session"] = 0x00000208 if os.name == "nt" else True
+    p = (spawn or subprocess.Popen)(cmd, **kwargs)
+    return True, f"RELAY  RESTARTED: listen --follow, PID {getattr(p, 'pid', '?')}"
+
+
 def shell_path(p):
     """A path a bash line can take on either system: Git Bash eats unquoted backslashes (C:\\work -> C:work,
     seen on the Windows laptop 2026-10-22), so forward slashes, always quoted."""
@@ -203,6 +238,9 @@ def main(argv):
     ap.add_argument("action", choices=["listen", "brief", "status", "doctor"])
     ap.add_argument("--since", type=int, help="read from after this note number (default: the last one read)")
     ap.add_argument("--seconds", type=float, help="give up after this long (default: wait until a note comes)")
+    ap.add_argument("--follow", action="store_true", help="listen: keep listening after each message, print each "
+                                                          "as one line, end only on an error")
+    ap.add_argument("--restart", action="store_true", help="doctor: start `listen --follow` when none runs")
     a = ap.parse_args(argv)
     if a.action == "brief":
         print(brief())
@@ -212,7 +250,16 @@ def main(argv):
         return 0
     if a.action == "doctor":
         code, lines = doctor()
+        if code and a.restart:
+            started, line = restart()
+            lines = lines[:-1] + [line]
+            code = 0 if started else code
         print("\n".join(lines))
+        return code
+    if a.follow:
+        code = follow(a.since, a.seconds, out=lambda l: print(l, flush=True))
+        print(f"REFUSED: a relay is already listening (PID {other_listener()})" if code == 2 else
+              f"nothing from the peer in {a.seconds:g} s")
         return code
     code, notes = listen(a.since, a.seconds)
     if code == 2:

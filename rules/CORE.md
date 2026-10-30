@@ -37,6 +37,8 @@ TWO STRIKES (owner, 2026-10-29; a hard rule). A PR, job or fix that fails CI twi
 `fieldkit inbox add` the note (PR, branch, both failures), leave the PR open for a stronger model's repair, and go on
 with the plan. No third try. Never merge red or weaken a check.
 
+NO PASSIVE WAITING. After dispatching, start `fieldkit task watch` in the background; never end a turn or sleep on a running task.
+
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
 

@@ -1148,6 +1148,11 @@ def _net_line(call, event, now=None):
                     s2 = load_stations()
                     s2["meta"]["zero_alert"] = key
                     save_stations(s2)
+            try:                                      # Z1: a started task needs Zero; the 5-minute timer found it
+                from ..lifecycle import watch
+                out.extend(watch.hook_lines(now=now))
+            except Exception:  # noqa: BLE001
+                pass
         return "\n".join(out)
     except Exception:  # noqa: BLE001 - the hook informs; it never fails a tool call
         return ""
