@@ -37,6 +37,7 @@ TWO STRIKES (owner, 2026-10-29; a hard rule). A PR, job or fix that fails CI twi
 `fieldkit inbox add` the note (PR, branch, both failures), leave the PR open for a stronger model's repair, and go on
 with the plan. No third try. Never merge red or weaken a check.
 
+NO PASSIVE WAITING. After dispatching, start `fieldkit task watch` in the background; never end a turn or sleep on a running task.
 MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
 model-spend guard allows it (`fieldkit/lifecycle/models.py`, once PR #223 is merged).
 
