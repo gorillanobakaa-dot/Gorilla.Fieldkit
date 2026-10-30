@@ -1187,6 +1187,11 @@ def cmd_goal(a):
             spec = {"id": x[0], "objective": a.objective or "",
                     "criteria": [{"id": f"c{i}", "run": c} for i, c in enumerate(a.criterion, 1)],
                     "cwd": a.cwd or os.getcwd()}
+        # owner 2026-10-27: a goal never asks the laptop for a whole suite; such a line becomes touched tests + CI green
+        from .method import suitegate
+        spec, warns = suitegate.mark_goal(spec)
+        for w in warns:
+            print(f"GOAL NEW: WARNING {w}")
         try:
             d = goal.new(spec, force=a.force)
         except ValueError as e:
