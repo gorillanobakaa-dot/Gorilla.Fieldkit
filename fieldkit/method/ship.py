@@ -4,6 +4,9 @@
     fieldkit ship sync   [--base main]     make the next push a fast-forward, safely (see below); never force
     fieldkit ship push   [--base main]     sync if needed, then push with retries on network errors; the push carries
                                            FIELDKIT_SHIP_PUSH=1, so a repository's pre-push hook asks the mandate gate
+    fieldkit ship push --auto [--title T] [--body-file F]
+                                           push the branch, open its PR if none, turn GitHub auto-merge on for the pushed
+                                           commit, exit; GitHub merges on green CI. 2+ red CI runs: PARKED, inbox, exit 3
     fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern, and only when
                                            its commit can publish: version, notes, page, CI green (tagguard.py)
     fieldkit ship release-ready vX.Y.Z     the same checks as a dry run: what is missing, in order, and the fix for each
@@ -46,6 +49,7 @@ The pull request itself (open, watch CI, merge) is the host's job; the fieldkit-
 Exit 0 done or nothing to do, 3 refused (with the reason and the next step), 2 bad input.
 """
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -162,6 +166,74 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
         sleep(delay)                                   # network: 2, 4, 8, 16 s
         delay *= 2
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
+
+
+STRIKES_AT = 2                                         # TWO STRIKES (rules/CORE.md): the second red run parks
+
+
+def _gh(run, repo, *args):
+    """-> (ok, stdout, error text) of one gh call, in ship's environment (the autopilot credential comes back)."""
+    r = run(["gh", *args], cwd=str(repo), capture_output=True, text=True, env=ship_env())
+    return r.returncode == 0, (r.stdout or "").strip(), (r.stderr or r.stdout or "").strip()[-500:]
+
+
+def _inbox_add(title, why, command=""):
+    from ..autopilot import inbox
+    return inbox.add(title, why, command)
+
+
+def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add):
+    """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
+    gh says. Exit 3 for PARKED (2+ red CI runs on the branch): no auto-merge, a note in the owner's inbox."""
+    st = (pusher or push)(repo, base)
+    if not st.get("ok"):
+        return st
+    branch, sha = st["branch"], st.get("local") or _rev(repo, "HEAD")
+    rep = dict(st, auto=False)
+
+    def fail(what, err):
+        return dict(rep, ok=False, state="auto-failed", error=f"{what}: {err}", gh_failed=True,
+                    next="the push stands; fix the gh problem and run `fieldkit ship push --auto` again")
+    ok, out, err = _gh(run, repo, "pr", "list", "--head", branch, "--state", "open", "--json", "number,url")
+    if not ok:
+        return fail("gh pr list", err)
+    try:
+        prs = json.loads(out or "[]")
+    except ValueError:
+        return fail("gh pr list", f"not JSON: {out[:200]}")
+    if prs:
+        pr = prs[0]
+    else:
+        cmd = ["pr", "create", "--head", branch, "--base", base]
+        if title or body_file:                         # gh wants a title and a body, or --fill
+            cmd += ["--title", title or branch, *(["--body-file", body_file] if body_file else ["--body", ""])]
+        else:
+            cmd += ["--fill"]
+        ok, out, err = _gh(run, repo, *cmd)
+        if not ok:
+            return fail("gh pr create", err)
+        m = re.search(r"https?://\S+/pull/(\d+)", out)
+        if not m:
+            return fail("gh pr create", f"no PR url in: {out[:200]}")
+        pr = {"number": int(m.group(1)), "url": m.group(0)}
+    rep.update(pr=pr["number"], pr_url=pr["url"])
+    ok, out, err = _gh(run, repo, "run", "list", "--branch", branch, "--json", "conclusion", "--limit", "100")
+    if not ok:
+        return fail("gh run list", err)
+    try:
+        reds = sum(1 for x in json.loads(out or "[]") if x.get("conclusion") == "failure")
+    except ValueError:
+        return fail("gh run list", f"not JSON: {out[:200]}")
+    if reds >= STRIKES_AT:
+        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} failed CI runs. Auto-merge NOT enabled."
+        inbox(f"PARKED {branch}: failed CI {reds} times", why, f"gh pr view {pr['number']} --web")
+        return dict(rep, ok=False, state="parked", reds=reds, error=why,
+                    next="PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")
+    ok, out, err = _gh(run, repo, "pr", "merge", str(pr["number"]), "--auto", "--merge", "--match-head-commit", sha)
+    if not ok:
+        return fail("gh pr merge --auto", err)
+    return dict(rep, ok=True, auto=True, said=f"{st.get('said', 'pushed')}; {pr['url']} auto-merge on",
+                next=f"GitHub merges {pr['url']} when both checks pass on {sha[:12]}; nothing more to do")
 
 
 def pushed_report(repo, base, before, mandate_why=""):
@@ -360,6 +432,10 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune",
                                        "gh-release", "release-ready", *TRAIN, *PROOF])
     ap.add_argument("--tag", dest="push_tag", help="push: this NEW tag (never moved) instead of the branch")
+    ap.add_argument("--auto", action="store_true",
+                    help="push: after the push open the PR if none, enable GitHub auto-merge, exit (branches only)")
+    ap.add_argument("--title", default="", help="push --auto: the new PR's title (else --fill)")
+    ap.add_argument("--body-file", default="", help="push --auto: the new PR's body file (else --fill)")
     ap.add_argument("--message-file", help="commit: the commit message file")
     ap.add_argument("tag", nargs="?", help="release: vX.Y.Z")
     ap.add_argument("--offline", action="store_true", help="audit: git only, no network")
@@ -379,6 +455,8 @@ def main(argv=None, prog="fieldkit ship"):
         r = tagguard.check(a.repo, a.tag, dry_run=True)
         emit(r, a.json, tagguard.lines)
         return 0 if r["ok"] else 3
+    if (a.auto or a.title or a.body_file) and (a.action != "push" or a.push_tag or not a.auto):
+        ap.error("--auto (with --title, --body-file) is for `ship push` of a branch, not with --tag or another action")
     if a.action == "gh-release" or (a.action == "push" and a.push_tag):
         if a.action == "gh-release" and not a.tag:
             ap.error("gh-release needs a tag: fieldkit ship gh-release vX.Y.Z -- --title ... --notes-file F FILES")
@@ -407,6 +485,11 @@ def main(argv=None, prog="fieldkit ship"):
         emit(r, a.json, lambda d: [f"SHIP {a.action.upper()} {'OK' if d['ok'] else 'NOT OK'}"] + sr.lines(d))
         return 0 if r["ok"] else 3
     try:
+        if a.action == "push" and a.auto:
+            r = auto(a.repo, a.base, a.title, a.body_file)
+            emit(r, a.json, lambda d: [d["said"] if d.get("auto") else f"{d.get('branch', '?')}: {d.get('state')}"]
+                 + ([f"error: {d['error']}"] if d.get("error") else []))
+            return 0 if r.get("ok") else 1 if r.get("gh_failed") else 3
         r = {"status": status, "sync": sync, "push": push, "merge": merge}[a.action](a.repo, a.base)
     except RuntimeError as e:
         r = {"ok": False, "error": str(e), "next": "nothing was pushed"}
