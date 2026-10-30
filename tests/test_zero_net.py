@@ -792,3 +792,63 @@ def test_a_far_checkin_keeps_its_machine_tag_and_status_counts_each_machine(monk
     assert row["tag"] == "[VAIO-LNX]"
     text = "\n".join(net.status_lines(r, now=T0))
     assert "[VAIO-LNX] claude:eeeeeeee@VAIO" in text and "[VAIO-LNX] 1 (1 UP)" in text
+
+
+# ---------------------------------------------------------------- retire: Zero archives only into a new Zero
+# owner 2026-10-30: "we can ALLOW 0 to archive itself AS LONG AS A NEW ZERO with a handover is created"
+
+def _up(station, now):
+    st = net.load_stations()
+    net.renew(st, station, net.load_net(), now)
+    net.save_stations(st)
+
+
+def _arch(sid, target="self"):
+    return {"tool_name": "mcp__ccd_session_mgmt__archive_session", "session_id": sid,
+            "tool_input": {"session_id": target}}
+
+
+def test_retire_refuses_zero_until_handover_new_zero_up_and_handoff_written(tmp_path):
+    import os
+    from fieldkit.zero import retire
+    opened()
+    v = retire.verdict(ZERO, now=T0 + 10)
+    assert not v["ok"] and "hold the Zero seat" in v["reason"]
+    assert retire.verdict(TWO, now=T0 + 10)["ok"]                       # never Zero: free to go
+    net.on_rotate("aaaaaaaa-1", now=T0 + 20)                          # a pending rotation is not a handover
+    assert "rotation is pending" in retire.verdict(ZERO, now=T0 + 30)["reason"]
+    net.handover(ZERO, to=TWO, channels=[FakeChannel()], now=T0 + 40)
+    v = retire.verdict(ZERO, now=T0 + 50)
+    assert not v["ok"] and "not UP" in v["reason"]                     # the new Zero never checked in
+    _up(TWO, T0 + 60)
+    v = retire.verdict(ZERO, now=T0 + 70)
+    assert not v["ok"] and "HANDOFF.md" in v["reason"]                 # no handover file yet
+    f = tmp_path / "HANDOFF.md"
+    f.write_text("old", encoding="utf-8")
+    os.utime(f, (T0 - 3600, T0 - 3600))                               # written before the handover: stale
+    assert "older than the handover" in retire.verdict(ZERO, now=T0 + 80)["reason"]
+    os.utime(f, (T0 + 75, T0 + 75))
+    assert retire.verdict(ZERO, now=T0 + 80)["ok"]
+
+
+def test_retire_guard_on_archive_session(tmp_path):
+    from fieldkit.autopilot import toolrouter
+    from fieldkit.zero import retire
+    opened()
+    z = dict(net.load_net())
+    z["zero"] = dict(z["zero"], host_session="local_zz")
+    net.save_net(z)
+    deny = toolrouter.verdict(_arch("aaaaaaaa-1"))
+    assert deny and "ZERO RETIRE" in deny["hookSpecificOutput"]["permissionDecisionReason"]
+    assert retire.pretool(_arch("bbbbbbbb-2", "local_zz"))               # another session archiving Zero's session
+    assert retire.pretool(_arch("bbbbbbbb-2")) is None                   # a worker archiving itself
+    assert retire.pretool(_arch("aaaaaaaa-1", "local_other")) is None    # Zero archiving some other session
+    assert retire.pretool({"tool_name": "Bash", "session_id": "aaaaaaaa-1", "tool_input": {"command": "ls"}}) is None
+
+
+def test_retire_cli_exit_codes(monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "aaaaaaaa-1")
+    opened()
+    assert net.main(["retire"]) == net.REFUSED and "RETIRE NOT YET" in capsys.readouterr().out
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bbbbbbbb-2")
+    assert net.main(["retire"]) == net.OK

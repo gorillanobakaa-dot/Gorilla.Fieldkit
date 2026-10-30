@@ -22,7 +22,12 @@ def done_protocol(task_id=None, headless=False):
               if task_id else "a Board row in state/coordination/PLAN.md (what was done, what was NOT verified)")
     last = ("exit: the run ends here (nothing stays running)" if headless else
             "archive yourself: Claude desktop `archive_session \"self\"` (turn Remote Control off first with "
-            "`set_remote_control` if it is on: it blocks the archive); any other agent ends its session")
+            "`set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero archives only "
+            "into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and "
+            "the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and "
+            "`fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does). A Zero that opens a PR "
+            "turns the app's auto-archive off for it (`set_monitor auto_archive_on_close false`): the app archives on "
+            "merge, where no hook sees it (2026-10-30 17:17)")
     return ("DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):\n"
             "1. the tests covering your changes pass (the full suite runs once, when the project is finished); commit "
             "on your own branch (never main).\n"
