@@ -5,6 +5,7 @@ The rules for every project are in `rules/CORE.md` (the one source; your global 
 every command and its history, is `docs/AGENTS-REFERENCE.md`: read it only when you need a detail. An agent with no
 global rules file (Gorilla OpenCode) reads `rules/CORE.md` first.
 Where the harness is going: `docs/VISION.md`; the work that gets it there, item by item: `docs/HARNESS-PLAN.md`.
+Where a plan, idea, hand-over or brief is kept, and where a new one goes: `docs/WHERE-THINGS-LIVE.md`.
 
 Fieldkit is a set of deterministic tools. The model decides what to do; Fieldkit does it the same way every time and
 reports the result. Prefer a Fieldkit command to a one-off script for the same job.
