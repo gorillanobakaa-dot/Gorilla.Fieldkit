@@ -210,3 +210,24 @@ def test_the_room_hook_shows_the_ideas_line_then_the_brief_once(root, monkeypatc
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
     monkeypatch.setattr(room, "unseen", lambda sid: [])
     assert "parked ideas - fieldkit ideas review" in room._context({"session_id": "s10"}, "UserPromptSubmit")
+
+
+@pytest.mark.parametrize("text,want", [("1,2 a", ("a", [1, 2])), ("a 1,2", ("a", [1, 2])), ("1 f", ("f", [1])),
+                                       ("f 3", ("f", [3])), ("1, 2  p", ("p", [1, 2])), ("a", ("a", None)),
+                                       ("1,3", ("pick", [1, 3])), ("", ("p", None)),
+                                       ("4 a", None), ("a 0", None), ("1 x", None), ("a b", None), ("1,2 a f", None)])
+def test_parse_answer(text, want):
+    assert ideas.parse_answer(text, 3) == want
+
+
+def test_review_numbers_and_action_in_one_answer(root, person):
+    _seed(root)
+    res = ideas.review(root, ask=_answers("1,2 a"), say=lambda *_: None, now=NOW)
+    assert [r["id"] for r in res] == ["I-01", "I-02"] and {r["status"] for r in res} == {"accepted"}
+    assert [e["id"] for e in ideas.listing("parked", root)] == ["I-03"]
+
+
+def test_review_bad_answers_are_still_refused(root, person):
+    _seed(root)
+    res = ideas.review(root, ask=_answers(*["9 a"] * 5), say=lambda *_: None, now=NOW)
+    assert res == [] and len(ideas.listing("parked", root)) == 3

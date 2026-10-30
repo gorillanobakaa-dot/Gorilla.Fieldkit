@@ -2334,6 +2334,68 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_evidence.py"]
 
+- id: web-browsers
+  title: "Every browser installed on this computer (registry, .desktop files, app bundles, the Gorilla Firefox tree): version, engine and the stdlib method that drives it"
+  harness: research
+  entry: [python, -m, fieldkit, web, browsers]
+  path: ${FIELDKIT}/fieldkit/web/discover.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: first-party
+  exits: {3: findings}
+  answer_lines: 15
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
+
+- id: web-fetch
+  title: "A web page as text: the HTTP reader first, an installed headless browser (Chromium family dump-dom, Firefox 129+ over WebDriver BiDi, Safari) only when blocked or empty; throwaway profile, vendor channels off, nothing installed"
+  harness: research
+  entry: [python, -m, fieldkit, web, fetch]
+  path: ${FIELDKIT}/fieldkit/web/cli.py
+  inputs:
+    - {name: url, flag: null, type: str, required: true, help: "an http(s) URL"}
+    - {name: browser, flag: --browser, type: str, required: false, help: "auto (default) or part of a browser name: edge, chrome, firefox, gorilla, safari"}
+    - {name: engine, flag: --engine, type: str, required: false, help: "chromium, gecko or webkit"}
+    - {name: timeout, flag: --timeout, type: str, required: false, help: "seconds"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {1: error, 3: findings}
+  answer_lines: 30
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
+
+- id: web-search
+  title: "A web search through the engines Gorilla OpenCode uses (Brave, Ecosia, Mojeek, Marginalia): plain HTTP, an installed browser when blocked; results as title, url, snippet"
+  harness: research
+  entry: [python, -m, fieldkit, web, search]
+  path: ${FIELDKIT}/fieldkit/web/search.py
+  inputs:
+    - {name: query, flag: null, type: str, required: true, help: "the search words"}
+    - {name: engine, flag: --engine, type: str, required: false, help: "brave, ecosia, mojeek or marginalia"}
+  effects: [network, writes-files]
+  safety: reversible
+  output: third-party
+  exits: {2: bad usage, 3: findings}
+  answer_lines: 30
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
+
+- id: web-doctor
+  title: "Which installed browsers cannot be driven and the one step that would fix each (asks, never installs or changes anything)"
+  harness: research
+  entry: [python, -m, fieldkit, web, doctor]
+  path: ${FIELDKIT}/fieldkit/web/doctor.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: first-party
+  exits: {3: findings}
+  answer_lines: 20
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
+
 - id: evidence-import
   title: "A research run's findings file as records: one per lane, one per claim (tier or grade, URLs, quote)"
   harness: research
