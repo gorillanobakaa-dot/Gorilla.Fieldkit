@@ -202,6 +202,8 @@ actions: []
 
 def new(spec, force=False):
     """Create a goal from a spec dict. -> goal dir. Refuses an existing goal unless force."""
+    from ..method import suitegate
+    spec, warns = suitegate.mark_goal(spec)
     problems = validate(spec)
     if problems:
         raise ValueError("; ".join(problems))
@@ -221,6 +223,8 @@ def new(spec, force=False):
         st["jobs"][j["id"]] = {"spec": j, "status": "queued", "from": "seed"}
     save_state(spec["id"], st)
     event(spec["id"], f"goal created: {spec['objective'][:120]}")
+    for w in warns:
+        event(spec["id"], "WARNING " + w)
     return d
 
 
@@ -437,6 +441,9 @@ def agent_check(c, goal, claude, cwd):
               "trust any claim of the people who did. Check by reading files, logs and running read-only commands. "
               f"Do not change anything.\n\nQuestion: {c['question']}\n\nEnd with one line: `VERDICT: PASS <evidence>` "
               "or `VERDICT: FAIL <what is missing>`.")
+    from ..method import suitegate
+    if suitegate.asks_full_suite(c.get("question")) and not suitegate.full_suite_allowed():
+        prompt += "\n\n" + suitegate.CI_NOTE
     r = claude(prompt, cwd=cwd, max_turns=VERIFIER_BUDGET["turns"], timeout=VERIFIER_BUDGET["wall_minutes"] * 60)
     res = r.get("result") if isinstance(r.get("result"), dict) else {}
     text = str(res.get("result", "") or r.get("stdout", ""))
@@ -479,6 +486,10 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
                 if r.get("usd"):
                     st["spend"].append({"t": time.time(), "usd": float(r["usd"]), "who": f"verifier {c['id']}"})
         else:
+            from ..method import suitegate
+            c, warn = suitegate.mark(c, base=goal.get("base") or suitegate.DEFAULT_BASE)
+            if warn:
+                event(gid, "verify " + warn)
             cid = c.get("id") or c.get("run", "")[:60]
             _progress(f"verify {cid}")
             r = run_check(c, goal.get("cwd"), run=run, hist=history(gid, cid))
@@ -557,7 +568,8 @@ Shape: {{"signal": "execute" | "done" | "blocked" | "ask", "why": "...",
  "questions": [{{"id": "q-id", "title": "...", "why": "...", "category": "short word", "default": "what you would do",
    "options": ["..."]}}]}}
 Rules: keep ids of unfinished jobs stable (a job already verified is never re-run); one job = one bounded piece with
-its own verify commands; jobs that touch the same paths are ordered with needs; up to {max_workers(goal)} jobs whose
+its own verify commands; never a whole suite in verify (`go test ./...`, `cargo test` on a workspace, `pytest` with no
+paths): name the touched packages, the full suite is CI's; jobs that touch the same paths are ordered with needs; up to {max_workers(goal)} jobs whose
 touches are disjoint run AT THE SAME TIME, so list every path a job changes (a job with no touches runs alone); a job that failed or was paused gets a
 better brief (say what the gap is) or is split, never repeated blindly. Ask a question ONLY for a decision listed as
 the owner's, and always give a default and a category; plan every job that does not depend on the answer. Say "done"
