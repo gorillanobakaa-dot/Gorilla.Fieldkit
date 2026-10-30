@@ -118,7 +118,7 @@ def review(task, result, accept=None, failures=0, claude=None, cwd=None, run=sub
         from ..autopilot.run import claude
     r = d["reviewer"]
     out = claude(reviewer_prompt(task, result, text, d), cwd=cwd, max_turns=int(r["turns"]),
-                 timeout=float(r["wall_minutes"]) * 60, model=r["model"])
+                 timeout=float(r["wall_minutes"]) * 60, model=r["model"], role="reviewer")
     res = out.get("result") if isinstance(out.get("result"), dict) else {}
     kind, why = parse(str(res.get("result", "") or out.get("stdout", "")))
     v = decide(ok, kind, why, failures, d)
@@ -145,7 +145,7 @@ def fix_itself(task, result, why, accept=None, cwd=None, claude=None, run=subpro
     out = claude(f"The worker failed this task twice. Fix it yourself, in the working tree, then stop.\n\nTASK:\n"
                  f"{str(task)[:int(r['max_task_chars'])]}\n\nLAST RESULT:\n{str(result)[-int(r['max_result_chars']):]}\n\n"
                  f"WHAT IS WRONG:\n{why}\n", cwd=cwd, max_turns=int(r["turns"]) * 4,
-                 timeout=float(r["wall_minutes"]) * 60 * 2, model=r["model"])
+                 timeout=float(r["wall_minutes"]) * 60 * 2, model=r["model"], role="reviewer")
     res = out.get("result") if isinstance(out.get("result"), dict) else {}
     ok, text = check() if check else run_acceptance(accept, cwd, run=run, timeout=d["verdict"].get("accept_timeout_s"))
     kind = "pass" if ok else "fix_itself"

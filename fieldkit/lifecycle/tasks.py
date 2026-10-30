@@ -144,6 +144,8 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     tid = task_id(text, now)
     from . import roles
     model = roles.worker_model(model, allow_expensive=allow_expensive)
+    from . import models
+    model = models.require(model, "worker", "task start" + (f" --on {on}" if on else ""))   # a hard refusal, logged
     from ..peers import machine
     title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))
     h = brief_hash(text)
