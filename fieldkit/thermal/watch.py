@@ -4,7 +4,8 @@ Crash 2026-10-27 ~17:10: the only governors were per command (`fieldkit guard`),
 hook outside the guard heated the laptop with nothing braking, and between commands the cap went back to 100%. The
 fan window said it in words ("also run fieldkit thermal watch --target 67"); nothing started it.
 
-One per computer (the lease in state/thermal/machine-governor.json). It owns PROCTHROTTLEMAX: the cap comes down above
+2026-10-28: WATCH ONLY. It no longer writes PROCTHROTTLEMAX (owner, after three cutoffs in 28 h); it logs
+readings and events. Before: one per computer (the lease in state/thermal/machine-governor.json). It owned PROCTHROTTLEMAX: the cap comes down above
 target + 3 on the proven sensor, and while a guarded job holds (brake.holds) the ceiling is buildrun.SURFACE_CAP when
 that sensor is only a surface reading. It never exits on its own: past the kill line it holds the floor and keeps
 watching. Events go to state/thermal/watch-YYYY-MM-DD.log (pythonw has no console).
@@ -47,10 +48,10 @@ def forever(target=None, say=None, sensor=None, ticks=None, sleep=time.sleep, fo
         (fn, surface), name = sensor, "test"
     ceiling = (lambda: buildrun.SURFACE_CAP if brake.holds(folder) else 100) if surface else None
     gov = gv.Governor(fn, target_c=target, interval=3.0, kill=None, on_event=say, ceiling=ceiling,
-                      persistent=True, dead_check=not surface, set_cap=gv.set_cap, read_cap=gv.read_cap)
+                      persistent=True, dead_check=not surface,
+                      set_cap=lambda pct: True, read_cap=lambda: 100)    # 2026-10-28: watch only, no powercfg
     brake.lease_write(folder)
-    say(f"thermal watch: machine governor on {name}, cap comes down above {target + 3:.0f} C"
-        + (f"; ceiling {buildrun.SURFACE_CAP}% while a guarded job runs (surface sensor)" if surface else ""))
+    say(f"thermal watch: watching {name} (target {target:.0f} C); the power plan is never changed")
     gov.start()
     n = 0
     try:

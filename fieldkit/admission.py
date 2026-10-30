@@ -246,10 +246,12 @@ def admitted(kind="other", label="", wait=None, root=None, say=lambda s: print(s
 
 
 def run(cmd, kind="other", label="", wait=None, root=None, call=subprocess.call, cwd=None):
-    """-> CMD's exit code, run inside one slot; 75 (EX_TEMPFAIL) when `wait` ran out with no slot."""
+    """-> CMD's exit code, run inside one slot; 75 (EX_TEMPFAIL) when `wait` ran out with no slot. CMD gets this
+    process's standard handles explicitly (core/proc.std_handles: under pythonw it would get none and die silent)."""
+    from .core.proc import std_handles
     try:
         with admitted(kind, label or " ".join(cmd)[:80], wait, root):
-            return call(cmd, cwd=cwd) if cwd else call(cmd)
+            return call(cmd, cwd=cwd, **std_handles()) if cwd else call(cmd, **std_handles())
     except TimeoutError as e:
         print(f"ADMISSION  NOT RUN: {e}; nothing was started")
         return 75

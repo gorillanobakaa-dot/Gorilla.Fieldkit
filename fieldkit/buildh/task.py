@@ -38,7 +38,7 @@ from pathlib import Path
 
 from ..core import settings
 
-STATE = settings.ROOT / "state" / "build-harness"
+STATE = settings.state_root() / "state" / "build-harness"
 CHARS_PER_TOKEN = 4                     # a deliberate over-estimate for code, so packets never overflow
 PACKET_SHARE = 0.4                      # at most 40% of the context window goes to one packet
 

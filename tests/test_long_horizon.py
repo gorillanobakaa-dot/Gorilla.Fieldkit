@@ -876,3 +876,11 @@ def test_publish_pushes_a_new_branch_with_upstream_and_checks_its_own_commits(tm
     subprocess.run(["git", "-C", str(r), "switch", "-q", "main"], check=True)
     subprocess.run(["git", "-C", str(r), "branch", "--unset-upstream"], capture_output=True)
     assert "never a new main" in " ".join(inbox.publish_plan(r)["blockers"])
+
+
+def test_no_job_runs_without_a_dollar_cap():
+    # I3 (docs/HARNESS-PLAN.md): a budget that names no cap still has one; a job can only lower or raise it
+    from fieldkit.autopilot import budget as bud
+    assert bud.merge()["cost_usd"] == 25.0
+    assert bud.merge({"cost_usd": None})["cost_usd"] == 25.0
+    assert bud.merge({"cost_usd": 5})["cost_usd"] == 5

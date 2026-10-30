@@ -1,0 +1,59 @@
+# Version: 1.0.0 · updated 26-10-28-19-15
+# Gorilla HDMI Harness (repository Gorilla.HDMI.Harness): a Windows Python program that connects a laptop to an HDMI
+# TV. Nothing is compiled or packaged; the folder is the product (START - Connect TV.bat installs it). Keyed by what
+# they read:
+#   iterate  -> every module compiles, pyflakes, the offline tests (no TV, no GPU), a telemetry scan
+# The tests and pyflakes run on Windows only: the code calls Windows APIs (ctypes.windll, winrt, pywin32) and its
+# requirements.txt installs those on Windows only; on Linux they report not-this-platform. Its dependencies are
+# installed by its own bootstrap.ps1 into the venv named by --var py=PATH (default: python on PATH).
+# Not a stage: the hardware tests (hwtests.py) and Connect TV itself (they need the TV on the cable).
+name: gorilla-hdmi-harness
+description: >-
+  Gorilla HDMI Harness from its tree: every module compiles and a telemetry scan everywhere; pyflakes and the offline
+  tests on Windows.
+baseline_minutes: 2
+vars:
+  src: "${DOCUMENTS}/Gorilla.HDMI.Harness"
+  py: python3                       # Windows: --var py=PATH-to-the-harness-venv-python.exe
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: Gorilla.HDMI.Harness
+  files: ["{src}/requirements.txt", "{src}/pytest.ini"]
+toolchain:
+  - ["{py}", --version]
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: compile
+    run: {cmd: ["{py}", -I, -m, compileall, -q, "{src}/hdmiharness", "{src}/hdmi.py", "{src}/tools"], cwd: "{src}"}
+    timeout: 120
+    inputs: ["{src}/hdmiharness/**/*.py", "{src}/hdmi.py", "{src}/tools/*.py"]
+    uses: [toolchain, inputs]
+    needs: []
+    bucket: tests
+
+  - id: lint
+    platforms: [windows]
+    run: {cmd: ["{py}", -m, pyflakes, "{src}/hdmiharness", "{src}/hdmi.py", "{src}/tests"], cwd: "{src}"}
+    timeout: 300
+    inputs: ["{src}/hdmiharness/**/*.py", "{src}/hdmi.py", "{src}/tests/*.py"]
+    uses: [config, toolchain, inputs]
+    needs: [compile]
+    bucket: tests
+
+  - id: test
+    platforms: [windows]
+    run: {cmd: ["{py}", -m, pytest], cwd: "{src}"}
+    timeout: 900
+    inputs: ["{src}/hdmiharness/**/*", "{src}/hdmi.py", "{src}/tests/**/*", "{src}/pytest.ini"]
+    uses: [config, toolchain, inputs]
+    needs: [compile]
+    bucket: tests

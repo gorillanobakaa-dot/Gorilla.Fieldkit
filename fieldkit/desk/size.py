@@ -31,7 +31,7 @@ def source_dir():
 
 
 def bin_dir():
-    return settings.ROOT / "state" / "bin"
+    return settings.state_root() / "state" / "bin"
 
 
 def locate():
@@ -152,7 +152,10 @@ def main(argv, prog="fieldkit size"):
                 return 0
         print(f"{prog}: gorilla-size is not built here. Run: fieldkit size doctor --install", file=sys.stderr)
         return 2
-    return subprocess.run([str(exe), *argv]).returncode
+    # pass the streams explicitly: a console-less parent (a tool's pipe) starts the child with CREATE_NO_WINDOW and, with no
+    # handle named, the child's output went nowhere (2026-10-30: `fieldkit size --help` printed nothing there)
+    sys.stdout.flush()
+    return subprocess.run([str(exe), *argv], stdout=sys.stdout, stderr=sys.stderr).returncode
 
 
 HELP_DIR = Path(__file__).resolve().parent / "size_help"

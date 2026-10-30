@@ -20,6 +20,9 @@ platforms read it. A skill is prose a model may skip; this tool runs the same ev
     fieldkit skills vendor UPSTREAM_DIR [--apply]
         rebuild third_party/anthropic-skills/ from an extracted upstream tree at the pinned commit: the listed skills
         only, the manifest's strips applied, CHANGES.md written; then the doors check must pass
+    fieldkit skills sets [--apply]
+        a skill set per project (fieldkit/skills/skillsets.yaml) written into Claude Code's skillOverrides, plus the
+        user settings this machine never uses (fieldkit/skills/sets.py)
     fieldkit skills package | benchmark | eval ...
         the adopted skill-creator's scripts as commands (fieldkit/skills/adopted.py)
 
@@ -134,19 +137,12 @@ def cmd_installed(a):
     else:
         for t, n, s in rows:
             print(f"{s:<9} {t / n}")
-    return 1 if any(s in ("missing", "outdated") for _, _, s in rows) else 0
+    return 1 if any(s in ("missing", "outdated", "off-os") for _, _, s in rows) else 0
 
 
 def _card_platforms():
     """skill folder name -> sorted platforms, from every tool card whose skill: points at it."""
-    out = {}
-    for f in [ROOT / "fieldkit" / "desk" / "tools.yaml", ROOT / "local" / "tools.yaml"]:
-        if not f.is_file():
-            continue
-        data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-        for card in (data.get("tools") or []) if isinstance(data, dict) else data:
-            if isinstance(card, dict) and card.get("skill") and card.get("platforms"):
-                out.setdefault(Path(card["skill"]).parent.name, set()).update(card["platforms"])
+    out = _installer().card_platforms()
     order = list(PLATFORM)
     return {k: sorted(v, key=lambda p: (order.index(p) if p in order else len(order), p)) for k, v in out.items()}
 
@@ -306,6 +302,9 @@ def main(argv=None):
     if argv[:1] and argv[0] in PASS_THROUGH:      # the adopted skill-creator scripts parse their own arguments
         from . import adopted
         return getattr(adopted, PASS_THROUGH[argv[0]])(argv[1:])
+    if argv[:1] == ["sets"]:                       # a skill set per project, as data (O1)
+        from . import sets
+        return sets.main(argv[1:])
     try:
         a = build_parser().parse_args(argv)
     except SystemExit as e:

@@ -208,3 +208,11 @@ def test_call_sites_are_guarded(monkeypatch, tmp_path):
     hook = (Path(__file__).resolve().parents[1] / "hooks" / "pre-commit").read_text(encoding="utf-8")
     assert '-m fieldkit.core.preflight --label pre-commit --kind test -- "$@"' in hook
     assert '! guarded "$PY" -m pytest' in hook
+
+
+def test_a_step_module_s_prime_runs_before_its_checks(fake_steps):
+    order = []
+    fake_steps.preflight_prime = lambda: order.append("prime")
+    fake_steps.ok = lambda ctx: order.append("check") or ("ok", "fine")
+    preflight.run("x", "build", say=lambda s: None, steps=["fake_steps:ok"])
+    assert order == ["prime", "check"]

@@ -734,13 +734,13 @@ def run(a, emit):
         # pref-bisect TASK: which of our graphics pref changes costs dropped frames, by halving (isolated, measured)
         from ..build import prefbisect
         t = task.load(tid)
-        r = prefbisect.run(t["workdir"], _settings.ROOT / "state" / "decode-test")
+        r = prefbisect.run(t["workdir"], _settings.state_root() / "state" / "decode-test")
         emit(r, lambda r: print(r["detail"]))
         return 0 if r["ok"] else 3
     if act == "decode-test":
         # decode-test TASK: does the INSTALLED browser decode video on the GPU's video engine (D-158-06)?
         from ..build import decode_test
-        r = decode_test.run(_settings.ROOT / "state" / "decode-test")
+        r = decode_test.run(_settings.state_root() / "state" / "decode-test")
         emit(r, lambda r: print(r["detail"]))
         return 0 if r["ok"] else 3
     if act == "loss-audit":
@@ -1093,7 +1093,7 @@ def run(a, emit):
         from ..leakgate import scope as lsc
         from ..core import settings as _st
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
-        r = lsc.run(task.load(tid)["workdir"], _st.ROOT / "state" / "leakgate-launcher", tid,
+        r = lsc.run(task.load(tid)["workdir"], _st.state_root() / "state" / "leakgate-launcher", tid,
                     task.STATE / tid / "builds.jsonl", from_tree=opts.get("from"))
         lp = r.get("last_pass") or {}
         print(f"  last passed gate: {lp.get('run', '(none)')} on build {lp.get('build_id')} (tree {str(r['from'])[:12]})")
@@ -1189,9 +1189,9 @@ def run(a, emit):
         from ..leakgate import runs as lruns
         from ..core import settings as _st
         from .ownercheck import _owner_root
-        tdir = _st.ROOT / "state" / "build-harness" / "leakgate" / tid
+        tdir = _st.state_root() / "state" / "build-harness" / "leakgate" / tid
         owner = _owner_root(task.load(tid))
-        rows = lruns.runs(tdir, owner, extra_roots=[_st.ROOT / "state" / "build-harness" / tid])
+        rows = lruns.runs(tdir, owner, extra_roots=[_st.state_root() / "state" / "build-harness" / tid])
         if a.json:
             print(json.dumps(rows, indent=1))
         else:
@@ -1204,7 +1204,7 @@ def run(a, emit):
         from ..leakgate import summary as lsum
         from ..core import settings as _st
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
-        logs = sorted((_st.ROOT / "state" / "leakgate-launcher").glob(f"{tid}-*.log"))
+        logs = sorted((_st.state_root() / "state" / "leakgate-launcher").glob(f"{tid}-*.log"))
         # 2026-10-19: the page describes the RELEASE run behind state/leakgate_result.json, with its (re-judged) verdict;
         # the newest log was a newtab-only re-run, and the page said "1 scenes ... FAIL"
         from . import buildrun as _br
@@ -1879,7 +1879,7 @@ def run(a, emit):
         from ..core import settings
         t = task.load(tid)
         since = int(time.mktime(time.strptime(t["created"], "%Y-%m-%d %H:%M:%S")))
-        mcp_logs = sorted((settings.ROOT / "state" / "recorder").glob("mcp-*.jsonl"))
+        mcp_logs = sorted((settings.state_root() / "state" / "recorder").glob("mcp-*.jsonl"))
 
         def findings():
             sid, sess = recorder.session_events(a.session, since=since)

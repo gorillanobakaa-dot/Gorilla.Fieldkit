@@ -111,23 +111,14 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
         fn, surface = sensor, False
     csv_path = Path(csv_dir) / f"thermal-{label}-{time.strftime('%Y%m%d-%H%M%S')}.csv" if csv_dir else None
     target = gv.build_target()
-    # 2026-10-27 (crash ~17:10): the surface ceiling was printed and never applied; turbo stayed on; a governor per
-    # command fought nothing outside the guard. Now: a hold (turbo off while any guarded job runs), and the cap is the
-    # machine governor's when `fieldkit thermal watch --forever` runs (it lowers to SURFACE_CAP while a hold lives);
-    # otherwise this governor applies the ceiling itself.
+    # 2026-10-28 (three cutoffs in 28 h, 439/408 powercfg resets a day): this governor watches only. It never
+    # writes PROCTHROTTLEMAX; past the kill line it stops the job's children. Heavy work goes to the VAIO.
     with brake.hold(label, say=say):
-        if brake.machine_alive():
-            say(f"  governor: the machine governor holds the cap (target {target:.0f} C"
-                + (f", ceiling {buildrun.SURFACE_CAP}% while this job runs)" if surface else ")")
-                + "; this one only watches for the kill line")
-            gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(),
-                              on_event=lambda m: None if "thermal: cap" in m else say(m), csv_path=csv_path,
-                              set_cap=lambda pct: True, read_cap=lambda: 100, dead_check=not surface)
-        else:
-            say(f"  governor: CPU cap comes down above {target + 3:.0f} C (thermal.build_target {target:.0f})")
-            gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(), on_event=say,
-                              csv_path=csv_path, max_cap=buildrun.SURFACE_CAP if surface else None,
-                              dead_check=not surface, set_cap=gv.set_cap, read_cap=gv.read_cap)
+        say(f"  governor: watch only (target {target:.0f} C); past the kill line the job is stopped; the power plan is "
+            "never changed")
+        gov = gv.Governor(fn, target_c=target, interval=3.0, kill=lambda why: kill_children(),
+                          on_event=lambda m: None if "thermal: cap" in m else say(m), csv_path=csv_path,
+                          set_cap=lambda pct: True, read_cap=lambda: 100, dead_check=not surface)
         gov.start()
         if rg is not None:
             rg.governor = gov                             # the end line counts the seconds the cap was under 100%
@@ -139,11 +130,40 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
             say(f"  governor stopped: peak {gov.peak} C" + (f"; {gov.verdict}" if gov.verdict else ""))
 
 
-def run(cmd, cwd=None, say=print, check_fan=True):
-    """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused)."""
+#: a file the guard writes its own lines to instead of stderr (the link worker sets it for a run job, so the job's
+#: log holds the command's output alone and its evidence keeps the pytest summary ahead of the guard's report)
+GUARD_LOG = "FIELDKIT_GUARD_LOG"
+
+
+def _err(line):
+    print(line, file=sys.stderr, flush=True)
+
+
+def _sayer(env=None):
+    path = (os.environ if env is None else env).get(GUARD_LOG)
+    if not path:
+        return _err
+
+    def say(line):
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            _err(line)
+    return say
+
+
+def run(cmd, cwd=None, say=None, check_fan=True):
+    """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused). The guard's own lines go to
+    stderr: stdout is CMD's alone (2026-10-28, R4: `guard -- token-audit --json` gave invalid JSON); to the file
+    FIELDKIT_GUARD_LOG names when it is set (not passed on to CMD). CMD gets the guard's standard handles explicitly
+    (core/proc.std_handles: under pythonw.exe it got none, and its output was lost)."""
+    from ..core.proc import std_handles
+    say = say or _sayer()
     try:
         with guard(say, label=Path(cmd[0]).stem, check_fan=check_fan) as gov:
-            rc = subprocess.run(cmd, cwd=cwd).returncode
+            env = {k: v for k, v in os.environ.items() if k != GUARD_LOG}
+            rc = subprocess.run(cmd, cwd=cwd, env=env, **std_handles()).returncode
             if gov is not None and gov.verdict:
                 say(f"  STOPPED by the governor: {gov.verdict}")
                 return rc or 3

@@ -15,6 +15,12 @@ standard gets the same set. Three sources:
     local/skills/                   private skills (the owner's own machines and procedures); git ignores local/
     third_party/anthropic-skills/   adopted third-party skills, only those with `install: true` in its ADOPTION.yaml
 
+A skill goes only to a machine whose OS is in its platforms: the union of the platforms of every tool card whose
+`skill:` points at it (fieldkit/desk/tools.yaml, local/tools.yaml); a skill no card points at goes everywhere. One
+installed here before, now off this OS, goes to the recycle bin through `fieldkit size recycle` (never a permanent
+delete; when the recycle fails the folder stays and is reported). Owner plan O1: every installed skill's description
+is sent on every call, so a Windows-only skill on Linux is paid for and never used.
+
 Only folders named fieldkit-* or gorilla-*, or a third-party name this script installed before (listed in the
 target's .fieldkit-skills.json receipt), are ever written or removed; a third-party name already taken by someone
 else's folder is reported as "foreign" and left alone. A copy is updated only when its content differs, so running
@@ -24,6 +30,8 @@ import argparse
 import filecmp
 import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -31,6 +39,7 @@ SRC = ROOT / "skills"
 LOCAL_SRC = ROOT / "local" / "skills"
 THIRD = ROOT / "third_party" / "anthropic-skills"
 HOME = Path.home()
+CARDS = [ROOT / "fieldkit" / "desk" / "tools.yaml", ROOT / "local" / "tools.yaml"]
 TARGETS = [HOME / ".claude" / "skills", HOME / ".agents" / "skills", HOME / ".gemini" / "skills"]
 RECEIPT = ".fieldkit-skills.json"
 OWN = ("fieldkit-", "gorilla-")
@@ -64,6 +73,42 @@ def _adoption():
     return (yaml.safe_load(man.read_text(encoding="utf-8")) or {}).get("skills") or {}
 
 
+def card_platforms():
+    """skill folder name -> set of platforms, from every tool card whose skill: points at it."""
+    import yaml
+    out = {}
+    for f in CARDS:
+        if not f.is_file():
+            continue
+        data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        for card in (data.get("tools") or []) if isinstance(data, dict) else data:
+            if isinstance(card, dict) and card.get("skill") and card.get("platforms"):
+                out.setdefault(Path(card["skill"]).parent.name, set()).update(card["platforms"])
+    return out
+
+
+def this_os(plat=None):
+    """sys.platform in the cards' words: windows, linux, darwin, freebsd."""
+    plat = plat or sys.platform
+    return "windows" if plat.startswith("win") else "freebsd" if plat.startswith("freebsd") else plat
+
+
+def fits(s, plats):
+    """True when skill folder s belongs on this OS (no card names it: every OS)."""
+    return not plats.get(s.name) or this_os() in plats[s.name]
+
+
+def recycle(path):
+    """-> (ok, why): the folder to the recycle bin through gorilla-size, never a permanent delete."""
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "size", "recycle", str(path), "--whole-folder", "--json"],
+                       cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    try:
+        acts = json.loads(r.stdout).get("actions") or []
+    except ValueError:
+        return False, (r.stderr or r.stdout).strip()[:200] or f"exit {r.returncode}"
+    return bool(r.returncode == 0 and acts and all(a.get("ok") for a in acts)), (acts[0].get("why", "") if acts else "")
+
+
 def third_party():
     """Third-party skill folders marked install: true in ADOPTION.yaml (none when the manifest is absent)."""
     return [THIRD / "skills" / n for n, v in _adoption().items()
@@ -77,10 +122,24 @@ def wanted(t, s):
     return t.parent.name not in skip
 
 
-def sources():
+def all_sources():
     own = [p for src in (SRC, LOCAL_SRC) if src.is_dir() for p in src.iterdir()
            if p.is_dir() and p.name.startswith(OWN)]
     return sorted(own, key=lambda p: p.name), sorted(third_party(), key=lambda p: p.name)
+
+
+def sources():
+    """The skills for this OS: (own, third-party)."""
+    own, third = all_sources()
+    plats = card_platforms()
+    return [s for s in own if fits(s, plats)], [s for s in third if fits(s, plats)]
+
+
+def off_os():
+    """Skill folders whose cards keep them off this OS."""
+    own, third = all_sources()
+    plats = card_platforms()
+    return [s for s in own + third if not fits(s, plats)]
 
 
 def _receipt(t):
@@ -98,13 +157,18 @@ def _write_receipt(t, names):
 
 
 def status():
-    """[(target, name, state)] with state current | outdated | missing | foreign | orphan, changing nothing.
-    orphan: a fieldkit-*/gorilla-* folder, or a receipt name, installed here with no source any more."""
+    """[(target, name, state)] with state current | outdated | missing | foreign | orphan | off-os, changing nothing.
+    orphan: a fieldkit-*/gorilla-* folder, or a receipt name, installed here with no source any more.
+    off-os: installed here, but its cards keep it off this OS (the next install recycles it)."""
     own, third = sources()
-    names = {s.name for s in own + third}
+    off = {s.name for s in off_os()}
+    names = {s.name for s in own + third} | off
     rows = []
     for t in targets():
         mine = _receipt(t)
+        for n in sorted(off):
+            if (t / n).is_dir() and (n.startswith(OWN) or n in mine):
+                rows.append((t, n, "off-os"))
         for s in own + third:
             dest = t / s.name
             if not wanted(t, s):
@@ -132,12 +196,13 @@ def main(argv=None):
         rows = status()
         for t, name, state in rows:
             print(f"{state:<9} {t / name}")
-        return 1 if any(s in ("outdated", "missing") for _, _, s in rows) else 0
+        return 1 if any(s in ("outdated", "missing", "off-os") for _, _, s in rows) else 0
     own, third = sources()
+    off = off_os()
     for t in targets():
         mine = _receipt(t)
         if a.remove:
-            for s in own:
+            for s in all_sources()[0]:
                 if (t / s.name).is_dir():
                     shutil.rmtree(t / s.name)
                     print(f"removed   {t / s.name}")
@@ -147,6 +212,13 @@ def main(argv=None):
                     print(f"removed   {t / n}")
             _write_receipt(t, set())
             continue
+        for s in off:                     # a copy from before, its cards now keep it off this OS
+            dest = t / s.name
+            if dest.is_dir() and (s.name.startswith(OWN) or s.name in mine):
+                ok, why = recycle(dest)
+                print(f"recycled  {dest} (not for {this_os()})" if ok else f"kept      {dest} (recycle failed: {why})")
+                if ok:
+                    mine.discard(s.name)
         third_here = [s for s in third if wanted(t, s)]
         for s in own + third_here:
             dest = t / s.name

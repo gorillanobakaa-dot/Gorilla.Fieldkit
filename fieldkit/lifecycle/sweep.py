@@ -92,7 +92,7 @@ def classify(sessions, procs, now=None, cfg=None, me=None, keep=(), zero=None):
                    else f"archive_session {s['id']}")
         elif state == "idle":
             fix = "keep until its PR merges (auto-archive on PR close), or ask it why it is idle"
-        rows.append({"id": s["id"], "title": s["title"], "state": state, "why": why, "idle_min": idle,
+        rows.append({"id": s["id"], "cli": s.get("cli") or "", "title": s["title"], "state": state, "why": why, "idle_min": idle,
                      "rss": p.get("rss", 0), "cpu_pct": p.get("cpu_pct"), "pids": p.get("pids", []),
                      "prs": s["prs"], "remote": s["remote"], "fix": fix})
     order = {"finished": 0, "idle": 1, "held": 2, "active": 3}
@@ -102,7 +102,25 @@ def classify(sessions, procs, now=None, cfg=None, me=None, keep=(), zero=None):
 def sweep(interval=1.0, now=None, cfg=None, me=None, keep=(), dirs=None, procs=None, zero=None):
     me = me if me is not None else os.environ.get(desktop.HOST_ENV, "")
     procs = desktop.processes(interval) if procs is None else procs
-    return classify(desktop.sessions(dirs), procs, now, cfg, me, keep, zero)
+    return board_marks(classify(desktop.sessions(dirs), procs, now, cfg, me, keep, zero))
+
+
+def board_marks(rows, plan=None, transcript=desktop.transcript, measure=None):
+    """Plan R3: each finished row gets "board": "present" | "missing" (its Board row in PLAN.md, by its CLI session's
+    transcript). No PLAN.md here: nothing is marked. In place; -> rows."""
+    from . import board
+    try:
+        table = board.rows_of(plan or board.plan_file())
+    except OSError:
+        return rows
+    if measure is None:
+        from ..tokens import rotate, session_cost as sc
+        measure = lambda p: rotate.measure(sc.ClaudeCode(), p)   # noqa: E731
+    for r in rows:
+        tp = transcript(r.get("cli")) if r["state"] == "finished" else None
+        if tp:
+            r["board"] = "present" if board.has_row(measure(tp), table) else "missing"
+    return rows
 
 
 def totals(rows):

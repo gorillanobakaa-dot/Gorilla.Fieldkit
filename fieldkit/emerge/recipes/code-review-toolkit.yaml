@@ -1,0 +1,39 @@
+# Version: 1.0.0 · updated 26-10-28-19-49
+# code-review-toolkit: a repository of the owner-wide mandate whose tree this recipe has NOT read (on 2026-10-28 it was
+# not on the VAIO under Documents and GitHub did not serve it without credentials, so it is private or gone). Until
+# its tree is read, the recipe holds only what is true of any tree, keyed by what they read:
+#   iterate  -> a telemetry scan of the tree
+#   release  -> the privacy scan of the git tree (nothing personal in what is published)
+# Its build and test stages are added once the tree is read (inventory.yaml: seen name-only).
+name: code-review-toolkit
+description: >-
+  code-review-toolkit from its tree: a telemetry scan; with --mode release the privacy scan of the git tree. The tree
+  has not been read yet: no build or test stage.
+baseline_minutes: 1
+vars:
+  src: "${DOCUMENTS}/code-review-toolkit"
+  fk: "${FIELDKIT}/.venv/bin/python"
+sources:
+  - {id: src, git: "{src}", track: tree}
+config:
+  mandate: code-review-toolkit
+preflight: {disk_gb: 1, ram_gb: 1, path: "{src}"}
+docs_only: {source: src}
+stages:
+  - id: privacy
+    run: {python: "fieldkit.emerge.stages:telemetry_scan", args: {path: "{src}"}}
+    uses: [sources]
+    needs: []
+    privacy: true
+    bucket: tests
+
+  - id: secrets
+    run: {cmd: ["{fk}", -P, -m, fieldkit, privacy, scan, "{src}", --git], cwd: "{src}"}
+    timeout: 300
+    uses: [sources]
+    needs: []
+    tier: release
+    privacy: true
+    fix: false
+    bucket: tests
+

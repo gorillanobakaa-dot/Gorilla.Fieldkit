@@ -201,7 +201,7 @@ def backup_root():
     if env:
         return Path(env)
     from ..core import settings
-    return settings.ROOT / "state" / "office-backups"
+    return settings.state_root() / "state" / "office-backups"
 
 
 def _backup(path):

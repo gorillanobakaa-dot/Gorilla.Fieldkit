@@ -126,7 +126,7 @@ class Pipeline:
             if not ({"cmd", "python"} & set(s["run"])):
                 raise PipelineError(f"{source}: stage {s['id']}: run needs 'cmd' or 'python'")
         self.stages = [_fill(s, self.vars) for s in spec["stages"]]
-        self.state_dir = Path(state_dir or settings.ROOT / "state" / self.name)
+        self.state_dir = Path(state_dir or settings.state_root() / "state" / self.name)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_file = self.state_dir / "state.json"
         self.runner = Runner(self.state_dir, self.state_dir / "logs")

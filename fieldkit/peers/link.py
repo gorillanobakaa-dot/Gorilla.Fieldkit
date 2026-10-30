@@ -70,7 +70,7 @@ DEFAULT_START = {"claude": [sys.executable, "-P", "-m", "fieldkit", "autopilot",
 # 2026-10-22, found on the VAIO by its Claude: --job and --wall-minutes exist only where the long horizon code is
 # (feat/long-horizon); an older `fieldkit autopilot` refused them and the session died at once. Options this
 # computer's autopilot does not offer are dropped (with their value), never passed blind.
-OPTIONAL_START_FLAGS = ("--job", "--wall-minutes")
+OPTIONAL_START_FLAGS = ("--job", "--wall-minutes", "--model")
 START_GRACE = 2.0           # a started process must still be alive this many seconds later to count as started
 # 2026-10-22, found on the VAIO by its Claude: a started session runs with cwd = the approved folder (the main
 # checkout), and `python -m fieldkit` there loaded THAT checkout's code, not the link's, so no fix on this branch
@@ -713,9 +713,16 @@ def startcheck(agent="claude", run_check=None):
 
 
 def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=None, flags_fn=None, sleep=time.sleep,
-                  grace=START_GRACE, check_fn=startcheck):
+                  grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
+    # Cost guard (lifecycle/models.py), first: this listener checks the model against ITS OWN data and mandate. The
+    # sender's word is not read; a premium or unknown model is refused and logged before anything else happens.
+    from ..lifecycle import models
+    chk = models.check_model(model, "worker", f"link from {from_host}")
+    if not chk["ok"]:
+        return False, f"not started: model refused: {chk['why']}"
+    chosen = chk["model"]
     text = (f"--- {FENCE.format(host=from_host)} ---\n{local_peers.sanitize(brief)[:12000]}\n--- end ---\n\n"
             f"Talk back to it with: {PY} peers link send \"...\"   and read its replies with: "
             f"{PY} peers link inbox --wait 600")
@@ -733,12 +740,34 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
         return False, f"not started: precheck failed: {cwhy}"
     jobd = home() / "jobs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{agent}"
     jobd.mkdir(parents=True, exist_ok=True)
-    argv = [a.format(brief=text, cwd=reg["cwd"], job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
+    # 2026-10-28: four jobs from the cable ran in this one checkout and switched branches under each other. Each job
+    # gets its own worktree from origin/main (lifecycle/worktrees.py); the branches it makes are still refs of
+    # reg["cwd"], so the branch return below sees and pushes them, then removes the tree.
+    from ..lifecycle import worktrees
+    try:
+        worktrees.reap(reg["cwd"])
+    except Exception:  # noqa: BLE001  (a tree left behind is only space)
+        pass
+    m = re.search(r"fieldkit-task (T-[\w.-]+)", text)
+    try:
+        wt, wwhy = (worktree or worktrees.make)(reg["cwd"], m.group(1) if m else jobd.name)
+    except worktrees.Refused as e:
+        return False, f"not started: no worktree of its own ({e}); job {jobd}"
+    work = str(wt or reg["cwd"])
+    argv = [a.format(brief=text, cwd=work, job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
+    env = link_env()
+    if agent == "claude":
+        env["ANTHROPIC_MODEL"] = chosen                # an env or settings model cannot slip past the check
     if tmpl is DEFAULT_START.get(agent):
+        if agent == "claude":                          # the worker's model (I5); none sent = the cheap default
+            argv += ["--model", chosen]
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
+    from . import link_return
+    before = link_return.heads(reg["cwd"])           # what the run makes or moves is pushed when it ends
     log = open(jobd / "session.log", "a", encoding="utf-8")
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)) if os.name == "nt" else 0
-    p = popen(argv, cwd=reg["cwd"], stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=link_env())
+    p = popen(argv, cwd=work, stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=env)
+    worktrees.own(wt, p.pid, jobd.name)
     # "started" only for a process that is still alive after a moment (2026-10-22: one died on its arguments at
     # once and the caller was told it ran)
     sleep(grace)
@@ -747,7 +776,10 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
         log.flush()
         tail = (jobd / "session.log").read_text(encoding="utf-8", errors="replace")[-600:].strip()
         return False, f"died at start (exit {rc}, PID {p.pid}, job {jobd}): {tail}"
-    return True, f"started {agent} (PID {p.pid}, job {jobd}; alive after {grace:g} s)"
+    # 2026-10-28: the run cannot push (no credential, the hard line), so its branch stayed here; the listener pushes it
+    (follow or link_return.follow)(p, reg["cwd"], before, jobd, text)
+    return True, (f"started {agent} (PID {p.pid}, job {jobd}; alive after {grace:g} s; its branch comes home at the "
+                  f"end; {wwhy})")
 
 
 # ---- files over the cable (put) -----------------------------------------------------------------------------------
@@ -951,17 +983,23 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         from ..lifecycle import friction
         return {"ok": True, "rows": friction.local_rows()}
     if verb == "message":
+        from . import link_receipt
         item = store("message", req)
-        handed = ""
+        handed, took = "", ""
         if req.get("to"):
             try:
                 r = local_peers.send(req["to"], f"[from {req.get('from_host')} over the cable] {item['text']}",
                                      as_name=f"link-{req.get('from_host')}")
                 handed = f"; handed to session {req['to']}" if r.get("ok") else f"; session {req['to']}: {r.get('error')}"
+                took = req["to"] if r.get("ok") else ""
             except Exception as e:  # noqa: BLE001
                 handed = f"; no session {req['to']} ({e})"
-        _log(f"message #{item['n']} from {req.get('from_host')}{handed}")
-        return {"ok": True, "stored": item["n"], "note": handed.strip("; ")}
+        if took:
+            link_receipt.mark_handed(item["n"], took)
+        # the receipt (plan C7, 2026-10-28): an idle computer stored Zero's hand-off and answered only "ok"
+        heard, why = link_receipt.heard(took)
+        _log(f"message #{item['n']} from {req.get('from_host')}{handed}{'' if heard else '; NOT HEARD'}")
+        return {"ok": True, "stored": item["n"], "note": handed.strip("; "), "heard": heard, "heard_why": why}
     if verb == "mandate-receive":
         # `fieldkit mandate share` on the other side (2026-10-26): install the pair it just put here, ONLY if the owner
         # key pinned on THIS computer verifies it (mandate.receive); every other answer is a refusal, and logged
@@ -991,7 +1029,7 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
     if verb == "ask":
         item = store("ask", req)
         started, why = start_session(str(req.get("agent")), str(req.get("brief") or ""), req.get("from_host"),
-                                     popen=popen, inbox_add=inbox_add)
+                                     popen=popen, inbox_add=inbox_add, model=req.get("model"))
         _log(f"ask #{item['n']} from {req.get('from_host')} for {req.get('agent')}: {why}")
         return {"ok": True, "stored": item["n"], "started": started, "why": why}
     return {"ok": False, "error": f"unknown verb {verb!r}"}
@@ -1006,8 +1044,66 @@ def _stream_thread(c, req, pre):
         _log(f"stream {req.get('tid')} from {req.get('from_host')} stopped: {type(e).__name__}: {e}")
 
 
-def serve(seconds=None, allow_loopback=False, ready=None, **kw):
+def code_head(root=None):
+    """The commit of the checkout this listener runs from, or "" when git cannot say."""
+    try:
+        r = subprocess.run(["git", "-C", str(root or LINK_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+                           timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+RELOAD_S = 60
+UPDATE_S = 300
+
+
+def self_update(root=None, run=subprocess.run):
+    """Bring the listener's own checkout to origin/main: only a clean checkout on main, only a fast-forward (main
+    moves only by PRs merged on green CI). -> "moved", "same" or why it was left alone. 2026-10-28: #181 (a worktree
+    per job) was merged at 2af3d7d while this checkout sat at f70d592, so three jobs started without one; a merge
+    reached the listener only when a person fast-forwarded it. With this and the re-execute below, a merge is live
+    on the listener within UPDATE_S + RELOAD_S."""
+    root = str(root or LINK_ROOT)
+
+    def git(*a, timeout=60):
+        try:
+            r = run(["git", "-C", root, *a], capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.SubprocessError) as e:
+            return 1, str(e)
+        return r.returncode, (r.stdout or r.stderr or "").strip()
+    rc, branch = git("branch", "--show-current")
+    if rc != 0 or branch != "main":
+        return f"left alone: on {branch or 'no branch'}, not main"
+    rc, dirty = git("status", "--porcelain", "--untracked-files=no")
+    if rc != 0 or dirty:
+        return "left alone: tracked changes in the checkout"
+    rc, out = git("fetch", "--quiet", "origin", "main", timeout=120)
+    if rc != 0:
+        return f"left alone: fetch failed ({out[:120]})"
+    rc, before = git("rev-parse", "HEAD")
+    rc2, after = git("rev-parse", "origin/main")
+    if rc or rc2 or before == after:
+        return "same"
+    rc, out = git("merge", "--ff-only", "--quiet", "origin/main")
+    return "moved" if rc == 0 else f"left alone: not a fast-forward ({out[:120]})"
+
+
+def serve(seconds=None, allow_loopback=False, ready=None, reload=None, **kw):
+    """`reload` (default: when serving for good): re-execute this listener in place when its checkout moved to new code
+    (2026-10-28: the listener of 15:17 kept running #160-less code for hours after the checkout moved). In place = the
+    same PID, so systemd sees no restart and the runs it started keep running; their branch returns resume from the job
+    folders (link_return.resume)."""
     import selectors
+    reload = (seconds is None) if reload is None else reload
+    started_head, checked, updated = (code_head() if reload else ""), time.time(), time.time()
+    try:
+        from . import link_return
+        owed = link_return.resume(home() / "jobs", start=seconds is None)
+        if owed:
+            _log(f"branch return resumed for {len(owed)} job(s): {', '.join(d.name for d in owed)}")
+    except Exception as e:  # noqa: BLE001 - the listener answers even if this fails; the log says why
+        _log(f"branch return resume failed: {e}")
     h, k = household(), key()
     if not h or not k:
         raise SystemExit("not paired: fieldkit peers link pair init | import first")
@@ -1038,6 +1134,19 @@ def serve(seconds=None, allow_loopback=False, ready=None, **kw):
     try:
         while end is None or time.time() < end:
             ev = sel.select(timeout=1.0)
+            if reload and started_head and time.time() - updated > UPDATE_S:
+                updated = time.time()
+                why = self_update()
+                if why != "same":
+                    _log(f"self-update: {why}")
+            if reload and started_head and time.time() - checked > RELOAD_S:
+                checked = time.time()
+                now_head = code_head()
+                if now_head and now_head != started_head:
+                    _log(f"code moved {started_head[:10]} -> {now_head[:10]}: re-executing in place (same PID)")
+                    for s in socks:
+                        s.close()
+                    os.execv(sys.executable, list(getattr(sys, "orig_argv", None) or [sys.executable] + sys.argv))
             if not ev:
                 continue
             try:
@@ -1160,7 +1269,9 @@ def inbox(wait=0, since=0):
     end = time.time() + wait
     while True:
         d = home() / "inbox"
-        items = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("*.json"))] if d.is_dir() else []
+        # a file's name starts with its number (store): older ones are not read at all (C6: the hook reads this)
+        items = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("*.json"))
+                 if not (p.stem.split("-")[0].isdigit() and int(p.stem.split("-")[0]) <= since)] if d.is_dir() else []
         items = [i for i in items if i["n"] > since]
         if items or time.time() >= end:
             return items
@@ -1333,9 +1444,15 @@ def main(argv=None):
             print(f"PEER {r['host']} ({r['os']})\n" + "\n".join(agent_lines(r["agents"])))
         return 0 if r.get("ok") else 3
     if a.action == "send":
+        if a.needs_you and a.to and a.to.lower() != "owner":
+            # [NEEDS YOU] is for the owner; a note to a session is not an owner wait (plan C7: misused 5 times)
+            print(f"REFUSED: --needs-you is for the owner, not session {a.to}: drop one of them")
+            return 2
         r = call({"verb": "message", "text": " ".join(a.rest), "to": a.to, "needs_you": a.needs_you, "done": a.done,
                   "evidence": a.evidence}, device=a.device)
         print(json.dumps(r, ensure_ascii=False))
+        if r.get("ok") and r.get("heard") is False:
+            print(f"NOT HEARD on the other computer: {r.get('heard_why')}", file=sys.stderr)
         return 0 if r.get("ok") else 3
     if a.action == "ask":
         if not a.brief:
@@ -1345,7 +1462,10 @@ def main(argv=None):
         print(json.dumps(r, ensure_ascii=False))
         return 0 if r.get("ok") and r.get("started") else 2 if r.get("ok") else 3
     if a.action == "inbox":
-        print("\n".join(fenced(inbox(a.wait, a.since))))
+        from . import link_receipt
+        items = inbox(a.wait, a.since)
+        print("\n".join(fenced(items)))
+        link_receipt.mark_seen(max([i["n"] for i in items] or [0]))     # read: no `unread` row in friction
         return 0
     if a.action == "put":
         return put_main(a)

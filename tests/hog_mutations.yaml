@@ -242,3 +242,18 @@
   - '    return preflight.call(f"job {kw.get(''job_id'') or Path(job_dir).name}", "job",'
   - '    return (lambda *a, **k: _run_job(job_dir, brief, cwd, say=say, **kw))(f"job", "job",'
   why: every autopilot job runs under the guard
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if (e["pid"], e["ctime"]) not in alive or e.get("cls") in svc:'
+  - '        if (e["pid"], e["ctime"]) not in alive:'
+  why: a service (the link listener, the relay) is never stopped as an orphan (2026-10-28, the L15 cable deaf 54 min)
+- file: fieldkit/hog/rules.py
+  swap:
+  - '        if cls not in svc or cls in live or (e["pid"], e["ctime"]) in alive:'
+  - '        if cls not in svc or (e["pid"], e["ctime"]) in alive:'
+  why: a dead service already replaced by a live one is not reported
+- file: fieldkit/hog/rules.py
+  swap:
+  - '            + orphans(facts, registry, cfg, now) + services(facts, registry, cfg) + pileup(facts, cfg))'
+  - '            + orphans(facts, registry, cfg, now) + pileup(facts, cfg))'
+  why: a dead service is reported by every pass

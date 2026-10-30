@@ -340,7 +340,7 @@ def _set_shortcut(lnk, field, old_paths, new_paths):
 
 def apply(p, run_tests=True, log=print):
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = settings.ROOT / "state" / "adopt" / stamp
+    backup = settings.state_root() / "state" / "adopt" / stamp
     backup.mkdir(parents=True, exist_ok=True)
     edited, made = [], []
     moves = [(Path(a), Path(b)) for a, b in p["moves"]]

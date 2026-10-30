@@ -37,6 +37,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from ..core.settings import state_root as _state_root
 
 ATTEMPT_EVERY_S = 12 * 3600          # a missing admin prerequisite pops the UAC prompt at most twice a day
 
@@ -47,7 +48,7 @@ def _root():
 
 
 def _state():
-    d = _root() / "state" / "mandate-prereqs"
+    d = _state_root(_root()) / "state" / "mandate-prereqs"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

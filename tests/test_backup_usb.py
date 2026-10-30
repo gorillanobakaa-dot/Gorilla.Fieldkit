@@ -129,3 +129,18 @@ def test_the_reminder_is_due_after_the_days_set_and_speaks_once_a_day(tmp_path):
     _backup(stick / usbcopy.FOLDER, "2026-10-15_1000")
     assert usbcopy.remind(now=now + dt.timedelta(days=5), roots=[str(stick)], local={}, say=said.append,
                           speak=False)["status"] == "fine"
+
+
+def test_backup_carries_the_parked_ideas_of_a_shared_state(tmp_path, monkeypatch):
+    """A linked worktree shares the main checkout's state/: its ideas must still reach the archive."""
+    import zipfile
+    from fieldkit.core import backup, settings
+    root, shared = tmp_path / "wt", tmp_path / "main"
+    (root).mkdir()
+    (root / "a.txt").write_text("a")
+    (shared / "state" / "ideas").mkdir(parents=True)
+    (shared / "state" / "ideas" / "ideas.json").write_text("{}")
+    monkeypatch.setattr(settings, "state_root", lambda r=None: shared)
+    r = backup.backup(to=tmp_path / "out", root=root, local={})
+    assert r["ok"] and r["ideas_files"] == 1
+    assert "wt/state/ideas/ideas.json" in zipfile.ZipFile(r["archive"]).namelist()

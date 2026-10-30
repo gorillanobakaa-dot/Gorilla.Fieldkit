@@ -230,7 +230,7 @@ def serve(stdin=None, stdout=None, recorder=None):
     # FIELDKIT_RECORDER points the log elsewhere; the test suite sets it so tests never
     # write into the real evidence (2026-09-30: test calls appeared in a live run's log).
     RECORDER = recorder or (Path(os.environ["FIELDKIT_RECORDER"]) if os.environ.get("FIELDKIT_RECORDER") else
-                            settings.ROOT / "state" / "recorder" / f"mcp-{time.strftime('%Y%m%d')}.jsonl")
+                            settings.state_root() / "state" / "recorder" / f"mcp-{time.strftime('%Y%m%d')}.jsonl")
     stdin, stdout = stdin or sys.stdin, stdout or sys.stdout
     for line in stdin:
         line = line.strip()

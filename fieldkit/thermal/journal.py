@@ -5,7 +5,8 @@ samples carried none, the guard printed to its own output only). Owner, verbatim
 
     fieldkit thermal journal            loop forever: one line every 30 s to state/thermal/journal-YYYY-MM-DD.csv
 
-A line: ISO time, CPU C, the fan control's peak C, load %, fan level, rpm, mode (Gorilla TPFanControl's status file).
+A line: ISO time, CPU C, the fan control's Switch C (its max over the EC sensors; sensor 11 `pwr` reads a
+constant 66, so this column never drops below 66 and says nothing about the CPU), load %, fan level, rpm, mode (Gorilla TPFanControl's status file).
 Each line is flushed and fsynced, so the last line before a power cut is on disk. Day files older than 7 days are
 removed (the journal's own files only, by their name pattern).
 """
@@ -22,7 +23,7 @@ HEADER = "time,cpu_c,max_c,load_pct,fan,rpm,mode\n"
 
 def folder():
     from ..core import settings
-    return Path(settings.ROOT) / "state" / "thermal"
+    return settings.state_root() / "state" / "thermal"
 
 
 def line(s, now=None):
@@ -59,9 +60,19 @@ def prune(d, now=None, keep_days=KEEP_DAYS):
     return gone
 
 
+def _fresh(max_age_s=60):
+    """The fan control's status file was written in the last minute. 2026-10-28: after the rollback to gorilla.3
+    (which writes no status file) the journal kept copying gorilla.5's last file as if it were live."""
+    from .buildguard import STATUS
+    try:
+        return time.time() - Path(STATUS).stat().st_mtime <= max_age_s
+    except OSError:
+        return False
+
+
 def run(d=None, interval=INTERVAL_S, read=None, sleep=time.sleep, ticks=None):
     from .buildguard import read_status
-    d, read = d or folder(), read or read_status
+    d, read = d or folder(), read or (lambda: read_status() if _fresh() else None)
     n = 0
     while ticks is None or n < ticks:
         write(d, line(read()))

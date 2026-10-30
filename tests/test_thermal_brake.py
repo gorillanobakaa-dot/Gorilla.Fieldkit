@@ -73,18 +73,14 @@ def test_the_machine_governor_never_exits_past_the_kill_line(fake):
     assert gov.samples == 5 and gov.verdict is None               # kept watching; cleared once cool
 
 
-def test_turbo_is_off_while_any_guarded_job_holds_and_back_after_the_last(fake):
+def test_a_hold_never_touches_turbo_or_the_fan_flag(fake):
+    """2026-10-28: the guard's power-plan and fan levers are out (439/408 powercfg resets a day, three cutoffs)."""
     alive = {111, 222}
-    said = []
-    with brake.hold("a", say=said.append, pid=111, alive=lambda p: p in alive):
-        assert fake.boost.mode == brake.BOOST_OFF
-        with brake.hold("b", say=said.append, pid=222, alive=lambda p: p in alive):
-            pass
-        assert fake.boost.mode == brake.BOOST_OFF                 # a still runs
-        assert any("stays off" in s for s in said)
-        assert (fake.dir / "fan" / "guard-hold.txt").exists()     # the fan stays at full speed too
-    assert fake.boost.mode == 2 and not (fake.dir / "boost-original.json").exists()
-    assert not (fake.dir / "fan" / "guard-hold.txt").exists()
+    with brake.hold("a", say=lambda m: None, pid=111, alive=lambda p: p in alive):
+        with brake.hold("b", say=lambda m: None, pid=222, alive=lambda p: p in alive):
+            assert len(list((fake.dir / "holds").glob("*.json"))) == 2
+        assert not (fake.dir / "fan" / "guard-hold.txt").exists()
+    assert fake.boost.writes == [] and not (fake.dir / "boost-original.json").exists()
 
 
 def test_a_crashed_guard_leaves_turbo_off_and_the_next_run_restores_it(fake):
@@ -105,37 +101,38 @@ def _guard(monkeypatch, surface=True):
     return said, buildguard._fan_and_governor(said.append, "t", None, False, None, None)
 
 
-def test_the_guard_applies_the_surface_ceiling_it_announces(fake, monkeypatch):
-    """The 17:10 bug: 'cap held at 80%' was printed, the governor got no max_cap, the cap stayed 100%."""
-    monkeypatch.setattr(brake, "machine_alive", lambda *a, **k: False)
-    said, cm = _guard(monkeypatch)
-    with cm as gov:
-        for _ in range(50):
-            if fake.caps:
-                break
-            time.sleep(0.05)
-        assert fake.boost.mode == brake.BOOST_OFF
-    assert fake.caps[0] == buildrun.SURFACE_CAP and fake.caps[-1] == 100      # applied, then put back
-    assert fake.boost.mode == 2
-
-
-def test_under_the_machine_governor_the_guard_only_watches(fake, monkeypatch):
-    monkeypatch.setattr(brake, "machine_alive", lambda *a, **k: True)
+def test_the_guard_only_watches(fake, monkeypatch):
     said, cm = _guard(monkeypatch)
     with cm:
         time.sleep(0.2)
-        assert fake.boost.mode == brake.BOOST_OFF and list((fake.dir / "holds").glob("*.json"))
-    assert fake.caps == [] and any("machine governor holds the cap" in s for s in said)
+        assert list((fake.dir / "holds").glob("*.json"))
+    assert fake.caps == [] and fake.boost.writes == [] and any("watch only" in s for s in said)
 
 
-def test_watch_forever_holds_the_ceiling_while_a_job_holds_and_is_one_per_computer(fake, monkeypatch):
+def test_watch_forever_writes_no_cap_and_is_one_per_computer(fake, monkeypatch):
     (fake.dir / "holds").mkdir()
     (fake.dir / "holds" / f"{os.getpid()}.json").write_text(f'{{"pid": {os.getpid()}}}', encoding="utf-8")
     said = []
     rc = watch.forever(target=67, say=said.append, sensor=(lambda: 50.0, True), ticks=20,
                        sleep=lambda s: time.sleep(0.02), folder=fake.dir)
-    assert rc == 0 and buildrun.SURFACE_CAP in fake.caps
+    assert rc == 0 and fake.caps == []
     assert not (fake.dir / "machine-governor.json").exists()                 # lease cleared on stop
     brake.lease_write(fake.dir)
     assert watch.forever(target=67, say=said.append, sensor=(lambda: 50.0, True), ticks=1, folder=fake.dir) == 0
     assert "already runs" in said[-1]
+
+
+def test_a_stale_cap_marker_at_the_current_cap_writes_nothing(tmp_path, monkeypatch):
+    from fieldkit.thermal import governor
+    m = tmp_path / "cap-original.json"
+    monkeypatch.setattr(governor, "_marker", lambda: m)
+    writes = []
+    monkeypatch.setattr(governor, "set_cap", lambda pct: writes.append(pct))
+    monkeypatch.setattr(governor, "read_cap", lambda: 100)
+    m.write_text('{"original": 100}', encoding="utf-8")
+    said = []
+    assert governor.restore_stale_cap(said.append) is None and writes == [] and not m.exists()
+    assert "nothing written" in said[0]
+    monkeypatch.setattr(governor, "read_cap", lambda: 40)
+    m.write_text('{"original": 100}', encoding="utf-8")
+    assert governor.restore_stale_cap(said.append) == 100 and writes == [100] and not m.exists()

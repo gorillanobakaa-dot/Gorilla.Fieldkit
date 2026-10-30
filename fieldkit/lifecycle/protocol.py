@@ -51,9 +51,8 @@ def rule_text():
     return (f"{RULE_BEGIN}\n"
             "## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)\n\n"
             f"{side_jobs_rule()}\n\n"
-            "Nothing may wait on the owner: no cards, no permission prompts, no [NEEDS YOU] for what the mandate "
-            "covers. `fieldkit friction` lists everything that could wait on a person, on every machine (exit 0 = "
-            "none). What truly needs the owner goes to `fieldkit inbox`, the ONE morning list.\n\n"
+            "Nothing may wait on the owner (no cards, prompts or [NEEDS YOU] for what the mandate covers): "
+            "`fieldkit friction` lists what could, exit 0 = none.\n\n"
             "Idle sessions eat RAM and CPU. The command post runs `fieldkit sessions sweep` on every watchdog wake "
             "and archives what it lists.\n\n"
             + done_protocol() +

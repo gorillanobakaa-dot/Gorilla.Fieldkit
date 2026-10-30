@@ -20,9 +20,10 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
-LOG = ROOT / "state" / "flaky-tests.log"
+LOG = _state_root(ROOT) / "state" / "flaky-tests.log"
 
 _THREAD = re.compile(r"PytestUnhandledThreadExceptionWarning: Exception in thread [^\n]*\n(.*?)(?:\n\n|\Z)", re.S)
 _ERR = re.compile(r"^E\s+.*$", re.M)

@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-23-18-04
+# Version: 1.0.0 · updated 26-10-28-15-24
 """Autopilot plumbing: the Claude hook speaks the documented deny format and fails closed, a run has no GitHub or
 git credential, the inbox collects owner decisions, publish never runs inside autopilot, quiet spares its own tree."""
 import io
@@ -132,3 +132,76 @@ def test_the_prompt_goes_on_stdin_so_a_dash_prompt_is_not_an_option(state, monke
     assert run.claude(brief, popen=P)["ok"]
     assert seen["input"] == brief and brief not in seen["args"]
     assert seen["args"][:2] == ["claude", "-p"]
+
+
+def test_the_same_open_question_is_one_inbox_item_with_a_count():
+    a = inbox.add("vaio does not answer on the cable", "first", "fieldkit peers link heal vaio")
+    b = inbox.add("vaio does not answer on the cable", "second")
+    assert b["n"] == a["n"] and b["repeats"] == 2 and b["why"] == "second" and b["command"].endswith("heal vaio")
+    assert len(inbox.items()) == 1 and "(x2, last " in inbox.lines(inbox.items())[1]
+    inbox.done(a["n"])
+    assert inbox.add("vaio does not answer on the cable", "again")["n"] != a["n"]
+
+
+def test_claude_found_where_the_installers_put_it_when_not_on_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(run.shutil, "which", lambda name: None)
+    monkeypatch.setattr(run.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "none"))
+    assert run.claude_exe() is None or not run.claude_exe().startswith(str(tmp_path))
+    exe = tmp_path / ".local" / "bin" / ("claude.exe" if run.sys.platform == "win32" else "claude")
+    exe.parent.mkdir(parents=True)
+    exe.write_text("", encoding="utf-8")
+    exe.chmod(0o755)
+    assert run.claude_exe() == str(exe)
+
+
+def test_the_repeat_count_keeps_counting_and_a_broken_item_does_not_hide_the_match():
+    # fieldkit mutate (2026-10-28): both kill mutants the test above let through
+    a = inbox.add("vaio does not answer on the cable", "first")
+    inbox.add("vaio does not answer on the cable", "second")
+    (inbox.INBOX / "0000-broken.json").write_text("{not json", encoding="utf-8")
+    c = inbox.add("vaio does not answer on the cable", "third")
+    assert c["n"] == a["n"] and c["repeats"] == 3 and len(inbox.items()) == 1
+
+
+@pytest.fixture
+def no_claude(monkeypatch, tmp_path):
+    """Claude Code not on PATH and nothing outside tmp_path executable, so the machine's own install does not count."""
+    monkeypatch.setattr(run.shutil, "which", lambda name: None)
+    monkeypatch.setattr(run.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "none"))
+    real = run.os.access
+    monkeypatch.setattr(run.os, "access", lambda p, m: str(p).startswith(str(tmp_path)) and real(p, m))
+    return "claude.exe" if run.sys.platform == "win32" else "claude"
+
+
+def put(path, mode=0o755):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+    path.chmod(mode)
+    return path
+
+
+def test_claude_off_path_skips_a_folder_and_a_file_it_cannot_run(no_claude, tmp_path):
+    (tmp_path / ".local" / "bin" / no_claude).mkdir(parents=True)
+    good = put(tmp_path / ".claude" / "local" / no_claude)
+    assert run.claude_exe() == str(good)                            # a folder named claude is not the program
+    if run.sys.platform != "win32":                                 # Windows has no execute bit
+        (tmp_path / ".local" / "bin" / no_claude).rmdir()
+        put(tmp_path / ".local" / "bin" / no_claude, 0o644)
+        assert run.claude_exe() == str(good)
+
+
+@pytest.mark.skipif(run.sys.platform == "win32", reason="nvm installs are looked up on Linux and macOS only")
+def test_claude_under_nvm_is_the_newest_node_version(no_claude, tmp_path):
+    put(tmp_path / ".nvm" / "versions" / "node" / "v18.0.0" / "bin" / "claude")
+    new = put(tmp_path / ".nvm" / "versions" / "node" / "v20.1.0" / "bin" / "claude")
+    assert run.claude_exe() == str(new)
+
+
+def test_claude_on_path_comes_before_the_install_folders(no_claude, tmp_path, monkeypatch):
+    put(tmp_path / ".local" / "bin" / no_claude)
+    monkeypatch.setattr(run.shutil, "which", lambda name: "/on/path/claude")
+    assert run.claude_exe() == "/on/path/claude"

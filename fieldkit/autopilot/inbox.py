@@ -23,7 +23,19 @@ INBOX = hardlines.STATE / "inbox"
 
 
 def add(title, why, command="", kind="approval", files=()):
+    """-> the item. An OPEN item with the same title is the same question: it is updated (why, command, `repeats`,
+    `last`) instead of a new item (2026-10-28: 49 of 103 open items were "<peer> does not answer on the cable")."""
     INBOX.mkdir(parents=True, exist_ok=True)
+    for p in sorted(INBOX.glob("*.json")):
+        try:
+            it = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if it.get("state") == "open" and it.get("title") == title:
+            it.update(why=why, command=command or it.get("command", ""), repeats=int(it.get("repeats") or 1) + 1,
+                      last=time.strftime("%Y-%m-%d %H:%M:%S"))
+            p.write_text(json.dumps(it, indent=1, ensure_ascii=False), encoding="utf-8")
+            return it
     n = 1 + max([int(p.stem.split("-")[0]) for p in INBOX.glob("*.json") if p.stem.split("-")[0].isdigit()] or [0])
     item = {"n": n, "kind": kind, "title": title, "why": why, "command": command, "files": list(files),
             "added": time.strftime("%Y-%m-%d %H:%M:%S"), "state": "open"}
@@ -57,7 +69,8 @@ def lines(its):
         return ["INBOX: empty - nothing waits for the owner"]
     out = [f"INBOX: {len(its)} item(s) wait for the owner"]
     for it in its:
-        out.append(f"  [{it['n']}] {it['kind']}: {it['title']}")
+        out.append(f"  [{it['n']}] {it['kind']}: {it['title']}"
+                   + (f"  (x{it['repeats']}, last {it.get('last')})" if int(it.get("repeats") or 1) > 1 else ""))
         out.append(f"      why: {it['why'][:300]}")
         if it.get("command"):
             out.append(f"      run: {it['command']}")

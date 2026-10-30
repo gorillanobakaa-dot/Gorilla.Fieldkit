@@ -230,7 +230,9 @@ def test_cli_session_is_told_to_start_claude_not_archive(tmp_path):
 
 # ---------------------------------------------------------------- handover
 
-def test_handover_writes_note_and_plan_section(tmp_path):
+def test_handover_writes_note_and_plan_section(tmp_path, monkeypatch):
+    from fieldkit import plan as harness_plan        # the successor is told where the harness plan stands
+    monkeypatch.setattr(harness_plan, "line", lambda *a, **k: "PLAN: phase 3. X: open R2")
     p = monster(tmp_path)
     (tmp_path / "coord").mkdir()
     plan = tmp_path / "coord" / "PLAN.md"
@@ -246,6 +248,7 @@ def test_handover_writes_note_and_plan_section(tmp_path):
     assert "Do NOT start over" in r["brief"] and r["note"] in r["brief"] and "Build the rotation tool" in r["brief"]
     # the relief starts side jobs headless and archives itself when done (fieldkit/lifecycle)
     assert "fieldkit task start" in r["brief"] and "archive_session \"self\"" in r["brief"]
+    assert "PLAN: phase 3. X: open R2" in r["brief"] and "PLAN: phase 3. X: open R2" in note
     h = (tmp_path / "rot" / "handovers.jsonl").read_text(encoding="utf-8")
     assert json.loads(h)["plan_written"] is True
 
@@ -423,3 +426,75 @@ def test_facts_ignore_sidechain_lines_in_the_main_transcript(tmp_path):
           mode="a")
     r = rotate.measure(sc.ClaudeCode(tmp_path / "projects"), p)
     assert (r["cwd"], r["branch"]) == ("C:/work/repo", "feat/x")
+
+
+# ---------------------------------------------------------------- R1: past ROTATE the session may only hand over
+
+def _said(tmp_path, level, stem="s1"):
+    d = tmp_path / "rot" / "said"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{stem}.json").write_text(json.dumps({"level": level, "t": 0}), encoding="utf-8")
+    return str(tmp_path / f"{stem}.jsonl")
+
+
+def pre(tp, tool, **ti):
+    return {"transcript_path": tp, "tool_name": tool, "tool_input": ti, "hook_event_name": "PreToolUse"}
+
+
+def test_stop_refuses_new_work_past_rotate(tmp_path):
+    tp = _said(tmp_path, "ROTATE")
+    assert rotate.stop_refusal(pre(tp, "Bash", command="python -m pytest tests")).startswith("SESSION ROTATION STOP")
+    assert rotate.stop_refusal(pre(tp, "Edit", file_path="C:/r/fieldkit/core/x.py"))
+    assert rotate.stop_refusal(pre(tp, "Write", file_path="C:/r/new.py"))
+
+
+def test_stop_lets_the_handover_through(tmp_path):
+    tp = _said(tmp_path, "ROTATE")
+    for cmd in ("python -m fieldkit rotate handover --title x", "python -m fieldkit guard -- git commit -m x",
+                "python -m fieldkit ship push", "git status", "gh pr create --title x"):
+        assert rotate.stop_refusal(pre(tp, "Bash", command=cmd)) is None, cmd
+    assert rotate.stop_refusal(pre(tp, "Write", file_path="C:/r/state/coordination/PLAN.md")) is None
+    assert rotate.stop_refusal(pre(tp, "Edit", file_path="C:/r/HANDOFF.md")) is None
+    assert rotate.stop_refusal(pre(tp, "Read", file_path="C:/r/x.py")) is None
+
+
+def test_stop_only_at_rotate_and_never_inside_a_job(tmp_path, monkeypatch):
+    for level in ("OK", "WARN"):
+        assert rotate.stop_refusal(pre(_said(tmp_path, level), "Bash", command="make")) is None
+    assert rotate.stop_refusal(pre(str(tmp_path / "none.jsonl"), "Bash", command="make")) is None   # no mark
+    tp = _said(tmp_path, "ROTATE")
+    monkeypatch.setenv("FIELDKIT_JOB_DIR", str(tmp_path))
+    assert rotate.stop_refusal(pre(tp, "Bash", command="make")) is None
+
+
+def test_toolrouter_hook_denies_past_rotate(tmp_path, capsys):
+    from fieldkit.autopilot import toolrouter
+    tp = _said(tmp_path, "ROTATE")
+    toolrouter.hook(io.StringIO(json.dumps(pre(tp, "Bash", command="echo new work"))))
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "ROTATION STOP" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_check_skips_a_session_the_desktop_app_archived(tmp_path, monkeypatch):
+    # C3/I6 (2026-10-28): the guard's preflight named the archived Zero 8dc32564 as ROTATE on every job, for hours
+    monster(tmp_path, read=400_000, name="archived-zero")
+    monster(tmp_path, read=10_000, name="live")
+    ad = [sc.ClaudeCode(tmp_path / "projects")]
+    rows = rotate.check(hours=1, adapters=ad, cfg=CFG, archived={"archived-zero"})
+    assert [r["session"] for r in rows] == ["live"]
+    monkeypatch.setattr(rotate, "archived_ids", lambda: {"archived-zero"})
+    monkeypatch.setattr(sc, "adapters_for", lambda source: ad)
+    assert rotate.preflight_check() == ("ok", "rotate: no session over the WARN line")
+    assert rotate.check(session="archived-zero", adapters=ad, cfg=CFG)[0]["level"] == "ROTATE"   # asked by name, still judged
+
+
+def test_archived_ids_reads_the_desktop_records(tmp_path, monkeypatch):
+    store = tmp_path / "app" / "claude-code-sessions" / "acct" / "org"
+    store.mkdir(parents=True)
+    (store / "local_a.json").write_text(json.dumps({"sessionId": "local_a", "cliSessionId": "cli-a",
+                                                    "isArchived": True}), encoding="utf-8")
+    (store / "local_b.json").write_text(json.dumps({"sessionId": "local_b", "cliSessionId": "cli-b"}),
+                                        encoding="utf-8")
+    monkeypatch.setenv("FIELDKIT_CLAUDE_APP_DIRS", str(tmp_path / "app"))
+    assert rotate.archived_ids() == {"cli-a"}

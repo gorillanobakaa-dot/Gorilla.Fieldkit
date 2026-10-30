@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-26-20-00
+# Version: 1.1.0 · updated 26-10-28-18-00
 """The merge train: a PR is merged only when its session declared it final, one at a time, never red (part 2).
 
     fieldkit ship ready PR [--pending TEXT | --withdraw]
@@ -18,6 +18,13 @@
                                     "ff pending"; unfreeze fast-forwards it and runs fieldkit parity baseline --set
     fieldkit ship train --modes     the failure modes this protocol closes, each with its check
     fieldkit ship train --doctor    git 2.38+, gh signed in, the mandate, the hook, the merge driver, generated files
+    fieldkit ship ci-wait PR [--merge] [--max-wait MIN]
+                                    one blocking call that returns when the PR head's CI is green or red (the train's
+                                    verdict: every check run AND workflow run of the head, never gh's exit code); red
+                                    prints the failed jobs' log tail. Run it in the background: one wake when CI ends,
+                                    no sleep loops (O4, 2026-10-28: 103 hand-written CI and sleep loops and 210 gh
+                                    status polls in 41 VAIO transcripts in one week). --merge: merge on green with
+                                    --match-head-commit, then check the PR reads MERGED
 
 Owner, 2026-10-26: "make sure via deterministic tools and checks that problems like these OR SIMILAR or CLOSELY
 RELATED does not happen anymore". That day #126 was merged on green CI at 18:51 while its session still had a commit
@@ -39,6 +46,7 @@ from pathlib import Path
 
 from . import emit
 from . import mergeproof as mp
+from . import strikes
 
 LABEL = "fieldkit-ready"
 MARK = re.compile(r"<!-- fieldkit-(ready|not-ready) (\{.*?\}) -->")
@@ -109,8 +117,9 @@ class GH:
         self.slug = sync._slug(repo)
 
     def _gh(self, *args, timeout=120):
+        from .ship import ship_env                    # inside an autopilot run: ship's own credential (inbox #145)
         r = self.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                     cwd=self.repo, timeout=timeout)
+                     cwd=self.repo, timeout=timeout, env=ship_env())
         return r.returncode, (r.stdout or ""), (r.stderr or "")
 
     def _json(self, *args):
@@ -165,6 +174,16 @@ class GH:
                      timeout=timeout)
         except subprocess.TimeoutExpired:
             pass
+
+    def failed_log(self, sha, lines=30):
+        """The last `lines` lines of `gh run view --log-failed` for each failed workflow run of `sha`."""
+        rc, out, _ = self._gh("api", f"repos/{self.slug}/actions/runs?head_sha={sha}", "--jq",
+                              "[.workflow_runs[] | select(.conclusion == \"failure\") | .id]")
+        out_lines = []
+        for rid in (json.loads(out or "[]") if rc == 0 else [])[:3]:
+            rc2, log, _ = self._gh("run", "view", str(rid), "-R", self.slug, "--log-failed", timeout=300)
+            out_lines += [f"-- run {rid}"] + (log.splitlines()[-lines:] if rc2 == 0 else ["(log unreadable)"])
+        return out_lines
 
     def merge(self, n, head):
         rc, out, err = self._gh("pr", "merge", str(n), "-R", self.slug, "--merge", "--match-head-commit", head)
@@ -547,6 +566,46 @@ def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
         sleep(30)
 
 
+def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None):
+    """O4: wait once for the PR head's CI verdict; on red the failed log tail, on green (with merge) the merge proven by
+    the PR's state, not gh's exit code. TWO STRIKES: the second failed round parks the branch (state "parked"); a
+    parked branch is not waited on at all."""
+    pr = gh.pr(n)
+    head = pr["headRefOid"]
+    r = {"pr": n, "branch": pr["headRefName"], "head": head}
+    if pr.get("state") != "OPEN":
+        return dict(r, ok=pr.get("state") == "MERGED", state=pr.get("state", "?").lower(), why="the PR is not open")
+    if strikes.parked_for(r["branch"]):
+        return dict(r, ok=False, state="parked", why=strikes.refusal([r["branch"]]),
+                    next="parked, go on with the plan")
+    state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
+    r.update(state=state, why=why)
+    if state == "red":
+        log = gh.failed_log(head)
+        s = strikes.record_failure(r["branch"], head, " ".join(log[-2:]) or why, pr=n, inbox=inbox)
+        if s["parked"]:
+            return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",
+                        next="parked, go on with the plan")
+        return dict(r, ok=False, log=log, next="fix it on the branch, push it, then run ci-wait again "
+                                               "(one strike left)")
+    if state != "green":
+        return dict(r, ok=False, state="timeout" if state == "pending" else state,
+                    next="CI did not finish in time; run ci-wait again in the background")
+    if not merge:
+        return dict(r, ok=True, next=f"merge: fieldkit ship ci-wait {n} --merge")
+    ok, msg = gh.merge(n, head)
+    after = gh.pr(n).get("state")
+    if not ok or after != "MERGED":                     # the artefact, not the exit code
+        return dict(r, ok=False, state="not-merged", why=msg or f"the PR reads {after}",
+                    next="read the PR; nothing was forced")
+    return dict(r, ok=True, state="merged", next=f"#{n} is merged at {head[:10]}")
+
+
+def _ci_wait_lines(d):
+    out = [f"#{d['pr']} {d['branch']} {d['head'][:10]}: {d['state'].upper()} - {d.get('why', '')}"]
+    return out + d.get("log", [])
+
+
 def plan(repo, gh, base="main", only=None, gens=None, stations=None, made=None):
     _git(repo, "fetch", "--quiet", "origin")
     prs = [p for p in gh.prs() if not only or p["number"] in only]
@@ -725,15 +784,16 @@ def _run_lines(d):
 
 def main(argv=None, prog="fieldkit ship"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["ready", "train", "overlap", "freeze", "unfreeze"])
-    ap.add_argument("pr", nargs="?", type=int, help="ready: the PR number")
+    ap.add_argument("action", choices=["ready", "train", "overlap", "freeze", "unfreeze", "ci-wait"])
+    ap.add_argument("pr", nargs="?", type=int, help="ready, ci-wait: the PR number")
+    ap.add_argument("--merge", action="store_true", help="ci-wait: merge on green (--match-head-commit)")
     ap.add_argument("--pending", help="ready: one more commit is coming (the train will not merge it)")
     ap.add_argument("--withdraw", action="store_true", help="ready: not final any more")
     ap.add_argument("--dry-run", action="store_true", help="train: read only, show the order")
     ap.add_argument("--modes", action="store_true", help="train: the failure modes and their checks")
     ap.add_argument("--doctor", action="store_true", help="train: what the train needs on this machine")
     ap.add_argument("--only", type=int, nargs="*", help="train: only these PR numbers")
-    ap.add_argument("--max-wait", type=int, default=60, help="train: minutes to wait for CI per PR (60)")
+    ap.add_argument("--max-wait", type=int, default=60, help="train, ci-wait: minutes to wait for CI per PR (60)")
     ap.add_argument("--files", nargs="*", help="overlap: these files instead of the branch's diff against the base")
     ap.add_argument("--reason", help="freeze: why the checkout must not move")
     ap.add_argument("--checkout", help="freeze/unfreeze: the checkout (default: the clone's main worktree)")
@@ -759,6 +819,12 @@ def main(argv=None, prog="fieldkit ship"):
             emit(r, a.json, lambda d: [f"#{d['pr']} {d['branch']}: {d['state']}"]
                  + ([f"error: {d['error']}"] if d.get("error") else []))
             return 0 if r["ok"] else 3
+        if a.action == "ci-wait":
+            if not a.pr:
+                ap.error("ci-wait needs the PR number: fieldkit ship ci-wait 166 [--merge]")
+            r = ci_wait(GH(a.repo), a.pr, a.max_wait * 60, merge=a.merge)
+            emit(r, a.json, _ci_wait_lines)
+            return 0 if r["ok"] else strikes.PARKED_EXIT if r["state"] == "parked" else 3
         if a.action == "train":
             r = train(a.repo, base=a.base, dry_run=a.dry_run, only=a.only, max_wait_s=a.max_wait * 60)
             emit(r, a.json, _plan_lines if a.dry_run else _run_lines)

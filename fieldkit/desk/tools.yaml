@@ -126,7 +126,7 @@ tools:
   entry: [python, -m, fieldkit.autopilot.toolrouter]
   path: ${FIELDKIT}/fieldkit/autopilot/toolrouter.py
   inputs:
-    - {name: command, flag: null, type: str, required: false, help: "a command to judge; --hook reads a Claude Code PreToolUse call on stdin"}
+    - {name: command, flag: null, type: str, required: false, help: "a command to judge; --hook reads a Claude Code PreToolUse call on stdin (an allowed call then gets the room's part in the same process, C6)"}
   effects: [reads-files]
   safety: read-only
   notes: 'wired as a PreToolUse hook in ~/.claude/settings.json and in ~/.gemini/config/hooks/guard.py 1.5.0; an override needs "# toolrouter-ok: <why>" in the command'
@@ -182,10 +182,10 @@ tools:
   entry: [python, -m, fieldkit.autopilot.room]
   path: ${FIELDKIT}/fieldkit/autopilot/room.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, help: "tail [N] | name SESSION_ID NAME | doctor; --hook reads a Claude Code PostToolUse or UserPromptSubmit call on stdin"}
+    - {name: action, flag: null, type: str, required: false, help: "tail [N] | name SESSION_ID NAME | doctor [--apply]; --hook reads a Claude Code UserPromptSubmit call on stdin (tool calls: the tool router's PreToolUse hook runs room.pretool, one process per call)"}
   effects: [reads-files, writes-files]
   safety: reversible
-  notes: 'state/coordination/ROOM.log (git-ignored), one locked line per action with a fixed verb (commit rebase ff edit start stop net heavy approve ask done); secrets, home paths and addresses redacted before writing; the reader shows at most 20 new lines from the OTHER sessions; never blocks a tool call. doctor checks ~/.claude/settings.json and prints the hook change, it never edits settings. Owner 2026-10-19.'
+  notes: 'state/coordination/ROOM.log (git-ignored), one locked line per action with a fixed verb (commit rebase ff edit start stop net heavy approve ask done); secrets, home paths and addresses redacted before writing; the reader shows at most 20 new lines from the OTHER sessions; never blocks a tool call. doctor checks ~/.claude/settings.json and prints the hook change; doctor --apply makes it (old file copied aside, every other hook kept). C6 2026-10-28: one Python start per tool call (the PreToolUse process of the tool router), no PostToolUse entry. Owner 2026-10-19.'
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_room.py"]
 
@@ -1275,6 +1275,7 @@ tools:
   output: own
   exits: {1: "clean or restore failed, or the login check did not pass", 2: "an id that is not a current finding", 3: findings}
   platforms: [linux]
+  skill: skills/fieldkit-linux-leftovers/SKILL.md
   platforms_why: 'XDG autostart, desktop menu entries, systemd user units and dpkg exist only on a Linux desktop'
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_leftovers.py"]
   notes: "Born 2026-10-22 from a theme scrambled by a removed package's leftover launcher. Never stops a process, never edits a file an installed package owns (a user-level Hidden=true override instead), never touches the current session; copies everything into ~/Agents.Work.Trash/leftovers-<time>/ with a manifest before changing it; after --apply rescans and runs a login-safety check. Masks, TryExec self-hides, OnlyShowIn and DesktopNames are honoured."
@@ -1860,7 +1861,7 @@ tools:
   safety: irreversible           # the device runs an agent and pushes a branch
   output: third-party            # the result comes from another computer
   platforms: [windows, linux]
-  platforms_why: 'tests on Windows (real git origin in tmp); the live run Windows boss -> Linux VAIO worker is in PLAN.md (state/coordination) with what was NOT verified; a Windows worker and macOS not run live'
+  platforms_why: 'live 2026-10-27: Windows boss -> Linux VAIO worker, this card edit was itself a session job (no click on either machine); tests pass on Linux (33 passed, Python 3.13.5, kernel 7.1.2-unleashed.gorilla-forensic-eapd-sdr-bbr-26.08.10--14.24); the VAIO refused 7 of 7 crafted bad jobs (7 refusal rows, 7 mesh-job inbox rows); tests on Windows (real git origin in tmp); the live run Windows boss -> Linux VAIO worker is in PLAN.md (state/coordination) with what was NOT verified; a Windows worker and macOS not run live'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_session.py"]
   notes: "Owner 2026-10-26: no click to start a job on a connected device, N devices. Authority on the worker, all fail closed: cable HMAC (household key), the boss's Ed25519 machine key pinned on the device once at enrolment (fieldkit mandate trust-reviewer), the owner-wide mandate in force there (same sha, sealed, not expired, not stopped), scope (repo named, branch matches push patterns and is never a base, agent claude, brief <= 32 KB, wall 1-1440). Every authority refusal (cable check of a job included) is a fieldkit inbox row on that device, one per device+reason an hour, and job-refusals.jsonl (`fieldkit orchestrate job refusals` lists them). The agent runs without a GitHub credential; the TOOL pushes after it (pushed = origin has the head). The device's own checkout is never touched; a diverged local branch, a branch checked out elsewhere and uncommitted leftovers are never overwritten. Mutation plan tests/orchestrate_session_mutations.yaml."
 
@@ -1902,6 +1903,27 @@ tools:
   platforms_why: 'run live 2026-10-26 on the Linux boss with the Windows laptop answering over the cable'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_load.py"]
   notes: "Stage O4 of local/PROJECT-MANDATE-PLAN.md section 19. The link verb `load` is read-only (not a JOB_VERB, so it answers on the LAN too) and reuses the hog's RAM and CPU-sensor probes. Idle = a free slot, CPU under 50 %, below the hot line (build governor target + 3). Exit 3 when a device gave no report (an older Fieldkit says unknown verb)."
+
+- id: orchestrate-split
+  title: "Which devices of the household are up and what each can run (OS, cores, RAM, slots, toolchains, a local model); a test suite split into pieces, each accepted only by its pytest PASS line, placed on those devices and run as a queue, with pieces finished per hour"
+  harness: peers
+  entry: [python, -m, fieldkit, orchestrate, split]
+  path: ${FIELDKIT}/fieldkit/orchestrate_split.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [inventory, split], help: "inventory: the devices; split: the pieces"}
+    - {name: tree, flag: --tree, type: str, required: false, help: "split: the git checkout whose suite is split (.)"}
+    - {name: pieces, flag: --pieces, type: int, required: false, help: "split: how many pieces (12)"}
+    - {name: run, flag: --run, type: bool, required: false, help: "split: run them, here and over the cable"}
+    - {name: wait, flag: --wait, type: float, required: false, help: "split --run: seconds a piece may take (3600)"}
+    - {name: out, flag: --out, type: str, required: false, help: "split --run: the result as JSON to this file"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable output"}
+  effects: [network, writes-files, processes]
+  safety: reversible             # read-only probes; --run runs tests on tree copies, here and on the worker
+  output: third-party            # load reports and job results come from other computers
+  platforms: [windows, linux]
+  platforms_why: 'inventory and split run live 2026-10-28 on the Linux VAIO with the Windows L15 answering over the cable; a Windows boss not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_orchestrate_split.py"]
+  notes: "Plan item I6. The inventory joins fieldkit machine reach (household.yaml, each device by its path) and the link verb load (orchestrate_load.capabilities, now with cargo and a local model runtime: lms, Ollama or the LM Studio folder, installed not loaded). An SSH-only device answers no load and takes no piece. Pieces: tests/test_*.py weighed by def test_ count + 1, largest first into the lightest. Acceptance: orchestrate_work.test_counts on the output, >= 1 passed, 0 failed, 0 errors; never the exit code. A remote piece is a C3 run job (lifecycle/tasks.start_run of fieldkit admit suite FILES), accepted only from a result signed by a pinned worker key."
 
 - id: orchestrate-place
   title: "A test suite placed where there is room: here when a slot is free, else on an idle capable device over the cable (signed result recorded in testcost for that tree hash and OS), else here after the queue"
@@ -2995,6 +3017,7 @@ tools:
   output: own
   exits: {3: findings}
   platforms: [windows]
+  skill: skills/fieldkit-win11/SKILL.md
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
 
 - id: win11-oem
@@ -3008,6 +3031,7 @@ tools:
   output: own
   exits: {3: findings}
   platforms: [windows]
+  skill: skills/fieldkit-win11/SKILL.md
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_win11.py"]
 
 - id: win11-visual-effects-check
@@ -3324,6 +3348,7 @@ tools:
   effects: [reads-files, writes-files, deletes-files, registry, processes, admin]
   safety: reversible
   platforms: [windows]
+  skill: skills/fieldkit-profile-repair/SKILL.md
   platforms_why: "repairs the Windows registry and Windows uninstall entries; Linux has neither (a renamed home is usermod -d -m), and the tool prints not-this-platform there"
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_profilefix.py", -p, "no:cacheprovider"]
   notes: "Dry run unless --apply. fix: every change in a manifest (undo puts it back), keys exported to .reg first; HKLM needs an elevated shell (the elevate tool). purge-app: files to the Recycle Bin (checked gone), keys exported; never touches ~\\.<name> dot folders. Standalone: copy the one file. Skill fieldkit-profile-repair."
@@ -5635,9 +5660,9 @@ tools:
     preview: [python, -m, fieldkit, ship, train, --dry-run]
     verify: [python, -m, fieldkit, ship, train, --doctor]
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_train.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_train.py", "${FIELDKIT}/tests/test_ci_wait.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "2026-10-26: #126 merged with a commit still in its session's hook; #124 CONFLICTING twice (generated index + tools.yaml), ~75 min of re-run suites; #124 merged during its windows CI re-run. Verbs on fieldkit ship: ready PR [--pending T|--withdraw], train, update (merge main the train's way), proof, ci-record, overlap, freeze/unfreeze. MERGES into main through gh pr merge only under the mandate's merge_to_main; pushes branch updates only through fieldkit ship push (the pre-push gate) or GitHub's update-branch on a mandate push pattern. State: <git common dir>/fieldkit/train.json (resumable), ci-green.jsonl, frozen.json, the train's own clone train-clone/. Generated files: fieldkit/method/generated.yaml. Never force-pushes or rebases. Mutations: tests/train_mutations.yaml."
+  notes: "2026-10-26: #126 merged with a commit still in its session's hook; #124 CONFLICTING twice (generated index + tools.yaml), ~75 min of re-run suites; #124 merged during its windows CI re-run. Verbs on fieldkit ship: ready PR [--pending T|--withdraw], ci-wait PR [--merge] (O4: one background wake when CI ends, the failed log tail on red; tests/test_ci_wait.py, tests/ci_wait_mutations.yaml), train, update (merge main the train's way), proof, ci-record, overlap, freeze/unfreeze. MERGES into main through gh pr merge only under the mandate's merge_to_main; pushes branch updates only through fieldkit ship push (the pre-push gate) or GitHub's update-branch on a mandate push pattern. State: <git common dir>/fieldkit/train.json (resumable), ci-green.jsonl, frozen.json, the train's own clone train-clone/. Generated files: fieldkit/method/generated.yaml. Never force-pushes or rebases. Mutations: tests/train_mutations.yaml."
 
 - id: handover
   title: Fixes to someone else's tool as a handover - before/after, why, test, proof; checked to apply on their copy
@@ -5707,6 +5732,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_versionsync.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Read-only on the project; with --binary it starts that program once. Born 2026-10-19 (TPFanControl installer gorilla.3 vs program gorilla.4)."
+
+- id: strikes
+  title: TWO STRIKES - a branch or PR that failed CI twice is parked (ci-wait, push and task start refuse it) and the plan goes on
+  harness: method
+  entry: [python, -m, fieldkit, strikes]
+  path: ${FIELDKIT}/fieldkit/method/strikes.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "list | park | unpark | check"}
+    - {name: ident, flag: null, type: str, required: false, help: "a branch name or PR number (check: the branch)"}
+  effects: [writes-files, network]
+  safety: reversible
+  output: own
+  exits: {1: "the registry state/parked.json cannot be read or its folder is missing", 3: "refused or not parked"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_strikes.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner order 2026-10-29. Registry state/parked.json (git-ignored). A failed round is one red verdict on one head commit. ship ci-wait exits 4 when it parks."
 
 - id: xzcheck
   title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)
@@ -5890,6 +5932,61 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
 
+- id: rules
+  title: The one core (rules/CORE.md) in every agent's global rules file (Claude Code, Codex, Gemini), every rules file under 8 KB, a project file never repeating the core; install puts in or updates only the block, with a backup
+  harness: core
+  entry: [python, -m, fieldkit, rules]
+  path: ${FIELDKIT}/fieldkit/rules.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check | install"}
+    - {name: repo_only, flag: --repo-only, type: flag, required: false, help: "check: only this repository's rules files (the pre-commit hook)"}
+    - {name: file, flag: --file, type: path, required: false, help: "install: a rules file, repeatable (default: every global one)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "every rules file passes (check) or the block is in (install)", 3: "a rules file fails the check", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rules.py"]
+
+- id: plan
+  title: Where the harness plan stands - the current phase of docs/HARNESS-PLAN.md's Order table, its open items, the items merged pull requests finished; --write marks them DONE; the one line zero, the handovers and the room hook carry
+  harness: core
+  entry: [python, -m, fieldkit, plan]
+  path: ${FIELDKIT}/fieldkit/plan.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "next"}
+    - {name: write, flag: --write, type: flag, required: false, help: "set each PLANNED status cell a merge finished to DONE (PR #N)"}
+    - {name: repo, flag: --repo, type: path, required: false, help: "the Fieldkit checkout (default: this one)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [git, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "the plan was read", 1: "docs/HARNESS-PLAN.md is missing", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_plan.py"]
+
+- id: ideas
+  title: Parked ideas - a suggestion made while a job runs is written down (add, list, brief) instead of added to the running plan; only the owner at a terminal accepts (a plan id and a brief for a small PR job), keeps parked or forgets (struck through, never deleted)
+  harness: core
+  entry: [python, -m, fieldkit, ideas]
+  path: ${FIELDKIT}/fieldkit/ideas.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "add | list | brief | review"}
+    - {name: title, flag: null, type: str, required: false, help: "add: the idea's title"}
+    - {name: why, flag: --why, type: str, required: false, help: "add: what it would do"}
+    - {name: what, flag: --what, type: str, required: false, help: "add: 2-3 plain sentences (default: --why)"}
+    - {name: source, flag: --from, type: str, required: false, help: "add: owner (default) or agent:NAME"}
+    - {name: status, flag: --status, type: str, required: false, help: "list: parked | accepted | forgotten"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 1: "refused (review without a person at a terminal, bad input) or the store unreadable", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ideas.py"]
+  notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
+
 - id: overhead
   title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
   harness: core
@@ -5916,7 +6013,7 @@ tools:
   entry: [python, -m, fieldkit, skills]
   path: ${FIELDKIT}/fieldkit/skills/__init__.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [validate, doors, installed, align, vendor, package, benchmark, eval], help: "validate (default roots, or PATHs; --installed, --staged, --json) | doors [PATH] | installed | align [--apply] | vendor UPSTREAM --apply | package SKILL_DIR [OUT] | benchmark DIR | eval --eval-set F --skill-path P --yes"}
+    - {name: action, flag: null, type: str, required: true, choices: [validate, doors, installed, align, vendor, sets, package, benchmark, eval], help: "validate (default roots, or PATHs; --installed, --staged, --json) | doors [PATH] | installed | align [--apply] | vendor UPSTREAM --apply | sets [--apply] (its own card, skill-sets) | package SKILL_DIR [OUT] | benchmark DIR | eval --eval-set F --skill-path P --yes"}
     - {name: json, flag: --json, type: flag, required: false, help: "validate/doors/installed: JSON"}
   effects: [reads-files, writes-files]
   safety: reversible
@@ -6041,14 +6138,16 @@ tools:
     - {name: warn_usd, flag: --warn-usd, type: str, required: false, help: "print a loud warning when a session passes this many dollars; exit 3 in report mode"}
     - {name: calls, flag: --calls, type: flag, required: false, help: "one line per call: time, model, context sent, cost, running total, re-reading share"}
     - {name: assume, flag: --assume, type: str, required: false, help: "NAME=PUBLIC: price an internal model name as a public one (stated in the report, never by default)"}
-    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session"}
+    - {name: since, flag: --since, type: str, required: false, help: "every session with calls at or after this date (local midnight) or ISO time; only those calls are priced"}
+    - {name: until, flag: --until, type: str, required: false, help: "only calls before this date or ISO time"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session, nothing else on stdout"}
     - {name: doctor, flag: --doctor, type: flag, required: false, help: "check Python, the price tables and both session folders, then stop"}
   effects: [reads-files]
   safety: read-only
   output: own
   exits: {2: "session not found", 3: "a session is over --warn-usd"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_session_cost.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_session_cost.py", "${FIELDKIT}/tests/test_tokens_since_daily.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "Moved from the local kit TokenAudit into shipped code 2026-10-26 (session rotation needs it; Queue 15: the skill had no source in the repo). Standard library only, no network, writes nothing. Prices: fieldkit/tokens/prices.json, one table per provider with source URL, fetch date and the page's sha256; unknown or internal model names are unpriced, never guessed. Claude Code transcripts under $CLAUDE_CONFIG_DIR or ~/.claude/projects (Windows, Linux, macOS). Mutations: tests/tokens_mutations.yaml."
 
@@ -6060,17 +6159,78 @@ tools:
   inputs:
     - {name: transcripts, flag: null, type: list, required: false, help: "session .jsonl files"}
     - {name: all, flag: --all, type: flag, required: false, help: "every transcript under ~/.claude/projects"}
-    - {name: min_mb, flag: --min-mb, type: str, required: false, help: "with --all: skip files smaller than this (default 1)"}
-    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session"}
+    - {name: min_mb, flag: --min-mb, type: str, required: false, help: "with --all: skip files smaller than this (default 1; 0 with --since)"}
+    - {name: since, flag: --since, type: str, required: false, help: "only calls at or after this date (local midnight) or ISO time"}
+    - {name: until, flag: --until, type: str, required: false, help: "only calls before this date or ISO time"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object per session, nothing else on stdout"}
     - {name: doctor, flag: --doctor, type: flag, required: false, help: "check this computer and stop"}
   effects: [reads-files]
   safety: read-only
   output: own
   exits: {2: "a transcript not found, or none named"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_token_audit.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_token_audit.py", "${FIELDKIT}/tests/test_tokens_since_daily.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
   notes: "Moved from the local kit TokenAudit 2026-10-26. Standard library only, no network, writes nothing. Built 2026-10-21 for 'does the harness cost me a lot of tokens?': tokens are roughly calls x context per call; the harness's always-on text and hooks are a few percent."
+
+- id: cost
+  title: "One daily cost line for the owner - a day's AI dollars on this machine (every agent session-cost measures), the most expensive session with its title and what it did (its Board row, else its first prompt), and both machines' total when the other machine's numbers came over the cable; and the report over a window: both machines per day and per source (Antigravity's Gemini priced too), the owner's real bill beside the API-equivalent"
+  harness: core
+  entry: [python, -m, fieldkit, cost]
+  path: ${FIELDKIT}/fieldkit/tokens/cost_daily.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [daily, report, firstcall], help: "daily: one line for one day; report: both machines per day over a window, the bill beside it; firstcall: a real headless first call, its tokens by part (its own card, cost-firstcall)"}
+    - {name: date, flag: --date, type: str, required: false, help: "daily: the day, YYYY-MM-DD (default yesterday, local midnight to midnight)"}
+    - {name: since, flag: --since, type: str, required: false, help: "report (required): first day, YYYY-MM-DD local midnight, or an ISO time"}
+    - {name: until, flag: --until, type: str, required: false, help: "report: end, exclusive (default now)"}
+    - {name: bill, flag: --bill, type: float, required: false, help: "report: the owner's real bill for the same window in US dollars (typed by the owner; no billing page is read)"}
+    - {name: mine, flag: --mine, type: flag, required: false, help: "report: only this machine's numbers, the file to put over the cable"}
+    - {name: peer, flag: --peer, type: str, required: false, help: "the other machine's `cost daily --json` or `cost report --mine --json` file (else the newest put over the cable)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object, nothing else on stdout"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: "a --peer file not found, or a bad --date/--since/--until/--bill"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tokens_since_daily.py", "${FIELDKIT}/tests/test_tokens_cost_report.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "I4 of docs/HARNESS-PLAN.md, 2026-10-28 (the owner lost track of the spend over 4 days). Read-only, no model, no network: the other machine runs `fieldkit cost daily --json > cost-daily-<TAG>-<DATE>.json` and `fieldkit peers link put` of it; the line reads the newest file for the same day from another machine (link received/ or the scratch link-* jobs) and says so when none came. `cost report` (I1, 2026-10-28): both machines per local day and per source (Antigravity's Gemini and Claude priced from the dated tables in prices.json), the other machine's days from its `cost report --mine --json` or `cost daily --json` put over the cable, each missing day named, and with --bill the gap between the real bill and the API-equivalent. Mutations: tests/tokens_mutations.yaml."
+
+- id: cost-firstcall
+  title: "What a Claude Code session's first call carries on this machine, in tokens, measured by a real headless call (input + cache creation + cache read), the tools, skills and MCP servers it loaded, and with --parts the split by switching MCP, skills and tools off one at a time; the rules files by their size"
+  harness: core
+  entry: [python, -m, fieldkit, cost, firstcall]
+  path: ${FIELDKIT}/fieldkit/tokens/first_call.py
+  inputs:
+    - {name: cwd, flag: --cwd, type: str, required: false, help: "the project folder to measure in (default: here)"}
+    - {name: parts, flag: --parts, type: flag, required: false, help: "four calls: full, no MCP, no skills, no tools"}
+    - {name: model, flag: --model, type: str, required: false, help: "the model (default: what a session there would use)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "one JSON object, nothing else on stdout"}
+  effects: [network, processes, reads-files]
+  safety: reversible             # each call costs money (about $0.25 on Opus at 30k tokens) and leaves no transcript
+  output: own
+  exits: {0: "measured", 1: "no call was made (not signed in, rate-limited)", 2: "--cwd is not a folder"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skill_sets_first_call.py"]
+  skill: skills/fieldkit-token-audit/SKILL.md
+  notes: "O1 of docs/HARNESS-PLAN.md, 2026-10-28. `claude -p ... --output-format stream-json --verbose --max-turns 1 --no-session-persistence`; parts by --strict-mcp-config, --disable-slash-commands, --tools \"\". The parts overlap (skills off also drops the Skill tool's text), so the rest can be negative. Run by hand to measure a change, never in a loop. Mutations: tests/o1_mutations.yaml."
+
+- id: skill-sets
+  title: "A skill set per project, as data (fieldkit/skills/skillsets.yaml), written into Claude Code's own skillOverrides: skills outside the everywhere set hidden from the model in ~/.claude/settings.json, each project's own set turned on in its .claude/settings.local.json (kept out of git through .git/info/exclude); plus the user settings this machine never uses (claude.ai connectors off, unused tools denied)"
+  harness: core
+  entry: [python, -m, fieldkit, skills, sets]
+  path: ${FIELDKIT}/fieldkit/skills/sets.py
+  inputs:
+    - {name: apply, flag: --apply, type: flag, required: false, help: "write the settings (default: say what would change, change nothing)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, git]
+  safety: reversible             # only skillOverrides, permissions.deny (added) and the user_settings keys; a write that changes the hooks text is refused
+  output: own
+  exits: {0: "every settings file current, or written", 1: "changes still to apply, or a write refused"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skill_sets_first_call.py"]
+  skill: skills/fieldkit-skills/SKILL.md
+  notes: "O1 of docs/HARNESS-PLAN.md, 2026-10-28. skillOverrides states (Claude Code 2.1.302): on | name-only | user-invocable-only | off; a Skill(name) deny does NOT shrink the listing (measured: 30,735 both ways). L15 Fieldkit headless first call with the data applied as --settings: 30,697 -> 25,928 tokens. Measure with fieldkit cost firstcall. Mutations: tests/o1_mutations.yaml."
 
 - id: rotate
   title: "Session rotation - every live agent session measured (context per call, dollars), one verdict each OK / WARN / ROTATE, a monster session told at every prompt to hand over and start a fresh one, autopilot jobs restarted from their checkpoint in a new session, finished sessions listed for archive"
@@ -6128,6 +6288,26 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
+
+- id: board
+  title: "Board rows - every finished session has its row in state/coordination/PLAN.md (plan R3): check counts sessions with a row / all for a day and lists each one without, add writes the row from the session's own transcript (title, id, branch, PRs, cost), no model"
+  harness: core
+  entry: [python, -m, fieldkit, board]
+  path: ${FIELDKIT}/fieldkit/lifecycle/board.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [check, add], help: "check: with / all for the day; add: the rows the Board lacks"}
+    - {name: sessions, flag: null, type: str, required: false, help: "add: session ids (or their first characters) or transcript paths"}
+    - {name: missing, flag: --missing, type: flag, required: false, help: "add: every finished session of the day without a row"}
+    - {name: date, flag: --date, type: str, required: false, help: "the day, YYYY-MM-DD (default today)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON only on stdout"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "no PLAN.md here (never made)", 2: "bad usage or a session not found", 3: "check: a finished session has no row"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_board.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Plan R3, 2026-10-28: 58 of 75 sessions ($703) left no Board row with their id. A row counts when a PLAN.md table line names the session id's first 8 characters, or the job or task id in its first message (fieldkit task report rows). Claude Code transcripts on this computer; the other computer through fieldkit friction (kind board, over the cable) and fieldkit sessions sweep there. The Zero handover writes the old Zero's row (zero/net.py _board_row_of). Append-only to PLAN.md; appends a row only when none names the session."
 
 - id: task
   title: "Headless tasking - start a job from a brief file with no click: a one-step autopilot runbook in its own window here, or the peer's link listener over the cable (verb ask: fieldkit autopilot claude under that computer's approved link.yaml); the done protocol appended; reports come back by themselves (here: task report, over the cable: the link inbox) to the ledger, the ROOM log and the Board"
