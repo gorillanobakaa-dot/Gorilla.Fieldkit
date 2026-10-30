@@ -1645,6 +1645,11 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    mt = sub.add_parser("metrics", add_help=False,
+                        help="long-horizon proof from the harness's own records: days running, Zero epochs, session "
+                             "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
+                             "failures; what cannot be read is listed, never estimated (fieldkit metrics)")
+    mt.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
@@ -2847,6 +2852,9 @@ def main(argv=None):
     if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
+    if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
+        from . import metrics
+        return metrics.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])

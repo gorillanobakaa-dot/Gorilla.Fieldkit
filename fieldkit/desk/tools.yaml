@@ -5986,6 +5986,24 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ideas.py"]
   notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
 
+- id: metrics
+  title: Long-horizon proof from the harness's own records - days running, Zero epochs and changes, session rotations, sessions and subagents, headless sub-jobs per device, stations and machines, money, tokens, tool calls executed / refused / declined / repeated, PRs, CI runs, failures; each number names its source, what cannot be read is listed as NOT MEASURED
+  harness: core
+  entry: [python, -m, fieldkit, metrics]
+  path: ${FIELDKIT}/fieldkit/metrics.py
+  inputs:
+    - {name: since, flag: --since, type: str, required: false, help: "first day YYYY-MM-DD or ISO time (default: the harness's first record)"}
+    - {name: until, flag: --until, type: str, required: false, help: "end, exclusive (default now)"}
+    - {name: offline, flag: --offline, type: flag, required: false, help: "no gh calls"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {0: "report printed", 2: "bad arguments"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_metrics.py"]
+  notes: "Owner 2026-10-29, idea I-01 (started on the owner's word 2026-10-30): prove the harness runs long-horizon tasks. Sources: net-log.jsonl + NET.yaml, state/rotate/handovers.jsonl, Claude Code transcripts of this machine, state/lifecycle/tasks.jsonl, fieldkit cost report (peer from its cable file), gh pr/run list. Refused = a tool_result error carrying a PreToolUse refusal; repeated = same tool + input as the call before (breaker.py). No model; network only for gh, none with --offline."
+
 - id: overhead
   title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
   harness: core
