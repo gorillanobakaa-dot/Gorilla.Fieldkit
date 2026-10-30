@@ -227,6 +227,17 @@ def parse_choice(text, n):
     return None
 
 
+def parse_answer(text, n):
+    """-> (action, indexes or None) for "NUMBERS ACTION" and "ACTION NUMBERS" (1,2 a / a 1,2 / 1 f), else parse_choice."""
+    t = text.strip().lower()
+    m = re.fullmatch(r"([\d,\s]+?)\s+([apf])", t) or re.fullmatch(r"([apf])\s+([\d,\s]+)", t)
+    if m:
+        nums, act = (m.group(1), m.group(2)) if m.group(1)[0] in "0123456789," else (m.group(2), m.group(1))
+        c = parse_choice(nums, n)
+        return (act, c[1]) if c and c[0] == "pick" else None
+    return parse_choice(t, n)
+
+
 def review(root=None, ask=input, say=print, now=None):
     """The owner's walk through the parked ideas. -> the list set_status returned (empty when nothing changed)."""
     _owner_only()
@@ -236,14 +247,16 @@ def review(root=None, ask=input, say=print, now=None):
         return []
     word = {"a": "accepted", "f": "forgotten"}
     for _ in range(5):
-        c = parse_choice(ask("Your choice [a/p/f/numbers, Enter = keep parked]: "), len(ps))
+        c = parse_answer(ask("Your choice [a/p/f/numbers, or both: 1,2 a; Enter = keep parked]: "), len(ps))
         if c:
             break
-        say("Not understood: a, p, f, or numbers such as 1,3.")
+        say("Not understood: a, p, f, numbers such as 1,3, or both such as 1,2 a.")
     else:
         return []
     kind, ix = c
-    if kind == "pick":
+    if kind in word or kind == "p":
+        subset = ps if ix is None else [ps[i - 1] for i in ix]
+    elif kind == "pick":
         subset = [ps[i - 1] for i in ix]
         for _ in range(5):
             a = parse_choice(ask(f"For {', '.join(e['id'] for e in subset)} [a/p/f]: "), 0)
@@ -252,8 +265,6 @@ def review(root=None, ask=input, say=print, now=None):
                 break
         else:
             return []
-    else:
-        subset = ps
     if kind == "p":
         say("Kept parked.")
         return []
