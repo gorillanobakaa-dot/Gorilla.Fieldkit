@@ -304,7 +304,7 @@ DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking 
 4. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
 5. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
 6. stop your own background jobs and listeners (by PID, never by name).
-7. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero archives only into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and `fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does).
+7. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero archives only into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and `fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does). A Zero that opens a PR turns the app's auto-archive off for it (`set_monitor auto_archive_on_close false`): the app archives on merge, where no hook sees it (2026-10-30 17:17).
 <!-- /fieldkit-lifecycle-rule -->
 
 <!-- fieldkit-rotate-rule v1 -->
