@@ -135,17 +135,28 @@ def running_twin(h, title, now=None, tasks=None):
     return None
 
 
+class Parked(ValueError):
+    """The brief names a branch or PR that failed CI twice (TWO STRIKES); the message says which."""
+
+
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
-          worktree=None, plan=None, model=None, accept=None, allow_expensive=False):
+          worktree=None, plan=None, model=None, accept=None, allow_expensive=False, unpark=None):
     """-> the ledger record. Raises ValueError when the brief is missing or empty or the worker model is an expensive
-    one, BriefRefused when it names no plan id (HARNESS-PLAN O3; `plan` gives one from outside), AlreadyStarted when
-    the same brief is still started somewhere (unless again). `worktree`: (repo, tid) -> (path or None, why); default
+    one, Parked when it names a parked branch or PR (TWO STRIKES), BriefRefused when it names no plan id
+    (HARNESS-PLAN O3; `plan` gives one from outside), AlreadyStarted when the same brief is still started somewhere
+    (unless again). `worktree`: (repo, tid) -> (path or None, why); default
     worktrees.make. `model`: the worker's model (default: roles.yaml worker.default); `accept`: the acceptance
     command a reviewer verdict needs before the task counts as done (I5, I7, gate())."""
     p = Path(brief_path)
     text = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
     if not text:
         raise ValueError(f"no brief in {brief_path}")
+    from ..method import strikes
+    if unpark:                                         # owner-only flag; strikes logs it
+        strikes.unpark(unpark, "task start --unpark")
+    hits = strikes.named_in(text)
+    if hits:
+        raise Parked(strikes.refusal(hits))
     from . import brieflint
     findings = brieflint.lint(text, cwd or os.getcwd(), plan)
     if any(sev == "refuse" for sev, _ in findings):

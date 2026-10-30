@@ -140,6 +140,10 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
         return st
     if st["state"] == "in-step":
         return dict(st, pushed=False)
+    from . import strikes
+    if strikes.parked_for(st["branch"]):               # TWO STRIKES: no third round
+        return dict(st, ok=False, pushed=False, state="parked", error=strikes.refusal([st["branch"]]),
+                    next="parked, go on with the plan; nothing was pushed")
     # an unattended push reaches here only through the hard line, which asked the mandate first; here it is logged
     verdict, why, mpath = mandate("push", repo_path=repo)
     delay, last = 2, ""

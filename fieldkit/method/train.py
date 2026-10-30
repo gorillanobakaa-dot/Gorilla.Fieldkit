@@ -46,6 +46,7 @@ from pathlib import Path
 
 from . import emit
 from . import mergeproof as mp
+from . import strikes
 
 LABEL = "fieldkit-ready"
 MARK = re.compile(r"<!-- fieldkit-(ready|not-ready) (\{.*?\}) -->")
@@ -565,19 +566,28 @@ def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
         sleep(30)
 
 
-def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic):
+def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None):
     """O4: wait once for the PR head's CI verdict; on red the failed log tail, on green (with merge) the merge proven by
-    the PR's state, not gh's exit code."""
+    the PR's state, not gh's exit code. TWO STRIKES: the second failed round parks the branch (state "parked"); a
+    parked branch is not waited on at all."""
     pr = gh.pr(n)
     head = pr["headRefOid"]
     r = {"pr": n, "branch": pr["headRefName"], "head": head}
     if pr.get("state") != "OPEN":
         return dict(r, ok=pr.get("state") == "MERGED", state=pr.get("state", "?").lower(), why="the PR is not open")
+    if strikes.parked_for(r["branch"]):
+        return dict(r, ok=False, state="parked", why=strikes.refusal([r["branch"]]),
+                    next="parked, go on with the plan")
     state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
     r.update(state=state, why=why)
     if state == "red":
-        return dict(r, ok=False, log=gh.failed_log(head),
-                    next="fix it on the branch, fieldkit ship push, then run ci-wait again")
+        log = gh.failed_log(head)
+        s = strikes.record_failure(r["branch"], head, " ".join(log[-2:]) or why, pr=n, inbox=inbox)
+        if s["parked"]:
+            return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",
+                        next="parked, go on with the plan")
+        return dict(r, ok=False, log=log, next="fix it on the branch, push it, then run ci-wait again "
+                                               "(one strike left)")
     if state != "green":
         return dict(r, ok=False, state="timeout" if state == "pending" else state,
                     next="CI did not finish in time; run ci-wait again in the background")
@@ -814,7 +824,7 @@ def main(argv=None, prog="fieldkit ship"):
                 ap.error("ci-wait needs the PR number: fieldkit ship ci-wait 166 [--merge]")
             r = ci_wait(GH(a.repo), a.pr, a.max_wait * 60, merge=a.merge)
             emit(r, a.json, _ci_wait_lines)
-            return 0 if r["ok"] else 3
+            return 0 if r["ok"] else strikes.PARKED_EXIT if r["state"] == "parked" else 3
         if a.action == "train":
             r = train(a.repo, base=a.base, dry_run=a.dry_run, only=a.only, max_wait_s=a.max_wait * 60)
             emit(r, a.json, _plan_lines if a.dry_run else _run_lines)
