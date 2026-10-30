@@ -1,36 +1,16 @@
-"""Fetch one page through a real browser (Selenium) with a throwaway profile.
+"""Fetch one page through a browser already installed on this computer, with a throwaway profile.
 
-No Selenium Manager: Selenium looks for a driver and a browser on its own, and downloads them, only when it is not
-given both paths. We always give both (driver_paths) and refuse to start when either is missing, so no download path
-is reachable. Its usage pings are cut at the source: SE_AVOID_STATS=true; SE_OFFLINE=true as well.
+Which browsers, and how each is driven: discover.py and drivers.py (standard library only, nothing is installed or
+downloaded). The order of trying: the "prefer" names, the owner-built Gorilla Firefox, other Gecko, Chromium family,
+Safari; the next one when one fails. Every run has its own profile folder in the scratch root, deleted after.
 """
 import ipaddress
-import os
 import socket
-import sys
-from pathlib import Path
 from urllib.parse import urlsplit
 
 from ..core import settings
-
-TELEMETRY_ENV = {"SE_AVOID_STATS": "true", "SE_OFFLINE": "true"}
-BODY_JS = "return document.body ? document.body.innerText : ''"
-FIREFOX_PREFS = {                       # off at the source, in the throwaway profile as well as in Gorilla Firefox
-    "toolkit.telemetry.enabled": False, "toolkit.telemetry.unified": False,
-    "datareporting.healthreport.uploadEnabled": False, "datareporting.policy.dataSubmissionEnabled": False,
-    "app.update.auto": False, "app.update.enabled": False, "browser.shell.checkDefaultBrowser": False,
-}
-SAFARIDRIVER = "/usr/bin/safaridriver"
-
-
-class BrowserError(Exception):
-    pass
-
-
-def apply_env(env=None):
-    env = os.environ if env is None else env
-    env.update(TELEMETRY_ENV)
-    return env
+from . import discover, drivers
+from .drivers import BrowserError
 
 
 def config():
@@ -38,19 +18,10 @@ def config():
     return settings.expand(c, strict=False) if isinstance(c, dict) else {}
 
 
-def driver_paths(cfg, browser="firefox"):
-    """-> (browser binary, driver) as configured, each an existing file; BrowserError says what is missing. Never a guess."""
-    if browser == "safari":
-        return None, SAFARIDRIVER
-    out = []
-    for key in ("firefox", "geckodriver"):
-        v = cfg.get(key)
-        if not v:
-            raise BrowserError(f'fieldkit.local.json has no "browser_fetch": {{"{key}": PATH}} (fieldkit web doctor)')
-        if not Path(v).is_file():
-            raise BrowserError(f"browser_fetch.{key} is not a file: {v} (fieldkit web doctor)")
-        out.append(str(v))
-    return out[0], out[1]
+def installed(cfg=None, local=None, **kw):
+    cfg = config() if cfg is None else cfg
+    local = settings.local_settings() if local is None else local
+    return discover.discover(cfg, local, **kw)
 
 
 def check_public(url, resolve=socket.getaddrinfo):
@@ -69,52 +40,40 @@ def check_public(url, resolve=socket.getaddrinfo):
             raise BrowserError(f"{p.hostname} resolves to {ip}, which is not a public address: refused")
 
 
-def _selenium_driver(browser, cfg, profile):
-    from selenium import webdriver                      # imported late: selenium is optional (fieldkit web doctor)
-    binary, driver = driver_paths(cfg, browser)
-    if browser == "safari":
-        from selenium.webdriver.safari.service import Service
-        return webdriver.Safari(service=Service(executable_path=driver))
-    from selenium.webdriver.firefox.service import Service
-    opts = webdriver.FirefoxOptions()
-    opts.binary_location = binary
-    opts.add_argument("-headless")
-    opts.add_argument("-profile")
-    opts.add_argument(str(profile))
-    for k, v in FIREFOX_PREFS.items():
-        opts.set_preference(k, v)
-    return webdriver.Firefox(service=Service(executable_path=driver, log_output=os.devnull), options=opts)
-
-
-def fetch(url, browser="firefox", timeout=30, cfg=None, factory=None, resolve=socket.getaddrinfo, scratch=None):
-    """-> {"url", "final_url", "title", "text", "browser"}. The profile folder is deleted before this returns."""
+def run_one(row, url, timeout, scratch=None, methods=None):
+    """One browser, one fresh profile in the scratch root, removed before this returns."""
     from .. import scratch as scratchmod
     scratch = scratch or scratchmod
-    if browser == "safari" and sys.platform != "darwin":
-        raise BrowserError("safari is only on macOS")
-    check_public(url, resolve)
-    cfg = config() if cfg is None else cfg
-    if factory is None:
-        driver_paths(cfg, browser)                       # fail before anything is made
-    apply_env()
-    d, m = scratch.new(purpose="fieldkit web fetch: throwaway browser profile", kind="web-profile")
-    drv = None
+    fn = (methods or drivers.METHODS)[row["method"]]
+    d, m = scratch.new(purpose=f"fieldkit web fetch: throwaway {row['name']} profile", kind="web-profile")
     try:
         profile = d / "profile"
         profile.mkdir()
-        drv = (factory or _selenium_driver)(browser, cfg, profile)
-        drv.set_page_load_timeout(timeout)
-        try:
-            drv.get(url)
-            text = drv.execute_script(BODY_JS) or ""
-            return {"url": url, "final_url": drv.current_url, "title": drv.title or "", "text": text,
-                    "browser": browser}
-        except Exception as e:
-            raise BrowserError(f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}") from None
+        return fn(row, url, profile, timeout)
     finally:
-        if drv is not None:
-            try:
-                drv.quit()
-            except Exception:
-                pass
         scratch.delete_job(d, m, "web-fetch-own-profile")
+
+
+def fetch(url, browser="auto", engine=None, timeout=30, cfg=None, rows=None, resolve=socket.getaddrinfo,
+          scratch=None, methods=None):
+    """-> {"url","final_url","title","text","html","browser","browser_path","engine","method","tried"}.
+    tried = [{"browser","error"}] for the browsers that failed first. BrowserError when none answers."""
+    check_public(url, resolve)
+    cfg = config() if cfg is None else cfg
+    rows = installed(cfg) if rows is None else rows
+    order = discover.choose(rows, cfg.get("prefer") or (), None if browser == "auto" else browser, engine)
+    if not order:
+        raise BrowserError("no drivable browser" + ("" if browser == "auto" else f" matching {browser!r}")
+                           + " is installed (fieldkit web doctor)")
+    tried = []
+    for r in order:
+        try:
+            got = run_one(r, url, timeout, scratch, methods)
+        except BrowserError as e:
+            tried.append({"browser": r["name"], "error": str(e)})
+        except Exception as e:                           # a driver bug must not hide the next browser
+            tried.append({"browser": r["name"], "error": f"{type(e).__name__}: {e}"[:300]})
+        else:
+            return got | {"url": url, "browser": r["name"], "browser_path": r["path"], "engine": r["engine"],
+                          "method": r["method"], "tried": tried}
+    raise BrowserError("every browser failed: " + "; ".join(f"{t['browser']}: {t['error']}" for t in tried))

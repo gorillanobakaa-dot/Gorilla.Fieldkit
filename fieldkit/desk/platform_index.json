@@ -3210,9 +3210,21 @@
    "watchdog-test"
   ]
  },
+ "web browsers": {
+  "platforms": [
+   "linux",
+   "macos",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "web-browsers"
+  ]
+ },
  "web doctor": {
   "platforms": [
    "linux",
+   "macos",
    "windows"
   ],
   "why": "",
@@ -3223,11 +3235,23 @@
  "web fetch": {
   "platforms": [
    "linux",
+   "macos",
    "windows"
   ],
   "why": "",
   "ids": [
    "web-fetch"
+  ]
+ },
+ "web search": {
+  "platforms": [
+   "linux",
+   "macos",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "web-search"
   ]
  },
  "webtest": {
