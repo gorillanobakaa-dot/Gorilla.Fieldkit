@@ -6004,6 +6004,26 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_metrics.py"]
   notes: "Owner 2026-10-29, idea I-01 (started on the owner's word 2026-10-30): prove the harness runs long-horizon tasks. Sources: net-log.jsonl + NET.yaml, state/rotate/handovers.jsonl, Claude Code transcripts of this machine, state/lifecycle/tasks.jsonl, fieldkit cost report (peer from its cable file), gh pr/run list. Refused = a tool_result error carrying a PreToolUse refusal; repeated = same tool + input as the call before (breaker.py). No model; network only for gh, none with --offline."
 
+- id: github
+  title: Guided, verified GitHub setup for people new to GitHub - profiles (Full Speed Ahead, Long Horizon Tasks, AI Assisted Auditing, Check My Work, First Repository, Team, Public Release, Private Backup, Freeze), plain-words explanations from data, plan (now to wanted), apply with a yes before every change and a read-back after, check against six known mistakes, undo from a snapshot
+  harness: core
+  entry: [python, -m, fieldkit, github]
+  path: ${FIELDKIT}/fieldkit/github/__init__.py
+  inputs:
+    - {name: command, type: str, required: true, help: "doctor | profiles | explain | plan | apply | check | undo | menu"}
+    - {name: target, type: str, required: false, help: "PROFILE (explain, plan, apply, check) or SNAPSHOT / latest (undo)"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "OWNER/NAME (default: origin of this folder)"}
+    - {name: checks, flag: --checks, type: str, required: false, help: "required checks, comma list, instead of the ones that really ran"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [network, reads-files, writes-files]
+  safety: reversible             # apply snapshots first and undo restores; plan, check, explain, doctor only read
+  output: own
+  exits: {0: "fine", 1: "error or refused", 2: "bad usage", 3: "findings or changes pending"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_github_setup.py"]
+  skill: skills/fieldkit-github/SKILL.md
+  notes: "Owner order 2026-10-30 (G1): setting up GitHub cost an evening. Data: fieldkit/github/profiles.yaml, glossary.yaml, doctor.yaml. Only plan/check/explain/profiles/doctor are read only; apply and undo need a person's terminal (task.owner_terminal) and snapshot first to state/github/. Never handles a secret (the person logs in to gh); never deletes on GitHub (undo disables a ruleset it made). Launchers: launchers/github-setup.{cmd,sh,command}. No model."
+
 - id: overhead
   title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
   harness: core
