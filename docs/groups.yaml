@@ -24,6 +24,9 @@ groups:
   - name: emerge
     title: Compile jobs like Portage - a recipe per product, content-addressed stages, offload to the other machine, a model only when a stage fails
     sources: [emerge/*.py]
+  - name: github-setup
+    title: Guided, verified GitHub setup - profiles, plain-words explanations, plan, apply with consent, check for known mistakes, undo
+    sources: [github/*.py]
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]

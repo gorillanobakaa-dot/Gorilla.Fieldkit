@@ -1,0 +1,369 @@
+# Settings catalogue (one place per setting, reused by every profile) and the profiles that pick values from it.
+# Order matters: it is the order `apply` changes things in (checks before auto-merge, secret scanning before public).
+# Fields: where = exact menu path; url = page pattern; what/why/impact/risk in plain words; read/set/verify/undo = how.
+# kind: ruleset (a facet of the one ruleset on the default branch) | repo (a repository field) | manual (a file you add).
+ruleset_name: "Fieldkit main"
+settings:
+  ruleset_targets_main:
+    kind: ruleset
+    title: "A ruleset that really applies to main"
+    where: "Settings > Rules > Rulesets (NOT Settings > Security, and not the older Settings > Branches)"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "A ruleset is switched on and aimed at the default branch. A ruleset aimed at no branch is saved as active and protects nothing."
+    why: "Every rule below lives inside this ruleset; without a target none of them does anything."
+    impact: "Rules start to apply to main at once. Who could push straight to main may be asked to use pull requests, depending on the next settings."
+    risk: "Low. The ruleset starts with no rules in it; each rule is added only after you say yes."
+    read: "gh api repos/{repo}/rulesets: an item with enforcement=active and conditions.ref_name.include naming main (or ~DEFAULT_BRANCH)"
+    set: "gh api -X POST repos/{repo}/rulesets (or -X PUT .../rulesets/ID) with include=[~DEFAULT_BRANCH] and enforcement=active"
+    verify: "read it back: the ruleset is active and its include list matches main"
+    undo: "undo SNAPSHOT sets the ruleset back, or to disabled when it did not exist before (this tool never deletes on GitHub)"
+  block_deletion:
+    kind: ruleset
+    title: "Main cannot be deleted"
+    where: "Settings > Rules > Rulesets > your ruleset > Restrict deletions"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "Nobody, even by mistake, can delete the main branch."
+    why: "Deleting main is the one click that can make a whole project look empty."
+    impact: "Deleting main fails with an error. Other branches are not affected."
+    risk: "None for normal work."
+    read: "ruleset rules contain type=deletion"
+    set: "add {type: deletion} to the ruleset rules"
+    verify: "read the ruleset back: the rule is there"
+    undo: "undo SNAPSHOT restores the rules list"
+  block_force_push:
+    kind: ruleset
+    title: "Main cannot be force-pushed"
+    where: "Settings > Rules > Rulesets > your ruleset > Block force pushes"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "History on main can only grow; nobody can overwrite it with a force push."
+    why: "A force push to main can silently destroy other people's work, or hide a change."
+    impact: "A force push to main is refused. Normal pushes and merges are unchanged."
+    risk: "None for normal work. If you really must rewrite history, undo this first."
+    read: "ruleset rules contain type=non_fast_forward"
+    set: "add {type: non_fast_forward} to the ruleset rules"
+    verify: "read the ruleset back: the rule is there"
+    undo: "undo SNAPSHOT restores the rules list"
+  linear_history:
+    kind: ruleset
+    title: "Linear history on main"
+    where: "Settings > Rules > Rulesets > your ruleset > Require linear history"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "Main must stay one straight line of commits: merge commits are refused, squash or rebase merges are allowed."
+    why: "A straight history is easy to read and to roll back."
+    impact: "The 'Create a merge commit' button stops working; squash and rebase remain."
+    risk: "Low. A person used to merge commits has to choose squash or rebase."
+    read: "ruleset rules contain type=required_linear_history"
+    set: "add {type: required_linear_history} to the ruleset rules"
+    verify: "read the ruleset back: the rule is there"
+    undo: "undo SNAPSHOT restores the rules list"
+  pr_required:
+    kind: ruleset
+    title: "Changes reach main only through a pull request"
+    where: "Settings > Rules > Rulesets > your ruleset > Require a pull request before merging"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "Nobody pushes straight to main; a change goes up on a branch and is merged through a pull request."
+    why: "The pull request is where checks run, so a broken change is stopped before it is on main."
+    impact: "Direct pushes to main are refused. Everyone, you included, works on a branch and opens a pull request."
+    risk: "Medium for a beginner: pushing to main suddenly fails. The error says which rule refused it."
+    read: "ruleset rules contain type=pull_request"
+    set: "add {type: pull_request, parameters: {...}} to the ruleset rules"
+    verify: "read the ruleset back: the rule is there"
+    undo: "undo SNAPSHOT restores the rules list"
+  approvals:
+    kind: ruleset
+    title: "Approvals needed before a merge"
+    where: "Settings > Rules > Rulesets > your ruleset > Require a pull request > Required approvals"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "How many people must approve a pull request. 0 means the pull request is required but nobody has to approve it."
+    why: "A second pair of eyes (or a person checking what an AI wrote) catches mistakes the author does not see."
+    impact: "A pull request cannot merge until that many approvals exist. GitHub does not count the author's own approval."
+    risk: "High if you work alone: with 1 or more, nobody can approve your pull requests and nothing merges. Use 0 when you are the only person."
+    read: "pull_request.parameters.required_approving_review_count"
+    set: "set required_approving_review_count in the pull_request rule"
+    verify: "read the ruleset back: the number matches"
+    undo: "undo SNAPSHOT restores the rule"
+  dismiss_stale:
+    kind: ruleset
+    title: "New pushes cancel earlier approvals"
+    where: "Settings > Rules > Rulesets > your ruleset > Require a pull request > Dismiss stale approvals when new commits are pushed"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "If someone pushes more commits after an approval, the approval is thrown away."
+    why: "Otherwise a change can be approved when harmless and then altered before it merges."
+    impact: "After every push to a pull request the reviewer must approve again."
+    risk: "Low. More clicks for reviewers."
+    read: "pull_request.parameters.dismiss_stale_reviews_on_push"
+    set: "set dismiss_stale_reviews_on_push in the pull_request rule"
+    verify: "read the ruleset back"
+    undo: "undo SNAPSHOT restores the rule"
+  resolve_conversations:
+    kind: ruleset
+    title: "Review conversations must be resolved"
+    where: "Settings > Rules > Rulesets > your ruleset > Require a pull request > Require conversation resolution"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "Every comment thread on a pull request must be marked resolved before it can merge."
+    why: "A reviewer's question cannot be forgotten."
+    impact: "A pull request with an open thread cannot merge."
+    risk: "Low."
+    read: "pull_request.parameters.required_review_thread_resolution"
+    set: "set required_review_thread_resolution in the pull_request rule"
+    verify: "read the ruleset back"
+    undo: "undo SNAPSHOT restores the rule"
+  last_push_approval:
+    kind: ruleset
+    title: "Extra approval for the latest push (unattributed changes)"
+    where: "Settings > Rules > Rulesets > your ruleset > Require a pull request > Require approval of the most recent reviewable push"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "The newest push to a pull request must be approved by someone other than the person who pushed it."
+    why: "Stops the author slipping in a last change after the review."
+    impact: "A pull request pushed by a program or an account nobody else can approve for (for example commits made as fieldkit@localhost, which is no GitHub user) waits forever for an approval nobody gives."
+    risk: "High for automation and for a solo user: it can block every merge. Leave it off unless a second person always reviews."
+    read: "pull_request.parameters.require_last_push_approval"
+    set: "set require_last_push_approval in the pull_request rule"
+    verify: "read the ruleset back"
+    undo: "undo SNAPSHOT restores the rule"
+  code_owner_review:
+    kind: ruleset
+    title: "Code owners must review"
+    where: "Settings > Rules > Rulesets > your ruleset > Require a pull request > Require review from Code Owners"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "Files with an owner in the CODEOWNERS file need that owner's approval."
+    why: "The people who know a part of the project see every change to it."
+    impact: "Pull requests touching owned files wait for the owner. Without a CODEOWNERS file nothing is owned and nothing waits."
+    risk: "Medium: a wrong CODEOWNERS entry can block merges until the owner answers."
+    read: "pull_request.parameters.require_code_owner_review"
+    set: "set require_code_owner_review in the pull_request rule"
+    verify: "read the ruleset back"
+    undo: "undo SNAPSHOT restores the rule"
+  required_checks:
+    kind: ruleset
+    title: "Checks that must be green before a merge"
+    where: "Settings > Rules > Rulesets > your ruleset > Require status checks to pass"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "The named CI checks must pass before a pull request can merge. The names must be exactly the names of checks that really ran on this repository."
+    why: "This is what stops a broken change from reaching main."
+    impact: "A pull request cannot merge until each named check is green. A name that never runs (a typo, a renamed job) blocks every pull request forever, so this tool only offers names it saw run."
+    risk: "High if a name is wrong. That is why the names are read from the repository's recent check runs and never typed."
+    read: "required_status_checks.parameters.required_status_checks[].context, compared with gh api repos/{repo}/commits/BRANCH/check-runs"
+    set: "set required_status_checks in the ruleset rules"
+    verify: "read the ruleset back; every name appears in the recent check runs"
+    undo: "undo SNAPSHOT restores the rule"
+  checks_up_to_date:
+    kind: ruleset
+    title: "Branch must be up to date before the merge"
+    where: "Settings > Rules > Rulesets > your ruleset > Require status checks > Require branches to be up to date before merging"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "A pull request must include the latest main before it merges, so the checks ran on what main will really be."
+    why: "Two changes that pass alone can break each other; this catches it."
+    impact: "When main moves, open pull requests must be updated (and re-checked) before they merge."
+    risk: "Low. Slower when many pull requests are open."
+    read: "required_status_checks.parameters.strict_required_status_checks_policy"
+    set: "set strict_required_status_checks_policy in the rule"
+    verify: "read the ruleset back"
+    undo: "undo SNAPSHOT restores the rule"
+  freeze:
+    kind: ruleset
+    title: "Freeze: nothing can change main"
+    where: "Settings > Rules > Rulesets > your ruleset > Restrict updates"
+    url: "https://github.com/{repo}/settings/rules"
+    what: "Main is locked: no push and no merge can move it."
+    why: "An incident: you want nothing to reach main while you look into it."
+    impact: "Every merge is refused until you lift the freeze with: fieldkit github undo latest"
+    risk: "Medium: it stops all work on main, by design."
+    read: "ruleset rules contain type=update"
+    set: "add {type: update} to the ruleset rules"
+    verify: "read the ruleset back: the rule is there"
+    undo: "fieldkit github undo latest"
+  auto_merge:
+    kind: repo
+    title: "Auto-merge allowed"
+    where: "Settings > General > Pull Requests > Allow auto-merge"
+    url: "https://github.com/{repo}/settings"
+    what: "A pull request can be set to merge by itself once its required checks and approvals are done."
+    why: "No one has to wait at the screen for CI."
+    impact: "With required checks it merges when they are green. WITHOUT required checks or approvals it merges at once, before CI even starts, so this tool refuses to turn it on in that case."
+    risk: "High without required checks (merges unchecked). Low with them."
+    read: "gh api repos/{repo}: allow_auto_merge"
+    set: "gh api -X PATCH repos/{repo} -F allow_auto_merge=true"
+    verify: "read the repository back"
+    undo: "undo SNAPSHOT sets the field back"
+  delete_branch_on_merge:
+    kind: repo
+    title: "Delete a branch after its pull request merges"
+    where: "Settings > General > Pull Requests > Automatically delete head branches"
+    url: "https://github.com/{repo}/settings"
+    what: "When a pull request merges, GitHub deletes its branch."
+    why: "Old branches pile up otherwise. The commits stay in main's history; only the label goes."
+    impact: "Merged branches disappear from the branch list. It does not work for branches a ruleset forbids deleting; `check` tells you if that is the case."
+    risk: "Low; a deleted branch can be restored from the pull request page."
+    read: "gh api repos/{repo}: delete_branch_on_merge"
+    set: "gh api -X PATCH repos/{repo} -F delete_branch_on_merge=true"
+    verify: "read the repository back"
+    undo: "undo SNAPSHOT sets the field back"
+  secret_scanning:
+    kind: repo
+    title: "Secret scanning"
+    where: "Settings > Advanced Security (or Settings > Security > Code security) > Secret scanning"
+    url: "https://github.com/{repo}/settings/security_analysis"
+    what: "GitHub looks for passwords and keys saved in your code and tells you."
+    why: "A leaked key is usually found by strangers within minutes."
+    impact: "GitHub scans the repository's content (it reads your code for this). Alerts appear under the Security tab."
+    risk: "Low. On a private repository on a free plan GitHub may refuse; the refusal text is shown."
+    read: "gh api repos/{repo}: security_and_analysis.secret_scanning.status"
+    set: "gh api -X PATCH repos/{repo} with security_and_analysis.secret_scanning.status=enabled"
+    verify: "read the repository back"
+    undo: "undo SNAPSHOT sets the field back"
+  push_protection:
+    kind: repo
+    title: "Secret push protection"
+    where: "Settings > Advanced Security (or Settings > Security > Code security) > Push protection"
+    url: "https://github.com/{repo}/settings/security_analysis"
+    what: "A push that contains a password or key is refused before it reaches GitHub."
+    why: "A secret that never reaches GitHub cannot leak from it."
+    impact: "Some pushes are refused with a message naming the secret; you remove it and push again."
+    risk: "Low."
+    read: "gh api repos/{repo}: security_and_analysis.secret_scanning_push_protection.status"
+    set: "gh api -X PATCH repos/{repo} with security_and_analysis.secret_scanning_push_protection.status=enabled"
+    verify: "read the repository back"
+    undo: "undo SNAPSHOT sets the field back"
+  dependabot_alerts:
+    kind: repo
+    title: "Dependabot alerts (alerts only, no automatic pull requests)"
+    where: "Settings > Advanced Security (or Settings > Security > Code security) > Dependabot alerts"
+    url: "https://github.com/{repo}/settings/security_analysis"
+    what: "GitHub tells you when a library you use has a known flaw. It does NOT open update pull requests."
+    why: "You learn about flaws and choose when to update."
+    impact: "Alerts and emails appear. GitHub reads your dependency list to do this."
+    risk: "Low. Do not also turn on Dependabot version updates: they open pull requests by themselves, on GitHub's schedule, not yours."
+    read: "gh api repos/{repo}/vulnerability-alerts (204 = on, 404 = off)"
+    set: "gh api -X PUT repos/{repo}/vulnerability-alerts"
+    verify: "read it back"
+    undo: "undo SNAPSHOT sets it back"
+  actions_enabled:
+    kind: repo
+    title: "GitHub Actions (CI) enabled"
+    where: "Settings > Actions > General > Actions permissions"
+    url: "https://github.com/{repo}/settings/actions"
+    what: "Whether GitHub may run your CI robot at all."
+    why: "Off means nothing runs on GitHub's computers: no cost, no CI, nothing to leak through a workflow."
+    impact: "Off: no check ever runs, so required checks would block forever; this tool never combines the two."
+    risk: "Medium: switching off while rules require checks blocks every merge."
+    read: "gh api repos/{repo}/actions/permissions: enabled"
+    set: "gh api -X PUT repos/{repo}/actions/permissions -F enabled=false"
+    verify: "read it back"
+    undo: "undo SNAPSHOT sets it back"
+  private:
+    kind: repo
+    title: "Repository is private (false = public)"
+    where: "Settings > General > Danger Zone > Change repository visibility"
+    url: "https://github.com/{repo}/settings"
+    what: "Private: only people you invite can see it. Public: anyone on the internet can see and copy all of it, with its whole history."
+    why: "Public is for sharing; private is for everything else."
+    impact: "Going public cannot be taken back: copies made meanwhile stay out there. This tool runs `fieldkit privacy scan` first and refuses while it finds anything."
+    risk: "High. Never switch to public to 'see if it works'."
+    read: "gh api repos/{repo}: private"
+    set: "gh api -X PATCH repos/{repo} -F private=true|false"
+    verify: "read the repository back"
+    undo: "undo SNAPSHOT sets it back (a public repository that was copied stays copied)"
+  license_file:
+    kind: manual
+    title: "A LICENSE file"
+    where: "Repository home > Add file > Create new file > name it LICENSE"
+    url: "https://github.com/{repo}/community"
+    what: "A LICENSE file says what others may do with your code. Without one, nobody may legally reuse it."
+    why: "A public project without a license is not open source."
+    impact: "Only adds a file."
+    risk: "Choosing the wrong license is hard to reverse; choose with care (choosealicense.com)."
+    read: "gh api repos/{repo}/contents/LICENSE"
+    set: "you add the file yourself (this tool never picks a license for you)"
+    verify: "read the file back"
+    undo: "delete the file in a pull request"
+  security_policy:
+    kind: manual
+    title: "A SECURITY.md file"
+    where: "Repository home > Add file > Create new file > name it SECURITY.md"
+    url: "https://github.com/{repo}/security/policy"
+    what: "Tells people how to report a security problem privately."
+    why: "Without it, a finder may report in public."
+    impact: "Only adds a file."
+    risk: "None."
+    read: "gh api repos/{repo}/contents/SECURITY.md"
+    set: "you add the file yourself"
+    verify: "read the file back"
+    undo: "delete the file in a pull request"
+  code_owners_file:
+    kind: manual
+    title: "A CODEOWNERS file"
+    where: "Repository home > Add file > Create new file > .github/CODEOWNERS"
+    url: "https://github.com/{repo}/blob/HEAD/.github/CODEOWNERS"
+    what: "Names who owns which files."
+    why: "Required-reviewer rules need it."
+    impact: "Only adds a file."
+    risk: "A wrong name blocks merges once code-owner review is on."
+    read: "gh api repos/{repo}/contents/.github/CODEOWNERS"
+    set: "you add the file yourself"
+    verify: "read the file back"
+    undo: "delete the file in a pull request"
+
+# values: true/false, a number, or "ran-on-main" (the checks that really ran on this repository).
+profiles:
+  full-speed-ahead:
+    title: "Full Speed Ahead"
+    who: "You work alone and want no friction."
+    changes: "You can push to branches and to main as before and open a pull request when you like. CI runs but never blocks. Main cannot be deleted or force-pushed, and merged branches are cleaned up."
+    threat: "GitHub learns your code and your history (it hosts them). Anyone you invite, and GitHub itself, can act on the repository; nobody else can."
+    settings: {ruleset_targets_main: true, block_deletion: true, block_force_push: true, pr_required: false, delete_branch_on_merge: true, auto_merge: false}
+  long-horizon:
+    title: "Long Horizon Tasks"
+    who: "Programs (AI agents, builds) work for days and you are asleep."
+    changes: "Every change goes through a pull request that needs no approval but must pass the CI checks on an up-to-date branch. Auto-merge is on, so green pull requests merge by themselves; branches are deleted after merge; main cannot be deleted or force-pushed; secret scanning and push protection are on."
+    threat: "GitHub learns your code, history and CI logs; secret scanning means GitHub reads the content for keys. GitHub Actions runs your workflows on GitHub's computers; whoever can edit a workflow can act through it."
+    settings: {ruleset_targets_main: true, block_deletion: true, block_force_push: true, pr_required: true, approvals: 0, last_push_approval: false, required_checks: ran-on-main, checks_up_to_date: true, auto_merge: true, delete_branch_on_merge: true, secret_scanning: true, push_protection: true}
+  ai-assisted-auditing:
+    title: "AI Assisted Auditing"
+    who: "An AI writes the changes and a person approves each one."
+    changes: "One approval is required, earlier approvals are dropped when new commits arrive, review conversations must be resolved, CI must be green. Auto-merge is on and waits for your approval."
+    threat: "As Long Horizon Tasks. In addition the approver is the only barrier; an account that can approve is a door."
+    settings: {ruleset_targets_main: true, block_deletion: true, block_force_push: true, pr_required: true, approvals: 1, dismiss_stale: true, resolve_conversations: true, last_push_approval: false, required_checks: ran-on-main, checks_up_to_date: true, auto_merge: true, delete_branch_on_merge: true}
+  check-my-work:
+    title: "Check My Work and Make Sure I Didn't Fuck Up"
+    mode: audit
+    who: "You already set things up and want to know whether it is right."
+    changes: "Nothing. It reads the repository, compares it with the closest profile and with every mistake this tool knows, and prints what is wrong in plain words with the exact fix."
+    threat: "Read only. GitHub learns that your account read these settings."
+    settings: {}
+  first-repository:
+    title: "First Repository"
+    mode: first-repo
+    who: "You have a folder on your computer and no GitHub repository yet."
+    changes: "Makes a PRIVATE repository from the folder after writing a .gitignore that keeps secrets and build output out, and shows exactly which files will be uploaded before the first push. Then offers a profile."
+    threat: "GitHub learns every file you push. Private means only invited people can read it, not that GitHub cannot."
+    settings: {}
+  team:
+    title: "Team"
+    who: "Several people work on the project."
+    changes: "Two approvals, code-owner review, green checks on an up-to-date branch, linear history, conversations resolved. Needs a CODEOWNERS file."
+    threat: "As Long Horizon Tasks; every collaborator is a person who can act through the repository."
+    settings: {ruleset_targets_main: true, block_deletion: true, block_force_push: true, linear_history: true, pr_required: true, approvals: 2, dismiss_stale: true, resolve_conversations: true, last_push_approval: false, code_owner_review: true, required_checks: ran-on-main, checks_up_to_date: true, delete_branch_on_merge: true, code_owners_file: true}
+  public-release:
+    title: "Public Release / Open Source"
+    who: "You want to publish the project for everyone."
+    changes: "Secret scanning and push protection on, Dependabot alerts only, LICENSE and SECURITY.md present, main protected, and only then the repository becomes public, after `fieldkit privacy scan` finds nothing."
+    threat: "Everyone can read and copy the whole code and history, forever. GitHub also scans it."
+    settings: {ruleset_targets_main: true, block_deletion: true, block_force_push: true, secret_scanning: true, push_protection: true, dependabot_alerts: true, license_file: true, security_policy: true, private: false}
+  private-backup:
+    title: "Private Backup Only"
+    who: "GitHub is only an off-site copy."
+    changes: "Repository stays private, GitHub Actions is off (nothing runs on GitHub's computers), and the only rule is that main cannot be deleted."
+    threat: "GitHub holds a copy of everything you push. With Actions off, no workflow can run there."
+    settings: {ruleset_targets_main: true, block_deletion: true, actions_enabled: false, private: true}
+  freeze:
+    title: "Freeze (incident)"
+    who: "Something is wrong and nothing may reach main until you have looked."
+    changes: "Main is locked against every push and merge. Lift it with one command: fieldkit github undo latest."
+    threat: "No new exposure."
+    settings: {ruleset_targets_main: true, freeze: true}
+
+# Offered, explained, not recommended
+not_recommended:
+  codeql_default_setup: "CodeQL default setup runs GitHub's code scanning on every push: slow (minutes per pull request) and GitHub reads and analyzes all your code on its computers. Pick it only if you want that; it is not in any profile."
+  dependabot_version_updates: "Dependabot version updates open pull requests by themselves on GitHub's schedule. That hands the timing of your updates to GitHub, and it can flood a long-running job with pull requests. Alerts (in Public Release) are the quiet alternative."

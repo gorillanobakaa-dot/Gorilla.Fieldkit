@@ -1650,6 +1650,10 @@ def build_parser():
                              "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
                              "failures; what cannot be read is listed, never estimated (fieldkit metrics)")
     mt.add_argument("args", nargs=argparse.REMAINDER)
+    gh = sub.add_parser("github", add_help=False,
+                        help="guided, verified GitHub setup with profiles: doctor, profiles, explain, plan, apply, "
+                             "check, undo, menu; asks before every change (fieldkit github)")
+    gh.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
@@ -2860,6 +2864,9 @@ def main(argv=None):
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
         from . import metrics
         return metrics.main(args[1:])
+    if args[:1] == ["github"]:                        # guided GitHub setup: profiles, plan, apply with consent, check, undo
+        from . import github
+        return github.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])
