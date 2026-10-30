@@ -39,6 +39,9 @@ with the plan. No third try. Never merge red or weaken a check.
 
 IDEAS. While a job or plan runs, a new owner suggestion is parked (`fieldkit ideas add TITLE --why W`), never added
 to the current plan, unless the owner says "now" or "add to the plan". Reply in one line: "parked as I-NN".
+A suggestion mid-job goes to `fieldkit ideas add`, never into the running plan; the room hook shows "N parked ideas"
+on a session's first prompt, and Zero asks the owner to `fieldkit ideas review` at a milestone. `state/ideas/` is
+backed up by `fieldkit backup`.
 
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
@@ -48,7 +51,7 @@ USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a scrip
 Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it later.
 
 DONE. Follow the DONE PROTOCOL in the fieldkit-lifecycle block of this file. Before ending, name every needed
-document you wrote into a git-ignored folder (state/, local/) and ask the
+document you wrote into a git-ignored folder (state/, local/; always `state/ideas/` when it holds ideas) and ask the
 owner once: add it to git? Say the repository is PUBLIC if it is (Gorilla.Fieldkit is); `fieldkit privacy scan` first.
 
 HONESTY. Report what tool results show: the commands, what they printed, what was NOT verified. Never claim an action

@@ -179,3 +179,34 @@ def test_plan_next_counts_parked_ideas_apart_from_the_plan(root, tmp_path):
 def test_a_plan_row_with_a_p_id_is_read(root):
     assert plan.items("| P1 | idea | PLANNED |\n") == {"P1": "PLANNED"}
     assert plan.order("## Order\n\n| phase | items | why |\n|---|---|---|\n| 9. later | P1 | y |\n") == [("9. later", ["P1"])]
+
+
+def test_the_markdown_is_rebuilt_from_the_json_when_missing_or_stale(root):
+    ideas.add("A", "why a", root=root, now=NOW)
+    md = ideas.store_dir(root) / ideas.MD_NAME
+    md.unlink()
+    assert [e["id"] for e in ideas.listing(root=root)] == ["I-01"] and "I-01: A" in md.read_text(encoding="utf-8")
+    md.write_text("hand-edited", encoding="utf-8")
+    assert ideas.ensure_md(root) is True and "I-01: A" in md.read_text(encoding="utf-8")
+    assert ideas.ensure_md(root) is False                      # in step: nothing rewritten
+
+
+def test_a_missing_json_is_never_invented_by_the_markdown_rebuild(root):
+    assert ideas.ensure_md(root) is False and not ideas.store_dir(root).exists()
+
+
+def test_the_room_hook_shows_the_ideas_line_then_the_brief_once(root, monkeypatch):
+    from fieldkit.autopilot import room
+    monkeypatch.undo()                                          # conftest silences _ideas; this test wants the real one
+    ideas.add("A", "why a", root=root, now=NOW)
+    monkeypatch.setattr(ideas, "ROOT", root)
+    monkeypatch.setattr(ideas, "state_root", lambda r=None: Path(r or root))
+    out = room._ideas({"session_id": "s9"}, "UserPromptSubmit", "")
+    assert "1 parked ideas - fieldkit ideas review" in out and "I-01" in out
+    assert room._ideas({"session_id": "s9"}, "UserPromptSubmit", "").count("I-01") == 0
+    assert room._ideas({"session_id": "s9"}, "PreToolUse", "x") == "x"
+    # and the hook's one context builder calls it (new session, so the brief shows again)
+    for f in ("_net", "_hog", "_rotate", "_plan", "_relay"):
+        monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
+    monkeypatch.setattr(room, "unseen", lambda sid: [])
+    assert "parked ideas - fieldkit ideas review" in room._context({"session_id": "s10"}, "UserPromptSubmit")

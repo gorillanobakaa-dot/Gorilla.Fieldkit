@@ -123,6 +123,7 @@ Its essentials are now in [VISION.md](VISION.md).
 | I7 | A review verdict is one of three: pass / explain the mistake and send back / fix it itself (when the worker failed twice) | the goal | rounds per piece | DONE (PR #207) |
 | I8 | Teach the harness, measured: every review fix becomes a deterministic tool + test (as triage signatures already do), and the next similar task is checked to need no reviewer fix | the goal; rule "the same failure is never diagnosed twice" | repeat failures of the same kind | DONE (PR #206) |
 | I9 | Owner presence measured per job: every prompt, approval, click and paste the owner had to do is counted; the target is 0 (`fieldkit friction` lists what could wait on a person; this counts what did) | owner: "50 hours in front of the computer to click accept" | owner actions per job | DONE (PR #174) |
+| P1 | Parked ideas reach the owner, never the running plan: the room hook shows "N parked ideas - fieldkit ideas review" and the brief on a session's first prompt; CORE.md says a mid-job suggestion goes to `fieldkit ideas add`; the markdown is rebuilt from ideas.json when missing or stale; `fieldkit backup` carries state/ideas/ | owner, 2026-10-30: `fieldkit ideas` was merged (#220) but nothing used it; the finish line kept moving as suggestions entered the plan | parked ideas the owner reviewed; plan rows added mid-job (target 0) | PLANNED |
 
 ## Order (proposed 2026-10-28, approved by the owner the same evening)
 
@@ -135,6 +136,7 @@ Its essentials are now in [VISION.md](VISION.md).
 | 5. Know where it went | R3, I4, I1, I2 | the owner never loses track again |
 | 6. The household | C4, C5, C7, C1, C2, C3 + I6, C6 | the extra firepower |
 | 7. Cheap workers, Opus reviews | I5, I7, O3, L3, I8 | the multi-agent vision |
+| 7b. Ideas never move the finish line | P1 (parked ideas surface to the owner, not into the running plan) | the plan kept growing mid-job |
 | 8. One system | W10: bake Fieldkit into Gorilla OpenCode | only when 1-7 are measured green |
 
 ## Owner decisions already made
