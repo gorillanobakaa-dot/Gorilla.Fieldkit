@@ -5619,6 +5619,9 @@ tools:
   inputs:
     - {name: action, flag: null, type: str, required: true, choices: [status, sync, push, audit, release, prune, update, proof, ci-record, ready, overlap, freeze, unfreeze], help: "status, audit, proof and overlap read; the rest change the repo or the remote (train: card merge-train)"}
     - {name: tag, flag: null, type: str, required: false, help: "release: vX.Y.Z"}
+    - {name: auto, flag: --auto, type: flag, required: false, help: "push: after the push open the PR if none, turn GitHub auto-merge on for the pushed commit, exit; branches only, never with --tag; 2+ red CI runs: PARKED, inbox note, exit 3"}
+    - {name: title, flag: --title, type: str, required: false, help: "push --auto: title of a PR it creates (else --fill)"}
+    - {name: body_file, flag: --body-file, type: str, required: false, help: "push --auto: body file of a PR it creates"}
     - {name: offline, flag: --offline, type: flag, required: false, help: "audit: git only, no network"}
     - {name: archive_unproven, flag: --archive-unproven, type: flag, required: false, help: "prune: save an unproven branch as tag archive/<branch>, then delete it"}
     - {name: scaffold, flag: --scaffold, type: flag, required: false, help: "release: write the missing note files and stop"}
@@ -5635,7 +5638,7 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_methods.py", "${FIELDKIT}/tests/test_ship_audit_release.py", -k, "ship or audit or release or prune"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune DELETES remote branches git or GitHub prove merged (with --archive-unproven, tags first). audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."
+  notes: "push --auto (plan I9, 2026-10-30): push, find or create the branch's PR, count failed CI runs on the branch (2+ = PARKED, inbox note, exit 3, no auto-merge), then enable GitHub auto-merge with --match-head-commit SHA; GitHub merges when the required checks pass. A gh failure exits 1 and the push stands. PUBLISHES: push sends commits to origin (retries on network errors); release pushes an annotated tag that triggers the release workflow and waits on GitHub; prune DELETES remote branches git or GitHub prove merged (with --archive-unproven, tags first). audit uses the GitHub API via gh unless --offline. sync makes a merge commit carrying the git config fieldkit.trailer lines. Never force-pushes, rebases or pushes to the base. Every push/release needs the owner's yes, and the keep-identity-off-GitHub check (catchup public-check) first."
 
 - id: merge-train
   title: "The merge train - a session declares its PR final (ship ready), Zero merges the declared PRs one at a time, dependencies first, brought up to date with main (generated files regenerated, cards entry by entry), never red, only with --match-head-commit; a merge of main proven to be only a merge skips the full pre-commit suite"
