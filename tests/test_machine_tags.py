@@ -288,7 +288,7 @@ def test_task_start_titles_with_the_tag_of_where_it_runs(tmp_path, monkeypatch):
     (tmp_path / "coord").mkdir()
     (tmp_path / "coord" / "PLAN.md").write_text("# PLAN\n", encoding="utf-8")
     b = tmp_path / "brief.md"
-    b.write_text("Fix the thing.\nmore", encoding="utf-8")
+    b.write_text("Fix the thing.\nmore O3", encoding="utf-8")
     sent = []
     r = tasks.start(b, on="L15HOST", call=lambda req, timeout, device: sent.append(req) or {"ok": True, "started": 1},
                     now=NOW)

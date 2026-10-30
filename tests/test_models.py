@@ -120,7 +120,7 @@ def test_autopilot_claude_spawn_passes_the_cheap_default(monkeypatch):
 
 def test_task_start_refuses_premium_even_with_allow_expensive(tmp_path):
     b = tmp_path / "b.md"
-    b.write_text("do it\n")
+    b.write_text("Plan item I5.\ndo it\n")
     with pytest.raises(ValueError):
         tasks.start(b, model="claude-fable-5-1", allow_expensive=True, worktree=lambda *a: (None, ""),
                     call=lambda *a, **k: {}, launch=lambda *a, **k: None)

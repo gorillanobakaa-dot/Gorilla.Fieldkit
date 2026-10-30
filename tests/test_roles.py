@@ -29,7 +29,7 @@ def iso(tmp_path, monkeypatch):
     monkeypatch.setattr(goal, "GOALS", tmp_path / "goals")
 
 
-def brief(tmp_path, text="Fix the thing.\nmore"):
+def brief(tmp_path, text="Plan item I5.\nFix the thing.\nmore"):
     p = tmp_path / "brief.md"
     p.write_text(text, encoding="utf-8")
     return p
