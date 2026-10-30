@@ -47,6 +47,23 @@ def _load(root=None):
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def ensure_md(root=None):
+    """Rewrite TODO.Features.Plan.md from ideas.json when it is missing or differs (edited by hand, half-written, lost).
+    The json is the truth. -> True when it rewrote. A missing json is never created here: nothing to write from."""
+    d = store_dir(root)
+    if not (d / JSON_NAME).is_file():
+        return False
+    try:
+        want = render(_load(root))
+        m = d / MD_NAME
+        if m.is_file() and m.read_text(encoding="utf-8") == want:
+            return False
+        m.write_text(want, encoding="utf-8", newline="\n")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def _stamp(now):
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(now() if callable(now) else (now or time.time())))
 
@@ -82,6 +99,7 @@ def add(title, why, what=None, source="owner", root=None, now=None):
         raise Refused("an idea needs a title and --why (what it would do)")
     if not re.fullmatch(r"owner|agent:[\w.@-]+", source):
         raise Refused("--from is owner or agent:NAME")
+    ensure_md(root)
     data = _load(root)
     n = max([int(m.group(1)) for e in data["ideas"] if (m := re.fullmatch(r"I-(\d+)", e["id"]))] or [0]) + 1
     e = {"id": f"I-{n:02d}", "date": _stamp(now), "title": title, "why": why, "what": _clean(what) or why,
@@ -94,6 +112,7 @@ def add(title, why, what=None, source="owner", root=None, now=None):
 def listing(status=None, root=None):
     if status and status not in STATUSES:
         raise Refused(f"status is one of {', '.join(STATUSES)}")
+    ensure_md(root)
     return [e for e in _load(root)["ideas"] if not status or e["status"] == status]
 
 

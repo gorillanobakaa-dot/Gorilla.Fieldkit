@@ -1,5 +1,5 @@
 # fieldkit ideas (2026-10-29): every mutation must be CAUGHT:
-#   fieldkit mutate --plan tests/ideas_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ideas.py
+#   fieldkit mutate --plan tests/ideas_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_ideas.py tests/test_backup_usb.py
 - file: fieldkit/ideas.py
   swap:
   - "    _owner_only()\n    if status not in STATUSES:"
@@ -65,3 +65,23 @@
   - "\"parked_ideas\": parked,"
   - "\"parked_ideas\": 0,"
   why: plan next hides the parked ideas
+- file: fieldkit/ideas.py
+  swap:
+  - "        if m.is_file() and m.read_text(encoding=\"utf-8\") == want:"
+  - "        if m.is_file():"
+  why: a stale markdown is never rebuilt
+- file: fieldkit/ideas.py
+  swap:
+  - "    ensure_md(root)\n    return [e for"
+  - "    return [e for"
+  why: listing does not repair a missing markdown
+- file: fieldkit/autopilot/room.py
+  swap:
+  - "    ctx = _ideas(call, event, ctx)\n"
+  - ""
+  why: the room hook never shows the parked ideas
+- file: fieldkit/core/backup.py
+  swap:
+  - " + ideas_files(root)"
+  - ""
+  why: backup drops the shared state/ideas
