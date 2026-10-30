@@ -1,0 +1,44 @@
+# Rules the primary-checkout guard must hold (owner order 2026-10-29: one writer per primary checkout):
+#   fieldkit mutate --plan tests/checkout_guard_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_checkout_guard.py tests/test_emerge.py
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['            return claims.norm(d)', '            return None']
+  why: a folder named .git marks a primary checkout
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['        if os.path.isdir(g):', '        if os.path.exists(g):']
+  why: a linked worktree (.git is a file) is free for its own session
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['by = "zero" if me == zero else', 'by = "" if False else']
+  why: Zero may use the primary checkout
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['if env.get(ENV) else ""', 'if False else ""']
+  why: the FIELDKIT_CHECKOUT_OWNER override is honoured
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['            if not zero:', '            if False:']
+  why: with no open net and no zero nothing is judged
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['        if verb == "stash" and STASH_READ.match(rest):', '        if False:']
+  why: stash list and show are read-only
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['        if verb in ("checkout", "reset") and re.search', '        if False and re.search']
+  why: checkout -- PATH and reset -- PATH restore files only
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['VERBS = ("checkout", "switch", "commit", "merge", "reset", "rebase", "stash", "cherry-pick", "revert")', 'VERBS = ("checkout", "switch", "commit", "merge", "rebase", "stash", "cherry-pick", "revert")']
+  why: git reset is judged
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['(?=\s|$)', '\b']
+  why: git commit-tree is not git commit
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['    log(r, call, now)', '    pass']
+  why: every use of a primary checkout by Zero or the override, and every refusal, is logged
+- file: fieldkit/zero/checkout_guard.py
+  swap: ['        out.append((verb, here))', '        out.append((verb, where))']
+  why: git -C DIR acts in DIR, not in the session's folder
+- file: fieldkit/autopilot/toolrouter.py
+  swap: ['deny = _claims(call) or _checkout(call)', 'deny = _claims(call)']
+  why: the guard is wired into the PreToolUse hook
+- file: fieldkit/emerge/runner.py
+  swap: ['if x["action"] not in SKIPS and (why := moved(base, snapshot(watch))):', 'if False:']
+  why: an emerge run aborts when its checkout moved
+- file: fieldkit/emerge/runner.py
+  swap: ['(b["branch"], b["head"]) != (after[r]["branch"], after[r]["head"])', '(b["head"],) != (after[r]["head"],)']
+  why: a branch switch with an unchanged HEAD is a move too

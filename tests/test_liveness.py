@@ -119,7 +119,8 @@ def test_close_stops_what_is_still_inside_and_says_so(tmp_path):
     c = contain.Container("close")
     p = c.popen([PY, "-c", "import time; time.sleep(60)"])
     try:
-        assert c.close() == [p.pid] and _gone(p.pid)
+        left = c.close()                    # a venv launcher may sit in front of the real interpreter: both are named
+        assert p.pid in left and all(_gone(x) for x in left)
     finally:
         _hard_kill(p.pid)
 

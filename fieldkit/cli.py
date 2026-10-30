@@ -1606,6 +1606,8 @@ def build_parser():
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
+                                  "(models report; fieldkit/lifecycle/models.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
@@ -1634,6 +1636,10 @@ def build_parser():
                         help="where the harness plan stands: the current phase of docs/HARNESS-PLAN.md, its open "
                              "items, the ones merged pull requests finished (fieldkit plan next)")
     pl.add_argument("args", nargs=argparse.REMAINDER)
+    idp = sub.add_parser("ideas", add_help=False,
+                         help="parked suggestions: written down while a job runs, never added to the running plan; "
+                              "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
+    idp.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
@@ -2815,6 +2821,9 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
+    if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
+        from .lifecycle import models
+        return models.main(args[1:])
     if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
@@ -2830,6 +2839,9 @@ def main(argv=None):
     if args[:1] == ["plan"]:                          # where the harness plan stands: phase, open items, merged ones
         from . import plan
         return plan.main(args[1:])
+    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+        from . import ideas
+        return ideas.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])

@@ -384,6 +384,8 @@ def _room_in_tmp(tmp_path, monkeypatch):
     monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room-state")
     # the relay line depends on whether THIS computer's relay listens: off in tests, except the test of it
     monkeypatch.setattr(room, "_relay", lambda call, event, ctx: ctx)
+    # the parked-ideas line depends on the checkout's real state/ideas: off in tests, except the test of it
+    monkeypatch.setattr(room, "_ideas", lambda call, event, ctx: ctx)
     yield
 
 

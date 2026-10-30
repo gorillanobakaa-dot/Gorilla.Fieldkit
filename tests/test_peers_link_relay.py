@@ -151,3 +151,30 @@ def test_a_broken_net_never_stops_the_relay(home, monkeypatch):
     from fieldkit.zero import net
     monkeypatch.setattr(net, "ingest_cable", lambda: 1 / 0)
     assert link_relay.ingest_net() == 0
+
+
+def test_follow_prints_every_note_as_one_line_and_ends_only_on_timeout(home):
+    link_relay.mark_read(0)
+    note("one\nline")
+    note("two")
+    got = []
+    code = link_relay.follow(seconds=0, out=got.append)
+    assert code == 1 and len(got) == 2 and "one line" in got[0] and "\n" not in got[0] and "two" in got[1]
+    note("three")
+    assert link_relay.follow(seconds=0, out=got.append) == 1 and "three" in got[2]
+
+
+def test_follow_ends_with_2_when_another_listener_runs(home):
+    link_relay.pid_path().write_text(str(os.getpid() + 1))
+    assert link_relay.follow(seconds=0, out=print, alive=lambda p: True) == 2
+
+
+def test_restart_spawns_only_when_no_listener_runs(home):
+    class P:
+        pid = 4242
+    calls = []
+    ok, line = link_relay.restart(spawn=lambda *a, **k: calls.append(a[0]) or P())
+    assert ok and "4242" in line and "--follow" in calls[0]
+    link_relay.pid_path().write_text(str(os.getppid()))
+    ok, _ = link_relay.restart(spawn=lambda *a, **k: calls.append(a[0]) or P())
+    assert not ok and len(calls) == 1

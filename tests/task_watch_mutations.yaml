@@ -1,0 +1,17 @@
+# Z1: each mutation must make tests/test_lifecycle_watch.py or tests/test_peers_link_relay.py fail
+- file: fieldkit/lifecycle/watch.py
+  swap: ["if quiet > stalled_min:", "if quiet > stalled_min * 1000:"]
+- file: fieldkit/lifecycle/watch.py
+  swap: ["if now - ended > hours * 3600 or _followed(t, led):", "if now - ended > hours * 3600:"]
+- file: fieldkit/lifecycle/watch.py
+  swap: ["if f[\"state\"] in (\"UNHANDLED\", \"DIED\"):", "if f[\"state\"] in (\"DIED\",):"]
+- file: fieldkit/lifecycle/watch.py
+  swap: ["and now - pinged.get(f[\"id\"], 0) > PING_EVERY_S", "and True"]
+- file: fieldkit/lifecycle/watch.py
+  swap: ["seen = [_t(t.get(\"at\")), _t(t.get(\"reported\")), _mtime(t.get(\"log\"))]", "seen = [_t(t.get(\"at\"))]"]
+- file: fieldkit/lifecycle/watch.py
+  swap: ["return 3 if found else 0", "return 0"]
+- file: fieldkit/peers/link_relay.py
+  swap: ["        if code != 0:\n            return code\n        for n in notes:", "        if code != 0 or True:\n            return code\n        for n in notes:"]
+- file: fieldkit/peers/link_relay.py
+  swap: ["if other_listener():\n        return False,", "if False:\n        return False,"]

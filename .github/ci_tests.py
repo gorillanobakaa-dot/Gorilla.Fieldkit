@@ -2,6 +2,7 @@
 
     python .github/ci_tests.py BASE     the tests covering BASE...HEAD (fieldkit testcost plan)
     python .github/ci_tests.py BASE --merged   same, but nothing when a merge commit's tree equals its PR head's tree
+    A diff of only documentation, state/ files or version lines selects zero tests (testcost plan: no_code).
     python .github/ci_tests.py full     the whole suite (a finished project, a release)
 
 Fail safe: when the changed files cannot be read, or a changed file is covered by no test ("unmapped"), the whole
@@ -38,8 +39,8 @@ def selection(base, merged=False):
         plan = json.loads(r.stdout)
     except ValueError:
         return None, f"testcost plan gave no answer (exit {r.returncode}): the whole suite"
-    if plan.get("docs_only"):
-        return [], "docs only: no test covers the change"
+    if plan.get("no_code") or plan.get("docs_only"):
+        return [], "no code changed - no tests"
     unmapped = [p for p in plan.get("unmapped", []) if not MUTATION_PLAN.match(p.replace("\\", "/"))]
     if unmapped:
         return None, "no test covers " + ", ".join(unmapped) + ": the whole suite"

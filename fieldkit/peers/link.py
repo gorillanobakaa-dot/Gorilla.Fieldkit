@@ -716,6 +716,13 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
                   grace=START_GRACE, check_fn=startcheck, follow=None, worktree=None, model=None):
     """-> (started: bool, why). Only what link.yaml allows; otherwise the owner's inbox."""
     reg, why = approvals()
+    # Cost guard (lifecycle/models.py), first: this listener checks the model against ITS OWN data and mandate. The
+    # sender's word is not read; a premium or unknown model is refused and logged before anything else happens.
+    from ..lifecycle import models
+    chk = models.check_model(model, "worker", f"link from {from_host}")
+    if not chk["ok"]:
+        return False, f"not started: model refused: {chk['why']}"
+    chosen = chk["model"]
     text = (f"--- {FENCE.format(host=from_host)} ---\n{local_peers.sanitize(brief)[:12000]}\n--- end ---\n\n"
             f"Talk back to it with: {PY} peers link send \"...\"   and read its replies with: "
             f"{PY} peers link inbox --wait 600")
@@ -748,15 +755,18 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
         return False, f"not started: no worktree of its own ({e}); job {jobd}"
     work = str(wt or reg["cwd"])
     argv = [a.format(brief=text, cwd=work, job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
+    env = link_env()
+    if agent == "claude":
+        env["ANTHROPIC_MODEL"] = chosen                # an env or settings model cannot slip past the check
     if tmpl is DEFAULT_START.get(agent):
-        if model and re.fullmatch(r"[\w.\-\[\]]{1,60}", str(model)):   # the worker's model (I5); a peer without --model drops it
-            argv += ["--model", str(model)]
+        if agent == "claude":                          # the worker's model (I5); none sent = the cheap default
+            argv += ["--model", chosen]
         argv = fit_command(argv, (flags_fn or autopilot_flags)())
     from . import link_return
     before = link_return.heads(reg["cwd"])           # what the run makes or moves is pushed when it ends
     log = open(jobd / "session.log", "a", encoding="utf-8")
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)) if os.name == "nt" else 0
-    p = popen(argv, cwd=work, stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=link_env())
+    p = popen(argv, cwd=work, stdout=log, stderr=subprocess.STDOUT, creationflags=flags, env=env)
     worktrees.own(wt, p.pid, jobd.name)
     # "started" only for a process that is still alive after a moment (2026-10-22: one died on its arguments at
     # once and the caller was told it ran)

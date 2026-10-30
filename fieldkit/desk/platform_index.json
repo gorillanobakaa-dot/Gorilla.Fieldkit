@@ -1785,6 +1785,16 @@
    "fieldkit-icons-cache"
   ]
  },
+ "ideas": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ideas"
+  ]
+ },
  "inbox": {
   "platforms": [
    "linux",

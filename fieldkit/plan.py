@@ -31,8 +31,8 @@ from .core.settings import state_root
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = "docs/HARNESS-PLAN.md"
 LESSONS = "docs/LESSONS.yaml"
-ID = re.compile(r"\b([RLOCIW]\d+)\b")
-ROW_ID = re.compile(r"^\|\s*([RLOCI]\d+)\s*\|")
+ID = re.compile(r"\b([RLOCIWP]\d+)\b")
+ROW_ID = re.compile(r"^\|\s*([RLOCIP]\d+)\s*\|")
 TAIL_PAREN = re.compile(r"\(([^()]*)\)\s*$")
 
 
@@ -140,7 +140,12 @@ def next_(root=None, run=subprocess.run):
                 + " - docs/HARNESS-PLAN.md, fieldkit plan next")
     ls = lessons(root)
     line += lessons_note(ls)
-    return {"ok": True, "lessons": ls, "phase": cur and cur["phase"], "open": cur["open"] if cur else [],
+    try:
+        from . import ideas
+        parked = ideas.parked_count(root)
+    except Exception:  # noqa: BLE001
+        parked = 0
+    return {"ok": True, "lessons": ls, "parked_ideas": parked, "phase": cur and cur["phase"], "open": cur["open"] if cur else [],
             "done": cur["done"] if cur else [], "merged": mg, "statuses": st, "phases": phases, "line": line,
             "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
@@ -213,6 +218,8 @@ def main(argv=None):
     stale = [i for i in r["merged"] if r["statuses"].get(i) == "PLANNED" and i not in r["written"]]
     if r["written"]:
         print(f"written DONE: {' '.join(r['written'])} in {PLAN}")
+    if r.get("parked_ideas"):
+        print(f"  {r['parked_ideas']} parked ideas (not plan work): fieldkit ideas review")
     print("NEXT: " + (f"work on {r['open'][0]} (phase {r['phase']})" if r["open"] else "nothing open")
           + ("" if a.write or not stale else f"; fieldkit plan next --write marks merged items in {PLAN}"))
     return 0

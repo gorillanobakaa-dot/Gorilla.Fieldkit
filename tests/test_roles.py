@@ -112,6 +112,9 @@ def test_the_listener_gives_a_started_session_the_model(tmp_path, monkeypatch):
                            inbox_add=lambda *a, **k: None, flags_fn=lambda f=flags: f, sleep=lambda s: None,
                            check_fn=lambda a: (True, ""), follow=lambda *a: None, model=model,
                            worktree=lambda repo, name: (tmp_path, "w"))
+        if model.startswith("x;"):                      # a malformed model is refused now (models.py), not dropped
+            assert "argv" not in seen
+            continue
         assert ("--model" in seen["argv"]) is want
         if want:
             assert seen["argv"][seen["argv"].index("--model") + 1] == "haiku"

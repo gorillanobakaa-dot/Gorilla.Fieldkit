@@ -55,7 +55,7 @@ explained from that machine alone (item I1).
 | W7 | Cheap workers do the work; Opus/Fable/Qwen only reviews | Opus ran 73 of 75 sessions and did the work itself (7,958 Bash calls, 2,020 edits); the cheap workers ran a few test sessions under $0.02 | I5 I7 |
 | W8 | Teach the harness: each fix becomes a deterministic tool, so the same problem never costs again | the mechanism exists for build logs (triage signatures); not wired into reviews | I8 |
 | W9 | The owner knows what every session did | 58 of 75 sessions left no Board row with their id | R3 I4 |
-| W10 | Fieldkit, once flawless, is baked into Gorilla OpenCode as one system | Fieldkit is a separate Python harness; OpenCode v0.1.156 carries an embedded toolbox; no merge plan yet | later, after W1-W9 |
+| W10 | Fieldkit, once flawless, is baked into Gorilla OpenCode as one system | Fieldkit is a separate Python harness; OpenCode v0.1.156 carries an embedded toolbox; no merge plan yet | FINAL GOAL, not now: only when the owner says the harness works perfectly (owner, 2026-10-29: "not today, tomorrow or the day after"); no agent proposes or starts it |
 
 Status words: PLANNED = agreed in the list, nothing built yet. `fieldkit plan next` reads this file: a merged pull request whose title ends in
 "(ID)" marks a PLANNED item DONE (`--write` writes it); any other status written by hand (PARTIAL, WINDOWS DONE)
@@ -81,7 +81,7 @@ wins over a merge. Every fix is measured before and after with the same
 |---|---|---|---|---|
 | O1 | Smaller base prompt: fewer skills, MCP servers and tool lists loaded per project | 72k tokens on the first call, re-sent on every call: about $166 (17%). VAIO 10-21..28: median 60.5k (41 sessions); the Artifact tool schema alone 37.8 KB | first-call context | DONE (PR #180, #199: phase 3 done; headless first call 41,975 -> 28,526 tokens, `fieldkit cost firstcall` measures it by part, `fieldkit skills sets` keeps a skill set per project as data) |
 | O2 | The room hook injects about 1,100 characters on every message: inject only when something changed | 6,026 injections, 6.7M characters, about $37 re-read | hook characters per call | DONE (PR #162) |
-| O3 | Fewer sessions started by sessions; short briefs; a subagent or a headless run when only the result comes back | 58 of 75 sessions were started by another session, $703 | sessions started by sessions, $ each | PLANNED |
+| O3 | Fewer sessions started by sessions; short briefs; a subagent or a headless run when only the result comes back | 58 of 75 sessions were started by another session, $703 | sessions started by sessions, $ each | DONE (PR #216) |
 | O4 | Waiting costs calls: one wake when CI or a job ends, no polling | 424 background wake-ups (about $44), 190 CI-wait commands. VAIO, 41 transcripts 10-21..10-28: 326 background wakes, 103 hand-written wait loops (41 with gh, 62 on a log), 210 gh status polls | wake-ups per session | DONE (`fieldkit ship ci-wait PR [--merge]`: one background call, the train's verdict, the failed log tail on red; the tool router sends `gh pr checks --watch`, `gh run watch` and gh loops to it; a job or log wait is `fieldkit wait` in the background, already routed). After-numbers not measured yet: re-run the count a week after merge |
 | O5 | Guard preflight takes 4-7 s per command | a 4.4 s preflight warning; 10 recorded runs averaging 7.0 s | seconds per guarded command | DONE (PR #161) |
 
@@ -95,7 +95,7 @@ Its essentials are now in [VISION.md](VISION.md).
 |---|---|---|---|
 | L1 | One short vision file in the repository (goal, the Portage bar, roles, devices, cost rules), linked from AGENTS.md and read by every session; the long designs stay as references | the designs lived only in a git-ignored folder | DONE (PR #150: AGENTS.md links VISION.md and this file) |
 | L2 | Build the circuit breakers the owner specified on 10-22: cost velocity above 3x the rolling average; repeated identical prompts within 10 s; more than 20% 4xx errors in 5 minutes. None exists in `fieldkit/autopilot`; they would have stopped the 20-36 h sessions | no breaker in the code | DONE (PR #154) |
-| L3 | The goal loop runs, but slowly: one goal did 16 rounds, met 7 of 15 criteria, produced 284 verdicts (154 PASS, 127 FAIL, 3 TIMEOUT) and was stopped by a STOP file; another stayed at 0 rounds. Criteria judged by an agent cost a model call each time. Rule: a criterion is a command whenever it can be one; an agent judges only where no command can decide | goal state and verdict files | PLANNED |
+| L3 | The goal loop runs, but slowly: one goal did 16 rounds, met 7 of 15 criteria, produced 284 verdicts (154 PASS, 127 FAIL, 3 TIMEOUT) and was stopped by a STOP file; another stayed at 0 rounds. Criteria judged by an agent cost a model call each time. Rule: a criterion is a command whenever it can be one; an agent judges only where no command can decide | goal state and verdict files | DONE (PR #216) |
 | L4 | Built and in use: goal file + planner/worker/verifier, supervisor at logon, dollar budgets, checkpoint/resume, runbook, inbox, mandate pushes. Keep and measure | `fieldkit/autopilot/` | DONE (exists) |
 
 ## Comms (read 2026-10-27: about 11k lines in fieldkit/peers, fieldkit/zero, fieldkit/orchestrate*, autopilot/room.py)
@@ -123,6 +123,8 @@ Its essentials are now in [VISION.md](VISION.md).
 | I7 | A review verdict is one of three: pass / explain the mistake and send back / fix it itself (when the worker failed twice) | the goal | rounds per piece | DONE (PR #207) |
 | I8 | Teach the harness, measured: every review fix becomes a deterministic tool + test (as triage signatures already do), and the next similar task is checked to need no reviewer fix | the goal; rule "the same failure is never diagnosed twice" | repeat failures of the same kind | DONE (PR #206) |
 | I9 | Owner presence measured per job: every prompt, approval, click and paste the owner had to do is counted; the target is 0 (`fieldkit friction` lists what could wait on a person; this counts what did) | owner: "50 hours in front of the computer to click accept" | owner actions per job | DONE (PR #174) |
+| Z1 | NO PASSIVE WAITING: a deterministic task watch. `fieldkit task watch [--once] [--act]` flags UNHANDLED (ended blocked/failed, no follow-up), STALLED (alive, silent > N min) and DIED (no process, no report); a scheduled run every 5 min plus a prompt hook inject the findings into Zero; `peers link relay listen --follow` never exits after a message; rule in rules/CORE.md | 2026-10-29 23:17 to 00:04: a VAIO job ended blocked, Zero sat idle about 45 min because nothing woke it; the relay was restarted by hand 7 times (owner 2026-10-30: "waiting costs us money") | minutes from a task ending to Zero acting; hand restarts of the relay (0) | DONE (branch feat/task-watch) |
+| P1 | Parked ideas reach the owner, never the running plan: the room hook shows "N parked ideas - fieldkit ideas review" and the brief on a session's first prompt; CORE.md says a mid-job suggestion goes to `fieldkit ideas add`; the markdown is rebuilt from ideas.json when missing or stale; `fieldkit backup` carries state/ideas/ | owner, 2026-10-30: `fieldkit ideas` was merged (#220) but nothing used it; the finish line kept moving as suggestions entered the plan | parked ideas the owner reviewed; plan rows added mid-job (target 0) | DONE (PR #225) |
 
 ## Order (proposed 2026-10-28, approved by the owner the same evening)
 
@@ -135,6 +137,8 @@ Its essentials are now in [VISION.md](VISION.md).
 | 5. Know where it went | R3, I4, I1, I2 | the owner never loses track again |
 | 6. The household | C4, C5, C7, C1, C2, C3 + I6, C6 | the extra firepower |
 | 7. Cheap workers, Opus reviews | I5, I7, O3, L3, I8 | the multi-agent vision |
+| 8. One system | Z1 (no passive waiting), W10: bake Fieldkit into Gorilla OpenCode | only when 1-7 are measured green |
+| 7b. Ideas never move the finish line | P1 (parked ideas surface to the owner, not into the running plan) | the plan kept growing mid-job |
 | 8. One system | W10: bake Fieldkit into Gorilla OpenCode | only when 1-7 are measured green |
 
 ## Owner decisions already made
