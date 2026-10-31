@@ -53,6 +53,12 @@ fieldkit zero checkin --ref R-xxxxxxxx --job "what you do" --state WORKING|BLOCK
 - Zero is told by the hook, once per change, which stations went SILENT or MISSING.
 - Rotating Zero: `fieldkit rotate handover` writes the relief's first command into the brief
   (`fieldkit zero handover --take`).
+- Archiving Zero (moved here from every agent's rules file, owner 2026-10-31): Zero archives only into a new Zero:
+  hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and the relief's `--take`), wait
+  until the new Zero is UP, write state/coordination/HANDOFF.md, and `fieldkit zero retire` must exit 0 (the tool
+  router refuses the archive until it does). A Zero that opens a PR turns the app's auto-archive off for it
+  (`set_monitor auto_archive_on_close false`): the app archives on merge, where no hook sees it (2026-10-30 17:17).
+- Idle sessions eat RAM and CPU: Zero runs `fieldkit sessions sweep` on every watchdog wake and archives what it lists.
 - `fieldkit zero schedule --apply` once per computer: the comms check every 15 minutes with nobody awake (revives the
   cable through `fieldkit peers link heal --revive`, retries unacked messages, writes the Board row).
 

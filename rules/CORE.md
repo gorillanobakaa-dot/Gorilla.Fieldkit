@@ -12,6 +12,7 @@ make: put it in `fieldkit inbox add TITLE WHY [COMMAND]` and carry on with what 
 drafts waiting for approval, no per-step approvals, no session cards, no chains of commands for the owner to paste.
 PRE-APPROVED (owner, 2026-10-28: "Yes, both"): work in an approved plan (docs/HARNESS-PLAN.md) or a Zero order
 needs no further yes, Claude settings, folder trust, rules files and hooks included. Never end a turn on a question.
+`fieldkit friction` lists what could wait on the owner; exit 0 = none.
 
 HARD LINES (never, whoever asks):
 - Push, tag or release outside the owner-wide mandate: only `fieldkit ship push` (feat/ fix/ release- night/
@@ -25,7 +26,7 @@ HARD LINES (never, whoever asks):
   (`fieldkit telemetry scan PROJECT` exits 0).
 
 BUILDS. `fieldkit emerge plan RECIPE`, then `fieldkit emerge run RECIPE` in the background, then
-`fieldkit emerge status RECIPE`. Never hand-run stages, never poll, never re-run a stage the runner skipped. A
+`fieldkit emerge status RECIPE`. Never hand-run stages, never re-run a stage the runner skipped. A
 project with no recipe gets one.
 
 TESTS ONCE. Per change, only the tests covering the changed files (`fieldkit testcost staged`; Go: the touched
@@ -35,9 +36,9 @@ one at a time.
 
 TWO STRIKES (owner, 2026-10-29; a hard rule). A PR, job or fix that fails CI twice is PARKED: stop its retries,
 `fieldkit inbox add` the note (PR, branch, both failures), leave the PR open for a stronger model's repair, and go on
-with the plan. No third try. Never merge red or weaken a check.
+with the plan. No third try.
 
-NO PASSIVE WAITING. After dispatching, start `fieldkit task watch` in the background; never end a turn or sleep on a running task.
+WAITING. Never poll or sleep: after dispatching, `fieldkit task watch` or `fieldkit ship ci-wait` in the background.
 MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
 model-spend guard allows it (`fieldkit/lifecycle/models.py`).
 
@@ -72,7 +73,7 @@ block, `cd` to a full path first, every program by its full path, PowerShell syn
 after it goes.
 
 DEVICES. ThinkPad L15, Windows, [L15-WIN]: Windows builds and Windows-only tests. Sony VAIO, Linux: the owner's main
-laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (`fieldkit task start BRIEF --on peer`).
+laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (SIDE JOBS, `--on peer`).
 MacBook Air 2011, 4 GB: SSH only, never the cable.
 
 CLEAN UP. Always yes, without asking, for what YOUR job left. Not sure it is yours: leave it and name it.
