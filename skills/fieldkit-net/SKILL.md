@@ -13,9 +13,9 @@ The owner is a former soldier and speaks radio procedure. Read the words as belo
 |---|---|---|
 | "has Zero been established?", "zero?", "net?" | is there a net control station, and who | `fieldkit zero` |
 | "establish Zero", "you are Zero", "open the net" | this session becomes net control | `fieldkit zero open --name "command post" [--2ic STATION]` |
-| "roll call", "who is out there" | every station reports | `fieldkit zero rollcall --wait 10` |
+| "roll call", "who is out there" | every station reports (the owner says "comms check" for this) | `fieldkit zero rollcall --wait 10` |
 | "sitrep", "sit rep", "SITREP" (owner, 2026-10-31) | NOT the roll call: the owner wants four answers - where we started, what we have done, what is going on now, what is left. Write them with the fieldkit-sitrep skill (`fieldkit sitrep template`, `check`, `render --md`); read the running jobs first (`fieldkit task status`) | `fieldkit sitrep template` |
-| "comms check", "radio check", "is everyone alive" | liveness of every station and the cable | `fieldkit zero check` |
+| "comms check", "radio check", "is everyone alive" (owner, 2026-10-31: "it will forever be comms check") | BOTH: liveness of every station and the cable, then the roll call (every station reports) | `fieldkit zero check`, then `fieldkit zero rollcall --wait 10` |
 | "time sync", "check the clocks" | clocks of this computer and the cable peer | `fieldkit zero time` |
 | "hand over Zero", "X is Zero now" | change of Zero, epoch +1 | `fieldkit zero handover --to STATION` |
 | "2IC", "second in command", "who is 2IC" | the standby station that assumes Zero when Zero is MISSING | `--2ic STATION` / `handover --assume` |
