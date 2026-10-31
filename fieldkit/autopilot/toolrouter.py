@@ -438,7 +438,10 @@ def _retire(call):
 
 def _nested(call):
     """archive_session on this session is refused while a side session it started is still nested under it (the app
-    archives those with it: Zero 16 archived Zero 17 that way, 2026-10-31). Fails open."""
+    archives those with it: Zero 16 archived Zero 17 that way, 2026-10-31). Fails open. Only archive_session loads it:
+    the lifecycle package costs ~22 ms per tool call (hook speed bar, tests/test_zero_command.py)."""
+    if not str(call.get("tool_name") or "").endswith("archive_session"):
+        return None
     try:
         from ..lifecycle import nested
         return nested.pretool(call)

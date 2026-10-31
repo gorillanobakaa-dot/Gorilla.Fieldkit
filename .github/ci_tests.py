@@ -55,7 +55,7 @@ def main(argv):
     print("ci-tests:", why)
     if tests == []:
         return 0
-    cmd = [sys.executable, "-m", "pytest", "-q", "-rs", *(tests or [])]
+    cmd = [sys.executable, "-m", "pytest", "-q", "-rsf", *(tests or [])]
     print("ci-tests:", " ".join(cmd), flush=True)
     return subprocess.call(cmd)
 
