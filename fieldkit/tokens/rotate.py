@@ -484,6 +484,10 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     brief += protocol.brief_tail()
     from ..zero import net as zero_net                # a rotated Zero leaves a pending handover for its relief
     brief += zero_net.on_rotate(row["session"], now)
+    honest = _honesty(p, done, not_verified)          # rule HONESTY: the Done line backed by recorded tool output
+    if honest:
+        brief += ("\nHONESTY: the hand-over's claims were NOT backed (fieldkit honesty check): "
+                  + "; ".join(f"{x['kind']} {x['detail']}" for x in honest) + ". Verify them before relying on them.\n")
     from .. import plan                               # where the harness plan stands, so the successor does not forget
     pl = plan.line()
     brief += f"\n{pl}\n" if pl else ""
@@ -493,7 +497,9 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
         f"- transcript: {row['path']}\n- verdict: {row['level']} - {'; '.join(row['why']) or '-'}\n"
         f"- measured: {row['calls']} calls, ${row['usd']:.2f}, last call sent {round(row['context_last'] / 1000)}k "
         f"tokens (peak {round(row['context_peak'] / 1000)}k)\n- working folder: {where}\n- branch: {branch}\n"
-        f"- PRs it mentioned: {', '.join(row['prs']) or 'none'}\n\n"
+        f"- PRs it mentioned: {', '.join(row['prs']) or 'none'}\n"
+        f"- honesty: {len(honest)} finding(s)"
+        f"{': ' + '; '.join(x['kind'] + ' ' + x['detail'] for x in honest) if honest else ''}\n\n"
         f"## Done\n\n{done or '-'}\n\n## Next\n\n{next_}\n\n## NOT verified\n\n{not_verified or '-'}\n\n"
         f"## Brief for the fresh session\n\n```\n{brief}```\n", encoding="utf-8")
     plan = coord / "PLAN.md"
@@ -507,7 +513,19 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     with open(state_dir() / "handovers.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"at": stamp, "session": row["session"], "title": title, "level": row["level"],
                             "note": str(note), "plan_written": written}) + "\n")
-    return {"note": str(note), "plan": str(plan), "plan_written": written, "brief": brief, "row": row}
+    return {"note": str(note), "plan": str(plan), "plan_written": written, "brief": brief, "row": row,
+            "honesty": honest}
+
+
+def _honesty(path, done, not_verified):
+    """-> fieldkit honesty findings of the hand-over's Done / NOT verified text against the session's tool output.
+    Never blocks a rotation (a session at its limit must still hand over): the findings go into the note and brief."""
+    try:
+        from ..method import honesty
+        ev, _kind = honesty.session_evidence(path)
+        return honesty.check(f"Done: {done or '-'}\nNOT verified: {not_verified or ''}\n", ev)
+    except Exception as e:  # noqa: BLE001 - a checker crash is said, not hidden
+        return [{"kind": "ERROR", "line": 0, "text": "", "detail": f"fieldkit honesty could not run: {e}"}]
 
 
 # ---------------------------------------------------------------- finished side sessions
@@ -754,6 +772,8 @@ def main(argv=None):
         else:
             print(f"note: {r['note']}")
             print(f"PLAN.md: {'section appended' if r['plan_written'] else 'NOT FOUND, nothing written'}: {r['plan']}")
+            for x in r.get("honesty") or []:
+                print(f"HONESTY {x['kind']}: {x['detail']}")
             print("NEXT: start a fresh session with the brief below, then archive this one "
                   "(Claude desktop: start_session context fresh + archive_session \"self\").\n")
             print(r["brief"])

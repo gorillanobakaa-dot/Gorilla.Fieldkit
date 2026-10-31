@@ -1642,6 +1642,11 @@ def build_parser():
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    ho = sub.add_parser("honesty", add_help=False,
+                        help="a report's claims backed by what the tools printed: success words need a quoted line "
+                             "from the recorded tool output, merged/pushed/wrote checked at the source, a NOT verified "
+                             "field (fieldkit honesty check REPORT --session ID)")
+    ho.add_argument("args", nargs=argparse.REMAINDER)
     ru = sub.add_parser("rules", add_help=False,
                         help="the one core (rules/CORE.md) in every agent's rules file, every rules file under its size "
                              "limit, no core text repeated (fieldkit rules check|install)")
@@ -2122,6 +2127,8 @@ def build_parser():
                              "render, example, doctor (fieldkit/sitrep)")
     st.add_argument("action", choices=["template", "check", "render", "example", "doctor"])
     st.add_argument("file", nargs="?", help="the filled-in report (check, render)")
+    st.add_argument("--session", help="check: also back every claim with this session's tool output "
+                                      "(fieldkit honesty; rule HONESTY)")
     st.add_argument("--lang", default="en", help="heading language: en es pt it de ro")
     st.add_argument("--order", choices=["ask-first", "classic"], default="ask-first",
                     help="ask-first puts 'What I need from you' second; classic is the military order, asks last")
@@ -2526,6 +2533,13 @@ def cmd_sitrep(a):
         raise SystemExit(f"REFUSED: cannot read {a.file}: {e.strerror}")
     if a.action == "check":
         d = sitrep.check(text)
+        if getattr(a, "session", None):               # rule HONESTY: every claim backed by recorded tool output
+            from .method import honesty
+            ev, _kind = honesty.session_evidence(a.session)
+            bad = honesty.check(text, ev, require_nv=False)
+            d["problems"] = list(d.get("problems") or []) + [f"FAIL honesty {x['kind']} line {x['line']}: "
+                                                              f"{x['detail']}" for x in bad]
+            d["ok"] = bool(d.get("ok")) and not bad
         _emit(d, a.json, lambda x: print("\n".join(sitrep.lines(x))))
         return sitrep.exit_code(d)
     d = sitrep.render(text, lang=a.lang, order=a.order, md=a.md)
@@ -2875,6 +2889,9 @@ def main(argv=None):
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["honesty"]:                       # rule HONESTY: claims backed by recorded tool output
+        from .method import honesty
+        return honesty.main(args[1:])
     if args[:1] == ["rules"]:                         # the one core in every agent's rules file; every rules file small
         from . import rules
         return rules.main(args[1:])

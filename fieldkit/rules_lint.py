@@ -15,6 +15,12 @@ Checks, each a finding with the rule id and the evidence:
                  that a tool could do, (3) serialises work without a measured reason, (4) stops a headless run from
                  finishing its own job, (5) counts or retries on signals outside the job's control
   unenforced     (warning) a rule no hook, test or tool enforces: delete it or enforce it
+  enforcer       an `enforced_by` entry that names nothing real: its first word must be a repo path that exists or a
+                 `fieldkit X [Y]` command (X a real command, Y a word its code knows); the rest, in brackets, is a note
+                 (owner order 2026-10-31: Zero 16 removed three invented enforcers by hand)
+  proof          a `proofs:` entry whose test or mutated file is missing, or whose swap text is not exactly once in
+                 the file (`fieldkit rules prove` runs each one through `fieldkit mutate`)
+  unproven       (warning) an enforced rule with neither a proof nor a written gap
   identical      (installed files) a block differs between the agents' global files or from what it should be
 
 Exit 0 clean, 3 findings (warnings alone exit 0).
@@ -138,6 +144,7 @@ def lint(data=None, root=None):
         found.append(_f("drift", "CORE.md", "rules/CORE.md is not what rules/rules.yaml generates "
                                             "(fieldkit rules build writes it)"))
     all_rules = entries(data)
+    commands = _commands()
     subjects, owners, uses = {}, {}, {}
     for rid, text, e in all_rules:
         if e.get("tail"):
@@ -173,6 +180,16 @@ def lint(data=None, root=None):
         if not e.get("enforced_by") and e.get("kind") != "fact" and not e.get("tail"):
             found.append(_f("unenforced", rid, "no hook, test or tool enforces it: delete it or enforce it",
                             level="warning"))
+        if e.get("tail"):
+            continue
+        for name in e.get("enforced_by") or []:
+            ok, what = resolve(str(name), root, commands)
+            if not ok:
+                found.append(_f("enforcer", rid, f"enforced_by {name!r}: {what}"))
+        found += proof_findings(rid, e, root)
+        if e.get("enforced_by") and not (e.get("proofs") or e.get("gaps")):
+            found.append(_f("unproven", rid, "enforced_by names tools but no proof (a test that fails without "
+                                             "them) and no written gap", level="warning"))
     forbids = [rid for rid, text, _ in all_rules if NO_ASK.search(text)]
     for rid, text, e in all_rules:
         if forbids and _hits(ASK, text) and not e.get("owner_decision") and rid not in forbids:
@@ -182,6 +199,73 @@ def lint(data=None, root=None):
         if size > FILE_LIMIT:
             found.append(_f("budget", f"FILE {agent}", f"its global file would be {size} bytes, over {FILE_LIMIT}"))
     return found
+
+
+_SOURCE = {}
+
+
+def _source_words(root):
+    """Every quoted word in fieldkit/*.py (once per lint): a sub-command a module dispatches on is one of them."""
+    if root not in _SOURCE:
+        words = set()
+        for f in (Path(root) / "fieldkit").rglob("*.py"):
+            words.update(re.findall(r"[\"']([a-z][\w-]*)[\"']", f.read_text(encoding="utf-8", errors="replace")))
+        _SOURCE[root] = words
+    return _SOURCE[root]
+
+
+def _commands():
+    import argparse
+    from . import cli
+    sp = [x for x in cli.build_parser()._actions if isinstance(x, argparse._SubParsersAction)][0]
+    return set(sp.choices)
+
+
+def resolve(name, root=None, commands=None):
+    """-> (ok, what) for one `enforced_by` entry: "fieldkit/x.py (note)", "tests/test_x.py", "hooks/pre-commit",
+    "fieldkit task watch (note)". Brackets and what follows them are a note."""
+    root = Path(root or ROOT)
+    ref = name.split("(")[0].strip()
+    words = ref.split()
+    if not words:
+        return False, "empty"
+    if words[0] == "fieldkit" and len(words) >= 2 and "/" not in ref:
+        cmds = commands if commands is not None else _commands()
+        if words[1] not in cmds:
+            return False, f"`fieldkit {words[1]}` is not a fieldkit command"
+        sub = [w for w in words[2:3] if re.fullmatch(r"[a-z][\w-]*", w)]
+        if sub and sub[0] not in _source_words(str(root)):
+            return False, f"`fieldkit {words[1]} {sub[0]}`: no code knows the word {sub[0]!r}"
+        return True, " ".join(words[:3])
+    path = ref.split("::")[0]
+    if len(words) == 1 and (root / path).exists():
+        return True, path
+    return False, f"{ref!r} is neither a repo path that exists nor a `fieldkit` command"
+
+
+def proof_findings(rid, e, root):
+    out = []
+    for i, pr in enumerate(e.get("proofs") or []):
+        tag = f"proof {i + 1} ({(pr.get('demand') or '?')[:40]})"
+        test = str(pr.get("test") or "").split("::")[0]
+        if not test or not (root / test).is_file():
+            out.append(_f("proof", rid, f"{tag}: test {test or '-'} does not exist"))
+        m = pr.get("mutate") or []
+        if len(m) != 3:
+            out.append(_f("proof", rid, f"{tag}: mutate must be [file, old, new]"))
+            continue
+        f = root / m[0]
+        if not f.is_file():
+            out.append(_f("proof", rid, f"{tag}: mutated file {m[0]} does not exist"))
+            continue
+        n = f.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").count(m[1])
+        if n != 1:
+            out.append(_f("proof", rid, f"{tag}: the swap text occurs {n} times in {m[0]} (must be exactly once: "
+                                        "the enforcer changed, re-prove it)"))
+    for g in e.get("gaps") or []:
+        if not (g.get("demand") and g.get("why")):
+            out.append(_f("proof", rid, "a gap needs both demand and why"))
+    return out
 
 
 def _cmd(s):
