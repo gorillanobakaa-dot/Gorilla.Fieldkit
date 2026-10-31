@@ -54,7 +54,7 @@ def test_agents_reports_installed_running_and_versions():
         returncode, stdout, stderr = 0, "2.1.302 (Claude Code)\n", ""
     rows = link.agents(which=lambda e: f"/usr/bin/{e}" if e in ("claude", "agy") else None,
                        procs=[(11, "claude.exe"), (12, "codex"), (13, "bash")], run=lambda *a, **k: R(),
-                       local_sessions=[{"name": "opencode-1"}])
+                       local_sessions=[{"name": "opencode-1"}], glob=lambda p: [], isfile=lambda p: False)
     by = {r["agent"]: r for r in rows}
     assert by["claude"]["installed"] and by["claude"]["running"] == [11] and "2.1.302" in by["claude"]["version"]
     assert by["codex"]["running"] == [12] and not by["codex"]["installed"]

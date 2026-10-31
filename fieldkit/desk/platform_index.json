@@ -2361,6 +2361,17 @@
    "peers-link-keepalive"
   ]
  },
+ "peers link probe": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "finder and probes tested with faked PATH, processes and folders for each OS; run live Windows -> Linux 2026-10-31; macOS not run",
+  "ids": [
+   "peers-link-probe"
+  ]
+ },
  "peers link relay": {
   "platforms": [
    "linux",
