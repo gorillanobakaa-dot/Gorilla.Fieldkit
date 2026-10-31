@@ -27,18 +27,50 @@ def _ask(*a):
     return lambda _p: next(it)
 
 
-def test_mixed_numbering_ideas_first(env):
+PLAN = """# plan
+| P5 | Gorilla OpenCode can do everyday jobs on Windows and Linux: (a) a suite | x | y | PLANNED |
+| W10 | Fieldkit is baked into Gorilla OpenCode | x | y | FINAL GOAL |
+
+## Order
+
+| phase | items | why |
+|---|---|---|
+| 7d. Basic work first | P5 | basics |
+| 8. One system | W10 | last |
+"""
+
+
+def test_page_in_three_groups_in_plain_words(env):
+    (env / "docs").mkdir()
+    (env / "docs" / "HARNESS-PLAN.md").write_text(PLAN, encoding="utf-8")
     _seed(env)
+    inbox.add("Toolbox size?", "why", plan="P5", what="Which tools ship inside the program.",
+              if_approve="Zero builds the core pack.", if_leave="The build waits.")
+    inbox.add("Fan tray gone", "text mentions P9 only", what="w", if_approve="a", if_leave="l")
     es = review.entries(env)
-    assert [e["ref"] for e in es] == ["I-01", "#1", "#2"]
-    text = "\n".join(review.render(es))
-    assert "1. I-01" in text and "2. #1" in text and "fieldkit ship gh-release v1" in text
-    assert "needs a choice" in text
+    assert [e["ref"] for e in es] == ["#3", "#1", "#2", "#4", "I-01"]       # main goal, everyday, ideas
+    text = "\n".join(review.render(es, env))
+    heads = [text.index(h) for _, h in review.GROUPS]
+    assert heads == sorted(heads)
+    assert "THE MAIN GOAL" in text and "Portage" in text and "W10" in text
+    assert "P5 - Gorilla OpenCode can do everyday jobs on Windows and Linux" in text
+    assert text.count("If you approve:") == len(es) and text.count("If you leave it:") == len(es)
+    assert "1. Toolbox size?  [#3, plan row P5]" in text
+    assert "(no plain explanation was written for this item)" in text
+    assert text.index("fieldkit ship gh-release v1") > text.index("2. Publish v1")
+    assert "Plan row: P5 - Gorilla" in text
+
+
+def test_plan_is_inferred_from_text_when_no_field(env):
+    (env / "docs").mkdir()
+    (env / "docs" / "HARNESS-PLAN.md").write_text(PLAN, encoding="utf-8")
+    inbox.add("P5b toolbox", "grows it")
+    assert review.entries(env)[0]["plan"] == "P5"
 
 
 def test_pick_idea_and_inbox_item_approved_once(env):
     _seed(env)
-    res = review.review(env, ask=_ask("1,2 a"), say=lambda *_: None, now=NOW)
+    res = review.review(env, ask=_ask("1,3 a"), say=lambda *_: None, now=NOW)
     assert [r["status"] for r in res] == ["accepted", "approved"]
     assert [i["n"] for i in inbox.items("open")] == [2]
     done = inbox.items("done")[0]
@@ -48,9 +80,9 @@ def test_pick_idea_and_inbox_item_approved_once(env):
 
 def test_words_recorded_and_a_choice_needs_them(env):
     _seed(env)
-    res = review.review(env, ask=_ask("3 a"), say=lambda *_: None, now=NOW)
+    res = review.review(env, ask=_ask("2 a"), say=lambda *_: None, now=NOW)
     assert res == [] and len(inbox.items("open")) == 2          # left open: no words
-    review.review(env, ask=_ask("3 a: core embedded + media pack"), say=lambda *_: None, now=NOW)
+    review.review(env, ask=_ask("2 a: core embedded + media pack"), say=lambda *_: None, now=NOW)
     it = [i for i in inbox.items("done") if i["n"] == 2][0]
     assert it["note"].endswith("core embedded + media pack") and it["answer"] == "core embedded + media pack"
 

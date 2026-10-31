@@ -32,7 +32,7 @@ def _refresh():
         pass
 
 
-def add(title, why, command="", kind="approval", files=()):
+def add(title, why, command="", kind="approval", files=(), plan="", what="", if_approve="", if_leave=""):
     """-> the item. An OPEN item with the same title is the same question: it is updated (why, command, `repeats`,
     `last`) instead of a new item (2026-10-28: 49 of 103 open items were "<peer> does not answer on the cable")."""
     INBOX.mkdir(parents=True, exist_ok=True)
@@ -44,12 +44,15 @@ def add(title, why, command="", kind="approval", files=()):
         if it.get("state") == "open" and it.get("title") == title:
             it.update(why=why, command=command or it.get("command", ""), repeats=int(it.get("repeats") or 1) + 1,
                       last=time.strftime("%Y-%m-%d %H:%M:%S"))
+            it.update({k: v for k, v in (("plan", plan), ("what", what), ("if_approve", if_approve),
+                                         ("if_leave", if_leave)) if v})
             p.write_text(json.dumps(it, indent=1, ensure_ascii=False), encoding="utf-8")
             _refresh()
             return it
     n = 1 + max([int(p.stem.split("-")[0]) for p in INBOX.glob("*.json") if p.stem.split("-")[0].isdigit()] or [0])
     item = {"n": n, "kind": kind, "title": title, "why": why, "command": command, "files": list(files),
             "added": time.strftime("%Y-%m-%d %H:%M:%S"), "state": "open"}
+    item.update({k: v for k, v in (("plan", plan), ("what", what), ("if_approve", if_approve), ("if_leave", if_leave)) if v})
     (INBOX / f"{n:04d}-{kind}.json").write_text(json.dumps(item, indent=1, ensure_ascii=False), encoding="utf-8")
     _refresh()
     return item

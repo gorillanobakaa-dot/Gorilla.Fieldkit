@@ -1057,7 +1057,8 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else ""), indent=1))
+        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", plan=a.plan or "",
+                                   what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or ""), indent=1))
         return 0
     if a.action == "done":
         print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
@@ -1855,6 +1856,10 @@ def build_parser():
     ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
     ib.add_argument("--all", action="store_true", help="list: done items too")
+    ib.add_argument("--plan", help="add: the plan row this belongs to (P5, W10 ...)")
+    ib.add_argument("--what", help="add: what it is, in plain words")
+    ib.add_argument("--if-approve", dest="if_approve", help="add: what happens if the owner approves")
+    ib.add_argument("--if-leave", dest="if_leave", help="add: what happens if the owner leaves it")
     ib.set_defaults(fn=cmd_inbox)
 
     pb = sub.add_parser("publish", parents=[common])

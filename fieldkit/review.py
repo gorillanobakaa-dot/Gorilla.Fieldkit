@@ -1,7 +1,7 @@
 # Version: 1.0.0 · updated 26-10-31-12-00
 """fieldkit review: ONE list of everything that waits on the owner, answered once (owner, 2026-10-31).
 
-    fieldkit review            the owner's, at a real terminal: parked ideas (I-nn) first, then open inbox items (#nnn)
+    fieldkit review            the owner's, at a real terminal: main goal, everyday problems, then parked ideas, numbered 1..N
     fieldkit review --open     write state/REVIEW.md (the same list) and open it in the default viewer
     fieldkit review --list     print the list, change nothing
 
@@ -17,8 +17,10 @@ state/REVIEW.md is rewritten on every inbox or ideas change.
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
+from pathlib import Path
 
 from . import ideas
 from .core.settings import state_root
@@ -44,28 +46,108 @@ def needs_words(it):
     return bool(it.get("choice")) or it.get("kind") in CHOICE_KINDS
 
 
-def entries(root=None):
-    """Parked ideas first, then open inbox items -> [{"type", "ref", "title", "why", "command", "words", "raw"}]."""
-    out = []
-    for e in ideas.listing("parked", root or ROOT):
-        out.append({"type": "idea", "ref": e["id"], "title": e["title"], "why": e["what"] or e["why"], "command": "",
-                    "words": False, "raw": e})
-    for it in _inbox().items("open"):
-        out.append({"type": "inbox", "ref": f"#{it['n']}", "title": it["title"], "why": it.get("why", ""),
-                    "command": it.get("command", ""), "words": needs_words(it), "raw": it})
+GOAL = ("THE MAIN GOAL (it never changes): one command builds a whole product, like Gentoo's Portage builds a whole "
+        "system, while you are away; scripts do the work and an AI is called only when a step fails.")
+FINAL = ("The final goal (plan row W10): once you say the harness works perfectly, Fieldkit is built into Gorilla "
+         "OpenCode so the two become one program. Not now.")
+NO_WORDS = "(no plain explanation was written for this item)"
+PLAN_REF = re.compile(r"\b([RLOCIWPZ]\d+)[a-z]?\b")
+GROUPS = (("goal", "Main goal: decisions that move it"),
+          ("problem", "Everyday problems that came up"),
+          ("idea", "New ideas (not in the plan until you accept)"))
+
+
+def plan_titles(root=None):
+    """-> {row id: plain title} from docs/HARNESS-PLAN.md: the row's first sentence, cut at ':' or '('."""
+    from . import plan
+    p = Path(root or ROOT) / plan.PLAN
+    out = {}
+    try:
+        lines = p.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        m = re.match(r"^\|\s*([RLOCIWPZ]\d+)\s*\|", line)
+        if m and m.group(1) not in out:
+            t = re.split(r"[:(]", plan._cells(line)[1])[0].strip(" .")
+            out[m.group(1)] = t[:140]
     return out
 
 
-def render(es):
+def plan_of(it, titles):
+    """The plan row an inbox item belongs to: its `plan` field, else a row id named in title/why, else ''."""
+    if it.get("plan"):
+        return str(it["plan"])
+    for m in PLAN_REF.finditer(f"{it.get('title', '')} {it.get('why', '')}"):
+        if m.group(1) in titles:
+            return m.group(1)
+    return ""
+
+
+def entries(root=None):
+    """The page's items in page order (main-goal inbox items, everyday inbox items, parked ideas):
+    [{"type", "group", "plan", "ref", "title", "what", "if_approve", "if_leave", "command", "words", "raw"}]."""
+    titles = plan_titles(root)
+    out = []
+    for it in _inbox().items("open"):
+        row = plan_of(it, titles)
+        out.append({"type": "inbox", "group": "goal" if row else "problem", "plan": row, "ref": f"#{it['n']}",
+                    "title": it["title"], "what": it.get("what", ""), "if_approve": it.get("if_approve", ""),
+                    "if_leave": it.get("if_leave", ""), "command": it.get("command", ""), "words": needs_words(it),
+                    "raw": it})
+    for e in ideas.listing("parked", root or ROOT):
+        out.append({"type": "idea", "group": "idea", "plan": "", "ref": e["id"], "title": e["title"], "what": e["what"],
+                    "if_approve": "It becomes a row in the plan, with a brief a worker can start.",
+                    "if_leave": "It stays parked here; the running plan does not change.", "command": "", "words": False,
+                    "raw": e})
+    out.sort(key=lambda e: [g for g, _ in GROUPS].index(e["group"]))
+    return out
+
+
+def where_we_are(root=None):
+    """Plain lines: the phase now and its rows, each id spelled out."""
+    from . import plan
+    r = plan.next_(root or ROOT)
+    if not r.get("ok") or not r.get("phase"):
+        return ["Where we are: the plan file is not readable here."]
+    titles = plan_titles(root)
+    out = [f"Where we are: phase {r['phase']} of the plan is the current one. Rows not finished yet:"]
+    for ph in r["phases"]:
+        for i in ph["open"]:
+            out.append(f"  - {i} - {titles.get(i, '(no title)')} [phase {ph['phase']}]")
+    return out
+
+
+def _item_lines(k, e, titles):
+    ref = e["ref"] + (f", plan row {e['plan']}" if e["plan"] else "")
+    out = ["", f"{k}. {e['title']}  [{ref}]"]
+    if e["plan"]:
+        out.append(f"   Plan row: {e['plan']} - {titles.get(e['plan'], '(row not found)')}")
+    out += [f"   What it is: {e['what'] or NO_WORDS}",
+            f"   If you approve: {e['if_approve'] or NO_WORDS}",
+            f"   If you leave it: {e['if_leave'] or NO_WORDS}"]
+    if e["words"]:
+        out.append("   This needs a choice: your words after ':' are the answer.")
+    if e["command"]:
+        out.append(f"   Command (review never runs it): {e['command']}")
+    return out
+
+
+def render(es, root=None):
+    titles = plan_titles(root)
+    out = [GOAL, FINAL, ""] + where_we_are(root)
     if not es:
-        return ["Nothing waits for the owner."]
-    out = [f"{len(es)} item(s) wait for the owner (parked ideas first, then inbox items):"]
-    for k, e in enumerate(es, 1):
-        out += ["", f"{k}. {e['ref']}  {e['title']}", f"   Why: {e['why']}"]
-        if e["command"]:
-            out.append(f"   Would run (review never runs it): {e['command']}")
-        if e["words"]:
-            out.append("   This needs a choice: your words after ':' are the answer.")
+        return out + ["", "Nothing waits for you."]
+    out += ["", f"{len(es)} item(s) wait for you, in three groups."]
+    k = 0
+    for g, head in GROUPS:
+        group = [e for e in es if e["group"] == g]
+        out += ["", "=" * 60, f"{head} ({len(group)})", "=" * 60]
+        if not group:
+            out.append("Nothing here.")
+        for e in group:
+            k += 1
+            out += _item_lines(k, e, titles)
     out += ["", "Answer once: a = approve all, p or Enter = keep all waiting, f = forget/dismiss all,",
             "numbers (1,3) pick some, or both (1,3 a); words after ':' are your note (2 a: core embedded)."]
     return out
@@ -77,7 +159,7 @@ def write_page(root=None):
         text = "\n".join(["# Waiting on the owner", "",
                           "Written by `fieldkit review`; rewritten on every inbox or ideas change. Answer at a terminal: "
                           "`fieldkit review` (or double-click launchers/review.cmd, review.sh, review.command).", ""]
-                         + render(entries(root))) + "\n"
+                         + render(entries(root), root)) + "\n"
         p = page_path(root)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8", newline="\n")
@@ -136,7 +218,7 @@ def review(root=None, ask=input, say=print, now=None):
     _owner_only()
     es = entries(root)
     write_page(root)
-    say("\n".join(render(es)))
+    say("\n".join(render(es, root)))
     if not es:
         return []
     for _ in range(5):
