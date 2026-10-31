@@ -3212,8 +3212,8 @@
  },
  "web browsers": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
@@ -3223,8 +3223,8 @@
  },
  "web doctor": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
@@ -3234,8 +3234,8 @@
  },
  "web fetch": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
@@ -3245,8 +3245,8 @@
  },
  "web search": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
