@@ -429,8 +429,30 @@ def cmd_size(a):
     return size.main(a.args)
 
 
+def tools_find(words, rows):
+    """-> the registry rows that match WORDS, best first: a word in the id or title counts 3, elsewhere 1 (every
+    field of the card is searched). Rule USE THE HARNESS names this command; until 2026-11-01 it did not exist."""
+    ws = [w.lower() for w in words if w.strip()]
+    scored = []
+    for t in rows:
+        head = f"{t.get('id', '')} {t.get('title', '')}".lower()
+        body = " ".join(str(v) for v in t.values()).lower()
+        score = sum(3 if w in head else 1 if w in body else 0 for w in ws)
+        if score and all(w in body for w in ws[:1]) or score >= 2 * len(ws):
+            scored.append((-score, t.get("id", ""), t))
+    return [t for _s, _i, t in sorted(scored, key=lambda x: (x[0], x[1]))]
+
+
 def cmd_tools(a):
     from .desk import registry
+    if a.action == "find":
+        if not a.words:
+            raise SystemExit("fieldkit tools find WORDS")
+        rows = tools_find(a.words, registry.load())[:15]
+        _emit(rows, a.json, lambda rs: print("\n".join(f"{t['id']:<26} {t.get('title', '')}" for t in rs)
+                                             + ("\n" if rs else "") + (f"NEXT: fieldkit cards show {rs[0]['id']}"
+                                                                        if rs else "nothing matches: NEXT: fieldkit tools list --all")))
+        return 0 if rows else 3
     if a.action == "list":
         rows = [t for t in registry.load() if not a.harness or t.get("harness") == a.harness]
         if a.all:
@@ -1642,6 +1664,10 @@ def build_parser():
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    sn = sub.add_parser("sessions-nested", add_help=False,
+                        help="archive never takes a live side session with it: the children still nested under a "
+                             "session (check), a child that detached itself (ok)")
+    sn.add_argument("args", nargs=argparse.REMAINDER)
     ho = sub.add_parser("honesty", add_help=False,
                         help="a report's claims backed by what the tools printed: success words need a quoted line "
                              "from the recorded tool output, merged/pushed/wrote checked at the source, a NOT verified "
@@ -1708,7 +1734,8 @@ def build_parser():
                    ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
-    t.add_argument("action", choices=["list", "check"])
+    t.add_argument("action", choices=["list", "check", "find"])
+    t.add_argument("words", nargs="*", help="find: the words to look for (rule USE THE HARNESS)")
     t.add_argument("--harness")
     t.add_argument("--all", action="store_true", help="also every script discovered in toolbox/")
     t.add_argument("--run-tests", action="store_true")
@@ -2889,6 +2916,9 @@ def main(argv=None):
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["sessions-nested"]:               # no archive takes a nested side session with it
+        from .lifecycle import nested
+        return nested.main(args[1:])
     if args[:1] == ["honesty"]:                       # rule HONESTY: claims backed by recorded tool output
         from .method import honesty
         return honesty.main(args[1:])

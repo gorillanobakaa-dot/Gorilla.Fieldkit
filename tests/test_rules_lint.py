@@ -116,3 +116,45 @@ def test_shared_blocks_must_be_identical_across_files(tmp_path):
     b.write_text(L.assembled(data, "gemini").replace("Session rotation", "Session rotation!"), encoding="utf-8")
     found = L.check_installed({"codex": a, "gemini": b}, data, ROOT)
     assert ("identical", "rotate") in kinds(found)
+
+
+def test_an_invented_enforcer_is_a_finding_and_a_real_one_resolves(data):
+    """Owner order 2026-11-01: every enforced_by entry names a thing that exists (Zero 16 removed three by hand)."""
+    cmds = {"task": None, "tools": {"list", "check", "find"}}
+    assert L.resolve("fieldkit/lifecycle/watch.py (task watch)", ROOT, cmds)[0]
+    assert L.resolve("tests/test_rules_lint.py::test_x", ROOT, cmds)[0]
+    assert L.resolve("fieldkit task watch (UNHANDLED)", ROOT, cmds)[0]
+    assert not L.resolve("the tool router", ROOT, cmds)[0]
+    assert not L.resolve("fieldkit/nope.py", ROOT, cmds)[0]
+    assert not L.resolve("fieldkit nosuch", ROOT, cmds)[0]
+    assert not L.resolve("fieldkit tools search", ROOT, cmds)[0]          # a real command, an action it lacks
+    rule(data, "WAITING")["enforced_by"] = ["the watcher that wakes Zero"]
+    assert ("enforcer", "WAITING") in kinds(L.lint(data, ROOT))
+
+
+def test_a_command_the_text_names_must_exist(data):
+    """2026-11-01: USE THE HARNESS told every agent to run `fieldkit tools find`, which did not exist."""
+    rule(data, "WAITING")["text"] += " `fieldkit task nosuchverb ID`"
+    assert any(f["kind"] == "enforcer" and "nosuchverb" in f["evidence"] for f in L.lint(data, ROOT))
+
+
+def test_a_proof_must_point_at_a_real_test_and_a_unique_swap(data):
+    r = rule(data, "WAITING")
+    r["proofs"] = [{"demand": "wakes", "test": "tests/test_lifecycle_watch.py",
+                    "mutate": ["fieldkit/lifecycle/watch.py", "return (3 if found else 0), bool(over)", "x"]}]
+    assert ("proof", "WAITING") not in kinds(L.lint(data, ROOT))
+    r["proofs"][0]["mutate"][1] = "return"                                 # many times in the file: ambiguous
+    assert ("proof", "WAITING") in kinds(L.lint(data, ROOT))
+    r["proofs"][0]["mutate"][1] = "return (3 if found else 0), bool(over)"
+    r["proofs"][0]["test"] = "tests/test_missing.py"
+    assert ("proof", "WAITING") in kinds(L.lint(data, ROOT))
+
+
+def test_the_lifecycle_and_rotate_texts_come_from_rules_yaml(data):
+    """A4 2026-11-01: one file holds every rule; the code reads its parts."""
+    from fieldkit.lifecycle import protocol
+    from fieldkit.tokens import rotate
+    g = {e["id"]: e for e in data["generated"]}
+    assert g["LIFECYCLE"]["parts"]["side_jobs"] == protocol.side_jobs_rule()
+    assert g["ROTATE"]["parts"]["text"] in rotate.rule_text()
+    assert protocol.ZERO_ARCHIVE == g["LIFECYCLE"]["parts"]["zero_archive"]

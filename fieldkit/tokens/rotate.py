@@ -586,16 +586,10 @@ TRIGGER = {"claude-code": "room hook (UserPromptSubmit) + the tool router (PreTo
 
 
 def rule_text():
-    return (f"{RULE_BEGIN}\n"
-            "## Session rotation (fieldkit rotate)\n\n"
-            "At the start "
-            "of each task and after each commit, run `fieldkit rotate check --source <agent> --cwd . --newest` "
-            "(agent: codex, antigravity, gorilla-opencode, generic; Antigravity leaves out `--cwd .`); SHORT SESSIONS "
-            "says what WARN and ROTATE mean. ROTATE: at the next safe point (work committed or written down) run "
-            "`fieldkit rotate handover --session <id from the check> --title \"<job>\" --done \"<done>\" "
-            "--next \"<left>\" --not-verified \"<not verified>\"`, start a fresh session with the brief it prints, "
-            "and end this one.\n"
-            f"{RULE_END}\n")
+    """The ROTATE block, from rules/rules.yaml (A4 2026-11-01: one file holds every rule)."""
+    from .. import rules_lint
+    p = rules_lint.parts("ROTATE")
+    return f"{RULE_BEGIN}\n{p['heading']}\n\n{p['text']}\n{RULE_END}\n"
 
 
 def rule_present(path):

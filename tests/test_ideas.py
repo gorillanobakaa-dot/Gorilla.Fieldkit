@@ -233,3 +233,16 @@ def test_review_bad_answers_are_still_refused(root, person):
     _seed(root)
     res = ideas.review(root, ask=_answers(*["9 a"] * 5), say=lambda *_: None, now=NOW)
     assert res == [] and len(ideas.listing("parked", root)) == 3
+
+
+def test_c7_an_idea_already_built_is_shown_built_and_stays_parked(root):
+    """C7 (2026-11-01): I-09 was built in PR #264 while parked; the review must say so, the status stays the owner's."""
+    from fieldkit import review
+    ideas.add("Rules lint", "lint the rules", root=root, now=NOW)
+    e = ideas.mark_built("I-01", "PR #264", root=root, now=NOW)
+    assert e["status"] == "parked" and e["built"]["pr"] == "PR #264"
+    assert "ALREADY BUILT (PR #264" in ideas.brief(root)
+    item = [i for i in review.entries(root) if i["ref"] == "I-01"][0]
+    assert "ALREADY BUILT" in item["what"] and "already merged" in item["if_approve"]
+    with pytest.raises(ideas.Refused):
+        ideas.mark_built("I-99", "x", root=root)

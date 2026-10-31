@@ -5,6 +5,7 @@ finish line kept moving because every suggestion went into the current plan).
     fieldkit ideas add "TITLE" --why "what it would do" [--what "2-3 plain sentences"] [--from owner|agent:NAME]
     fieldkit ideas list [--status parked|accepted|forgotten] [--json]
     fieldkit ideas brief           the review brief: each parked idea, its title and what it would do (read only)
+    fieldkit ideas built I-NN --pr URL   an agent: the idea is already built (shown in the review; status unchanged)
     fieldkit ideas review          the owner's, at a real terminal: the same as `fieldkit review` (ideas AND inbox)
 
 The store is state/ideas/ideas.json (the truth, for tools) and state/ideas/TODO.Features.Plan.md (the same, written
@@ -140,6 +141,8 @@ def brief(root=None):
     out = [f"{len(ps)} parked ideas. Each is what the owner (or an agent) suggested while a job ran:"]
     for k, e in enumerate(ps, 1):
         out += ["", f"{k}. {e['id']}  {e['title']}  ({e['source']}, {e['date']})", f"   Would do: {e['what']}"]
+        if built_note(e):
+            out.append(f"   {built_note(e)}")
     out += ["", "Choices at a terminal (`fieldkit review`): a = accept (becomes a plan row), p = keep parked,",
             "f = forget; a, p or f alone applies to all; numbers (\"1,3\") pick a subset."]
     return "\n".join(out)
@@ -221,6 +224,23 @@ def _write_brief(e, root):
     return str(p)
 
 
+def mark_built(iid, pr, root=None, now=None):
+    """An agent records that a parked idea was already built (C7, 2026-11-01: I-09 was built in PR #264 while it sat
+    parked). The status stays the owner's; `fieldkit review` and the brief show it as BUILT so the owner can close it."""
+    data = _load(root)
+    for e in data["ideas"]:
+        if e["id"] == iid:
+            e["built"] = {"pr": pr, "at": _stamp(now)}
+            _save(data, root)
+            return e
+    raise Refused(f"no idea {iid}")
+
+
+def built_note(e):
+    b = e.get("built") or {}
+    return f"ALREADY BUILT ({b.get('pr')}, {b.get('at')}): accepting it closes it as done" if b else ""
+
+
 def parse_choice(text, n):
     """-> ("a"|"p"|"f", None) for all, ("pick", [indexes]) for numbers, or None when the answer is not understood."""
     t = text.strip().lower()
@@ -268,6 +288,9 @@ def main(argv=None):
     pl.add_argument("--status", choices=STATUSES)
     sub.add_parser("brief")
     sub.add_parser("review")
+    pb = sub.add_parser("built", help="record that a parked idea is already built (the status stays the owner's)")
+    pb.add_argument("id")
+    pb.add_argument("--pr", required=True)
     for p in (pa, pl):
         p.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
@@ -288,6 +311,10 @@ def main(argv=None):
             return 0
         if a.action == "brief":
             print(brief())
+            return 0
+        if a.action == "built":
+            e = mark_built(a.id, a.pr)
+            print(f"{e['id']}: {built_note(e)}\nNEXT: the owner closes it in fieldkit review")
             return 0
         review()
         return 0

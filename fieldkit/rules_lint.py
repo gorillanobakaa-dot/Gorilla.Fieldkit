@@ -59,9 +59,51 @@ COMMAND = re.compile(r"`(fieldkit(?: [a-z][\w-]*){1,2})")
 DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 
+PROOFS = "rules/proofs.yaml"
+
+
 def load(root=None):
+    """-> rules/rules.yaml, each rule given its `proofs` and `gaps` from rules/proofs.yaml."""
     import yaml
-    return yaml.safe_load((Path(root or ROOT) / DATA).read_text(encoding="utf-8"))
+    data = yaml.safe_load((Path(root or ROOT) / DATA).read_text(encoding="utf-8"))
+    pf = Path(root or ROOT) / PROOFS
+    proofs = yaml.safe_load(pf.read_text(encoding="utf-8")) if pf.is_file() else {}
+    for r in (data.get("core") or []) + (data.get("generated") or []):
+        r.setdefault("proofs", (proofs.get(r["id"]) or {}).get("proofs") or [])
+        r.setdefault("gaps", (proofs.get(r["id"]) or {}).get("gaps") or [])
+    return data
+
+
+def prove(data=None, root=None, only=None, run=None):
+    """-> [{rule, demand, test, verdict}] : each proof's mutation run through fieldkit mutate (one at a time; the file
+    is always put back). verdict CAUGHT = the test holds the rule; SURVIVED = it does not; REFUSED = bad swap."""
+    from .method import mutate as mu
+    import sys
+    root = Path(root or ROOT)
+    data = data if data is not None else load(root)
+    run = run or mu.mutate_once
+    out = []
+    for r in (data.get("core") or []) + (data.get("generated") or []):
+        if only and r["id"] not in only:
+            continue
+        for pr in r.get("proofs") or []:
+            f, old, new = pr["mutate"]
+            test = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", pr["test"]]
+            v = run(str(root / f), old, new, test, cwd=str(root), timeout=900)
+            out.append({"rule": r["id"], "demand": pr["demand"], "test": pr["test"], "file": f,
+                        "verdict": v["verdict"].upper()})
+    return out
+
+
+_PARTS = {}
+
+
+def parts(block_id, root=None):
+    """-> the `parts:` of a generated block (LIFECYCLE, ROTATE) in rules/rules.yaml, read once per process."""
+    key = (str(root or ROOT), block_id)
+    if key not in _PARTS:
+        _PARTS[key] = {g["id"]: g.get("parts") or {} for g in load(root).get("generated") or []}.get(block_id, {})
+    return _PARTS[key]
 
 
 def generate_core(data):
@@ -166,6 +208,10 @@ def lint(data=None, root=None):
                 found.append(_f("duplicate", rid, f"names `{cmd}`, which {owners[cmd]} owns "
                                                   "(merge the two, or list it under uses:)"))
             owners.setdefault(cmd, rid)
+        for cmd in sorted({_cmd(m.group(1)) for m in COMMAND.finditer(text)}):
+            ok, what = resolve(cmd, ROOT, commands)
+            if not ok:
+                found.append(_f("enforcer", rid, f"the text names {cmd!r}: {what}"))
         for d in declared:
             if d not in text:
                 found.append(_f("stale", rid, f"uses: `{d}` but the text does not name it"))
@@ -183,10 +229,10 @@ def lint(data=None, root=None):
         if e.get("tail"):
             continue
         for name in e.get("enforced_by") or []:
-            ok, what = resolve(str(name), root, commands)
+            ok, what = resolve(str(name), ROOT, commands)
             if not ok:
                 found.append(_f("enforcer", rid, f"enforced_by {name!r}: {what}"))
-        found += proof_findings(rid, e, root)
+        found += proof_findings(rid, e, ROOT)
         if e.get("enforced_by") and not (e.get("proofs") or e.get("gaps")):
             found.append(_f("unproven", rid, "enforced_by names tools but no proof (a test that fails without "
                                              "them) and no written gap", level="warning"))
@@ -215,10 +261,15 @@ def _source_words(root):
 
 
 def _commands():
+    """-> {command: its first positional's choices, or None when it hands its arguments to its own module}."""
     import argparse
     from . import cli
     sp = [x for x in cli.build_parser()._actions if isinstance(x, argparse._SubParsersAction)][0]
-    return set(sp.choices)
+    out = {}
+    for name, p in sp.choices.items():
+        pos = [x for x in p._actions if not x.option_strings and x.choices and not isinstance(x, argparse._SubParsersAction)]
+        out[name] = set(pos[0].choices) if pos else None
+    return out
 
 
 def resolve(name, root=None, commands=None):
@@ -234,7 +285,10 @@ def resolve(name, root=None, commands=None):
         if words[1] not in cmds:
             return False, f"`fieldkit {words[1]}` is not a fieldkit command"
         sub = [w for w in words[2:3] if re.fullmatch(r"[a-z][\w-]*", w)]
-        if sub and sub[0] not in _source_words(str(root)):
+        known = cmds[words[1]] if isinstance(cmds, dict) else None
+        if sub and known is not None and sub[0] not in known:
+            return False, f"`fieldkit {words[1]} {sub[0]}`: not one of its actions ({', '.join(sorted(known))})"
+        if sub and known is None and sub[0] not in _source_words(str(root)):
             return False, f"`fieldkit {words[1]} {sub[0]}`: no code knows the word {sub[0]!r}"
         return True, " ".join(words[:3])
     path = ref.split("::")[0]

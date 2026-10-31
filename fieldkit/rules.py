@@ -8,6 +8,7 @@ global file carries the core, its own tail and the lifecycle (and rotate) blocks
 keeps only its own rules.
 
     fieldkit rules check [--repo-only] [--json]   size, every block present and current, no core text repeated, lint
+    fieldkit rules prove [--only ID ...] [--write F]  every proof's mutation through fieldkit mutate (CAUGHT each)
     fieldkit rules lint [--json]                  the rules data: drift, budget, duplicates, misplaced text,
                                                   contradictions, BOTTLENECKS (rules_lint.py)
     fieldkit rules build                          write rules/CORE.md from rules/rules.yaml
@@ -231,7 +232,9 @@ def _lint_lines(found):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit rules", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["check", "install", "lint", "build"])
+    ap.add_argument("action", choices=["check", "install", "lint", "build", "prove"])
+    ap.add_argument("--only", nargs="*", help="prove: only these rule ids")
+    ap.add_argument("--write", help="prove: also write the results as a Markdown table to this file")
     ap.add_argument("--repo-only", action="store_true", help="check: only this repository's rules files (pre-commit)")
     ap.add_argument("--file", action="append", default=[], help="install: a rules file (the core block only)")
     ap.add_argument("--json", action="store_true")
@@ -239,6 +242,17 @@ def main(argv=None):
     if a.action == "build":
         print(f"rules/CORE.md: {build()}\nNEXT: fieldkit rules lint")
         return 0
+    if a.action == "prove":                           # every proof's mutation, through fieldkit mutate
+        res = lint_mod.prove(only=a.only)
+        rows = [f"| {r['rule']} | {r['demand']} | `{r['test']}` | `{r['file']}` | {r['verdict']} |" for r in res]
+        table = "| Rule | Demand | Test | Enforcer mutated | Mutate |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n"
+        if a.write:
+            Path(a.write).write_text(table, encoding="utf-8")
+        bad = [r for r in res if r["verdict"] != "CAUGHT"]
+        print(json.dumps(res, indent=1) if a.json else table)
+        print(f"{len(res) - len(bad)} caught, {len(bad)} not caught\nNEXT: "
+              + ("fix each test that does not hold its rule" if bad else "nothing"))
+        return 3 if bad else 0
     if a.action == "lint":
         found = lint_mod.lint()
         print(json.dumps(found, indent=1) if a.json else "\n".join(_lint_lines(found)))
