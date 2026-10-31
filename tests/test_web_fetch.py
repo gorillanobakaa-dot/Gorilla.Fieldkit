@@ -439,6 +439,15 @@ def test_private_address_refused():
         browser.check_public("file:///etc/passwd")
 
 
+def test_nat64_addresses_follow_the_ipv4_inside():
+    nat64 = lambda ip: (lambda h, p: [(23, 1, 6, "", (ip, p, 0, 0))])         # noqa: E731
+    browser.check_public("https://excalidraw.com/", resolve=nat64("64:ff9b::d896:101"))
+    with pytest.raises(browser.BrowserError, match="not a public address"):
+        browser.check_public("https://x/", resolve=nat64("64:ff9b::7f00:1"))
+    with pytest.raises(browser.BrowserError, match="not a public address"):
+        browser.check_public("https://x/", resolve=nat64("64:ff9b::a9fe:a9fe"))
+
+
 # -- the command: HTTP first ----------------------------------------------------------------------------------
 def _got(**k):
     return {"title": "B", "final_url": "https://x/", "text": "x" * 500, "browser": "Microsoft Edge",
