@@ -65,3 +65,15 @@ def test_the_check_exits_3_on_a_failing_global_file(home, monkeypatch, capsys):
     assert rules.main(["check"]) == 3 and "FAIL" in capsys.readouterr().out
     rules.install_all(home, ROOT, backup_dir=home / "bk")
     assert rules.main(["check"]) == 0
+
+
+def test_a_project_file_with_an_old_lifecycle_block_fails(tmp_path):
+    import shutil
+    from fieldkit.lifecycle import protocol
+    shutil.copytree(ROOT / "rules", tmp_path / "rules")
+    agents = tmp_path / "AGENTS.md"
+    agents.write_text("# project\n\n" + protocol.rule_text(), encoding="utf-8")
+    assert all(x["ok"] for x in rules.check(tmp_path, repo_only=True))
+    agents.write_text("# project\n\n" + protocol.rule_text().replace("2. ", "2. old "), encoding="utf-8")
+    bad = [x for x in rules.check(tmp_path, repo_only=True) if not x["ok"]]
+    assert bad and "lifecycle block is not current" in bad[0]["problems"][0]

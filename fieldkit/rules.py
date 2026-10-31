@@ -92,6 +92,12 @@ def check(root=None, home=None, repo_only=False):
     root = Path(root or ROOT)
     block = core_block(root)
     out = [check_file(root / f, block, "project") for f in REPO_FILES]
+    for r in out:                                          # a project file may carry the lifecycle block: current
+        if not r.get("missing"):
+            have = lint_mod.block(Path(r["path"]).read_text(encoding="utf-8").replace("\r\n", "\n"), "lifecycle")
+            if have is not None and have != lint_mod.block(_lifecycle_text(), "lifecycle"):
+                r["problems"].append("the lifecycle block is not current (fieldkit sessions rule --install FILE)")
+                r["ok"] = False
     errs = [x for x in lint_mod.lint(root=root) if x["level"] == "error"]
     out.append({"path": str(root / lint_mod.DATA), "kind": "lint", "ok": not errs, "bytes": 0,
                 "problems": [f"{x['kind']} {x['rule']}: {x['evidence']}" for x in errs]})
@@ -109,6 +115,11 @@ def check(root=None, home=None, repo_only=False):
         out.append({"path": "global files", "kind": "same", "ok": False, "bytes": 0,
                     "problems": [f"{x['rule']}: {x['evidence']}" for x in same]})
     return out
+
+
+def _lifecycle_text():
+    from .lifecycle import protocol
+    return protocol.rule_text()
 
 
 def _backup(p, bdir):
