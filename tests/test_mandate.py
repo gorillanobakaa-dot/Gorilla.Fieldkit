@@ -1,15 +1,17 @@
 # Version: 1.1.0 · updated 26-10-23-18-59
 """fieldkit mandate: one owner approval per project, valid on both computers, checkable by each (2026-10-23).
 Every test closes a way a false approval could get in: a changed byte, another key, no passphrase, a stop, a date."""
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
 from fieldkit.mandate import mandate as M
 
+# The expiry moves with the clock: a fixed 2026-10-30 made three tests that read today fail from 2026-10-31 on.
+EXPIRES = max(date.today(), date(2026, 10, 23)) + timedelta(days=365)
 MANDATE = """project: gorilla-opencode-mac-release
 goal: Gorilla OpenCode works on the 2011 MacBook Air
-expires: 2026-10-30
+expires: %s
 repos:
   Gorilla.Opencode:
     push: ["feat/*", "g/*"]
@@ -20,7 +22,7 @@ mac: {full_access: air}
 owner_approvals: ["build-harness accept"]
 release: ask
 never: [force_push, delete_outside_scratch, credentials]
-"""
+""" % EXPIRES.isoformat()
 DAY = date(2026, 10, 23)
 
 
@@ -118,7 +120,7 @@ def test_a_forged_signature_is_refused(owner):
 
 def test_stop_and_expiry_win(owner):
     M.approve(owner, "correct horse battery", True)
-    assert not M.verify(owner, date(2026, 10, 31))[0]                          # after expires
+    assert not M.verify(owner, EXPIRES + timedelta(days=1))[0]                 # after expires
     M.stop(owner)
     ok, why = M.verify(owner, DAY)
     assert not ok and "STOPPED" in why
