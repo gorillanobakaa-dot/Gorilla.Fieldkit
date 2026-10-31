@@ -87,6 +87,10 @@ DELETE = re.compile(
 
 PROTECTED = [
     (r"gorilla\.firefox/harness/", "the owner's build harness"),
+    # I-10 (owner, 2026-10-31): the desktop app's session records; an edit (isArchived, spawnedFrom) would archive or
+    # un-nest a session past the archive guard. Every agent behind these hard lines: Claude, Antigravity, OpenCode
+    (r"claude-code-sessions/", "the desktop app's session records (archive only through archive_session, which "
+                               "the archive guard checks)"),
     (r"(^|[/\s\"'])(gemini|agents|claude)\.md\b", "an AI rules file"),
     (r"\.gemini/config|\.claude/settings[^/\s\"']*\.json|\.claude/hooks", "a guard or AI settings"),
     # 2026-10-28: mutate writes the proof a guard commit is checked against, so it is guarded like the guard

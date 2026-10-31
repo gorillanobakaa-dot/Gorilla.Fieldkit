@@ -483,6 +483,12 @@ LIFECYCLE:
     - fieldkit/lifecycle/nested.py
     - '    if tid != me and act and now - act < ACTIVE_MIN * 60:'
     - '    if False:'
+  - demand: no agent (Claude, Antigravity, OpenCode) archives past the guard by editing the app's session records (I-10)
+    test: tests/test_autopilot_hardlines.py::test_the_app_session_records_are_never_written
+    mutate:
+    - fieldkit/autopilot/hardlines.py
+    - (r"claude-code-sessions/",
+    - (r"never-matches-anything/",
   gaps:
   - demand: 'DONE 1: commit on your own branch (never main)'
     why: 'no hook refuses a commit on main beyond checkout_guard (one writer per primary checkout, tests/test_checkout_guard.py,
