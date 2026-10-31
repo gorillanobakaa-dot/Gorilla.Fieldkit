@@ -70,7 +70,8 @@ security claim is made true and proven, never deleted.
   `--done --evidence ...` set the tags. A `!! LINK CHECK` line is a fact to resolve, never noise.
 - The agent net: `fieldkit zero` says who Zero (the coordinating session) is. Claude Code sessions are checked in by
   the hook; other agents run `fieldkit zero checkin --as AGENT:NAME` at start. Owner words "zero", "comms check",
-  "roll call" mean `fieldkit zero` (skill fieldkit-net). "SITREP" / "sitrep" means the session report (skill
+  "roll call" mean `fieldkit zero` (skill fieldkit-net); "comms check" is the owner's word for the roll call too: run
+  `fieldkit zero check`, then `fieldkit zero rollcall --wait 10` (owner, 2026-10-31). "SITREP" / "sitrep" means the session report (skill
   fieldkit-sitrep): where we started, what we did, what is going on now, what is left (owner, 2026-10-31).
 
 <!-- fieldkit-lifecycle-rule v1 -->
