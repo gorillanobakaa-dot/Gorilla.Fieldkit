@@ -85,6 +85,40 @@ def test_ci_must_cover_both_systems():
     assert not ok and "no windows job" in ev
 
 
+def test_ci_without_a_gh_login_reads_the_public_api_and_fails_closed():
+    class R:
+        returncode, stdout, stderr = 1, "", "gh: To get started with GitHub CLI, please run:  gh auth login"
+    both = [{"name": "test (ubuntu-latest)", "status": "completed", "conclusion": "success"},
+            {"name": "test (windows-latest)", "status": "completed", "conclusion": "success"}]
+    ok, ev = sync.ci_green("o/r", "abc", run=lambda *a, **k: R(), public=lambda s, h: both)
+    assert ok, ev
+
+    def down(s, h):
+        raise OSError("no network")
+    ok, ev = sync.ci_green("o/r", "abc", run=lambda *a, **k: R(), public=down)
+    assert not ok and "CI unreadable" in ev and "gh auth login" in ev and "no network" in ev
+
+    def no_gh(*a, **k):
+        raise FileNotFoundError("gh")
+    red = [dict(both[0]), dict(both[1], conclusion="failure")]
+    ok, ev = sync.ci_green("o/r", "abc", run=no_gh, public=lambda s, h: red)
+    assert not ok and "not green" in ev
+
+
+def test_a_repository_whose_jobs_do_not_name_the_system_is_mapped():
+    runs = [{"name": n, "status": "completed", "conclusion": "success"} for n in ("build-test", "build")]
+    ok, ev = sync.ci_green("gorillanobakaa-dot/Gorilla.Opencode", "abc", run=lambda *a, **k: (_ for _ in ()).throw(
+        FileNotFoundError("gh")), public=lambda s, h: runs)
+    assert not ok and "no windows job" in ev
+    runs.append({"name": "build-test-windows", "status": "completed", "conclusion": "success"})
+    ok, ev = sync.ci_green("gorillanobakaa-dot/Gorilla.Opencode", "abc", run=lambda *a, **k: (_ for _ in ()).throw(
+        FileNotFoundError("gh")), public=lambda s, h: runs)
+    assert ok, ev
+    ok, ev = sync.ci_green("o/r", "abc", run=lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("gh")),
+                           public=lambda s, h: runs)
+    assert not ok      # the map is per repository: elsewhere "build-test" proves nothing
+
+
 def test_cards_hold_their_platform_promise(tmp_path):
     t = tmp_path / "test_x.py"
     t.write_text("import pytest\npytestmark = pytest.mark.windows_only\n")
