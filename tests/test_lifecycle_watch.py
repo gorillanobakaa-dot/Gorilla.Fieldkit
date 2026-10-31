@@ -155,4 +155,19 @@ def test_b4_the_cli_id_reaches_findings(monkeypatch):
     monkeypatch.setattr(tasks, "collect_jobs", lambda led: None)
     monkeypatch.setattr(watch, "findings", lambda led, **kw: seen.update(kw) or [])
     a = argparse.Namespace(arg="T-1, T-2", stalled=10, hours=24, act=False, json=False, scheduled=True)
-    assert watch._once(a, {}, []) == 0 and seen["ids"] == {"T-1", "T-2"}
+    assert watch._once(a, {}, [])[0] == 0 and seen["ids"] == {"T-1", "T-2"}
+
+
+def test_c1_a_watch_on_ids_returns_when_they_end_done(monkeypatch, capsys):
+    """C1 (2026-10-31): `task watch ID` kept sleeping after its task ended DONE; Zero read `task status` by hand."""
+    monkeypatch.setattr(tasks, "ingest", lambda: [])
+    monkeypatch.setattr(tasks, "collect_jobs", lambda led: None)
+    monkeypatch.setattr(tasks, "settle", lambda led, alive=None: None)
+    led = {"T-1": task("T-1", status="done", ago=5), "T-2": task("T-2", ago=5)}
+    led["T-2"]["at"] = time.strftime("%Y-%m-%d %H:%M:%S")         # running and fresh: not STALLED
+    a = argparse.Namespace(arg="T-1,T-2", stalled=10, hours=24, act=False, json=False, scheduled=False)
+    assert watch._once(a, led, []) == (0, False)            # T-2 still runs: keep watching
+    led["T-2"]["status"] = "done"
+    assert watch._once(a, led, []) == (0, True)             # both ended: wake, exit 0
+    assert "ENDED T-1 done" in capsys.readouterr().out
+    assert watch.ended({}, {"T-typo"}) == ["UNKNOWN T-typo: no such task in the ledger"]

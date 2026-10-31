@@ -96,8 +96,11 @@ def entries(root=None):
                     "if_leave": it.get("if_leave", ""), "command": it.get("command", ""), "words": needs_words(it),
                     "raw": it})
     for e in ideas.listing("parked", root or ROOT):
-        out.append({"type": "idea", "group": "idea", "plan": "", "ref": e["id"], "title": e["title"], "what": e["what"],
-                    "if_approve": "It becomes a row in the plan, with a brief a worker can start.",
+        built = ideas.built_note(e)
+        out.append({"type": "idea", "group": "idea", "plan": "", "ref": e["id"], "title": e["title"],
+                    "what": e["what"] + (f" {built}." if built else ""),
+                    "if_approve": "It is closed: the work is already merged." if built else
+                                  "It becomes a row in the plan, with a brief a worker can start.",
                     "if_leave": "It stays parked here; the running plan does not change.", "command": "", "words": False,
                     "raw": e})
     out.sort(key=lambda e: [g for g, _ in GROUPS].index(e["group"]))

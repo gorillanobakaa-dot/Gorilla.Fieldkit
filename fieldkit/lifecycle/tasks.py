@@ -323,6 +323,9 @@ def report(tid, status, branch="", pr="", note="", source="local", reviewer=None
             note = f"verdict {verdict['kind']}: {verdict['why']} | worker said: {note}"
     rec = {"id": tid, "status": status, "branch": branch, "pr": pr, "note": note[:300], "source": source,
            "reported": time.strftime("%Y-%m-%d %H:%M:%S")}
+    unbacked = honesty_of(task, note) if status == "done" else []
+    if unbacked:                                      # rule HONESTY: a DONE note's claims against the job's own log
+        rec["honesty"] = unbacked
     if verdict:
         rec.update(verdict=verdict["kind"], verdict_why=verdict["why"][:300],
                    failures=int(task.get("failures") or 0) + (0 if verdict["kind"] == "pass" else 1))
@@ -330,6 +333,21 @@ def report(tid, status, branch="", pr="", note="", source="local", reviewer=None
     _room(f"task:{tid}", f"task {status}: branch {branch or '-'} PR {pr or '-'} {note[:200]}")
     board(tid)
     return rec
+
+
+def honesty_of(task, note):
+    """-> [detail] of fieldkit honesty findings of a done note against the task's job log (empty: backed, or no log
+    to judge from). Recorded on the report and the Board, never blocking: the acceptance gate decides done."""
+    log = task.get("log")
+    if not note or not log or not os.path.isfile(log):
+        return []
+    try:
+        from ..method import honesty
+        with open(log, encoding="utf-8", errors="replace") as fh:
+            found = honesty.check(note, fh.read(), offline=True, require_nv=False)
+    except Exception:  # noqa: BLE001 - a checker crash never loses the report
+        return []
+    return [f"{x['kind']}: {x['detail']}"[:200] for x in found]
 
 
 def attach_owner_actions(tasks, jobs=None):

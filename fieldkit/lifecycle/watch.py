@@ -213,10 +213,26 @@ def main(a, ledger=None, notes=None, sleep=time.sleep):
     if a.schedule or a.remove:
         return schedule(a)
     while True:
-        code = _once(a, ledger, notes)
-        if code or a.once or a.scheduled or ledger is not None:
+        code, over = _once(a, ledger, notes)
+        if code or over or a.once or a.scheduled or ledger is not None:
             return code
         sleep(a.every)
+
+
+def ended(led, ids):
+    """-> [line] for each watched id that is no longer running (done, closed, blocked...; C1 2026-10-31: a watch on
+    an id never woke when that task ended DONE), or None while any watched id still runs. An id the ledger does not
+    know counts as ended (a typo must not keep a background watch alive forever)."""
+    out = []
+    for tid in sorted(ids or ()):
+        t = led.get(tid)
+        if t is None:
+            out.append(f"UNKNOWN {tid}: no such task in the ledger")
+        elif t.get("status") == "started":
+            return None
+        else:
+            out.append(f"ENDED {tid} {t.get('status')} on {t.get('on')}: {(t.get('title') or '')[:50]}")
+    return out
 
 
 def _once(a, ledger, notes):
@@ -232,11 +248,15 @@ def _once(a, ledger, notes):
     ids = {x.strip() for x in (getattr(a, "arg", None) or "").split(",") if x.strip()} or None
     found = findings(led, stalled_min=a.stalled, hours=a.hours, notes=notes, ids=ids)
     done = act(found, led=led) if a.act else []
+    over = ended(led, ids) if ids else None
     if a.json:
-        print(json.dumps({"findings": found, "done": done, "new_reports": len(new)}, indent=1, ensure_ascii=False))
+        print(json.dumps({"findings": found, "done": done, "new_reports": len(new), "ended": over},
+                         indent=1, ensure_ascii=False))
+    elif over and not found:
+        print("\n".join(over) + "\nNEXT: fieldkit task status   # read its report")
     elif found:
         print("\n".join(f["line"] + f"\n  NEXT: {f['next']}" for f in found))
         print("\n".join(done))
     elif not a.scheduled:
         print("task watch: nothing waits on you (no unhandled, stalled or dead task)\nNEXT: carry on")
-    return 3 if found else 0
+    return (3 if found else 0), bool(over)

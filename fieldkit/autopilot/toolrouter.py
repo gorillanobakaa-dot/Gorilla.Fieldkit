@@ -436,6 +436,16 @@ def _retire(call):
         return None
 
 
+def _nested(call):
+    """archive_session on this session is refused while a side session it started is still nested under it (the app
+    archives those with it: Zero 16 archived Zero 17 that way, 2026-10-31). Fails open."""
+    try:
+        from ..lifecycle import nested
+        return nested.pretool(call)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _deny(reason):
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
@@ -447,7 +457,7 @@ def verdict(call):
     deny = _claims(call) or _checkout(call)
     if deny:
         return deny
-    stop = _retire(call) or _rotate_stop(call) or _breaker(call)
+    stop = _nested(call) or _retire(call) or _rotate_stop(call) or _breaker(call)
     if stop:
         return _deny(stop)
     tool = (call.get("tool_name") or "").lower()

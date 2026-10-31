@@ -429,8 +429,30 @@ def cmd_size(a):
     return size.main(a.args)
 
 
+def tools_find(words, rows):
+    """-> the registry rows that match WORDS, best first: a word in the id or title counts 3, elsewhere 1 (every
+    field of the card is searched). Rule USE THE HARNESS names this command; until 2026-11-01 it did not exist."""
+    ws = [w.lower() for w in words if w.strip()]
+    scored = []
+    for t in rows:
+        head = f"{t.get('id', '')} {t.get('title', '')}".lower()
+        body = " ".join(str(v) for v in t.values()).lower()
+        score = sum(3 if w in head else 1 if w in body else 0 for w in ws)
+        if score and all(w in body for w in ws[:1]) or score >= 2 * len(ws):
+            scored.append((-score, t.get("id", ""), t))
+    return [t for _s, _i, t in sorted(scored, key=lambda x: (x[0], x[1]))]
+
+
 def cmd_tools(a):
     from .desk import registry
+    if a.action == "find":
+        if not a.words:
+            raise SystemExit("fieldkit tools find WORDS")
+        rows = tools_find(a.words, registry.load())[:15]
+        _emit(rows, a.json, lambda rs: print("\n".join(f"{t['id']:<26} {t.get('title', '')}" for t in rs)
+                                             + ("\n" if rs else "") + (f"NEXT: fieldkit cards show {rs[0]['id']}"
+                                                                        if rs else "nothing matches: NEXT: fieldkit tools list --all")))
+        return 0 if rows else 3
     if a.action == "list":
         rows = [t for t in registry.load() if not a.harness or t.get("harness") == a.harness]
         if a.all:
@@ -1642,6 +1664,15 @@ def build_parser():
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    sn = sub.add_parser("sessions-nested", add_help=False,
+                        help="archive never takes a live side session with it: the children still nested under a "
+                             "session (check), a child that detached itself (ok)")
+    sn.add_argument("args", nargs=argparse.REMAINDER)
+    ho = sub.add_parser("honesty", add_help=False,
+                        help="a report's claims backed by what the tools printed: success words need a quoted line "
+                             "from the recorded tool output, merged/pushed/wrote checked at the source, a NOT verified "
+                             "field (fieldkit honesty check REPORT --session ID)")
+    ho.add_argument("args", nargs=argparse.REMAINDER)
     ru = sub.add_parser("rules", add_help=False,
                         help="the one core (rules/CORE.md) in every agent's rules file, every rules file under its size "
                              "limit, no core text repeated (fieldkit rules check|install)")
@@ -1703,7 +1734,8 @@ def build_parser():
                    ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
-    t.add_argument("action", choices=["list", "check"])
+    t.add_argument("action", choices=["list", "check", "find"])
+    t.add_argument("words", nargs="*", help="find: the words to look for (rule USE THE HARNESS)")
     t.add_argument("--harness")
     t.add_argument("--all", action="store_true", help="also every script discovered in toolbox/")
     t.add_argument("--run-tests", action="store_true")
@@ -2122,6 +2154,8 @@ def build_parser():
                              "render, example, doctor (fieldkit/sitrep)")
     st.add_argument("action", choices=["template", "check", "render", "example", "doctor"])
     st.add_argument("file", nargs="?", help="the filled-in report (check, render)")
+    st.add_argument("--session", help="check: also back every claim with this session's tool output "
+                                      "(fieldkit honesty; rule HONESTY)")
     st.add_argument("--lang", default="en", help="heading language: en es pt it de ro")
     st.add_argument("--order", choices=["ask-first", "classic"], default="ask-first",
                     help="ask-first puts 'What I need from you' second; classic is the military order, asks last")
@@ -2526,6 +2560,13 @@ def cmd_sitrep(a):
         raise SystemExit(f"REFUSED: cannot read {a.file}: {e.strerror}")
     if a.action == "check":
         d = sitrep.check(text)
+        if getattr(a, "session", None):               # rule HONESTY: every claim backed by recorded tool output
+            from .method import honesty
+            ev, _kind = honesty.session_evidence(a.session)
+            bad = honesty.check(text, ev, require_nv=False)
+            d["problems"] = list(d.get("problems") or []) + [f"FAIL honesty {x['kind']} line {x['line']}: "
+                                                              f"{x['detail']}" for x in bad]
+            d["ok"] = bool(d.get("ok")) and not bad
         _emit(d, a.json, lambda x: print("\n".join(sitrep.lines(x))))
         return sitrep.exit_code(d)
     d = sitrep.render(text, lang=a.lang, order=a.order, md=a.md)
@@ -2875,6 +2916,12 @@ def main(argv=None):
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["sessions-nested"]:               # no archive takes a nested side session with it
+        from .lifecycle import nested
+        return nested.main(args[1:])
+    if args[:1] == ["honesty"]:                       # rule HONESTY: claims backed by recorded tool output
+        from .method import honesty
+        return honesty.main(args[1:])
     if args[:1] == ["rules"]:                         # the one core in every agent's rules file; every rules file small
         from . import rules
         return rules.main(args[1:])
