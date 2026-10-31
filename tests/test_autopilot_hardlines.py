@@ -195,6 +195,18 @@ def test_only_the_plain_tool_command_is_opened(cmd, nostop):
     assert dm(cmd, Door(allow={"push", "approval"}, force=True), nostop) == "deny"
 
 
+def test_a_mandated_push_whose_output_is_tailed_is_still_the_push(nostop):
+    """B1 live proof (VAIO, 2026-10-31): `fieldkit ship push --auto 2>&1 | tail -20` was refused by the hard lines."""
+    door = Door(allow={"push"}, force=True)
+    for cmd in ("python3 -m fieldkit ship push --auto 2>&1 | tail -20", "fieldkit ship push --auto 2>&1",
+                "fieldkit ship push | head -n 5", "cd /w/r && fieldkit ship push --auto 2>&1 | tail -5"):
+        assert dm(cmd, door, nostop) == "allow", cmd
+    for cmd in ("fieldkit ship push 2>&1 | tee log", "fieldkit ship push | tail -5 | sh",
+                "fieldkit ship push | tail -5; git push", "git push 2>&1 | tail -5"):
+        assert dm(cmd, door, nostop) == "deny", cmd
+    assert dm("fieldkit ship push --auto 2>&1 | tail -20", Door(), nostop) == "deny"     # no mandate: denied
+
+
 def test_ship_merge_goes_through_only_while_a_mandate_is_in_force(nostop):
     assert dm("fieldkit ship merge", Door(force=True), nostop) == "allow"
     assert dm("fieldkit ship merge", Door(force=False), nostop) == "deny"
