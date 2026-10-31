@@ -195,7 +195,7 @@ def config():
 # mandate gate covers the LAN (rule of 2026-10-25); notes and files go over either.
 ROLES = ("boss", "worker", "")
 LINKS = ("cable", "lan")
-JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive")
+JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app")
 KEPT = ("tag", "host", "model", "last_seen")   # what a device row learned by itself; `devices add` keeps it
 
 
@@ -595,6 +595,8 @@ LINK_TEMPLATE = """\
 # Which agents the paired computer may ask THIS computer to start, approved by this computer's owner:
 #     fieldkit peers link approve      (a real terminal, typed yes; sha256-pinned; any change voids it)
 # A started session is an autopilot run: the hard lines hold, no GitHub credential, the budget below.
+allow_apps: null         # programs the paired computer may ask this one to start by name (`start-app`); null = the
+                         # default: the agents, gorilla-opencode, TPFanControl. Never with arguments.
 allow_start: []          # e.g. [claude]
 cwd: null                # the folder a started session works in (required when allow_start is not empty)
 wall_minutes: 120
@@ -953,6 +955,11 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         from . import link_probe
         _log(f"probe {req.get('name')!r} from {req.get('from_host')}")
         return link_probe.run(req.get("name"), req.get("arg"))
+    if verb == "start-app":
+        # cable only (JOB_VERBS); the peer's own allowlist decides, the sender's word is not read (no arguments either)
+        from . import link_probe
+        _log(f"start-app {req.get('name')!r} from {req.get('from_host')}")
+        return link_probe.start_app(req.get("name"))
     if verb == "tags":
         # read-only, like friction: this computer's live sessions whose title lacks its machine tag (machine.py,
         # 2026-10-27), so `fieldkit sessions tag --check` on any device checks every machine of the household
@@ -1363,7 +1370,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor",
-                                       "put", "devices", "probe"])
+                                       "put", "devices", "probe", "start-app"])
     ap.add_argument("--device", help="hello/send/ask/put: which device of the household (fieldkit peers link devices)")
     ap.add_argument("--bundle", help="put: a git bundle of every ref of this repository")
     ap.add_argument("--retries", type=int, default=3, help="put: reconnect and resume this many times after a drop")
@@ -1445,6 +1452,16 @@ def main(argv=None):
         else:
             r = link_probe.run(a.rest[0], arg)
         print(json.dumps(r, indent=1, ensure_ascii=False) if a.json else link_probe.render(r))
+        return 0 if r.get("ok") else 3
+    if a.action == "start-app":
+        from . import link_probe
+        if not a.rest:
+            print("start-app NAME [--device D]; the peer starts it only if its own allowlist names it")
+            return 2
+        name = " ".join(a.rest)
+        r = call({"verb": "start-app", "name": name}, timeout=30, device=a.device) if a.device else link_probe.start_app(name)
+        print(json.dumps(r, indent=1, ensure_ascii=False) if a.json else
+              (f"{'STARTED' if r.get('ok') else 'NOT STARTED'}: {r.get('why') or r.get('error')}"))
         return 0 if r.get("ok") else 3
     if a.action == "send":
         if a.needs_you and a.to and a.to.lower() != "owner":

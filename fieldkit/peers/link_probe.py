@@ -19,7 +19,7 @@ import time
 from . import agentfind
 
 VERSION = 1
-WHERE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+ -]{0,63}$")
 TOOLS = (("python", None), ("git", ["--version"]), ("go", ["version"]), ("gh", ["--version"]))
 
 
@@ -30,21 +30,43 @@ def _agents(arg=None, **kw):
     return lines, rows
 
 
-def _where(arg=None, which=shutil.which, glob=None, isfile=os.path.isfile, osname=None, home=None, env=None, **_):
-    """PROGRAM on PATH and in the known install places. The name is checked first: letters, digits . _ + -"""
-    if not arg or not WHERE_NAME.match(arg):
-        raise ValueError("where needs one program name (letters, digits, . _ + -)")
-    import glob as g
-    glob = glob or g.glob
-    hits = [("PATH", which(arg))] if which(arg) else []
-    for pat in agentfind.known_dirs(arg, osname, home, env):
-        hits += [("known place", h) for h in sorted(glob(pat)) if isfile(h)]
-    seen, rows = set(), []
-    for how, p in hits:
-        if p not in seen:
-            seen.add(p)
-            rows.append({"how": how, "path": p})
-    return [f"{r['how']:<12} {r['path']}" for r in rows] or [f"{arg}: not found"], rows
+def _where(arg=None, finder=None, **_):
+    """PROGRAM anywhere the system knows it: the one app finder (fieldkit/app/find.py). The name is checked first."""
+    if not arg or not NAME_OK.match(arg):
+        raise ValueError("where needs one program name (letters, digits, spaces, . _ + -)")
+    if finder is None:
+        from ..app import find as finder_mod
+        finder = finder_mod.find
+    rows = finder(arg)
+    from ..app import find as F
+    return F.render(rows) if rows else [f"{arg}: not found"], rows
+
+
+DEFAULT_APPS = ("claude", "codex", "gemini", "opencode", "gorilla-opencode", "antigravity", "TPFanControl")
+
+
+def start_app(name, allowed=None, finder=None, starter=None):
+    """-> {ok, why|error, ...}. Starts NAME, no arguments, only when it is on THIS computer's allowlist
+    (link.yaml allow_apps, approved; default DEFAULT_APPS) by its whole name, and never when it is ambiguous."""
+    from ..app import find as F
+    if not isinstance(name, str) or not NAME_OK.match(name):
+        return {"ok": False, "error": "start-app needs one program name (letters, digits, spaces, . _ + -)"}
+    if allowed is None:
+        from . import link
+        reg, _why = link.approvals()
+        allowed = reg.get("allow_apps") or DEFAULT_APPS
+    if F.norm(name) not in {F.norm(x) for x in allowed}:
+        return {"ok": False, "error": f"{name!r} is not on this computer's start-app allowlist "
+                                      f"({', '.join(allowed)}); the owner adds it to allow_apps in link.yaml and approves"}
+    matches = (finder or F.find)(name)
+    m, why = F.pick([x for x in matches if x["score"] == 2] or matches)
+    if m is None:
+        return {"ok": False, "error": f"not started: {name!r}: {why}"}
+    if starter is None:
+        from ..app import start as S
+        starter = S.start
+    r = starter(m, ())
+    return {**r, "host": socket.gethostname()}
 
 
 def _disk(arg=None, usage=shutil.disk_usage, **_):
