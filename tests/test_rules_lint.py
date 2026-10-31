@@ -100,7 +100,7 @@ def test_install_marks_an_unmarked_tail_once_and_check_finds_a_changed_block(tmp
     r = rules.install_all(home, ROOT, backup_dir=tmp_path / "bk")
     text = codex.read_text(encoding="utf-8")
     assert "a long old tail line" not in text and text.count(L.TAIL_BEGIN) == 1 and b"\r\n" in codex.read_bytes()
-    assert r[1]["done"].startswith("updated") and r[0]["done"].startswith("missing")
+    assert r[1]["done"].startswith("updated") and r[0]["done"].startswith("created")     # .claude/ is here (E)
     assert all(x["ok"] for x in rules.check(ROOT, home)), rules.check(ROOT, home)
     assert rules.install_all(home, ROOT, backup_dir=tmp_path / "bk")[1]["done"] == "already current"
     codex.write_text(codex.read_text(encoding="utf-8").replace("# Codex", "# Codex edited"), encoding="utf-8")

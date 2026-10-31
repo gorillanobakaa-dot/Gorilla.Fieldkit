@@ -195,6 +195,18 @@ def test_only_the_plain_tool_command_is_opened(cmd, nostop):
     assert dm(cmd, Door(allow={"push", "approval"}, force=True), nostop) == "deny"
 
 
+def test_a_mandated_push_whose_output_is_tailed_is_still_the_push(nostop):
+    """B1 live proof (VAIO, 2026-10-31): `fieldkit ship push --auto 2>&1 | tail -20` was refused by the hard lines."""
+    door = Door(allow={"push"}, force=True)
+    for cmd in ("python3 -m fieldkit ship push --auto 2>&1 | tail -20", "fieldkit ship push --auto 2>&1",
+                "fieldkit ship push | head -n 5", "cd /w/r && fieldkit ship push --auto 2>&1 | tail -5"):
+        assert dm(cmd, door, nostop) == "allow", cmd
+    for cmd in ("fieldkit ship push 2>&1 | tee log", "fieldkit ship push | tail -5 | sh",
+                "fieldkit ship push | tail -5; git push", "git push 2>&1 | tail -5"):
+        assert dm(cmd, door, nostop) == "deny", cmd
+    assert dm("fieldkit ship push --auto 2>&1 | tail -20", Door(), nostop) == "deny"     # no mandate: denied
+
+
 def test_ship_merge_goes_through_only_while_a_mandate_is_in_force(nostop):
     assert dm("fieldkit ship merge", Door(force=True), nostop) == "allow"
     assert dm("fieldkit ship merge", Door(force=False), nostop) == "deny"
@@ -384,3 +396,24 @@ def test_fix4_the_text_of_a_note_heredoc_is_not_a_command(cmd, nostop):
 ])
 def test_fix4_a_heredoc_that_runs_or_writes_a_protection_is_still_refused(cmd, nostop):
     assert d("Bash", {"command": cmd}, nostop) == "deny"
+
+
+REC = "D:/AppData/Roaming/Claude/claude-code-sessions/acc/org/local_1.json"
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("Bash", {"command": f'sed -i s/false/true/ "{REC}"'}),
+    ("Bash", {"command": f"echo x > {REC}"}),
+    ("Write", {"file_path": REC, "content": "{}"}),
+    ("Edit", {"file_path": REC, "old_string": "false", "new_string": "true"}),
+    ("write_to_file", {"TargetFile": REC, "CodeContent": "{}"}),           # Antigravity's name
+])
+def test_the_app_session_records_are_never_written(tool, args, nostop):
+    """I-10 (owner, 2026-10-31): editing isArchived/spawnedFrom would archive past the archive guard, by any agent."""
+    v, why = hl.decide(tool, args, stop_file=nostop)
+    assert v == "deny" and "session records" in why
+
+
+def test_the_app_session_records_can_be_read(nostop):
+    assert hl.decide("Bash", {"command": f"cat {REC}"}, stop_file=nostop)[0] == "allow"
+    assert hl.decide("Read", {"file_path": REC}, stop_file=nostop)[0] == "allow"

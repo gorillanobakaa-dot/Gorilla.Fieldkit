@@ -87,6 +87,10 @@ DELETE = re.compile(
 
 PROTECTED = [
     (r"gorilla\.firefox/harness/", "the owner's build harness"),
+    # I-10 (owner, 2026-10-31): the desktop app's session records; an edit (isArchived, spawnedFrom) would archive or
+    # un-nest a session past the archive guard. Every agent behind these hard lines: Claude, Antigravity, OpenCode
+    (r"claude-code-sessions/", "the desktop app's session records (archive only through archive_session, which "
+                               "the archive guard checks)"),
     (r"(^|[/\s\"'])(gemini|agents|claude)\.md\b", "an AI rules file"),
     (r"\.gemini/config|\.claude/settings[^/\s\"']*\.json|\.claude/hooks", "a guard or AI settings"),
     # 2026-10-28: mutate writes the proof a guard commit is checked against, so it is guarded like the guard
@@ -273,6 +277,10 @@ SUBST = re.compile(r"\$\(|<\(|>\(")
 
 CD_THEN = re.compile(r"^\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)\s*&&\s*(.+)$", re.S)
 CD_PUSH = re.compile(r"^\s*(?:python[\d.]*(?:\.exe)?\s+-m\s+)?fieldkit(?:\.exe)?\s+ship\s+push\b(?![^\n]*--tag)", re.I)
+#: B1 live proof (VAIO, 2026-10-31): a model runs `fieldkit ship push --auto 2>&1 | tail -20`; the pipe made it two
+#: statements and the mandate's door stayed shut. Only stderr joined to stdout and ONE trailing `| tail N` / `| head N`
+#: (they print, write nothing) are read away; `| tee log`, `| sh` and anything else still keep the door shut.
+VIEW_TAIL = re.compile(r"(?:\s+2>&1)?(?:\s*\|\s*(?:tail|head)(?:\s+-n)?(?:\s+-?\d+)?)?\s*$")
 INBOX_NOTE = re.compile(r"^\s*(?:python[\d.]*(?:\.exe)?\s+-m\s+)?fieldkit(?:\.exe)?\s+inbox\s+add\s", re.I)
 
 
@@ -462,6 +470,7 @@ def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
         # 2026-10-27 (owner "Da" on inbox #97): `cd REPO && fieldkit ship push` is judged as the push run in REPO;
         # one plain `fieldkit inbox add "..."` is a note, whatever its quoted text names (it was refused for saying
         # "fieldkit ship" while asking the owner to publish)
+        cmd = cmd[:VIEW_TAIL.search(cmd).start()] or cmd     # how the output is shown is not the action
         cd = CD_THEN.match(cmd)
         if cd and _one_statement(cd.group(2)) and CD_PUSH.match(cd.group(2)):    # a branch push only, judged in REPO
             cwd, cmd = cd.group(1).strip("\"'"), cd.group(2)

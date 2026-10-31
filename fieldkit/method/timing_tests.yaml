@@ -1,0 +1,11 @@
+# Timing-sensitive tests (owner, 2026-10-31: "all approved" - a red made ONLY of these is a flake, not a strike).
+# A test is listed here only with the evidence that it went red with no code of its own changed. Each entry:
+#   test: the pytest id with forward slashes; why: the evidence.
+# fieldkit/method/strikes.py reads it: a red whose every failed test is listed is a FLAKE round (not counted);
+# the third flake round of one branch counts as a strike (fail closed: a flake is never a free pass forever).
+tests:
+- test: tests/test_zero_command.py::test_the_whole_hook_process_measured_and_loads_no_yaml
+  why: "#253 run 41201795494 (windows, 34-min runner) and main on the L15 on battery (150-210 ms vs the 150 ms bar),
+    2026-10-31"
+- test: tests/test_liveness.py::test_a_lone_silent_spinner_is_stopped_as_busy_no_children
+  why: "#253 run 41201795494: 'timeout' == 'stalled' on a 34-min Windows runner while main was green, 2026-10-31"
