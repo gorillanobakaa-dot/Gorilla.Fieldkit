@@ -229,6 +229,24 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
         inbox(f"PARKED {branch}: failed CI {reds} times", why, f"gh pr view {pr['number']} --web")
         return dict(rep, ok=False, state="parked", reds=reds, error=why,
                     next="PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")
+    # 2026-10-31: on a repository whose base branch requires no status check (Gorilla.Opencode: no ruleset, auto-merge
+    # off) `gh pr merge --auto` merges AT ONCE, before CI ends: PRs #42-#44 there merged 1-4 min ahead of their checks.
+    # Main moves only on green CI, so without a required check there is no auto-merge: the PR stays open.
+    ok, out, err = _gh(run, repo, "api", f"repos/{{owner}}/{{repo}}/rules/branches/{base}", "--jq", "[.[].type]")
+    if not ok:
+        return fail("gh api rules", err)
+    try:
+        rules = json.loads(out or "[]")
+    except ValueError:
+        return fail("gh api rules", f"not JSON: {out[:200]}")
+    if "required_status_checks" not in rules:
+        why = (f"PR #{pr['number']} ({pr['url']}): {base} requires no status check here, so GitHub would merge it "
+               f"before CI ends. Auto-merge NOT enabled; the PR stays open.")
+        inbox(f"No required CI check on {base}: PR #{pr['number']} left open", why + " Fix: a ruleset on " + base +
+              " requiring the CI checks, and 'Allow auto-merge' on (as Gorilla.Fieldkit has; `fieldkit github`).",
+              f"gh pr view {pr['number']} --web")
+        return dict(rep, ok=False, state="no-required-checks", error=why,
+                    next="the PR stays open; it merges once the base branch requires CI (owner: repository settings)")
     ok, out, err = _gh(run, repo, "pr", "merge", str(pr["number"]), "--auto", "--merge", "--match-head-commit", sha)
     if not ok:
         return fail("gh pr merge --auto", err)

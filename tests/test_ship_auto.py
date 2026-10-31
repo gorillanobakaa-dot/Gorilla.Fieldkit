@@ -12,16 +12,18 @@ URL = "https://github.com/o/r/pull/7"
 
 class Gh:
     """A fake subprocess.run for gh: answers by the sub-command, records every call."""
-    def __init__(self, prs=(), runs=(), fail=None):
-        self.prs, self.runs, self.fail, self.calls = list(prs), list(runs), fail, []
+    def __init__(self, prs=(), runs=(), fail=None, rules=("pull_request", "required_status_checks")):
+        self.prs, self.runs, self.fail, self.calls, self.rules = list(prs), list(runs), fail, [], list(rules)
 
     def __call__(self, cmd, **kw):
         self.calls.append(cmd)
         key = " ".join(cmd[1:3])
+        if cmd[1] == "api":
+            key = "api"
         if self.fail == key:
             return subprocess.CompletedProcess(cmd, 1, "", "gh: boom")
         out = {"pr list": json.dumps(self.prs), "run list": json.dumps(self.runs), "pr create": URL + "\n",
-               "pr merge": ""}[key]
+               "pr merge": "", "api": json.dumps(self.rules)}[key]
         return subprocess.CompletedProcess(cmd, 0, out, "")
 
     def did(self, key):
@@ -99,3 +101,18 @@ def test_exit_codes(monkeypatch):
     assert ship.main(["push", "--auto"]) == 1
     monkeypatch.setattr(ship, "auto", lambda *a, **k: {"ok": True, "auto": True, "said": "x"})
     assert ship.main(["push", "--auto"]) == 0
+
+
+def test_no_auto_merge_where_the_base_branch_requires_no_check():
+    """2026-10-31: Gorilla.Opencode has no ruleset; `gh pr merge --auto` merged #42-#44 before CI ended."""
+    gh = Gh(prs=[{"number": 7, "url": URL}], rules=())
+    r, notes = go(gh)
+    assert not r["ok"] and r["state"] == "no-required-checks" and not gh.did("pr merge")
+    assert notes and "left open" in notes[0][0]
+    assert [c[2] for c in gh.calls if c[1] == "api"] == ["repos/{owner}/{repo}/rules/branches/main"]
+
+
+def test_a_failed_rules_lookup_does_not_merge():
+    gh = Gh(prs=[{"number": 7, "url": URL}], fail="api")
+    r, _ = go(gh)
+    assert not r["ok"] and r["state"] == "auto-failed" and not gh.did("pr merge")
