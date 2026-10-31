@@ -552,7 +552,7 @@ class _Progress:
         if not busy_s or psutil is None:
             return ""
         size, cpu, now = self._size(), self._cpu(), time.monotonic()
-        alone = len(self.c.members()) <= 1
+        alone = len([p for p in self.c.members() if not _console_host(p)]) <= 1
         if size > self.b_size or not alone:
             self.b_size, self.b_cpu, self.b_at = size, cpu, now
             return ""
@@ -570,6 +570,17 @@ class _Progress:
             self.size, self.cpu, self.at = size, cpu, time.monotonic()
         self._beacon()
         return time.monotonic() - self.at >= self.idle_s
+
+
+def _console_host(pid):
+    """Windows gives a console program started without a console its own conhost.exe child (every CI runner): that
+    is the console, not work the step started, so FM-10 does not count it as a child."""
+    if not IS_WIN or psutil is None:
+        return False
+    try:
+        return psutil.Process(pid).name().lower() == "conhost.exe"
+    except psutil.Error:
+        return False
 
 
 def busy_for(label):

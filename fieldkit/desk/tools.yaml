@@ -1770,6 +1770,24 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py", -k, agents]
 
+- id: peers-link-probe
+  title: "Fixed read-only probes over the cable (agents, where PROGRAM, disk, temps, load, versions, sessions) and the one agent finder: PATH, the running process's own file, the known install places"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, probe]
+  path: ${FIELDKIT}/fieldkit/peers/link_probe.py
+  inputs:
+    - {name: name, flag: null, type: str, required: true, choices: [agents, where, disk, temps, load, versions, sessions], help: "the probe; a name outside this set is refused"}
+    - {name: arg, flag: null, type: str, required: false, help: "where: the program name"}
+    - {name: device, flag: --device, type: str, required: false, help: "which device of the household; none = this computer"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [network, processes]   # runs only `PROGRAM --version` (5 s cap) of tools found by name
+  safety: reversible
+  output: own
+  platforms: [windows, linux, darwin]
+  platforms_why: 'finder and probes tested with faked PATH, processes and folders for each OS; run live Windows -> Linux 2026-10-31; macOS not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_agentfind.py"]
+  notes: "The listener answers verb probe (read-only, signed request, cable address only). Probes are code with a test (link_probe.PROBES), never typed ad hoc. agentfind.py is the one finder behind hello/agents and the claude start check."
+
 - id: peers-link-setup
   title: "The whole agent link in ONE command per computer: finds the cable port (never the internet one), sets 10.77.0.1/.2 (one UAC click / pkexec), pairs, opens the firewall for the peer only, writes the USB kit (code bundle + key + setup-linux.sh + SHA256SUMS), listens, says hello"
   harness: peers
@@ -1794,7 +1812,7 @@ tools:
   entry: [python, -m, fieldkit, peers, link]
   path: ${FIELDKIT}/fieldkit/peers/link.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put, devices], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE; put FILE|FOLDER; devices list|add|remove|export|import"}
+    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put, devices, probe], help: "setup does all of it (peers-link-setup); probe NAME [ARG] --device D runs a fixed read-only probe (peers-link-probe); doctor first; pair init --me IP --peer IP | pair import FILE; put FILE|FOLDER; devices list|add|remove|export|import"}
     - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text; put: files or folders; devices: the subcommand and NAME or FILE"}
     - {name: device, flag: --device, type: str, required: false, help: "hello/send/ask/put: which device of the household; devices import: this device's name"}
     - {name: bundle, flag: --bundle, type: str, required: false, help: "put: a git bundle of every ref of this repository"}
@@ -5907,6 +5925,24 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Plants files in temporary folders it removes, and runs each check's own command or public function (fieldkit/method/canary_checks.py) there; nothing else is touched and nothing goes to the network. Registry: fieldkit/method/canaries.yaml + local/canaries.yaml. Born 2026-10-18 from the telemetry scan that passed a program carrying a tracing library 1,036 times."
   notes: "repeat/log run pytest n times in fresh processes, each with its own --basetemp; the tests' own effects apply. scan only reads (exit 0 always). Reachable as `fieldkit flaky` since 2026-10-18."
+
+- id: app
+  title: "Find and start any program by name on Windows, Linux and macOS - every match with path, version, how found (PATH, running process, App Paths, Uninstall keys, Start Menu shortcuts, Store apps / .desktop files, flatpak, snap / mdfind, application bundles) and whether it runs now; start it detached the way the OS does (CreateProcess/ShellExecute, gtk-launch/gio, open -a), the new PID verified after 3 s; never elevated, ambiguous names listed and never guessed"
+  harness: desk
+  entry: [python, -m, fieldkit, app]
+  path: ${FIELDKIT}/fieldkit/app/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [find, start], help: "find lists matches (read-only); start launches the one program the name resolves to"}
+    - {name: name, flag: null, type: str, required: true, help: "the program: case, spaces and dashes do not matter (Gorilla OpenCode = gorilla-opencode)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable"}
+  effects: [reads-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: "start: not started (elevated, exited at once, needs administrator)", 3: "not found, or several different programs match (listed)"}
+  platforms: [windows, linux, darwin]
+  platforms_why: 'sources and launchers tested with faked registries, .desktop folders, mdfind output and process tables for all three systems; run live on Windows 2026-10-31; Linux and macOS not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_app.py"]
+  notes: "Owner 2026-10-31: the agent finder should find and start every program, not only Claude. Nothing found is executed to read a version (notepad --version opens Notepad): versions come from the registry, Info.plist or the file's version resource. Arguments only after --, none over the cable. Over the cable: peers link start-app NAME (signed, cable only, the peer's allow_apps in link.yaml; default the agents, gorilla-opencode, TPFanControl) and probe where NAME. Stopping is not here: by PID, as everywhere."
 
 - id: hog
   title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, parents hoarding children (dozens of consoles/shells) reported, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"

@@ -299,3 +299,23 @@ def test_task_start_titles_with_the_tag_of_where_it_runs(tmp_path, monkeypatch):
     assert here["title"] == "[TEST-LNX] Fix the thing."
     tasks.report(r["id"], "done", branch="feat/x")
     assert "| [L15-WIN] Fix the thing. |" in (tmp_path / "coord" / "PLAN.md").read_text(encoding="utf-8")
+
+
+def test_rules_parse_is_cached_as_json_and_read_back_without_yaml(tmp_path, monkeypatch):
+    """Hook speed: every tool call on an unpaired computer derives the tag; the YAML import was ~30 ms of it."""
+    cache = tmp_path / "machine_tags.cache.json"
+    monkeypatch.setattr(machine, "_cache_file", lambda: cache)
+    first = machine.rules()
+    assert cache.is_file() and json.loads(cache.read_text(encoding="utf-8"))["rules"] == first
+    monkeypatch.setitem(__import__("sys").modules, "yaml", None)      # an import of yaml now raises
+    assert machine.rules() == first
+    cache.write_text(json.dumps({"key": [0, 0], "rules": {"stale": 1}}), encoding="utf-8")
+    monkeypatch.delitem(__import__("sys").modules, "yaml")
+    assert machine.rules() == first                                    # a stale key is re-parsed, not trusted
+
+
+def test_unpaired_computer_makes_its_tag_without_the_link_code(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "none"))
+    monkeypatch.setattr(machine, "_link", lambda: (_ for _ in ()).throw(AssertionError("link imported")))
+    r = machine.name(save=False, facts_fn=lambda system=None: L15, system="Windows", hostname="L15HOST")
+    assert machine.valid(r["tag"]) and r["source"] == "derived"

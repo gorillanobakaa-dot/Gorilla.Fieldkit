@@ -116,41 +116,20 @@ def home():
 
 
 # ---- what agents are here -----------------------------------------------------------------------------------------
-def _version(exe, args, run=subprocess.run):
-    if not args:
-        return ""
-    try:
-        r = run([exe, *args], capture_output=True, text=True, timeout=10)
-        return (r.stdout or r.stderr).strip().splitlines()[0][:80] if (r.stdout or r.stderr).strip() else ""
-    except (OSError, subprocess.TimeoutExpired, IndexError):
-        return ""
-
-
-def agents(which=shutil.which, procs=None, run=subprocess.run, local_sessions=None):
-    """-> [{agent, installed, path, version, running: [pids], reachable: [session names]}]. Read-only."""
+def agents(which=shutil.which, procs=None, run=subprocess.run, local_sessions=None, **finder):
+    """-> [{agent, installed, path, version, how, running: [pids], reachable: [session names]}]. Read-only. The one
+    finder is agentfind.py (PATH, the running process's own file, the known install places); finder= fakes its
+    glob, isfile, osname, home and env for tests."""
+    from . import agentfind
     if procs is None:
-        procs = []
-        try:
-            import psutil
-            for p in psutil.process_iter(["pid", "name"]):
-                procs.append((p.info["pid"], (p.info.get("name") or "").lower()))
-        except Exception:  # noqa: BLE001 - no psutil: installed/version still answer
-            pass
+        procs = agentfind.process_list()
+    procs = [(p[0], p[1], p[2] if len(p) > 2 else "") for p in procs]
     if local_sessions is None:
         try:
             local_sessions = local_peers.sessions()
         except Exception:  # noqa: BLE001
             local_sessions = []
-    out = []
-    for name, (exes, vargs) in AGENTS.items():
-        path = next((which(e) for e in exes if which(e)), None)
-        if name == "antigravity" and not path:
-            cand = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "antigravity" / "Antigravity.exe"
-            path = str(cand) if os.environ.get("LOCALAPPDATA") and cand.is_file() else None
-        stems = {e.lower() for e in exes}
-        running = [pid for pid, pn in procs if pn.rsplit(".", 1)[0] in stems]
-        out.append({"agent": name, "installed": bool(path), "path": path or "", "running": running,
-                    "version": _version(path, vargs, run) if path else ""})
+    out = agentfind.find_all(which=which, procs=procs, run=run, **finder)
     # sessions that can be messaged here (Gorilla OpenCode 0.1.145+, or any agent inside `fieldkit peers wait`)
     out.append({"agent": "sessions", "installed": bool(local_sessions), "path": "", "running": [],
                 "version": "", "reachable": [x.get("name") for x in local_sessions]})
@@ -165,7 +144,8 @@ def agent_lines(rows):
             continue
         state = ("running " + ",".join(map(str, r["running"][:4])) if r["running"] else
                  "installed, not running" if r["installed"] else "not installed")
-        L.append(f"  {r['agent']:<17} {state:<28} {r['version'][:40]:<40} {r['path']}")
+        L.append(f"  {r['agent']:<17} {state:<28} {r['version'][:40]:<40} {r['path']}"
+                 + (f"  [{r['how']}]" if r.get("how") else ""))
     return L
 
 
@@ -215,7 +195,7 @@ def config():
 # mandate gate covers the LAN (rule of 2026-10-25); notes and files go over either.
 ROLES = ("boss", "worker", "")
 LINKS = ("cable", "lan")
-JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive")
+JOB_VERBS = ("job", "result", "resend", "ask", "mandate-receive", "start-app")
 KEPT = ("tag", "host", "model", "last_seen")   # what a device row learned by itself; `devices add` keeps it
 
 
@@ -615,6 +595,8 @@ LINK_TEMPLATE = """\
 # Which agents the paired computer may ask THIS computer to start, approved by this computer's owner:
 #     fieldkit peers link approve      (a real terminal, typed yes; sha256-pinned; any change voids it)
 # A started session is an autopilot run: the hard lines hold, no GitHub credential, the budget below.
+allow_apps: null         # programs the paired computer may ask this one to start by name (`start-app`); null = the
+                         # default: the agents, gorilla-opencode, TPFanControl. Never with arguments.
 allow_start: []          # e.g. [claude]
 cwd: null                # the folder a started session works in (required when allow_start is not empty)
 wall_minutes: 120
@@ -756,8 +738,14 @@ def start_session(agent, brief, from_host, popen=subprocess.Popen, inbox_add=Non
     work = str(wt or reg["cwd"])
     argv = [a.format(brief=text, cwd=work, job=str(jobd), wall=reg.get("wall_minutes", 120)) for a in tmpl]
     env = link_env()
+    if agent == "claude" and not shutil.which("claude"):
+        # the program is not on the listener's PATH (the desktop app carries its own): start it by the found path
+        from . import agentfind
+        found = agentfind.find_path("claude")
+        if found:
+            env["FIELDKIT_CLAUDE_EXE"] = found
     if agent == "claude":
-        env["ANTHROPIC_MODEL"] = chosen                # an env or settings model cannot slip past the check
+        env["ANTHROPIC_MODEL"] = chosen               # an env or settings model cannot slip past the check
     if tmpl is DEFAULT_START.get(agent):
         if agent == "claude":                          # the worker's model (I5); none sent = the cheap default
             argv += ["--model", chosen]
@@ -962,6 +950,16 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         return {"ok": True, "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
                 "agents": agents_fn(), "toolset": toolset_fn(), "time": time.time(), "device": _device(),
                 "keepalive": _keepalive(), "tag": _tag()}
+    if verb == "probe":
+        # read-only, like load: one probe of the FIXED set (link_probe.PROBES), no AI, no command; unknown = refused
+        from . import link_probe
+        _log(f"probe {req.get('name')!r} from {req.get('from_host')}")
+        return link_probe.run(req.get("name"), req.get("arg"))
+    if verb == "start-app":
+        # cable only (JOB_VERBS); the peer's own allowlist decides, the sender's word is not read (no arguments either)
+        from . import link_probe
+        _log(f"start-app {req.get('name')!r} from {req.get('from_host')}")
+        return link_probe.start_app(req.get("name"))
     if verb == "tags":
         # read-only, like friction: this computer's live sessions whose title lacks its machine tag (machine.py,
         # 2026-10-27), so `fieldkit sessions tag --check` on any device checks every machine of the household
@@ -1372,7 +1370,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit peers link", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["agents", "pair", "approve", "serve", "hello", "send", "ask", "inbox", "doctor",
-                                       "put", "devices"])
+                                       "put", "devices", "probe", "start-app"])
     ap.add_argument("--device", help="hello/send/ask/put: which device of the household (fieldkit peers link devices)")
     ap.add_argument("--bundle", help="put: a git bundle of every ref of this repository")
     ap.add_argument("--retries", type=int, default=3, help="put: reconnect and resume this many times after a drop")
@@ -1442,6 +1440,28 @@ def main(argv=None):
             print(json.dumps(r, indent=1, ensure_ascii=False))
         else:
             print(f"PEER {r['host']} ({r['os']})\n" + "\n".join(agent_lines(r["agents"])))
+        return 0 if r.get("ok") else 3
+    if a.action == "probe":
+        from . import link_probe
+        if not a.rest:
+            print("probe NAME [ARG] [--device D]; the fixed set: " + ", ".join(link_probe.PROBES))
+            return 2
+        arg = a.rest[1] if len(a.rest) > 1 else None
+        if a.device:
+            r = call({"verb": "probe", "name": a.rest[0], "arg": arg}, timeout=45, device=a.device)
+        else:
+            r = link_probe.run(a.rest[0], arg)
+        print(json.dumps(r, indent=1, ensure_ascii=False) if a.json else link_probe.render(r))
+        return 0 if r.get("ok") else 3
+    if a.action == "start-app":
+        from . import link_probe
+        if not a.rest:
+            print("start-app NAME [--device D]; the peer starts it only if its own allowlist names it")
+            return 2
+        name = " ".join(a.rest)
+        r = call({"verb": "start-app", "name": name}, timeout=30, device=a.device) if a.device else link_probe.start_app(name)
+        print(json.dumps(r, indent=1, ensure_ascii=False) if a.json else
+              (f"{'STARTED' if r.get('ok') else 'NOT STARTED'}: {r.get('why') or r.get('error')}"))
         return 0 if r.get("ok") else 3
     if a.action == "send":
         if a.needs_you and a.to and a.to.lower() != "owner":

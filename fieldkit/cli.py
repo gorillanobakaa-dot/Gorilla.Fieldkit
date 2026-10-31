@@ -1593,6 +1593,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    ap_ = sub.add_parser("app", add_help=False,
+                         help="find and start any program by name on Windows, Linux and macOS: app find NAME, "
+                              "app start NAME [-- ARGS] (fieldkit/app)")
+    ap_.add_argument("args", nargs=argparse.REMAINDER)
     lv = sub.add_parser("liveness", add_help=False,
                         help="process liveness: every harness long run OK, STALLED or ORPHAN; --act stops the "
                              "harness's own orphans and overdue steps (fieldkit liveness)")
@@ -2834,6 +2838,9 @@ def main(argv=None):
     if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
         from . import hog
         return hog.main(args[1:])
+    if args[:1] == ["app"]:                           # find and start any program (fieldkit/app)
+        from . import app as app_cli
+        return app_cli.main(args[1:])
     if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
         from .core import liveness
         return liveness.main(args[1:])

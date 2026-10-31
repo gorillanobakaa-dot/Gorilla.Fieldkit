@@ -231,6 +231,10 @@ groups:
     title: "The Windows 11 tweaks framework, driven safely: modules, fit to this PC, the maker's buttons, elevated runs"
     sources: ["win11/*.py"]
 
+  - name: app
+    title: "Find and start any program by name on Windows, Linux and macOS: every match, how it was found, started detached and verified"
+    sources: ["app/*.py"]
+
   - name: peers
     title: "Messages between AI sessions on this computer, in Gorilla OpenCode's protocol: list, send, wait"
     sources: ["peers/*.py"]
