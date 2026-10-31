@@ -183,6 +183,18 @@ TWO STRIKES:
     - fieldkit/method/strikes.py
     - if own <= mains
     - if True
+  - demand: a red made only of listed timing-sensitive tests is a flake, not a strike (owner 2026-10-31, "all approved")
+    test: tests/test_strikes.py::test_a_red_made_only_of_timing_tests_is_a_flake_until_the_third
+    mutate:
+    - fieldkit/method/strikes.py
+    - if own and own <= listed else ""
+    - if False else ""
+  - demand: a flake is never a free pass forever - the third flake round of a branch counts as a strike
+    test: tests/test_strikes.py::test_a_red_made_only_of_timing_tests_is_a_flake_until_the_third
+    mutate:
+    - fieldkit/method/strikes.py
+    - '"counted": len(fl) > FLAKE_LIMIT'
+    - '"counted": False'
   - demand: ship push refuses a parked branch
     test: tests/test_strikes.py::test_push_to_a_parked_branch_is_refused_and_nothing_is_run
     mutate:
