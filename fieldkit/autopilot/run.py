@@ -125,7 +125,15 @@ def claude_exe():
                                    "Roaming", "Claude", "claude-code", "*", "*", "claude.exe"))
     cands = cands or glob.glob(os.path.join(os.environ.get("APPDATA", ""), "Claude", "claude-code", "*", "*", "claude.exe"))
     key = lambda p: [int(x) if x.isdigit() else 0 for x in Path(p).parent.parent.name.split(".")]
-    return max(cands, key=key) if cands else None
+    if cands:
+        return max(cands, key=key)
+    # last: the one finder (peers/agentfind.py): the running process's own file and the other known places, checked
+    # with `--version` ("Claude Code"), so a desktop-bundled copy outside PATH is still found (owner, 2026-10-31)
+    try:
+        from ..peers import agentfind
+        return agentfind.find_path("claude")
+    except Exception:  # noqa: BLE001 - the finder never breaks a start
+        return None
 
 
 def paste_command(exe=None):
