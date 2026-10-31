@@ -612,6 +612,10 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         if mains:                                       # B2: not this branch's strike; main is fixed first
             return dict(r, ok=False, state="main-red", log=log, why=f"main's failure, not counted: {mains}",
                         next="fix main first (its own PR), then update this branch and run ci-wait again")
+        fl = strikes.flake(log)
+        if fl and not strikes.record_flake(r["branch"], head, fl, pr=n)["counted"]:   # owner 2026-10-31: not a strike
+            return dict(r, ok=False, state="flake", log=log, why=f"a timing flake, not counted: {fl}",
+                        next=f"re-run the failed jobs once (gh run rerun RUN_ID --failed), then ci-wait {n} again")
         s = strikes.record_failure(r["branch"], head, " ".join(log[-2:]) or why, pr=n, inbox=inbox)
         if s["parked"]:
             return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",

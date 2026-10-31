@@ -213,3 +213,35 @@ def test_b2_mains_failure_rules():
     assert strikes.mains_failure(["no test names"], [], {"lint"}, {"lint", "test"})        # by check name
     assert not strikes.mains_failure(["no test names"], [], {"lint", "docs"}, {"lint"})
     assert not strikes.mains_failure([], [], set(), set())                               # nothing known: counts
+
+
+class FlakeGH(MainRedGH):
+    """Owner 2026-10-31: main green, the branch red only in listed timing-sensitive tests (Windows backslashes)."""
+
+    def ci_state(self, sha):
+        return ("green", "main green") if sha == "m" * 40 else ("red", "fake red")
+
+
+HOOK_SPEED = r"tests\test_zero_command.py::test_the_whole_hook_process_measured_and_loads_no_yaml"
+
+
+def test_a_red_made_only_of_timing_tests_is_a_flake_until_the_third():
+    ib = Inbox()
+    for head in ("a" * 40, "b" * 40):
+        r = train.ci_wait(FlakeGH(head, [], own_fails=[HOOK_SPEED]), 166, sleep=lambda s: None, inbox=ib)
+        assert r["state"] == "flake" and "not counted" in r["why"] and "rerun" in r["next"]
+    assert strikes.load()["strikes"]["feat/x"]["rounds"] == [] and strikes.parked_for("feat/x") is None
+    r = train.ci_wait(FlakeGH("c" * 40, [], own_fails=[HOOK_SPEED]), 166, sleep=lambda s: None, inbox=ib)
+    assert r["state"] != "flake" and len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 1    # third: counted
+
+
+def test_a_timing_test_next_to_a_real_failure_still_counts():
+    r = train.ci_wait(FlakeGH("a" * 40, [], own_fails=[HOOK_SPEED, "tests/test_x.py::test_y"]), 166,
+                      sleep=lambda s: None, inbox=Inbox())
+    assert r["state"] != "flake" and len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 1
+
+
+def test_flake_rules_and_the_list():
+    assert "tests/test_liveness.py::test_a_lone_silent_spinner_is_stopped_as_busy_no_children" in strikes.timing_tests()
+    assert strikes.flake([f"FAILED {HOOK_SPEED} - slow"])
+    assert not strikes.flake(["no test names"]) and not strikes.flake([])           # nothing known: never a flake

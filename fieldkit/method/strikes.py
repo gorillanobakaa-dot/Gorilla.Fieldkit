@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-29-14-04
+# Version: 1.1.0 · updated 26-10-31-21-00
 """TWO STRIKES (rules/CORE.md; owner, 2026-10-29): a branch or PR that fails CI twice is PARKED, never tried a third
 time, and the plan goes on. Deterministic, no model.
 
@@ -27,6 +27,8 @@ from pathlib import Path
 from . import emit
 
 LIMIT = 2                                   # failed rounds that park a branch
+FLAKE_LIMIT = 2                             # flake rounds forgiven per branch; the next one counts (fail closed)
+TIMING = Path(__file__).with_name("timing_tests.yaml")
 PARKED_EXIT = 4
 ENV = "FIELDKIT_PARKED_FILE"
 
@@ -113,6 +115,35 @@ FAILED_TEST = re.compile(r"\bFAILED\s+(\S+::\S+)")
 def failed_tests(log_lines):
     """-> the pytest ids a failed log names (`FAILED tests/x.py::test_y`)."""
     return {m.group(1) for x in log_lines or () for m in FAILED_TEST.finditer(x)}
+
+
+def timing_tests(p=None):
+    """-> the listed timing-sensitive pytest ids (forward slashes). Plain line reading: the hook path loads no YAML."""
+    try:
+        text = Path(p or TIMING).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {m.group(1) for m in re.finditer(r"^-\s+test:\s*(\S+)\s*$", text, re.M)}
+
+
+def flake(log_lines, p=None):
+    """Owner, 2026-10-31 ("all approved"): -> the evidence when EVERY test the red log names is a listed timing test,
+    else "". No test names in the log: never a flake (fail closed)."""
+    own = {x.replace("\\", "/") for x in failed_tests(log_lines)}
+    listed = timing_tests(p)
+    return f"only timing-sensitive test(s) failed: {', '.join(sorted(own))}" if own and own <= listed else ""
+
+
+def record_flake(branch, head, why="", pr=None, p=None):
+    """One flake round of `head`. -> {"flakes": N, "counted": bool}: the round past FLAKE_LIMIT is counted as a
+    strike by the caller."""
+    d = load(p)
+    rec = d["strikes"].setdefault(branch, {"pr": pr, "rounds": []})
+    fl = rec.setdefault("flakes", [])
+    if all(r["head"] != head for r in fl):
+        fl.append({"head": head, "at": _now(), "why": str(why)[:400]})
+    save(d, p)
+    return {"flakes": len(fl), "counted": len(fl) > FLAKE_LIMIT}
 
 
 def mains_failure(own_log, main_log, own_checks=(), main_checks=()):
