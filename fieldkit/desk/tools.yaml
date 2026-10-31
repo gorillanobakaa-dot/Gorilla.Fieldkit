@@ -6033,12 +6033,12 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
 
 - id: rules
-  title: The one core (rules/CORE.md) in every agent's global rules file (Claude Code, Codex, Gemini), every rules file under 8 KB, a project file never repeating the core; install puts in or updates only the block, with a backup
+  title: "The core rules every agent reads, as data (rules/rules.yaml): lint them for BOTTLENECKS, duplicates, size and misplaced text, build rules/CORE.md, install every block into each global rules file (Claude Code, Codex, Gemini) with a backup, check them"
   harness: core
   entry: [python, -m, fieldkit, rules]
   path: ${FIELDKIT}/fieldkit/rules.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "check | install"}
+    - {name: action, flag: null, type: str, required: true, help: "lint (drift, budget, duplicates, misplaced, contradictions, BOTTLENECKS) | build (rules/CORE.md from rules/rules.yaml) | install (every block) | check (files + lint)"}
     - {name: repo_only, flag: --repo-only, type: flag, required: false, help: "check: only this repository's rules files (the pre-commit hook)"}
     - {name: file, flag: --file, type: path, required: false, help: "install: a rules file, repeatable (default: every global one)"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}

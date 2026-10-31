@@ -107,6 +107,29 @@ def record_failure(branch, head, why="", pr=None, inbox=None, p=None):
     return {"rounds": n, "parked": branch in d["parked"], "new": new}
 
 
+FAILED_TEST = re.compile(r"\bFAILED\s+(\S+::\S+)")
+
+
+def failed_tests(log_lines):
+    """-> the pytest ids a failed log names (`FAILED tests/x.py::test_y`)."""
+    return {m.group(1) for x in log_lines or () for m in FAILED_TEST.finditer(x)}
+
+
+def mains_failure(own_log, main_log, own_checks=(), main_checks=()):
+    """B2 (2026-10-31: #253 parked for two failures that came from main): -> the evidence when this red is main's,
+    else "". Main's when every test the branch fails also fails on main's head; with no test names in the logs,
+    when every failed check of the branch is failed on main's head too. A failure main does not share is the
+    branch's own and counts."""
+    own, mains = failed_tests(own_log), failed_tests(main_log)
+    if own:
+        return (f"main's head fails the same test(s): {', '.join(sorted(own)[:3])}"
+                if own <= mains else "")
+    own_c, main_c = set(own_checks or ()), set(main_checks or ())
+    if own_c and own_c <= main_c:
+        return f"main's head fails the same check(s): {', '.join(sorted(own_c)[:3])}"
+    return ""
+
+
 def _inbox(branch, rec, inbox=None):
     if inbox is None:
         from ..autopilot import inbox as ib

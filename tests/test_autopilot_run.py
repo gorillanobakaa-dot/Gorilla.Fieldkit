@@ -39,7 +39,7 @@ def test_a_broken_call_is_denied_not_waved_through():
 
 def test_an_autopilot_run_cannot_reach_a_credential(state):
     env = run.isolated_env({"GH_TOKEN": "ghp_secret", "PATH": "x"})
-    assert env["GH_TOKEN"] == "" and env["GIT_CONFIG_KEY_0"] == "credential.helper" and env["GIT_CONFIG_VALUE_0"] == ""
+    assert env["GH_TOKEN"] == "" and env["GIT_CONFIG_PARAMETERS"] == "'credential.helper='"
     assert env["GIT_TERMINAL_PROMPT"] == "0" and env["FIELDKIT_AUTOPILOT"] == "1"
     assert not any((state / "no-credentials").iterdir())          # gh sees no hosts.yml
 

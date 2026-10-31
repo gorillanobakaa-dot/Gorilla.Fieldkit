@@ -32,6 +32,9 @@ def state_dir():
     return hardlines.STATE
 
 
+NO_HELPER = "'credential.helper='"
+
+
 def isolated_env(base=None):
     """The environment of an autopilot run: no way to authenticate to GitHub or any git remote."""
     env = dict(base if base is not None else os.environ)
@@ -47,9 +50,15 @@ def isolated_env(base=None):
         "GIT_TERMINAL_PROMPT": "0",
         "GCM_INTERACTIVE": "Never",
         "GIT_ASKPASS": "", "SSH_ASKPASS": "",
-        "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": "",
+        # git's credential helpers reset through GIT_CONFIG_PARAMETERS (what `git -c credential.helper=` sets): a
+        # NON-empty value. The old GIT_CONFIG_VALUE_0="" vanished on Windows (an empty variable is a deleted one),
+        # git then failed on every call ("missing config value GIT_CONFIG_VALUE_0"), the hook's mandate read the
+        # repository as "" and refused every `fieldkit ship push` of a headless job (B1, 5 jobs on 2026-10-31)
+        "GIT_CONFIG_PARAMETERS": NO_HELPER,
         "FIELDKIT_AUTOPILOT": "1",
     })
+    for k in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"):
+        env.pop(k, None)
     return env
 
 
@@ -76,7 +85,7 @@ def settings(path=None):
 
 CREDENTIAL_ENV_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR",
                        "GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_CONFIG_COUNT",
-                       "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "FIELDKIT_AUTOPILOT")
+                       "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_PARAMETERS", "FIELDKIT_AUTOPILOT")
 
 
 def workspace(folder=None):

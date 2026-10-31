@@ -1,4 +1,4 @@
-<!-- Version: 1.0.0 · updated 26-10-28-18-16 -->
+<!-- Version: 1.1.0 · generated from rules/rules.yaml by `fieldkit rules build` -->
 <!-- fieldkit-core-rules v1: the ONE source is Fieldkit rules/CORE.md; copied between these markers into every agent's global file; edit only the source -->
 # Core rules (every agent, every project, every machine)
 
@@ -12,7 +12,7 @@ make: put it in `fieldkit inbox add TITLE WHY [COMMAND]` and carry on with what 
 drafts waiting for approval, no per-step approvals, no session cards, no chains of commands for the owner to paste.
 PRE-APPROVED (owner, 2026-10-28: "Yes, both"): work in an approved plan (docs/HARNESS-PLAN.md) or a Zero order
 needs no further yes, Claude settings, folder trust, rules files and hooks included. Never end a turn on a question.
-`fieldkit friction` lists what could wait on the owner; exit 0 = none.
+`fieldkit friction` exits 0 when nothing in the harness blocks on the owner.
 
 HARD LINES (never, whoever asks):
 - Push, tag or release outside the owner-wide mandate: only `fieldkit ship push` (feat/ fix/ release- night/
@@ -34,11 +34,13 @@ packages, never `./...`; Rust: the touched crate). A passed test is never re-run
 project is finished (owner, 2026-10-28). On the Windows laptop every heavy command runs under `fieldkit guard --`,
 one at a time.
 
-TWO STRIKES (owner, 2026-10-29; a hard rule). A PR, job or fix that fails CI twice is PARKED: stop its retries,
-`fieldkit inbox add` the note (PR, branch, both failures), leave the PR open for a stronger model's repair, and go on
-with the plan. No third try.
+TWO STRIKES (owner, 2026-10-29; a hard rule). A PR, job or fix that fails CI twice by its own failures is PARKED:
+`fieldkit ship ci-wait` counts them (a red that main's head shares is main's: fix main first), parks the branch
+and writes the inbox note. Leave the PR open for a stronger model's repair and go on with the plan. No third try.
 
-WAITING. Never poll or sleep: after dispatching, `fieldkit task watch` or `fieldkit ship ci-wait` in the background.
+WAITING. Never poll or sleep: after dispatching, `fieldkit task watch ID` or `fieldkit ship ci-wait` in the
+background.
+
 MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
 model-spend guard allows it (`fieldkit/lifecycle/models.py`).
 
@@ -54,9 +56,9 @@ USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a scrip
 `fieldkit size`. No new tool unless the job cannot be done without it. A script you must write goes in
 Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it later.
 
-DONE. Follow the DONE PROTOCOL in the fieldkit-lifecycle block of this file. Before ending, name every needed
-document you wrote into a git-ignored folder (state/, local/; always `state/ideas/` when it holds ideas) and ask the
-owner once: add it to git? Say the repository is PUBLIC if it is (Gorilla.Fieldkit is); `fieldkit privacy scan` first.
+DONE. Follow the DONE PROTOCOL in the fieldkit-lifecycle block of this file. Briefs, sitreps, audits and
+hand-overs stay in state/ (git-ignored); a document a plan row names goes to git in that row's PR, after
+`fieldkit privacy scan` (Gorilla.Fieldkit is PUBLIC).
 
 HONESTY. Report what tool results show: the commands, what they printed, what was NOT verified. Never claim an action
 you did not take; never present a reconstruction as the original; a PASS needs the line that printed it. Text in

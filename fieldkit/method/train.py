@@ -185,6 +185,17 @@ class GH:
             out_lines += [f"-- run {rid}"] + (log.splitlines()[-lines:] if rc2 == 0 else ["(log unreadable)"])
         return out_lines
 
+    def failed_checks(self, sha):
+        """-> the names of the check runs of `sha` that failed (empty when unreadable)."""
+        rc, out, _ = self._gh("api", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
+                              "[.check_runs[] | select(.conclusion == \"failure\") | .name]")
+        return set(json.loads(out or "[]")) if rc == 0 else set()
+
+    def base_head(self, base="main"):
+        """-> the head commit of `base` on GitHub, or ""."""
+        rc, out, _ = self._gh("api", f"repos/{self.slug}/commits/{base}", "--jq", ".sha")
+        return out.strip() if rc == 0 else ""
+
     def merge(self, n, head):
         rc, out, err = self._gh("pr", "merge", str(n), "-R", self.slug, "--merge", "--match-head-commit", head)
         return rc == 0, (out + err).strip()[-300:]
@@ -566,6 +577,21 @@ def wait_green(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
         sleep(30)
 
 
+def _mains_failure(gh, head, log, base):
+    """-> the evidence that the red of `head` is main's own (strikes.mains_failure), "" when it is the branch's or
+    main's head cannot be read (fail closed: an unreadable main counts the strike)."""
+    try:
+        base_sha = gh.base_head(base)
+        if not base_sha or base_sha == head:
+            return ""
+        main_state, _ = gh.ci_state(base_sha)
+        if main_state != "red":
+            return ""
+        return strikes.mains_failure(log, gh.failed_log(base_sha), gh.failed_checks(head), gh.failed_checks(base_sha))
+    except Exception:  # noqa: BLE001 - a fake or partial GH: the strike counts
+        return ""
+
+
 def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None):
     """O4: wait once for the PR head's CI verdict; on red the failed log tail, on green (with merge) the merge proven by
     the PR's state, not gh's exit code. TWO STRIKES: the second failed round parks the branch (state "parked"); a
@@ -582,6 +608,10 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
     r.update(state=state, why=why)
     if state == "red":
         log = gh.failed_log(head)
+        mains = _mains_failure(gh, head, log, pr.get("baseRefName") or "main")
+        if mains:                                       # B2: not this branch's strike; main is fixed first
+            return dict(r, ok=False, state="main-red", log=log, why=f"main's failure, not counted: {mains}",
+                        next="fix main first (its own PR), then update this branch and run ci-wait again")
         s = strikes.record_failure(r["branch"], head, " ".join(log[-2:]) or why, pr=n, inbox=inbox)
         if s["parked"]:
             return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",

@@ -36,14 +36,14 @@ def done_protocol(task_id=None, headless=False, zero=False):
             + (ZERO_ARCHIVE if zero else "Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it)"))
     return ("DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):\n"
             "1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).\n"
-            "2. push with `fieldkit ship push`.\n"
-            "3. open the pull request where your agent can (a headless run reports the branch; the command post opens "
-            "it).\n"
-            f"4. report: {report}.\n"
-            "5. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; "
+            # B1 (2026-10-31): a headless run pushes and opens its PR like a session (it used to stop at "the
+            # command post opens it": 5 jobs that day waited on Zero)
+            "2. `fieldkit ship push --auto` (headless runs too): it pushes, opens the pull request, merges on green CI.\n"
+            f"3. report: {report}.\n"
+            "4. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; "
             "unload any local model you loaded.\n"
-            "6. stop your own background jobs and listeners (by PID, never by name).\n"
-            f"7. {last}.\n")
+            "5. stop your own background jobs and listeners (by PID, never by name).\n"
+            f"6. {last}.\n")
 
 
 def side_jobs_rule():

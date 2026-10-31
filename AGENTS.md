@@ -81,10 +81,9 @@ SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on D
 
 DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
 1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).
-2. push with `fieldkit ship push`.
-3. open the pull request where your agent can (a headless run reports the branch; the command post opens it).
-4. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
-5. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
-6. stop your own background jobs and listeners (by PID, never by name).
-7. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it).
+2. `fieldkit ship push --auto` (headless runs too): it pushes, opens the pull request, merges on green CI.
+3. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
+4. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
+5. stop your own background jobs and listeners (by PID, never by name).
+6. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it).
 <!-- /fieldkit-lifecycle-rule -->
