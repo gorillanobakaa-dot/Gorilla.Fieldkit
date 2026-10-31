@@ -2,7 +2,6 @@
 import ctypes
 import ctypes.util
 import os
-import pwd
 import select
 import shutil
 import struct
@@ -122,6 +121,7 @@ def proc(pid):
             return None
     status = dict(l.split(":\t", 1) for l in _read(f"/proc/{pid}/status").splitlines() if ":\t" in l)
     uid = int(status.get("Uid", "0\t").split()[0])
+    import pwd                                     # Unix only: imported here so Windows can load this reader
     try:
         user = pwd.getpwuid(uid).pw_name
     except KeyError:
