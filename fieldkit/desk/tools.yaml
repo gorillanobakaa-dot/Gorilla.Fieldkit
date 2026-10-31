@@ -6485,3 +6485,82 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_parity.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."
+
+- id: image-doctor
+  title: "Which picture tools are present (ImageMagick, Tesseract, cwebp, avifenc, mozjpeg cjpeg, oxipng): version, path, and for each missing one the exact install command and source; installs nothing"
+  harness: shot
+  entry: [python, -m, fieldkit, image, doctor]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 when magick or tesseract is missing. No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: image-squash
+  title: "Compress or convert pictures to WebP, AVIF, JPEG or PNG with the real codecs (ImageMagick when absent): bytes before/after, codec, settings, measured SSIM and PSNR; below the target is refused, the original is never overwritten"
+  harness: shot
+  entry: [python, -m, fieldkit, image, squash]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "picture files"}
+    - {name: to, flag: --to, type: choice, choices: [webp, avif, jpeg, png], required: false, help: "target format (webp)"}
+    - {name: quality, flag: --quality, type: int, required: false, help: "codec quality 1-100 (80)"}
+    - {name: target_ssim, flag: --target-ssim, type: str, required: false, help: "search the smallest quality that reaches this SSIM; also the floor (0.98)"}
+    - {name: max_px, flag: --max-px, type: int, required: false, help: "shrink so no side exceeds N pixels"}
+    - {name: out, flag: --out, type: str, required: false, help: "output folder (a squashed folder next to each file)"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 when any file was refused. No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: image-compare
+  title: "Two pictures: SSIM, PSNR and one picture with A, B and the difference (amplified) side by side"
+  harness: shot
+  entry: [python, -m, fieldkit, image, compare]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: a, flag: null, type: str, required: true, help: "first picture"}
+    - {name: b, flag: null, type: str, required: true, help: "second picture, same size"}
+    - {name: out, flag: --out, type: str, required: false, help: "where to write the picture"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+
+- id: image-ocr
+  title: "The text in each picture with Tesseract, word boxes in --json"
+  harness: shot
+  entry: [python, -m, fieldkit, image, ocr]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "picture files"}
+    - {name: lang, flag: --lang, type: str, required: false, help: "Tesseract language (eng)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 when a picture could not be read. No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: image-privacy
+  title: "Personal text inside pictures: OCR, then the detectors of privacy-scan; --redact writes a copy with those boxes blacked out, never the original; a picture that cannot be read is a finding"
+  harness: shot
+  entry: [python, -m, fieldkit, image, privacy]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "picture files or folders"}
+    - {name: redact, flag: --redact, type: flag, required: false, help: "write NAME.redacted.png"}
+    - {name: lang, flag: --lang, type: str, required: false, help: "Tesseract language (eng)"}
+    - {name: git, flag: --git, type: flag, required: false, help: "only the pictures git would publish"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 on a finding or when nothing was read; `fieldkit privacy scan --images` does the same inside a scan (off by default). No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
