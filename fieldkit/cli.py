@@ -1615,6 +1615,10 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    ob = sub.add_parser("observe", add_help=False,
+                        help="see inside the machine, the same on Linux, Windows and macOS: open-file, port, proc, "
+                             "watch, trace, usage, events (fieldkit/observe)")
+    ob.add_argument("args", nargs=argparse.REMAINDER)
     ap_ = sub.add_parser("app", add_help=False,
                          help="find and start any program by name on Windows, Linux and macOS: app find NAME, "
                               "app start NAME [-- ARGS] (fieldkit/app)")
@@ -2879,6 +2883,9 @@ def main(argv=None):
     if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
         from . import hog
         return hog.main(args[1:])
+    if args[:1] == ["observe"]:                       # one observe toolkit for three systems (fieldkit/observe)
+        from . import observe
+        return observe.main(args[1:])
     if args[:1] == ["app"]:                           # find and start any program (fieldkit/app)
         from . import app as app_cli
         return app_cli.main(args[1:])
