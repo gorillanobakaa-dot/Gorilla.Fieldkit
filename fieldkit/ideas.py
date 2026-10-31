@@ -161,8 +161,9 @@ def hook_text(session_id, root=None):
 def _owner_only():
     from .buildh import task
     if not task.owner_terminal():
+        why = task.owner_terminal_why() or "not a person's terminal"
         raise Refused("only the owner, at a real terminal, accepts or forgets an idea; an assistant's shell has none, "
-                      "and an AI never records this answer")
+                      f"and an AI never records this answer (refused because: {why})")
 
 
 def _next_plan_id(data, root):
