@@ -9,6 +9,12 @@ from fieldkit import rules
 ROOT = Path(rules.__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def no_programs(monkeypatch):
+    """An agent counts as installed by its config folder only: the programs on this machine's PATH stay out."""
+    monkeypatch.setattr(rules, "_which", lambda name: None)
+
+
 @pytest.fixture
 def home(tmp_path):
     for p in rules.global_files(tmp_path).values():
@@ -77,3 +83,31 @@ def test_a_project_file_with_an_old_lifecycle_block_fails(tmp_path):
     agents.write_text("# project\n\n" + protocol.rule_text().replace("2. ", "2. old "), encoding="utf-8")
     bad = [x for x in rules.check(tmp_path, repo_only=True) if not x["ok"]]
     assert bad and "lifecycle block is not current" in bad[0]["problems"][0]
+
+
+def test_an_empty_home_ends_all_ok_after_one_install(tmp_path, monkeypatch, capsys):
+    """Brief section E (owner, 2026-10-31): a device with NO global rules files. An installed agent (its folder here)
+    with no file is a FAIL; install creates every file and the Claude hooks; check then ends all ok. An agent that is
+    not installed is never created. Windows and Linux CI both run this."""
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".gemini").mkdir()
+    monkeypatch.setattr(rules.Path, "home", classmethod(lambda cls: home))
+    files = rules.global_files(home)
+    bad = {x["path"]: x for x in rules.check(ROOT, home) if not x["ok"]}
+    assert str(files["claude-code"]) in bad and str(files["gemini"]) in bad and str(files["codex"]) not in bad
+    assert "installed here but has no rules file" in bad[str(files["gemini"])]["problems"][0]
+    assert any(x["kind"] == "hooks" for x in bad.values())
+    assert rules.main(["check"]) == 3 and "FAIL" in capsys.readouterr().out
+    done = {x["path"]: x["done"] for x in rules.install_all(home, ROOT, backup_dir=tmp_path / "bk")}
+    assert done[str(files["claude-code"])].startswith("created") and done[str(files["gemini"])].startswith("created")
+    assert done[str(files["codex"])].startswith("missing") and not files["codex"].exists()
+    assert "hooks:" in done[str(home / ".claude" / "settings.json")]
+    assert all(x["ok"] for x in rules.check(ROOT, home)), rules.check(ROOT, home)
+    assert rules.main(["check"]) == 0
+    assert not (tmp_path / "bk").exists() or not any((tmp_path / "bk").glob("*CLAUDE.md*"))   # nothing to back up
+
+
+def test_an_agent_program_on_path_counts_as_installed(tmp_path, monkeypatch):
+    monkeypatch.setattr(rules, "_which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+    assert rules.installed("codex", tmp_path) and not rules.installed("gemini", tmp_path)
