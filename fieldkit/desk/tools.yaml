@@ -2345,7 +2345,7 @@ tools:
   output: first-party
   exits: {3: findings}
   answer_lines: 15
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: web-fetch
@@ -2363,7 +2363,7 @@ tools:
   output: third-party
   exits: {1: error, 3: findings}
   answer_lines: 30
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: web-search
@@ -2379,7 +2379,7 @@ tools:
   output: third-party
   exits: {2: bad usage, 3: findings}
   answer_lines: 30
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: web-doctor
@@ -2393,7 +2393,7 @@ tools:
   output: first-party
   exits: {3: findings}
   answer_lines: 20
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: evidence-import
