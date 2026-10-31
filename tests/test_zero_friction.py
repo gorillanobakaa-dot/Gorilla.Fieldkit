@@ -455,8 +455,10 @@ def test_done_protocol_has_every_step():
         assert must in d
     assert "exit: the run ends" in protocol.done_protocol(headless=True)
     # 2026-10-30 17:17: Zero epoch 12 archived itself after its PR merged, with no handover
-    assert "Zero archives only into a new Zero" in d and "fieldkit zero retire" in d
-    assert "auto_archive_on_close false" in d
+    z = protocol.done_protocol("T-1", zero=True)
+    assert "Zero archives only into a new Zero" in z and "fieldkit zero retire" in z
+    assert "auto_archive_on_close false" in z
+    assert "Zero: hand the seat over first" in d and "Zero archives only" not in d   # the pointer, not Zero's text
     tail = protocol.brief_tail()
     assert "fieldkit task start" in tail and "Never propose a desktop session card" in tail
 
@@ -468,7 +470,7 @@ def test_install_rule_add_update_same_and_line_endings(tmp_path):
     raw = p.read_bytes()
     assert raw.startswith(b"# mine\r\nkeep\r\n") and b"\n" not in raw.replace(b"\r\n", b"")
     assert protocol.install_rule(p) == "same"
-    p.write_bytes(raw.replace(b"Idle sessions eat", b"Old words"))
+    p.write_bytes(raw.replace(b"Never propose a desktop", b"Old words"))
     assert not protocol.rule_present(p)
     assert protocol.install_rule(p) == "updated" and protocol.rule_present(p)
     assert p.read_bytes().count(protocol.RULE_BEGIN.encode()) == 1

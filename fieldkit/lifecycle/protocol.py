@@ -16,22 +16,27 @@ from pathlib import Path
 RULE_BEGIN, RULE_END = "<!-- fieldkit-lifecycle-rule v1 -->", "<!-- /fieldkit-lifecycle-rule -->"
 
 
-def done_protocol(task_id=None, headless=False):
-    """The numbered steps a job ends with. headless: the run exits instead of archiving a desktop session."""
+ZERO_ARCHIVE = ("Zero archives only "
+                "into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and "
+                "the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and "
+                "`fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does). A Zero that opens a PR "
+                "turns the app's auto-archive off for it (`set_monitor auto_archive_on_close false`): the app archives on "
+                "merge, where no hook sees it (2026-10-30 17:17)")
+
+
+def done_protocol(task_id=None, headless=False, zero=False):
+    """The numbered steps a job ends with. headless: the run exits instead of archiving a desktop session. zero: the
+    full Zero hand-over text (the fieldkit-net skill); every other agent gets a one-line pointer (owner 2026-10-31:
+    rules only where they are needed)."""
     report = (f"`fieldkit task report {task_id} --status done --branch <branch> [--pr <url>] --note \"<one line>\"`"
               if task_id else "a Board row in state/coordination/PLAN.md (what was done, what was NOT verified)")
     last = ("exit: the run ends here (nothing stays running)" if headless else
             "archive yourself: Claude desktop `archive_session \"self\"` (turn Remote Control off first with "
-            "`set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero archives only "
-            "into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and "
-            "the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and "
-            "`fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does). A Zero that opens a PR "
-            "turns the app's auto-archive off for it (`set_monitor auto_archive_on_close false`): the app archives on "
-            "merge, where no hook sees it (2026-10-30 17:17)")
+            "`set_remote_control` if it is on: it blocks the archive); any other agent ends its session. "
+            + (ZERO_ARCHIVE if zero else "Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it)"))
     return ("DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):\n"
-            "1. the tests covering your changes pass (the full suite runs once, when the project is finished); commit "
-            "on your own branch (never main).\n"
-            "2. push with `fieldkit ship push` (the owner-wide mandate covers it; never a GORILLA_OWNER_APPROVED line).\n"
+            "1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).\n"
+            "2. push with `fieldkit ship push`.\n"
             "3. open the pull request where your agent can (a headless run reports the branch; the command post opens "
             "it).\n"
             f"4. report: {report}.\n"
@@ -44,7 +49,7 @@ def done_protocol(task_id=None, headless=False):
 def side_jobs_rule():
     return ("SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless "
             "autopilot run here, or the other computer's link listener over the cable). Never propose a desktop "
-            "session card or ask a person to click: a card waits for the owner, who is asleep.")
+            "session card.")
 
 
 def brief_tail(task_id=None, headless=False):
@@ -56,10 +61,6 @@ def rule_text():
     return (f"{RULE_BEGIN}\n"
             "## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)\n\n"
             f"{side_jobs_rule()}\n\n"
-            "Nothing may wait on the owner (no cards, prompts or [NEEDS YOU] for what the mandate covers): "
-            "`fieldkit friction` lists what could, exit 0 = none.\n\n"
-            "Idle sessions eat RAM and CPU. The command post runs `fieldkit sessions sweep` on every watchdog wake "
-            "and archives what it lists.\n\n"
             + done_protocol() +
             f"{RULE_END}\n")
 

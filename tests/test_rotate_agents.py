@@ -319,7 +319,7 @@ def test_rule_install_add_same_update_keeps_crlf(tmp_path):
 def test_rule_tells_the_agent_check_and_handover():
     t = rotate.rule_text()
     assert "fieldkit rotate check --source <agent> --cwd . --newest" in t and "fieldkit rotate handover" in t
-    assert "exit 2 ROTATE" in t and "exit 1 WARN" in t
+    assert "ROTATE: at the next safe point" in t and "SHORT SESSIONS" in t      # WARN/ROTATE meanings live in CORE once
 
 
 def test_agents_status_measured_and_triggered(tmp_path, monkeypatch):
