@@ -384,3 +384,24 @@ def test_fix4_the_text_of_a_note_heredoc_is_not_a_command(cmd, nostop):
 ])
 def test_fix4_a_heredoc_that_runs_or_writes_a_protection_is_still_refused(cmd, nostop):
     assert d("Bash", {"command": cmd}, nostop) == "deny"
+
+
+REC = "D:/AppData/Roaming/Claude/claude-code-sessions/acc/org/local_1.json"
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("Bash", {"command": f'sed -i s/false/true/ "{REC}"'}),
+    ("Bash", {"command": f"echo x > {REC}"}),
+    ("Write", {"file_path": REC, "content": "{}"}),
+    ("Edit", {"file_path": REC, "old_string": "false", "new_string": "true"}),
+    ("write_to_file", {"TargetFile": REC, "CodeContent": "{}"}),           # Antigravity's name
+])
+def test_the_app_session_records_are_never_written(tool, args, nostop):
+    """I-10 (owner, 2026-10-31): editing isArchived/spawnedFrom would archive past the archive guard, by any agent."""
+    v, why = hl.decide(tool, args, stop_file=nostop)
+    assert v == "deny" and "session records" in why
+
+
+def test_the_app_session_records_can_be_read(nostop):
+    assert hl.decide("Bash", {"command": f"cat {REC}"}, stop_file=nostop)[0] == "allow"
+    assert hl.decide("Read", {"file_path": REC}, stop_file=nostop)[0] == "allow"
