@@ -305,6 +305,20 @@ USE THE HARNESS:
     - fieldkit/cli.py
     - '        if score and all(w in body for w in ws[:1]) or score >= 2 * len(ws):'
     - '        if False:'
+  - demand: on any device, an installed agent with no global rules file is a FAIL and `fieldkit rules install` creates it
+      (brief section E, owner 2026-10-31; Windows and Linux CI)
+    test: tests/test_rules.py::test_an_empty_home_ends_all_ok_after_one_install
+    mutate:
+    - fieldkit/rules.py
+    - 'if r.get("missing") and installed(agent, home):'
+    - 'if False:'
+  - demand: where Claude Code is installed, `fieldkit rules check` fails while the tool router or room hook is missing (the
+      hooks every tool-call rule rides on), and install puts them in
+    test: tests/test_rules.py::test_an_empty_home_ends_all_ok_after_one_install
+    mutate:
+    - fieldkit/rules.py
+    - out.append(check_hooks(home))
+    - pass
   gaps:
   - demand: no new tool unless the job cannot be done without it
     why: not deterministic

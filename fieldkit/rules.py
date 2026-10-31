@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-31-19-00
+# Version: 1.2.0 · updated 26-10-31-20-30
 """fieldkit rules: the one core (rules/CORE.md, generated from rules/rules.yaml) in every agent's rules file, and
 every rules file small (HARNESS-PLAN R2, 2026-10-28; I-09 rules as data and lint, 2026-10-31).
 
@@ -12,7 +12,14 @@ keeps only its own rules.
     fieldkit rules lint [--json]                  the rules data: drift, budget, duplicates, misplaced text,
                                                   contradictions, BOTTLENECKS (rules_lint.py)
     fieldkit rules build                          write rules/CORE.md from rules/rules.yaml
-    fieldkit rules install [--file F ...]         every block into each global file (--file: the core block only)
+    fieldkit rules install [--file F ...]         every block into each global file (--file: the core block only);
+                                                  creates the file of an agent installed here, and the Claude hooks
+
+Any device (owner, 2026-10-31, brief section E): an agent counts as installed when its config folder (~/.claude,
+~/.codex, ~/.gemini) or its program (claude, codex, gemini on PATH) is here. Its global file missing is a FAIL in
+check, and install creates it from rules.yaml; an agent that is not installed stays "missing" and is never created.
+Where Claude Code is installed, check also reads its hooks (tool router, room hook; the rotate check rides on both)
+and install puts them in (room.apply), the same on Windows and Linux.
 
 install only inserts or replaces the blocks between their markers, and an agent's unmarked tail (the `# Agent`
 section right after the core) once, when it is first marked. Anything else in a file is the owner's: it is never
@@ -34,6 +41,28 @@ START = "<!-- fieldkit-core-rules"
 END = "<!-- /fieldkit-core-rules -->"
 LIMIT = 8 * 1024          # bytes: the core (about 5.7 KB) plus a short section of the agent's or project's own
 REPO_FILES = ("AGENTS.md",)
+
+
+#: agent -> the program that proves it is installed when its config folder is not there yet
+PROGRAMS = {"claude-code": "claude", "codex": "codex", "gemini": "gemini"}
+_which = shutil.which
+
+
+def installed(agent, home=None):
+    """-> True when the agent is on this machine: its config folder exists or its program is on PATH."""
+    return global_files(home)[agent].parent.is_dir() or bool(_which(PROGRAMS[agent]))
+
+
+def _settings(home=None):
+    return Path(home or Path.home()) / ".claude" / "settings.json"
+
+
+def check_hooks(home=None):
+    """The Claude Code hooks every rule enforced at a tool call depends on. -> a check row"""
+    from .autopilot import room
+    r = room.doctor(_settings(home))
+    probs = ([f"hook missing: {', '.join(r['missing'])} (fieldkit rules install puts it in)"] if r["missing"] else []) +         ([f"hook stale: {', '.join(r['stale'])} (fieldkit rules install fixes it)"] if r["stale"] else [])
+    return {"path": r["settings"], "kind": "hooks", "ok": not probs, "bytes": 0, "problems": probs}
 
 
 def global_files(home=None):
@@ -107,10 +136,15 @@ def check(root=None, home=None, repo_only=False):
     files = global_files(home)
     for agent, p in files.items():
         r = check_file(p, block, "global")
-        if not r.get("missing"):
+        if r.get("missing") and installed(agent, home):
+            r.update(ok=False, problems=[f"{agent} is installed here but has no rules file (fieldkit rules install "
+                                         "creates it)"])
+        elif not r.get("missing"):
             r["problems"] += [x["evidence"] for x in lint_mod.check_installed({agent: p}, root=root, skip=("core",))]
             r["ok"] = not r["problems"]
         out.append(r)
+    if installed("claude-code", home):
+        out.append(check_hooks(home))
     same = [x for x in lint_mod.check_installed(files, root=root) if x["rule"] in lint_mod.BLOCKS]
     if same:
         out.append({"path": "global files", "kind": "same", "ok": False, "bytes": 0,
@@ -183,9 +217,13 @@ def install_all(home=None, root=None, backup_dir=None):
     bdir = Path(backup_dir or (state_root(root) / "state" / "rules-backup"))
     out = []
     for agent, p in global_files(home).items():
-        if not p.is_file():
+        if not p.is_file() and not installed(agent, home):
             out.append({"path": str(p), "done": "missing: not created (an agent that is not installed here)"})
             continue
+        created = not p.is_file()
+        if created:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"")
         before = p.read_bytes()
         nl = "\r\n" if b"\r\n" in before else "\n"
         text = before.decode("utf-8").replace("\r\n", "\n")
@@ -195,7 +233,7 @@ def install_all(home=None, root=None, backup_dir=None):
         text = with_tail(text, lint_mod.tail_block(data, agent))
         new = text.replace("\n", nl).encode("utf-8")
         if new != before:
-            b = _backup(p, bdir)
+            b = None if created else _backup(p, bdir)
             p.write_bytes(new)
         protocol.install_rule(p)
         if agent in ("codex", "gemini"):
@@ -205,8 +243,13 @@ def install_all(home=None, root=None, backup_dir=None):
         if bad:                                           # read back: the artifact, not the write calls
             raise OSError(f"{p}: " + "; ".join(x["evidence"] for x in bad))
         out.append({"path": str(p), "bytes": len(after),
-                    "done": "already current" if after == before else f"updated (backup {b})"
-                    if new != before else "updated"})
+                    "done": "created (the agent is installed here)" if created else
+                    "already current" if after == before else f"updated (backup {b})" if new != before else "updated"})
+    if installed("claude-code", home):
+        from .autopilot import room
+        code, lines = room.apply(_settings(home), keep_dir=bdir / "claude-settings")
+        out.append({"path": str(_settings(home)), "done": "hooks: " + lines[0].split(": ", 1)[-1]
+                    + ("" if code == 0 else " - NOT OK after writing")})
     return out
 
 
@@ -270,7 +313,7 @@ def main(argv=None):
         print(json.dumps(r, indent=1))
     else:
         for x in r:
-            state = "missing" if x.get("missing") else ("ok" if x["ok"] else "FAIL")
+            state = "FAIL" if not x["ok"] else ("missing" if x.get("missing") else "ok")
             print(f"{state:<7} {x['kind']:<7} {x['bytes']:>6} B  {x['path']}" + "".join(f"\n        {m}" for m in x["problems"]))
         print("NEXT: " + ("nothing" if not bad else
                           "fieldkit rules install (the blocks); fieldkit rules lint (the data); trim the rest by hand, "
