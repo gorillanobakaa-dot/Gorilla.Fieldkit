@@ -57,7 +57,7 @@ def src_path(query, env):
     out = []
     osname = env["osname"]
     exts = [e.lower() for e in (env["environ"].get("PATHEXT") or ".EXE;.CMD;.BAT;.COM").split(";")] if osname == "win32" else [""]
-    for d in (env["environ"].get("PATH") or "").split(os.pathsep):
+    for d in (env["environ"].get("PATH") or "").split(";" if osname == "win32" else ":"):   # the target's separator
         for name in env["listdir"](d) if d else []:
             stem, ext = os.path.splitext(name)
             if osname == "win32" and ext.lower() not in exts:
