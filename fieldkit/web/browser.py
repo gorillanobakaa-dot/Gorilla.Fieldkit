@@ -9,6 +9,7 @@ import socket
 from urllib.parse import urlsplit
 
 from ..core import settings
+from ..evidence.urls import blocked_ip, unwrap
 from . import discover, drivers
 from .drivers import BrowserError
 
@@ -36,7 +37,7 @@ def check_public(url, resolve=socket.getaddrinfo):
         raise BrowserError(f"cannot resolve {p.hostname}: {e}") from None
     for info in infos:
         ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if not ip.is_global:
+        if not unwrap(ip).is_global or blocked_ip(ip):
             raise BrowserError(f"{p.hostname} resolves to {ip}, which is not a public address: refused")
 
 
