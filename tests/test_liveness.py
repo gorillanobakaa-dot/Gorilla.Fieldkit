@@ -565,6 +565,21 @@ def test_a_lone_silent_spinner_is_stopped_as_busy_no_children(tmp_path, monkeypa
     assert time.time() - t0 < 30
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="the conhost.exe child exists on Windows only")
+def test_a_lone_spinner_with_no_console_is_still_alone(tmp_path):
+    """No console (every CI runner): Windows adds a conhost.exe child to the spinner; that is not work, FM-10 fires."""
+    code = "\n".join(["import sys; sys.path.insert(0, %r)", "from fieldkit.core import contain, liveness",
+                      "liveness.room_line = lambda v, t: None",
+                      "o = contain.run([sys.executable, '-c', %r], label='verify go-test spin', deadline_s=40, busy_s=3)",
+                      "print(o.status, o.why)"]) % (os.path.dirname(os.path.dirname(os.path.abspath(__file__))), SPIN)
+    out = tmp_path / "out.txt"
+    with open(out, "w") as f:
+        subprocess.run([PY, "-c", code], stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                       creationflags=0x00000008, timeout=120)   # DETACHED_PROCESS: no console
+    text = out.read_text()
+    assert text.startswith("stalled") and "BUSY-NO-CHILDREN" in text, text
+
+
 def test_a_spinner_that_prints_is_not_busy_no_children(tmp_path):
     prog = ("import time\nend = time.time() + 6\nwhile time.time() < end:\n"
             "    print('x', flush=True)\n    for _ in range(3000000): pass")
