@@ -2170,6 +2170,17 @@
    "next-step"
   ]
  },
+ "observe": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run",
+  "ids": [
+   "observe"
+  ]
+ },
  "office": {
   "platforms": [
    "linux",

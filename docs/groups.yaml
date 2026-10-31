@@ -27,6 +27,9 @@ groups:
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
+  - name: observe
+    title: See inside the machine, the same on Linux, Windows and macOS - who holds a file or a port, a process in full, folder changes, what a process opens, its usage over time, system events
+    sources: [observe/*.py]
   - name: lifecycle
     title: Zero friction - everything that can wait on the owner's click found on every machine, side jobs started headless instead of as session cards, and finished or idle sessions listed with the RAM they hold for archiving
     sources: [lifecycle/*.py]

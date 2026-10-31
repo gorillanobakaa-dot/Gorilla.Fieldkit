@@ -5944,6 +5944,24 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_app.py"]
   notes: "Owner 2026-10-31: the agent finder should find and start every program, not only Claude. Nothing found is executed to read a version (notepad --version opens Notepad): versions come from the registry, Info.plist or the file's version resource. Arguments only after --, none over the cable. Over the cable: peers link start-app NAME (signed, cable only, the peer's allow_apps in link.yaml; default the agents, gorilla-opencode, TPFanControl) and probe where NAME. Stopping is not here: by PID, as everywhere."
 
+- id: observe
+  title: "See inside the machine, the same on Linux, Windows and macOS - who has a file open or locked, who uses a port, a process in full (exe, cwd, command line, user, children, memory map), watch a folder, which files a process opens or starts, a process's CPU/memory/disk over time, system event log search"
+  harness: desk
+  entry: [python, -m, fieldkit, observe]
+  path: ${FIELDKIT}/fieldkit/observe/__init__.py
+  inputs:
+    - {name: question, flag: null, type: str, required: true, choices: [open-file, port, proc, watch, trace, usage, events], help: "the question; then its arguments: PATH | N | PID | DIR SECONDS | PID SECONDS | PID SECONDS | WORDS"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes]
+  safety: safe
+  headline: "{verdict}"
+  output: own
+  exits: {1: "error, no such process, or this system has no reader", 3: "trace needs administrator or root (it says so, asks nothing)"}
+  platforms: [windows, linux, darwin]
+  platforms_why: 'one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_observe.py"]
+  notes: "Owner 2026-10-31 (idea I-07, plan row P10): a Qwen model could not delete a file because something held it. Linux: /proc, inotify via ctypes, strace, journalctl. Windows: Restart Manager (kits/wintrace fuser), GetExtendedTcpTable, Toolhelp, ReadDirectoryChangesW, Get-WinEvent, trace through kits/wintrace opensnoop. macOS: lsof, vmmap, fs_usage, log show; watch polls once a second (no FSEvents binding shipped). Per-process network use is not claimed on Linux (needs root and eBPF). Read-only; a process is acted on by PID, never by name. No Sysinternals."
+
 - id: hog
   title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, parents hoarding children (dozens of consoles/shells) reported, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
   harness: desk
