@@ -132,3 +132,27 @@ def test_a_fresh_read_or_plain_note_is_not_an_unread_finding():
     assert find({}, notes=[note(5, 30)], read_upto=5) == {}                      # already read
     assert find({}, notes=[note(5, 30, text="[FROM Linux #3]\nfyi")], read_upto=0) == {}   # not a NEEDS YOU note
     assert find({}, notes=[note(5, 30, handed="claude")], read_upto=0) == {}     # handed to a session
+
+
+def test_b4_a_watch_with_ids_sees_only_those_tasks():
+    led = {"T-old": task("T-old", "failed", reported=at(30), note="Zero 13's job"),
+           "T-mine": task("T-mine", "blocked", reported=at(5), note="stuck")}
+    assert find(led) == {"T-old": "UNHANDLED", "T-mine": "UNHANDLED"}
+    assert find(led, ids={"T-mine"}) == {"T-mine": "UNHANDLED"}
+    assert find(led, ids={"T-none"}) == {}
+
+
+def test_b4_a_task_closed_by_hand_is_history():
+    led = {"T-1": task("T-1", "failed", reported=at(30), note="closed by Zero 13: superseded, PR #208 merged"),
+           "T-2": task("T-2", "not-started", reported=at(30), closed=True),
+           "T-3": task("T-3", "failed", reported=at(30), note="tests failed")}
+    assert find(led) == {"T-3": "UNHANDLED"}
+
+
+def test_b4_the_cli_id_reaches_findings(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(tasks, "ingest", lambda: [])
+    monkeypatch.setattr(tasks, "collect_jobs", lambda led: None)
+    monkeypatch.setattr(watch, "findings", lambda led, **kw: seen.update(kw) or [])
+    a = argparse.Namespace(arg="T-1, T-2", stalled=10, hours=24, act=False, json=False, scheduled=True)
+    assert watch._once(a, {}, []) == 0 and seen["ids"] == {"T-1", "T-2"}

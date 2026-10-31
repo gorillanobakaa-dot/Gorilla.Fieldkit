@@ -307,6 +307,8 @@ def ship_env():
                   "SSH_ASKPASS"):
             if not env.get(k):                        # the run's blanks; a real value was never put there
                 env.pop(k, None)
+        if env.get("GIT_CONFIG_PARAMETERS") == "'credential.helper='":      # the run's reset (run.NO_HELPER)
+            env.pop("GIT_CONFIG_PARAMETERS")
         if env.get("GIT_CONFIG_KEY_0") == "credential.helper" and not env.get("GIT_CONFIG_VALUE_0"):
             for k in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"):
                 env.pop(k, None)

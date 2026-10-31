@@ -165,3 +165,51 @@ def test_plan_next_prints_the_parked_items_on_one_line(tmp_path, capsys):
     line = strikes.parked_line()
     assert line == "PARKED (two strikes): feat/x #166" and "\n" not in line
     assert plan.main(["next", "--repo", str(tmp_path)]) == 1         # no plan file in tmp_path: its own line
+
+
+class MainRedGH(RedGH):
+    """B2: the branch is red; main's head is red too, failing `main_fails`."""
+
+    def __init__(self, head, main_fails, own_fails=("tests/test_x.py::test_y",)):
+        super().__init__(head)
+        self.main_fails, self.own_fails = list(main_fails), list(own_fails)
+
+    def base_head(self, base="main"):
+        return "m" * 40
+
+    def ci_state(self, sha):
+        return "red", "fake red"
+
+    def failed_log(self, sha):
+        fails = self.main_fails if sha == "m" * 40 else self.own_fails
+        return ["-- run 7"] + [f"FAILED {t} - boom" for t in fails]
+
+    def failed_checks(self, sha):
+        return {"test (windows)"}
+
+
+def test_b2_a_red_that_main_shares_is_not_a_strike():
+    ib = Inbox()
+    for head in ("a" * 40, "b" * 40, "c" * 40):
+        r = train.ci_wait(MainRedGH(head, ["tests/test_x.py::test_y"]), 166, sleep=lambda s: None, inbox=ib)
+        assert r["state"] == "main-red" and "main's failure" in r["why"] and "fix main first" in r["next"]
+    assert strikes.parked_for("feat/x") is None and ib.items == []
+    assert "feat/x" not in strikes.load()["strikes"]
+
+
+def test_b2_a_failure_main_does_not_share_still_counts_and_parks():
+    ib = Inbox()
+    gh = lambda h: MainRedGH(h, ["tests/test_other.py::test_z"])      # noqa: E731
+    train.ci_wait(gh("a" * 40), 166, sleep=lambda s: None, inbox=ib)
+    r = train.ci_wait(gh("b" * 40), 166, sleep=lambda s: None, inbox=ib)
+    assert r["state"] == "parked" and len(ib.items) == 1
+
+
+def test_b2_mains_failure_rules():
+    own = ["FAILED tests/a.py::t1 - x"]
+    assert strikes.mains_failure(own, ["FAILED tests/a.py::t1", "FAILED tests/b.py::t2"])
+    assert not strikes.mains_failure(own + ["FAILED tests/c.py::t3"], ["FAILED tests/a.py::t1"])
+    assert not strikes.mains_failure(own, [])
+    assert strikes.mains_failure(["no test names"], [], {"lint"}, {"lint", "test"})        # by check name
+    assert not strikes.mains_failure(["no test names"], [], {"lint", "docs"}, {"lint"})
+    assert not strikes.mains_failure([], [], set(), set())                               # nothing known: counts

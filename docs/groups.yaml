@@ -143,6 +143,7 @@ groups:
       - plan.py
       - review_verdict.py
       - rules.py
+      - rules_lint.py
       - suite_offload.py
 
   - name: verify-and-build

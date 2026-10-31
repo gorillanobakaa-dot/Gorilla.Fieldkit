@@ -63,5 +63,5 @@ def test_the_check_exits_3_on_a_failing_global_file(home, monkeypatch, capsys):
     monkeypatch.setattr(rules.Path, "home", classmethod(lambda cls: home))
     rules.global_files(home)["claude-code"].write_text("no block\n", encoding="utf-8")
     assert rules.main(["check"]) == 3 and "FAIL" in capsys.readouterr().out
-    rules.install([rules.global_files(home)["claude-code"]], ROOT, backup_dir=home / "bk")
+    rules.install_all(home, ROOT, backup_dir=home / "bk")
     assert rules.main(["check"]) == 0

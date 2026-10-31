@@ -131,7 +131,7 @@ OWNER_ONLY = [
 # 2026-10-28 (inbox #145, "Yes, ship only"): only fieldkit ship gets the credential back inside a run; a command
 # that points gh or git at it by itself is refused (setting the variables, a credential helper, gh auth)
 REARM = re.compile(r"(\$env:|\b)(GH_CONFIG_DIR|GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN|GIT_ASKPASS|SSH_ASKPASS|"
-                   r"GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)|FIELDKIT_REAL_GH_CONFIG_DIR)\s*=|credential\.helper|"
+                   r"GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+|PARAMETERS)|FIELDKIT_REAL_GH_CONFIG_DIR)\s*=|credential\.helper|"
                    r"\bgh\s+auth\s+(token|login|setup-git|refresh)\b|\bunset\s+[^\n;&|]*\b(GH_CONFIG_DIR|GIT_CONFIG_)", re.I)
 CREDENTIAL = re.compile(
     r"(^|[/\\\s\"'])(\.env(\.[a-z]+)?|id_rsa|id_ed25519|[^/\\\s\"']+\.(pem|pfx|p12|key)|hosts\.yml|"
@@ -247,8 +247,9 @@ def _statements(cmd):
 
 
 FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python3?(?:\.exe)?\s+-m\s+fieldkit)"
-SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base|tag)(?:\s+|=)[^\s;&|`$<>]+)*)\s*$",
-                  re.I)
+# B1 (2026-10-31): `push --auto [--title "T"] [--body-file F]` opens the PR with auto-merge on green, the same door
+SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base|tag|body-file)(?:\s+|=)[^\s;&|`$<>]+"
+                  r"|\s+--auto|\s+--title(?:\s+|=)(?:\"[^\"`$]*\"|'[^']*'|[^\s;&|`$<>]+))*)\s*$", re.I)
 # the owner-wide mandate (2026-10-25): a release of a tag already on origin, once CI is green (the mandate proves it)
 GH_RELEASE = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+gh-release\s+(v[\w.+-]+)((?:\s+--repo(?:\s+|=)[^\s;&|`$<>]+)?)"
                         r"(\s+--\s[^;&|`$<>]*)?\s*$", re.I)

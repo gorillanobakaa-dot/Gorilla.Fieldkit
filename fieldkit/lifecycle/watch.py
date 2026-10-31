@@ -1,7 +1,9 @@
 # Version: 1.0.0 · updated 26-10-30
 """NO PASSIVE WAITING (plan Z1): find the started task that nobody is looking at.
 
-    fieldkit task watch [--once] [--act] [--stalled MIN] [--hours H] [--json]
+    fieldkit task watch [ID[,ID...]] [--once] [--act] [--stalled MIN] [--hours H] [--json]
+                                                with ids: only those tasks (B4, 2026-10-31: a watch woke on
+                                                old tasks of another Zero instead of the one it watched)
     fieldkit task watch --schedule [--apply|--remove]        every 5 minutes: `task watch --act --scheduled`
 
 One line per task that needs a decision, exit 3 when there is one:
@@ -25,6 +27,7 @@ nothing woke it and no one polled. Zero tokens: plain code, no model.
 """
 import json
 import os
+import re
 import time
 
 from . import tasks
@@ -33,6 +36,9 @@ STALLED_MIN = 10
 HOURS = 24                              # an ended task older than this is history, not a finding
 PING_EVERY_S = 1800
 ENDED = ("blocked", "failed", "not-started", "died")
+#: a task a Zero (or the owner) closed by hand with `fieldkit task report ID --status failed --note "closed by ..."`
+#: is handled: it is history, not a finding (B4: "closed by Zero 13" tasks kept waking every later Zero)
+CLOSED = re.compile(r"\bclosed\b", re.I)
 
 
 def _t(s):
@@ -76,13 +82,22 @@ def silence(t, notes=()):
     return max(seen)
 
 
-def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), alive=None, read_upto=None):
-    """-> [{state, id, line, next}]. Pure apart from the files `silence` stats. Marks died tasks in `led` (settle)."""
+def closed(t):
+    return bool(t.get("closed")) or bool(CLOSED.search(t.get("note") or ""))
+
+
+def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), alive=None, read_upto=None, ids=None):
+    """-> [{state, id, line, next}]. Pure apart from the files `silence` stats. Marks died tasks in `led` (settle).
+    ids: only these tasks (and no note findings)."""
     now = time.time() if now is None else now
     tasks.settle(led, alive)
     out = []
     for t in led.values():
         st, tid, title = t.get("status"), t["id"], (t.get("title") or "")[:50]
+        if ids and tid not in ids:
+            continue
+        if st in ENDED and closed(t):
+            continue
         if st in ENDED:
             ended = _t(t.get("reported")) or _t(t.get("at"))
             if now - ended > hours * 3600 or _followed(t, led):
@@ -108,7 +123,7 @@ def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), aliv
     # send_message (Remote Control) instead of waiting for the next hour
     try:
         from ..peers import link_receipt
-        late = link_receipt.unread(list(notes), now=now, upto=read_upto)
+        late = [] if ids else link_receipt.unread(list(notes), now=now, upto=read_upto)
     except Exception:  # noqa: BLE001 - no receipt files: nothing is judged
         late = []
     for n in late:
@@ -214,7 +229,8 @@ def _once(a, ledger, notes):
             notes = link.inbox()
         except Exception:  # noqa: BLE001 - no cable: silence is judged from the files
             notes = []
-    found = findings(led, stalled_min=a.stalled, hours=a.hours, notes=notes)
+    ids = {x.strip() for x in (getattr(a, "arg", None) or "").split(",") if x.strip()} or None
+    found = findings(led, stalled_min=a.stalled, hours=a.hours, notes=notes, ids=ids)
     done = act(found, led=led) if a.act else []
     if a.json:
         print(json.dumps({"findings": found, "done": done, "new_reports": len(new)}, indent=1, ensure_ascii=False))

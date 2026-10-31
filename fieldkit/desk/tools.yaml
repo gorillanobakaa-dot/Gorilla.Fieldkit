@@ -1098,6 +1098,18 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, rule]
 
+- id: rules
+  title: "The core rules every agent reads, as data: lint them for bottlenecks, duplicates and size, build CORE.md, install and check every agent's global file"
+  harness: rules
+  entry: [python, -m, fieldkit, rules]
+  path: ${FIELDKIT}/fieldkit/rules.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "lint (the rules data: drift, budget, duplicates, misplaced, contradictions, BOTTLENECKS), build (rules/CORE.md from rules/rules.yaml), install (every block into each global file), check (files and lint)", choices: [lint, build, install, check]}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rules_lint.py", "${FIELDKIT}/tests/test_rules.py"]
+
 - id: thermal-profile
   title: "Which cooling profile the laptop is on now (run it with no value), or switch to quiet, balanced, performance or off (Windows and Linux)"
   harness: thermal

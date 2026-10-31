@@ -1,0 +1,77 @@
+# fieldkit rules lint (I-09, 2026-10-31): every check must be CAUGHT when disabled:
+#   fieldkit mutate --plan tests/rules_lint_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_rules_lint.py
+- file: fieldkit/rules_lint.py
+  swap:
+  - '    if have.replace("\r\n", "\n") != want:'
+  - '    if False:'
+  why: drift of CORE.md from rules.yaml
+- file: fieldkit/rules_lint.py
+  swap:
+  - '    if asks and not entry.get("owner_decision"):'
+  - '    if False:'
+  why: bottleneck (1) asks or waits on the owner
+- file: fieldkit/rules_lint.py
+  swap:
+  - '    if man:'
+  - '    if False:'
+  why: bottleneck (2) a manual step
+- file: fieldkit/rules_lint.py
+  swap:
+  - '    if ser and not DATE.search(str(entry.get("serial_reason") or "")):'
+  - '    if ser and False:'
+  why: bottleneck (3) serialising without a dated reason
+- file: fieldkit/rules_lint.py
+  swap:
+  - '    if hl:'
+  - '    if False:'
+  why: bottleneck (4) a headless run stopped
+- file: fieldkit/rules_lint.py
+  swap:
+  - '    if sig and not OWN.search(text):'
+  - '    if False:'
+  why: bottleneck (5) counting failures outside the job's control
+- file: fieldkit/rules_lint.py
+  swap:
+  - '    return bool(NEGATION.search(clause))'
+  - '    return True'
+  why: a negation must only excuse its own clause
+- file: fieldkit/rules_lint.py
+  swap:
+  - '        if "generator" not in e and size > RULE_BUDGET:'
+  - '        if False:'
+  why: per-rule byte budget
+- file: fieldkit/rules_lint.py
+  swap:
+  - '        if size > FILE_LIMIT:'
+  - '        if False:'
+  why: per-file byte budget
+- file: fieldkit/rules_lint.py
+  swap:
+  - '            if subj in subjects:'
+  - '            if False:'
+  why: duplicate subject
+- file: fieldkit/rules_lint.py
+  swap:
+  - '            if cmd in owners and owners[cmd] != rid:'
+  - '            if False:'
+  why: duplicate command
+- file: fieldkit/rules_lint.py
+  swap:
+  - '        if aud == "all" and ZERO_ONLY.search(text):'
+  - '        if False:'
+  why: misplaced Zero-only text
+- file: fieldkit/rules_lint.py
+  swap:
+  - '        if forbids and _hits(ASK, text) and not e.get("owner_decision") and rid not in forbids:'
+  - '        if False:'
+  why: contradiction
+- file: fieldkit/rules_lint.py
+  swap:
+  - '            elif have != want:'
+  - '            elif False:'
+  why: an installed block that is not current
+- file: fieldkit/rules_lint.py
+  swap:
+  - '        if len(set(per.values())) > 1:'
+  - '        if False:'
+  why: shared blocks identical across files
