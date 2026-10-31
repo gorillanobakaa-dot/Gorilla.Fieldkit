@@ -19,6 +19,7 @@ def d(tool, args, stop):
     'gh release create v158.0-win64 dist/x.exe --notes-file body.md',
     "gh pr merge 75 --squash",
     "gh api repos/o/r/releases -X POST -f tag_name=v1",
+    "gh api repos/o/r/git/refs/heads/feat-x -X DELETE",          # HARD LINES: never delete on GitHub
     "gh api repos/o/r/git/refs -f ref=refs/tags/x -f sha=abc",
     "twine upload dist/*",
     "git remote set-url origin https://evil.example/r.git",

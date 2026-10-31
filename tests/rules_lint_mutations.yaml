@@ -75,3 +75,23 @@
   - '        if len(set(per.values())) > 1:'
   - '        if False:'
   why: shared blocks identical across files
+- file: fieldkit/rules_lint.py
+  swap:
+  - 'found.append(_f("enforcer", rid, f"enforced_by {name!r}: {what}"))'
+  - 'pass'
+  why: an invented enforced_by entry passes
+- file: fieldkit/rules_lint.py
+  swap:
+  - 'found.append(_f("enforcer", rid, f"the text names {cmd!r}: {what}"))'
+  - 'pass'
+  why: a command the rule text names but nobody built passes
+- file: fieldkit/rules_lint.py
+  swap:
+  - '        if n != 1:'
+  - '        if False:'
+  why: an ambiguous or stale proof swap passes
+- file: fieldkit/lifecycle/watch.py
+  swap:
+  - 'return (3 if found else 0), bool(over)'
+  - 'return (3 if found else 0), False'
+  why: C1 a watch on ids that all ended keeps sleeping
