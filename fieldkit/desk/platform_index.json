@@ -2644,6 +2644,17 @@
    "repro-compare"
   ]
  },
+ "review": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "review"
+  ]
+ },
  "rotate": {
   "platforms": [
    "darwin",

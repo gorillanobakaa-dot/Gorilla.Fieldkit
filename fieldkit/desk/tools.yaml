@@ -6600,3 +6600,19 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
   notes: "exit 3 on a finding or when nothing was read; `fieldkit privacy scan --images` does the same inside a scan (off by default). No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: review
+  title: ONE review of everything waiting on the owner - parked ideas (I-nn) first, then open inbox items (#nnn), each with its plain-language why and the command it would run, answered once (a / p / f / numbers / both, words after ':' recorded as the owner's note); --open opens state/REVIEW.md, rewritten on every inbox or ideas change
+  harness: core
+  entry: [python, -m, fieldkit, review]
+  path: ${FIELDKIT}/fieldkit/review.py
+  inputs:
+    - {name: open, flag: --open, type: flag, required: false, help: "write state/REVIEW.md and open it"}
+    - {name: list, flag: --list, type: flag, required: false, help: "print the list, change nothing"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 1: "refused (not a person's terminal) or a store unreadable", 2: "bad arguments"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_review.py"]
+  notes: "Owner 2026-10-31: all the items in one place, approve once. fieldkit ideas review and fieldkit inbox review call the same code. Approve on an inbox item marks it done with approved=true and the owner's words; the item's command is never run. Double-click launchers: launchers/review.cmd, review.sh, review.command."

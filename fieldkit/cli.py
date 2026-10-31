@@ -1057,7 +1057,8 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else ""), indent=1))
+        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", plan=a.plan or "",
+                                   what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or ""), indent=1))
         return 0
     if a.action == "done":
         print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
@@ -1653,6 +1654,10 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rvp = sub.add_parser("review", add_help=False,
+                         help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
+                              "once at a terminal; --open opens state/REVIEW.md")
+    rvp.add_argument("args", nargs=argparse.REMAINDER)
     mt = sub.add_parser("metrics", add_help=False,
                         help="long-horizon proof from the harness's own records: days running, Zero epochs, session "
                              "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
@@ -1855,6 +1860,10 @@ def build_parser():
     ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
     ib.add_argument("--all", action="store_true", help="list: done items too")
+    ib.add_argument("--plan", help="add: the plan row this belongs to (P5, W10 ...)")
+    ib.add_argument("--what", help="add: what it is, in plain words")
+    ib.add_argument("--if-approve", dest="if_approve", help="add: what happens if the owner approves")
+    ib.add_argument("--if-leave", dest="if_leave", help="add: what happens if the owner leaves it")
     ib.set_defaults(fn=cmd_inbox)
 
     pb = sub.add_parser("publish", parents=[common])
@@ -2872,6 +2881,12 @@ def main(argv=None):
     if args[:1] == ["plan"]:                          # where the harness plan stands: phase, open items, merged ones
         from . import plan
         return plan.main(args[1:])
+    if args[:1] == ["review"]:                        # the one review: parked ideas and inbox items, answered once
+        from . import review
+        return review.main(args[1:])
+    if args[:2] == ["inbox", "review"]:
+        from . import review
+        return review.main(args[2:])
     if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])

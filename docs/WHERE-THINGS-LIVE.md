@@ -10,8 +10,8 @@ and are not published.
 |---|---|---|---|
 | Where the harness is going | `docs/VISION.md` | yes | open it |
 | What is left to do (the to-do list) | `docs/HARNESS-PLAN.md` | yes | `fieldkit plan next` says the next step |
-| A suggestion made while a job runs | `state/ideas/` (`ideas.json` is the store, `TODO.Features.Plan.md` is its readable copy) | no | `fieldkit ideas list`, `fieldkit ideas review` |
-| What waits for the owner | the inbox | no | `fieldkit inbox`, `fieldkit inbox --all` |
+| A suggestion made while a job runs | `state/ideas/` (`ideas.json` is the store, `TODO.Features.Plan.md` is its readable copy) | no | `fieldkit ideas list`, `fieldkit review` |
+| What waits for the owner | the inbox | no | `fieldkit review` (answers it; page `state/REVIEW.md`), `fieldkit inbox --all` |
 | What each session did | the Board, `state/coordination/PLAN.md` | no | one row per session, with its id |
 | Where the last session stopped | `state/coordination/HANDOFF.md` | no | read it first in a new session |
 | Briefs sent to jobs | `state/briefs/`, `state/tasks-briefs/`, `state/coordination/BRIEF-*.md` | no | one file per job |
@@ -26,7 +26,7 @@ and are not published.
 
 1. A task that must be done goes to `docs/HARNESS-PLAN.md`, as one row, on its own branch.
 2. A new suggestion while a job or plan runs goes to `fieldkit ideas add TITLE --why W`. It is never added to the
-   running plan; the owner decides at `fieldkit ideas review`.
+   running plan; the owner decides at `fieldkit review`.
 3. Something only the owner may decide goes to `fieldkit inbox add TITLE WHY [COMMAND]`.
 4. What a session did goes to its Board row in `state/coordination/PLAN.md`; if work continues, to `HANDOFF.md`.
 5. Do not start a new status, to-do or ideas file anywhere else. If a new kind of list is needed, add its row to the

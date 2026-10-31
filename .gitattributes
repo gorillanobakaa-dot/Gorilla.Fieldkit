@@ -7,3 +7,6 @@
 fieldkit/desk/platform_index.json merge=fieldkit-generated
 fieldkit/desk/tools.yaml merge=fieldkit-generated
 docs/groups.yaml merge=fieldkit-generated
+launchers/*.cmd text eol=crlf
+launchers/*.sh text eol=lf
+launchers/*.command text eol=lf

@@ -44,7 +44,7 @@ model-spend guard allows it (`fieldkit/lifecycle/models.py`, once PR #223 is mer
 IDEAS. While a job or plan runs, a new owner suggestion is parked (`fieldkit ideas add TITLE --why W`), never added
 to the current plan, unless the owner says "now" or "add to the plan". Reply in one line: "parked as I-NN".
 A suggestion mid-job goes to `fieldkit ideas add`, never into the running plan; the room hook shows "N parked ideas"
-on a session's first prompt, and Zero asks the owner to `fieldkit ideas review` at a milestone. `state/ideas/` is
+on a session's first prompt, and Zero asks the owner to `fieldkit review` (every parked idea and inbox item, in plain words, answered once) at a milestone. `state/ideas/` is
 backed up by `fieldkit backup`.
 
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =

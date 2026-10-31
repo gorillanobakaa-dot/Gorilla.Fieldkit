@@ -5,7 +5,7 @@ finish line kept moving because every suggestion went into the current plan).
     fieldkit ideas add "TITLE" --why "what it would do" [--what "2-3 plain sentences"] [--from owner|agent:NAME]
     fieldkit ideas list [--status parked|accepted|forgotten] [--json]
     fieldkit ideas brief           the review brief: each parked idea, its title and what it would do (read only)
-    fieldkit ideas review          the owner's, at a real terminal: accept / keep parked / forget, one by one or in bulk
+    fieldkit ideas review          the owner's, at a real terminal: the same as `fieldkit review` (ideas AND inbox)
 
 The store is state/ideas/ideas.json (the truth, for tools) and state/ideas/TODO.Features.Plan.md (the same, written
 for a person, rewritten from the json on every change). Both are git-ignored until the owner says "add it to git".
@@ -75,13 +75,13 @@ def _clean(s):
 def render(data):
     out = ["# Parked ideas (TODO.Features.Plan)", "",
            "Written by `fieldkit ideas`; rewritten from ideas.json on every change. An idea changes status only when the",
-           "owner answers `fieldkit ideas review` at a terminal. Forgotten ideas stay here, struck through.", ""]
+           "owner answers `fieldkit review` at a terminal. Forgotten ideas stay here, struck through.", ""]
     for i in data["ideas"]:
         t = f"~~{i['title']}~~" if i["status"] == "forgotten" else i["title"]
         out += [f"## {i['id']}: {t}", "",
                 f"- date: {i['date']}", f"- source: {i['source']}", f"- status: {i['status']}"
                 + (f" ({i['plan_id']})" if i.get("plan_id") else "") + (f", decided {i['decided']}" if i.get("decided") else ""),
-                f"- why: {i['why']}", "", i["what"], ""]
+                f"- why: {i['why']}"] + ([f"- owner's note: {i['note']}"] if i.get("note") else []) + ["", i["what"], ""]
     return "\n".join(out)
 
 
@@ -90,6 +90,11 @@ def _save(data, root=None):
     d.mkdir(parents=True, exist_ok=True)
     (d / JSON_NAME).write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
     (d / MD_NAME).write_text(render(data), encoding="utf-8", newline="\n")
+    try:
+        from . import review
+        review.refresh(root)
+    except Exception:  # noqa: BLE001 - the page never breaks the store
+        pass
 
 
 def add(title, why, what=None, source="owner", root=None, now=None):
@@ -125,7 +130,7 @@ def parked_count(root=None):
 
 def line(root=None):
     n = parked_count(root)
-    return f"{n} parked ideas - fieldkit ideas review" if n else ""
+    return f"{n} parked ideas - fieldkit review" if n else ""
 
 
 def brief(root=None):
@@ -135,7 +140,7 @@ def brief(root=None):
     out = [f"{len(ps)} parked ideas. Each is what the owner (or an agent) suggested while a job ran:"]
     for k, e in enumerate(ps, 1):
         out += ["", f"{k}. {e['id']}  {e['title']}  ({e['source']}, {e['date']})", f"   Would do: {e['what']}"]
-    out += ["", "Choices at a terminal (`fieldkit ideas review`): a = accept (becomes a plan row), p = keep parked,",
+    out += ["", "Choices at a terminal (`fieldkit review`): a = accept (becomes a plan row), p = keep parked,",
             "f = forget; a, p or f alone applies to all; numbers (\"1,3\") pick a subset."]
     return "\n".join(out)
 
@@ -174,7 +179,7 @@ def _next_plan_id(data, root):
     return f"P{max(used or [0]) + 1}"
 
 
-def set_status(ids, status, root=None, now=None):
+def set_status(ids, status, root=None, now=None, note=""):
     """Owner terminal only. accepted -> a plan id and a brief file; forgotten -> struck through; parked -> as it was.
     -> [{"id", "status", "plan_id", "brief"}]."""
     _owner_only()
@@ -193,6 +198,8 @@ def set_status(ids, status, root=None, now=None):
         b = None
         if status != "parked":
             e["status"], e["decided"] = status, _stamp(now)
+            if note:
+                e["note"] = note
         if status == "accepted":
             e["plan_id"] = _next_plan_id(data, root)
             b = _write_brief(e, root)
@@ -240,41 +247,12 @@ def parse_answer(text, n):
 
 
 def review(root=None, ask=input, say=print, now=None):
-    """The owner's walk through the parked ideas. -> the list set_status returned (empty when nothing changed)."""
-    _owner_only()
-    ps = listing("parked", root)
-    say(brief(root))
-    if not ps:
-        return []
-    word = {"a": "accepted", "f": "forgotten"}
-    for _ in range(5):
-        c = parse_answer(ask("Your choice [a/p/f/numbers, or both: 1,2 a; Enter = keep parked]: "), len(ps))
-        if c:
-            break
-        say("Not understood: a, p, f, numbers such as 1,3, or both such as 1,2 a.")
-    else:
-        return []
-    kind, ix = c
-    if kind in word or kind == "p":
-        subset = ps if ix is None else [ps[i - 1] for i in ix]
-    elif kind == "pick":
-        subset = [ps[i - 1] for i in ix]
-        for _ in range(5):
-            a = parse_choice(ask(f"For {', '.join(e['id'] for e in subset)} [a/p/f]: "), 0)
-            if a and a[0] in ("a", "p", "f"):
-                kind = a[0]
-                break
-        else:
-            return []
-    if kind == "p":
-        say("Kept parked.")
-        return []
-    res = set_status([e["id"] for e in subset], word[kind], root, now)
-    for r in res:
-        say(f"{r['id']} {r['status']}" + (f" as {r['plan_id']}; brief {r['brief']}" if r["plan_id"] else ""))
-    nxt = [r["brief"] for r in res if r["brief"]]
-    say("NEXT: " + (f"fieldkit task start {nxt[0]}" if nxt else "nothing; the rest stays in " + MD_NAME))
-    return res
+    """The owner's walk: the one review of everything that waits (parked ideas and inbox items), see review.py."""
+    from . import review as _r
+    try:
+        return _r.review(root, ask=ask, say=say, now=now)
+    except _r.Refused as ex:
+        raise Refused(str(ex)) from None
 
 
 def main(argv=None):
@@ -305,7 +283,7 @@ def main(argv=None):
             else:
                 for e in es:
                     print(f"{e['id']}  {e['status']:<9}  {e['title']}")
-                print("NEXT: fieldkit ideas review (the owner, at a terminal)" if any(e["status"] == "parked" for e in es)
+                print("NEXT: fieldkit review (the owner, at a terminal)" if any(e["status"] == "parked" for e in es)
                       else "NEXT: nothing parked")
             return 0
         if a.action == "brief":

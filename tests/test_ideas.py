@@ -11,7 +11,9 @@ NOW = 1798000000.0   # fixed clock
 
 
 @pytest.fixture
-def root(tmp_path):
+def root(tmp_path, monkeypatch):
+    from fieldkit.autopilot import inbox
+    monkeypatch.setattr(inbox, "INBOX", tmp_path / "inbox")   # review reads the inbox too: never the real one
     return tmp_path
 
 
@@ -160,9 +162,9 @@ def test_review_gives_up_after_unclear_answers(root, person):
 def test_hook_line_then_brief_on_the_first_prompt_only(root):
     _seed(root)
     first = ideas.hook_text("sess-1", root)
-    assert first.startswith("3 parked ideas - fieldkit ideas review") and "Would do: One does x" in first
+    assert first.startswith("3 parked ideas - fieldkit review") and "Would do: One does x" in first
     second = ideas.hook_text("sess-1", root)
-    assert second == "3 parked ideas - fieldkit ideas review"
+    assert second == "3 parked ideas - fieldkit review"
     assert "Would do" in ideas.hook_text("sess-2", root)
 
 
@@ -202,14 +204,14 @@ def test_the_room_hook_shows_the_ideas_line_then_the_brief_once(root, monkeypatc
     monkeypatch.setattr(ideas, "ROOT", root)
     monkeypatch.setattr(ideas, "state_root", lambda r=None: Path(r or root))
     out = room._ideas({"session_id": "s9"}, "UserPromptSubmit", "")
-    assert "1 parked ideas - fieldkit ideas review" in out and "I-01" in out
+    assert "1 parked ideas - fieldkit review" in out and "I-01" in out
     assert room._ideas({"session_id": "s9"}, "UserPromptSubmit", "").count("I-01") == 0
     assert room._ideas({"session_id": "s9"}, "PreToolUse", "x") == "x"
     # and the hook's one context builder calls it (new session, so the brief shows again)
     for f in ("_net", "_hog", "_rotate", "_plan", "_relay"):
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
     monkeypatch.setattr(room, "unseen", lambda sid: [])
-    assert "parked ideas - fieldkit ideas review" in room._context({"session_id": "s10"}, "UserPromptSubmit")
+    assert "parked ideas - fieldkit review" in room._context({"session_id": "s10"}, "UserPromptSubmit")
 
 
 @pytest.mark.parametrize("text,want", [("1,2 a", ("a", [1, 2])), ("a 1,2", ("a", [1, 2])), ("1 f", ("f", [1])),
