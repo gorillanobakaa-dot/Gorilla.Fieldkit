@@ -105,6 +105,20 @@ def test_ci_without_a_gh_login_reads_the_public_api_and_fails_closed():
     assert not ok and "not green" in ev
 
 
+def test_a_repository_whose_jobs_do_not_name_the_system_is_mapped():
+    runs = [{"name": n, "status": "completed", "conclusion": "success"} for n in ("build-test", "build")]
+    ok, ev = sync.ci_green("gorillanobakaa-dot/Gorilla.Opencode", "abc", run=lambda *a, **k: (_ for _ in ()).throw(
+        FileNotFoundError("gh")), public=lambda s, h: runs)
+    assert not ok and "no windows job" in ev
+    runs.append({"name": "build-test-windows", "status": "completed", "conclusion": "success"})
+    ok, ev = sync.ci_green("gorillanobakaa-dot/Gorilla.Opencode", "abc", run=lambda *a, **k: (_ for _ in ()).throw(
+        FileNotFoundError("gh")), public=lambda s, h: runs)
+    assert ok, ev
+    ok, ev = sync.ci_green("o/r", "abc", run=lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("gh")),
+                           public=lambda s, h: runs)
+    assert not ok      # the map is per repository: elsewhere "build-test" proves nothing
+
+
 def test_cards_hold_their_platform_promise(tmp_path):
     t = tmp_path / "test_x.py"
     t.write_text("import pytest\npytestmark = pytest.mark.windows_only\n")

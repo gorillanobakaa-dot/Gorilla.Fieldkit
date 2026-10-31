@@ -30,6 +30,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 NEED_OS = ("windows", "ubuntu")
+# A repository whose job names do not say the system: which job proves which one (read from its workflow's runs-on).
+OS_JOBS = {"gorillanobakaa-dot/Gorilla.Opencode": {"ubuntu": ("build-test",), "windows": ("build-test-windows",)}}
 
 
 def _git(repo, *a, check=True):
@@ -79,7 +81,8 @@ def ci_green(slug, sha, run=subprocess.run, public=_public_check_runs):
     bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]
     if bad:
         return False, f"CI not green for {sha[:10]}: {', '.join(bad[:4])}"
-    missing = [o for o in NEED_OS if not any(o in x["name"].lower() for x in runs)]
+    named = OS_JOBS.get(slug, {})
+    missing = [o for o in NEED_OS if not any(o in x["name"].lower() or x["name"] in named.get(o, ()) for x in runs)]
     if missing:
         return False, f"CI for {sha[:10]} has no {', '.join(missing)} job"
     return True, f"CI green on {', '.join(NEED_OS)} for {sha[:10]} ({len(runs)} check runs)"
