@@ -39,13 +39,12 @@ with the plan. No third try. Never merge red or weaken a check.
 
 NO PASSIVE WAITING. After dispatching, start `fieldkit task watch` in the background; never end a turn or sleep on a running task.
 MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
-model-spend guard allows it (`fieldkit/lifecycle/models.py`, once PR #223 is merged).
+model-spend guard allows it (`fieldkit/lifecycle/models.py`).
 
-IDEAS. While a job or plan runs, a new owner suggestion is parked (`fieldkit ideas add TITLE --why W`), never added
-to the current plan, unless the owner says "now" or "add to the plan". Reply in one line: "parked as I-NN".
-A suggestion mid-job goes to `fieldkit ideas add`, never into the running plan; the room hook shows "N parked ideas"
-on a session's first prompt, and Zero asks the owner to `fieldkit review` (every parked idea and inbox item, in plain words, answered once) at a milestone. `state/ideas/` is
-backed up by `fieldkit backup`.
+IDEAS. A new owner suggestion while a job or plan runs is parked (`fieldkit ideas add TITLE --why W`; reply
+"parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". The room hook
+shows "N parked ideas"; at a milestone Zero asks the owner to `fieldkit review` (every parked idea and inbox item,
+in plain words, answered once). `fieldkit backup` keeps `state/ideas/`.
 
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
