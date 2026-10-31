@@ -45,13 +45,35 @@ def _slug(repo):
     return url.lstrip(":/").removesuffix(".git")
 
 
-def ci_green(slug, sha, run=subprocess.run):
-    """-> (ok, evidence): every check run of `sha` completed with success, and NEED_OS each had one."""
-    r = run(["gh", "api", f"repos/{slug}/commits/{sha}/check-runs", "--jq",
-             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True)
-    if r.returncode:
-        return False, f"CI unreadable (gh): {(r.stderr or '').strip()[:160]}"
-    runs = json.loads(r.stdout or "[]")
+def _public_check_runs(slug, sha, timeout=15):
+    """-> the check runs of a PUBLIC repository's commit from api.github.com, with no credential (the headless job on
+    the other computer has none, 2026-10-31). Who learns what: GitHub sees this address ask about this commit, as a
+    `git fetch` already tells it. Raises on any failure (the caller fails closed)."""
+    import urllib.request
+    req = urllib.request.Request(f"https://api.github.com/repos/{slug}/commits/{sha}/check-runs?per_page=100",
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "fieldkit-sync"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed https host
+        data = json.loads(resp.read().decode("utf-8"))
+    return [{"name": x.get("name"), "status": x.get("status"), "conclusion": x.get("conclusion")}
+            for x in data.get("check_runs") or []]
+
+
+def ci_green(slug, sha, run=subprocess.run, public=_public_check_runs):
+    """-> (ok, evidence): every check run of `sha` completed with success, and NEED_OS each had one. Read with gh;
+    when gh cannot (no login, not installed), from the public API without a credential; neither -> not green."""
+    try:
+        r = run(["gh", "api", f"repos/{slug}/commits/{sha}/check-runs", "--jq",
+                 "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True)
+        gh_err = (r.stderr or "").strip()[:160] if r.returncode else ""
+    except OSError as e:
+        r, gh_err = None, str(e)[:160]
+    if gh_err:
+        try:
+            runs = public(slug, sha)
+        except Exception as e:  # noqa: BLE001 - fail closed, say both
+            return False, f"CI unreadable (gh: {gh_err}; public API: {str(e)[:120]})"
+    else:
+        runs = json.loads(r.stdout or "[]")
     if not runs:
         return False, f"no CI run for {sha[:10]}"
     bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]
