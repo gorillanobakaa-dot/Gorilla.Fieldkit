@@ -1,6 +1,6 @@
 ---
 name: fieldkit-net
-description: The agent net, the military way, with fieldkit zero (also fieldkit net) - is Zero established (who is net control, its epoch, its 2IC), establish Zero, roll call every session for a fixed sitrep, comms check / radio check (leases, SILENT and MISSING stations, a dead cable revived), compare the clocks of both computers, hand Zero over, send a message that wants an ack, read and verify the net log. Use when the owner says "zero", "zero established", "has zero been established", "establish zero", "sitrep", "sit rep", "comms check", "radio check", "roll call", "net", "who is out there", "is everyone alive", "2IC", "second in command", "who is 2IC", or when a session starts and must learn who Zero is, or the sessions went quiet; and for command - "give X its orders", "task X", "who is doing what", "orders", "X is done", a write refused with GROUND CLAIM, "why idle", or "--relieve" in a rotation brief.
+description: The agent net, the military way, with fieldkit zero (also fieldkit net) - is Zero established (who is net control, its epoch, its 2IC), establish Zero, roll call every session for a fixed sitrep, comms check / radio check (leases, SILENT and MISSING stations, a dead cable revived), compare the clocks of both computers, hand Zero over, send a message that wants an ack, read and verify the net log. Use when the owner says "zero", "zero established", "has zero been established", "establish zero", "comms check", "radio check", "roll call", "net", "who is out there", "is everyone alive", "2IC", "second in command", "who is 2IC", or when a session starts and must learn who Zero is, or the sessions went quiet; and for command - "give X its orders", "task X", "who is doing what", "orders", "X is done", a write refused with GROUND CLAIM, "why idle", or "--relieve" in a rotation brief.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux, macOS. Works offline; the only network is the paired cable peer through fieldkit peers link."
 ---
@@ -13,7 +13,8 @@ The owner is a former soldier and speaks radio procedure. Read the words as belo
 |---|---|---|
 | "has Zero been established?", "zero?", "net?" | is there a net control station, and who | `fieldkit zero` |
 | "establish Zero", "you are Zero", "open the net" | this session becomes net control | `fieldkit zero open --name "command post" [--2ic STATION]` |
-| "sitrep", "sit rep", "roll call", "who is out there" | every station reports; then you write YOUR sitrep with the fieldkit-sitrep skill | `fieldkit zero rollcall --wait 10` |
+| "roll call", "who is out there" | every station reports | `fieldkit zero rollcall --wait 10` |
+| "sitrep", "sit rep", "SITREP" (owner, 2026-10-31) | NOT the roll call: the owner wants four answers - where we started, what we have done, what is going on now, what is left. Write them with the fieldkit-sitrep skill (`fieldkit sitrep template`, `check`, `render --md`); read the running jobs first (`fieldkit task status`) | `fieldkit sitrep template` |
 | "comms check", "radio check", "is everyone alive" | liveness of every station and the cable | `fieldkit zero check` |
 | "time sync", "check the clocks" | clocks of this computer and the cable peer | `fieldkit zero time` |
 | "hand over Zero", "X is Zero now" | change of Zero, epoch +1 | `fieldkit zero handover --to STATION` |
