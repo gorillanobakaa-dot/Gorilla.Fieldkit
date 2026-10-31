@@ -95,10 +95,11 @@ def test_unknown_probe_is_refused_and_nothing_runs():
 
 
 def test_where_refuses_a_shell_word():
-    for bad in ("a;b", "../x", "a b", "$(x)", ""):
+    for bad in ("a;b", "../x", "$(x)", " a", ""):
         assert not link_probe.run("where", bad)["ok"]
-    r = link_probe.run("where", "tool", which=lambda e: "/bin/tool", glob=lambda p: [], isfile=lambda f: True,
-                       osname="linux", home="/h", env={})
+    row = {"name": "tool", "path": "/bin/tool", "version": "", "how": "PATH", "running": [], "score": 2,
+           "launch": {"kind": "exe", "target": "/bin/tool"}}
+    r = link_probe.run("where", "tool", finder=lambda q: [row])
     assert r["ok"] and "/bin/tool" in r["text"]
 
 
