@@ -129,6 +129,7 @@ groups:
       - buildh/vault.py
       - buildh/worker.py
       - ideas.py
+      - review.py
       - lmstudio.py
       - metrics.py
       - orchestrate.py

@@ -5,6 +5,7 @@ Owner, 2026-10-18: approvals batched for when the owner is awake (publish, leak-
 changes to protections). A run (or its model) adds an item with the full context and the exact command; the run
 goes on with whatever does not depend on it. The owner reads and acts with:
 
+    fieldkit review                                the owner answers inbox items AND parked ideas once
     fieldkit inbox list | show N | done N [note]   items in <autopilot state>/inbox/*.json
     fieldkit publish [--repo DIR] [--release TAG --notes FILE --asset FILE ...] [--dry-run]
 
@@ -22,6 +23,15 @@ from . import hardlines
 INBOX = hardlines.STATE / "inbox"
 
 
+def _refresh():
+    """state/REVIEW.md follows every inbox change; it never breaks the change."""
+    try:
+        from .. import review
+        review.refresh()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def add(title, why, command="", kind="approval", files=()):
     """-> the item. An OPEN item with the same title is the same question: it is updated (why, command, `repeats`,
     `last`) instead of a new item (2026-10-28: 49 of 103 open items were "<peer> does not answer on the cable")."""
@@ -35,11 +45,13 @@ def add(title, why, command="", kind="approval", files=()):
             it.update(why=why, command=command or it.get("command", ""), repeats=int(it.get("repeats") or 1) + 1,
                       last=time.strftime("%Y-%m-%d %H:%M:%S"))
             p.write_text(json.dumps(it, indent=1, ensure_ascii=False), encoding="utf-8")
+            _refresh()
             return it
     n = 1 + max([int(p.stem.split("-")[0]) for p in INBOX.glob("*.json") if p.stem.split("-")[0].isdigit()] or [0])
     item = {"n": n, "kind": kind, "title": title, "why": why, "command": command, "files": list(files),
             "added": time.strftime("%Y-%m-%d %H:%M:%S"), "state": "open"}
     (INBOX / f"{n:04d}-{kind}.json").write_text(json.dumps(item, indent=1, ensure_ascii=False), encoding="utf-8")
+    _refresh()
     return item
 
 
@@ -55,11 +67,14 @@ def items(state="open"):
     return out
 
 
-def done(n, note=""):
+def done(n, note="", approved=None, answer=""):
     for p in INBOX.glob(f"{int(n):04d}-*.json"):
         it = json.loads(p.read_text(encoding="utf-8"))
         it.update(state="done", done=time.strftime("%Y-%m-%d %H:%M:%S"), note=note)
+        if approved is not None:
+            it.update(approved=bool(approved), answer=answer)
         p.write_text(json.dumps(it, indent=1, ensure_ascii=False), encoding="utf-8")
+        _refresh()
         return it
     raise KeyError(f"no inbox item {n}")
 

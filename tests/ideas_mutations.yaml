@@ -37,8 +37,8 @@
   why: a number outside the list is accepted
 - file: fieldkit/ideas.py
   swap:
-  - "    return f\"{n} parked ideas - fieldkit ideas review\" if n else \"\""
-  - "    return f\"{n} parked ideas - fieldkit ideas review\""
+  - "    return f\"{n} parked ideas - fieldkit review\" if n else \"\""
+  - "    return f\"{n} parked ideas - fieldkit review\""
   why: the line shows with nothing parked
 - file: fieldkit/ideas.py
   swap:

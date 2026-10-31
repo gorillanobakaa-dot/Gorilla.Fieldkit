@@ -1649,6 +1649,10 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rvp = sub.add_parser("review", add_help=False,
+                         help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
+                              "once at a terminal; --open opens state/REVIEW.md")
+    rvp.add_argument("args", nargs=argparse.REMAINDER)
     mt = sub.add_parser("metrics", add_help=False,
                         help="long-horizon proof from the harness's own records: days running, Zero epochs, session "
                              "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
@@ -2865,6 +2869,12 @@ def main(argv=None):
     if args[:1] == ["plan"]:                          # where the harness plan stands: phase, open items, merged ones
         from . import plan
         return plan.main(args[1:])
+    if args[:1] == ["review"]:                        # the one review: parked ideas and inbox items, answered once
+        from . import review
+        return review.main(args[1:])
+    if args[:2] == ["inbox", "review"]:
+        from . import review
+        return review.main(args[2:])
     if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
