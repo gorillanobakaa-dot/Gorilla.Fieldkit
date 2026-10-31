@@ -18,7 +18,8 @@
 
     fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
-    fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails]
+    fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
+    fieldkit image doctor|squash|compare|ocr|privacy ...   pictures offline: compress, compare, read, redact (fieldkit/image)
     fieldkit gather [--only NAME...] [--check|--test] [--offline]   bring tools in per imports.yaml
     fieldkit harvest [--root DIR] | --find WORDS...   index every script; search it
     fieldkit next PIPELINE                       the one next thing to do: DO / BLOCKED / CANNOT HERE / DONE
@@ -705,6 +706,9 @@ def cmd_privacy(a):
         rep.update(privacy.scan_path(p, git_only=git_only, examined=counted,
                                      allow_paths=a.allow_paths, allow_emails=a.allow_emails))
     examined = sum(counted)
+    if getattr(a, "images", False):
+        from .image import ocr as image_ocr
+        rep.update(image_ocr.scan_images(a.paths, git_only=a.git))
 
     def human(r):
         for f, hits in r.items():
@@ -1675,6 +1679,11 @@ def build_parser():
     ev.add_argument("args", nargs=argparse.REMAINDER)
     ev.set_defaults(fn=lambda a: __import__("fieldkit.evidence.cli", fromlist=["main"]).main(a.args))
 
+    im = sub.add_parser("image", add_help=False, help="pictures offline: doctor, squash (compress/convert), compare, ocr, "
+                                                      "privacy (personal text in images) (fieldkit image)")
+    im.add_argument("args", nargs=argparse.REMAINDER)
+    im.set_defaults(fn=lambda a: __import__("fieldkit.image.cli", fromlist=["main"]).main(a.args))
+
     wb = sub.add_parser("web", add_help=False, help="web pages through a real headless browser when the HTTP reader is "
                                                      "blocked or gets nothing (fieldkit web fetch|doctor)")
     wb.add_argument("args", nargs=argparse.REMAINDER)
@@ -1745,6 +1754,8 @@ def build_parser():
     pr.add_argument("--allow-paths", action="store_true")
     pr.add_argument("--allow-emails", action="store_true")
     pr.add_argument("--git", action="store_true", help="scan only what git would publish (respects .gitignore)")
+    pr.add_argument("--images", action="store_true", help="scan: also read the text in picture files (Tesseract) "
+                    "and scan it; a picture that cannot be read is a finding. Off by default")
     pr.add_argument("--all", action="store_true", help="in a git checkout, scan every file, ignored ones too "
                     "(default there: what git would publish)")
     pr.set_defaults(fn=cmd_privacy)
@@ -2866,6 +2877,9 @@ def main(argv=None):
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])
+    if args[:1] == ["image"]:                         # pictures: squash, compare, ocr, privacy (fieldkit/image)
+        from .image import cli as image_cli
+        return image_cli.main(args[1:])
     if args[:1] == ["web"]:                           # pages through a real browser when HTTP is blocked (fieldkit/web)
         from .web import cli as web_cli
         return web_cli.main(args[1:])

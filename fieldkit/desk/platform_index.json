@@ -1795,6 +1795,61 @@
    "ideas"
   ]
  },
+ "image compare": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-compare"
+  ]
+ },
+ "image doctor": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-doctor"
+  ]
+ },
+ "image ocr": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-ocr"
+  ]
+ },
+ "image privacy": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-privacy"
+  ]
+ },
+ "image squash": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-squash"
+  ]
+ },
  "inbox": {
   "platforms": [
    "linux",

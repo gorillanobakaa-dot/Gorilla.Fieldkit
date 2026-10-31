@@ -63,6 +63,9 @@ groups:
   - name: shot
     title: Reading numbers off a screenshot and reasoning about which layer is limiting; cropping, enlarging and comparing screenshots and measuring their text
     sources: [shot/*.py]
+  - name: image
+    title: Pictures offline - compress and convert with the real codecs, measured quality, comparing, reading the text in them and finding personal text before publishing
+    sources: [image/*.py]
   - name: voice
     title: A voice worth listening to, on Linux (piper, speech-dispatcher, the loudness chain)
     sources: [voice/*.py]
