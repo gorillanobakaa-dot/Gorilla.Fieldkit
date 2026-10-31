@@ -72,7 +72,6 @@ import uuid
 from pathlib import Path
 
 from . import channels as ch
-from ..peers import link_off
 from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -893,7 +892,7 @@ def unacked(net, now):
 
 def _cable_layer(device):
     """True when the ladder finds the peer silent on every rung (down, asleep or unplugged): it is off, not lost."""
-    from ..peers import link_heal
+    from ..peers import link_heal, link_off
     try:
         rows, facts = link_heal.ladder(device)
         return link_off.looks_off(link_heal.verdict(rows, facts)[0])
@@ -961,6 +960,7 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
             continue
         append("retry", "net", ref=u["entry"]["id"], data={"missing": u["missing"]}, now=now)
         retried.append(u["entry"]["id"])
+    from ..peers import link_off                    # lazy: the hook never needs the cable code (hook speed)
     cab = cable or ch.Cable()
     links = []
     for d in cab.devices():
@@ -1134,8 +1134,9 @@ def _net_line(call, event, now=None):
                 (ch.Cable(timeout=CABLE_HOOK_TIMEOUT_S)).push(e, net)
         if new:
             out.append(f"NET: Zero is {zero_of(net)} (epoch {net.get('epoch')}); you are station {me}, checked in by "
-                       "the hook. Owner words: 'zero', 'sitrep', 'comms check', 'roll call' mean fieldkit zero "
-                       "(skill fieldkit-net).")
+                       "the hook. Owner words: 'zero', 'comms check', 'roll call' mean fieldkit zero (skill "
+                       "fieldkit-net); 'sitrep' means the session report (skill fieldkit-sitrep): where we started, "
+                       "what we did, what is going on now, what is left.")
         for _, e in items[:HOOK_MAX_LINES]:
             out.append(ch.human(e, net))
         if len(items) > HOOK_MAX_LINES:
