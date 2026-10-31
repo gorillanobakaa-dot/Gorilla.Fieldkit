@@ -195,11 +195,18 @@ def skills_row(do_apply=False, installer=None):
     if stale and do_apply:
         import contextlib
         import io
-        with contextlib.redirect_stdout(io.StringIO()):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
             installer.main([])
         left = [r for r in installer.status() if r[2] in ("missing", "outdated", "off-os")]
         row.update(verdict="INSTALLED" if not left else "ERROR", ok=not left,
                    why=f"{len(stale) - len(left)} copy(ies) installed" + (f", {len(left)} still stale" if left else ""))
+        # an off-os copy leaves only through the recycle bin; when that fails the installer says why: show it
+        # (2026-10-31, VAIO: 12 stale for days because gorilla-size was not built, and sync hid the reason)
+        kept = sorted({ln.split("(recycle failed: ", 1)[1].rstrip(")") for ln in buf.getvalue().splitlines()
+                       if ln.startswith("kept") and "(recycle failed: " in ln})
+        if left and kept:
+            row["why"] += "; not recycled: " + "; ".join(kept)
     elif stale:
         row.update(verdict="STALE", ok=False, why=f"{len(stale)} copy(ies) missing, outdated or off this OS: fieldkit sync --apply")
     foreign = [f"{t.parent.name}/{n}" for t, n, s in installer.status() if s == "foreign"]
