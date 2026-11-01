@@ -1364,7 +1364,7 @@ def stage_align(ctx, run=subprocess.run):
     rows = [{"device": "this computer", "ok": mine.returncode == 0, "tail": (mine.stdout or mine.stderr or "")[-300:]}]
     from ..lifecycle import tasks
     from ..peers import link
-    root = Path(__file__).resolve().parents[2]
+    root = Path(tempfile.mkdtemp(prefix="fk-align-"))      # the job needs no files: an empty tree, not the repository
     for d in link.others(link.household() or {}):
         try:
             t = tasks.start_run(["fieldkit", "parity", "align", "--apply", "--version", tag], d["name"], root, wall=30,
@@ -1376,6 +1376,7 @@ def stage_align(ctx, run=subprocess.run):
                 timeout=1800)
         rows.append({"device": d["name"], "ok": t["status"] == "started" and w.returncode == 0, "task": t["id"],
                      "tail": (w.stdout or w.stderr or "")[-300:]})
+    root.rmdir()
     ok = all(r["ok"] for r in rows)
     return _save(ctx, src, "align", {"ok": ok, "version": tag, "commit": rec.get("commit"), "rows": rows,
                                      "detail": "; ".join(f"{r['device']}: {'aligned' if r['ok'] else 'FAILED'}"
