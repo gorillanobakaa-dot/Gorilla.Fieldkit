@@ -28,6 +28,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from . import ghhidden
+
 ROOT = Path(__file__).resolve().parents[2]
 NEED_OS = ("windows", "ubuntu")
 # A repository whose job names do not say the system: which job proves which one, as data (plan P14, idea I-11)
@@ -87,6 +89,8 @@ def ci_green(slug, sha, run=subprocess.run, public=_public_check_runs):
         gh_err = (r.stderr or "").strip()[:160] if r.returncode else ""
     except OSError as e:
         r, gh_err = None, str(e)[:160]
+    if gh_err:
+        gh_err = ghhidden.explain(gh_err)
     if gh_err:
         try:
             runs = public(slug, sha)

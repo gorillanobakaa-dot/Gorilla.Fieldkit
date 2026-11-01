@@ -49,7 +49,7 @@ import sys
 import time
 from pathlib import Path
 
-from .core import settings
+from .core import ghhidden, settings
 
 SCHEMA = 1
 ENV = "FIELDKIT_PARITY_MANIFEST"
@@ -903,6 +903,8 @@ def doctor():
     oc = opencode_path()
     rows.append(("gorilla-opencode found", bool(oc), str(oc)))
     rows.append(("gh (align downloads)", bool(shutil.which("gh")), shutil.which("gh") or "not on PATH"))
+    if shutil.which("gh") and ghhidden.gh_hidden():
+        rows[-1] = ("gh (align downloads)", True, f"{shutil.which('gh')} ({ghhidden.MESSAGE}; the public download path is used)")
     try:
         import psutil  # noqa: F401
         rows.append(("psutil (shared ground)", True, "importable"))

@@ -44,6 +44,7 @@ import sys
 import time
 from pathlib import Path
 
+from ..core import ghhidden
 from . import emit
 from . import mergeproof as mp
 from . import strikes
@@ -774,7 +775,8 @@ def doctor(repo=".", run=subprocess.run):
     rows.append((nums >= [2, 38], "git merge-tree --write-tree (2.38+)", v))
     try:
         r = run(["gh", "auth", "status"], capture_output=True, text=True, timeout=30)
-        rows.append((r.returncode == 0, "gh signed in", (r.stdout + r.stderr).strip().splitlines()[0:1] or ["-"]))
+        said = (r.stdout + r.stderr).strip().splitlines()[0:1] or ["-"]
+        rows.append((r.returncode == 0, "gh signed in", said if r.returncode == 0 else [ghhidden.explain(" ".join(said))]))
     except (OSError, subprocess.TimeoutExpired) as e:
         rows.append((False, "gh signed in", str(e)))
     ok, why = _may_update(repo, "feat/x")
