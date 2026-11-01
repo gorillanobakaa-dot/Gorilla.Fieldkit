@@ -381,3 +381,58 @@ def test_arch_stage_is_not_this_platform_off_linux_and_skipped_without_a_script(
     assert goapp.verify_arch(ctx)["ok"]
     ctx.vars["arch_script"] = ""
     assert goapp.stage_arch(ctx)["skipped"]
+
+
+def _arch_published_setup(tmp_path, monkeypatch):
+    src, ctx, out = _built(tmp_path)                      # the build stage holds a REBUILT binary: b"ELF stand-in"
+    ctx.vars["arch_script"] = _script(src, "scripts/arch.sh", 'mkdir -p Compiled.Builds; '
+        'cp hello "Compiled.Builds/hello-${1}-1-x86_64.pkg.tar.zst"\n')
+    ctx.vars["arch_published"] = "v9.0.0"
+    monkeypatch.setattr(goapp.sys, "platform", "linux")
+    monkeypatch.setattr(goapp.shutil, "which", lambda t: "/usr/bin/" + t)
+    return src, ctx
+
+
+def _fetch_of(content, claimed=None):
+    def fetch(tag, repo, name, folder):
+        assert (tag, name) == ("v9.0.0", "hello-v9.0.0-linux-amd64")
+        folder.mkdir(parents=True)
+        f = folder / name
+        f.write_bytes(content)
+        return f, claimed or goapp._sha(f)
+    return fetch
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in script is POSIX sh")
+def test_arch_published_wraps_the_release_binary_not_the_rebuilt_one(tmp_path, monkeypatch):
+    src, ctx = _arch_published_setup(tmp_path, monkeypatch)
+    r = goapp.stage_arch(ctx, fetch=_fetch_of(b"PUBLISHED bytes"))
+    assert r["ok"], r
+    pkg = Path(r["files"][0]["file"])
+    assert pkg.name == "hello-9.0.0-1-x86_64.pkg.tar.zst" and pkg.read_bytes() == b"PUBLISHED bytes"
+    assert r["binary_sha256"] == __import__("hashlib").sha256(b"PUBLISHED bytes").hexdigest() and r["published"] == "v9.0.0"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in script is POSIX sh")
+def test_arch_published_refuses_when_the_bytes_differ_from_the_published_sum(tmp_path, monkeypatch):
+    src, ctx = _arch_published_setup(tmp_path, monkeypatch)
+    r = goapp.stage_arch(ctx, fetch=_fetch_of(b"rebuilt", claimed="0" * 64))
+    assert not r["ok"] and "refused" in r["detail"]
+
+    def fails(tag, repo, name, folder):
+        raise RuntimeError("sha256 abc is not the SHA256SUMS value def")
+    r = goapp.stage_arch(ctx, fetch=fails)
+    assert not r["ok"] and "refused" in r["detail"]
+    assert not list((src / "Compiled.Builds").glob("*.pkg.tar.zst"))      # nothing was packaged
+
+
+def test_src_copies_the_embedded_files_only_when_asked(tmp_path, monkeypatch):
+    src = _module(tmp_path)
+    ctx = _ctx(_pipeline(tmp_path, src, git_ref="HEAD", embed_dirs="x/y"))
+    seen = []
+    monkeypatch.setattr(goapp, "checkout", lambda repo, ref, out="": tmp_path / "clone")
+    monkeypatch.setattr(goapp, "copy_embeds", lambda *a: seen.append(a))
+    goapp._src(ctx, embeds=False)
+    assert not seen
+    goapp._src(ctx)
+    assert len(seen) == 1
