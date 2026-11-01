@@ -164,7 +164,8 @@ core:
   text: |-
     DONE. Follow the DONE PROTOCOL in the fieldkit-lifecycle block of this file. Briefs, sitreps, audits and
     hand-overs stay in state/ (git-ignored); a document a plan row names goes to git in that row's PR, after
-    `fieldkit privacy scan` (Gorilla.Fieldkit is PUBLIC).
+    `fieldkit privacy scan` (Gorilla.Fieldkit is PUBLIC). "Built in" means all six of docs/INTEGRATION.md;
+    `fieldkit integration check` enforces it.
 - id: HONESTY
   subject: honest reports
   audience: all
