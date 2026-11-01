@@ -21,8 +21,8 @@ tests will not be impacted by different sessions that can skew the results." Mea
 v0.1.152, the VAIO v0.1.151, the release was v0.1.154, and a `go.exe` of another session pinned a core during a test.
 
 The pin is releases/parity-pin.yaml, changed by a commit: nothing here updates in the background (updates are pulled,
-verified and deployed on our schedule). Linux and macOS installs need root: align prints the exact line for the session
-there, it never runs sudo. The manifest carries provider NAMES only, never a key.
+verified and deployed on our schedule). Linux and macOS install per user in ~/.local/bin (no sudo, no gh, the public release URL; the .deb
+stays for other users). The manifest carries provider NAMES only, never a key.
 
 The preflight check (fieldkit/core/preflight.py STEPS) on every guarded run: the pin, shared ground (another session's
 process in this checkout, running the pinned binary, or pinning a core), models loaded that the run did not load. It
@@ -124,6 +124,10 @@ def opencode_path():
         p = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Gorilla OpenCode" / "gorilla-opencode.exe"
         if p.is_file():
             return p
+    if os.name != "nt":
+        u = Path.home() / ".local" / "bin" / "gorilla-opencode"
+        if u.is_file():
+            return u
     w = shutil.which("gorilla-opencode")
     return Path(w) if w else None
 
@@ -695,6 +699,87 @@ def fetch(tag, repo, name, folder, run=_run):
     return folder / name, got
 
 
+def _download(url, dest, urlopen=None):
+    """One public https download, no login: the bytes of url into dest."""
+    import urllib.request
+    urlopen = urlopen or urllib.request.urlopen
+    with urlopen(url, timeout=600) as r, open(dest, "wb") as f:
+        shutil.copyfileobj(r, f)
+
+
+def fetch_public(tag, repo, name, folder, run=None, urlopen=None):
+    """Download ONE release asset and its SHA256SUMS from the PUBLIC release URL (no gh, no login) into a new empty
+    folder and check the bytes against SHA256SUMS. -> (path, sha256). Raises RuntimeError on any problem.
+    run is unused (the same signature as fetch)."""
+    from .build import relfiles
+    folder = Path(folder)
+    if folder.exists() and any(folder.iterdir()):
+        raise RuntimeError(f"{folder} is not empty: downloads go into a new empty folder")
+    folder.mkdir(parents=True, exist_ok=True)
+    base = f"https://github.com/{repo}/releases/download/{tag}/"
+    sums = sums_name = None
+    for cand in (f"SHA256SUMS-{tag}.txt", "SHA256SUMS", f"SHA256SUMS-{tag}"):
+        try:
+            _download(base + cand, folder / cand, urlopen)
+        except OSError:
+            (folder / cand).unlink(missing_ok=True)
+            continue
+        sums_name = cand
+        sums = relfiles.parse_sums(folder / cand)
+        break
+    if not sums:
+        raise RuntimeError(f"{tag} of {repo} has no SHA256SUMS to check {name} against")
+    if name not in sums:
+        raise RuntimeError(f"{sums_name} does not list {name}")
+    try:
+        _download(base + name, folder / name, urlopen)
+    except OSError as e:
+        raise RuntimeError(f"download of {name} failed: {e}") from e
+    got = sha256(folder / name)
+    if sums[name] != got:
+        raise RuntimeError(f"{name}: sha256 {got} is not the {sums_name} value {sums[name]}")
+    return folder / name, got
+
+
+def user_dest(sysname=None):
+    """Where a per-user install goes on Linux and macOS: ~/.local/bin, no sudo."""
+    return Path.home() / ".local" / "bin" / "gorilla-opencode"
+
+
+def install_user(new, dest, old_version, want_sha, run=_run, in_use=None):
+    """Per-user install (Linux, macOS): new (the raw binary, or the mac zip holding it) -> dest, no sudo. The old
+    binary is kept as dest.bak-v<old>; the new one proven by its own --version; put back on any failure. -> dict."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".parity-new")
+    new = Path(new)
+    if new.suffix == ".zip":
+        import zipfile
+        with zipfile.ZipFile(new) as z:
+            member = next((n for n in z.namelist() if Path(n).name == "gorilla-opencode" and not n.endswith("/")), None)
+            if not member:
+                return {"ok": False, "why": f"{new.name} holds no gorilla-opencode binary"}
+            with z.open(member) as src, open(tmp, "wb") as out:
+                shutil.copyfileobj(src, out)
+    else:
+        shutil.copy2(new, tmp)
+    os.chmod(tmp, 0o755)
+    backup = dest.with_name(f"{dest.name}.bak-v{old_version or 'unknown'}")
+    had = dest.is_file()
+    if had and not backup.exists():
+        shutil.copy2(dest, backup)
+    os.replace(tmp, dest)
+    rc, out, err = run([str(dest), "--version"])
+    ver = norm_version(out or err) if rc == 0 else None
+    if not ver:
+        if backup.is_file():
+            shutil.copy2(backup, dest)
+        return {"ok": False, "why": f"after the copy --version gave {ver!r}; the old binary is back",
+                "backup": str(backup)}
+    return {"ok": True, "version": ver, "sha256": sha256(dest), "path": str(dest),
+            "backup": str(backup) if backup.is_file() else None}
+
+
 def _in_use(path, proc_mod=None):
     import psutil
     proc_mod = proc_mod or psutil
@@ -739,7 +824,8 @@ def _record_align(row):
         f.write(json.dumps(dict(row, at=time.strftime("%Y-%m-%d %H:%M:%S"))) + "\n")
 
 
-def align(version=None, repo=None, apply=False, sysname=None, run=_run, fetch_fn=fetch, install_fn=install_windows):
+def align(version=None, repo=None, apply=False, sysname=None, run=_run, fetch_fn=fetch_public, install_fn=install_windows,
+          user_install_fn=install_user):
     """-> {state ALIGNED | PLAN | DONE | TODO | FAILED, ...}. TODO = the line the session on that machine runs."""
     p = pin().get("gorilla-opencode") or {}
     tag = version or p.get("version")
@@ -750,6 +836,8 @@ def align(version=None, repo=None, apply=False, sysname=None, run=_run, fetch_fn
     want = norm_version(tag)
     s = sysname or system()
     kind = asset_for(s)
+    if kind in ("deb", "rpm"):
+        kind = "linux"          # a per-user install takes the raw binary; the .deb stays for other users
     name = ASSETS[kind].format(v=want)
     path = opencode_path()
     cur = probe_tool(path, ["--version"], {}, run) if path else None
@@ -774,17 +862,17 @@ def align(version=None, repo=None, apply=False, sysname=None, run=_run, fetch_fn
         out = {**base, **r, "state": "DONE" if r["ok"] else "FAILED"}
         _record_align(out)
         return out
-    if kind == "linux" and cur and cur["version"] == want and cur["sha256"] == sha:
+    if cur and cur["version"] == want and cur["sha256"] == sha:
         return {**base, "state": "ALIGNED", "why": "installed bytes equal the release's"}
-    if kind in ("deb", "rpm") and cur and cur["version"] == want:
-        # the package's binary is the release's raw linux binary (the VAIO, 2026-10-26: d31a6f2b... both)
-        return {**base, "state": "ALIGNED", "why": f"installed {want}; package checked against SHA256SUMS"}
-    line = {"deb": f"sudo apt install {f}", "rpm": f"sudo dnf install {f}",
-            "linux": f"install -m 0755 {f} {path or '/usr/local/bin/gorilla-opencode'}",
-            "darwin": f"unzip -o {f} -d ~/Applications"}[kind]
-    keep = f"cp -p {path} {path}.bak-v{(cur or {}).get('version')}" if path else ""
-    out = {**base, "state": "TODO", "run": [x for x in (keep, line) if x],
-           "why": "root is needed: the session on this machine runs these lines (Fieldkit never runs sudo)"}
+    if kind not in ("linux", "darwin"):
+        return {**base, "state": "FAILED", "why": f"no installer for {s}"}
+    dest = user_dest(s)
+    r = user_install_fn(f, dest, (cur or {}).get("version"), sha, run=run)
+    if r["ok"] and kind == "darwin":
+        r["sha256"] = sha256(dest)      # the zip's hash is the download; the installed file is the binary inside
+    out = {**base, **r, "state": "DONE" if r["ok"] else "FAILED"}
+    if r["ok"]:
+        out["why"] = f"installed per user in {dest.parent} (no sudo); put it first on PATH if an older copy shadows it"
     _record_align(out)
     return out
 

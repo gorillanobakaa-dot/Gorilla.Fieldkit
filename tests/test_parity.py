@@ -2,6 +2,7 @@
 (tests/data/parity) and fake processes, downloads and installs. Nothing here reaches GitHub or another machine."""
 import copy
 import hashlib
+import inspect
 import json
 from pathlib import Path
 
@@ -397,23 +398,101 @@ def test_align_apply_on_windows_fetches_installs_and_records(monkeypatch, tmp_pa
     assert json.loads((state / "align.jsonl").read_text().splitlines()[-1])["state"] == "DONE"
 
 
-def test_align_on_linux_never_runs_sudo_it_hands_over_the_line(monkeypatch, tmp_path):
-    exe = tmp_path / "gorilla-opencode"
-    exe.write_bytes(b"CUR")
-    monkeypatch.setenv("FIELDKIT_GORILLA_OPENCODE", str(exe))
-    monkeypatch.setattr(parity, "pin", lambda path=None: PIN)
-    monkeypatch.setattr(parity, "asset_for", lambda s=None: "deb")
+class _Resp:
+    def __init__(self, data):
+        self.data = data
 
-    def fetch_fn(tag, repo, name, folder, run=None):
-        return folder / name, "s" * 64
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, n=-1):
+        d, self.data = self.data, b""
+        return d
+
+
+def _fake_web(body=b"NEWBIN", listed=None, name="gorilla-opencode-v0.1.154-linux-amd64"):
+    good = hashlib.sha256(body).hexdigest()
+    seen = []
+
+    def urlopen(url, timeout=0):
+        seen.append(url)
+        if url.endswith("SHA256SUMS-v0.1.154.txt"):
+            return _Resp(f"{listed or good}  {name}\n".encode())
+        if url.endswith("/" + name):
+            return _Resp(body)
+        raise OSError("404")
+    return urlopen, good, seen
+
+
+def test_public_fetch_uses_the_public_url_and_checks_sha256sums(tmp_path):
+    web, good, seen = _fake_web()
+    f, sha = parity.fetch_public("v0.1.154", "o/r", "gorilla-opencode-v0.1.154-linux-amd64", tmp_path / "a", urlopen=web)
+    assert sha == good and f.read_bytes() == b"NEWBIN"
+    assert all(u.startswith("https://github.com/o/r/releases/download/v0.1.154/") for u in seen)
+    web, _, _ = _fake_web(listed="0" * 64)
+    with pytest.raises(RuntimeError, match="is not the SHA256SUMS"):
+        parity.fetch_public("v0.1.154", "o/r", "gorilla-opencode-v0.1.154-linux-amd64", tmp_path / "b", urlopen=web)
+
+
+def test_a_checksum_mismatch_refuses_to_install(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("FIELDKIT_GORILLA_OPENCODE", raising=False)
+    monkeypatch.setattr(parity, "pin", lambda path=None: PIN)
+    monkeypatch.setattr(parity, "opencode_path", lambda: None)
+    monkeypatch.setattr(parity, "state_dir", lambda: tmp_path / "state")
+    web, _, _ = _fake_web(listed="0" * 64)
+    monkeypatch.setattr("urllib.request.urlopen", web)
+    installed = []
+    r = parity.align(apply=True, sysname="linux", run=lambda c, timeout=30: (1, "", ""),
+                     user_install_fn=lambda *a, **k: installed.append(a) or {"ok": True})
+    assert r["state"] == "FAILED" and "is not the SHA256SUMS" in r["why"]
+    assert not installed and not (home / ".local" / "bin" / "gorilla-opencode").exists()
+
+
+def test_align_on_linux_installs_per_user_without_gh_or_sudo(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(parity, "pin", lambda path=None: PIN)
+    monkeypatch.setattr(parity, "opencode_path", lambda: None)
+    monkeypatch.setattr(parity, "asset_for", lambda s=None: "deb")
+    monkeypatch.setattr(parity, "state_dir", lambda: tmp_path / "state")
+    web, good, seen = _fake_web()
+    monkeypatch.setattr("urllib.request.urlopen", web)
     ran = []
-    r = parity.align(apply=True, sysname="linux", run=lambda c, timeout=30: ran.append(c) or (0, "v0.1.151", ""),
-                     fetch_fn=fetch_fn)
-    assert r["state"] == "TODO" and r["asset"] == "gorilla-opencode_0.1.154_amd64.deb"
-    assert r["run"][-1].startswith("sudo apt install ") and r["run"][0].startswith("cp -p ")
-    assert not any("sudo" in " ".join(map(str, c)) for c in ran)
-    on_pin = parity.align(apply=True, sysname="linux", run=lambda c, timeout=30: (0, "v0.1.154", ""), fetch_fn=fetch_fn)
-    assert on_pin["state"] == "ALIGNED"
+
+    def run(c, timeout=30):
+        ran.append(c)
+        return 0, "v0.1.154", ""
+    r = parity.align(apply=True, sysname="linux", run=run)
+    dest = home / ".local" / "bin" / "gorilla-opencode"
+    assert r["state"] == "DONE" and r["asset"] == "gorilla-opencode-v0.1.154-linux-amd64"
+    assert dest.read_bytes() == b"NEWBIN" and r["sha256"] == good
+    flat = [" ".join(map(str, c)) for c in ran]
+    assert not any(w in f.split() for f in flat for w in ("gh", "sudo", "apt", "dnf"))
+    assert all("gh" not in u.split("/")[2:3] for u in seen)
+
+
+def test_the_align_code_never_names_gh_or_sudo_as_a_command():
+    src = inspect.getsource(parity.align) + inspect.getsource(parity.fetch_public) + inspect.getsource(parity.install_user)
+    assert '"gh"' not in src and "'gh'" not in src and 'sudo ' not in src.replace("(no sudo", "")
+
+
+def test_install_user_unpacks_the_mac_zip_and_keeps_the_old_binary(tmp_path):
+    import zipfile
+    z = tmp_path / "m.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("gorilla-opencode-0.1.154/gorilla-opencode", b"MACBIN")
+    dest = tmp_path / "bin" / "gorilla-opencode"
+    dest.parent.mkdir()
+    dest.write_bytes(b"OLD")
+    r = parity.install_user(z, dest, "0.1.152", "x", run=lambda c, timeout=30: (0, "v0.1.154", ""))
+    assert r["ok"] and dest.read_bytes() == b"MACBIN" and Path(r["backup"]).read_bytes() == b"OLD"
 
 
 def test_the_command_compares_with_a_saved_manifest(monkeypatch, capsys):
