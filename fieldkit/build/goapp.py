@@ -17,6 +17,7 @@ Stages (pipelines/go-app.yaml, gorilla-opencode.yaml):
                 a difference is named, inside archives too (fieldkit/build/repro.py)
     published   (gorilla-opencode, --var compare_with=FOLDER|release) each binary compared byte for byte with the
                 published file of the same name; a difference names the bytes and go's build info (vcs.*, flags)
+    arch        (gorilla-opencode) the Arch .pkg.tar.zst (Linux only; not-this-platform elsewhere)
     packages    (gorilla-opencode) .deb/.rpm/tarball; every .deb/.xz made passes fieldkit xzcheck (--var xz_cap_mib)
     checksums   SHA256SUMS-<version>.txt for what was built
 
@@ -1065,6 +1066,68 @@ def stage_packages(ctx):
                                         + _xz_note(xz)})
 
 
+def stage_arch(ctx):
+    """vars.arch_script (the project's scripts/build-arch.sh, run as `sh SCRIPT <version>` with the Linux binary at
+    <src>/<name>): the Arch/CachyOS .pkg.tar.zst, a stage of its own so a run with the nfpm packager gets it too when
+    it runs on Linux. Elsewhere (the script runs the Linux binary, needs bsdtar and zstd): ok, status
+    not-this-platform, no file; the release then adds the package from a Linux run (ship gh-release --add)."""
+    src = _src(ctx)
+    v = ctx.vars
+    script = (v.get("arch_script") or "").strip()
+    if not script:
+        return _save(ctx, src, "arch", {"ok": True, "skipped": True, "files": [], "detail": "no arch_script: skipped"})
+    if sys.platform != "linux":
+        return _save(ctx, src, "arch", {"ok": True, "skipped": True, "status": "not-this-platform", "files": [],
+                                        "detail": "not-this-platform: the Arch package is made on Linux"})
+    rec = _load(ctx, src, "build")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "run the build stage first"}
+    linux = next((b["file"] for b in rec["built"] if b["target"].startswith("linux/")), None)
+    if not linux:
+        return {"ok": False, "detail": "no linux binary in the build: add linux/amd64 to targets"}
+    if not (src / script).is_file():
+        return {"ok": False, "detail": f"{script} is not in {src}"}
+    missing = [t for t in ("bsdtar", "zstd") if not shutil.which(t)]
+    if missing:
+        return {"ok": False, "detail": f"{script} needs {', '.join(missing)} on PATH"}
+    shutil.copy2(linux, src / (v.get("name") or "app"))
+    pkgdir = src / (v.get("package_dir") or "Compiled.Builds")
+    start = time.time() - 1
+    r = _run(ctx, ["sh", script, _plain(rec["version"])], src, "pkg-arch", timeout=1800)
+    made = [p for p in pkgdir.glob("*.pkg.tar.zst") if p.stat().st_mtime >= start] if pkgdir.is_dir() else []
+    if not r.ok or len(made) != 1:
+        last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
+        return {"ok": False, "detail": f"{script}: {'failed' if not r.ok else f'made {len(made)} .pkg.tar.zst, not one'}: "
+                                       + " | ".join(last)[:300], "log": r.log}
+    dst = _out(ctx, src) / made[0].name
+    shutil.copy2(made[0], dst)
+    files = [{"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size}]
+    return _save(ctx, src, "arch", {"ok": True, "version": rec["version"], "files": files,
+                                    "commit": source_commit(src), "detail": dst.name})
+
+
+def verify_arch(ctx):
+    src = _src(ctx)
+    rec = _load(ctx, src, "arch")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "no arch stage yet"}
+    if rec.get("skipped"):
+        return {"ok": True, "detail": rec["detail"]}
+    why = stale(rec, src, "the arch package")
+    if why:
+        return {"ok": False, "detail": why}
+    for f in rec["files"]:
+        p = Path(f["file"])
+        if not p.is_file() or _sha(p) != f["sha256"]:
+            return {"ok": False, "detail": f"{p.name} is missing or changed"}
+        r = subprocess.run(["zstd", "-t", str(p)], capture_output=True, text=True, timeout=600)
+        if r.returncode != 0:
+            return {"ok": False, "detail": f"{p.name}: zstd -t failed: {(r.stderr or r.stdout)[-200:]}"}
+        if not p.name.endswith("-x86_64.pkg.tar.zst") or _plain(rec["version"]) not in p.name:
+            return {"ok": False, "detail": f"{p.name} is not named for version {_plain(rec['version'])}"}
+    return {"ok": True, "detail": rec["detail"]}
+
+
 def xz_checked(ctx, files):
     """Every .deb/.xz/.txz among the made files through fieldkit xzcheck (the dictionary fits the content, not
     bigger, not smaller; unpacking proven within vars.xz_cap_mib, default 128). -> (results, None), or
@@ -1271,9 +1334,9 @@ def _packages_nfpm(ctx, src, rec, linux):
         shutil.copy2(m, dst)
         files.append({"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
     others = [s for s in (x.strip() for x in (v.get("packages") or "").split(",")) if s and
-              not any(k in s for k in ("deb", "rpm", "tarball"))]
+              not any(k in s for k in ("deb", "rpm", "tarball", "arch"))]
     if others:
-        notes.append("not made here: " + ", ".join(others) + " (needs its own system; Arch: the arch-package workflow)")
+        notes.append("not made here: " + ", ".join(others) + " (needs its own system)")
     xz, bad = xz_checked(ctx, files)
     if bad:
         return bad
@@ -1296,6 +1359,7 @@ def published(ctx, src):
             files.append((Path(mac["file"]), mac["sha256"]))
         files += [(Path(x["file"]), x["sha256"]) for x in mac.get("package", [])]
     files += [(Path(f["file"]), f["sha256"]) for f in (_load(ctx, src, "packages") or {}).get("files", [])]
+    files += [(Path(f["file"]), f["sha256"]) for f in (_load(ctx, src, "arch") or {}).get("files", [])]
     return files
 
 
@@ -1324,7 +1388,7 @@ def verify_checksums(ctx):
     rec = _load(ctx, src, "build")
     if not rec:
         return {"ok": False, "detail": "nothing built"}
-    for name in ("build", "mac", "packages"):
+    for name in ("build", "mac", "packages", "arch"):
         r = _load(ctx, src, name) or {}
         why = None if (r.get("skipped") or not r.get("ok")) else stale(r, src, f"the {name} stage")
         if why:
