@@ -1,0 +1,86 @@
+# Per-surface rules, one block per repository kind. Read by fieldkit/integration/core.py.
+# A capability is built in only when every surface below holds. `id` starts with the surface number of the
+# definition: 1 carried, 2 known to the AI, 3 visible, 4 on the release page, 5 on every system, 6 tested.
+# Rule types (core.py): word_in, exists, manifest, systems, block, kind_has, card_field, card_path, card_test,
+# card_platforms. `scope: kind` rules hold once per repository, not per capability.
+# {name} = the capability name; {command} = the card's fieldkit subcommand (falls back to the id).
+
+opencode:
+  repo_marker: internal/toolbox/SHA256SUMS
+  # the arsenal manifest lists a helper under another id sometimes (ast-grep -> astgrep)
+  aliases: {ast-grep: [astgrep], "7za": [p7zip, "7z", "7zz"], difft: [difftastic], cwebp: [webp, libwebp],
+            avifenc: [libavif, avif], coreutils: [uutils]}
+  systems: {windows: windows-, linux: linux-, macos: darwin-}
+  capabilities:
+    helper:
+      discover:
+        - {type: sums, file: internal/toolbox/SHA256SUMS}
+        - {type: bin_dirs, dir: internal/toolbox/bin}
+      changed: [{file: internal/toolbox/SHA256SUMS, kind: sums_added}]
+      surfaces:
+        - {id: 1-sums, type: word_in, files: [internal/toolbox/SHA256SUMS], create: internal/toolbox/SHA256SUMS,
+           sample: "{sha}  windows-amd64/{name}.exe", what: "no line in SHA256SUMS (the helper would be refused at run time)"}
+        - {id: 1-pins, type: word_in, files: [third_party/PINS.md], create: third_party/PINS.md,
+           sample: "| {name} | upstream | 1.0 | sha | MIT | {name}.exe |", what: "no row in third_party/PINS.md (tag, commit, license)"}
+        - {id: 2-prompt, type: word_in, files: [internal/hostprobe/helpers.go], create: internal/hostprobe/helpers.go,
+           sample: '// {name}', what: 'not named in the "Helpers here" prompt block'}
+        - {id: 2-howto, type: exists, path: "internal/howto/cards/{name}.md",
+           what: "no how-to card for the AI to read on demand"}
+        - {id: 3-arsenal, type: manifest, file: internal/arsenal/manifest.json,
+           what: "not in the /arsenal manifest (a series entry whose id or detect.binaries names it)"}
+        - {id: 3-context, type: kind_has, scope: kind, files: [internal/hostprobe/hostprobe.go],
+           regex: "Embedded toolbox", sample: '"Embedded toolbox (callable by name): "',
+           what: "/context does not list the embedded toolbox"}
+        - {id: 3-help, type: word_in, files: ["internal/howto/cards/everyday.md"], create: internal/howto/cards/everyday.md,
+           sample: "{name}: what it does", what: "/help (the everyday card) does not name it"}
+        - {id: 4-page, type: block, glob: "ReleaseNotes/GITHUB-RELEASE-NOTES-v*.md", begin: "<!-- helpers:begin -->",
+           end: "<!-- helpers:end -->", what: "not in the generated helpers table of the newest release page"}
+        - {id: 4-composer, type: kind_has, scope: kind, files: [scripts/release/build_release_page.py],
+           regex: "helpers:begin", sample: "helpers:begin",
+           what: "the release-page script does not generate the helpers table from SHA256SUMS and PINS.md"}
+        - {id: 5-systems, type: systems, needs: [1-sums], what: "missing on a system with no statement in the arsenal manifest ('absent_on')"}
+        - {id: 6-test, type: word_in, files: ["internal/toolbox/*_test.go", "internal/howto/*_test.go",
+                                            "internal/hostprobe/*_test.go"], create: internal/toolbox/toolbox_test.go,
+           sample: '// {name}', what: "no Go test names it"}
+    command:
+      discover:
+        - {type: regex_names, file: internal/commands/registry.go, regex: '(?m)^\s*Name:\s+"([^"]+)"'}
+      changed: [{file: internal/commands/registry.go, kind: regex_added, regex: '^\+\s*Name:\s+"([^"]+)"'}]
+      surfaces:
+        - {id: 1-dispatch, type: word_in, files: [internal/tui/tui.go], create: internal/tui/tui.go,
+           pattern: 'case\s.*"{name}"', sample: 'case "{name}":', what: "no dispatch case: the command cannot be typed"}
+        - {id: 2-docs, type: word_in, files: [docs/COMMANDS.md], create: docs/COMMANDS.md,
+           sample: "/{name}", what: "not in docs/COMMANDS.md"}
+        - {id: 6-test, type: word_in, files: ["internal/commands/*_test.go", "internal/tui/*_test.go"],
+           create: internal/commands/registry_test.go, pattern: '"{name}"', sample: '"{name}"', what: "no Go test names it"}
+
+fieldkit:
+  repo_marker: fieldkit/desk/tools.yaml
+  required_systems: [windows, linux]
+  # package folders that are shared plumbing, not capabilities
+  plumbing: [core, app, desk, integration, method, build, buildh, net, lifecycle, mandate, observe, peers]
+  capabilities:
+    tool:
+      discover:
+        - {type: cards, file: fieldkit/desk/tools.yaml}
+      changed: [{file: fieldkit/desk/tools.yaml, kind: cards_changed}]
+      surfaces:
+        - {id: 1-card-path, type: card_path, what: "the card's path does not exist (package or module missing)"}
+        - {id: 2-find, type: card_field, field: title, what: "card has no title, so `tools find` cannot match it"}
+        - {id: 2-skill, type: word_in, files: ["skills/*/SKILL.md"], token: command, create: skills/fieldkit-tools/SKILL.md,
+           pattern: 'fieldkit {command}\b', sample: "fieldkit {command}", what: "no skill names it"}
+        - {id: 3-list, type: card_field, field: harness, what: "card has no harness, so `tools list` cannot group it"}
+        - {id: 3-show, type: card_field, field: entry, what: "card has no entry, so `cards show` has no command to show"}
+        - {id: 3-help, type: word_in, files: [fieldkit/cli.py], token: command, create: fieldkit/cli.py,
+           pattern: '["'']{command}["'']', sample: '"{command}"', what: "fieldkit --help does not list the command"}
+        - {id: 4-composer, type: kind_has, scope: kind, files: [fieldkit/gdocs/releasepage.py],
+           regex: 'tools\.yaml|helpers:begin', sample: "tools.yaml",
+           what: "the release-page composer does not generate its tool table from the cards"}
+        - {id: 5-platforms, type: card_platforms, what: "platforms do not name windows and linux (or platforms_why)"}
+        - {id: 6-test, type: card_test, what: "card has no test, or the test file does not exist"}
+    package:
+      discover:
+        - {type: packages, dir: fieldkit}
+      changed: [{file: fieldkit, kind: packages_added}]
+      surfaces:
+        - {id: 1-card, type: package_card, what: "package has no card in fieldkit/desk/tools.yaml"}

@@ -5797,6 +5797,25 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_flaky.py"]
   skill: skills/fieldkit-methods/SKILL.md
 
+- id: integration
+  title: Is a capability built in? Carried, known to the AI, visible, on the release page, on every system, tested - check a repo or self-test the rules
+  harness: method
+  entry: [python, -m, fieldkit, integration]
+  path: ${FIELDKIT}/fieldkit/integration
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check | self-test"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "check: the Gorilla.Opencode or Fieldkit checkout"}
+    - {name: changed, flag: --changed, type: str, required: false, help: "check: only capabilities that git diff BASE adds or changes"}
+    - {name: kind, flag: --kind, type: str, required: false, help: "self-test (required): opencode | fieldkit"}
+  effects: [reads-files, processes]   # processes only with --changed (starts git diff); self-test writes a temp fixture and removes it
+  safety: reversible
+  output: own
+  exits: {2: "bad usage, or the folder is not a Gorilla.Opencode or Fieldkit repo", 3: "gaps found (check) or a seeded omission was not caught (self-test)"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_integration.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01: built in = properly integrated (docs/INTEGRATION.md). Rules per surface are data: fieldkit/integration/surfaces.yaml. One line per missing surface with the file to fix."
+
 - id: version-sync
   title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program
   harness: method
