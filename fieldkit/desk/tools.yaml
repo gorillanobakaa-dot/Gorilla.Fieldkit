@@ -5832,6 +5832,26 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner order 2026-10-29. Registry state/parked.json (git-ignored). A failed round is one red verdict on one head commit. ship ci-wait exits 4 when it parks."
 
+- id: install-verify
+  title: A program is installed the way its release says, as the desktop finds it - binary on PATH and in the .desktop, one effective .desktop, every icon size GNOME resolves first (hash, pixels, RGBA), caches; self-test seeds each break
+  harness: method
+  entry: [python, -m, fieldkit, install]
+  path: ${FIELDKIT}/fieldkit/method/installverify.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "verify | self-test"}
+    - {name: product, flag: null, type: str, required: false, help: "gorilla-opencode"}
+    - {name: tag, flag: --tag, type: str, required: false, help: "the release to compare with (default: the parity pin)"}
+    - {name: proof, flag: --proof, type: str, required: false, help: "write the resolved icon paths and sha256 per size to this JSON file"}
+  effects: [reads-files, writes-files, network]
+  safety: read-only
+  output: own
+  exits: {2: "bad usage or no reference", 3: "a check failed (each line names its fix)"}
+  platforms: [linux]
+  platforms_why: "reads the freedesktop layout (XDG icon and applications dirs, GNOME); Windows and macOS report not-this-platform until their readers are written"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_installverify.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-11-01 (plan W6) after an old Jul-23 icon in ~/.local/share/icons shadowed the release's in /usr/share. The reference is the release itself (its .deb, fetched from the public URL and checked against SHA256SUMS). Network: that one download. Wayland keeps the old icon in the running GNOME session until log out/in; reported as INFO."
+
 - id: xzcheck
   title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)
   harness: method
