@@ -72,7 +72,9 @@ def find_go():
     return next((str(c) for c in cands if c.is_file()), None)
 
 
-def _src(ctx):
+def _src(ctx, embeds=True):
+    """The module folder, or the clean clone of vars.git_ref. embeds=False: do not copy the git-ignored embed folders
+    into the clone (a stage that compiles nothing, such as the Arch package, must not need the Windows helpers)."""
     v = ctx.vars
     src = v.get("src") or ((settings.local_settings().get("goapps") or {}).get(v.get("name", "")) or "")
     if not src:
@@ -84,7 +86,8 @@ def _src(ctx):
     if not ref:
         return src
     dest = checkout(src, ref, v.get("out") or "")
-    copy_embeds(src, dest, v.get("embed_dirs") or "")
+    if embeds:
+        copy_embeds(src, dest, v.get("embed_dirs") or "")
     return dest
 
 
@@ -1071,7 +1074,7 @@ def stage_arch(ctx):
     <src>/<name>): the Arch/CachyOS .pkg.tar.zst, a stage of its own so a run with the nfpm packager gets it too when
     it runs on Linux. Elsewhere (the script runs the Linux binary, needs bsdtar and zstd): ok, status
     not-this-platform, no file; the release then adds the package from a Linux run (ship gh-release --add)."""
-    src = _src(ctx)
+    src = _src(ctx, embeds=False)
     v = ctx.vars
     script = (v.get("arch_script") or "").strip()
     if not script:
@@ -1107,7 +1110,7 @@ def stage_arch(ctx):
 
 
 def verify_arch(ctx):
-    src = _src(ctx)
+    src = _src(ctx, embeds=False)
     rec = _load(ctx, src, "arch")
     if not rec or not rec.get("ok"):
         return {"ok": False, "detail": "no arch stage yet"}

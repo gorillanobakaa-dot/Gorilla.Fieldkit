@@ -381,3 +381,15 @@ def test_arch_stage_is_not_this_platform_off_linux_and_skipped_without_a_script(
     assert goapp.verify_arch(ctx)["ok"]
     ctx.vars["arch_script"] = ""
     assert goapp.stage_arch(ctx)["skipped"]
+
+
+def test_src_without_embeds_does_not_need_the_git_ignored_helpers(tmp_path, monkeypatch):
+    # the Arch stage compiles nothing: a clone whose embed_dirs source is empty must not stop it (2026-11-01)
+    src, ctx, _ = _built(tmp_path)
+    ctx.vars.update({"git_ref": "HEAD", "embed_dirs": "internal/toolbox/bin/windows-amd64"})
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    monkeypatch.setattr(goapp, "checkout", lambda *a, **k: clone)
+    with pytest.raises(ValueError, match="holds no files"):
+        goapp._src(ctx)
+    assert goapp._src(ctx, embeds=False) == clone
