@@ -121,7 +121,7 @@ def test_the_gorilla_opencode_preset_matches_how_releases_are_built():
     assert p.vars["version_var"] == "github.com/opencode-ai/opencode/internal/version.Version"
     assert p.vars["windows_name"] == "gorilla-opencode.exe" and p.vars["cgo"] == "0"
     assert [s["id"] for s in p.stages] == ["toolchain", "modules", "vet", "test", "build", "repro", "published",
-                                            "mac", "packages", "checksums"]
+                                            "mac", "packages", "checksums", "align"]
     # 2026-10-25: byte equality with the published files is opt-in; packages pass xzcheck within 128 MiB
     assert p.vars["compare_with"] == "" and p.vars["git_ref"] == "" and p.vars["xz_cap_mib"] == "128"
     # every release file from one Linux machine (owner, 2026-10-23): the Mac 10.13 binary and the four packages
@@ -313,3 +313,38 @@ def test_mac_package_absent_is_said_not_failed(tmp_path):
     ctx.vars["mac_package"] = "scripts/packaging/missing.py"
     r = goapp.stage_mac(ctx)
     assert r["ok"] and "not in this checkout" in r["detail"]
+
+
+def _align_setup(monkeypatch, tmp_path, peer_status="started", local_rc=0):
+    from fieldkit.lifecycle import tasks
+    from fieldkit.peers import link
+    saved = {}
+    monkeypatch.setattr(goapp, "_src", lambda ctx: tmp_path)
+    monkeypatch.setattr(goapp, "_load", lambda ctx, src, name: {"ok": True, "version": "v9.9.9", "commit": "c"})
+    monkeypatch.setattr(goapp, "_save", lambda ctx, src, name, data: saved.setdefault(name, data))
+    monkeypatch.setattr(link, "household", lambda: {"d": 1})
+    monkeypatch.setattr(link, "others", lambda h: [{"name": "vaio"}])
+    calls = []
+    monkeypatch.setattr(tasks, "start_run", lambda argv, on, tree, **kw: calls.append((argv, on)) or
+                        {"id": "T-1", "status": peer_status})
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        rc = local_rc if "align" in cmd else 0
+        return subprocess.CompletedProcess(cmd, rc, "out", "")
+    return saved, calls, run
+
+
+def test_align_runs_parity_align_here_and_on_the_peer_for_the_new_tag(monkeypatch, tmp_path):
+    saved, calls, run = _align_setup(monkeypatch, tmp_path)
+    r = goapp.stage_align(None, run=run)
+    assert r["ok"] and [x["device"] for x in r["rows"]] == ["this computer", "vaio"]
+    assert any(c[-4:] == ["align", "--apply", "--version", "v9.9.9"] for c in calls if isinstance(c, list))
+    assert (["fieldkit", "parity", "align", "--apply", "--version", "v9.9.9"], "vaio") in calls
+
+
+def test_align_fails_when_the_peer_job_did_not_start_or_this_computer_failed(monkeypatch, tmp_path):
+    _, _, run = _align_setup(monkeypatch, tmp_path, peer_status="not-started")
+    assert not goapp.stage_align(None, run=run)["ok"]
+    _, _, run = _align_setup(monkeypatch, tmp_path, local_rc=3)
+    assert not goapp.stage_align(None, run=run)["ok"]

@@ -117,3 +117,11 @@ stages:
     run: {python: "fieldkit.build.goapp:stage_checksums"}
     verify:
       - {python: {target: "fieldkit.build.goapp:verify_checksums"}}
+
+  - id: align
+    # after the GitHub release: both computers installed at the new version, no owner step (parity align --apply
+    # here and over the cable on the peer; the release is the source, checked against its SHA256SUMS)
+    timeout: 3600
+    run: {python: "fieldkit.build.goapp:stage_align"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_align"}}
