@@ -10,6 +10,9 @@ description: >-
 baseline_minutes: 10
 vars:
   src: "${DOCUMENTS}/Gorilla.Opencode"
+  # the Windows working tree is checked out with CRLF (core.autocrlf=true) although .gitattributes says LF, so the
+  # build stage refuses it: build from a clean clone of HEAD instead (2026-11-01)
+  git_ref: HEAD
 sources:
   - {id: src, git: "{src}", track: tree}
 config:
