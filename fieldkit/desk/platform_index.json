@@ -1439,6 +1439,16 @@
    "canary"
   ]
  },
+ "capture": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "capture"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
