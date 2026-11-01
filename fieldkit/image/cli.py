@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from ..method import emit
-from . import measure, ocr, squash, tools
+from . import acceptance, measure, ocr, squash, tools
 
 
 def _doctor(a):
@@ -113,12 +113,26 @@ def _privacy(a):
     return 3 if report or not examined else 0
 
 
+def _accept(a):
+    r = acceptance.check()
+
+    def lines(d):
+        for s in d["steps"]:
+            yield f"[{'ok' if s['ok'] else 'FAIL'}] {s['step']}: {s['detail']}"
+    emit({**r, "next": "" if r["ok"] else "install the missing program (`fieldkit image doctor`); a model's vision does not count"},
+         a.json, lines)
+    return 0 if r["ok"] else 3
+
+
 def main(argv):
     p = argparse.ArgumentParser(prog="fieldkit image", description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor", help="which picture tools are present, and how to install the missing ones")
     d.add_argument("--json", action="store_true")
     d.set_defaults(fn=_doctor)
+    x = sub.add_parser("accept", help="acceptance: tesseract reads a generated picture, magick identify/convert; fails when absent")
+    x.add_argument("--json", action="store_true")
+    x.set_defaults(fn=_accept)
     s = sub.add_parser("squash", help="compress or convert; the original is never touched; below target is refused")
     s.add_argument("paths", nargs="+")
     s.add_argument("--to", choices=["webp", "avif", "jpeg", "jpg", "png"], default="webp")
