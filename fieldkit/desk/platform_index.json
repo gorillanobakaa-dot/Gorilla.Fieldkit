@@ -2323,6 +2323,28 @@
    "parity"
   ]
  },
+ "parity helpers": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-helpers"
+  ]
+ },
+ "parity installed": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-installed"
+  ]
+ },
  "peers link": {
   "platforms": [
    "linux",

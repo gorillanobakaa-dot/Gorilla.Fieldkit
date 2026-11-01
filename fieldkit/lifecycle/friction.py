@@ -15,6 +15,7 @@
     untagged     a live session whose title does not start with its machine's tag ([VAIO-LNX]; peers/machine.py):
                  a notification from it does not say which computer spoke
     board        a session that ended in the last 24 h with no Board row in PLAN.md (plan R3; fieldkit board)
+    sweep        scripts under the sweep roots with no card or no test (fieldkit sweep): adopt or ignore each
     peer         a peer that cannot be audited (no answer, or an older Fieldkit without the friction verb)
 
 Acknowledge a line that is handled with `fieldkit friction ack KEY` (state/lifecycle/friction-ack.json). Read-only
@@ -270,12 +271,28 @@ def board_rows():
         return []
 
 
+def sweep_rows(rows=None):
+    """"N scripts not adopted (fieldkit sweep)": a script nobody carded is a script the next session writes again
+    (owner, 2026-11-01). Not ok while N > 0."""
+    try:
+        from ..desk import sweep
+        todo = sweep.unadopted(sweep.scan() if rows is None else rows)
+    except Exception:  # noqa: BLE001 - an unreadable registry must not switch the audit off
+        return []
+    if not todo:
+        return []
+    names = ", ".join(r["name"] for r in todo[:6]) + (", ..." if len(todo) > 6 else "")
+    return [_row("sweep", "sweep:scripts", f"{len(todo)} scripts not adopted (fieldkit sweep): {names}",
+                 "`fieldkit tools find` each, then `fieldkit adopt` it (card + test), or add it to sweep.ignore in "
+                 "fieldkit.local.json with a reason")]
+
+
 def local_rows(dirs=None, me=None):
     """Every friction line on THIS computer (also what the link verb `friction` answers a peer)."""
     me = me if me is not None else os.environ.get(desktop.HOST_ENV, "")
     sessions = desktop.sessions(dirs)
     rows = (desktop_rows(sessions, me=me) + untagged_rows(sessions) + remote_rows(dirs) + link_rows()
-            + prereq_rows() + needs_you_rows() + unread_rows() + inbox_rows() + board_rows())
+            + prereq_rows() + needs_you_rows() + unread_rows() + inbox_rows() + board_rows() + sweep_rows())
     done = acked()
     return [r for r in rows if r["key"] not in done]
 

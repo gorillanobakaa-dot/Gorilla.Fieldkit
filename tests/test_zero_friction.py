@@ -256,7 +256,7 @@ def test_inbox_rows_and_ack_filter(monkeypatch):
     inbox_rows = friction.inbox_rows
     rows = inbox_rows([{"n": 4, "title": "decide"}])
     assert rows[0]["key"] == "inbox:4"
-    for name in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "unread_rows"):
+    for name in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "unread_rows", "board_rows", "sweep_rows"):
         monkeypatch.setattr(friction, name, lambda *a, **k: [])
     monkeypatch.setattr(friction, "inbox_rows", lambda *a, **k: rows + inbox_rows([{"n": 5, "title": "b"}]))
     monkeypatch.setattr(desktop, "sessions", lambda dirs=None: [])
