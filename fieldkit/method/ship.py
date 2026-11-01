@@ -332,7 +332,9 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
     from . import tagguard
-    g = (guard or tagguard.check)(repo, tag)
+    # CI is read with gh: inside an autopilot run only ship's own environment has the credential back (#145, "ship only")
+    g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: subprocess.run(
+        *a, **{**k, "env": ship_env()}))))(repo, tag)
     if not g["ok"]:
         bad = [x for x in g["rows"] if not x["ok"]]
         return {"ok": False, "state": "not-release-ready", "tag": tag, "rows": g["rows"],
