@@ -79,7 +79,7 @@ def _built(tmp_path, **vars_):
 def _nfpm_vars(src, ctx, prev):
     (src / "scripts").mkdir(exist_ok=True)
     (src / "scripts" / "nfpm.py").write_text(NFPM, encoding="utf-8")
-    ctx.vars.update({"packages": "scripts/build-deb.sh,scripts/build-arch.sh,scripts/build-tarball.sh,scripts/build-rpm.sh",
+    ctx.vars.update({"packages": "scripts/build-deb.sh,scripts/build-tarball.sh,scripts/build-rpm.sh",
                      "packager": "nfpm", "nfpm_script": "scripts/nfpm.py", "previous_deb": str(prev),
                      "tarball": "hello-linux-x86_64.tar.gz", "tarball_member": "hello"})
 
@@ -105,7 +105,7 @@ def test_nfpm_packages_and_the_tarball_from_the_reproduced_binary(tmp_path):
     assert names == ["hello-1.2.3-1.x86_64.rpm", "hello-linux-x86_64.tar.gz", "hello_1.2.3_amd64.deb"]
     args = json.loads((goapp._reports(ctx, src) / "nfpm-args.json").read_text())
     assert args == ["--compare", str(prev)]                       # compared with the last release's .deb
-    assert "scripts/build-arch.sh" in r["detail"] and "not made here" in r["detail"]
+    assert "not made here" not in r["detail"]                       # Arch has its own stage now
     # the tarball: one member, 0755, the binary's bytes, without running it
     with tarfile.open(out / "hello-linux-x86_64.tar.gz", "r:gz") as t:
         (m,) = t.getmembers()
