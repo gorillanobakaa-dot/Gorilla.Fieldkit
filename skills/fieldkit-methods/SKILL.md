@@ -1,7 +1,7 @@
 ---
 name: fieldkit-methods
 description: >-
-  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), the same pinned versions and capabilities on every machine before a test (parity), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
+  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), the same pinned versions and capabilities on every machine before a test (parity), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, check that a new function or feature is built in - carried, known to the AI, visible, on the release page, on every system, tested (integration), ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux. Works offline; no network access unless a step says so."
 ---
@@ -56,6 +56,14 @@ machine paths in local/canaries.yaml). Release checks call `canary.gate(ids)`: a
 Learned 2026-10-18/19: a telemetry scan that read only the source passed a program carrying a tracing library 1,036
 times; the static theme check cannot see a white popup background (white is a theme colour; only the rendered
 contrast check sees that failure).
+
+## Before you call a feature done: is it built in? (docs/INTEGRATION.md)
+```
+fieldkit integration check --repo PATH [--changed BASE]   one line per missing surface, with the file to fix; exit 3 = gaps
+fieldkit integration self-test --kind opencode|fieldkit   seeds one omission per surface; exit 0 = every one caught
+```
+Rules per surface are data: `fieldkit/integration/surfaces.yaml`. Run `--changed origin/main` before committing a new
+helper, tool or command.
 
 ## Before a test, a measurement or a benchmark: the same ground on every machine
 ```

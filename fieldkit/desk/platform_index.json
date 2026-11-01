@@ -1439,6 +1439,16 @@
    "canary"
   ]
  },
+ "capture": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "capture"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
@@ -1889,6 +1899,16 @@
   "why": "reads the freedesktop layout (XDG icon and applications dirs, GNOME); Windows and macOS report not-this-platform until their readers are written",
   "ids": [
    "install-verify"
+  ]
+ },
+ "integration": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "integration"
   ]
  },
  "jobs": {

@@ -5797,6 +5797,45 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_flaky.py"]
   skill: skills/fieldkit-methods/SKILL.md
 
+- id: integration
+  title: Is a capability built in? Carried, known to the AI, visible, on the release page, on every system, tested - check a repo or self-test the rules
+  harness: method
+  entry: [python, -m, fieldkit, integration]
+  path: ${FIELDKIT}/fieldkit/integration
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check | self-test"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "check: the Gorilla.Opencode or Fieldkit checkout"}
+    - {name: changed, flag: --changed, type: str, required: false, help: "check: only capabilities that git diff BASE adds or changes"}
+    - {name: kind, flag: --kind, type: str, required: false, help: "self-test (required): opencode | fieldkit"}
+  effects: [reads-files, processes]   # processes only with --changed (starts git diff); self-test writes a temp fixture and removes it
+  safety: reversible
+  output: own
+  exits: {2: "bad usage, or the folder is not a Gorilla.Opencode or Fieldkit repo", 3: "gaps found (check) or a seeded omission was not caught (self-test)"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_integration.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01: built in = properly integrated (docs/INTEGRATION.md). Rules per surface are data: fieldkit/integration/surfaces.yaml. One line per missing surface with the file to fix."
+
+- id: capture
+  title: Zero-loss capture of every script, command and procedure an agent makes or runs - kept at first use with its context, failed attempts linked to their fix, found again by words, never discarded
+  harness: method
+  entry: [python, -m, fieldkit, capture]
+  path: ${FIELDKIT}/fieldkit/capture
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "hook | scan | find | ledger | verify | status | self-test"}
+    - {name: agent, flag: --agent, type: str, required: false, help: "hook: claude | gemini | opencode (the agent's hook JSON arrives on stdin)"}
+    - {name: words, flag: null, type: str, required: false, help: "find: words every record must contain"}
+    - {name: strict, flag: --strict, type: bool, required: false, help: "ledger: exit 3 if any item is lost, unaccounted or stuck"}
+    - {name: json, flag: --json, type: bool, required: false, help: "find, ledger, verify, status: machine-readable output"}
+  effects: [reads-files, writes-files]   # the store is state/capture/ (FIELDKIT_CAPTURE_DIR); self-test uses a temp sandbox it removes
+  safety: reversible
+  output: own
+  exits: {2: "bad usage, or a part that a later job builds (scan, other self-test flags)", 3: "verify or strict ledger found a loss, a broken chain or an unaccounted item; a self-test failed"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
+
 - id: version-sync
   title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program
   harness: method

@@ -42,7 +42,7 @@ fk = "fieldkit.aliases:main"          # short plain-English names for long comma
 include = ["fieldkit*"]
 
 [tool.setuptools.package-data]
-fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "desk/platform_index.json", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "desk/size_help/*.txt", "mandate/*.yaml", "mandate/hooks/*/*", "scratch/owner/*.ps1", "mandate/prereqs/*.ps1", "peers/*.yaml", "lifecycle/*.yaml"]
+fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "desk/platform_index.json", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "desk/size_help/*.txt", "mandate/*.yaml", "mandate/hooks/*/*", "scratch/owner/*.ps1", "mandate/prereqs/*.ps1", "peers/*.yaml", "lifecycle/*.yaml", "integration/*.yaml", "capture/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "local/tests"]
