@@ -100,3 +100,10 @@ mandate does not cover (deletes, moved tags, the decision register) or when no m
 ## Machine facts
 
 `fieldkit host --json` reports the system, the distribution and the CPU count.
+
+## Capture: what an earlier agent already made
+
+`fieldkit capture find WORDS` before rebuilding a script, command or procedure: the capture store (state/capture/) keeps
+every script and command an agent wrote or ran, one-offs and failed attempts included, with the fix that followed.
+The agents' hooks run `fieldkit capture hook --agent claude|gemini|opencode`; `capture ledger --strict` exits 3 if
+anything captured was lost, and `capture verify` checks the hash chain.
