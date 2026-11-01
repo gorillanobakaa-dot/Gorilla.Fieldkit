@@ -1237,6 +1237,14 @@ def cmd_goal(a):
             return 2
         print("STOPPED: " + (", ".join(goal.stop(gid, " ".join(x[1:]) or "the owner said stop")) or "nothing"))
         return 0
+    if a.action == "resume":
+        if not x:
+            print("goal resume ID WHY (only a goal the stall check blocked)")
+            return 2
+        ok, text = goal.resume(x[0], " ".join(x[1:]))
+        print(("RESUMED: " if ok else "NOT RESUMED: ") + text)
+        print(f"NEXT: fieldkit goal run {x[0]}" if ok else "NEXT: read fieldkit goal status " + x[0])
+        return 0 if ok else 3
     if a.action == "approve":
         return goal.approve(x[0]) if x else 2
     if a.action == "report":
@@ -1935,8 +1943,8 @@ def build_parser():
     rb.set_defaults(fn=cmd_runbook)
 
     gl = sub.add_parser("goal", parents=[common], help="long horizon goals: planner, workers, verifier, supervisor")
-    gl.add_argument("action", choices=["new", "status", "run", "stop", "approve", "report", "supervisor-script"])
-    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID")
+    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "supervisor-script"])
+    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID")
     gl.add_argument("--from", dest="from_file", help="new: the goal spec (goal.json shape)")
     gl.add_argument("--objective", help="new: the objective (without --from)")
     gl.add_argument("--criterion", action="append", default=[], help="new: a command that must exit 0 (repeatable)")
