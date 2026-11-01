@@ -490,11 +490,12 @@ def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
         if published:
             # 2026-11-01: a ship command the mandate was never asked about says so, and which shape it is asked about
             unasked = not opened and re.search(r"\bship\s+(push|merge|gh-release)\b", cmd, re.I)
-            return "deny", (f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)"
-                            + (f"; the mandate did not open it: {shut}" if shut else "")
-                            + ("; the mandate was not asked: it is asked only about ONE plain statement `fieldkit ship "
-                               "push|merge|gh-release ...` (or `cd DIR && fieldkit ship push ...`), with no other "
-                               "; && | or $(...)" if unasked else ""))
+            # the line below is the swap text of rules/proofs.yaml HARD LINES proof 1: keep it on one line, as it is
+            tail = ((f"; the mandate did not open it: {shut}" if shut else "")
+                    + ("; the mandate was not asked: it is asked only about ONE plain statement `fieldkit ship "
+                       "push|merge|gh-release ...` (or `cd DIR && fieldkit ship push ...`), with no other "
+                       "; && | or $(...)" if unasked else ""))
+            return "deny", f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)" + tail
         if owner:
             return "deny", f"HARD LINE 4: {owner} is the owner's alone; put it in the owner inbox (fieldkit inbox add)"
         mac = MAC_RUN.match(cmd) if _one_statement(cmd) else None   # a ; after -- would run HERE, not on the Mac
