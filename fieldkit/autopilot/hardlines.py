@@ -389,7 +389,8 @@ class MandateDoor:
 
 
 def _mandated(cmd, cwd, door):
-    """-> ("allow", why) when a mandate in force opens hard line 1 or 4 for this exact command, else None."""
+    """-> ("allow", why) when a mandate in force opens hard line 1 or 4 for this exact command, ("shut", why) when the
+    mandate was asked and said no (its reason goes into the refusal), else None."""
     if not _one_statement(cmd) or NEVER_OPENED.search(cmd):
         return None
     m = SHIP.match(cmd)
@@ -406,7 +407,7 @@ def _mandated(cmd, cwd, door):
         if v == "allow":
             door.log(path, "push-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
-        return None
+        return "shut", why                                # the refusal says the mandate's own reason (B1, 2026-11-01)
     m = GH_RELEASE.match(cmd)
     if m:                                                 # owner-wide: release of a tag on origin, CI green
         repo = re.search(r"--repo(?:\s+|=)(\S+)", m.group(2) or "")
@@ -415,14 +416,14 @@ def _mandated(cmd, cwd, door):
         if v == "allow":
             door.log(path, "release-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
-        return None
+        return "shut", why                                # the refusal says the mandate's own reason (B1, 2026-11-01)
     m = RELEASE_RUN.match(cmd)
     if m:                                                 # the mandate's release door; never with another release file
         v, why, path = door.decide("release", project=m.group(1), version=m.group(2))
         if v == "allow":
             door.log(path, "release-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
-        return None
+        return "shut", why                                # the refusal says the mandate's own reason (B1, 2026-11-01)
     if any(re.search(pat, cmd, re.I) for pat, _ in OWNER_ONLY):
         v, why, path = door.decide("approval", what=cmd)
         if v == "allow":
@@ -478,12 +479,15 @@ def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
             return "allow", "a note to the owner's inbox"
         published = next((why for pat, why in PUBLISH if re.search(pat, cmd, re.I)), None)
         owner = next((why for pat, why in OWNER_ONLY if re.search(pat, cmd, re.I)), None)
+        shut = None
         if published or owner:
             opened = _mandated(cmd, cwd, door)
-            if opened and not (published and owner):
+            if opened and opened[0] == "allow" and not (published and owner):
                 return opened
+            shut = opened[1] if opened and opened[0] == "shut" else None
         if published:
-            return "deny", f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)"
+            return "deny", (f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)"
+                            + (f"; the mandate did not open it: {shut}" if shut else ""))
         if owner:
             return "deny", f"HARD LINE 4: {owner} is the owner's alone; put it in the owner inbox (fieldkit inbox add)"
         mac = MAC_RUN.match(cmd) if _one_statement(cmd) else None   # a ; after -- would run HERE, not on the Mac
