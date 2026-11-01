@@ -9,8 +9,10 @@ The tool router asks `verdict()` before every `archive_session` (self or an id).
     ZERO      is the session that holds the Zero seat now (fieldkit zero), archived by another session (Zero archives
               itself only through fieldkit zero retire, zero/retire.py)
     RUNNING   was active in the last ACTIVE_MIN minutes (the app's own lastActivityAt), unless it is the caller itself
-    NESTED    has side sessions it started that are neither detached nor archived: the app archives those with it
-              (each one listed; detach_session ID or archive it on its own first)
+    NESTED    has side sessions it started that are not archived, DETACHED OR NOT: the app archives the attached ones
+              with it and hides the detached ones under it (2026-11-01: Zero 20 archived itself after Zero 21 had
+              detached; the owner had to unarchive Zero 20 to see Zero 21). Each one listed; such a session is left
+              idle, never archived, until its children are archived on their own
 
 Archiving finished sessions one by one stays allowed: that is the cleanup. The facts come from the desktop app's own
 session records (claude-code-sessions/**/local_*.json: spawnedFrom, lineageDetached, isArchived, lastActivityAt,
@@ -18,7 +20,7 @@ cliSessionId); where there are none (another system, no app), from the caller's 
 without a detach_session after them).
 
     fieldkit sessions-nested check [SESSION_ID|self] [--transcript PATH]   the verdict (exit 3 when refused)
-    fieldkit sessions-nested ok SESSION_ID          record a child that detached itself (transcript fallback only)
+    fieldkit sessions-nested ok SESSION_ID          record a child that was archived on its own (transcript fallback only)
 
 Zero tokens: plain file reading.
 """
@@ -72,9 +74,9 @@ def _parent(r):
 
 
 def live_children(recs, sid):
-    """-> the ids of sessions `sid` started that are neither detached nor archived (the app archives them with it)."""
-    return sorted(k for k, r in recs.items() if _parent(r) == sid and not r.get("lineageDetached")
-                  and not r.get("isArchived"))
+    """-> the ids of sessions `sid` started that are not archived. Detached ones count too: the app lists a detached
+    child under its parent, so archiving the parent hides it from the sidebar (owner, 2026-11-01)."""
+    return sorted(k for k, r in recs.items() if _parent(r) == sid and not r.get("isArchived"))
 
 
 def _by_cli(recs, cli):
@@ -113,8 +115,9 @@ def verdict(target, caller_cli, recs, zero_cli=None, now=None):
     kids = live_children(recs, tid)
     if kids:
         names = ", ".join(f"{k} ({(recs[k].get('title') or '?')[:40]})" for k in kids)
-        why.append(f"NESTED: archiving {tid} would also archive the side session(s) it started: {names}. "
-                   "detach_session each one (or archive it on its own) first")
+        why.append(f"NESTED: archiving {tid} would archive or hide the side session(s) it started: {names}. "
+                   "detach_session does not help (the app still lists a detached child under its parent): leave "
+                   f"{tid} idle; archive it only after those sessions are archived on their own")
     return why
 
 
@@ -168,7 +171,7 @@ def recorded_ok():
 def nested(transcript, ok=None):
     started, detached = children(transcript)
     ok = recorded_ok() if ok is None else ok
-    return [s for s in started if s not in detached and s not in ok]
+    return [s for s in started if s not in ok]      # detached children stay listed under the parent (2026-11-01)
 
 
 # ------------------------------------------------------------------ the hook
@@ -187,8 +190,8 @@ def pretool(call, ok=None, recs=None, zero_cli=None, now=None):
         elif target == "self":
             left = nested(call.get("transcript_path") or "", ok)
             why = [f"NESTED: archiving this session would also archive the side session(s) it started: "
-                   f"{', '.join(left)}. detach_session each one first (one that detached itself: "
-                   "fieldkit sessions-nested ok ID)"] if left else []
+                   f"{', '.join(left)}. A detached child still shows only under its parent: leave this session idle "
+                   "(one archived on its own: fieldkit sessions-nested ok ID)"] if left else []
         else:
             why = []
         return ("ARCHIVE REFUSED (fieldkit sessions-nested): " + " | ".join(why)) if why else None
