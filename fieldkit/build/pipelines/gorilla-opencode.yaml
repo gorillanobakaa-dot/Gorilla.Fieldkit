@@ -31,6 +31,7 @@ vars:
   embed_dirs: internal/toolbox/bin/windows-amd64
   embed_sums: internal/toolbox/SHA256SUMS
   embed_root: internal/toolbox/bin
+  embed_seed: "${HOME}/gorilla-toolbox-build/out/windows-x86_64"   # the source-built helpers (not in the module), taken only if pinned
   embed_fetch: scripts/fetch-toolbox-extras.sh   # fills pinned official-release helpers missing from embed_dirs
   mac_script: scripts/build-darwin-legacy.sh   # empty: no Mac binary
   mac_suffix: macos10.13

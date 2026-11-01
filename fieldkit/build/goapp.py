@@ -30,6 +30,7 @@ file reruns vet, test and build; changing nothing reruns nothing. Reports live i
 The version, when not given: `git describe --tags --always --dirty` in the source (v0.1.145-3-gabc1234-dirty), so a
 build from uncommitted changes says so in its own --version.
 """
+import gzip
 import hashlib
 import json
 import os
@@ -83,7 +84,7 @@ def _src(ctx):
     if not ref:
         return src
     dest = checkout(src, ref, v.get("out") or "")
-    copy_embeds(src, dest, v.get("embed_dirs") or "")
+    copy_embeds(src, dest, v.get("embed_dirs") or "", seeds=_seed_files(src, v))
     return dest
 
 
@@ -107,14 +108,46 @@ def target_tags(ctx, goos, goarch):
     return ",".join(out)
 
 
-def copy_embeds(repo, dest, dirs):
+def _seed_files(src, v):
+    """vars.embed_seed: comma-separated folders outside the module holding built helpers (`name` or `name.gz`). Only
+    the names the pin list (vars.embed_sums) has for the embed folder are taken, so an unpinned file there (sg.exe) is
+    never embedded. -> {file name in the embed folder, with .gz: path}. Nothing set: {}. (2026-11-01: the source-built
+    Windows helpers are git-ignored and live in the toolbox build folder, not in the module)"""
+    sums = (v.get("embed_sums") or "").strip()
+    seeds = [Path(settings.expand(d.strip())).expanduser() for d in (v.get("embed_seed") or "").split(",") if d.strip()]
+    if not sums or not seeds or not (Path(src) / sums).is_file():
+        return {}
+    plats = {Path(d.strip()).name + "/" for d in (v.get("embed_dirs") or "").split(",") if d.strip()}
+    pinned = set()
+    for line in (Path(src) / sums).read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and not line.lstrip().startswith("#") and any(parts[1].startswith(p) for p in plats):
+            pinned.add(parts[1].split("/", 1)[1])
+    out = {}
+    for d in seeds:
+        for name in sorted(pinned):
+            for cand in (name + ".gz", name):
+                if name + ".gz" not in out and (d / cand).is_file():
+                    out[name + ".gz"] = d / cand
+    return out
+
+
+def copy_embeds(repo, dest, dirs, seeds=None):
     """Copy each folder of `dirs` (comma-separated, relative to the module) from the source checkout into the clone.
     They must be git-ignored there (else the clone is no longer clean and go records vcs.modified=true: refused) and
-    must hold files (an empty one is what made v0.1.155: refused). Raises ValueError."""
+    must hold files (an empty one is what made v0.1.155: refused). `seeds` ({name.gz: path}, see _seed_files) fills
+    the names the checkout lacks, gzipped; check_embeds still proves every byte against the pins. Raises ValueError."""
     for rel in (d.strip() for d in dirs.split(",") if d.strip()):
         a, b = Path(repo) / rel, Path(dest) / rel
         files = sorted(p for p in a.rglob("*") if p.is_file()) if a.is_dir() else []
-        if not files:
+        have = {p.name for p in files}
+        for name, path in sorted((seeds or {}).items()):
+            if name not in have and name[:-3] not in have:
+                b.mkdir(parents=True, exist_ok=True)
+                data = path.read_bytes()
+                (b / name).write_bytes(data if path.suffix == ".gz" else gzip.compress(data, 9, mtime=0))
+                have.add(name)
+        if not files and not have:
             raise ValueError(f"embed_dirs: {a} holds no files; the build would embed nothing. Put the files there "
                              "(for Gorilla OpenCode: scripts/build-toolbox.ps1 -HelpersDir ...) and run again")
         ign = subprocess.run(["git", "-C", str(dest), "check-ignore", "-q", rel + "/x"], capture_output=True,
