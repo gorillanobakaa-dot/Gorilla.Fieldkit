@@ -424,3 +424,15 @@ def test_arch_published_refuses_when_the_bytes_differ_from_the_published_sum(tmp
     r = goapp.stage_arch(ctx, fetch=fails)
     assert not r["ok"] and "refused" in r["detail"]
     assert not list((src / "Compiled.Builds").glob("*.pkg.tar.zst"))      # nothing was packaged
+
+
+def test_src_copies_the_embedded_files_only_when_asked(tmp_path, monkeypatch):
+    src = _module(tmp_path)
+    ctx = _ctx(_pipeline(tmp_path, src, git_ref="HEAD", embed_dirs="x/y"))
+    seen = []
+    monkeypatch.setattr(goapp, "checkout", lambda repo, ref, out="": tmp_path / "clone")
+    monkeypatch.setattr(goapp, "copy_embeds", lambda *a: seen.append(a))
+    goapp._src(ctx, embeds=False)
+    assert not seen
+    goapp._src(ctx)
+    assert len(seen) == 1

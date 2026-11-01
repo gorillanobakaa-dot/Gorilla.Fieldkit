@@ -72,7 +72,7 @@ def find_go():
     return next((str(c) for c in cands if c.is_file()), None)
 
 
-def _src(ctx):
+def _src(ctx, embeds=True):
     v = ctx.vars
     src = v.get("src") or ((settings.local_settings().get("goapps") or {}).get(v.get("name", "")) or "")
     if not src:
@@ -84,7 +84,8 @@ def _src(ctx):
     if not ref:
         return src
     dest = checkout(src, ref, v.get("out") or "")
-    copy_embeds(src, dest, v.get("embed_dirs") or "")
+    if embeds:                          # the arch package of a published release builds no binary: nothing to embed
+        copy_embeds(src, dest, v.get("embed_dirs") or "")
     return dest
 
 
@@ -1088,7 +1089,7 @@ def stage_arch(ctx, fetch=None):
     not-this-platform, no file; the release then adds the package from a Linux run (ship gh-release --add).
     vars.arch_published=vX: the package of an already published release wraps that release's own linux binary (public
     download, equal to its SHA256SUMS line), never a rebuilt one; any difference refuses. Empty: the binary this run built."""
-    src = _src(ctx)
+    src = _src(ctx, embeds=not (ctx.vars.get("arch_published") or "").strip())
     v = ctx.vars
     script = (v.get("arch_script") or "").strip()
     if not script:
@@ -1134,7 +1135,7 @@ def stage_arch(ctx, fetch=None):
 
 
 def verify_arch(ctx):
-    src = _src(ctx)
+    src = _src(ctx, embeds=not (ctx.vars.get("arch_published") or "").strip())
     rec = _load(ctx, src, "arch")
     if not rec or not rec.get("ok"):
         return {"ok": False, "detail": "no arch stage yet"}
