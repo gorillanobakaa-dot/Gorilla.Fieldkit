@@ -35,7 +35,8 @@ vars:
   mac_script: scripts/build-darwin-legacy.sh   # empty: no Mac binary
   mac_suffix: macos10.13
   mac_package: scripts/packaging/build_mac_legacy_package.py   # the installer's folder + .zip (skipped if absent)
-  packages: "scripts/build-deb.sh,scripts/build-arch.sh,scripts/build-tarball.sh,scripts/build-rpm.sh"
+  packages: "scripts/build-deb.sh,scripts/build-tarball.sh,scripts/build-rpm.sh"
+  arch_script: scripts/build-arch.sh   # the Arch .pkg.tar.zst: a stage of its own, Linux only (not-this-platform elsewhere); empty: none
   package_dir: Compiled.Builds   # where the package scripts leave their files
   mac_go: "1.24"           # the series build-darwin-legacy.sh is patched for and the MacBook Air builds used
   mac_zip: "<name>-<version>-mac-10.13-x86_64.zip"   # <version> without v; the published zip; the bare Mac binary is not published
@@ -112,6 +113,14 @@ stages:
     run: {python: "fieldkit.build.goapp:stage_packages"}
     verify:
       - {python: {target: "fieldkit.build.goapp:verify_packages"}}
+
+  - id: arch
+    # W6 (2026-11-01): v0.1.158 and v0.1.160 went out without the Arch package, because the Windows nfpm path cannot
+    # make it. Its own stage so every packager gets it on Linux; elsewhere it records not-this-platform.
+    timeout: 3600
+    run: {python: "fieldkit.build.goapp:stage_arch"}
+    verify:
+      - {python: {target: "fieldkit.build.goapp:verify_arch"}}
 
   - id: checksums
     run: {python: "fieldkit.build.goapp:stage_checksums"}
