@@ -192,10 +192,11 @@ def fetch_missing_embeds(ctx, src, goos, goarch, problems):
             bd = Path(bash).resolve().parent
             env["PATH"] = os.pathsep.join([str(d) for d in (bd, bd.parent / "usr" / "bin", bd.parent.parent / "usr" / "bin")
                                            if d.is_dir()] + [env.get("PATH", "")])
-        r = subprocess.run([bash, (Path(src) / script).as_posix(), tmp.as_posix()], capture_output=True, text=True,
-                           timeout=1800, env=env)
+        # OUTDIR is "." with cwd=tmp: GNU tar reads a "C:/..." -C/-f path as host "C" (tar: Cannot connect to C)
+        r = subprocess.run([bash, (Path(src) / script).as_posix(), "."], capture_output=True, text=True,
+                           timeout=1800, env=env, cwd=str(tmp))
         if r.returncode != 0:
-            return problems + [f"{script} failed ({r.returncode}): " + (r.stderr or r.stdout).strip()[-300:]]
+            return [f"{script} failed ({r.returncode}): " + (r.stderr or r.stdout).strip()[-300:]] + problems
         for rel in missing:
             got = tmp / rel
             if not got.is_file():
