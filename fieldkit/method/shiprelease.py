@@ -35,6 +35,7 @@ import time
 from pathlib import Path
 
 from .ship import git, _rev
+from ..core import ghhidden
 
 MAX_COMMITS = 20
 MAX_DAYS = 7
@@ -160,7 +161,8 @@ def audit(repo=".", base="main", offline=False, max_commits=MAX_COMMITS, max_day
         out, err = gh(["pr", "list", "-R", slug, "--state", "open", "--json", "number,title,headRefName,statusCheckRollup"]) \
             if slug else (None, "no GitHub remote")
         if out is None:
-            row("pulls", False, f"open pull requests not readable: {err[:120]}", "gh auth status")
+            row("pulls", False, f"open pull requests not readable: {ghhidden.explain(err[:120])}",
+                "" if ghhidden.gh_hidden() else "gh auth status")
         else:
             prs = json.loads(out or "[]")
             desc = []
