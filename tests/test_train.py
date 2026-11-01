@@ -459,3 +459,16 @@ def test_prove_kinds(world):
     assert p["merge_clean"] and not p["skip_ok"] and p["rows"][0]["kind"] == "line-merged"
     assert mp.expected3("b", "o", "b") == "o" and mp.expected3("b", "b", "t") == "t"
     assert mp.expected3("b", "o", "t") is None
+
+
+def test_hook_prints_test_names_with_lf_and_forward_slashes(tmp_path, monkeypatch):
+    """2026-11-01: on Windows the CR of CRLF stuck to each name in sh: "file or directory not found: tests\test_x.py"."""
+    import io
+    monkeypatch.setattr(mp, "hook_decide", lambda *a, **k: (True, "ok", [str(tmp_path / "tests" / "a.py"),
+                                                                        str(tmp_path / "tests" / "b.py")]))
+    raw = io.BytesIO()
+    out = io.TextIOWrapper(raw, encoding="utf-8")        # text mode as a console pipe: newline becomes os.linesep
+    monkeypatch.setattr(sys, "stdout", out)
+    assert mp.main(["hook", "--repo", str(tmp_path)]) == 0
+    out.flush()
+    assert raw.getvalue() == b"tests/a.py\ntests/b.py\n"
