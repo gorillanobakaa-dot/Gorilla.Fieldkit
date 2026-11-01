@@ -1066,11 +1066,28 @@ def stage_packages(ctx):
                                         + _xz_note(xz)})
 
 
-def stage_arch(ctx):
+def _published_linux(ctx, src, tag, fetch):
+    """vars.arch_published (a release tag): the release's own linux binary, from the public download, checked against
+    its published SHA256SUMS line (parity.fetch_public raises when the bytes differ). The download is kept in the
+    stage's report folder as the evidence. -> (path, sha256)."""
+    from .. import parity
+    name = _file_name(ctx, tag, "linux", "amd64")
+    reports = _reports(ctx, src)
+    reports.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(prefix="arch-published-", dir=reports)) / "dl"
+    path, got = (fetch or parity.fetch_public)(tag, ctx.vars.get("repo") or "", name, folder)
+    if _sha(Path(path)) != got:
+        raise RuntimeError(f"{name}: sha256 differs from the published one")
+    return Path(path), got
+
+
+def stage_arch(ctx, fetch=None):
     """vars.arch_script (the project's scripts/build-arch.sh, run as `sh SCRIPT <version>` with the Linux binary at
     <src>/<name>): the Arch/CachyOS .pkg.tar.zst, a stage of its own so a run with the nfpm packager gets it too when
     it runs on Linux. Elsewhere (the script runs the Linux binary, needs bsdtar and zstd): ok, status
-    not-this-platform, no file; the release then adds the package from a Linux run (ship gh-release --add)."""
+    not-this-platform, no file; the release then adds the package from a Linux run (ship gh-release --add).
+    vars.arch_published=vX: the package of an already published release wraps that release's own linux binary (public
+    download, equal to its SHA256SUMS line), never a rebuilt one; any difference refuses. Empty: the binary this run built."""
     src = _src(ctx)
     v = ctx.vars
     script = (v.get("arch_script") or "").strip()
@@ -1079,12 +1096,21 @@ def stage_arch(ctx):
     if sys.platform != "linux":
         return _save(ctx, src, "arch", {"ok": True, "skipped": True, "status": "not-this-platform", "files": [],
                                         "detail": "not-this-platform: the Arch package is made on Linux"})
-    rec = _load(ctx, src, "build")
-    if not rec or not rec.get("ok"):
-        return {"ok": False, "detail": "run the build stage first"}
-    linux = next((b["file"] for b in rec["built"] if b["target"].startswith("linux/")), None)
-    if not linux:
-        return {"ok": False, "detail": "no linux binary in the build: add linux/amd64 to targets"}
+    tag = (v.get("arch_published") or "").strip()
+    if tag:
+        rec = {"version": tag}
+        try:
+            linux, binary_sha = _published_linux(ctx, src, tag, fetch)
+        except (RuntimeError, OSError, ValueError) as e:
+            return {"ok": False, "detail": f"refused: the published {tag} linux binary is not usable: {e}"[:400]}
+    else:
+        rec = _load(ctx, src, "build")
+        if not rec or not rec.get("ok"):
+            return {"ok": False, "detail": "run the build stage first"}
+        linux = next((b["file"] for b in rec["built"] if b["target"].startswith("linux/")), None)
+        if not linux:
+            return {"ok": False, "detail": "no linux binary in the build: add linux/amd64 to targets"}
+        binary_sha = _sha(Path(linux))
     if not (src / script).is_file():
         return {"ok": False, "detail": f"{script} is not in {src}"}
     missing = [t for t in ("bsdtar", "zstd") if not shutil.which(t)]
@@ -1103,7 +1129,8 @@ def stage_arch(ctx):
     shutil.copy2(made[0], dst)
     files = [{"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size}]
     return _save(ctx, src, "arch", {"ok": True, "version": rec["version"], "files": files,
-                                    "commit": source_commit(src), "detail": dst.name})
+                                    "commit": source_commit(src), "detail": dst.name,
+                                    "binary_sha256": binary_sha, "published": tag})
 
 
 def verify_arch(ctx):

@@ -37,6 +37,7 @@ vars:
   mac_package: scripts/packaging/build_mac_legacy_package.py   # the installer's folder + .zip (skipped if absent)
   packages: "scripts/build-deb.sh,scripts/build-tarball.sh,scripts/build-rpm.sh"
   arch_script: scripts/build-arch.sh   # the Arch .pkg.tar.zst: a stage of its own, Linux only (not-this-platform elsewhere); empty: none
+  arch_published: ""       # a release tag: the Arch package wraps THAT release's own linux binary (public download, equal to its SHA256SUMS line), never a rebuilt one
   package_dir: Compiled.Builds   # where the package scripts leave their files
   mac_go: "1.24"           # the series build-darwin-legacy.sh is patched for and the MacBook Air builds used
   mac_zip: "<name>-<version>-mac-10.13-x86_64.zip"   # <version> without v; the published zip; the bare Mac binary is not published
