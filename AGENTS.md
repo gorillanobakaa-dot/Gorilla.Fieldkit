@@ -35,6 +35,8 @@ owner says "add it to git" (rules/CORE.md DONE PROTOCOL).
 
 ## Changing Fieldkit
 
+- "Built in" has one definition, all six conditions: `docs/INTEGRATION.md`. `fieldkit integration check` enforces it.
+
 - Run the tests covering your change (`fieldkit testcost staged`); the full suite runs in CI. A new check needs a test
   that proves it can fail (`fieldkit mutate`).
 - Pipelines, signatures, recipes and the registry are data (YAML). Change the data before the code.
