@@ -35,3 +35,8 @@
   - '    if not todo:'
   - '    if True:'
   why: the friction row is not ok while N > 0
+- file: fieldkit/desk/sweep.py
+  swap:
+  - '            if (entry / ".git").exists():'
+  - '            if False:'
+  why: another session's git worktree is not an unadopted script

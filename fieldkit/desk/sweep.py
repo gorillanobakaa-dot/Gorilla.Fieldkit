@@ -21,6 +21,7 @@ ROOTS
     The Fieldkit folder itself is never swept (it is the harness, not scratch).
 
 STATUS, per item (a sub-folder, or a loose script at the root)
+    (a folder holding .git - a checkout or worktree - is not an item)
     untracked   no registry card points inside it           -> register it or retire it
     no-test     a card exists but has test: null            -> write the test
     untested    a card with a test that has never been run  -> fieldkit tools check --run-tests --id ID
@@ -72,11 +73,16 @@ def _expand_default(tmpl):
     return settings.expand(tmpl)
 
 
-def _skip_for(root):
+def _default_root(root):
+    """-> the folders to skip under `root` when it is one of DEFAULT_ROOTS, else None."""
     for tmpl, skip in DEFAULT_ROOTS:
         if _norm(_expand_default(tmpl)) == _norm(root):
             return set(skip)
-    return set()
+    return None
+
+
+def _skip_for(root):
+    return _default_root(root) or set()
 
 
 def ignore_reasons(local=None):
@@ -124,6 +130,8 @@ def items(root, ignore):
         if entry.is_file() and entry.name.endswith(ADOPTED):
             continue                   # the marker beside an adopted loose script, not an item of its own
         if entry.is_dir():
+            if (entry / ".git").exists():
+                continue               # a git checkout or worktree is a project under git, not a script
             out.append({"name": entry.name, "path": str(entry), "kind": "folder"})
         elif entry.suffix.lower() in SCRIPT_EXT:
             out.append({"name": entry.name, "path": str(entry), "kind": "script"})
@@ -191,6 +199,8 @@ def scan(roots_=None, tools=None, results=None, ignore=None, now=None):
     rows = []
     for root in roots_:
         for it in items(Path(root), ignore | _skip_for(root)):
+            if it["kind"] == "leftover" and _default_root(root) is not None:
+                continue               # local/ holds config data (yaml, json) beside its scripts: not a leftover
             st, ids = status_of(it, tools, results)
             age = int((now - _newest_mtime(Path(it["path"]))) // 86400) if Path(it["path"]).exists() else None
             rows.append({"root": str(root), "name": it["name"], "kind": it["kind"], "status": st,

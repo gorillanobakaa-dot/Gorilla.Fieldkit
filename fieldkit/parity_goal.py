@@ -54,13 +54,16 @@ def helpers(repo=None):
 
 
 def newest_tag(repo, run=parity._run):
+    """The newest release tag: gh when it is logged in, else the highest vX.Y.Z tag on the public repo (git ls-remote)."""
     rc, out, err = run(["gh", "release", "view", "--repo", repo, "--json", "tagName"], timeout=60)
-    if rc != 0:
-        return None
-    try:
-        return parity.norm_version(json.loads(out).get("tagName"))
-    except ValueError:
-        return None
+    if rc == 0:
+        try:
+            return parity.norm_version(json.loads(out).get("tagName"))
+        except ValueError:
+            pass
+    rc, out, err = run(["git", "ls-remote", "--tags", "--refs", f"https://github.com/{repo}"], timeout=60)
+    tags = re.findall(r"refs/tags/v(\d+(?:\.\d+)+)\s*$", out if rc == 0 else "", re.M)
+    return max(tags, key=lambda t: tuple(int(x) for x in t.split("."))) if tags else None
 
 
 def installed(mine=None, peers=None, newest=None, run=parity._run):

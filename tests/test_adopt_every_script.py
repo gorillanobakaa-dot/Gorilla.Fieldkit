@@ -62,6 +62,14 @@ def test_installed_without_a_peer_cannot_pass():
     assert not r["ok"] and "no peer" in r["problems"][0]
 
 
+def test_newest_tag_falls_back_to_the_highest_remote_tag():
+    def run(cmd, timeout=0):
+        if cmd[0] == "gh":
+            return 1, "", "not logged in"
+        return 0, "aa\trefs/tags/v0.1.99\nbb\trefs/tags/v0.1.156\ncc\trefs/tags/v0.1.100\n", ""
+    assert parity_goal.newest_tag("o/r", run) == "0.1.156"
+
+
 def test_installed_unknown_newest_is_an_error():
     r = parity_goal.installed(mine="1", peers={"v": "1"}, newest=None, run=lambda *a, **k: (1, "", "no gh"))
     assert r.get("error") and not r["ok"]
@@ -135,3 +143,17 @@ def test_honesty_reports_uncarded_script(tmp_path, monkeypatch):
     assert [x["kind"] for x in found] == ["UNCARDED"]
     monkeypatch.setattr(honesty, "_uncarded", lambda p: None)
     assert honesty.check("wrote `tool.py`\nNOT verified: - (x)", "", offline=True, base=tmp_path) == []
+
+
+def test_a_git_checkout_is_not_a_script(tmp_path):
+    (tmp_path / "wt-x").mkdir()
+    (tmp_path / "wt-x" / ".git").write_text("gitdir: /elsewhere")
+    (tmp_path / "tool").mkdir()
+    assert [r["name"] for r in sweep.scan([tmp_path], [], {}, ignore=set())] == ["tool"]
+
+
+def test_config_files_in_local_are_not_leftovers(tmp_path, monkeypatch):
+    monkeypatch.setattr(sweep, "DEFAULT_ROOTS", ((str(tmp_path), ()),))
+    (tmp_path / "recipes.yaml").write_text("a: 1")
+    (tmp_path / "t.py").write_text("1")
+    assert [r["name"] for r in sweep.scan([tmp_path], [], {}, ignore=set())] == ["t.py"]
