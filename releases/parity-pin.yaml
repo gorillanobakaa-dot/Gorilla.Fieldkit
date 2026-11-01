@@ -1,6 +1,6 @@
 # The versions every machine runs before a test (fieldkit parity). Changed by a commit, never by a background
 # update: updates are pulled, checked against the release's SHA256SUMS and deployed on our schedule.
-gorilla-opencode: {version: v0.1.154, repo: gorillanobakaa-dot/Gorilla.Opencode}
+gorilla-opencode: {version: v0.1.160, repo: gorillanobakaa-dot/Gorilla.Opencode}
 # per target, report only (parity align never installs a toolchain): go1.24 on the VAIO is deliberate, it builds
 # the macOS 10.13 release (go1.25+ dropped 10.13); Windows builds with the current go (measured 2026-10-26)
 go: {targets: {windows: "1.27.0", linux: "1.24.4"}, align: report}
