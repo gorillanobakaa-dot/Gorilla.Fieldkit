@@ -410,6 +410,7 @@ def test_arch_published_wraps_the_release_binary_not_the_rebuilt_one(tmp_path, m
     assert r["ok"], r
     pkg = Path(r["files"][0]["file"])
     assert pkg.name == "hello-9.0.0-1-x86_64.pkg.tar.zst" and pkg.read_bytes() == b"PUBLISHED bytes"
+    assert __import__("os").access(src / "hello", 1)
     assert r["binary_sha256"] == __import__("hashlib").sha256(b"PUBLISHED bytes").hexdigest() and r["published"] == "v9.0.0"
 
 
