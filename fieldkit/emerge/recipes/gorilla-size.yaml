@@ -21,7 +21,9 @@ preflight: {disk_gb: 3, ram_gb: 2, path: "{src}"}
 docs_only: {source: src}
 stages:
   - id: test
-    run: {cmd: [cargo, test, --release, --offline, --locked, -q], cwd: "{src}"}
+    # the recycle tests need their fixtures on the file system of the trash (a copy across file systems is refused by
+    # design); /tmp is a tmpfs on Linux, so TMPDIR points inside the tree (target/ is git-ignored)
+    run: {cmd: [sh, -c, 'mkdir -p target/test-tmp && TMPDIR="$PWD/target/test-tmp" exec cargo test --release --offline --locked -q'], cwd: "{src}"}
     timeout: 3600
     inputs: ["{src}/src/**/*.rs", "{src}/tests/**/*.rs", "{src}/vendor/*/.cargo-checksum.json"]
     uses: [config, toolchain, inputs]
