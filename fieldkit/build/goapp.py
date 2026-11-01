@@ -1348,3 +1348,47 @@ def verify_checksums(ctx):
     if bad:
         return {"ok": False, "detail": f"{t.name}: " + "; ".join(bad[:3])}
     return {"ok": True, "detail": f"{f.name} lists every published file and matches it; {t.name} agrees"}
+
+
+def stage_align(ctx, run=subprocess.run):
+    """After gh-release (release mode, once): bring both computers to the new version with `fieldkit parity align
+    --apply`, here and on every peer over the cable (a `run` link job, no AI, no owner step). The release itself is
+    the source: align downloads the asset and SHA256SUMS from it and checks them, so an unpublished tag fails here."""
+    src = _src(ctx)
+    rec = _load(ctx, src, "build")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "run the build stage first"}
+    tag = rec["version"] if str(rec["version"]).startswith("v") else "v" + str(rec["version"])
+    cmd = [sys.executable, "-m", "fieldkit", "parity", "align", "--apply", "--version", tag]
+    mine = run(cmd, capture_output=True, text=True, timeout=1800)
+    rows = [{"device": "this computer", "ok": mine.returncode == 0, "tail": (mine.stdout or mine.stderr or "")[-300:]}]
+    from ..lifecycle import tasks
+    from ..peers import link
+    root = Path(__file__).resolve().parents[2]
+    for d in link.others(link.household() or {}):
+        try:
+            t = tasks.start_run(["fieldkit", "parity", "align", "--apply", "--version", tag], d["name"], root, wall=30,
+                                again=True)
+        except (ValueError, tasks.AlreadyStarted) as e:
+            rows.append({"device": d["name"], "ok": False, "tail": str(e)[:300]})
+            continue
+        w = run([sys.executable, "-m", "fieldkit", "task", "watch", t["id"]], capture_output=True, text=True,
+                timeout=1800)
+        rows.append({"device": d["name"], "ok": t["status"] == "started" and w.returncode == 0, "task": t["id"],
+                     "tail": (w.stdout or w.stderr or "")[-300:]})
+    ok = all(r["ok"] for r in rows)
+    return _save(ctx, src, "align", {"ok": ok, "version": tag, "commit": rec.get("commit"), "rows": rows,
+                                     "detail": "; ".join(f"{r['device']}: {'aligned' if r['ok'] else 'FAILED'}"
+                                                         for r in rows)})
+
+
+def verify_align(ctx):
+    """Both computers print the new version (fieldkit parity installed, against this release's tag)."""
+    from .. import parity, parity_goal
+    src = _src(ctx)
+    rec = _load(ctx, src, "align")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": (rec or {}).get("detail") or "align did not run"}
+    r = parity_goal.installed(newest=parity.norm_version(rec["version"]))
+    return {"ok": r["ok"], "detail": "; ".join(r["problems"]) if not r["ok"] else
+            "installed " + ", ".join(f"{k} {v}" for k, v in r["versions"].items())}
