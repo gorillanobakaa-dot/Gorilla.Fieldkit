@@ -5843,7 +5843,7 @@ tools:
     - {name: tag, flag: --tag, type: str, required: false, help: "the release to compare with (default: the parity pin)"}
     - {name: proof, flag: --proof, type: str, required: false, help: "write the resolved icon paths and sha256 per size to this JSON file"}
   effects: [reads-files, writes-files, network]
-  safety: read-only
+  safety: reversible             # writes only the --proof JSON and the downloaded reference package
   output: own
   exits: {2: "bad usage or no reference", 3: "a check failed (each line names its fix)"}
   platforms: [linux]
