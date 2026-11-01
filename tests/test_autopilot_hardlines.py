@@ -267,6 +267,17 @@ def test_a_mandated_tag_push_asks_the_tag_door(nostop):
     assert dm("fieldkit ship push --tag v1.2.3", Door(allow={"push"}, force=True), nostop) == "deny"
 
 
+def test_a_shut_mandate_door_says_its_reason_in_the_refusal(nostop):
+    # B1 (2026-11-01): a headless `ship push --tag v0.8.0 2>&1 | tail -6` was refused as "pushing is the owner's job"
+    # while the mandate's real answer ("no local tag v0.8.0") was thrown away: the refusal must carry it
+    v, why = hl.decide("Bash", {"command": "fieldkit ship push --tag v1.2.3 2>&1 | tail -6"}, stop_file=nostop,
+                       cwd="/w/repo", door=Door(force=True))
+    assert v == "deny" and "HARD LINE 1" in why and "the mandate did not open it: not granted" in why
+    v, why = hl.decide("Bash", {"command": "git push origin main"}, stop_file=nostop, cwd="/w/repo",
+                       door=Door(force=True))
+    assert v == "deny" and "mandate did not open it" not in why     # no door was asked: nothing to report
+
+
 def test_a_release_of_a_tag_opens_only_through_the_release_tag_door(nostop):
     door = Door(allow={"release_tag"}, force=True)
     cmd = "fieldkit ship gh-release v0.1.155 -- --title v0.1.155 --notes-file notes.md dist/a.zip"
