@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -168,6 +169,44 @@ def check_embeds(ctx, src, goos, goarch):
     if n == 0 and not problems:
         problems.append(f"{sums} pins nothing for {goos}-{goarch}")
     return n, problems
+
+
+def fetch_missing_embeds(ctx, src, goos, goarch, problems):
+    """vars.embed_fetch (a script in the module: `bash SCRIPT OUTDIR` lays out <os>-<arch>/<file> from the official
+    releases, each checked against the pins) fills the pinned helpers `problems` reports missing, gzipped into the
+    embed folder (2026-11-01: the official-release helpers 7za, ffmpeg, ffprobe, cwebp, avifenc, oxipng are not built
+    here, so a clean machine had only the seven built ones). Only "missing" is fetched; wrong bytes stay a failure.
+    -> the problems that remain."""
+    import gzip
+    script = (ctx.vars.get("embed_fetch") or "").strip()
+    root = (ctx.vars.get("embed_root") or "").strip()
+    missing = [p.rsplit(" missing", 1)[0] for p in problems if p.endswith(" missing")]
+    if not script or not root or not missing or len(missing) != len(problems):
+        return problems
+    tmp = Path(tempfile.mkdtemp(prefix="fk-embed-fetch-"))
+    try:
+        bash = shutil.which("bash") or "bash"
+        env = dict(os.environ)
+        if sys.platform == "win32":
+            # Git for Windows: the script needs its unzip, tar (GNU, --wildcards), sha256sum, awk, not System32's bsdtar
+            bd = Path(bash).resolve().parent
+            env["PATH"] = os.pathsep.join([str(d) for d in (bd, bd.parent / "usr" / "bin", bd.parent.parent / "usr" / "bin")
+                                           if d.is_dir()] + [env.get("PATH", "")])
+        # OUTDIR is "." with cwd=tmp: GNU tar reads a "C:/..." -C/-f path as host "C" (tar: Cannot connect to C)
+        r = subprocess.run([bash, (Path(src) / script).as_posix(), "."], capture_output=True, text=True,
+                           timeout=1800, env=env, cwd=str(tmp))
+        if r.returncode != 0:
+            return [f"{script} failed ({r.returncode}): " + (r.stderr or r.stdout).strip()[-300:]] + problems
+        for rel in missing:
+            got = tmp / rel
+            if not got.is_file():
+                continue
+            dest = Path(src) / root / (rel + ".gz")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(gzip.compress(got.read_bytes(), 9, mtime=0))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return check_embeds(ctx, src, goos, goarch)[1]
 
 
 def _guess_clone(name, local=None):
@@ -573,6 +612,9 @@ def stage_build(ctx):
                 f = out / _file_name(ctx, version, goos, goarch)
                 tags = target_tags(ctx, goos, goarch)
                 embedded, problems = check_embeds(ctx, src, goos, goarch)
+                if problems:
+                    problems = fetch_missing_embeds(ctx, src, goos, goarch, problems)
+                    embedded = check_embeds(ctx, src, goos, goarch)[0]
                 if problems:
                     return {"ok": False, "detail": f"{goos}/{goarch} not built, embedded files wrong: "
                                                    + "; ".join(problems[:5])}
