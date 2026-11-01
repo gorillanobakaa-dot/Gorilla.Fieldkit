@@ -1118,6 +1118,7 @@ def stage_arch(ctx, fetch=None):
     if missing:
         return {"ok": False, "detail": f"{script} needs {', '.join(missing)} on PATH"}
     shutil.copy2(linux, src / (v.get("name") or "app"))
+    (src / (v.get("name") or "app")).chmod(0o755)         # a download arrives 0644; the script wants an executable
     pkgdir = src / (v.get("package_dir") or "Compiled.Builds")
     start = time.time() - 1
     r = _run(ctx, ["sh", script, _plain(rec["version"])], src, "pkg-arch", timeout=1800)
