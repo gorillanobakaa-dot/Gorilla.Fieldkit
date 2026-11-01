@@ -1264,6 +1264,25 @@ def stop(gid=None, why="the owner said stop"):
     return targets
 
 
+def resume(gid, why):
+    """Reopen a goal the stall check blocked, after its cause was fixed (2026-11-01: parity-everywhere stalled because
+    its criteria called commands not yet on main, so every verdict was bad usage). Only a stall: a budget block, a
+    STOP or a done goal stays as it is. -> (ok, text)."""
+    goal, st = load(gid)
+    if not goal or not st:
+        return False, f"no goal {gid}"
+    if not why.strip():
+        return False, "say why the stall's cause is gone: goal resume ID WHY"
+    if st.get("status") != "blocked" or not str(st.get("why", "")).startswith("stalled:"):
+        return False, f"{gid} is {st.get('status')} ({st.get('why', '')}); only a stalled goal is resumed"
+    if (gdir(gid) / "STOP").exists():
+        return False, f"{gid} has a STOP file: the owner stopped it"
+    st.update(status="active", why="", stall=0, stall_at=st.get("rounds", 0))
+    save_state(gid, st)
+    event(gid, f"resumed after a stall: {why}")
+    return True, f"{gid} is active again (stall count 0): {why}"
+
+
 def status_lines(gid=None):
     out = []
     for g in [gid] if gid else sorted(d.name for d in GOALS.iterdir() if (d / "goal.json").is_file()) if GOALS.is_dir() else []:

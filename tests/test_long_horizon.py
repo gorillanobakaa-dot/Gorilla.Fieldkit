@@ -884,3 +884,24 @@ def test_no_job_runs_without_a_dollar_cap():
     assert bud.merge()["cost_usd"] == 25.0
     assert bud.merge({"cost_usd": None})["cost_usd"] == 25.0
     assert bud.merge({"cost_usd": 5})["cost_usd"] == 5
+
+
+@pytest.mark.parametrize("st,stop,ok", [
+    ({"status": "blocked", "why": "stalled: 3 planner rounds in a row met no new criterion", "stall": 3, "rounds": 3},
+     False, True),
+    ({"status": "blocked", "why": "the goal's $10 are spent ($10.20)", "rounds": 3}, False, False),
+    ({"status": "done", "why": "", "rounds": 3}, False, False),
+    ({"status": "blocked", "why": "stalled: 3 planner rounds", "stall": 3, "rounds": 3}, True, False),
+])
+def test_resume_reopens_only_a_stall_block(st, stop, ok):
+    goal._wj(goal.gdir("g") / "goal.json", {"id": "g"})
+    goal.save_state("g", st)
+    if stop:
+        (goal.gdir("g") / "STOP").write_text("owner")
+    assert goal.resume("g", "criteria fixed on main")[0] is ok
+    after = goal.load("g")[1]
+    if ok:
+        assert after["status"] == "active" and after["stall"] == 0 and after["stall_at"] == 3
+    else:
+        assert after["status"] == st["status"]
+    assert goal.resume("g", "")[0] is False
