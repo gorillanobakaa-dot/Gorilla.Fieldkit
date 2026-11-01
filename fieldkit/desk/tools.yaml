@@ -6540,6 +6540,39 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."
 
+- id: parity-helpers
+  title: "Gorilla OpenCode pins the same helpers for windows-amd64, linux-amd64 and darwin-amd64 (internal/toolbox/SHA256SUMS) and parityBacklog is empty; names what each system lacks"
+  harness: core
+  entry: [python, -m, fieldkit, parity, helpers]
+  path: ${FIELDKIT}/fieldkit/parity_goal.py
+  inputs:
+    - {name: repo, flag: null, type: str, required: false, help: "the Gorilla.Opencode clone (default: sync.repos in fieldkit.local.json)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {0: "same helpers on all three systems, backlog empty", 1: "the repo's files cannot be read", 3: "a system lacks a helper or the backlog is not empty"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_adopt_every_script.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01: goal parity-everywhere C1; was local/goal-checks/oc_parity.py, a loose script. Mutations: tests/adopt_every_script_mutations.yaml."
+
+- id: parity-installed
+  title: "gorilla-opencode's version on this computer and on the peer (over the cable) equal each other and the newest release tag"
+  harness: core
+  entry: [python, -m, fieldkit, parity, installed]
+  path: ${FIELDKIT}/fieldkit/parity_goal.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {0: "both computers run the newest release", 1: "the newest tag cannot be learned (gh)", 3: "a computer differs from the newest release, or no peer answered"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_adopt_every_script.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01: goal parity-everywhere C3; was local/goal-checks/both_installed.py. Network: one gh release view of the pinned repo; the peer is asked the read-only manifest verb. Mutations: tests/adopt_every_script_mutations.yaml."
+
 - id: image-doctor
   title: "Which picture tools are present (ImageMagick, Tesseract, cwebp, avifenc, mozjpeg cjpeg, oxipng): version, path, and for each missing one the exact install command and source; installs nothing"
   harness: shot

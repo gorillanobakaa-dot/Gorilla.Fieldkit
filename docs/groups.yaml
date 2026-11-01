@@ -143,6 +143,7 @@ groups:
       - overhead.py
       - testcost.py
       - parity.py
+      - parity_goal.py
       - plan.py
       - review_verdict.py
       - rules.py

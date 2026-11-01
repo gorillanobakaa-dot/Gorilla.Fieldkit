@@ -14,6 +14,7 @@ the model typed itself proves nothing); a headless job log or another agent's se
   ACTION        a checkable action the source denies: "merged #N" (gh pr view N: state MERGED), "pushed SHA"
                 (git branch -r --contains SHA), "wrote PATH" / "recycled PATH" (the file exists / is gone)
   NOT-VERIFIED  no "NOT verified:" field, or it is empty, or a bare "-" without a reason in brackets
+  UNCARDED      a script the report says it wrote under a sweep root (fieldkit sweep) that has no card or no test
   VERBATIM      a text called verbatim or original, quoted, with `(source: PATH)`, that is not in PATH (the sha256 of
                 both is printed)
 
@@ -96,6 +97,14 @@ def _pushed(sha):
     return r.returncode == 0 and bool(r.stdout.strip())
 
 
+def _uncarded(path):
+    try:
+        from ..desk import sweep
+        return sweep.uncarded(Path(path).expanduser().resolve())
+    except Exception:  # noqa: BLE001 - no registry here: nothing to say
+        return None
+
+
 def check(report, evidence, offline=False, gh_state=_gh_state, pushed=_pushed, base=None, require_nv=True):
     """-> [{kind, line, text, detail}]. report: the report's text; evidence: the recorded tool output."""
     ev = _norm(evidence)
@@ -141,6 +150,11 @@ def check(report, evidence, offline=False, gh_state=_gh_state, pushed=_pushed, b
         for m in WROTE.finditer(line):
             if not (base / m.group(2)).expanduser().exists():
                 f("ACTION", i, line, f"{m.group(2)} does not exist")
+            else:
+                st = _uncarded(base / m.group(2))
+                if st:
+                    f("UNCARDED", i, line, f"{m.group(2)} is a script under a sweep root with {'no card' if st == 'untracked' else 'no test'}: "
+                                           "`fieldkit adopt` it, or add it to sweep.ignore with a reason")
         for m in RECYCLED.finditer(line):
             if (base / m.group(1)).expanduser().exists():
                 f("ACTION", i, line, f"{m.group(1)} is still there")

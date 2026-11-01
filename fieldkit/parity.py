@@ -846,7 +846,8 @@ def _diff_lines(r, indent="  "):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit parity", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["manifest", "compare", "align", "preflight", "baseline", "doctor"])
+    ap.add_argument("action", choices=["manifest", "compare", "align", "preflight", "baseline", "doctor", "helpers", "installed"])
+    ap.add_argument("repo", nargs="?", help="helpers: the Gorilla.Opencode clone (default: sync.repos)")
     ap.add_argument("--set", action="store_true", help="baseline: record this machine's state now")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--hash", action="store_true", help="manifest: print only the hash")
@@ -859,6 +860,9 @@ def main(argv=None):
     ap.add_argument("--label", default="parity preflight")
     ap.add_argument("--kind", default="test", help="preflight: test, build, gate, bench, measure (bench/measure: strict)")
     a = ap.parse_args(argv)
+    if a.action in ("helpers", "installed"):
+        from . import parity_goal
+        return parity_goal.run(a.action, a.repo, a.json)
     if a.action == "manifest":
         m = manifest()
         print(m["hash"] if a.hash else json.dumps(m, indent=1, sort_keys=True, ensure_ascii=False))

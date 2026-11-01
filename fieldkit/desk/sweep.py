@@ -14,7 +14,8 @@ WHY
     A rule that nothing checks is a wish. This is the check.
 
 ROOTS
-    ${DOCUMENTS}/Scripts always; more from fieldkit.local.json:
+    ${DOCUMENTS}/Scripts always, plus DEFAULT_ROOTS (${FIELDKIT}/local without its kits and tests, and the scratch root's
+    scripts folder); more from fieldkit.local.json. An ignore entry is a name or {"name": N, "why": REASON}:
         "sweep": {"roots": ["${DOCUMENTS}/Gorilla.Opencode/scripts/model-tests"],
                   "ignore": ["Fieldkit-review"]}
     The Fieldkit folder itself is never swept (it is the harness, not scratch).
@@ -42,6 +43,10 @@ from . import registry
 SCRIPT_EXT = {".py", ".ps1", ".cmd", ".bat", ".sh"}
 DOC_EXT = {".md", ".txt", ".rst"}
 ALWAYS_IGNORE = {"Fieldkit", "__pycache__", ".git", ".pytest_cache"}
+#: roots every machine sweeps besides ${DOCUMENTS}/Scripts: (path, folders under it that are not scripts - they hold the
+#: harness's own kits, recipes, skills and tests, each registered another way). A missing root is skipped.
+DEFAULT_ROOTS = (("${FIELDKIT}/local", ("kits", "tests", "recipes", "skills", "icons", "profilefix")),
+                 ("${SCRATCH}/scripts", ()))
 ADOPTED = ".adopted"                 # the marker adopt and recipes capture leave (fieldkit.desk.adopt.MARKER)
 
 
@@ -53,14 +58,41 @@ def _norm(p):
 def roots(local=None):
     local = settings.local_settings() if local is None else local
     out = [Path(settings.expand("${DOCUMENTS}")) / "Scripts"]
+    for tmpl, _ in DEFAULT_ROOTS:
+        out.append(Path(_expand_default(tmpl)))
     for r in (local.get("sweep", {}) or {}).get("roots", []) or []:
         out.append(Path(settings.expand(r, local)))
     return out
 
 
-def ignored(local=None):
+def _expand_default(tmpl):
+    if "${SCRATCH}" in tmpl:
+        from ..scratch import root as scratch_root
+        tmpl = tmpl.replace("${SCRATCH}", str(scratch_root()))
+    return settings.expand(tmpl)
+
+
+def _skip_for(root):
+    for tmpl, skip in DEFAULT_ROOTS:
+        if _norm(_expand_default(tmpl)) == _norm(root):
+            return set(skip)
+    return set()
+
+
+def ignore_reasons(local=None):
+    """-> {name: reason} from sweep.ignore: an entry is a name (no reason: old style) or {"name": N, "why": W}."""
     local = settings.local_settings() if local is None else local
-    return set(ALWAYS_IGNORE) | set((local.get("sweep", {}) or {}).get("ignore", []) or [])
+    out = {}
+    for e in (local.get("sweep", {}) or {}).get("ignore", []) or []:
+        if isinstance(e, dict):
+            out[str(e.get("name"))] = str(e.get("why") or "")
+        else:
+            out[str(e)] = ""
+    return out
+
+
+def ignored(local=None):
+    return set(ALWAYS_IGNORE) | set(ignore_reasons(local))
 
 
 def _newest_mtime(path, limit=2000):
@@ -158,7 +190,7 @@ def scan(roots_=None, tools=None, results=None, ignore=None, now=None):
     now = time.time() if now is None else now
     rows = []
     for root in roots_:
-        for it in items(Path(root), ignore):
+        for it in items(Path(root), ignore | _skip_for(root)):
             st, ids = status_of(it, tools, results)
             age = int((now - _newest_mtime(Path(it["path"]))) // 86400) if Path(it["path"]).exists() else None
             rows.append({"root": str(root), "name": it["name"], "kind": it["kind"], "status": st,
@@ -166,6 +198,35 @@ def scan(roots_=None, tools=None, results=None, ignore=None, now=None):
     order = {"untracked": 0, "no-test": 1, "stale": 2, "untested": 3, "leftover": 4, "ok": 5}
     rows.sort(key=lambda r: (order.get(r["status"], 9), r["root"], r["name"].lower()))
     return rows
+
+
+def unadopted(rows):
+    """The scripts not in the harness: no card (untracked) or a card with no test."""
+    return [r for r in rows if r["status"] in ("untracked", "no-test")]
+
+
+def uncarded(path, roots_=None, tools=None, ignore=None):
+    """-> the sweep status ("untracked" | "no-test") of a script a session wrote under a sweep root, else None (not a
+    script, not under a root, ignored, adopted or carded). The honesty check names these (owner, 2026-11-01)."""
+    p = Path(path)
+    if p.suffix.lower() not in SCRIPT_EXT:
+        return None
+    roots_ = roots() if roots_ is None else roots_
+    tools = registry.load(strict=False) if tools is None else tools
+    ignore = ignored() if ignore is None else ignore
+    pn = _norm(p)
+    for root in roots_:
+        rn = _norm(root)
+        if not pn.startswith(rn + os.sep):
+            continue
+        top = Path(root) / pn[len(rn) + 1:].split(os.sep)[0]
+        name = Path(p).resolve().relative_to(Path(root).resolve()).parts[0]
+        if name in ignore or name in _skip_for(root) or name.startswith("."):
+            return None
+        kind = "folder" if top.is_dir() else "script"
+        st, _ = status_of({"name": name, "path": str(top), "kind": kind}, tools, {})
+        return st if st in ("untracked", "no-test") else None
+    return None
 
 
 def summary(rows):
@@ -184,7 +245,7 @@ def lines(rows):
         out.append(f"{r['status']:<10} {age:>5}  {r['name']:<34} {ids[:60]}")
     out.append("")
     out.append("  ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "nothing under the sweep roots")
-    todo = counts.get("untracked", 0) + counts.get("no-test", 0)
+    todo = len(unadopted(rows))
     if todo:
         out.append(f"NEXT: {todo} item(s) have no card or no test: card and test each (local/tools.yaml), or add it to sweep.ignore in fieldkit.local.json with a reason.")
     if counts.get("adopt"):
