@@ -1,0 +1,8 @@
+# Which CI job proves which system, for a repository whose job names do not say the system (read from each
+# workflow's runs-on). A system not listed for a repository is proven by a job whose name contains the system's word
+# (windows, ubuntu), as Gorilla.Fieldkit's "test (windows-latest)" and "test (ubuntu-latest)" do.
+# Read by fieldkit ship ci-wait / train (fieldkit/method/train.py), fieldkit sync and the mandate's CI proof
+# (fieldkit/core/sync.py os_jobs). Plan P14 (idea I-11, owner accepted 2026-11-01).
+gorillanobakaa-dot/Gorilla.Opencode:
+  ubuntu: [build-test]
+  windows: [build-test-windows]

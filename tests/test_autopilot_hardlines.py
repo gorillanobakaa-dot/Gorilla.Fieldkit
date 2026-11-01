@@ -276,6 +276,26 @@ def test_a_shut_mandate_door_says_its_reason_in_the_refusal(nostop):
     v, why = hl.decide("Bash", {"command": "git push origin main"}, stop_file=nostop, cwd="/w/repo",
                        door=Door(force=True))
     assert v == "deny" and "mandate did not open it" not in why     # no door was asked: nothing to report
+    assert "mandate was not asked" not in why                       # git push is no ship command
+
+
+@pytest.mark.parametrize("cmd", [
+    "cd /opt/w/.cache/oc && /opt/w/.local/bin/fieldkit ship push --auto",
+    "cd /opt/w/.cache/oc && /opt/w/Fieldkit/.venv/bin/python3.12 -m fieldkit ship push --auto",
+    "/opt/w/Fieldkit/.venv/bin/python3.12 -m fieldkit ship push --auto",
+])
+def test_a_ship_push_by_its_full_path_asks_the_push_door(cmd, nostop):
+    # 2026-11-01 (VAIO, fc6e5bb): no fieldkit on the job's PATH, so it ran the tool by its full path; the cd form was
+    # not recognized, the mandate never asked, and the refusal carried no reason three runs in a row
+    door = Door(allow={"push"}, force=True)
+    assert dm(cmd, door, nostop) == "allow"
+    assert door.asked[-1][0] == "push"
+
+
+def test_a_ship_command_the_mandate_was_not_asked_about_says_so(nostop):
+    v, why = hl.decide("Bash", {"command": "cd /w/repo; fieldkit ship push --auto"}, stop_file=nostop,
+                       cwd="/w/repo", door=Door(allow={"push"}, force=True))
+    assert v == "deny" and "the mandate was not asked" in why and "ONE plain statement" in why
 
 
 def test_a_release_of_a_tag_opens_only_through_the_release_tag_door(nostop):
