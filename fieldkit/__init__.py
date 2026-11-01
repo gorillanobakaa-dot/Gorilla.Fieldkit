@@ -11,7 +11,7 @@ Harnesses:
 Shared:
     fieldkit.core    host detection, settings, processes, privacy scan, pipeline engine
 """
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 import os as _os
 
