@@ -404,6 +404,12 @@ def lines(d):
     return out
 
 
+def hook_lines(tests, repo="."):
+    """The test files the hook passes to pytest, as bytes: LF only and forward slashes. Windows text mode wrote CRLF,
+    the CR stuck to every name in `sh` and pytest said "file or directory not found: tests/test_mandate.py"."""
+    return "".join(Path(os.path.relpath(t, repo)).as_posix() + "\n" for t in tests).encode()
+
+
 def main(argv=None, prog="python -m fieldkit.method.mergeproof"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -429,8 +435,9 @@ def main(argv=None, prog="python -m fieldkit.method.mergeproof"):
         except Exception as e:  # noqa: BLE001 - any doubt runs the full suite
             skip, why, tests = False, f"the proof could not run ({e})", []
         print(("merge proof: " if skip else "merge proof: full suite: ") + why, file=sys.stderr)
-        for t in tests:
-            print(os.path.relpath(t, a.repo))
+        sys.stdout.flush()
+        sys.stdout.buffer.write(hook_lines(tests, a.repo))
+        sys.stdout.flush()
         return 0 if skip else 1
     if a.cmd == "prove":
         ours, theirs = rev(a.repo, a.ours), rev(a.repo, a.theirs)
