@@ -166,7 +166,7 @@ class GH:
                                    "[.workflow_runs[] | {name, status, conclusion}]")
         if rc2:
             return "none", f"workflow runs unreadable (gh): {err2.strip()[:160]}"
-        return ci_verdict(json.loads(out or "[]"), sha, workflows=json.loads(out2 or "[]"))
+        return ci_verdict(json.loads(out or "[]"), sha, workflows=json.loads(out2 or "[]"), slug=self.slug)
 
     def wait_checks(self, n, timeout):
         try:
@@ -212,7 +212,7 @@ class GH:
 NEED_OS = ("windows", "ubuntu")
 
 
-def ci_verdict(runs, sha, need=NEED_OS, workflows=()):
+def ci_verdict(runs, sha, need=NEED_OS, workflows=(), slug=""):
     if not runs:
         return "none", f"no CI run for {sha[:10]} yet"
     rerun = [w["name"] for w in workflows or () if w.get("status") != "completed"]
@@ -224,7 +224,8 @@ def ci_verdict(runs, sha, need=NEED_OS, workflows=()):
         return "red", f"CI failed for {sha[:10]}: {', '.join(red[:4])}"
     if any(x["status"] != "completed" for x in runs):
         return "pending", f"CI running for {sha[:10]}"
-    missing = [o for o in need if not any(o in x["name"].lower() for x in runs)]
+    from ..core import sync                          # P14 (I-11): a repository's own job names, as data
+    missing = sync.missing_os(runs, need, slug)
     if missing:
         return "pending", f"CI for {sha[:10]} has no {', '.join(missing)} job yet"
     return "green", f"CI green for {sha[:10]} ({len(runs)} check runs)"

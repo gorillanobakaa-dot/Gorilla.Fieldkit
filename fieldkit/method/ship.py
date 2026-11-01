@@ -168,7 +168,7 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
 
 
-STRIKES_AT = 2                                         # TWO STRIKES (rules/CORE.md): the second red run parks
+STRIKES_AT = 2                                         # TWO STRIKES (rules/CORE.md): the second red commit parks
 
 
 def _gh(run, repo, *args):
@@ -184,7 +184,7 @@ def _inbox_add(title, why, command=""):
 
 def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add):
     """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
-    gh says. Exit 3 for PARKED (2+ red CI runs on the branch): no auto-merge, a note in the owner's inbox."""
+    gh says. Exit 3 for PARKED (2+ commits of the branch red on CI): no auto-merge, a note in the owner's inbox."""
     st = (pusher or push)(repo, base)
     if not st.get("ok"):
         return st
@@ -217,15 +217,18 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
             return fail("gh pr create", f"no PR url in: {out[:200]}")
         pr = {"number": int(m.group(1)), "url": m.group(0)}
     rep.update(pr=pr["number"], pr_url=pr["url"])
-    ok, out, err = _gh(run, repo, "run", "list", "--branch", branch, "--json", "conclusion", "--limit", "100")
+    ok, out, err = _gh(run, repo, "run", "list", "--branch", branch, "--json", "conclusion,headSha", "--limit", "100")
     if not ok:
         return fail("gh run list", err)
     try:
-        reds = sum(1 for x in json.loads(out or "[]") if x.get("conclusion") == "failure")
+        # P14 (I-11): a strike is a red COMMIT, not a red run (Opencode PR 47: one red commit, two workflow triggers,
+        # read as TWO STRIKES); the same rule as strikes.record_failure
+        reds = len({x.get("headSha") or f"run{i}" for i, x in enumerate(json.loads(out or "[]"))
+                    if x.get("conclusion") == "failure"})
     except ValueError:
         return fail("gh run list", f"not JSON: {out[:200]}")
     if reds >= STRIKES_AT:
-        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} failed CI runs. Auto-merge NOT enabled."
+        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} commits failed CI. Auto-merge NOT enabled."
         inbox(f"PARKED {branch}: failed CI {reds} times", why, f"gh pr view {pr['number']} --web")
         return dict(rep, ok=False, state="parked", reds=reds, error=why,
                     next="PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")

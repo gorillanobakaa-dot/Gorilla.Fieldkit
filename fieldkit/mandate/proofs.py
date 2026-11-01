@@ -151,7 +151,7 @@ def ci_green(repo_path, commit, cfg, run=subprocess.run):
     bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]
     if bad:
         return False, f"CI not green for {commit[:10]}: {', '.join(bad[:4])}"
-    missing = [o for o in (cfg or {}).get("ci_os") or [] if not any(o in x["name"].lower() for x in runs)]
+    missing = sync.missing_os(runs, (cfg or {}).get("ci_os") or [], slug)     # job names as data (P14)
     if missing:
         return False, f"CI for {commit[:10]} has no {', '.join(missing)} job"
     return True, f"CI green for {commit[:10]} ({len(runs)} check runs)"

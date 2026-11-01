@@ -30,8 +30,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 NEED_OS = ("windows", "ubuntu")
-# A repository whose job names do not say the system: which job proves which one (read from its workflow's runs-on).
-OS_JOBS = {"gorillanobakaa-dot/Gorilla.Opencode": {"ubuntu": ("build-test",), "windows": ("build-test-windows",)}}
+# A repository whose job names do not say the system: which job proves which one, as data (plan P14, idea I-11)
+OS_JOBS_FILE = Path(__file__).resolve().parents[1] / "method" / "ci_os_jobs.yaml"
+
+
+def os_jobs(slug, path=None):
+    """-> {system: (job names)} for a repository whose CI job names do not say the system (ci_os_jobs.yaml)."""
+    import yaml
+    try:
+        data = yaml.safe_load(Path(path or OS_JOBS_FILE).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return {o: tuple(names or ()) for o, names in (data.get(slug) or {}).items()}
+
+
+def missing_os(runs, need, slug, path=None):
+    """-> the systems in `need` with no check run: a job named in ci_os_jobs.yaml for `slug`, else one whose name
+    contains the system's word."""
+    named = os_jobs(slug, path) if slug else {}
+    return [o for o in need if not any(x["name"] in named.get(o, ()) if o in named else o in x["name"].lower()
+                                       for x in runs)]
 
 
 def _git(repo, *a, check=True):
@@ -81,8 +99,7 @@ def ci_green(slug, sha, run=subprocess.run, public=_public_check_runs):
     bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]
     if bad:
         return False, f"CI not green for {sha[:10]}: {', '.join(bad[:4])}"
-    named = OS_JOBS.get(slug, {})
-    missing = [o for o in NEED_OS if not any(o in x["name"].lower() or x["name"] in named.get(o, ()) for x in runs)]
+    missing = missing_os(runs, NEED_OS, slug)
     if missing:
         return False, f"CI for {sha[:10]} has no {', '.join(missing)} job"
     return True, f"CI green on {', '.join(NEED_OS)} for {sha[:10]} ({len(runs)} check runs)"

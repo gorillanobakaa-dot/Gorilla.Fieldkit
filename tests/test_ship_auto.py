@@ -68,13 +68,23 @@ def test_gh_failure_is_exit_1_text_and_the_push_stands(which):
     assert not r["ok"] and r["gh_failed"] and "gh: boom" in r["error"] and r["branch"] == "feat/x"
 
 
-def test_two_red_runs_park_and_never_call_merge():
+def test_two_red_commits_park_and_never_call_merge():
     gh = Gh(prs=[{"number": 7, "url": URL}],
-            runs=[{"conclusion": "failure"}, {"conclusion": "success"}, {"conclusion": "failure"}])
+            runs=[{"conclusion": "failure", "headSha": "b" * 40}, {"conclusion": "success", "headSha": "c" * 40},
+                  {"conclusion": "failure", "headSha": "c" * 40}])
     r, notes = go(gh)
     assert not r["ok"] and r["state"] == "parked" and not r.get("gh_failed")
     assert not gh.did("pr merge")
     assert len(notes) == 1 and "#7" in notes[0][1] and "feat/x" in notes[0][1]
+
+
+def test_one_red_commit_with_two_red_runs_is_one_strike():
+    # P14 (I-11): Opencode PR 47, one red commit read by two workflow triggers, was parked as TWO STRIKES
+    gh = Gh(prs=[{"number": 7, "url": URL}],
+            runs=[{"conclusion": "failure", "headSha": SHA}, {"conclusion": "failure", "headSha": SHA}])
+    r, notes = go(gh)
+    assert r["ok"] and r["auto"] and not notes
+    assert "headSha" in gh.did("run list")[0][gh.did("run list")[0].index("--json") + 1]
 
 
 def test_one_red_run_still_turns_auto_merge_on():

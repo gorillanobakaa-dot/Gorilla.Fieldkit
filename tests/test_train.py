@@ -408,6 +408,20 @@ def test_ci_verdict_never_green_while_a_rerun_runs():
     assert train.ci_verdict([], sha)[0] == "none"
 
 
+def test_ci_verdict_reads_a_repositorys_own_job_names_as_data():
+    # P14 (I-11): Gorilla.Opencode's jobs are build-test (Linux) and build-test-windows; ci-wait printed TIMEOUT
+    # "has no ubuntu job yet" on green PRs 48/49
+    sha = "d" * 40
+    oc = [{"name": n, "status": "completed", "conclusion": "success"}
+          for n in ("build", "build-test", "build-test-windows", "toolbox-windows")]
+    slug = "gorillanobakaa-dot/Gorilla.Opencode"
+    assert train.ci_verdict(oc, sha, slug=slug)[0] == "green"
+    assert train.ci_verdict(oc, sha)[0] == "pending"                        # no map: no ubuntu job
+    no_linux = [x for x in oc if x["name"] != "build-test"]
+    v, why = train.ci_verdict(no_linux, sha, slug=slug)
+    assert v == "pending" and "ubuntu" in why                               # build/toolbox jobs never stand in
+
+
 def test_failure_modes_are_named_and_each_has_a_check():
     names = [m["name"] for m in train.FAILURE_MODES]
     assert len(names) == len(set(names)) >= 9

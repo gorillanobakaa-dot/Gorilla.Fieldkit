@@ -250,7 +250,9 @@ def _statements(cmd):
     return [s for s in re.split(r";|&&|\|\||\r?\n", cmd) if s.strip()]
 
 
-FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python3?(?:\.exe)?\s+-m\s+fieldkit)"
+# 2026-11-01 (VAIO, fc6e5bb refused three times): a headless job there has no `fieldkit` on PATH and runs it by its
+# full path or as `.../python3.12 -m fieldkit`; both are the same tool and go to the same mandate door
+FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python[\d.]*(?:\.exe)?\s+-m\s+fieldkit)"
 # B1 (2026-10-31): `push --auto [--title "T"] [--body-file F]` opens the PR with auto-merge on green, the same door
 SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base|tag|body-file)(?:\s+|=)[^\s;&|`$<>]+"
                   r"|\s+--auto|\s+--title(?:\s+|=)(?:\"[^\"`$]*\"|'[^']*'|[^\s;&|`$<>]+))*)\s*$", re.I)
@@ -276,7 +278,7 @@ SUBST = re.compile(r"\$\(|<\(|>\(")
 
 
 CD_THEN = re.compile(r"^\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)\s*&&\s*(.+)$", re.S)
-CD_PUSH = re.compile(r"^\s*(?:python[\d.]*(?:\.exe)?\s+-m\s+)?fieldkit(?:\.exe)?\s+ship\s+push\b(?![^\n]*--tag)", re.I)
+CD_PUSH = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+push\b(?![^\n]*--tag)", re.I)
 #: B1 live proof (VAIO, 2026-10-31): a model runs `fieldkit ship push --auto 2>&1 | tail -20`; the pipe made it two
 #: statements and the mandate's door stayed shut. Only stderr joined to stdout and ONE trailing `| tail N` / `| head N`
 #: (they print, write nothing) are read away; `| tee log`, `| sh` and anything else still keep the door shut.
@@ -486,8 +488,14 @@ def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
                 return opened
             shut = opened[1] if opened and opened[0] == "shut" else None
         if published:
-            return "deny", (f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)"
-                            + (f"; the mandate did not open it: {shut}" if shut else ""))
+            # 2026-11-01: a ship command the mandate was never asked about says so, and which shape it is asked about
+            unasked = not opened and re.search(r"\bship\s+(push|merge|gh-release)\b", cmd, re.I)
+            # the line below is the swap text of rules/proofs.yaml HARD LINES proof 1: keep it on one line, as it is
+            tail = ((f"; the mandate did not open it: {shut}" if shut else "")
+                    + ("; the mandate was not asked: it is asked only about ONE plain statement `fieldkit ship "
+                       "push|merge|gh-release ...` (or `cd DIR && fieldkit ship push ...`), with no other "
+                       "; && | or $(...)" if unasked else ""))
+            return "deny", f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)" + tail
         if owner:
             return "deny", f"HARD LINE 4: {owner} is the owner's alone; put it in the owner inbox (fieldkit inbox add)"
         mac = MAC_RUN.match(cmd) if _one_statement(cmd) else None   # a ; after -- would run HERE, not on the Mac
