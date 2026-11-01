@@ -57,6 +57,9 @@ def register(sub, common):
     r.add_argument("--developer", help="the rendered developer track")
     r.add_argument("--extra", help="compose: optional material placed between the two tracks")
     r.add_argument("--out", help="compose: where to write the page")
+    r.add_argument("--repo", default=".", help="compose: the repository the page is for")
+    r.add_argument("--since", help="compose: refused while a capability changed since this ref is not built in "
+                                   "(default: the last tag; none: everything)")
     r.set_defaults(fn=cmd_release_page)
     return d
 
@@ -97,6 +100,12 @@ def cmd_release_page(a):
             if missing:
                 print("fieldkit release-page compose: needs --" + " --".join(missing))
                 return 2
+            from ..integration import gate
+            ig = gate.guard(a.repo, since=a.since or gate.last_tag(a.repo))
+            if not ig["ok"]:
+                print("REFUSED: " + gate.refusal(ig))
+                print("\nNEXT: `fieldkit integration check --repo " + a.repo + "`, fix each gap, compose again")
+                return 3
             page = RP.compose(_read(a.opening), _read(a.layman), _read(a.developer),
                               _read(a.extra) if a.extra else "")
             findings = RP.check(page, _read(a.layman), _read(a.developer))
