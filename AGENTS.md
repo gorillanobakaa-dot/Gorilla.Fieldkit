@@ -24,6 +24,7 @@ fieldkit ship push [--tag vX] / ship gh-release   pushes and releases, through t
 fieldkit inbox add TITLE WHY [COMMAND]            what only the owner may do, for the one morning review
 fieldkit size find|recycle|hash ...               search, recycle (never a permanent delete), hashes
 fieldkit privacy scan PATH --git                  before any commit, push or release
+fieldkit integration check --repo . --changed BASE   is the new feature built in (docs/INTEGRATION.md)
 fieldkit task start BRIEF.md [--on peer]          a side job, headless, here or on the VAIO
 fieldkit rotate check --source AGENT --cwd . --newest    session length (Claude Code: the hook does it)
 fieldkit sync [--apply]                           both machines against GitHub, at session start and end
