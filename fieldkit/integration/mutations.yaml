@@ -1,0 +1,16 @@
+# Proof that each check can fail (fieldkit mutate): break one rule in core.py, tests/test_integration.py must fail.
+#   python -m fieldkit mutate --plan fieldkit/integration/mutations.yaml -- python -m pytest -q -x tests/test_integration.py
+- {file: fieldkit/integration/core.py, swap: ['if rx.search(repo.text(rel) or ""):', 'if not rx.search(repo.text(rel) or ""):'], why: "word_in finds the name"}
+- {file: fieldkit/integration/core.py, swap: ['return None if repo.exists(_sub(', 'return None if not repo.exists(_sub('], why: "exists needs the file"}
+- {file: fieldkit/integration/core.py, swap: ['return None if manifest_entry(', 'return None if not manifest_entry('], why: "manifest names the helper"}
+- {file: fieldkit/integration/core.py, swap: ['if not has and system not in said:', 'if has and system not in said:'], why: "systems: a lacking system must be stated"}
+- {file: fieldkit/integration/core.py, swap: ['return None if re.search(r"(?<![\w-])" + re.escape(name)', 'return None if not re.search(r"(?<![\w-])" + re.escape(name)'], why: "block: the generated table names it"}
+- {file: fieldkit/integration/core.py, swap: ['return None if any(rx.search(repo.text(r) or "")', 'return None if not any(rx.search(repo.text(r) or "")'], why: "kind_has finds the mechanism"}
+- {file: fieldkit/integration/core.py, swap: ['return None if (v and str(v).strip()) else what', 'return None if not (v and str(v).strip()) else what'], why: "card_field is non-empty"}
+- {file: fieldkit/integration/core.py, swap: ['return None if repo.exists(_expand(str(p))) else what', 'return None if not repo.exists(_expand(str(p))) else what'], why: "card_path exists"}
+- {file: fieldkit/integration/core.py, swap: ['return None if any(repo.exists(f) for f in files) else what', 'return None if not any(repo.exists(f) for f in files) else what'], why: "card_test file exists"}
+- {file: fieldkit/integration/core.py, swap: ['return None if need <= pl or card.get("platforms_why") else what', 'return None if need <= pl and card.get("platforms_why") else what'], why: "card_platforms names the systems"}
+- {file: fieldkit/integration/core.py, swap: ['if p == f"fieldkit/{name}" or', 'if p != f"fieldkit/{name}" or'], why: "package_card: a card points at the package"}
+- {file: fieldkit/integration/core.py, swap: ['if before.get(cid) != card:', 'if before.get(cid) == card:'], why: "--changed: an edited card is rechecked"}
+- {file: fieldkit/integration/core.py, swap: ['names |= {_helper_name(r) for _, r in parse_sums("\n".join(added))}', 'names |= set()'], why: "--changed: an added SHA256SUMS line is rechecked"}
+- {file: fieldkit/integration/core.py, swap: ['caps = {n: v for n, v in caps.items() if n in wanted}', 'caps = {n: v for n, v in caps.items() if n not in wanted}'], why: "--changed narrows the capabilities"}
