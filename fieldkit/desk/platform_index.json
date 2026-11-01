@@ -1806,6 +1806,17 @@
    "ideas"
   ]
  },
+ "image accept": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-accept"
+  ]
+ },
  "image compare": {
   "platforms": [
    "darwin",

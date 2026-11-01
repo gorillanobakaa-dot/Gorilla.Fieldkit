@@ -6586,6 +6586,19 @@ tools:
   test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
   notes: "exit 3 when magick or tesseract is missing. No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
 
+- id: image-accept
+  title: "Acceptance check that REQUIRES Tesseract and ImageMagick: tesseract reads a generated picture of known text, magick identify and convert run on it; an absent binary fails, a model's vision never counts"
+  harness: shot
+  entry: [python, -m, fieldkit, image, accept]
+  path: ${FIELDKIT}/fieldkit/image/acceptance.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_arsenal_ocr.py"]
+  notes: "exit 3 when a step failed or a program is absent. Declared in core/requirements.json (for: image) for debian, fedora, windows, mac; installed per user, no sudo. No telemetry."
+
 - id: image-squash
   title: "Compress or convert pictures to WebP, AVIF, JPEG or PNG with the real codecs (ImageMagick when absent): bytes before/after, codec, settings, measured SSIM and PSNR; below the target is refused, the original is never overwritten"
   harness: shot
