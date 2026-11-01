@@ -181,3 +181,19 @@ def test_gh_release_still_works_without_a_tag_workflow(tmp_path):
     called = []
     r = ship.gh_release(tmp_path, TAG, mandate=lambda *a, **k: ("ask", "no", None), run=lambda *a, **k: called.append(2))
     assert not r["ok"] and r["state"] == "not-mandated"
+
+
+def test_push_tag_reads_ci_with_ships_own_environment(repo, monkeypatch):
+    """An autopilot run hides gh's account; the tag guard's CI read must get it back through ship_env (#145)."""
+    _g(repo, "tag", "-a", TAG, "-m", "r")
+    seen, runs = [], []
+    monkeypatch.setattr(tagguard, "check", lambda r, t, run=None, **k: runs.append(run) or {"ok": False, "rows": [{"check": "ci", "ok": False, "say": "x", "run": ""}]})
+    real = subprocess.run
+    monkeypatch.setattr(ship.subprocess, "run", lambda cmd, *a, **k: seen.append(k.get("env")) or
+                        (subprocess.CompletedProcess(cmd, 0, "", "") if cmd[0] == "gh" else real(cmd, *a, **k)))
+    monkeypatch.setenv("FIELDKIT_AUTOPILOT", "1")
+    monkeypatch.setenv("GH_CONFIG_DIR", "HIDDEN")
+    r = ship.push_tag(repo, TAG, mandate=_allow)
+    assert r["state"] == "not-release-ready", r
+    runs[0](["gh", "api", "x"], capture_output=True)
+    assert seen[-1]["GH_CONFIG_DIR"] != "HIDDEN"
