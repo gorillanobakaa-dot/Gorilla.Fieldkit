@@ -185,7 +185,15 @@ def fetch_missing_embeds(ctx, src, goos, goarch, problems):
         return problems
     tmp = Path(tempfile.mkdtemp(prefix="fk-embed-fetch-"))
     try:
-        r = subprocess.run(["bash", (Path(src) / script).as_posix(), tmp.as_posix()], capture_output=True, text=True, timeout=1800)
+        bash = shutil.which("bash") or "bash"
+        env = dict(os.environ)
+        if sys.platform == "win32":
+            # Git for Windows: the script needs its unzip, tar (GNU, --wildcards), sha256sum, awk, not System32's bsdtar
+            bd = Path(bash).resolve().parent
+            env["PATH"] = os.pathsep.join([str(d) for d in (bd, bd.parent / "usr" / "bin", bd.parent.parent / "usr" / "bin")
+                                           if d.is_dir()] + [env.get("PATH", "")])
+        r = subprocess.run([bash, (Path(src) / script).as_posix(), tmp.as_posix()], capture_output=True, text=True,
+                           timeout=1800, env=env)
         if r.returncode != 0:
             return problems + [f"{script} failed ({r.returncode}): " + (r.stderr or r.stdout).strip()[-300:]]
         for rel in missing:
@@ -604,8 +612,8 @@ def stage_build(ctx):
                 tags = target_tags(ctx, goos, goarch)
                 embedded, problems = check_embeds(ctx, src, goos, goarch)
                 if problems:
-                    fetch_missing_embeds(ctx, src, goos, goarch, problems)
-                    embedded, problems = check_embeds(ctx, src, goos, goarch)
+                    problems = fetch_missing_embeds(ctx, src, goos, goarch, problems)
+                    embedded = check_embeds(ctx, src, goos, goarch)[0]
                 if problems:
                     return {"ok": False, "detail": f"{goos}/{goarch} not built, embedded files wrong: "
                                                    + "; ".join(problems[:5])}
