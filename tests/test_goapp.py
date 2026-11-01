@@ -121,13 +121,14 @@ def test_the_gorilla_opencode_preset_matches_how_releases_are_built():
     assert p.vars["version_var"] == "github.com/opencode-ai/opencode/internal/version.Version"
     assert p.vars["windows_name"] == "gorilla-opencode.exe" and p.vars["cgo"] == "0"
     assert [s["id"] for s in p.stages] == ["toolchain", "modules", "vet", "test", "build", "repro", "published",
-                                            "mac", "packages", "checksums", "align"]
+                                            "mac", "packages", "arch", "checksums", "align"]
     # 2026-10-25: byte equality with the published files is opt-in; packages pass xzcheck within 128 MiB
     assert p.vars["compare_with"] == "" and p.vars["git_ref"] == "" and p.vars["xz_cap_mib"] == "128"
     # every release file from one Linux machine (owner, 2026-10-23): the Mac 10.13 binary and the four packages
     assert p.vars["mac_script"] == "scripts/build-darwin-legacy.sh"
-    assert p.vars["packages"].split(",") == ["scripts/build-deb.sh", "scripts/build-arch.sh",
-                                             "scripts/build-tarball.sh", "scripts/build-rpm.sh"]
+    assert p.vars["packages"].split(",") == ["scripts/build-deb.sh", "scripts/build-tarball.sh",
+                                             "scripts/build-rpm.sh"]
+    assert p.vars["arch_script"] == "scripts/build-arch.sh"      # W6: its own stage, in every release's checksums
     # and from Windows (v0.1.152, 2026-10-25): nfpm, the Mac on go1.24, the page's zip name, the last .deb compared
     assert p.vars["packager"] == "auto" and p.vars["mac_go"] == "1.24" and p.vars["previous_deb"] == "auto"
     assert p.vars["mac_zip"] == "<name>-<version>-mac-10.13-x86_64.zip" and p.vars["repo"]
@@ -348,3 +349,35 @@ def test_align_fails_when_the_peer_job_did_not_start_or_this_computer_failed(mon
     assert not goapp.stage_align(None, run=run)["ok"]
     _, _, run = _align_setup(monkeypatch, tmp_path, local_rc=3)
     assert not goapp.stage_align(None, run=run)["ok"]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the Arch package is made on Linux")
+def test_arch_stage_makes_the_package_and_it_is_counted_in_the_checksums(tmp_path):
+    import shutil
+    if not (shutil.which("zstd") and shutil.which("bsdtar")):
+        pytest.skip("needs zstd and bsdtar")
+    src, ctx, out = _built(tmp_path)
+    ctx.vars["packages"] = ""
+    ctx.vars["arch_script"] = _script(src, "scripts/arch.sh", 'mkdir -p Compiled.Builds; '
+        'echo pkg | zstd -q -o "Compiled.Builds/hello-${1}-1-x86_64.pkg.tar.zst"\n')
+    r = goapp.stage_arch(ctx)
+    assert r["ok"] and not r.get("skipped"), r
+    assert Path(r["files"][0]["file"]).name == "hello-1.2.3-1-x86_64.pkg.tar.zst"
+    assert goapp.verify_arch(ctx)["ok"]
+    goapp.stage_packages(ctx)
+    goapp.stage_checksums(ctx)
+    assert "hello-1.2.3-1-x86_64.pkg.tar.zst" in (out / "SHA256SUMS-v1.2.3.txt").read_text()
+    assert goapp.verify_checksums(ctx)["ok"]
+    Path(r["files"][0]["file"]).write_bytes(b"changed")                # a changed package is caught
+    assert not goapp.verify_arch(ctx)["ok"]
+
+
+def test_arch_stage_is_not_this_platform_off_linux_and_skipped_without_a_script(tmp_path, monkeypatch):
+    src, ctx, out = _built(tmp_path)
+    ctx.vars["arch_script"] = "scripts/build-arch.sh"
+    monkeypatch.setattr(goapp.sys, "platform", "win32")
+    r = goapp.stage_arch(ctx)
+    assert r["ok"] and r["status"] == "not-this-platform" and r["files"] == []
+    assert goapp.verify_arch(ctx)["ok"]
+    ctx.vars["arch_script"] = ""
+    assert goapp.stage_arch(ctx)["skipped"]
