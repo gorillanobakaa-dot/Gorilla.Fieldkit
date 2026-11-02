@@ -53,6 +53,33 @@ def _git(repo, *args, check=True, env=None, text=True):
     return r.stdout if check else r
 
 
+FALLBACK_IDENTITY = ("fieldkit-train", "fieldkit-train@users.noreply.github.com")
+
+
+def gh_noreply(repo="."):
+    """-> (login, ID+LOGIN@users.noreply.github.com) of the gh account, or None (not signed in, offline)."""
+    try:
+        r = subprocess.run(["gh", "api", "user", "--jq", '[.id, .login] | @tsv'], capture_output=True, text=True,
+                           cwd=str(repo), timeout=30)
+        uid, login = r.stdout.strip().split("\t")
+        return (login, f"{uid}+{login}@users.noreply.github.com") if r.returncode == 0 else None
+    except Exception:  # noqa: BLE001 - no gh, no network, odd output: the next source
+        return None
+
+
+def identity(repo="."):
+    """-> git's `-c user.name=.. -c user.email=..` arguments for a commit or merge the harness makes itself (R17, #304:
+    "unable to auto-detect email address" on a machine and a CI runner with no global identity). The repository's own
+    config first, then the gh account's noreply address, then a fixed noreply one; never the global config alone."""
+    def cfg(key):
+        return _git(repo, "config", "--get", key, check=False).stdout.strip()
+    name, email = cfg("user.name"), cfg("user.email")
+    if not (name and email):
+        who = gh_noreply(repo) or FALLBACK_IDENTITY
+        name, email = name or who[0], email or who[1]
+    return ["-c", f"user.name={name}", "-c", f"user.email={email}"]
+
+
 def rev(repo, ref):
     r = _git(repo, "rev-parse", "--verify", "--quiet", ref, check=False)
     return r.stdout.strip() or None
@@ -341,7 +368,8 @@ def update(repo=".", base="main", gens=None, ci=None, commit=True, fetch=True):
                 ci_record(repo, sha, ci)
             except Exception:  # noqa: BLE001 - no record only means the hook runs the full suite
                 pass
-    m = _git(repo, "merge", "--no-ff", "--no-commit", f"refs/remotes/origin/{base}", check=False)
+    who = identity(repo)
+    m = _git(repo, *who, "merge", "--no-ff", "--no-commit", f"refs/remotes/origin/{base}", check=False)
     gens = generators(repo) if gens is None else gens
     conflicted = _git(repo, "diff", "--name-only", "--diff-filter=U").split()
     unresolved = []
@@ -383,7 +411,7 @@ def update(repo=".", base="main", gens=None, ci=None, commit=True, fetch=True):
     trailers = _git(repo, "config", "--get-all", "fieldkit.trailer", check=False).stdout.strip()
     if trailers:
         msg += "\n\n" + trailers
-    c = _git(repo, "commit", "-m", msg, check=False)
+    c = _git(repo, *who, "commit", "-m", msg, check=False)
     if c.returncode:
         return dict(rep, ok=False, state="commit-refused", error=(c.stdout + c.stderr).strip()[-1500:],
                     next="the pre-commit hook refused: the merge is still in progress; read why, fix, commit")

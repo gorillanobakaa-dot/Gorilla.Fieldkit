@@ -25,7 +25,11 @@ HOT_C = 90.0
 LOW_BATTERY_PCT = 5
 WINDOW_S = 300
 NEAR_S = 120         # events this close are one incident (187 + 566 + 42 + 506)
+CUT_BELOW_OS_WRITES = "cut below the OS during powercfg scheme writes (correlated, not proven)"
 UNKNOWN_CLASSES = ("unknown", "unexpected cut (cause unknown)")
+OPEN_CLASSES = UNKNOWN_CLASSES + (CUT_BELOW_OS_WRITES,)   # no source proves the cause: still a defect row, exit 3
+WRITES_WINDOW_S = 900
+WRITES_MIN = 3
 
 PS = r"""
 $ErrorActionPreference='SilentlyContinue'
@@ -33,15 +37,19 @@ $ErrorActionPreference='SilentlyContinue'
 $s=[datetime]::Parse('%SINCE%')
 $o=@()
 $f=@(@{P='Microsoft-Windows-Kernel-Power';I=41,42,107,187,506,507,566},@{P='EventLog';I=6005,6006,6008},
-     @{P='User32';I=1074},@{P='Microsoft-Windows-Power-Troubleshooter';I=1})
+     @{P='User32';I=1074},@{P='Microsoft-Windows-Power-Troubleshooter';I=1},@{P='Microsoft-Windows-Kernel-Boot';I=20})
 foreach($x in $f){ Get-WinEvent -FilterHashtable @{LogName='System';ProviderName=$x.P;Id=$x.I;StartTime=$s} | %{
   $d=@{}; $xml=[xml]$_.ToXml(); foreach($n in $xml.Event.EventData.Data){ if($n.Name){$d[$n.Name]=[string]$n.'#text'} }
   $o+=[pscustomobject]@{t=$_.TimeCreated.ToUniversalTime().ToString('o');id=$_.Id;prov=$_.ProviderName;msg=[string]$_.Message;data=$d} } }
+Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows-Kernel-General';Id=12;StartTime=$s} | %{
+  $l=Get-WinEvent -FilterHashtable @{LogName='System';EndTime=$_.TimeCreated.AddSeconds(-1);StartTime=$_.TimeCreated.AddDays(-1)} -MaxEvents 1
+  if($l){ $o+=[pscustomobject]@{t=$_.TimeCreated.ToUniversalTime().ToString('o');id=9001;prov='LASTLOG';msg='last record before boot';data=@{last=$l.TimeCreated.ToUniversalTime().ToString('o');src=[string]$l.ProviderName+'/'+$l.Id}} } }
 $u=@{}
 Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows-UserModePowerService';Id=12;StartTime=$s} | %{
   $xml=[xml]$_.ToXml(); $h=@{}; foreach($n in $xml.Event.EventData.Data){ $h[$n.Name]=[string]$n.'#text' }
   $k=$_.TimeCreated.ToString('yyyy-MM-dd')+'|'+(Split-Path $h.ProcessPath -Leaf)+'|'+[int]($h.OldSchemeGuid -ne $h.NewSchemeGuid)
   $u[$k]=1+[int]$u[$k]
+  if((Split-Path $h.ProcessPath -Leaf) -eq 'powercfg.exe'){ $o+=[pscustomobject]@{t=$_.TimeCreated.ToUniversalTime().ToString('o');id=112;prov='UMPS';msg='scheme write';data=@{proc='powercfg.exe'}} }
   if($h.OldSchemeGuid -ne $h.NewSchemeGuid){ $o+=[pscustomobject]@{t=$_.TimeCreated.ToUniversalTime().ToString('o');id=12;prov='UMPS';msg='scheme change';data=$h} } }
 [pscustomobject]@{events=$o;resets=$u.GetEnumerator()|%{[pscustomobject]@{k=$_.Key;n=$_.Value}}}|ConvertTo-Json -Depth 6 -Compress
 """
@@ -234,6 +242,24 @@ def _sleep_class(reason):
     return "standby (%s)" % (reason.strip().rstrip(".") if reason else "no reason logged")
 
 
+def _cut_evidence(ev, e6, logged, boot_t, cut, has41):
+    """Quoted records around one 6008 cut: the next boot's Kernel-Boot 20 and the last System record before that boot."""
+    lines, boot20 = [], []
+    if not has41:
+        lines.append("no Kernel-Power 41 beside the 6008")
+    for x in ev:
+        if x["id"] == 20 and boot_t - 600 <= x["t"] <= boot_t + 600:
+            boot20.append(x)
+            lines.append("Kernel-Boot 20: " + re.sub(r"\s+", " ", x["msg"] or "").strip()[:100])
+        elif x["id"] == 9001 and abs(x["t"] - boot_t) <= 600:
+            last = _ts(x["data"]["last"]) if isinstance(x["data"].get("last"), str) else None
+            if last is not None:
+                lines.append("last System record before the boot: %s %s (cut time used: %s)" % (
+                    time.strftime("%H:%M:%S", time.localtime(last)), x["data"].get("src", "?"),
+                    time.strftime("%H:%M:%S", time.localtime(cut))))
+    return {"lines": lines, "_boot20": boot20, "has41": has41}
+
+
 def classify_windows(events, jrows, usage=(), now=None):
     """Pure: normalized events + journal rows + battery usage -> incidents, oldest first."""
     ev = sorted(events, key=lambda e: e["t"])
@@ -264,9 +290,9 @@ def classify_windows(events, jrows, usage=(), now=None):
         elif e["id"] in (42, 506):
             used.add(id(e))
             near_ids = near(e, (42, 506, 566, 187))
-            used.update(id(x) for x in near_ids)
-            if any(x["id"] == 187 for x in near_ids):
+            if any(x["id"] == 187 for x in near_ids):        # the 187 names the incident; it claims its neighbors
                 continue
+            used.update(id(x) for x in near_ids)
             rs = re.search(r"Reason:?\s*([^\r\n]+)", e["msg"] or "")
             reason = rs.group(1) if rs else ""
             if e["id"] == 42 and not rs:
@@ -301,8 +327,16 @@ def classify_windows(events, jrows, usage=(), now=None):
                 cls = "power-plan reset"
             else:
                 cls = "unexpected cut (cause unknown)"
+            evidence = _cut_evidence(ev, e6, logged, boot_t, cut, any(x["id"] == 41 for x in grp))
+            writes = [x for x in ev if x["id"] == 112 and cut - WRITES_WINDOW_S <= x["t"] <= cut]
+            if cls == "unexpected cut (cause unknown)" and len(writes) >= WRITES_MIN and any(
+                    "success status was true" in (x["msg"] or "") for x in evidence["_boot20"]) and not evidence["has41"]:
+                cls = CUT_BELOW_OS_WRITES
+                evidence["lines"].append("powercfg.exe scheme resets (UserModePowerService 12) in the %d min before the cut: %d, last at %s" % (
+                    WRITES_WINDOW_S // 60, len(writes), time.strftime("%H:%M:%S", time.localtime(max(x["t"] for x in writes)))))
             inc = {"class": cls, "what": "EventLog 6008" + (" + Kernel-Power 41" if any(x["id"] == 41 for x in grp) else ""),
                    "detail": f"cut time: {note}; logged {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(logged))}"}
+            inc["evidence"] = evidence["lines"]
             finish(inc, cut)
             if cls == "unexpected cut (cause unknown)" and peak is not None:
                 incidents[-1]["class_note"] = f"cause unknown, not heat (peak {peak:g} C)"
@@ -375,7 +409,7 @@ def defect_rows(incidents, path=None):
         body = ""
     n = 0
     for i in incidents:
-        if i["class"] not in UNKNOWN_CLASSES:
+        if i["class"] not in OPEN_CLASSES:
             continue
         tag = f"[power-incident {i['t_text']}]"
         if tag in body:
@@ -426,6 +460,8 @@ def table(res):
         src = (i.get("power_source") or "-") + ("" if i.get("battery_pct") is None else f" {i['battery_pct']}%")
         cls = i.get("class_note") or i["class"]
         lines.append(f"{i['t_text']:19}  {cls[:44]:44}  {pk:>6}  {src:7}  {i['what']}")
+        if i["class"] in OPEN_CLASSES:
+            lines.extend("    evidence: " + x for x in i.get("evidence", []))
     if res["scheme_resets"]:
         by = {}
         for r in res["scheme_resets"]:
@@ -439,7 +475,7 @@ def table(res):
 def run(since=None, as_json=False, write_rows=True, out=print):
     t = parse_since(since)
     res = collect(t)
-    unknown = [i for i in res["incidents"] if i["class"] in UNKNOWN_CLASSES]
+    unknown = [i for i in res["incidents"] if i["class"] in OPEN_CLASSES]
     wrote = defect_rows(res["incidents"]) if write_rows else 0
     if as_json:
         out(json.dumps(dict(res, unknown=len(unknown), rows_written=wrote), indent=1))
