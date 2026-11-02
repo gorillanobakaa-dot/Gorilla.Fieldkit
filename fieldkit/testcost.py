@@ -11,6 +11,7 @@ EVERY commit, also when the tree it tests has already passed.
     fieldkit testcost record CHECK STATUS SECONDS [--key K] [--note N]   a result: pass | fail | refused | skipped
     fieldkit testcost plan [--base REF]          changed files -> the tests that cover them (the FAST set)
     fieldkit testcost run --fast [--base REF]    run only that set (while iterating; the full suite runs before push)
+    fieldkit testcost split [--json]             the covering tests split over this laptop's share and the idle devices
     fieldkit testcost budget KIND                the expected wall time of KIND from measured history
     fieldkit testcost report [--last N]          test time, re-runs avoided, minutes saved, refusals and what they caught
     fieldkit testcost flags                      the gate tiers the owner decides (all OFF unless the owner said yes)
@@ -381,6 +382,10 @@ def main(argv=None, prog="fieldkit testcost"):
     sub.add_parser("flags")
     st = sub.add_parser("staged", help="the test files that cover the staged files, one per line (the pre-commit hook)")
     st.add_argument("--repo", default=".")
+    sp = sub.add_parser("split", help="where each covering test file would run: this laptop's share, the rest on the "
+                                      "idle devices (nothing is sent)")
+    sp.add_argument("--repo", default=".")
+    sp.add_argument("--json", action="store_true")
     um = sub.add_parser("unmapped", help="tracked files no test covers (each one makes CI run the whole suite)")
     um.add_argument("--repo", default=".")
     um.add_argument("--all", action="store_true", help="every tracked file, not only the changed ones")
@@ -400,6 +405,9 @@ def main(argv=None, prog="fieldkit testcost"):
     if a.cmd == "record":
         record(a.check, a.status, a.seconds, a.key, a.note)
         return 0
+    if a.cmd == "split":
+        from . import tests_split
+        return tests_split.main(["--repo", a.repo] + (["--json"] if a.json else []))
     if a.cmd == "staged":
         # owner 2026-10-27 (verbatim): "Da: pe laptop doar testele fișierelor atinse, suita completă doar în CI."
         tests = plan(a.repo, paths=staged_files(a.repo))["tests"]

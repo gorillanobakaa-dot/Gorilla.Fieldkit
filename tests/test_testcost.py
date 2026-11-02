@@ -207,7 +207,7 @@ def test_the_hook_says_why_nothing_ran_never_a_false_no_test_covers(repo, tmp_pa
     git(repo, "add", "-A")
     env = dict(os.environ, PYTHONPATH=str(ROOT), FIELDKIT_TESTCOST_DIR=str(tmp_path / "state"),
                VIRTUAL_ENV=str(Path(sys.executable).parent.parent), PYTEST_ADDOPTS="", FIELDKIT_PREFLIGHT="0",
-               PYTHONDONTWRITEBYTECODE="1", FIELDKIT_LOCAL_TEST_CAP="0")
+               PYTHONDONTWRITEBYTECODE="1", FIELDKIT_LOCAL_TEST_CAP="0", FIELDKIT_SPLIT_LOCAL="1")
     env.pop("FIELDKIT_FULL_SUITE", None)
     r = subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "one"], env=env, capture_output=True, text=True)
     out = r.stdout + r.stderr

@@ -147,6 +147,10 @@ session's message started, so the work waits for the owner's click on that machi
   sha256, with at least one test passed and none failed; then only the test files the device SKIPPED run here
   (`RUN HERE` lines). Device down or BUSY, no signed report, 0 tests: `VERDICT LOCAL`, run the full suite here.
   Off for one run: `FIELDKIT_SUITE_LOCAL=1`; for good: `suite_offload: off` in `fieldkit.local.json`.
+- `fieldkit testcost split` - the covering tests of a commit split over this laptop's share (`local_test_share` in
+  `fieldkit.local.json`, default 15 / devices) and every IDLE device; the pre-commit hook sends each other share (signed
+  JUnit report, same trust as offload) and collects it. A share not taken, late or unsigned runs HERE; only with no idle
+  device and more files than the cap does it say `CI runs them` with the number (recorded as `split-fallback`).
 - A job's verdict needs evidence, not just exit 0 (O3 false PASS, 2026-10-26): no output and no declared artefact is
   FAIL; a test job (`admit suite`, `regress record`, pytest) is FAIL unless its output ends in a test count with a
   pass and no failure. "exit 0 in 0 s" with a concern "the tests never ran" means pytest was missing or found nothing.

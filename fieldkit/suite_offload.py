@@ -74,9 +74,14 @@ def read_report(path):
     cases = list(root.iter("testcase"))
     if root.tag not in ("testsuites", "testsuite"):
         raise ValueError(f"not a JUnit report: root <{root.tag}>")
-    out = {"tests": len(cases), "passed": 0, "failed": 0, "errors": 0, "skipped": [], "failures": []}
+    out = {"tests": len(cases), "passed": 0, "failed": 0, "errors": 0, "skipped": [], "failures": [],
+           "times": []}
     for c in cases:
         who = (c.get("classname") or "", c.get("name") or "")
+        try:
+            out["times"].append((who[0], float(c.get("time") or 0)))
+        except ValueError:
+            pass
         if c.find("failure") is not None:
             out["failed"] += 1
             out["failures"].append(who)
@@ -187,7 +192,7 @@ def offload(repo=".", project="Gorilla.Fieldkit", say=None, os_tag=None, rows=No
     (record or testcost.record)(f"full-suite@{r.get('os') or pick['os']}", status, time.time() - t0, key,
                                 f"offloaded from {me} to {name}, job {jid}: {said}")
     return {"status": status, "why": said, "where": name, "local": here,
-            "report": {k: v for k, v in rep.items() if k != "skipped"} | {"skipped": len(rep["skipped"])},
+            "report": {k: v for k, v in rep.items() if k not in ("skipped", "times")} | {"skipped": len(rep["skipped"])},
             "job": jid, "key": key}
 
 

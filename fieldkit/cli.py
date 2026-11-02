@@ -1705,7 +1705,7 @@ def build_parser():
     ca.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
-                             "budgets, refusals logged (fieldkit testcost)")
+                             "budgets, refusals logged, covering tests split over the idle devices (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
     sn = sub.add_parser("sessions-nested", add_help=False,
                         help="archive never takes a live side session with it: the children still nested under a "

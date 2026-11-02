@@ -1,0 +1,42 @@
+# Rules the split of the covering tests must hold (fieldkit/tests_split.py). Every one CAUGHT:
+#   fieldkit mutate --plan tests/tests_split_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_tests_split.py
+- file: fieldkit/tests_split.py
+  swap: ['        out["shares"][n].sort()', '        out["shares"][n] = out["shares"][n][:1]']
+  why: a share is never cut short; no covering test file is dropped
+- file: fieldkit/tests_split.py
+  swap: ['        cands = [n for n in cands if n != me["name"] or len(out["shares"][n]) < share] or', '        cands = cands or']
+  why: this laptop takes at most its share
+- file: fieldkit/tests_split.py
+  swap: ['    others = [r for r in rows if not r.get("me") and r.get("ok") and L.idle(r) and L.capable(r, me.get("os"), True)]', '    others = [r for r in rows if not r.get("me")]']
+  why: a BUSY or down device is never given a share
+- file: fieldkit/tests_split.py
+  swap: ['        cands = [n for n in out["shares"] if (n in win or not windows_only(repo, t))]', '        cands = list(out["shares"])']
+  why: a windows-only test file stays on a Windows device
+- file: fieldkit/tests_split.py
+  swap: ['            if status == "fail":', '            if False:']
+  why: a failure on another device refuses the commit
+- file: fieldkit/tests_split.py
+  swap: ['            if not arrived or not arrived[0][1]:', '            if not arrived:']
+  why: the report counts only with the sha256 the worker signed
+- file: fieldkit/tests_split.py
+  swap: ['        if r is None:', '        if False:']
+  why: a share with no signed result in time comes back here, never dropped
+- file: fieldkit/tests_split.py
+  swap: ['        out["run_here"] += [f for f in again if f in files]', '        pass']
+  why: every test file the device skipped runs here
+- file: fieldkit/tests_split.py
+  swap: ['        testcost.record("split-fallback", "refused", 0, key, why)', '        pass']
+  why: the CI fallback is recorded
+# the hook side (hooks/pre-commit), caught by tests/test_split_hook.py
+- file: hooks/pre-commit
+  swap: ['    echo "pre-commit: a test failed on another device - commit refused"', '    true']
+  why: a failure on another device refuses the commit
+- file: hooks/pre-commit
+  swap: ['  if [ -n "$BACK" ] && ! guarded', '  if false && ! guarded']
+  why: a share that came back runs here
+- file: hooks/pre-commit
+  swap: ['{ [ -n "$TESTS" ] || [ -z "$PENDING" ]; } && ', '']
+  why: everything sent elsewhere never runs the whole suite here
+- file: hooks/pre-commit
+  swap: ['tests_split done --state', 'tests_split nothing --state']
+  why: every passed share is recorded
