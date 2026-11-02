@@ -6,7 +6,7 @@
                                            FIELDKIT_SHIP_PUSH=1, so a repository's pre-push hook asks the mandate gate
     fieldkit ship push --auto [--title T] [--body-file F]
                                            push the branch, open its PR if none, turn GitHub auto-merge on for the pushed
-                                           commit, exit; GitHub merges on green CI. 2+ red CI runs: PARKED, inbox, exit 3
+                                           commit, exit; GitHub merges on green CI. 2+ OWN red commits (strikes.whose_red; main's reds do not count): PARKED, exit 3
     fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern, and only when
                                            its commit can publish: version, notes, page, CI green (tagguard.py)
     fieldkit ship release-ready vX.Y.Z     the same checks as a dry run: what is missing, in order, and the fix for each
@@ -189,7 +189,23 @@ def _inbox_add(title, why, command=""):
     return inbox.add(title, why, command)
 
 
-def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add):
+def _own_reds(run, repo, branch, pr, runs, base, runner=None):
+    """F4: -> the number of this branch's OWN red commits. Each distinct red head is judged by strikes.whose_red (a
+    failed test that passes on the merge base with main); main's reds are not counted, unproven ones are recorded and
+    forgiven up to FLAKE_LIMIT. Nothing is filed in the owner's inbox."""
+    from . import strikes
+    for sha, rn in strikes.red_heads(runs).items():
+        log = []
+        if rn.get("databaseId"):
+            ok, out, _ = _gh(run, repo, "run", "view", str(rn["databaseId"]), "--log-failed")
+            log = out.splitlines()[-60:] if ok else []
+        strikes.count_red(branch, sha, log, strikes.merge_base(sha, base, repo), rn.get("name") or "red", pr=pr,
+                          job=rn.get("name") or "", runner=runner, inbox=lambda *a, **k: None)
+    return len(strikes.load()["strikes"].get(branch, {}).get("rounds", []))
+
+
+def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add,
+         counter=None):
     """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
     gh says. Exit 3 for PARKED (2+ commits of the branch red on CI): no auto-merge, a note in the owner's inbox."""
     st = (pusher or push)(repo, base)
@@ -224,19 +240,18 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
             return fail("gh pr create", f"no PR url in: {out[:200]}")
         pr = {"number": int(m.group(1)), "url": m.group(0)}
     rep.update(pr=pr["number"], pr_url=pr["url"])
-    ok, out, err = _gh(run, repo, "run", "list", "--branch", branch, "--json", "conclusion,headSha", "--limit", "100")
+    ok, out, err = _gh(run, repo, "run", "list", "--branch", branch, "--json", "conclusion,headSha,databaseId,name", "--limit", "100")
     if not ok:
         return fail("gh run list", err)
     try:
         # P14 (I-11): a strike is a red COMMIT, not a red run (Opencode PR 47: one red commit, two workflow triggers,
-        # read as TWO STRIKES); the same rule as strikes.record_failure
-        reds = len({x.get("headSha") or f"run{i}" for i, x in enumerate(json.loads(out or "[]"))
-                    if x.get("conclusion") == "failure"})
+        # read as TWO STRIKES). F4 (plan P9): and only a red the branch owns (strikes.whose_red), never main's.
+        runs = json.loads(out or "[]")
     except ValueError:
         return fail("gh run list", f"not JSON: {out[:200]}")
+    reds = (counter or _own_reds)(run, repo, branch, pr["number"], runs, base)
     if reds >= STRIKES_AT:
-        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} commits failed CI. Auto-merge NOT enabled."
-        inbox(f"PARKED {branch}: failed CI {reds} times", why, f"gh pr view {pr['number']} --web")
+        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} commits failed CI by their own failures. Auto-merge NOT enabled."
         return dict(rep, ok=False, state="parked", reds=reds, error=why,
                     next="PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")
     # 2026-10-31: on a repository whose base branch requires no status check (Gorilla.Opencode: no ruleset, auto-merge

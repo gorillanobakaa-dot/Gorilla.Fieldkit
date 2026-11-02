@@ -7,6 +7,8 @@ from fieldkit.method import strikes, train
 @pytest.fixture(autouse=True)
 def _own_registry(tmp_path, monkeypatch):
     monkeypatch.setenv(strikes.ENV, str(tmp_path / "parked.json"))     # a red test must not park a real branch
+    # F4: the failed test passes on the merge base unless a test says otherwise (a real run builds a worktree)
+    monkeypatch.setattr(strikes, "default_runner", lambda base_sha, ids, job="": {i: "pass" for i in ids})
 
 
 class GH:
@@ -25,6 +27,9 @@ class GH:
 
     def wait_checks(self, n, timeout):
         self.waits += 1
+
+    def merge_base(self, base, head):
+        return "m" * 40
 
     def failed_log(self, sha):
         return ["-- run 7", "FAILED tests/test_x.py::test_y"]

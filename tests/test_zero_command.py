@@ -548,7 +548,7 @@ def test_a_silent_zero_wake_never_touches_the_real_inbox(tmp_path):
     room = _room(tmp_path, (at, "w1", "cccccccc-1", "edit", W(tmp_path, "b", "x.py")))
     r = command.sweep(net.load_net(), T0 + 3 * 3600 + 5, channels_for=lambda s: [FakeChannel()], git=nogit,
                       room_log=room)                    # no inbox_add: the real code path, Zero MISSING
-    assert r["woke"] in ("inbox", TWO) and list((tmp_path / "inbox").glob("*.json"))
+    assert r["woke"] in ("inbox", TWO) and inbox.ledger_file().is_file()   # the tmp agent ledger, not the owner
     after = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
     assert after == before
 

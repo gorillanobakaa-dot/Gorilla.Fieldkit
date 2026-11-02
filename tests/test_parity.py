@@ -4,6 +4,7 @@ import copy
 import hashlib
 import inspect
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -674,3 +675,69 @@ def test_one_process_walk_feeds_both_the_shared_ground_and_the_model_check(monke
     monkeypatch.setattr(parity, "loaded_models", lambda ctx, rows=None: seen.setdefault("rows", rows) and [])
     parity.preflight_check({"kind": "build"}, p=PIN, quiet=[], base=None)
     assert walks == [1] and seen["rows"] == []
+
+
+# ---- align runs the program's own `install` per user and checks the icon (plan W6) ------------------------------------
+NEW_ICON = b"NEWICON"
+OLD_ICON = b"OLDICON"
+
+
+def _icon_env(monkeypatch, tmp_path, want_icon, existing=None):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    pin = {"gorilla-opencode": dict(PIN["gorilla-opencode"], icon_sha256=want_icon)}
+    monkeypatch.setattr(parity, "pin", lambda path=None: pin)
+    monkeypatch.setattr(parity, "opencode_path", lambda: existing)
+    monkeypatch.setattr(parity, "asset_for", lambda s=None: "deb")
+    monkeypatch.setattr(parity, "state_dir", lambda: tmp_path / "state")
+    web, good, _ = _fake_web()
+    monkeypatch.setattr("urllib.request.urlopen", web)
+    return home, good
+
+
+def _runner(home, icon_bytes, ran):
+    def run(c, timeout=30):
+        ran.append(list(c))
+        if c[-1] == "install":
+            ic = parity.icon_path(home)
+            ic.parent.mkdir(parents=True, exist_ok=True)
+            ic.write_bytes(icon_bytes)
+        return 0, "v0.1.154", ""
+    return run
+
+
+def test_align_runs_install_per_user_and_accepts_the_release_icon(monkeypatch, tmp_path):
+    import hashlib
+    home, _ = _icon_env(monkeypatch, tmp_path, hashlib.sha256(NEW_ICON).hexdigest())
+    ran = []
+    r = parity.align(apply=True, sysname="linux", run=_runner(home, NEW_ICON, ran))
+    dest = str(home / ".local" / "bin" / "gorilla-opencode")
+    assert r["state"] == "DONE" and r["icon_checked"] is True
+    assert [dest, "install"] in ran
+
+
+def test_align_fails_when_the_installed_icon_is_not_the_releases(monkeypatch, tmp_path):
+    import hashlib
+    home, _ = _icon_env(monkeypatch, tmp_path, hashlib.sha256(NEW_ICON).hexdigest())
+    r = parity.align(apply=True, sysname="linux", run=_runner(home, OLD_ICON, []))
+    assert r["state"] == "FAILED" and "the release's is" in r["why"]
+
+
+def test_align_checks_the_icon_even_when_the_binary_is_already_the_release(monkeypatch, tmp_path):
+    import hashlib
+    home, good = _icon_env(monkeypatch, tmp_path, hashlib.sha256(NEW_ICON).hexdigest())
+    existing = tmp_path / "gorilla-opencode"
+    existing.write_bytes(b"NEWBIN")        # the same bytes the fake release serves
+    monkeypatch.setattr(parity, "opencode_path", lambda: existing)
+    monkeypatch.setattr(parity, "probe_tool", lambda p, a, c, run=None: {"version": "0.1.154", "sha256": good})
+    ran = []
+    r = parity.align(apply=True, sysname="linux", run=_runner(home, OLD_ICON, ran))
+    assert r["state"] == "FAILED" and [str(existing), "install"] in ran
+    monkeypatch.setattr(parity, "state_dir", lambda: tmp_path / "state2")     # a new download folder
+    r = parity.align(apply=True, sysname="linux", run=_runner(home, NEW_ICON, []))
+    assert r["state"] == "ALIGNED" and r["icon_checked"] is True, r
+
+
+def test_the_repo_pin_carries_the_release_icon_hash():
+    assert re.fullmatch(r"[0-9a-f]{64}", parity.pin()["gorilla-opencode"]["icon_sha256"])

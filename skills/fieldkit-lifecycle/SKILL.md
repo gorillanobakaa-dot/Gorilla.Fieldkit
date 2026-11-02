@@ -17,6 +17,7 @@ fieldkit task start BRIEF.md                 headless here: a one-step autopilot
 fieldkit task start BRIEF.md --on peer       on the other computer: its link listener starts `fieldkit autopilot claude`
 fieldkit task status                         every task + the reports that came back (over the cable too)
 fieldkit task report ID --status done --branch B [--pr URL] --note "..."   the job's own last step
+fieldkit refusals list                        refusals repeated by train/ship/guard/goal/task: each repeated reason is ONE open defect row (never an inbox item)
 ```
 
 A desktop session card (start_session "own_initiative") waits for the owner's click: do not propose one for relief

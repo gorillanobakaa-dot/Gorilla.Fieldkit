@@ -4,10 +4,19 @@ import subprocess
 
 import pytest
 
-from fieldkit.method import ship
+from fieldkit.method import ship, strikes
 
 SHA = "a" * 40
 URL = "https://github.com/o/r/pull/7"
+
+
+@pytest.fixture(autouse=True)
+def _own_registry(tmp_path, monkeypatch):
+    """F4: the registry is a temp file; the merge base is fixed; the failed test PASSES on the base unless a test says
+    otherwise (a real run would build a worktree)."""
+    monkeypatch.setenv(strikes.ENV, str(tmp_path / "parked.json"))
+    monkeypatch.setattr(strikes, "merge_base", lambda head, base="main", repo=".": "m" * 40)
+    monkeypatch.setattr(strikes, "default_runner", lambda base_sha, ids, job="": {i: "pass" for i in ids})
 
 
 class Gh:
@@ -23,7 +32,7 @@ class Gh:
         if self.fail == key:
             return subprocess.CompletedProcess(cmd, 1, "", "gh: boom")
         out = {"pr list": json.dumps(self.prs), "run list": json.dumps(self.runs), "pr create": URL + "\n",
-               "pr merge": "", "api": json.dumps(self.rules)}[key]
+               "pr merge": "", "run view": "FAILED tests/test_x.py::test_y - boom\n", "api": json.dumps(self.rules)}[key]
         return subprocess.CompletedProcess(cmd, 0, out, "")
 
     def did(self, key):
@@ -70,12 +79,25 @@ def test_gh_failure_is_exit_1_text_and_the_push_stands(which):
 
 def test_two_red_commits_park_and_never_call_merge():
     gh = Gh(prs=[{"number": 7, "url": URL}],
-            runs=[{"conclusion": "failure", "headSha": "b" * 40}, {"conclusion": "success", "headSha": "c" * 40},
-                  {"conclusion": "failure", "headSha": "c" * 40}])
+            runs=[{"conclusion": "failure", "headSha": "b" * 40, "databaseId": 1},
+                  {"conclusion": "success", "headSha": "c" * 40},
+                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2}])
     r, notes = go(gh)
     assert not r["ok"] and r["state"] == "parked" and not r.get("gh_failed")
     assert not gh.did("pr merge")
-    assert len(notes) == 1 and "#7" in notes[0][1] and "feat/x" in notes[0][1]
+    assert notes == [] and "#7" in r["error"] and "feat/x" in r["error"]      # F4: no inbox item
+    assert len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 2
+
+
+def test_two_red_commits_that_fail_on_main_too_are_not_strikes(monkeypatch):
+    """F4: PR 295 was parked for main's red; a failed test that also fails on the merge base is main's."""
+    monkeypatch.setattr(strikes, "default_runner", lambda base_sha, ids, job="": {i: "fail" for i in ids})
+    gh = Gh(prs=[{"number": 7, "url": URL}],
+            runs=[{"conclusion": "failure", "headSha": "b" * 40, "databaseId": 1},
+                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2}])
+    r, notes = go(gh)
+    assert r["ok"] and r["auto"] and gh.did("pr merge") and not notes
+    assert strikes.load()["strikes"].get("feat/x", {}).get("rounds", []) == []
 
 
 def test_one_red_commit_with_two_red_runs_is_one_strike():

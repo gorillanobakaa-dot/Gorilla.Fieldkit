@@ -24,6 +24,8 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 ```
 fieldkit testcost plan                                         changed files -> only the tests that cover them
 fieldkit testcost run --fast                                   run that set while iterating; the FULL suite once, before push
+fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
+fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
 fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND
@@ -112,6 +114,7 @@ fieldkit ship status        where the branch stands
 fieldkit ship push          sync a squash-merged branch (merge -s ours, tree unchanged) and push; never forces
 fieldkit ship push --tag vX a NEW tag on a commit GitHub has (or that this push carries); never moves a tag
 fieldkit ship gh-release vX -- ARGS   gh release create --verify-tag, the repository from git, CI green
+fieldkit strikes recount BRANCH   whose red: own / main / unproven per head (a failed test run on the merge base with main); a strike is only an own one
 fieldkit mandate doctor     the owner-wide mandate: in force, days left, keys, every covered hook honoring the gate
 ```
 Under the owner-wide mandate (owner, 2026-10-26) these ARE the owner's yes: every covered repository's pre-push hook

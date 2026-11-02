@@ -222,6 +222,41 @@ def _imports(test_file):
     return mods
 
 
+TESTMAP = "tests/testmap.yaml"
+MUTATION_PLAN = re.compile(r"(^|/)([^/]+_mutations\.yaml|mutations\.yaml|mutations-[^/]+\.yaml)$")
+
+
+def testmap(repo):
+    """[(glob, [test files])] from tests/testmap.yaml: files outside the Python packages (workflows, pins, hooks,
+    vendored skills) and the tests that read them. Data, not code (2026-11-02: 17 of 38 PR runs ran the whole suite
+    because a data file had no mapped test)."""
+    f = Path(repo) / TESTMAP
+    if not f.is_file():
+        return []
+    import yaml
+    rows = yaml.safe_load(f.read_text(encoding="utf-8")) or []
+    return [(r["glob"], list(r.get("tests") or [])) for r in rows if isinstance(r, dict) and r.get("glob")]
+
+
+def _glob_match(path, pattern):
+    from fnmatch import fnmatchcase
+    return fnmatchcase(path, pattern) or (pattern.endswith("/**") and path.startswith(pattern[:-2]))
+
+
+def _package_tests(q, imports):
+    """A file inside a package no test names (fieldkit/emerge/recipes/x.yaml, fieldkit/buildh/x.js, an untested
+    module): the tests that import the nearest enclosing package that any test imports."""
+    parts = Path(q).parts
+    for n in range(len(parts) - 1, 1, -1):
+        pkg = ".".join(parts[:n])
+        if pkg == "fieldkit":
+            break
+        hits = {str(t) for t, ms in imports.items() if any(m == pkg or m.startswith(pkg + ".") for m in ms)}
+        if hits:
+            return hits
+    return set()
+
+
 def plan(repo=".", base=None, paths=None, diff_lines=None):
     """{"tests": [...], "unmapped": [...], "docs_only": bool, "no_code": bool}: the tests that cover the changed files.
 
@@ -234,9 +269,10 @@ def plan(repo=".", base=None, paths=None, diff_lines=None):
     repo = Path(repo)
     paths = changed_files(repo, base) if paths is None else paths
     tests_dir = repo / "tests"
-    test_files = sorted(tests_dir.glob("test_*.py")) if tests_dir.is_dir() else []
+    test_files = sorted(tests_dir.rglob("test_*.py")) if tests_dir.is_dir() else []   # tests/capture/ too
     imports = {t: _imports(t) for t in test_files}
     diff_lines = diff_lines or (lambda path: _line_diff(repo, base, path))
+    tmap = testmap(repo)
     chosen, unmapped = set(), []
     for p in paths:
         q = p.replace("\\", "/")
@@ -247,17 +283,30 @@ def plan(repo=".", base=None, paths=None, diff_lines=None):
             continue
         if Path(q).suffix.lower() in DOC_SUFFIXES and not q.startswith(CODE_TREES):
             continue
+        rows = [ts for g, ts in tmap if _glob_match(q, g)]
+        if rows:                                       # a mapped file; tests: [] = declared read by no test
+            chosen |= {str(repo / t) for ts in rows for t in ts}
+            continue
+        if MUTATION_PLAN.search(q):                    # read only by `fieldkit mutate`: the tests of what it mutates
+            own = repo / "tests" / ("test_" + Path(q).name.replace("_mutations.yaml", ".py").replace("mutations-", ""))
+            hits = {str(own)} if own.is_file() else (_package_tests(q, imports) if q.startswith("fieldkit/") else set())
+            if hits:
+                chosen |= hits
+            continue
         mod = _module_of(q)
         hits = set()
         if mod and mod != "fieldkit":
             hits = {str(t) for t, ms in imports.items() if any(m == mod or m.startswith(mod + ".") for m in ms)}
         if not hits:
-            needles = [Path(q).name] + ([mod.rsplit(".", 1)[-1]] if mod else [])
+            needles = [Path(q).name] + ([mod.rsplit(".", 1)[-1]] if mod else []) +                 ([Path(q).stem] if Path(q).suffix != ".py" and Path(q).stem not in ("mutations", "data", "index") else [])
             needles = [n for n in needles if len(n) > 3 and n not in ("__init__.py", "cli.py", "cli")]
             for t in test_files:
                 src = t.read_text(encoding="utf-8", errors="replace")
                 if any(re.search(r"\b" + re.escape(n) + r"\b", src) for n in needles):
                     hits.add(str(t))
+        if not hits and q.startswith("fieldkit/"):     # no test names it: the tests of its package (the whole
+            # suite would add nothing for a file no test imports or names)
+            hits = _package_tests(q, imports)
         if hits:
             chosen |= hits
         else:
@@ -332,6 +381,9 @@ def main(argv=None, prog="fieldkit testcost"):
     sub.add_parser("flags")
     st = sub.add_parser("staged", help="the test files that cover the staged files, one per line (the pre-commit hook)")
     st.add_argument("--repo", default=".")
+    um = sub.add_parser("unmapped", help="tracked files no test covers (each one makes CI run the whole suite)")
+    um.add_argument("--repo", default=".")
+    um.add_argument("--all", action="store_true", help="every tracked file, not only the changed ones")
     d = sub.add_parser("docs-only")
     d.add_argument("--repo", default=".")
     a = ap.parse_args(argv)
@@ -400,6 +452,19 @@ def main(argv=None, prog="fieldkit testcost"):
             print(f"  {'ON ' if f[name] else 'off'}  {name}: {why}")
         print('  (set in fieldkit.local.json "testcost": {...} only on the owner\'s yes)')
         return 0
+    if a.cmd == "unmapped":
+        files = _git(a.repo, "ls-files").split() if a.all else changed_files(a.repo)
+        u = plan(a.repo, paths=files, diff_lines=lambda q: [])["unmapped"]
+        if getattr(a, "json", False):
+            print(json.dumps({"unmapped": u, "checked": len(files)}))
+        else:
+            for x in u:
+                print("  unmapped", x)
+            print(f"testcost unmapped: {len(u)} of {len(files)} file(s) covered by no test"
+                  + ("" if not u else " - each one runs the whole suite in CI; map it in tests/testmap.yaml or "
+                     "give it a test"))
+            print("NEXT: " + ("nothing to do" if not u else "map or test the files listed"))
+        return 3 if u else 0
     if a.cmd == "docs-only":
         # exit 0 = the hook may skip the suite: the owner's flag is ON and every STAGED path is documentation
         return 0 if flags()["docs_only_privacy_only"] and is_docs_only(staged_files(a.repo)) else 1

@@ -98,6 +98,10 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
         say("  " + msg)
         if not ok:
             raise BuildRefused(msg)
+    from . import keeper
+    why = keeper.refusal()                                # 2026-11-02: no heavy job while the machine governor is down
+    if why:
+        raise BuildRefused(why)
     if sys.platform != "win32":
         yield None
         return
@@ -170,4 +174,6 @@ def run(cmd, cwd=None, say=None, check_fan=True):
             return rc
     except BuildRefused as e:
         say(f"REFUSED: {e}")
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("guard", str(e))
         return 2

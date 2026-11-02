@@ -136,3 +136,16 @@ def test_a_stale_cap_marker_at_the_current_cap_writes_nothing(tmp_path, monkeypa
     monkeypatch.setattr(governor, "read_cap", lambda: 40)
     m.write_text('{"original": 100}', encoding="utf-8")
     assert governor.restore_stale_cap(said.append) == 100 and writes == [100] and not m.exists()
+
+
+def test_a_powershell_reader_that_hangs_is_a_missing_reading_not_a_dead_governor(monkeypatch):
+    """2026-11-02 13:2x: Get-Counter timed out after 60 s, TimeoutExpired killed the governor thread mid-job."""
+    import subprocess
+    from fieldkit.thermal import sensors
+    monkeypatch.setattr(sensors.sys, "platform", "win32")
+
+    def hang(cmd, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    monkeypatch.setattr(sensors, "_run_ps", hang)
+    assert sensors.perf_percent() is None
+    assert sensors.thermalzone() is None

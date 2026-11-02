@@ -23,6 +23,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: every tracked file has covering tests (else CI would run the whole suite for it)
+        run: python -m fieldkit testcost unmapped --all
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
         if: github.event_name == 'pull_request'
         run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"

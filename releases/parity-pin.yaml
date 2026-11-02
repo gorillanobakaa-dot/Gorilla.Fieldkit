@@ -1,6 +1,8 @@
 # The versions every machine runs before a test (fieldkit parity). Changed by a commit, never by a background
 # update: updates are pulled, checked against the release's SHA256SUMS and deployed on our schedule.
-gorilla-opencode: {version: v0.1.160, repo: gorillanobakaa-dot/Gorilla.Opencode}
+# icon_sha256: the release's usr/share/icons/hicolor/256x256/apps/gorilla-opencode.png (142753 bytes); align runs `install`
+# per user and fails when the installed icon differs
+gorilla-opencode: {version: v0.1.160, repo: gorillanobakaa-dot/Gorilla.Opencode, icon_sha256: 68fbfb2c933d2c6e9de366eefa0c11347928682f26d50ab6ce24d810ef5ef79d}
 # per target, report only (parity align never installs a toolchain): go1.24 on the VAIO is deliberate, it builds
 # the macOS 10.13 release (go1.25+ dropped 10.13); Windows builds with the current go (measured 2026-10-26)
 go: {targets: {windows: "1.27.0", linux: "1.24.4"}, align: report}

@@ -120,9 +120,13 @@ fi
 # the test files that cover the staged files (fieldkit testcost staged); none -> nothing runs here. The full suite runs
 # in CI, and a PR merges only on green CI. FIELDKIT_FULL_SUITE=1 runs the whole suite here when wanted.
 if [ -z "$SKIP" ] && [ -z "$FIELDKIT_FULL_SUITE" ]; then
-  TESTS="$("$PY" -m fieldkit.testcost staged 2>/dev/null | tr -d '\r' | tr '\n' ' ')"   # Windows Python writes CRLF
+  TC_ERR="$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-tc-$$")"
+  TESTS="$("$PY" -m fieldkit.testcost staged 2>"$TC_ERR" | tr -d '\r' | tr '\n' ' ')"   # Windows Python writes CRLF
+  TC_WHY="$(tr -d '\r' < "$TC_ERR" 2>/dev/null | tail -n 1)"; rm -f "$TC_ERR"
   if [ -z "$TESTS" ]; then
-    echo "pre-commit: no test covers the staged files - nothing runs here; the full suite runs in CI"
+    # 2026-11-02: this said "no test covers the staged files" when 68 did and the laptop cap (15) held them back:
+    # say what testcost said, never a reason it did not give
+    echo "pre-commit: ${TC_WHY:-no test covers the staged files} - nothing runs here; CI runs the covering tests"
     SKIP=1
   fi
 else

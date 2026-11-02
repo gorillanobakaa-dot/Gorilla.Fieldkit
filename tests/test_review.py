@@ -18,8 +18,8 @@ def env(tmp_path, monkeypatch):
 
 def _seed(root):
     ideas.add("Idea one", "does one", root=root, now=NOW)
-    inbox.add("Publish v1", "release is green", "fieldkit ship gh-release v1")
-    inbox.add("Which pack?", "pick one", kind="choice")
+    inbox.add("Publish v1", "release is green", "fieldkit ship gh-release v1", kind="hardline")
+    inbox.add("Which pack?", "pick one", kind="hardline")
 
 
 def _ask(*a):
@@ -45,8 +45,8 @@ def test_page_in_three_groups_in_plain_words(env):
     (env / "docs" / "HARNESS-PLAN.md").write_text(PLAN, encoding="utf-8")
     _seed(env)
     inbox.add("Toolbox size?", "why", plan="P5", what="Which tools ship inside the program.",
-              if_approve="Zero builds the core pack.", if_leave="The build waits.")
-    inbox.add("Fan tray gone", "text mentions P9 only", what="w", if_approve="a", if_leave="l")
+              if_approve="Zero builds the core pack.", if_leave="The build waits.", kind="hardline")
+    inbox.add("Fan tray gone", "text mentions P9 only", what="w", if_approve="a", if_leave="l", kind="hardline")
     es = review.entries(env)
     assert [e["ref"] for e in es] == ["#3", "#1", "#2", "#4", "I-01"]       # main goal, everyday, ideas
     text = "\n".join(review.render(es, env))
@@ -64,7 +64,7 @@ def test_page_in_three_groups_in_plain_words(env):
 def test_plan_is_inferred_from_text_when_no_field(env):
     (env / "docs").mkdir()
     (env / "docs" / "HARNESS-PLAN.md").write_text(PLAN, encoding="utf-8")
-    inbox.add("P5b toolbox", "grows it")
+    inbox.add("P5b toolbox", "grows it", kind="hardline")
     assert review.entries(env)[0]["plan"] == "P5"
 
 
@@ -80,8 +80,8 @@ def test_pick_idea_and_inbox_item_approved_once(env):
 
 def test_words_recorded_and_a_choice_needs_them(env):
     _seed(env)
-    res = review.review(env, ask=_ask("2 a"), say=lambda *_: None, now=NOW)
-    assert res == [] and len(inbox.items("open")) == 2          # left open: no words
+    # 2026-11-02: agents can no longer file "choice" items (only kind hardline reaches the owner), so the rule
+    # "a choice needs words" has no item left to apply to; the owner's words are still recorded as given
     review.review(env, ask=_ask("2 a: core embedded + media pack"), say=lambda *_: None, now=NOW)
     it = [i for i in inbox.items("done") if i["n"] == 2][0]
     assert it["note"].endswith("core embedded + media pack") and it["answer"] == "core embedded + media pack"
@@ -115,7 +115,7 @@ def test_refused_when_not_an_owner_terminal(env, monkeypatch):
 
 
 def test_the_page_is_rewritten_after_inbox_add_and_done(env):
-    inbox.add("Need a yes", "because", "do it")
+    inbox.add("Need a yes", "because", "do it", kind="hardline")
     page = review.page_path(env)
     assert "Need a yes" in page.read_text(encoding="utf-8")
     inbox.done(1, "ok")
