@@ -287,12 +287,28 @@ def sweep_rows(rows=None):
                  "fieldkit.local.json with a reason")]
 
 
+def capture_rows(check=None):
+    """A capture hook or the capture schedule missing on this computer: what an agent makes is then lost until someone
+    remembers a command (owner, 2026-11-01, goal harvest-automatic). Not ok while anything is missing."""
+    try:
+        if check is None:
+            from ..capture import install
+            check = install.check()
+    except Exception:  # noqa: BLE001 - an unreadable settings file must not switch the audit off
+        return []
+    missing = [f"{k}: {', '.join(v)}" for k, v in check.items() if v]
+    if not missing:
+        return []
+    return [_row("capture", "capture:hooks", "capture is not wired in here (" + "; ".join(missing) + ")",
+                 "`fieldkit capture install` (idempotent; `--check` to look)")]
+
+
 def local_rows(dirs=None, me=None):
     """Every friction line on THIS computer (also what the link verb `friction` answers a peer)."""
     me = me if me is not None else os.environ.get(desktop.HOST_ENV, "")
     sessions = desktop.sessions(dirs)
     rows = (desktop_rows(sessions, me=me) + untagged_rows(sessions) + remote_rows(dirs) + link_rows()
-            + prereq_rows() + needs_you_rows() + unread_rows() + inbox_rows() + board_rows() + sweep_rows())
+            + prereq_rows() + needs_you_rows() + unread_rows() + inbox_rows() + board_rows() + sweep_rows() + capture_rows())
     done = acked()
     return [r for r in rows if r["key"] not in done]
 

@@ -127,6 +127,13 @@ def cmd_selftest(a):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["install"]:                            # own module: install.py (hooks + schedule)
+        from . import install
+        return install.main(argv[1:])
+    if argv[:1] == ["status"]:                             # own module: status.py (proof of last run, --peer)
+        from . import status
+        return status.main(argv[1:])
     ap = argparse.ArgumentParser(prog="fieldkit capture", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="action", required=True)
