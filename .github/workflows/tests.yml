@@ -23,6 +23,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends desktop-file-utils
       - name: the tests covering the change
         shell: bash
         run: |
