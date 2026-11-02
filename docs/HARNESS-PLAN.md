@@ -82,6 +82,9 @@ wins over a merge. Every fix is measured before and after with the same
 | R14 | A refusal repeated by any harness tool becomes a defect row the next Zero must close (F7) | merge train "head moved" 5 times, never triaged | a planted repeated refusal opens one row | PLANNED |
 | R15 | The covering tests are split across every free device, never dropped: the laptop's cap is only its share (owner 2026-11-02: a fixed 15-file cap does not scale to 20-50 machines) | above 15 test files the pre-commit ran nothing; cli.py fans out to 59-74 files | a 70-file change runs all its tests, split between L15 and the VAIO | PLANNED |
 | R16 | A promise is a plan row: a session report that says something was added to a list or will be fixed must name an existing row (here, ZERO-OPEN-PROBLEMS or the Board), else `fieldkit honesty check` fails | 10-28: "on the repair list" for the governor and the cutoffs; no row existed until 11-02 | a planted promise without a row fails the check | PLANNED |
+| R17 | A tool that talks to an outside service (GitHub, the cable, the scheduler, a model API) is proven against the real service, not only a fake: each fake states the behaviour it copies, and a contract check replays recorded real answers (GitHub's update-branch is asynchronous, 202) so a fake that differs from reality fails | report 2026-11-02 defect 3: FakeGH merged update-branch instantly, the suite was green, the train merged no updated PR for a week (fixed for the train only, PR 302) | every fake in tests/ names its recorded real answers; a fake changed to differ fails | PLANNED |
+| R18 | Zero owner inbox from tools and workers: only a hard-line item reaches the owner; the worker brief no longer says `fieldkit inbox add`; `ship push` parks without filing; MISSING stations go to the Board (report F3, PR 304) | workers filed items twice on 11-01; ship push and the net filed items themselves | after a run that parks a PR and loses a station, `fieldkit inbox list` prints "INBOX: empty" | PLANNED |
+| R19 | Hard rotate for every session, workers and goal jobs included: at ROTATE the tool router refuses everything except the handover (in place for Zero only) and the cost line is checked (report F8) | Zero 21 at 364k per call (ROTATE 350k); its last 100 calls cost several times a fresh session's | a planted worker past ROTATE is refused | PLANNED |
 
 ## Optimizations (works, but costs too much)
 
@@ -149,7 +152,7 @@ Its essentials are now in [VISION.md](VISION.md).
 
 | phase | items | why first |
 |---|---|---|
-| 0. Repairs before anything ships (owner 2026-11-02: "we cannot ship the harness in this state") | R9, R10, R11, R12, R13, R14, R15, R16 | the laptop went down again, the governor was off for 5 days, promised fixes were never planned; no harness release until every row is DONE with its measure quoted |
+| 0. Repairs before anything ships (owner 2026-11-02: "we cannot ship the harness in this state") | R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, and R7 (tests once: PR 303 maps every file) and P9 (whose red: #307) measured | the laptop went down again, the governor was off for 5 days, promised fixes were never planned; no harness release until every row is DONE with its measure quoted |
 | 1. Brakes on the money | R1 + L2 + I3 (hard session stop, circuit breakers, $ per job) | 59% of the money went on long sessions; nothing stops them today |
 | 2. Tests once | R7 | "50 hours in front of the computer" and hours of repeated test runs |
 | 3. Lighter every call | R2 + O1 + L1 (one goal/vision file, rules once, smaller base prompt), R4 + O5 (guard), R5 (the router does instead of refusing), O2, O4 | every call pays for these |
