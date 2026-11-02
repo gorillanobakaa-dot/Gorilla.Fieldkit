@@ -202,6 +202,30 @@ class GH:
         rc, out, _ = self._gh("api", f"repos/{self.slug}/compare/{base}...{head}", "--jq", ".merge_base_commit.sha")
         return out.strip() if rc == 0 else ""
 
+    def required_checks(self, base="main"):
+        """-> the check names the base branch requires, from its rulesets and its branch protection (R17)."""
+        names = set()
+        rc, out, _ = self._gh("api", f"repos/{self.slug}/rules/branches/{base}", "--jq",
+                              "[.[] | select(.type == \"required_status_checks\") | "
+                              ".parameters.required_status_checks[].context]")
+        if rc == 0:
+            names |= set(json.loads(out or "[]"))
+        rc, out, _ = self._gh("api", f"repos/{self.slug}/branches/{base}/protection/required_status_checks", "--jq",
+                              "[(.contexts // [])[], (.checks // [])[].context]")
+        if rc == 0:
+            names |= set(json.loads(out or "[]"))
+        return names
+
+    def check_runs(self, sha):
+        """-> [{name, status, conclusion}] of the check runs GitHub has registered for exactly `sha`."""
+        return self._json("api", "--paginate", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
+                          "[.check_runs[] | {name, status, conclusion}]") or []
+
+    def behind(self, n):
+        """True when GitHub reads the PR as BEHIND its base (the rule wants it up to date before the merge)."""
+        return (self._json("pr", "view", str(n), "-R", self.slug, "--json", "mergeStateStatus") or {}
+                ).get("mergeStateStatus") == "BEHIND"
+
     def merge(self, n, head):
         rc, out, err = self._gh("pr", "merge", str(n), "-R", self.slug, "--merge", "--match-head-commit", head)
         return rc == 0, (out + err).strip()[-300:]
@@ -615,6 +639,88 @@ def _base_and_job(gh, head, base):
     return base_sha, job
 
 
+REQUIRED_POLL_S = 15
+NOT_REGISTERED = re.compile(r"required status check|are expected|expected\b.*\bcheck", re.I)
+
+
+def required_state(required, runs):
+    """-> ("ok" | "missing" | "pending" | "red", names): is there a check run named each required name, completed and
+    passed? Registration lags a push by seconds to minutes (#295, #315: "2 of 2 required status checks are expected")."""
+    by = {}
+    for r in runs:
+        by.setdefault(r.get("name"), []).append(r)
+    missing = sorted(n for n in required if n not in by)
+    if missing:
+        return "missing", missing
+    red = sorted(n for n in required if any(r.get("status") == "completed" and r.get("conclusion") not in
+                                            ("success", "neutral", "skipped") for r in by[n]))
+    if red:
+        return "red", red
+    open_ = sorted(n for n in required if not any(r.get("status") == "completed" for r in by[n])
+                   or any(r.get("status") != "completed" for r in by[n]))
+    return ("pending", open_) if open_ else ("ok", [])
+
+
+def wait_required(gh, head, base, max_wait_s, sleep=time.sleep, clock=time.monotonic):
+    """Wait until a check run exists AND passed on the exact head for every name the base branch requires.
+    -> (state, why); state "ok" also when nothing is required or the rules cannot be read (GitHub then decides and a
+    refusal is retried by merge_when_registered)."""
+    if not hasattr(gh, "required_checks"):
+        return "ok", "no rules reader"
+    try:
+        required = set(gh.required_checks(base))
+    except Exception:  # noqa: BLE001 - unreadable rules: the merge itself is the check
+        return "ok", "required checks unreadable"
+    if not required:
+        return "ok", "no required checks"
+    end = clock() + max_wait_s
+    while True:
+        state, names = required_state(required, gh.check_runs(head))
+        if state in ("ok", "red") or clock() >= end:
+            return state, f"required checks {state}: {', '.join(names) or ', '.join(sorted(required))}"
+        sleep(REQUIRED_POLL_S)
+
+
+def _record_refusal(repo, n, msg):
+    """R14: a repeated refusal becomes a defect row. `fieldkit refusals record` when it exists; the train log always."""
+    try:
+        subprocess.run([sys.executable, "-m", "fieldkit", "refusals", "record", "train", f"PR #{n}: {msg[:200]}"],
+                       capture_output=True, text=True, timeout=30)
+    except Exception:  # noqa: BLE001 - recording must never block the train
+        pass
+
+
+def catch_up(gh, n, head, max_wait_s, sleep=time.sleep, clock=time.monotonic):
+    """The PR is BEHIND its base: update first (GitHub's update-branch), never a merge attempt. -> (new head, "") or
+    (head, why) when the update was refused or the new head did not turn up."""
+    ok, msg = gh.update_branch(n, head)
+    if not ok:
+        return head, f"update-branch refused: {msg}"
+    for _ in range(UPDATE_POLLS):
+        new = gh.pr(n)["headRefOid"]
+        if new != head:
+            return new, ""
+        sleep(UPDATE_POLL_S)
+    return head, "update-branch accepted but the head never moved"
+
+
+def merge_when_registered(gh, n, head, base, max_wait_s, record=None, sleep=time.sleep, clock=time.monotonic, tries=3):
+    """gh.merge, but only after the required checks exist and passed on `head`; a "required status checks are
+    expected" refusal is recorded and retried after the wait. -> (ok, msg)."""
+    ok, msg = False, ""
+    for _ in range(tries):
+        state, why = wait_required(gh, head, base, max_wait_s, sleep, clock)
+        if state != "ok":
+            return False, why
+        ok, msg = gh.merge(n, head)
+        if ok or not NOT_REGISTERED.search(msg or ""):
+            return ok, msg
+        if record:
+            record(n, msg)
+        sleep(REQUIRED_POLL_S)
+    return ok, msg
+
+
 def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None, runner=None):
     """O4: wait once for the PR head's CI verdict; on red the failed log tail, on green (with merge) the merge proven by
     the PR's state, not gh's exit code. TWO STRIKES: the second failed round parks the branch (state "parked"); a
@@ -659,7 +765,17 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
                     next="CI did not finish in time; run ci-wait again in the background")
     if not merge:
         return dict(r, ok=True, next=f"merge: fieldkit ship ci-wait {n} --merge")
-    ok, msg = gh.merge(n, head)
+    base = pr.get("baseRefName") or "main"
+    if getattr(gh, "behind", None) and gh.behind(n):    # R17: BEHIND means update first, never a merge attempt
+        head, why = catch_up(gh, n, head, max_wait_s, sleep, clock)
+        if why:
+            return dict(r, ok=False, state="behind", why=why, next="update the branch, then run ci-wait again")
+        r["head"] = head
+        state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
+        if state != "green":
+            return dict(r, ok=False, state="timeout" if state == "pending" else state, why=why,
+                        next="the updated head's CI did not turn green; run ci-wait again in the background")
+    ok, msg = merge_when_registered(gh, n, head, base, max_wait_s, lambda k, m: _record_refusal(None, k, m), sleep, clock)
     after = gh.pr(n).get("state")
     if not ok or after != "MERGED":                     # the artefact, not the exit code
         return dict(r, ok=False, state="not-merged", why=msg or f"the PR reads {after}",
@@ -730,7 +846,7 @@ def train(repo=".", gh=None, base="main", dry_run=False, only=None, max_wait_s=3
             "next": "" if not left else "each left PR says why; nothing was forced"}
 
 
-def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, push, sleep):
+def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, push, sleep, _depth=0):
     n, branch = row["pr"], row["branch"]
     made = st.setdefault("made", {}).setdefault(str(n), [])
     _log(repo, st, n, "start", head=row["head"], declared=row["declared"])
@@ -780,11 +896,20 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
     if not ok or pr["headRefOid"] != head:
         _log(repo, st, n, "not-ready", why=why)
         return {"pr": n, "why": f"not merged: {why}"}
+    if _depth < 3 and getattr(gh, "behind", None) and gh.behind(n):    # main moved during CI: update first, never merge
+        new, why = catch_up(gh, n, head, max_wait_s, sleep)
+        _log(repo, st, n, "update-behind", ok=not why, error=why)
+        if why:
+            return {"pr": n, "why": f"behind {base} and the update failed: {why}"}
+        made.append(new)
+        save_state(repo, st)
+        return _one(repo, gh, dict(row, head=new), base, st, max_wait_s, gens, ci, mandate, may_update, push, sleep,
+                    _depth + 1)
     verdict, mwhy, mpath = mandate("merge_main", repo_path=repo, commit=head)
     if verdict != "allow":
         _log(repo, st, n, "refused", why=mwhy)
         return {"pr": n, "why": f"the mandate does not allow the merge: {mwhy}"}
-    ok, msg = gh.merge(n, head)
+    ok, msg = merge_when_registered(gh, n, head, base, max_wait_s, lambda k, m: _record_refusal(repo, k, m), sleep)
     _log(repo, st, n, "merge", ok=ok, msg=msg, head=head)
     if not ok:
         return {"pr": n, "why": f"gh refused the merge: {msg}"}

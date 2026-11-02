@@ -119,7 +119,8 @@ def sync(repo=".", base="main"):
     trailers = git(repo, "config", "--get-all", "fieldkit.trailer").stdout.strip()   # e.g. Co-Authored-By lines
     if trailers:
         msg += "\n\n" + trailers
-    git(repo, "merge", "-s", "ours", "--no-edit", f"origin/{st['branch']}", "-m", msg, check=True)
+    from .mergeproof import identity
+    git(repo, *identity(repo), "merge", "-s", "ours", "--no-edit", f"origin/{st['branch']}", "-m", msg, check=True)
     if _tree(repo, "HEAD") != _tree(repo, "HEAD~1"):
         raise RuntimeError("the merge changed the tree: stop and look (git show HEAD)")
     return dict(status(repo, base, fetch=False), synced=True)
