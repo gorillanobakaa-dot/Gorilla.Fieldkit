@@ -1088,6 +1088,12 @@ def cmd_inbox(a):
             print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
                   "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
         return 0
+    if a.action == "self-test":
+        from .autopilot import inbox_selftest
+        rc = inbox_selftest.run()
+        print("NEXT: " + ("none, the owner inbox is empty by construction" if rc == 0 else
+                          "fix the refusal named FAIL in fieldkit/autopilot/inbox.py or fieldkit/zero/net.py"))
+        return rc
     if a.action == "ledger":
         rows = []
         if inbox.ledger_file().is_file():
@@ -1944,7 +1950,7 @@ def build_parser():
     apl.set_defaults(fn=cmd_autopilot)
 
     ib = sub.add_parser("inbox", parents=[common])
-    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger"], nargs="?", default="list")
+    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger", "self-test"], nargs="?", default="list")
     ib.add_argument("--kind", default="approval", help="add: only 'hardline' reaches the owner; anything else goes to "
                                                          "the agent ledger (fieldkit inbox ledger)")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
