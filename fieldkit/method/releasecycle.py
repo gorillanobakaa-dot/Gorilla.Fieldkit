@@ -235,7 +235,8 @@ def notes(ctx, run=subprocess.run):
     extra = Path(r["out"]) / "screenshots.md"
     extra.write_text("## Screenshots\n\n" + gallery + "\n", encoding="utf-8")
     p = run(["python", "-m", "fieldkit", "release-page", "compose", "--opening", str(n["opening"]), "--layman",
-             str(n["layman"]), "--developer", str(n["developer"]), "--extra", str(extra), "--out", str(_page(r))],
+             str(n["layman"]), "--developer", str(n["developer"]), "--extra", str(extra), "--out", str(_page(r)),
+             "--repo", str(r["repo"])],
             capture_output=True, text=True)
     return {"ok": p.returncode == 0, "detail": f"composed {_page(r).name}" if p.returncode == 0 else
             ((p.stdout or "") + (p.stderr or "")).strip()[-300:]}

@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-28-18-00
+# Version: 1.2.0 · updated 26-11-02-02-30
 """The merge train: a PR is merged only when its session declared it final, one at a time, never red (part 2).
 
     fieldkit ship ready PR [--pending TEXT | --withdraw]
@@ -308,6 +308,9 @@ def ready(repo, n, gh, pending=None, withdraw=False):
 def _who():
     return os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("FIELDKIT_STATION") or \
         os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "?"
+
+
+UPDATE_POLLS, UPDATE_POLL_S = 36, 5                 # GitHub's update-branch is asynchronous: up to 3 min
 
 
 def readiness(pr, marks, made=()):
@@ -726,6 +729,11 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
             _log(repo, st, n, "update-api", ok=ok, msg=msg)
             if not ok:
                 need = "update-local"                   # GitHub saw a conflict merge-tree did not: try here
+            else:                                       # 202 Accepted: the merge commit lands later (2026-11-02:
+                for _ in range(UPDATE_POLLS):           # #295 #300 refused as "head moved" by the train's own update)
+                    if gh.pr(n)["headRefOid"] != head:
+                        break
+                    sleep(UPDATE_POLL_S)
         if need == "update-local":
             r = _local_update(repo, branch, base, gens, ci, push)
             _log(repo, st, n, "update-local", state=r.get("state"), proof=r.get("proof"), error=r.get("error"))

@@ -378,13 +378,15 @@ class Server:
         self.bind, self.port, self.allow, self.idle, self.once, self.say = bind, port, allow, idle, once, say
         self.last = time.monotonic()
         self.stop = threading.Event()
-        for attempt in range(20 if port == 0 else 1):   # port 0: the free TCP port may be taken or excluded for UDP (WinError 10013)
+        # port 0: UDP picks first - its ephemeral port honours UDP's excluded ranges, which a free TCP port did not
+        # (WinError 10013 twenty times in a row on windows-latest, PR 297); TCP may still find it taken, so retry
+        for attempt in range(20 if port == 0 else 1):
             self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
-                self.tcp.bind((bind, port))
-                self.port = self.tcp.getsockname()[1]
-                self.udp.bind((bind, self.port))
+                self.udp.bind((bind, port))
+                self.port = self.udp.getsockname()[1]
+                self.tcp.bind((bind, self.port))
                 break
             except OSError:
                 self.tcp.close()

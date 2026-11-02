@@ -122,7 +122,7 @@ def test_compose_command_writes_only_a_page_that_passes(tmp_path, capsys):
     out = tmp_path / "page.md"
     args = PARSER.parse_args(["release-page", "compose", "--opening", str(files["opening"]),
                               "--layman", str(files["layman"]), "--developer", str(files["developer"]),
-                              "--out", str(out)])
+                              "--out", str(out), "--repo", str(tmp_path)])
     assert args.fn(args) == 0 and out.is_file()
     assert "NEXT:" in capsys.readouterr().out
 
@@ -136,7 +136,7 @@ def test_compose_command_writes_only_a_page_that_passes(tmp_path, capsys):
     bad = tmp_path / "bad.md"
     args = PARSER.parse_args(["release-page", "compose", "--opening", str(files["opening"]),
                               "--layman", str(files["layman"]), "--developer", str(files["developer"]),
-                              "--out", str(bad)])
+                              "--out", str(bad), "--repo", str(tmp_path)])
     assert args.fn(args) == 3 and not bad.exists()
     printed = capsys.readouterr().out
     assert printed.count("REFUSED:") >= 3 and "NEXT:" in printed
