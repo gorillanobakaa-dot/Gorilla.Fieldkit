@@ -124,9 +124,10 @@ def hook_text(root=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit refusals", description=__doc__.split("\n")[0])
+    ap.add_argument("--json", action="store_true", help="list: JSON")
     sub = ap.add_subparsers(dest="cmd", required=True)
     lp = sub.add_parser("list")
-    lp.add_argument("--json", action="store_true")
+    lp.add_argument("--json", action="store_true", dest="json_list")
     rp = sub.add_parser("record")
     rp.add_argument("tool")
     rp.add_argument("text")
@@ -136,7 +137,7 @@ def main(argv=None):
         print(f"recorded; defect row {num} opened" if num else "recorded")
         return 0
     s = summary()
-    if a.json:
+    if a.json or a.json_list:
         print(json.dumps(s, indent=1))
         return 0
     for e in s:
