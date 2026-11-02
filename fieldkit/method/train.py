@@ -197,6 +197,11 @@ class GH:
         rc, out, _ = self._gh("api", f"repos/{self.slug}/commits/{base}", "--jq", ".sha")
         return out.strip() if rc == 0 else ""
 
+    def merge_base(self, base, head):
+        """-> the merge base of `head` with `base` on GitHub (main at the same time as the PR), or ""."""
+        rc, out, _ = self._gh("api", f"repos/{self.slug}/compare/{base}...{head}", "--jq", ".merge_base_commit.sha")
+        return out.strip() if rc == 0 else ""
+
     def merge(self, n, head):
         rc, out, err = self._gh("pr", "merge", str(n), "-R", self.slug, "--merge", "--match-head-commit", head)
         return rc == 0, (out + err).strip()[-300:]
@@ -597,7 +602,20 @@ def _mains_failure(gh, head, log, base):
         return ""
 
 
-def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None):
+def _base_and_job(gh, head, base):
+    """-> (the merge base of `head` with `base`, the failed check names joined) for strikes.whose_red; "" when unread."""
+    try:
+        base_sha = gh.merge_base(base, head)
+    except Exception:  # noqa: BLE001 - a fake or partial GH: the base is unread, the red is unproven
+        base_sha = ""
+    try:
+        job = " ".join(sorted(gh.failed_checks(head)))
+    except Exception:  # noqa: BLE001
+        job = ""
+    return base_sha, job
+
+
+def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None, runner=None):
     """O4: wait once for the PR head's CI verdict; on red the failed log tail, on green (with merge) the merge proven by
     the PR's state, not gh's exit code. TWO STRIKES: the second failed round parks the branch (state "parked"); a
     parked branch is not waited on at all."""
@@ -613,7 +631,8 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
     r.update(state=state, why=why)
     if state == "red":
         log = gh.failed_log(head)
-        mains = _mains_failure(gh, head, log, pr.get("baseRefName") or "main")
+        base = pr.get("baseRefName") or "main"
+        mains = "" if strikes.failed_tests(log) else _mains_failure(gh, head, log, base)   # no test ids: by check name
         if mains:                                       # B2: not this branch's strike; main is fixed first
             return dict(r, ok=False, state="main-red", log=log, why=f"main's failure, not counted: {mains}",
                         next="fix main first (its own PR), then update this branch and run ci-wait again")
@@ -621,7 +640,15 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         if fl and not strikes.record_flake(r["branch"], head, fl, pr=n)["counted"]:   # owner 2026-10-31: not a strike
             return dict(r, ok=False, state="flake", log=log, why=f"a timing flake, not counted: {fl}",
                         next=f"re-run the failed jobs once (gh run rerun RUN_ID --failed), then ci-wait {n} again")
-        s = strikes.record_failure(r["branch"], head, " ".join(log[-2:]) or why, pr=n, inbox=inbox)
+        base_sha, job = _base_and_job(gh, head, base)
+        s = strikes.count_red(r["branch"], head, log, base_sha, " ".join(log[-2:]) or why, pr=n, job=job,
+                              runner=runner, inbox=inbox)
+        if s["kind"] == "main":                         # F4: every failed test also fails on the merge base
+            return dict(r, ok=False, state="main-red", log=log, why=f"main's failure, not counted: {s['evidence']}",
+                        next="fix main first (its own PR), then update this branch and run ci-wait again")
+        if not s["counted"]:                            # F4: unproven, recorded, forgiven up to FLAKE_LIMIT
+            return dict(r, ok=False, state="unproven", log=log, why=f"red not proven this branch's, not counted: "
+                        f"{s['evidence']}", next=f"re-run the failed jobs once, then ci-wait {n} again")
         if s["parked"]:
             return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",
                         next="parked, go on with the plan")
