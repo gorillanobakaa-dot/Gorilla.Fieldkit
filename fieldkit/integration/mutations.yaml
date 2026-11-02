@@ -14,3 +14,9 @@
 - {file: fieldkit/integration/core.py, swap: ['if before.get(cid) != card:', 'if before.get(cid) == card:'], why: "--changed: an edited card is rechecked"}
 - {file: fieldkit/integration/core.py, swap: ['names |= {_helper_name(r) for _, r in parse_sums("\n".join(added))}', 'names |= set()'], why: "--changed: an added SHA256SUMS line is rechecked"}
 - {file: fieldkit/integration/core.py, swap: ['caps = {n: v for n, v in caps.items() if n in wanted}', 'caps = {n: v for n, v in caps.items() if n not in wanted}'], why: "--changed narrows the capabilities"}
+# The refusals (ship push, release-page compose): tests/test_integration_gate.py must fail on each.
+#   python -m fieldkit mutate --plan fieldkit/integration/mutations.yaml -- python -m pytest -q -x tests/test_integration_gate.py
+- {file: fieldkit/integration/gate.py, swap: ['return {"ok": not r["gaps"], "skipped": False', 'return {"ok": True, "skipped": False'], why: "guard: a gap makes it not ok"}
+- {file: fieldkit/integration/gate.py, swap: ['since = since or (branch_point(repo, base) if base else None)', 'since = since or None'], why: "guard: a branch is looked at from its branch point"}
+- {file: fieldkit/method/ship.py, swap: ['    if not ig["ok"]:', '    if False:'], why: "ship push refuses on a gap"}
+- {file: fieldkit/gdocs/cli.py, swap: ['            if not ig["ok"]:', '            if False:'], why: "release-page compose refuses on a gap"}

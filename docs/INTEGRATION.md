@@ -77,3 +77,20 @@ capability list.
    missing.
 
 Never weaken the checker to get a pass. If it is wrong on a real tree, prove that and change the data.
+
+### Where the check runs, and the review checklist
+
+The same command stops an unintegrated change at every step, so a reviewer never has to find it by eye:
+
+| Step | What runs | On a gap |
+|------|-----------|----------|
+| `git commit` | `hooks/pre-commit` (Fieldkit), `.githooks/pre-commit` (OpenCode): `integration check --repo . --changed HEAD` | commit refused |
+| branch push (`fieldkit ship` push) | `integration check` on what the branch changed since `origin/main` | exit 3, nothing pushed |
+| `fieldkit release-page compose` | `integration check` on what changed since the last tag (`--since REF`) | exit 3, no page written |
+| pull request CI | `integration check --repo . --changed origin/BASE` (OpenCode installs Fieldkit pinned by commit) | red check |
+
+Review checklist (a reviewer ticks these by reading the output, not the diff):
+
+- [ ] CI shows `integration check` green on the pull request, with `--changed` the PR base.
+- [ ] A new tool, package, command or helper appears in all six surfaces above, not only in code.
+- [ ] No rule in `surfaces.yaml` or `mutations.yaml` was loosened in this change; a loosened rule needs a proof on a real tree.
