@@ -3209,6 +3209,16 @@
    "testcost"
   ]
  },
+ "thermal ensure": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "macOS (the MacBook Air) runs no heavy work and cools in firmware",
+  "ids": [
+   "thermal-ensure"
+  ]
+ },
  "thermal monitor": {
   "platforms": [
    "linux",

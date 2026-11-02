@@ -1112,6 +1112,21 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, profile or danger or hwinfo]
 
+- id: thermal-ensure
+  title: "The machine thermal governor is always running: start it when it is down, install the keeper that checks it at logon, every 5 min and on resume; heavy work refuses while it is down (Windows and Linux)"
+  harness: thermal
+  entry: [python, -m, fieldkit, thermal, ensure]
+  path: ${FIELDKIT}/fieldkit/thermal/keeper.py
+  inputs:
+    - {name: install, flag: --install, type: flag, required: false, help: "also install the keeper (a user task on Windows, a systemd user timer on Linux; no admin)"}
+  effects: [processes, writes-files]
+  safety: reversible
+  headline: "GOVERNOR UP / STARTED / DOWN, and whether the keeper is installed."
+  platforms: [windows, linux]
+  platforms_why: "macOS (the MacBook Air) runs no heavy work and cools in firmware"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_thermal_keeper.py"]
+  notes: "2026-11-02: the laptop went down at 03:29 and the governor was found not running (its logon line commented out since 10-28) and, when running, braking nothing (watch only). Its lever now pauses guarded jobs' processes instead of the power plan."
+
 - id: thermal-monitor
   title: "Keep the processor cool while something heavy runs (a build): lowers the CPU cap when hot, speaks, puts it back (Windows and Linux)"
   harness: thermal

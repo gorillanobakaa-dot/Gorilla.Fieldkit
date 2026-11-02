@@ -1,0 +1,37 @@
+# The thermal keeper (2026-11-02): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/thermal_keeper_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_thermal_keeper.py
+- file: fieldkit/thermal/keeper.py
+  swap:
+  - '    start = start or (lambda: spawn(command()))'
+  - '    return dict(st, ok=True, state="up")'
+  why: a dead governor is started, never reported up
+- file: fieldkit/thermal/keeper.py
+  swap:
+  - '        if st["up"]:'
+  - '        if True:'
+  why: started is proven by the new lease, not the spawn
+- file: fieldkit/thermal/keeper.py
+  swap:
+  - '    return "" if r["ok"] else'
+  - '    return "" if True else'
+  why: heavy work refuses while the governor is down
+- file: fieldkit/thermal/buildguard.py
+  swap:
+  - '    if why:'
+  - '    if False:'
+  why: the guard refuses
+- file: fieldkit/autopilot/goal.py
+  swap:
+  - '            if hot:'
+  - '            if False:'
+  why: the supervisor starts no job
+- file: fieldkit/thermal/keeper.py
+  swap:
+  - '        if pct <= PAUSE_AT:'
+  - '        if False:'
+  why: the brake pauses when hot
+- file: fieldkit/thermal/watch.py
+  swap:
+  - '        lever.resume()                                    # never leave a guarded job paused'
+  - '        pass'
+  why: the governor resumes paused jobs when it stops
