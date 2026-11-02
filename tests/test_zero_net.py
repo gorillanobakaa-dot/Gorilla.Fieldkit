@@ -741,7 +741,7 @@ def test_guard_a_missing_station_reaches_only_the_tmp_inbox(tmp_path):
     net.checkin(GEM, now=T0, env={})
     net.check(heal=False, now=T0 + 3601)
     assert str(inbox.INBOX).startswith(str(tmp_path))
-    got = list((tmp_path / "autopilot" / "inbox").glob("*.json"))
+    got = [inbox.ledger_file()] if inbox.ledger_file().is_file() else []   # the tmp agent ledger
     assert got and any(GEM in p.read_text(encoding="utf-8") for p in got)
     after = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
     assert after == before

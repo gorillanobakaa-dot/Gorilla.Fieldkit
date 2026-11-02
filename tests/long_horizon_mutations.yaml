@@ -204,3 +204,10 @@
 - file: fieldkit/autopilot/goal.py
   swap: ['goals + [g for g in unfinished() if g not in born]', 'goals + []']
   why: a supervisor started with ids picks up a goal created after it started
+# zero owner inbox (owner, 2026-11-01)
+- file: fieldkit/autopilot/inbox.py
+  swap: ['    if kind not in OWNER_KINDS:', '    if False:']
+  why: only a HARD LINE becomes an owner inbox item; everything else goes to the agent ledger
+- file: fieldkit/autopilot/goal.py
+  swap: ['        st["answers"][q["id"]] = {"answer": q.get("default") or "", "by": "default (no owner questions, 2026-11-01)"}', '        pass']
+  why: a planner question takes its default; the owner is never asked

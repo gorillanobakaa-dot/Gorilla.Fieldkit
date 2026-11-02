@@ -206,15 +206,16 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py", "${FIELDKIT}/tests/test_calibrate.py"]
 
 - id: inbox
-  title: The owner inbox - every approval an unattended run needs, collected for one sitting
+  title: The owner inbox holds only HARD LINE items (owner, 2026-11-01 - zero owner steps); every other item an agent, worker, ship push, goal or the net files goes to the agent ledger (fieldkit inbox ledger), read by Zero, never by the owner
   harness: core
   entry: [python, -m, fieldkit, inbox]
   path: ${FIELDKIT}/fieldkit/autopilot/inbox.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [list, show, add, done], help: "list (default)"}
+    - {name: action, flag: null, type: str, required: false, choices: [list, show, add, done, ledger], help: "list (default) | ledger [N]: the agent ledger's last N rows"}
     - {name: rest, flag: null, type: str, required: false, help: "show/done: N [note]; add: TITLE WHY [COMMAND]"}
     - {name: all, flag: --all, type: bool, required: false, help: "list: done items too"}
-  platforms: [windows, linux]
+    - {name: kind, flag: --kind, type: str, required: false, help: "add: hardline reaches the owner; anything else is routed to the agent ledger"}
+  platforms: [windows, linux, darwin]
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py"]
 

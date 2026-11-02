@@ -1081,8 +1081,24 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", plan=a.plan or "",
-                                   what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or ""), indent=1))
+        it = inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", kind=a.kind, plan=a.plan or "",
+                       what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or "")
+        print(json.dumps(it, indent=1, ensure_ascii=False))
+        if it.get("routed") == "ledger":
+            print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
+                  "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
+        return 0
+    if a.action == "ledger":
+        rows = []
+        if inbox.ledger_file().is_file():
+            for line in inbox.ledger_file().read_text(encoding="utf-8").splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        for r in rows[-int(a.rest[0]) if a.rest else 0:] if rows else []:
+            print(f"  {r.get('added')}  {r.get('kind'):<9} {r.get('title')}")
+        print(f"agent ledger: {len(rows)} row(s) in {inbox.ledger_file()} (never shown to the owner)")
         return 0
     if a.action == "done":
         print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
@@ -1911,7 +1927,9 @@ def build_parser():
     apl.set_defaults(fn=cmd_autopilot)
 
     ib = sub.add_parser("inbox", parents=[common])
-    ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
+    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger"], nargs="?", default="list")
+    ib.add_argument("--kind", default="approval", help="add: only 'hardline' reaches the owner; anything else goes to "
+                                                         "the agent ledger (fieldkit inbox ledger)")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
     ib.add_argument("--all", action="store_true", help="list: done items too")
     ib.add_argument("--plan", help="add: the plan row this belongs to (P5, W10 ...)")
