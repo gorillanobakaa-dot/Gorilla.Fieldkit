@@ -1,0 +1,35 @@
+# Solo / Multiplayer and the model router (owner order 2026-11-02, after one hour burned the 5-hour quota).
+# Data first: change a number here, not in the code. fieldkit/lifecycle/routing.py reads it.
+#
+# mode:     solo   one job at a time, nothing goes to another device (the default)
+#           multi  several jobs at once, up to parallel.multi, other devices allowed
+# ceiling:  the strongest model the owner lets a job use. The router may go DOWN from it, never above it.
+# ladder:   cheapest first. A job gets the cheapest rung its risk score needs, capped by the ceiling.
+# The owner accepts mode + ceiling once per day (`fieldkit route choose`); without a fresh accept the defaults below
+# apply, which are the cheap ones (fail cheap, never block an unattended run).
+mode: solo
+ceiling: sonnet
+accept_valid_days: 1
+ladder: [haiku, sonnet, opus, fable]
+worker_top: sonnet            # opus is the reviewer's rung (roles.yaml); a worker never starts there on its own
+park_at: fable                # a job whose risk needs this rung is parked in the owner inbox, never started
+parallel:
+  solo: 1
+  multi: 3
+  solo_allows_peer: false     # solo sends nothing --on another device
+# Risk score of a brief: each distinct high word +2, each distinct low word -1, +1 per 3000 characters, +1 per 8
+# distinct paths. Rung by score: <= haiku_max haiku, <= sonnet_max sonnet, <= opus_max opus, above that fable.
+score:
+  haiku_max: 1
+  sonnet_max: 5
+  opus_max: 9
+  chars_per_point: 3000
+  paths_per_point: 8
+high_words: [security, secret, credential, migration, migrate, schema, concurrency, race, deadlock, architecture,
+             redesign, rewrite, refactor, cryptograph, signature, mandate, rollback, release, force-push, irreversible,
+             data loss, privacy, threat model, protocol]
+low_words: [typo, rename, docs, documentation, readme, comment, format, lint, scan, list, collect, count, copy,
+            table, report, changelog, mechanical, boilerplate, fixture]
+# Failures climb one rung per failed round (cascade), never above the ceiling; past the ceiling the reviewer role
+# (roles.yaml) repairs it, and a job that needs park_at is parked.
+escalate_after_failures: 1

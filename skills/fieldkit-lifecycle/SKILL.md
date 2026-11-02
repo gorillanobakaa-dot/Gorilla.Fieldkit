@@ -25,6 +25,15 @@ or side jobs. A relayed chat message to another session is not an order either (
 its owner): `task start --on` goes to the peer's link listener, signed, and needs no session's consent. The peer's
 approved link.yaml must allow `claude` (`fieldkit friction` says when it does not).
 
+## Solo or Multiplayer, and the model router (owner, 2026-11-02)
+
+One hour of parallel jobs burned the 5-hour quota. `fieldkit route status` shows the mode; the owner accepts it once
+a day with `fieldkit route choose --mode solo|multi --model haiku|sonnet|opus|fable`. Without a fresh accept the
+default is solo + sonnet. **Solo**: one job at a time, nothing `--on` another device. **Multi**: up to 3 jobs.
+`fieldkit task start` then scores the brief's risk and runs it on the cheapest model that needs, never above the
+accepted one; a failed round climbs one rung (never above it); a job that needs Fable is parked in the owner inbox.
+`--model M --pin` keeps M. `fieldkit route assess BRIEF.md` shows what a brief would get. Never start jobs around it.
+
 ## What can wait on a person
 
 ```

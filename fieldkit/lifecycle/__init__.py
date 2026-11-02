@@ -43,7 +43,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import friction, owner_actions, protocol, sweep, tasks
+from . import friction, owner_actions, protocol, routing, sweep, tasks
 
 
 def _gb(n):
@@ -88,6 +88,7 @@ def cmd_task(argv):
     ap.add_argument("--plan", help="start, lint: the plan item (a row id of docs/HARNESS-PLAN.md) the brief serves")
     ap.add_argument("--model", help="start: the worker's model (default: roles.yaml worker.default; Opus/Fable "
                                     "are reviewers and refused as workers)")
+    ap.add_argument("--pin", action="store_true", help="start: keep --model exactly; the router does not go down from it")
     ap.add_argument("--allow-expensive", action="store_true", help="start: let the worker be an expensive model")
     ap.add_argument("--accept", help="start: the acceptance command; done needs a passing reviewer verdict on it")
     ap.add_argument("--again", action="store_true", help="start: even though the same brief is started and unfinished")
@@ -143,7 +144,10 @@ def cmd_task(argv):
             return 2
         try:
             rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again, plan=a.plan,
-                             model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark)
+                             model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark, pin=a.pin)
+        except (routing.ModeRefused, routing.ModelParked) as e:   # the mode / router answered; not a defect
+            print(f"NOT STARTED  {e}")
+            return 3
         except (tasks.AlreadyStarted, tasks.Parked) as e:
             print(f"NOT STARTED  {e}")
             from .. import refusals              # a refusal repeated becomes a defect row (plan R14)
@@ -155,7 +159,7 @@ def cmd_task(argv):
             refusals.record("task", f"not started: {e}")
             return 2
         print(json.dumps(rec, indent=1, ensure_ascii=False) if a.json else
-              f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec.get('how')}): "
+              f"TASK {rec['id']}  {rec['status']} on {rec['on']} model {rec.get('model') or '-'} ({rec.get('how')}): "
               f"{rec.get('answer') or rec.get('log') or rec.get('runbook') or ''}")
         return 0 if rec["status"] == "started" else 3
     if a.action == "report":

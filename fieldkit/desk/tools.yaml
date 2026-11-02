@@ -6544,6 +6544,24 @@ tools:
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
 
+- id: route
+  title: "Solo or Multiplayer and the model router - the owner accepts a mode (solo = one job at a time, nothing on another device; multi = up to 3) and the strongest model (haiku, sonnet, opus, fable) once a day; every `task start` then scores the brief's risk and runs it on the cheapest model that needs, never above the accepted one; a failed round climbs one rung up to the ceiling; a job that needs Fable is parked in the owner inbox"
+  harness: core
+  entry: [python, -m, fieldkit, route]
+  path: ${FIELDKIT}/fieldkit/lifecycle/routing.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [status, choose, assess], help: "LEAVE EMPTY for status. choose --mode solo|multi --model haiku|sonnet|opus|fable is the daily accept; assess BRIEF.md shows the model a brief would get"}
+    - {name: mode, flag: --mode, type: str, required: false, choices: [solo, multi], help: "choose: solo (default) or multi"}
+    - {name: model, flag: --model, type: str, required: false, help: "choose: the strongest model a job may use"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {2: "bad mode or model"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_routing.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-11-02: one hour of 7 parallel jobs and a 300k-context Opus session burned the 5-hour quota; 'Solo' and 'Multiplayer', the owner picks the model, the harness routes down on its own (risk score, cascade, fallback), Fable only parked for approval. Data: fieldkit/lifecycle/routing.yaml (words, thresholds, caps). State: state/lifecycle/mode.json (the accept, valid one day; without it solo + sonnet), routing.jsonl (every decision). Deterministic, no network, no model: LiteLLM, Portkey, RouteLLM and Langfuse were not adopted because each is a vendor door; the same router, cascade and fallback are a score and a table here. `task start --model M --pin` keeps M exactly. The cost guard (models.py) still checks the owner's ceiling first. Mutations: tests/routing_mutations.yaml."
+
 - id: board
   title: "Board rows - every finished session has its row in state/coordination/PLAN.md (plan R3): check counts sessions with a row / all for a day and lists each one without, add writes the row from the session's own transcript (title, id, branch, PRs, cost), no model"
   harness: core

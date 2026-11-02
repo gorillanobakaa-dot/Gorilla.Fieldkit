@@ -71,7 +71,7 @@ def test_missing_roles_data_is_an_error_not_defaults(tmp_path):
 
 
 def test_task_start_records_the_model_and_puts_it_in_the_runbook(tmp_path):
-    r = tasks.start(brief(tmp_path), cwd=tmp_path, launch=lambda a: {"pid": 7, "log": "L"}, now=NOW)
+    r = tasks.start(brief(tmp_path), cwd=tmp_path, launch=lambda a: {"pid": 7, "log": "L"}, now=NOW, pin=True)
     assert r["model"] == "sonnet"
     from fieldkit.autopilot import runbook
     assert runbook.load(r["runbook"])["steps"][0]["model"] == "sonnet"

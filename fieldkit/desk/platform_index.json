@@ -2772,6 +2772,17 @@
    "rotate"
   ]
  },
+ "route": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "route"
+  ]
+ },
  "rules": {
   "platforms": [
    "linux",

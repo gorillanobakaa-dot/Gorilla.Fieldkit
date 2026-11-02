@@ -145,6 +145,12 @@ def _refused_size():
 
 
 @pytest.fixture(autouse=True)
+def _multi_mode_in_tests(monkeypatch):
+    """Tests that start several tasks, or one --on a device, run in multiplayer; tests/test_routing.py deletes this."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_cable():
     """A test (or a child it started) that tried to connect to a real cable peer fails, even if the code swallowed
     the ConnectionRefusedError (the Zero hook does: a far check-in never stalls a hook). The suite's own log: a test
