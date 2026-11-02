@@ -190,6 +190,16 @@ if git diff --cached --name-only | grep -qE '^(AGENTS\.md|rules/CORE\.md)$'; the
     exit 1
   fi
 fi
+# 2026-11-01 (goal integrated-everywhere, docs/INTEGRATION.md): a change that adds or edits a tool, package or card is
+# refused while it is not built in (carried, known, visible, on the release page, on every system, tested). Only what
+# the commit changes is looked at (--changed HEAD), so the check is fast and an old gap never blocks an unrelated commit.
+if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+  if ! "$PY" -m fieldkit integration check --repo . --changed HEAD >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: a capability is not built in (docs/INTEGRATION.md) - commit refused"
+    exit 1
+  fi
+fi
 if ! "$PY" -m fieldkit privacy scan . --git >/dev/null 2>&1; then
   echo "pre-commit: privacy findings in files git would publish - commit refused"
   "$PY" -m fieldkit privacy scan . --git; exit 1

@@ -152,6 +152,11 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     if strikes.parked_for(st["branch"]):               # TWO STRIKES: no third round
         return dict(st, ok=False, pushed=False, state="parked", error=strikes.refusal([st["branch"]]),
                     next="parked, go on with the plan; nothing was pushed")
+    from ..integration import gate                       # docs/INTEGRATION.md: a branch that adds a capability not built in
+    ig = gate.guard(repo, base)                          # in is not pushed (exit 3)
+    if not ig["ok"]:
+        return dict(st, ok=False, pushed=False, state="integration-gap", error=gate.refusal(ig),
+                    next="fix the files named after `fix`, then `fieldkit integration check --repo . --changed " + base + "`")
     # an unattended push reaches here only through the hard line, which asked the mandate first; here it is logged
     verdict, why, mpath = mandate("push", repo_path=repo)
     delay, last = 2, ""
