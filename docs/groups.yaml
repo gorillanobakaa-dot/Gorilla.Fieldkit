@@ -150,6 +150,7 @@ groups:
       - rules.py
       - rules_lint.py
       - suite_offload.py
+      - tests_split.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

@@ -24,6 +24,7 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 ```
 fieldkit testcost plan                                         changed files -> only the tests that cover them
 fieldkit testcost run --fast                                   run that set while iterating; the FULL suite once, before push
+fieldkit testcost split                                        the covering tests over this laptop's share (local_test_share) and every idle device; the hook sends them, none is dropped (R15)
 fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
 fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught

@@ -3240,6 +3240,17 @@
    "testcost"
   ]
  },
+ "testcost split": {
+  "platforms": [
+   "linux",
+   "macos",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "testcost-split"
+  ]
+ },
  "thermal ensure": {
   "platforms": [
    "linux",

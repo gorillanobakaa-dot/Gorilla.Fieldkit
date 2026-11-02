@@ -2024,6 +2024,21 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_suite_offload.py"]
   notes: "Owner 2026-10-26: every MB counts, delegate to the Linux box. Rules: wanted (suite_offload auto|on|off, FIELDKIT_SUITE_LOCAL=1); device = orchestrate_load.choose(any_os) IDLE and capable, never waited for; job = `admit suite --report fk-suite-report.xml` on the testcost tree, report the one declared artefact; trust only a pinned-key signed result + the report with the signed sha256 + at least one test passed and none failed; a skip that maps to no file -> local. testcost full-suite@OS recorded. Hook door: python -m fieldkit.suite_offload hook (0 pass + files to run here, 1 fail, 10 local). The hooks/pre-commit lines that call it are an owner change (HARD LINE 3), filed in the inbox. Mutation plan tests/suite_offload_mutations.yaml (11/11). Zero model tokens."
 
+- id: testcost-split
+  title: "The tests that cover a change split over this laptop's share and every idle device, all of them run: the pre-commit hook sends the other shares, collects signed JUnit reports, runs back here any share that did not answer"
+  harness: methods
+  entry: [python, -m, fieldkit, testcost, split]
+  path: ${FIELDKIT}/fieldkit/tests_split.py
+  inputs:
+    - {name: repo, flag: --repo, type: str, required: false, help: "the git checkout (.)"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [reads-files]
+  safety: read-only              # `split` only prints the assignment; the hook (python -m fieldkit.tests_split start|finish) sends
+  output: first-party
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_tests_split.py"]
+  notes: "HARNESS-PLAN R15, owner 2026-11-02: a fixed 15-file cap does not scale to 20-50 machines; the cap is this laptop's share (setting local_test_share in fieldkit.local.json, default 15 / devices). Devices = orchestrate_load.load_all, IDLE and python+pytest+git. Largest first to the least loaded; windows_only files stay on a Windows device. Trust as suite_offload (signed result + report sha256, >=1 pass, 0 failures); a share that is not taken, times out (20 min) or comes back untrusted runs here; a file the device skipped runs here. Only with no idle device and more files than the cap: CI runs them, said with the number and recorded as split-fallback. Each passed share is recorded as fast:<hash> (never re-run). Mutation plan tests/tests_split_mutations.yaml (13/13). Zero model tokens."
+
 - id: admit
   title: "One machine-wide gate for heavy jobs (the full suite, mutate, builds, go test): at most N at once on this computer, the rest queue and never ask anyone; a hot CPU is offered one slot fewer"
   harness: methods
