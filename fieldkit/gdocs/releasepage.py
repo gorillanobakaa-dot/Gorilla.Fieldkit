@@ -24,8 +24,10 @@ WHAT IT DOES
                  1. the opening, written for someone who has never heard of the
                     project: what it is, whether to download it, why it matters
                  2. the plain-language track, IN FULL, on the page
-                 3. extra material (what the program printed, pictures)
-                 4. the developer track, IN FULL, on the page
+                 3. every tool the release carries, a table generated from the
+                    cards in fieldkit/desk/tools.yaml (never typed by hand)
+                 4. extra material (what the program printed, pictures)
+                 5. the developer track, IN FULL, on the page
     check()    refuses a page that breaks the order, hides either track behind
                a link, uses a link that cannot open from a release page, or
                opens without telling the reader whether to bother.
@@ -53,6 +55,8 @@ OPENING_WITHIN_LINES = 40
 
 LAYMAN_MARK = "<!-- plain-language track: in full, on this page -->"
 DEVELOPER_MARK = "<!-- developer track: in full, on this page -->"
+TOOLS_BEGIN, TOOLS_END = "<!-- tools:begin (generated from fieldkit/desk/tools.yaml) -->", "<!-- tools:end -->"
+CARDS = Path("fieldkit") / "desk" / "tools.yaml"   # the published cards only; local/tools.yaml is private
 
 _LINK = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)\)")
 _IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
@@ -82,7 +86,33 @@ def _demote(md: str) -> str:
     return "\n".join(out)
 
 
-def compose(opening: str, layman_md: str, developer_md: str, extra: str = "") -> str:
+def _cell(v) -> str:
+    return re.sub(r"\s+", " ", str(v or "")).replace("|", "\\|").strip()
+
+
+def tool_table(repo=".") -> str:
+    """-> the "every tool" section built from the repository's cards (tools.yaml), or "" when it has none. Each card
+    is one row: the command, what it does, the systems it runs on. Generated, so a tool added to the cards is on the
+    next release page without anyone remembering it (docs/INTEGRATION.md point 4)."""
+    import yaml
+    f = Path(repo) / CARDS
+    if not f.is_file():
+        return ""
+    cards = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("tools") or []
+    rows = []
+    for c in sorted((c for c in cards if isinstance(c, dict) and c.get("id")), key=lambda c: str(c["id"])):
+        entry = c.get("entry") or []
+        cmd = " ".join(str(x) for x in entry[2:]) if list(entry[:2]) == ["python", "-m"] else str(c["id"])
+        rows.append(f"| `{_cell(cmd)}` | {_cell(c.get('title'))} | {_cell(', '.join(c.get('platforms') or []))} |")
+    if not rows:
+        return ""
+    return "\n".join([TOOLS_BEGIN, f"# Every tool in this release ({len(rows)})", "",
+                      "Each line is one tool: the command you type, what it does, and the systems it runs on. "
+                      "This list is made from the tool cards, so nothing the release carries is left off it.", "",
+                      "| command | what it does | runs on |", "|---|---|---|", *rows, TOOLS_END])
+
+
+def compose(opening: str, layman_md: str, developer_md: str, extra: str = "", tools: str = "") -> str:
     """Build the page. The order is the point and is not configurable."""
     parts = [
         opening.replace("\r\n", "\n").strip(),
@@ -100,6 +130,8 @@ def compose(opening: str, layman_md: str, developer_md: str, extra: str = "") ->
         "",
         _demote(_body(layman_md)),
     ]
+    if tools.strip():
+        parts += ["", "---", "", tools.strip()]
     if extra.strip():
         parts += ["", "---", "", extra.replace("\r\n", "\n").strip()]
     parts += [
@@ -124,10 +156,13 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def check(page: str, layman_md: str = "", developer_md: str = "") -> list:
-    """Every reason the page must not be published. Empty means none found."""
+def check(page: str, layman_md: str = "", developer_md: str = "", tools: str = "") -> list:
+    """Every reason the page must not be published. Empty means none found. `tools`: the generated table that must
+    be on the page whole (a hand-edited or missing row is refused)."""
     page = page.replace("\r\n", "\n")
     findings = []
+    if tools.strip() and _norm(tools) not in _norm(page):
+        findings.append("the tool table generated from the cards is not on the page whole: compose it again")
 
     # 1. The opening answers the reader's three questions, near the top.
     lines = page.split("\n")

@@ -1,0 +1,17 @@
+# The release page's tool table (docs/INTEGRATION.md point 4, 2026-11-02): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/releasepage_tools_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_releasepage.py
+- file: fieldkit/gdocs/releasepage.py
+  swap:
+  - '    if tools.strip():'
+  - '    if False:'
+  why: the table is put on the page
+- file: fieldkit/gdocs/releasepage.py
+  swap:
+  - '    if tools.strip() and _norm(tools) not in _norm(page):'
+  - '    if False:'
+  why: a page missing a row of the table is refused
+- file: fieldkit/gdocs/cli.py
+  swap:
+  - '                              _read(a.extra) if a.extra else "", tools=tools)'
+  - '                              _read(a.extra) if a.extra else "")'
+  why: the compose command uses the repository's cards
