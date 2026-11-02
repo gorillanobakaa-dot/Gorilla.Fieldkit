@@ -1892,6 +1892,15 @@
    "inbox"
   ]
  },
+ "install": {
+  "platforms": [
+   "linux"
+  ],
+  "why": "reads the freedesktop layout (XDG icon and applications dirs, GNOME); Windows and macOS report not-this-platform until their readers are written",
+  "ids": [
+   "install-verify"
+  ]
+ },
  "integration": {
   "platforms": [
    "linux",

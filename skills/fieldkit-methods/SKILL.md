@@ -36,6 +36,7 @@ CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fa
 
 ## An xz archive you made or ship (.xz, .tar.xz, a .deb)
 ```
+fieldkit install verify PRODUCT | self-test   installed as its release says, as GNOME finds it: binary, .desktop, every icon size, caches (Linux)
 fieldkit xzcheck FILE... [--cap-mib 128]     dictionary = what the content needs (not more, not less); unpacks within the cap
 ```
 Never "improve" compression with a bigger `dict=`: past the content's size it adds no bytes saved, only memory every

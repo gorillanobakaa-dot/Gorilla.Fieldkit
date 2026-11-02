@@ -1,0 +1,50 @@
+# Each check of fieldkit install verify must be CAUGHT when weakened:
+#   fieldkit mutate --plan tests/installverify_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_installverify.py
+- file: fieldkit/method/installverify.py
+  swap: ["        if got != want:\n            good =", "        if False:\n            good ="]
+  why: an icon with another hash than the release's passes
+- file: fieldkit/method/installverify.py
+  swap: ["        chain = [p for p in (_icon_file(b, \"hicolor\", size, product) for b in bases) if p.is_file()]", "        chain = [p for p in (_icon_file(b, \"hicolor\", size, product) for b in bases[::-1]) if p.is_file()]"]
+  why: the lookup order is GNOME's, user directory first
+- file: fieldkit/method/installverify.py
+  swap: ["        if want is None:\n", "        if False:\n"]
+  why: a size the release does not ship is a failure
+- file: fieldkit/method/installverify.py
+  swap: ["            elif (info[\"w\"], info[\"h\"]) != (px, px):", "            elif False:"]
+  why: a PNG of the wrong pixel size passes
+- file: fieldkit/method/installverify.py
+  swap: ["            elif (info[\"depth\"], info[\"ctype\"]) != (8, 6):", "            elif False:"]
+  why: a PNG that is not RGBA passes
+- file: fieldkit/method/installverify.py
+  swap: ["            elif blocky_upscale(data, info):", "            elif False:"]
+  why: an upscaled PNG passes
+- file: fieldkit/method/installverify.py
+  swap: ["    rows.append(row(\"icon.other-theme\", not other,", "    rows.append(row(\"icon.other-theme\", True,"]
+  why: another theme holding the icon passes
+- file: fieldkit/method/installverify.py
+  swap: ["ok = cache.is_file() and os.path.getmtime(cache) >= _newest(files)", "ok = True"]
+  why: a stale icon cache passes
+- file: fieldkit/method/installverify.py
+  swap: ["ok = db.is_file() and os.path.getmtime(db) >= os.path.getmtime(eff)", "ok = True"]
+  why: a stale desktop database passes
+- file: fieldkit/method/installverify.py
+  swap: ["    bad = [p for p in found[1:] if ref.get(\"desktop_sha\") and sha256(p) != ref[\"desktop_sha\"]]", "    bad = []"]
+  why: a second, older .desktop passes
+- file: fieldkit/method/installverify.py
+  swap: ["            if os.path.basename(tok) == product:", "            if False:"]
+  why: another launcher for the program passes
+- file: fieldkit/method/installverify.py
+  swap: ["    same = target is not None and os.path.exists(target) and os.path.samefile(first, target)", "    same = True"]
+  why: Exec= running another binary than the first on PATH passes
+- file: fieldkit/method/installverify.py
+  swap: ["row(\"binary.sha256\", got is not None and got == want,", "row(\"binary.sha256\", True,"]
+  why: a binary that is not the release's passes
+- file: fieldkit/method/installverify.py
+  swap: ["rows.append(row(\"desktop.icon-name\", icon == product,", "rows.append(row(\"desktop.icon-name\", True,"]
+  why: Icon= as a path passes
+- file: fieldkit/method/installverify.py
+  swap: ["\"Terminal\" in fields and bool(fields.get(\"Categories\"))", "True"]
+  why: a missing Categories= passes
+- file: fieldkit/method/installverify.py
+  swap: ["rc == 0 and not out.strip()", "True"]
+  why: desktop-file-validate errors pass
