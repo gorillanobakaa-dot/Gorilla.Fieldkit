@@ -115,3 +115,18 @@
   - '    return bool(have) and (have == want_v or have.startswith(want_v + "."))'
   - '    return bool(have) and have.startswith(want_v)'
   why: a pin of 1.24 is not satisfied by 1.240
+- file: fieldkit/parity.py
+  swap:
+  - '    if got != want_icon:'
+  - '    if False:'
+  why: an installed icon that is not the release's fails the align
+- file: fieldkit/parity.py
+  swap:
+  - '        ic = install_program_files(dest, want_icon, run=run)'
+  - '        ic = {"ok": True}'
+  why: align runs the program's own install after copying the binary
+- file: fieldkit/parity.py
+  swap:
+  - '        ic = install_program_files(Path(path), want_icon, run=run)'
+  - '        ic = {"ok": True}'
+  why: an already-current binary still gets its icon checked
