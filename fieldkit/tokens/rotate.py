@@ -59,7 +59,7 @@ from . import session_cost as sc
 from ..core.settings import state_root as _state_root
 
 VERSION = "1.1.0"
-DEFAULTS = {"ctx_warn": 250_000, "ctx_rotate": 350_000, "usd_warn": 40.0, "usd_rotate": 75.0,
+DEFAULTS = {"ctx_warn": 120_000, "ctx_rotate": 150_000, "usd_warn": 40.0, "usd_rotate": 75.0,
             "hours": 24, "idle_minutes": 60, "finished_hours": 72, "max_rotations": 5, "hook_every_s": 60}
 LEVELS = ("OK", "WARN", "ROTATE")
 EXIT = {"OK": 0, "WARN": 1, "ROTATE": 2}

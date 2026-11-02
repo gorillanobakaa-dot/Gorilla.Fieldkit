@@ -1687,6 +1687,8 @@ def build_parser():
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
+                                 "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
                        ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
                                   "(models report; fieldkit/lifecycle/models.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
@@ -2998,6 +3000,9 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
+    if args[:1] == ["route"]:                         # solo / multiplayer and the model router (lifecycle/routing.py)
+        from .lifecycle import routing
+        return routing.main(args[1:])
     if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
         from .lifecycle import models
         return models.main(args[1:])

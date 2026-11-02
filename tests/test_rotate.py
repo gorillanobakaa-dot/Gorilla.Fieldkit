@@ -56,8 +56,8 @@ def monster(tmp_path, read=400_000, n=1, stop="end_turn", ts=None, name="sess-bi
 # ---------------------------------------------------------------- the verdict
 
 @pytest.mark.parametrize("ctx,usd,level", [
-    (249_999, 39.99, "OK"), (250_000, 0, "WARN"), (0, 40.0, "WARN"), (349_999, 74.99, "WARN"),
-    (350_000, 0, "ROTATE"), (0, 75.0, "ROTATE"), (350_000, 40.0, "ROTATE")])
+    (119_999, 39.99, "OK"), (120_000, 0, "WARN"), (0, 40.0, "WARN"), (149_999, 74.99, "WARN"),
+    (150_000, 0, "ROTATE"), (0, 75.0, "ROTATE"), (150_000, 40.0, "ROTATE")])
 def test_verdict_lines(ctx, usd, level):
     got, why = rotate.verdict(ctx, usd, CFG)
     assert got == level
@@ -66,7 +66,7 @@ def test_verdict_lines(ctx, usd, level):
 
 def test_verdict_names_both_rules():
     _, why = rotate.verdict(400_000, 80.0, CFG)
-    assert why == ["context per call 400k >= ROTATE 350k", "session dollars $80.00 >= ROTATE $75.00"]
+    assert why == ["context per call 400k >= ROTATE 150k", "session dollars $80.00 >= ROTATE $75.00"]
 
 
 # ---------------------------------------------------------------- measuring
@@ -143,7 +143,7 @@ def test_hook_rotate_at_every_prompt_and_once_mid_turn(tmp_path):
 
 
 def test_hook_warn_once_and_quiet_when_ok(tmp_path):
-    p = monster(tmp_path, read=300_000)
+    p = monster(tmp_path, read=130_000)
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit").startswith("session rotation: WARN")
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit") == ""
     q = monster(tmp_path, read=10_000, name="fine")
@@ -210,7 +210,7 @@ def test_hook_knows_an_event_turn_from_the_owners_words(tmp_path):
     assert "initiation \"user_asked\"" in rotate.hook_line(own, "UserPromptSubmit")
     # mid-turn, the line crossed during a turn keeps the kind of the prompt that started the turn
     for prompt, want in (("carry on", "user_asked"), ("<task-notification> done", "may refuse it")):
-        q = monster(tmp_path, read=300_000, name=f"mid-{len(prompt)}")
+        q = monster(tmp_path, read=130_000, name=f"mid-{len(prompt)}")
         t = time.time()
         rotate.hook_line(dict(call(q, "UserPromptSubmit"), prompt=prompt), "UserPromptSubmit", now=t)
         write(q, [line(mid="y", read=400_000)], mode="a")
@@ -240,7 +240,7 @@ def test_handover_writes_note_and_plan_section(tmp_path, monkeypatch):
     assert r["plan_written"]
     text = plan.read_text(encoding="utf-8")
     assert text.startswith("# PLAN\n") and "session rotated: [TEST-LNX] Rotation / job (sess-big)" in text
-    assert "| ROTATE: context per call 400k >= ROTATE 350k | module | write tests | CI |" in text
+    assert "| ROTATE: context per call 400k >= ROTATE 150k | module | write tests | CI |" in text
     note = Path(r["note"]).read_text(encoding="utf-8")
     assert Path(r["note"]).name.endswith("-sess-big.md")
     assert "## Next\n\nwrite tests" in note and "feat/x" in note and "https://github.com/o/r/pull/7" in note
@@ -331,7 +331,7 @@ def fake_claude(jd, ends):
         end = ends[len(seen) - 1]
         if end == "rotate":
             m = json.loads((jd / "meter.json").read_text(encoding="utf-8"))
-            m.update(exhausted="rotate", rotate_why="context per call 400k >= ROTATE 350k")
+            m.update(exhausted="rotate", rotate_why="context per call 400k >= ROTATE 150k")
             (jd / "meter.json").write_text(json.dumps(m), encoding="utf-8")
         return {"rc": 0, "seconds": 1, "result": {"is_error": False, "result": "ended", "session_id": "S1",
                                                   "num_turns": 3, "subtype": "success"}}
@@ -367,7 +367,7 @@ def test_cli_check_exit_codes_and_log(tmp_path, capsys, monkeypatch):
     assert rotate.main(["check", "--hours", "1"]) == 2
     assert "1 ROTATE" in capsys.readouterr().out
     assert rotate.main(["check", "--session", "nope"]) == 3
-    q = monster(tmp_path, read=300_000, name="w")
+    q = monster(tmp_path, read=130_000, name="w")
     assert rotate.main(["check", "--session", str(q), "--json"]) == 1
     assert json.loads(capsys.readouterr().out)[0]["level"] == "WARN"
     assert rotate.main(["log", "1"]) == 0 and '"WARN"' in capsys.readouterr().out

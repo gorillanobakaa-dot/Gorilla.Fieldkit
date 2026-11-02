@@ -539,3 +539,10 @@ def test_task_status_shows_a_task_whose_process_is_gone_as_died(tmp_path, monkey
     assert lc.cmd_task(["status", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert [t["status"] for t in out if t["id"] == a["id"]] == ["died"]
+
+
+@pytest.fixture(autouse=True)
+def _multi_mode_for_task_start(monkeypatch):
+    """These tests start several jobs or send one to a peer; the Solo/Multiplayer gate (routing.yaml) is tested in
+    tests/test_routing.py, so here the mode is multi."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")
