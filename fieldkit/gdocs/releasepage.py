@@ -99,8 +99,12 @@ def tool_table(repo=".") -> str:
     if not f.is_file():
         return ""
     cards = (yaml.safe_load(f.read_text(encoding="utf-8")) or {}).get("tools") or []
+    bad = [str(c.get("id") if isinstance(c, dict) else c)[:40] for c in cards
+           if not (isinstance(c, dict) and c.get("id") and c.get("title") and c.get("platforms"))]
+    if bad:   # a card with no id, title or platforms would silently have no row
+        raise ValueError(f"{len(bad)} card(s) in {CARDS} lack an id, title or platforms: {', '.join(bad[:5])}")
     rows = []
-    for c in sorted((c for c in cards if isinstance(c, dict) and c.get("id")), key=lambda c: str(c["id"])):
+    for c in sorted(cards, key=lambda c: str(c["id"])):
         entry = c.get("entry") or []
         cmd = " ".join(str(x) for x in entry[2:]) if list(entry[:2]) == ["python", "-m"] else str(c["id"])
         rows.append(f"| `{_cell(cmd)}` | {_cell(c.get('title'))} | {_cell(', '.join(c.get('platforms') or []))} |")
