@@ -1,4 +1,4 @@
-# Version: 1.2.0 · updated 26-10-26-15-40
+# Version: 1.3.0 · updated 26-11-01-23-10
 """Long horizon goals: a goal handed over and worked toward for days, not a queue a person writes each night.
 
 Owner, 2026-10-22: "by Long Horizon Tasks we really mean Long Horizon Tasks" and "eliminate THE MAIN BOTTLENECK, THE
@@ -500,7 +500,7 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
             event(gid, f"criterion {r['id']}: TIMEOUT ({r['why']}); the supervisor goes on")
         with open(gdir(gid) / "verdicts.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        if c.get("id") in st["criteria"]:
+        if c.get("id") in st["criteria"] or c.get("id") in {g.get("id") for g in goal["criteria"]}:
             st["criteria"][c["id"]] = {"state": "completed" if r["verdict"] == "PASS" else "pending",
                                        "verdict": r["verdict"], "why": r["why"], "at": r["at"]}
         out.append(r)
@@ -518,8 +518,21 @@ def _progress(note):
             pass
 
 
-def all_pass(st):
-    return all(c.get("state") == "completed" for c in st["criteria"].values())
+def sync_criteria(goal, st):
+    """A criterion added to goal.json after the goal started is pending in state.json too (2026-11-01: c6 was added
+    to goal.json, the live supervisor's save dropped it, and it never ran). -> the ids added."""
+    added = [c["id"] for c in goal.get("criteria") or [] if c.get("id") and c["id"] not in st["criteria"]]
+    for cid in added:
+        st["criteria"][cid] = {"state": "pending"}
+    return added
+
+
+def all_pass(st, goal=None):
+    """Every criterion completed: those in state.json and, given the goal, every id in goal.json (a criterion missing
+    from state.json never counts as met)."""
+    ids = [c["id"] for c in (goal or {}).get("criteria") or [] if c.get("id")]
+    return (all(st["criteria"].get(i, {}).get("state") == "completed" for i in ids)
+            and all(c.get("state") == "completed" for c in st["criteria"].values()))
 
 
 # ---- the planner ------------------------------------------------------------------------------------------------
@@ -889,8 +902,8 @@ def stall_check(goal, st):
     return ""
 
 
-def _all_done(st):
-    return all_pass(st) and not any(v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values())
+def _all_done(st, goal=None):
+    return all_pass(st, goal) and not any(v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values())
 
 
 def _final_if_due(gid, goal, st, claude, run):
@@ -901,7 +914,7 @@ def _final_if_due(gid, goal, st, claude, run):
         return
     st["final_due"] = False
     verify(gid, goal, st, claude=claude, run=run, who="final")
-    if not all_pass(st):
+    if not all_pass(st, goal):
         st["needs_plan"] = True
 
 
@@ -926,6 +939,10 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         save_state(gid, st)
         event(gid, "stopped by a STOP file")
         return {"status": "stopped", "why": "STOP file"}
+    added = sync_criteria(goal, st)
+    if added:
+        save_state(gid, st)
+        event(gid, f"criteria added from goal.json: {', '.join(added)} (pending)")
     _recover_orphans(gid, st)
     t = now()
     if (st.get("paused_until") or 0) > t:
@@ -943,7 +960,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
     if collect_answers(gid, st, inbox_items()):
         st["needs_plan"] = True
     reg, _ = preapprovals(gid)
-    if ended and _all_done(st):
+    if ended and _all_done(st, goal):
         _actions(gid, goal, st, reg, action, say)
         return _finish(gid, st, "done", "every criterion PASSed (verifier)", inbox_add)
     if st.get("needs_plan"):
@@ -974,7 +991,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
             st["final_due"] = True
         if (p["signal"] == "done" or (p["signal"] == "blocked" and not p.get("jobs"))) and not running(gid):
             verify(gid, goal, st, claude=claude, run=run, who="final")
-            if all_pass(st):
+            if all_pass(st, goal):
                 _actions(gid, goal, st, reg, action, say)
                 return _finish(gid, st, "done", "every criterion PASSed (verifier)", inbox_add)
             failing = [k for k, v in st["criteria"].items() if v.get("state") != "completed"]
@@ -1215,6 +1232,7 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
             hold_awake(os.getpid())
         except Exception as e:  # noqa: BLE001
             say(f"  [WARN] stay awake: not held ({e})")
+    born = set(unfinished())           # a goal created after the start joins even when the supervisor was given ids
     try:
         while True:
             goals = [g for g in (ids or unfinished())]
@@ -1232,7 +1250,8 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
                     progressed = True
             if once:
                 return 0
-            live = [g for g in goals if (load(g)[1] or {}).get("status") in ("active", "waiting")]
+            live = [g for g in dict.fromkeys(goals + [g for g in unfinished() if g not in born])
+                    if (load(g)[1] or {}).get("status") in ("active", "waiting")]
             if not live:
                 say("SUPERVISOR: every goal is finished (done, blocked or stopped)")
                 return 0
