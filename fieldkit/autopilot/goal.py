@@ -50,6 +50,7 @@ from pathlib import Path
 import yaml
 
 from . import budget as bud
+from . import goal_fresh
 from . import goal_peer
 from . import hardlines
 from ..core.settings import state_root as _state_root
@@ -458,9 +459,34 @@ def agent_check(c, goal, claude, cwd):
             "usd": res.get("total_cost_usd")}
 
 
+def _run_check(fx, c, goal, gid, run):
+    """One command check on the fresh tree (R13): its cwd inside the main checkout moves to the same place in the tree
+    of origin/main; the verdict names the tree. No tree could be made = FAIL (fail closed), never the main checkout."""
+    cid = c.get("id") or c.get("run", "")[:60]
+    if getattr(fx, "failed", ""):
+        return {"verdict": "FAIL", "rc": None, "why": f"no fresh tree: {fx.failed}", "evidence": "", "seconds": 0}
+    r = run_check(fx.remap(c, goal.get("cwd")), goal.get("cwd"), run=run, hist=history(gid, cid))
+    if fx.label():
+        r["tree"] = fx.label()
+    return r
+
+
 def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, who="goal"):
-    """Run criteria (all, or ids) and extra job checks; record every verdict in verdicts.jsonl and the criteria
-    records. -> list of results."""
+    """Run criteria (all, or ids) and extra job checks in a fresh worktree of origin/main (goal_fresh); record every
+    verdict in verdicts.jsonl and the criteria records. -> list of results."""
+    try:
+        fx = goal_fresh.tree_for(goal, gid)
+        fx.__enter__()
+    except (ValueError, OSError) as e:        # goal_fresh.Refused, scratch.Refused
+        fx = goal_fresh.Null("")
+        fx.failed = str(e)
+    try:
+        return _verify(gid, goal, st, ids, extra, claude, run, who, fx)
+    finally:
+        fx.__exit__(None, None, None)
+
+
+def _verify(gid, goal, st, ids, extra, claude, run, who, fx):
     out = []
     todo = [c for c in goal["criteria"] if ids is None or c["id"] in ids] + list(extra)
     # deterministic checks first: a model judges only when every command in this pass already passed (L3). A command
@@ -472,9 +498,9 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
         if c.get("judge") == "agent" and c.get("run"):          # precheck: the command can fail the criterion alone
             cid = c.get("id") or c["run"][:60]
             _progress(f"verify {cid}")
-            r = run_check(c, goal.get("cwd"), run=run, hist=history(gid, cid))
+            r = _run_check(fx, c, goal, gid, run)
             if r["verdict"] == "PASS" and not failed:
-                r = agent_check(c, goal, claude, c.get("cwd") or goal.get("cwd") or str(gdir(gid)))
+                r = agent_check(c, goal, claude, fx.map(c.get("cwd") or goal.get("cwd") or str(gdir(gid))))
                 if r.get("usd"):
                     st["spend"].append({"t": time.time(), "usd": float(r["usd"]), "who": f"verifier {c['id']}"})
             elif r["verdict"] == "PASS":
@@ -484,7 +510,7 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
                 r = {"verdict": "FAIL", "rc": None, "why": f"not judged by a model: {failed[0]} failed first",
                      "evidence": "", "model_calls": 0}
             else:
-                r = agent_check(c, goal, claude, c.get("cwd") or goal.get("cwd") or str(gdir(gid)))
+                r = agent_check(c, goal, claude, fx.map(c.get("cwd") or goal.get("cwd") or str(gdir(gid))))
                 if r.get("usd"):
                     st["spend"].append({"t": time.time(), "usd": float(r["usd"]), "who": f"verifier {c['id']}"})
         else:
@@ -494,7 +520,7 @@ def verify(gid, goal, st, ids=None, extra=(), claude=None, run=subprocess.run, w
                 event(gid, "verify " + warn)
             cid = c.get("id") or c.get("run", "")[:60]
             _progress(f"verify {cid}")
-            r = run_check(c, goal.get("cwd"), run=run, hist=history(gid, cid))
+            r = _run_check(fx, c, goal, gid, run)
         if r["verdict"] != "PASS":
             failed.append(c.get("id") or c.get("run", "")[:60])
         r.update(id=c.get("id") or c.get("run", "")[:60], at=time.strftime("%Y-%m-%d %H:%M:%S"), who=who)
@@ -801,10 +827,23 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add, peer=Non
             say(f"  {gid}/{jid} waits: {why}")
         return False
     j.pop("waits_why", None)
+    run_cwd, cwd_why = s["cwd"], ""
+    if where == "here":
+        try:                               # R13: a worker never runs in the main checkout (it would switch its branch)
+            run_cwd, cwd_why = goal_fresh.worker_cwd(gid, jid, s["cwd"], j.get("worktree"), j.get("attempts", 0) + 1)
+        except goal_fresh.Refused as e:
+            j.update(status="failed", why=f"refused: {e}"[:400])
+            event(gid, f"job {jid} refused: {e}")
+            st["needs_plan"] = True
+            return False
+        if run_cwd != s["cwd"]:
+            j["worktree"] = run_cwd
     j["status"] = "running"
     j["attempts"] = j.get("attempts", 0) + 1
-    event(gid, f"job {jid} starts (attempt {j['attempts']})")
-    brief = (f"{s['brief']}\n\n---\nGoal {gid}: {goal['objective'][:600]}\nConstraints:\n" +
+    event(gid, f"job {jid} starts (attempt {j['attempts']}) in {run_cwd}")
+    brief = (f"{s['brief']}\n\n---\nYour folder: {run_cwd}" +
+             (f" ({cwd_why}); never switch the branch of {s['cwd']}, that checkout is shared" if run_cwd != s["cwd"] else "") +
+             f"\nGoal {gid}: {goal['objective'][:600]}\nConstraints:\n" +
              "\n".join(f"- {c}" for c in goal.get("constraints") or []) +
              "\nYour result is judged by a separate verifier running: " +
              "; ".join(v["run"] for v in s.get("verify") or []) +
@@ -840,7 +879,7 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add, peer=Non
         with _IO:
             return inbox_add(*a, **k)
 
-    fut = _pool().submit(run_job, gdir(gid) / "jobs" / jid, brief, s["cwd"],
+    fut = _pool().submit(run_job, gdir(gid) / "jobs" / jid, brief, run_cwd,
                          budget=bud.merge(goal.get("worker_budget"), s.get("budget")), job_id=f"{gid}-{jid}",
                          max_continuations=int(s.get("max_continuations", 3)), fallback=s.get("fallback"),
                          model=s.get("model"), sleep=sleep, now=now, say=say, inbox_add=add, on_spend=spend)
@@ -999,6 +1038,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         return {"status": "waiting", "why": why, "wait_until": until}
     goal_peer.poll(gid, _WORKERS.get(gid, {}))
     ended = _end_finished(gid, goal, st, claude, run)
+    goal_fresh.apply_markers(gid, st)                  # `fieldkit goal reverify` while this supervisor runs
     _final_if_due(gid, goal, st, claude, run)
     if collect_answers(gid, st, inbox_items()):
         st["needs_plan"] = True

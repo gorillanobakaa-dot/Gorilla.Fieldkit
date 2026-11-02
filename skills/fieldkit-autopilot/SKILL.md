@@ -54,6 +54,10 @@ the log line says why. `step` blocks on workers at most `ROUND_WAIT` (60 s), so 
 one `HEARTBEAT goal: here/peer/waiting, slot holder` line. A silent main loop (3 rounds) or a goal idle over 50% of the
 last hour writes a defect row to state/coordination/ZERO-OPEN-PROBLEMS.md and a ROOM line (never the inbox). A goal is
 "stalled" only when no job of it ran, runs or waits.
+Fresh verifier (R13): every criterion and job check runs in a fresh detached worktree of origin/main (fetched first, made
+in a `fieldkit scratch new` folder, removed after), never in the main checkout; a worker gets its own worktree and a job
+that would run in the main checkout is refused. `fieldkit goal reverify GOAL JOB` re-runs one job's checks the same way,
+records the verdict and marks a passing job verified.
 
 ## Process liveness: nothing orphaned, nothing silent (fieldkit liveness)
 2026-10-26: an orphaned go.exe held the verifier's pipes for 80 min, the supervisor wrote nothing and 8 jobs waited.
