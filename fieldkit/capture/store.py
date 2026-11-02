@@ -286,8 +286,27 @@ class Store:
         return e
 
     @contextlib.contextmanager
+    def batch(self):
+        """Many records in one go (a scan): the lock, the heal and the state load happen once; every append is still
+        fsync'd, so a crash loses nothing that was acknowledged. The cache is saved at the end (and on an error)."""
+        if getattr(self, "_mem", None) is not None:
+            yield
+            return
+        with _locked(self.lock):
+            self._heal()
+            self._mem = self.state()
+            try:
+                yield
+            finally:
+                mem, self._mem = self._mem, None
+                self._save_cache(mem)
+
+    @contextlib.contextmanager
     def tx(self):
         """Exclusive access: heal a torn tail, load state, let the caller append, refresh the cache."""
+        if getattr(self, "_mem", None) is not None:
+            yield self._mem
+            return
         with _locked(self.lock):
             self._heal()
             st = self.state()
