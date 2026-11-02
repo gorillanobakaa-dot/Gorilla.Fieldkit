@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from fieldkit.autopilot import budget, checkpoint, goal, hardlines, inbox, job, run, runbook
+from fieldkit.autopilot import budget, checkpoint, goal, goal_fresh, hardlines, inbox, job, run, runbook
 
 FAKE = str(Path(__file__).with_name("fake_claude.py"))
 
@@ -24,6 +24,7 @@ def iso(tmp_path, monkeypatch):
     monkeypatch.setattr(hardlines, "STOP_FILE", st / "STOP")
     monkeypatch.setattr(inbox, "INBOX", st / "inbox")
     monkeypatch.setattr(goal, "GOALS", tmp_path / "goals")
+    monkeypatch.setattr(goal_fresh, "WORKTREES", False)      # these tests run workers in their own repo; R13 has its own file
     monkeypatch.setattr(runbook, "JOBS", tmp_path / "jobs")
     monkeypatch.setenv("FIELDKIT_AUTOPILOT_STATE", str(st))
     monkeypatch.setenv("FIELDKIT_CLAUDE_EXE", FAKE)
