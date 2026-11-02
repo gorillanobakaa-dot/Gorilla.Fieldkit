@@ -74,7 +74,7 @@ def test_reference_from_release_reads_sizes_and_binary(tmp_path):
 
 
 def test_other_platform_is_reported_not_passed(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "platform", "freebsd14")
     assert iv.main(["verify", "gorilla-opencode", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "not-this-platform"
 

@@ -1906,9 +1906,11 @@
  },
  "install": {
   "platforms": [
-   "linux"
+   "darwin",
+   "linux",
+   "windows"
   ],
-  "why": "reads the freedesktop layout (XDG icon and applications dirs, GNOME); Windows and macOS report not-this-platform until their readers are written",
+  "why": "",
   "ids": [
    "install-verify"
   ]

@@ -1,5 +1,5 @@
 # Each check of fieldkit install verify must be CAUGHT when weakened:
-#   fieldkit mutate --plan tests/installverify_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_installverify.py
+#   fieldkit mutate --plan tests/installverify_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_installverify.py tests/test_installverify_os.py
 - file: fieldkit/method/installverify.py
   swap: ["        if got != want:\n            good =", "        if False:\n            good ="]
   why: an icon with another hash than the release's passes
@@ -48,3 +48,43 @@
 - file: fieldkit/method/installverify.py
   swap: ["rc == 0 and not out.strip()", "True"]
   why: desktop-file-validate errors pass
+# ---- Windows / macOS / align / release cycle (c6): run with tests/test_installverify_os.py as well
+- file: fieldkit/method/installverify_os.py
+  swap: ["    ok = bool(first) and all(t and same(first, t) for t in targets.values())", "    ok = True"]
+  why: a shortcut that launches another exe than the PATH one passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["        rows.append(row(\"binary.sha256\", got is not None and got == want,", "        rows.append(row(\"binary.sha256\", True,"]
+  why: a Windows exe with another hash than the release's passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["            rows.append(row(\"icon.%s:%s\" % (label, size), have.get(size) == sha,", "            rows.append(row(\"icon.%s:%s\" % (label, size), True,"]
+  why: an icon frame that differs from the release's passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["        good = same(lnk_exe(info), exe) and not miss", "        good = True"]
+  why: a shortcut with a missing exe or an old icon passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["    old = [str(c) for c in caches if mtime(c) < newest]", "    old = []"]
+  why: an Explorer icon cache older than the icons passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["    rows.append(row(\"shadow.older\", not stray and not strays,", "    rows.append(row(\"shadow.older\", True,"]
+  why: an older install shadowing the new one passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["        ok = bexec is None or same(first, bexec)", "        ok = True"]
+  why: a macOS bundle that runs another file than PATH's passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["    rows.append(row(\"icon.icns\", got is not None and got == ref[\"app\"].get(\"icns_sha\"),", "    rows.append(row(\"icon.icns\", True,"]
+  why: an .icns that is not the release's passes
+- file: fieldkit/method/installverify_os.py
+  swap: ["    old = [str(c) for c in caches if mtime(c) < mtime(icns)]", "    old = []"]
+  why: a stale macOS icon cache passes
+- file: fieldkit/parity.py
+  swap: ["            r = {**r, **({\"ok\": False, \"why\": f\"`{dest.name} install` exited {rc}: {(e or o)[:200]}\"} if rc != 0 else verify_fn(tag, run))}", "            r = {**r}"]
+  why: align on Windows neither runs the install nor the proof
+- file: fieldkit/parity.py
+  swap: ["        r = {**r, **ic, **(verify_fn(tag, run) if ic[\"ok\"] else {})}", "        r = {**r, **ic}"]
+  why: align on Linux/macOS does not run install verify after the install
+- file: fieldkit/method/releasecycle.py
+  swap: ["    return {\"ok\": bool(st.get(\"ok\")), \"detail\": st.get(\"detail\", \"install verify has not run\")}", "    return {\"ok\": True, \"detail\": \"\"}"]
+  why: a release is done without install verify having passed
+- file: fieldkit/method/releasecycle.py
+  swap: ["    for extra in ([], [\"--peer\"]):", "    for extra in ([],):"]
+  why: the release cycle skips the peer computer

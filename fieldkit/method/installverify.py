@@ -1,7 +1,7 @@
 """fieldkit install: is a program really installed the way its release says, as the desktop will find it?
 
-    fieldkit install verify PRODUCT [--tag vX] [--ref FILE.json] [--proof FILE] [--json]
-    fieldkit install self-test [--json]
+    fieldkit install verify PRODUCT [--tag vX] [--ref FILE.json] [--proof FILE] [--peer | --host macair] [--json]
+    fieldkit install self-test [--os all|linux|windows|macos] [--json]
 
 Owner, 2026-11-01: the Gorilla OpenCode icon must be crisp, big, clearly visible and installed on Debian GNOME
 (Wayland), proven by a tool, not by eye. Found on the VAIO: an old Jul-23 icon in ~/.local/share/icons shadowed the
@@ -19,7 +19,7 @@ release's in /usr/share/icons, and nothing said so. So the checks read the machi
   icon in memory until log out/in).
 
 The reference is the release itself: the .deb is downloaded from the public release URL into a scratch folder and
-checked against SHA256SUMS before anything is compared. Linux only; Windows and macOS say `not-this-platform`.
+checked against SHA256SUMS before anything is compared. Linux here; Windows and macOS: installverify_os.py.
 Exit 0 every check passes, 2 bad usage or no reference, 3 a check failed (each with its fix).
 """
 import argparse
@@ -600,12 +600,82 @@ def self_test(run=_run):
 
 
 # ---- command line -----------------------------------------------------------------------------------------------------
-def _say(rows):
+def _say(rows, label=""):
     for r in rows:
         tag = "INFO" if r.get("info") else "OK  " if r["ok"] else "FAIL"
-        print(f"{tag} {r['check']}: {r['line']}")
+        print(f"{label}{tag} {r['check']}: {r['line']}")
         if not r["ok"]:
-            print(f"     FIX: {r['fix']}")
+            print(f"{label}     FIX: {r['fix']}")
+
+
+def os_of(platform=None):
+    p = platform or sys.platform
+    return "linux" if p.startswith("linux") else "windows" if p.startswith("win") else "macos" if p == "darwin" else p
+
+
+def reference(product, os_name, tag=None, ref_file=None):
+    """The reference for one OS: a saved JSON, or the release itself (public download, checked against SHA256SUMS)."""
+    if ref_file:
+        return json.loads(Path(ref_file).read_text(encoding="utf-8"))
+    from .. import parity
+    p = parity.pin()[product]
+    with tempfile.TemporaryDirectory(prefix="fk-install-ref-", ignore_cleanup_errors=True) as t:
+        if os_name == "linux":
+            return reference_from_release(product, tag or p["version"], p["repo"], Path(t) / "r")
+        from . import installverify_os as osx
+        return osx.reference_from_release(product, tag or p["version"], p["repo"], Path(t) / "r", os_name)
+
+
+def verify_this(product, ref, os_name=None, session_start=None):
+    """-> (rows, resolved) for THIS computer, dispatching on its operating system."""
+    os_name = os_name or os_of()
+    if os_name == "linux":
+        return verify(product, ref, session_start=session_start)
+    from . import installverify_os as osx
+    return osx.verify_here(os_name, ref), {}
+
+
+def probe_lines(product):
+    """The link listener's `install-verify` probe: verify this computer from the release, lines + {ok, os, rows}."""
+    os_name = os_of()
+    rows, _ = verify_this(product, reference(product, os_name), os_name, session_start=shell_start() if os_name == "linux" else None)
+    lines = [f"{'INFO' if r.get('info') else 'OK  ' if r['ok'] else 'FAIL'} {r['check']}: {r['line']}"
+             + ("" if r["ok"] else f" | FIX: {r['fix']}") for r in rows]
+    return lines, {"ok": all(r["ok"] for r in rows), "os": os_name, "rows": rows}
+
+
+def _remote(a):
+    """--peer / --host: -> (label, rows or None, why)."""
+    if a.host:
+        from . import installverify_os as osx
+        try:
+            ref = reference(a.product, "macos", a.tag, a.ref)
+        except (RuntimeError, OSError, KeyError, ValueError) as ex:
+            return a.host, None, f"no reference: {ex}"
+        rows, why = osx.ssh_run(a.host, ref)
+        return a.host, rows, why
+    from ..peers import link
+    try:
+        r = link.call({"verb": "probe", "name": "install-verify", "arg": a.product}, timeout=300)
+    except Exception as ex:                                           # noqa: BLE001 - an unreachable peer is a failure
+        return "peer", None, f"the peer did not answer: {ex}"
+    if not r.get("ok"):
+        return "peer", None, (f"the peer refused: {r.get('error')} (its Fieldkit is older: sync it, then "
+                              "`fieldkit peers link restart` there)")
+    return f"peer {r.get('host')}", r["data"]["rows"], ""
+
+
+def self_test_all(which="all"):
+    """Linux fixtures run on Linux only (chmod, PATH with ':', desktop-file-validate); Windows and macOS fixtures run anywhere."""
+    out = []
+    if which in ("all", "linux"):
+        if sys.platform.startswith("linux"):
+            out += self_test()
+        else:
+            out.append({"case": "linux fixtures need a Linux computer (CI and the VAIO run them)", "ok": True, "detail": [], "skipped": True})
+    from . import installverify_os as osx
+    out += osx.self_test([o for o in ("windows", "macos") if which in ("all", o)])
+    return out
 
 
 def main(argv=None, prog="fieldkit install"):
@@ -616,48 +686,59 @@ def main(argv=None, prog="fieldkit install"):
     ap.add_argument("--ref", help="a reference JSON (from --save-ref) instead of downloading the release")
     ap.add_argument("--save-ref", help="write the reference read from the release to this file")
     ap.add_argument("--proof", help="write the resolved icon paths and sha256 per size to this JSON file")
+    ap.add_argument("--peer", action="store_true", help="verify the paired computer instead (its link listener runs the probe)")
+    ap.add_argument("--host", help="verify this Mac over ssh (macair): the reference is read here, its python3 runs the checks")
+    ap.add_argument("--os", default="all", choices=["all", "linux", "windows", "macos"], help="self-test: which fixtures")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if a.action == "self-test":
-        res = self_test()
+        res = self_test_all(a.os)
         ok = all(r["ok"] for r in res)
         if a.json:
             print(json.dumps({"ok": ok, "cases": res}, indent=1))
         else:
             for r in res:
-                print(f"{'OK  ' if r['ok'] else 'FAIL'} {r['case']}" + ("" if r["ok"] else f" (failed checks: {r['detail']})"))
-            print(f"{sum(r['ok'] for r in res)}/{len(res)} cases\nNEXT: " + ("none" if ok else "a check does not catch its break: fix it in fieldkit/method/installverify.py"))
+                print(f"{'SKIP' if r.get('skipped') else 'OK  ' if r['ok'] else 'FAIL'} {r['case']}" + ("" if r["ok"] else f" (failed checks: {r['detail']})"))
+            n = [r for r in res if not r.get("skipped")]
+            print(f"{sum(r['ok'] for r in n)}/{len(n)} cases (skipped here: {len(res) - len(n)})\nNEXT: "
+                  + ("none" if ok else "a check does not catch its break: fix it in fieldkit/method/installverify.py or installverify_os.py"))
         return 0 if ok else 3
     if a.product not in PRODUCTS:
         print(f"REFUSED: PRODUCT is one of {', '.join(PRODUCTS)}")
         return 2
-    if not sys.platform.startswith("linux"):
+    if a.peer or a.host:
+        label, rows, why = _remote(a)
+        if rows is None:
+            print(f"FAIL {label}: {why}\nNEXT: make {label} reachable, then rerun")
+            return 3
+        bad = [r for r in rows if not r["ok"]]
+        if a.json:
+            print(json.dumps({"ok": not bad, "host": label, "rows": rows}, indent=1))
+        else:
+            _say(rows, f"[{label}] ")
+            print(f"{len(rows) - len(bad)}/{len(rows)} checks pass on {label}\nNEXT: " + ("none" if not bad else bad[0]["fix"]))
+        return 3 if bad else 0
+    os_name = os_of()
+    if os_name not in ("linux", "windows", "macos"):
         out = {"status": "not-this-platform", "ok": None, "platform": sys.platform}
-        print(json.dumps(out) if a.json else f"not-this-platform: install verify reads Linux only; nothing was verified on {sys.platform}")
+        print(json.dumps(out) if a.json else f"not-this-platform: install verify reads Linux, Windows and macOS; nothing was verified on {sys.platform}")
         return 0
     try:
-        if a.ref:
-            ref = json.loads(Path(a.ref).read_text(encoding="utf-8"))
-        else:
-            from .. import parity
-            p = parity.pin()[a.product]
-            tag = a.tag or p["version"]
-            with tempfile.TemporaryDirectory(prefix="fk-install-ref-") as t:
-                ref = reference_from_release(a.product, tag, p["repo"], Path(t) / "r")
+        ref = reference(a.product, os_name, a.tag, a.ref)
     except (RuntimeError, OSError, KeyError, ValueError) as ex:
         print(f"REFUSED: no reference: {ex}")
         return 2
     if a.save_ref:
         Path(a.save_ref).write_text(json.dumps(ref, indent=1), encoding="utf-8")
-    e = environment()
-    rows, resolved = verify(a.product, ref, e, session_start=shell_start())
+    rows, resolved = verify_this(a.product, ref, os_name, session_start=shell_start() if os_name == "linux" else None)
     bad = [r for r in rows if not r["ok"]]
     if a.proof:
-        Path(a.proof).write_text(json.dumps({"product": a.product, "tag": ref.get("tag"), "release_sha256": ref["icons"],
-                                             "resolved": {k: {"path": v[0], "sha256": v[1]} for k, v in resolved.items()}}, indent=1),
-                                 encoding="utf-8")
+        Path(a.proof).write_text(json.dumps({"product": a.product, "os": os_name, "tag": ref.get("tag"),
+                                             "release": ref.get("icons") or ref.get("exe_icons") or ref.get("app"),
+                                             "rows": rows, "resolved": {k: {"path": v[0], "sha256": v[1]} for k, v in resolved.items()}},
+                                            indent=1), encoding="utf-8")
     if a.json:
-        print(json.dumps({"ok": not bad, "rows": rows, "resolved": resolved}, indent=1))
+        print(json.dumps({"ok": not bad, "os": os_name, "rows": rows, "resolved": resolved}, indent=1))
     else:
         _say(rows)
         print(f"{len(rows) - len(bad)}/{len(rows)} checks pass\nNEXT: " + ("none" if not bad else bad[0]["fix"]))
