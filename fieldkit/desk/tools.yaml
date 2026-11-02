@@ -76,8 +76,8 @@ tools:
   entry: [python, -m, fieldkit, goal]
   path: ${FIELDKIT}/fieldkit/autopilot/goal.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, supervisor-script], help: "status first; run = the supervisor"}
-    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
+    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, reverify, supervisor-script], help: "status first; run = the supervisor; reverify = one job's checks on a fresh origin/main tree"}
+    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; reverify GOAL JOB; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
     - {name: from_file, flag: --from, type: str, required: false, help: "new: the goal spec (goal.json shape)"}
     - {name: objective, flag: --objective, type: str, required: false, help: "new: the objective (without --from)"}
     - {name: criterion, flag: --criterion, type: str, required: false, help: "new: a command that must exit 0 (repeatable)"}
@@ -206,15 +206,16 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py", "${FIELDKIT}/tests/test_calibrate.py"]
 
 - id: inbox
-  title: The owner inbox - every approval an unattended run needs, collected for one sitting
+  title: The owner inbox holds only HARD LINE items (owner, 2026-11-01 - zero owner steps); every other item an agent, worker, ship push, goal or the net files goes to the agent ledger (fieldkit inbox ledger), read by Zero, never by the owner
   harness: core
   entry: [python, -m, fieldkit, inbox]
   path: ${FIELDKIT}/fieldkit/autopilot/inbox.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [list, show, add, done], help: "list (default)"}
+    - {name: action, flag: null, type: str, required: false, choices: [list, show, add, done, ledger], help: "list (default) | ledger [N]: the agent ledger's last N rows"}
     - {name: rest, flag: null, type: str, required: false, help: "show/done: N [note]; add: TITLE WHY [COMMAND]"}
     - {name: all, flag: --all, type: bool, required: false, help: "list: done items too"}
-  platforms: [windows, linux]
+    - {name: kind, flag: --kind, type: str, required: false, help: "add: hardline reaches the owner; anything else is routed to the agent ledger"}
+  platforms: [windows, linux, darwin]
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py"]
 
@@ -1111,6 +1112,50 @@ tools:
   headline: "The cooling profile is {profile}."
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, profile or danger or hwinfo]
+
+- id: thermal-ensure
+  title: "The machine thermal governor is always running: start it when it is down, install the keeper that checks it at logon, every 5 min and on resume; heavy work refuses while it is down (Windows and Linux)"
+  harness: thermal
+  entry: [python, -m, fieldkit, thermal, ensure]
+  path: ${FIELDKIT}/fieldkit/thermal/keeper.py
+  inputs:
+    - {name: install, flag: --install, type: flag, required: false, help: "also install the keeper (a user task on Windows, a systemd user timer on Linux; no admin)"}
+  effects: [processes, writes-files]
+  safety: reversible
+  headline: "GOVERNOR UP / STARTED / DOWN, and whether the keeper is installed."
+  platforms: [windows, linux]
+  platforms_why: "macOS (the MacBook Air) runs no heavy work and cools in firmware"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_thermal_keeper.py"]
+  notes: "2026-11-02: the laptop went down at 03:29 and the governor was found not running (its logon line commented out since 10-28) and, when running, braking nothing (watch only). Its lever now pauses guarded jobs' processes instead of the power plan."
+
+- id: power-incidents
+  title: "Why the computer shut down, cut out or slept: every unexpected shutdown and sleep since a date, each with a named cause class, the thermal journal peak before it and the battery state; an unknown cause is a defect row (Windows, Linux, macOS)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, incidents]
+  path: ${FIELDKIT}/fieldkit/power/incidents.py
+  inputs:
+    - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD (default: 7 days ago)"}
+  effects: [reads-files, writes-files]
+  safety: safe
+  headline: "N incident(s) since DATE, M unknown; exit 3 when any cause is unknown."
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py"]
+  notes: "Windows: one Get-WinEvent call (Kernel-Power 41/42/107/187/506/507/566, EventLog 6005/6006/6008, User32 1074, Power-Troubleshooter 1, UserModePowerService 12 counted per process per day). Linux: journalctl boots and suspend/lid/critical-temperature lines. macOS: pmset -g log. Classes: heat, power-plan reset, program sleep request (PROCESS), battery, button/lid, standby (REASON), planned, unexpected cut (cause unknown), unknown. The real cut of a 6008 is the last thermal journal line before that boot when it is later. Each unknown is one row in ZERO-OPEN-PROBLEMS.md (once per incident). Mutation plan tests/power_incidents_mutations.yaml."
+
+- id: power-drift
+  title: "Check that the Lenovo power service (ibmpmsvc.exe) never put the laptop to sleep during work in the last N days and that the sleep button is off on AC; --apply turns the sleep button off without admin and records before/after (Windows)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, drift]
+  path: ${FIELDKIT}/fieldkit/power/drift.py
+  inputs:
+    - {name: days, flag: --days, type: int, required: false, help: "how many days back (default 7)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "set the sleep button on AC to do nothing (powercfg, no admin; before/after kept in state/power/)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  headline: "PASS or FAIL: ibmpmsvc sleep requests during work, and the sleep/power/lid actions on AC."
+  platforms: [windows]
+  platforms_why: "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py", -k, drift]
 
 - id: thermal-monitor
   title: "Keep the processor cool while something heavy runs (a build): lowers the CPU cap when hot, speaks, puts it back (Windows and Linux)"
@@ -6096,18 +6141,37 @@ tools:
   skill: skills/fieldkit-emerge/SKILL.md
   notes: "Owner 2026-10-26: 'I don't want it to be hard ... Be better than Portage. Let's implement that.' Builds ON fieldkit/core/pipeline.py (stages run through Pipeline._run, one stage at a time), testcost (every stage pass/fail recorded under emerge:<recipe>:<stage> with its key; ETA = median of measured passes), the one run guard (core/preflight.py: hog, testcost, scratch; parity once #122 merges) entered ONCE before stage 1, orchestrate_work (offload = run jobs over the cable, signed artefacts by sha256), autopilot run.claude (the fixer) and inbox. State: state/emerge/<recipe>/ (cache/<stage>/<key>.json, last-report.json, overhead.json in fieldkit overhead's shape, journal.jsonl). Mutations: tests/emerge_mutations.yaml."
 - id: testcost
-  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests, budgets from measured runs, every refusal logged
+  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests (data files through tests/testmap.yaml and their package; `unmapped --all` must print 0, CI enforces it), budgets from measured runs, every refusal logged
   harness: core
   entry: [python, -m, fieldkit, testcost]
   path: ${FIELDKIT}/fieldkit/testcost.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "key | seen CHECK | record CHECK STATUS SECONDS | plan | run --fast | budget CHECK | report | flags | docs-only"}
+    - {name: action, flag: null, type: str, required: true, help: "key | seen CHECK | record CHECK STATUS SECONDS | plan | run --fast | budget CHECK | report | flags | docs-only | unmapped [--all] (tracked files no test covers; exit 3; CI runs it on every PR)"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
   exits: {0: "done (seen: this exact tree already passed)", 1: "seen: not passed on this tree / docs-only: suite must run"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
+
+- id: ciaudit
+  title: What CI really ran - per pull-request run of the tests workflow the selection ci_tests.py printed (whole suite, N test files, no code), its minutes, and the files that sent it to the whole suite; exit 3 over the whole-suite budget
+  harness: method
+  entry: [python, -m, fieldkit, ciaudit]
+  path: ${FIELDKIT}/fieldkit/method/ciaudit.py
+  inputs:
+    - {name: repo, flag: --repo, type: str, required: false, help: "OWNER/NAME (default: this checkout's repository)"}
+    - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD: runs created on or after"}
+    - {name: limit, flag: --limit, type: int, required: false, help: "how many runs to read (100)"}
+    - {name: max_whole_share, flag: --max-whole-share, type: float, required: false, help: "budget: whole-suite runs / judged runs (0.1)"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {1: "gh could not list the runs", 3: "whole-suite runs over the budget (each trigger file is named)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciaudit.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-11-02 from Zero 22's one-off shell loop: 17 of 38 PR runs since 2026-10-26 ran the whole suite (421 min vs 49 min targeted) because data files had no mapped test. Network: gh run list and gh run view --log on GitHub only. Pairs with testcost unmapped --all (the cause) and tests/testmap.yaml (the fix)."
 
 - id: rules
   title: "The core rules every agent reads, as data (rules/rules.yaml): lint them for BOTTLENECKS, duplicates, size and misplaced text, build rules/CORE.md, install every block into each global rules file (Claude Code, Codex, Gemini) with a backup, check them"
@@ -6163,6 +6227,22 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ideas.py"]
   notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
+
+- id: refusals
+  title: Repeated refusals - train, ship, guard, goal and task write every refusal to state/refusals.jsonl (tool, reason key with heads and ids stripped, text, time, session); the same reason twice opens ONE row in ZERO-OPEN-PROBLEMS.md (never an inbox item); list shows each reason, its count and whether its row is open
+  harness: core
+  entry: [python, -m, fieldkit, refusals]
+  path: ${FIELDKIT}/fieldkit/refusals.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "list | record"}
+    - {name: json, flag: --json, type: flag, required: false, help: "list: JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_refusals.py"]
+  notes: "Plan R14 (defect 8: the train said 'head moved' five times and nobody triaged it). The room hook shows 'N repeated refusals open'. record() never raises."
 
 - id: metrics
   title: Long-horizon proof from the harness's own records - days running, Zero epochs and changes, session rotations, sessions and subagents, headless sub-jobs per device, stations and machines, money, tokens, tool calls executed / refused / declined / repeated, PRs, CI runs, failures; each number names its source, what cannot be read is listed as NOT MEASURED

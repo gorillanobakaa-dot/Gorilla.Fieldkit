@@ -1,0 +1,72 @@
+# R9/R10 (2026-11-02): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/power_incidents_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_power_incidents.py
+- file: fieldkit/power/incidents.py
+  swap:
+  - '            if peak is not None and peak >= HOT_C:'
+  - '            if False:'
+  why: a hot journal before a cut is heat
+- file: fieldkit/power/incidents.py
+  swap:
+  - '            if last is not None and (cut is None or last > cut) and boot_t - last < 12 * 3600:'
+  - '            if False:'
+  why: the real cut is the last journal line when later than the 6008 time
+- file: fieldkit/power/incidents.py
+  swap:
+  - '            proc = _basename(e["data"].get("ApiCallerName"))'
+  - '            proc = "unknown"'
+  why: a 187 names the process that asked
+- file: fieldkit/power/incidents.py
+  swap:
+  - '            if any(x["id"] == 187 for x in near_ids):'
+  - '            if False:'
+  why: a 42/506 beside a 187 is the same incident
+- file: fieldkit/power/incidents.py
+  swap:
+  - '        if tag in body:'
+  - '        if False:'
+  why: a defect row is written once per incident
+- file: fieldkit/power/incidents.py
+  swap:
+  - '        if i["class"] not in UNKNOWN_CLASSES:'
+  - '        if False:'
+  why: only unknown incidents are defect rows
+- file: fieldkit/power/incidents.py
+  swap:
+  - '    return 3 if unknown else 0'
+  - '    return 0'
+  why: an unknown incident exits 3
+- file: fieldkit/power/incidents.py
+  swap:
+  - '            elif any(x["id"] == 12 and 0 <= cut - x["t"] <= 60 for x in ev):'
+  - '            elif False:'
+  why: a scheme change just before a cut is a power-plan reset
+- file: fieldkit/power/drift.py
+  swap:
+  - '        if s["on_ac"] and s["busy"]:'
+  - '        if False:'
+  why: an ibmpmsvc sleep on AC during work fails the check
+- file: fieldkit/power/drift.py
+  swap:
+  - '        if "ibmpmsvc" not in incidents._basename(e["data"].get("ApiCallerName")).lower():'
+  - '        if False:'
+  why: only ibmpmsvc counts
+- file: fieldkit/power/drift.py
+  swap:
+  - '        if e["id"] != 187 or e["t"] < t0:'
+  - '        if e["id"] != 187:'
+  why: only the last N days count
+- file: fieldkit/power/drift.py
+  swap:
+  - '    if sb is not None and sb != 0:'
+  - '    if False:'
+  why: a sleep button that is not off is drift
+- file: fieldkit/power/drift.py
+  swap:
+  - '    if after != 0:'
+  - '    if False:'
+  why: a refused apply names the elevate path
+- file: fieldkit/power/drift.py
+  swap:
+  - '    return 3 if problems else 0'
+  - '    return 0'
+  why: drift exits 3

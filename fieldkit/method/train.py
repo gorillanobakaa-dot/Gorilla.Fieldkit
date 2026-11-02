@@ -1,4 +1,4 @@
-# Version: 1.1.0 · updated 26-10-28-18-00
+# Version: 1.2.0 · updated 26-11-02-02-30
 """The merge train: a PR is merged only when its session declared it final, one at a time, never red (part 2).
 
     fieldkit ship ready PR [--pending TEXT | --withdraw]
@@ -197,6 +197,11 @@ class GH:
         rc, out, _ = self._gh("api", f"repos/{self.slug}/commits/{base}", "--jq", ".sha")
         return out.strip() if rc == 0 else ""
 
+    def merge_base(self, base, head):
+        """-> the merge base of `head` with `base` on GitHub (main at the same time as the PR), or ""."""
+        rc, out, _ = self._gh("api", f"repos/{self.slug}/compare/{base}...{head}", "--jq", ".merge_base_commit.sha")
+        return out.strip() if rc == 0 else ""
+
     def merge(self, n, head):
         rc, out, err = self._gh("pr", "merge", str(n), "-R", self.slug, "--merge", "--match-head-commit", head)
         return rc == 0, (out + err).strip()[-300:]
@@ -308,6 +313,9 @@ def ready(repo, n, gh, pending=None, withdraw=False):
 def _who():
     return os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("FIELDKIT_STATION") or \
         os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "?"
+
+
+UPDATE_POLLS, UPDATE_POLL_S = 36, 5                 # GitHub's update-branch is asynchronous: up to 3 min
 
 
 def readiness(pr, marks, made=()):
@@ -506,6 +514,9 @@ def save_state(repo, st):
 
 def _log(repo, st, n, what, **kw):
     row = dict({"t": _now(), "pr": n, "what": what}, **kw)
+    if what in ("refused", "not-ready"):
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("train", f"{what}: {kw.get('why', '')}")
     st.setdefault("log", []).append(row)
     save_state(repo, st)
     return row
@@ -594,7 +605,20 @@ def _mains_failure(gh, head, log, base):
         return ""
 
 
-def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None):
+def _base_and_job(gh, head, base):
+    """-> (the merge base of `head` with `base`, the failed check names joined) for strikes.whose_red; "" when unread."""
+    try:
+        base_sha = gh.merge_base(base, head)
+    except Exception:  # noqa: BLE001 - a fake or partial GH: the base is unread, the red is unproven
+        base_sha = ""
+    try:
+        job = " ".join(sorted(gh.failed_checks(head)))
+    except Exception:  # noqa: BLE001
+        job = ""
+    return base_sha, job
+
+
+def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.monotonic, inbox=None, runner=None):
     """O4: wait once for the PR head's CI verdict; on red the failed log tail, on green (with merge) the merge proven by
     the PR's state, not gh's exit code. TWO STRIKES: the second failed round parks the branch (state "parked"); a
     parked branch is not waited on at all."""
@@ -610,7 +634,8 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
     r.update(state=state, why=why)
     if state == "red":
         log = gh.failed_log(head)
-        mains = _mains_failure(gh, head, log, pr.get("baseRefName") or "main")
+        base = pr.get("baseRefName") or "main"
+        mains = "" if strikes.failed_tests(log) else _mains_failure(gh, head, log, base)   # no test ids: by check name
         if mains:                                       # B2: not this branch's strike; main is fixed first
             return dict(r, ok=False, state="main-red", log=log, why=f"main's failure, not counted: {mains}",
                         next="fix main first (its own PR), then update this branch and run ci-wait again")
@@ -618,7 +643,15 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         if fl and not strikes.record_flake(r["branch"], head, fl, pr=n)["counted"]:   # owner 2026-10-31: not a strike
             return dict(r, ok=False, state="flake", log=log, why=f"a timing flake, not counted: {fl}",
                         next=f"re-run the failed jobs once (gh run rerun RUN_ID --failed), then ci-wait {n} again")
-        s = strikes.record_failure(r["branch"], head, " ".join(log[-2:]) or why, pr=n, inbox=inbox)
+        base_sha, job = _base_and_job(gh, head, base)
+        s = strikes.count_red(r["branch"], head, log, base_sha, " ".join(log[-2:]) or why, pr=n, job=job,
+                              runner=runner, inbox=inbox)
+        if s["kind"] == "main":                         # F4: every failed test also fails on the merge base
+            return dict(r, ok=False, state="main-red", log=log, why=f"main's failure, not counted: {s['evidence']}",
+                        next="fix main first (its own PR), then update this branch and run ci-wait again")
+        if not s["counted"]:                            # F4: unproven, recorded, forgiven up to FLAKE_LIMIT
+            return dict(r, ok=False, state="unproven", log=log, why=f"red not proven this branch's, not counted: "
+                        f"{s['evidence']}", next=f"re-run the failed jobs once, then ci-wait {n} again")
         if s["parked"]:
             return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",
                         next="parked, go on with the plan")
@@ -726,6 +759,11 @@ def _one(repo, gh, row, base, st, max_wait_s, gens, ci, mandate, may_update, pus
             _log(repo, st, n, "update-api", ok=ok, msg=msg)
             if not ok:
                 need = "update-local"                   # GitHub saw a conflict merge-tree did not: try here
+            else:                                       # 202 Accepted: the merge commit lands later (2026-11-02:
+                for _ in range(UPDATE_POLLS):           # #295 #300 refused as "head moved" by the train's own update)
+                    if gh.pr(n)["headRefOid"] != head:
+                        break
+                    sleep(UPDATE_POLL_S)
         if need == "update-local":
             r = _local_update(repo, branch, base, gens, ci, push)
             _log(repo, st, n, "update-local", state=r.get("state"), proof=r.get("proof"), error=r.get("error"))

@@ -218,6 +218,7 @@ class Governor(threading.Thread):
         self.ceiling, self.persistent = ceiling, persistent
         self._orig_cap = None
         self.peak = 0.0
+        self.last_temp = None                                 # the newest reading, for the status line
         self.samples = 0
         self.verdict = None                                   # why the build was killed, if it was
         self._cool_since = None
@@ -291,6 +292,7 @@ class Governor(threading.Thread):
                     self._sleep(self.interval)
                     continue
                 self._last_reading = now
+                self.last_temp = t
                 if self.persistent and self.verdict and t < HOT:
                     self.verdict = None                       # readings back and below HOT: the cool rule climbs again
                 self.peak = max(self.peak, t)

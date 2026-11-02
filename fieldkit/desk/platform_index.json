@@ -1449,6 +1449,17 @@
    "capture"
   ]
  },
+ "ciaudit": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ciaudit"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
@@ -1884,6 +1895,7 @@
  },
  "inbox": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
@@ -2606,6 +2618,26 @@
    "plan"
   ]
  },
+ "power drift": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-drift"
+  ]
+ },
+ "power incidents": {
+  "platforms": [
+   "linux",
+   "macos",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "power-incidents"
+  ]
+ },
  "prefix-diff": {
   "platforms": [
    "darwin",
@@ -2645,6 +2677,16 @@
   "why": "",
   "ids": [
    "refcheck"
+  ]
+ },
+ "refusals": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "refusals"
   ]
  },
  "regress": {
@@ -3205,6 +3247,16 @@
   "why": "",
   "ids": [
    "testcost"
+  ]
+ },
+ "thermal ensure": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "macOS (the MacBook Air) runs no heavy work and cools in firmware",
+  "ids": [
+   "thermal-ensure"
   ]
  },
  "thermal monitor": {

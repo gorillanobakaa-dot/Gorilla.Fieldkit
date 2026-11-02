@@ -72,9 +72,11 @@ def test_an_owner_step_goes_to_the_inbox_and_never_runs(tmp_path):
                         {"id": "after", "run": ok_cmd()}])
     r = runbook.run(p, say=lambda m: None, hold=False)
     assert r["blocked"] == ["publish"] and r["done"] == ["after"]
-    assert [i["title"] for i in inbox.items()] == ["publish 158 build 2"]
+    led = inbox.ledger_file()
+    rows = [json.loads(l) for l in led.read_text(encoding="utf-8").splitlines()] if led.is_file() else []
+    assert not inbox.items() and [r["title"] for r in rows] == ["publish 158 build 2"]   # never the owner
     runbook.run(p, say=lambda m: None, hold=False)
-    assert len(inbox.items()) == 1                    # not added twice
+    assert not inbox.items()
 
 
 def test_a_failed_step_with_fix_calls_the_model_once_then_tries_again(tmp_path):

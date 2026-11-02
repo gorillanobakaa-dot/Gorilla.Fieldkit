@@ -1,0 +1,20 @@
+# Which tests cover files outside the Python packages (read by fieldkit testcost plan, the pre-commit hook and CI).
+# A changed file no rule covers makes CI run the whole suite (5,402 tests): 17 of 38 PR runs did that between
+# 2026-10-26 and 2026-11-01 because data files had no mapping. `fieldkit testcost unmapped --all` must print 0.
+# tests: [] is a declaration, with its why, that no test reads the file (the whole suite would prove nothing more).
+- {glob: ".github/**", tests: [tests/test_ci_tests.py, tests/test_ci_templates.py]}
+- {glob: ".gitattributes", tests: [tests/test_mergedriver.py]}
+- {glob: ".gitignore", tests: [tests/test_privacy_scan_checkout.py]}
+- {glob: "docs/dual-track/*/.gitignore", tests: [tests/test_dual_track.py]}
+- {glob: ".gitleaks.toml", tests: [tests/test_privacy_scan_checkout.py]}
+- {glob: "fieldkit.local.example.json", tests: [], why: "an example for a new machine; no code reads it"}
+- {glob: "docs/findings/*.yaml", tests: [], why: "a findings record for people; no code reads it"}
+- {glob: "docs/visual/*.yaml", tests: [], why: "the visual-check allowlist is read by the owner's local kit, not by Fieldkit code"}
+- {glob: "releases/parity-pin.yaml", tests: [tests/test_parity.py]}
+- {glob: "releases/*.yaml", tests: [tests/test_release.py, tests/test_release_cycle.py]}
+- {glob: "hooks/**", tests: [tests/test_hook_reproduce.py]}
+- {glob: "tests/data/tokens/**", tests: [tests/test_tokens_session_cost.py, tests/test_tokens_since_daily.py, tests/test_tokens_cost_report.py, tests/test_tokens_token_audit.py]}
+- {glob: "third_party/anthropic-skills/**", tests: [tests/test_skills.py]}
+- {glob: "inventory.py", tests: [], why: "a stand-alone script at the root; no test or module imports it"}
+- {glob: "fieldkit/review_verdict.py", tests: [tests/test_review.py, tests/test_review_fix.py]}
+- {glob: "kits/videokit/**", tests: [tests/test_videokit.py]}

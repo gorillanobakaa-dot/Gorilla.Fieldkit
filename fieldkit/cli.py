@@ -1081,8 +1081,24 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", plan=a.plan or "",
-                                   what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or ""), indent=1))
+        it = inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", kind=a.kind, plan=a.plan or "",
+                       what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or "")
+        print(json.dumps(it, indent=1, ensure_ascii=False))
+        if it.get("routed") == "ledger":
+            print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
+                  "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
+        return 0
+    if a.action == "ledger":
+        rows = []
+        if inbox.ledger_file().is_file():
+            for line in inbox.ledger_file().read_text(encoding="utf-8").splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        for r in rows[-int(a.rest[0]) if a.rest else 0:] if rows else []:
+            print(f"  {r.get('added')}  {r.get('kind'):<9} {r.get('title')}")
+        print(f"agent ledger: {len(rows)} row(s) in {inbox.ledger_file()} (never shown to the owner)")
         return 0
     if a.action == "done":
         print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
@@ -1249,6 +1265,15 @@ def cmd_goal(a):
         return 0 if ok else 3
     if a.action == "approve":
         return goal.approve(x[0]) if x else 2
+    if a.action == "reverify":
+        if len(x) < 2:
+            print("goal reverify GOAL JOB (re-run one job's checks on a fresh origin/main tree and record the verdict)")
+            return 2
+        from .autopilot import goal_fresh
+        ok, text = goal_fresh.reverify(x[0], x[1])
+        print(text)
+        print("NEXT: fieldkit goal status " + x[0] if ok else "NEXT: read the FAIL lines above; the worker's branch must be merged to origin/main")
+        return 0 if ok else 3
     if a.action == "report":
         goal.report(x[0])
         print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
@@ -1675,6 +1700,10 @@ def build_parser():
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
                              "(fieldkit emerge)")
     em.add_argument("args", nargs=argparse.REMAINDER)
+    ca = sub.add_parser("ciaudit", add_help=False,
+                        help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
+                             "to the whole suite (fieldkit ciaudit)")
+    ca.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -1700,6 +1729,10 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rfp = sub.add_parser("refusals", add_help=False,
+                         help="refusals repeated by train, ship, guard, goal or task: each repeated reason opens one "
+                              "defect row (fieldkit refusals list)")
+    rfp.add_argument("args", nargs=argparse.REMAINDER)
     rvp = sub.add_parser("review", add_help=False,
                          help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
                               "once at a terminal; --open opens state/REVIEW.md")
@@ -1912,7 +1945,9 @@ def build_parser():
     apl.set_defaults(fn=cmd_autopilot)
 
     ib = sub.add_parser("inbox", parents=[common])
-    ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
+    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger"], nargs="?", default="list")
+    ib.add_argument("--kind", default="approval", help="add: only 'hardline' reaches the owner; anything else goes to "
+                                                         "the agent ledger (fieldkit inbox ledger)")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
     ib.add_argument("--all", action="store_true", help="list: done items too")
     ib.add_argument("--plan", help="add: the plan row this belongs to (P5, W10 ...)")
@@ -1954,8 +1989,8 @@ def build_parser():
     rb.set_defaults(fn=cmd_runbook)
 
     gl = sub.add_parser("goal", parents=[common], help="long horizon goals: planner, workers, verifier, supervisor")
-    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "supervisor-script"])
-    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID")
+    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "reverify", "supervisor-script"])
+    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID; reverify GOAL JOB")
     gl.add_argument("--from", dest="from_file", help="new: the goal spec (goal.json shape)")
     gl.add_argument("--objective", help="new: the objective (without --from)")
     gl.add_argument("--criterion", action="append", default=[], help="new: a command that must exit 0 (repeatable)")
@@ -2201,7 +2236,8 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal", "ensure"])
+    th.add_argument("--install", action="store_true", help="ensure: also install the keeper (Task Scheduler / systemd user timer) that runs ensure at logon, every 5 min and on resume")
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
@@ -2212,6 +2248,13 @@ def build_parser():
     th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux), monitor (both systems): run until this "
                                                                      "process ends (a build); log ignores --seconds then")
     th.set_defaults(fn=cmd_thermal)
+
+    pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check")
+    pw.add_argument("action", choices=["incidents", "drift"])
+    pw.add_argument("--since", help="incidents: YYYY-MM-DD (default 7 days ago)")
+    pw.add_argument("--days", type=int, default=7, help="drift: how many days back")
+    pw.add_argument("--apply", action="store_true", help="drift: set the sleep button on AC to do nothing (no admin; before/after recorded)")
+    pw.set_defaults(fn=cmd_power)
 
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
@@ -2761,7 +2804,27 @@ def cmd_repro(a):
     return 0 if r["identical"] else 3
 
 
+def cmd_power(a):
+    from .power import drift, incidents
+    if a.action == "drift":
+        return drift.run(days=a.days, do_apply=a.apply, as_json=a.json)
+    return incidents.run(since=a.since, as_json=a.json)
+
+
 def cmd_thermal(a):
+    if a.action == "ensure":
+        from .thermal import keeper
+        inst = keeper.install() if a.install else None
+        r = keeper.ensure()
+        k = keeper.installed()
+        def human(d):
+            print(keeper.line(d, k))
+            if inst is not None:
+                print(f"  install: {'OK' if inst['ok'] else 'FAILED'} {inst.get('detail') or inst.get('error') or ''}")
+            print("NEXT: " + ("nothing to do" if d["ok"] and k else "fieldkit thermal ensure --install" if d["ok"]
+                              else "read state/thermal/watch-*.log, fix, run ensure again"))
+        _emit(dict(r, keeper=k, install=inst), a.json, human)
+        return 0 if r["ok"] and k and (inst is None or inst["ok"]) else 3
     if a.action == "journal":
         from .thermal import journal
         return 0 if journal.run() else 1
@@ -2939,6 +3002,9 @@ def main(argv=None):
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
+        from .method import ciaudit
+        return ciaudit.main(args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
@@ -2960,7 +3026,10 @@ def main(argv=None):
     if args[:2] == ["inbox", "review"]:
         from . import review
         return review.main(args[2:])
-    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+    if args[:1] == ["refusals"]:                      # repeated refusals -> defect rows (plan R14)
+        from . import refusals
+        return refusals.main(args[1:])
+    if args[:1] == ["ideas"]:                       # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
