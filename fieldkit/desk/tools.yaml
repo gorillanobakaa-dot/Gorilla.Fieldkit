@@ -76,8 +76,8 @@ tools:
   entry: [python, -m, fieldkit, goal]
   path: ${FIELDKIT}/fieldkit/autopilot/goal.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, supervisor-script], help: "status first; run = the supervisor"}
-    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
+    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, reverify, supervisor-script], help: "status first; run = the supervisor; reverify = one job's checks on a fresh origin/main tree"}
+    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; reverify GOAL JOB; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
     - {name: from_file, flag: --from, type: str, required: false, help: "new: the goal spec (goal.json shape)"}
     - {name: objective, flag: --objective, type: str, required: false, help: "new: the objective (without --from)"}
     - {name: criterion, flag: --criterion, type: str, required: false, help: "new: a command that must exit 0 (repeatable)"}

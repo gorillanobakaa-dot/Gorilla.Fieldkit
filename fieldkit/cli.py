@@ -1265,6 +1265,15 @@ def cmd_goal(a):
         return 0 if ok else 3
     if a.action == "approve":
         return goal.approve(x[0]) if x else 2
+    if a.action == "reverify":
+        if len(x) < 2:
+            print("goal reverify GOAL JOB (re-run one job's checks on a fresh origin/main tree and record the verdict)")
+            return 2
+        from .autopilot import goal_fresh
+        ok, text = goal_fresh.reverify(x[0], x[1])
+        print(text)
+        print("NEXT: fieldkit goal status " + x[0] if ok else "NEXT: read the FAIL lines above; the worker's branch must be merged to origin/main")
+        return 0 if ok else 3
     if a.action == "report":
         goal.report(x[0])
         print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
@@ -1979,8 +1988,8 @@ def build_parser():
     rb.set_defaults(fn=cmd_runbook)
 
     gl = sub.add_parser("goal", parents=[common], help="long horizon goals: planner, workers, verifier, supervisor")
-    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "supervisor-script"])
-    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID")
+    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "reverify", "supervisor-script"])
+    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID; reverify GOAL JOB")
     gl.add_argument("--from", dest="from_file", help="new: the goal spec (goal.json shape)")
     gl.add_argument("--objective", help="new: the objective (without --from)")
     gl.add_argument("--criterion", action="append", default=[], help="new: a command that must exit 0 (repeatable)")
