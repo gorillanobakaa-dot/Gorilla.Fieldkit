@@ -116,7 +116,9 @@ def test_the_governor_lever_is_the_brake_and_it_resumes_on_exit(tmp_path):
 
 
 def test_the_keeper_runs_at_logon_every_5_minutes_and_on_resume():
-    x = keeper.task_xml(r"C:\py\pythonw.exe", r"C:\fk")
+    x = keeper.task_xml(r"C:\py\pythonw.exe", r"C:\fk", user=r"PC\someone")
+    assert r"<UserId>PC\someone</UserId></LogonTrigger>" in x and "<LogonType>InteractiveToken</LogonType>" in x
+    assert "<RunLevel>LeastPrivilege</RunLevel>" in x
     assert "<LogonTrigger>" in x and "PT5M" in x and "EventID=107" in x and "EventID=507" in x
     assert "-m fieldkit thermal ensure" in x and "IgnoreNew" in x
     u = keeper.systemd_units("/usr/bin/python3", "/opt/fk")
