@@ -538,6 +538,9 @@ def save_state(repo, st):
 
 def _log(repo, st, n, what, **kw):
     row = dict({"t": _now(), "pr": n, "what": what}, **kw)
+    if what in ("refused", "not-ready"):
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("train", f"{what}: {kw.get('why', '')}")
     st.setdefault("log", []).append(row)
     save_state(repo, st)
     return row

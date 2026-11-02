@@ -146,9 +146,13 @@ def cmd_task(argv):
                              model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark)
         except (tasks.AlreadyStarted, tasks.Parked) as e:
             print(f"NOT STARTED  {e}")
+            from .. import refusals              # a refusal repeated becomes a defect row (plan R14)
+            refusals.record("task", f"not started: {e}")
             return 3
         except ValueError as e:
             print(f"NOT STARTED  {e}")
+            from .. import refusals
+            refusals.record("task", f"not started: {e}")
             return 2
         print(json.dumps(rec, indent=1, ensure_ascii=False) if a.json else
               f"TASK {rec['id']}  {rec['status']} on {rec['on']} ({rec.get('how')}): "

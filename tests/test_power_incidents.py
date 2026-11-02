@@ -178,3 +178,57 @@ def test_drift_run_exit_code(monkeypatch, tmp_path):
     assert drift.run(days=7, out=lambda *_: None) == 3
     monkeypatch.setattr(drift.incidents, "read_windows", lambda since: {"events": [], "resets": []})
     assert drift.run(days=7, out=lambda *_: None) == 0
+
+
+def _cut(extra, t_cut=T0 - 600):
+    msg = "The previous system shutdown at %s on 11/2 was unexpected." % time.strftime("%I:%M:%S %p", time.localtime(t_cut)).lstrip("0")
+    boot = [ev(T0, 6008, msg), ev(T0 - 5, 6005), ev(T0 - 14, 20, "The last shutdown's success status was true. The last boot's success status was true.")]
+    return incidents.classify_windows(boot + list(extra), rows((t_cut - 700, 32.0, 5.0)))
+
+
+def _writes(n):
+    return [ev(T0 - 600 - 30 * k, 112, "scheme write", proc="powercfg.exe") for k in range(1, n + 1)]
+
+
+def test_cut_below_the_os_during_powercfg_writes_is_named_with_its_evidence():
+    inc = _cut(_writes(4))[0]
+    assert inc["class"] == incidents.CUT_BELOW_OS_WRITES
+    assert inc["class"] in incidents.OPEN_CLASSES        # correlated, not proven: still a defect row, exit 3
+    ev_text = " | ".join(inc["evidence"])
+    assert "no Kernel-Power 41" in ev_text and "success status was true" in ev_text and "scheme resets" in ev_text and ": 4," in ev_text
+
+
+def test_few_or_no_powercfg_writes_stay_cause_unknown_with_the_boot_evidence():
+    for n in (0, 2):
+        inc = _cut(_writes(n))[0]
+        assert inc["class"] == "unexpected cut (cause unknown)"
+        assert any("Kernel-Boot 20" in x for x in inc["evidence"])
+
+
+def test_writes_outside_the_window_do_not_count():
+    old = [ev(T0 - 600 - 3600 - k, 112, "scheme write", proc="powercfg.exe") for k in range(5)]
+    assert _cut(old)[0]["class"] == "unexpected cut (cause unknown)"
+
+
+def test_a_kernel_power_41_beside_the_cut_blocks_the_below_the_os_class():
+    inc = _cut(_writes(4) + [ev(T0 - 3, 41, "rebooted without cleanly shutting down")])[0]
+    assert inc["class"] != incidents.CUT_BELOW_OS_WRITES
+
+
+def test_last_log_record_after_the_heartbeat_is_quoted():
+    last = ev(T0 - 15, 9001, "last", last=time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(T0 - 200)) + "Z", src="Microsoft-Windows-UserModePowerService/12")
+    assert any("last System record before the boot" in x for x in _cut([last])[0]["evidence"])
+
+
+def test_open_classes_get_a_defect_row_and_exit_3(tmp_path, monkeypatch):
+    p = tmp_path / "P.md"
+    p.write_text("| 1 | a |\n", encoding="utf-8")
+    inc = {"class": incidents.CUT_BELOW_OS_WRITES, "t": T0, "t_text": "2026-10-28 04:11:08", "what": "EventLog 6008", "peak_c": 33.0}
+    assert incidents.defect_rows([inc], path=p) == 1
+    monkeypatch.setattr(incidents, "collect", lambda since: {"incidents": [inc], "scheme_resets": [], "error": None})
+    assert incidents.run(since="2026-10-27", write_rows=False, out=lambda *_: None) == 3
+
+
+def test_a_42_just_before_the_187_is_still_one_incident_named_by_the_187():
+    inc = incidents.classify_windows([ev(T0 - 5, 42, "Sleep Reason: Application API"), ev(T0, 187, ApiCallerName=IBM, SystemAction="2")], [])
+    assert [i["class"] for i in inc] == ["program sleep request (ibmpmsvc.exe)"]

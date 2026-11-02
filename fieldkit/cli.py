@@ -1728,6 +1728,10 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rfp = sub.add_parser("refusals", add_help=False,
+                         help="refusals repeated by train, ship, guard, goal or task: each repeated reason opens one "
+                              "defect row (fieldkit refusals list)")
+    rfp.add_argument("args", nargs=argparse.REMAINDER)
     rvp = sub.add_parser("review", add_help=False,
                          help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
                               "once at a terminal; --open opens state/REVIEW.md")
@@ -3021,7 +3025,10 @@ def main(argv=None):
     if args[:2] == ["inbox", "review"]:
         from . import review
         return review.main(args[2:])
-    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+    if args[:1] == ["refusals"]:                      # repeated refusals -> defect rows (plan R14)
+        from . import refusals
+        return refusals.main(args[1:])
+    if args[:1] == ["ideas"]:                       # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
