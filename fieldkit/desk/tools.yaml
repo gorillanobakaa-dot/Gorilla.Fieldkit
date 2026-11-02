@@ -6208,6 +6208,22 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ideas.py"]
   notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
 
+- id: refusals
+  title: Repeated refusals - train, ship, guard, goal and task write every refusal to state/refusals.jsonl (tool, reason key with heads and ids stripped, text, time, session); the same reason twice opens ONE row in ZERO-OPEN-PROBLEMS.md (never an inbox item); list shows each reason, its count and whether its row is open
+  harness: core
+  entry: [python, -m, fieldkit, refusals]
+  path: ${FIELDKIT}/fieldkit/refusals.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "list | record"}
+    - {name: json, flag: --json, type: flag, required: false, help: "list: JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_refusals.py"]
+  notes: "Plan R14 (defect 8: the train said 'head moved' five times and nobody triaged it). The room hook shows 'N repeated refusals open'. record() never raises."
+
 - id: metrics
   title: Long-horizon proof from the harness's own records - days running, Zero epochs and changes, session rotations, sessions and subagents, headless sub-jobs per device, stations and machines, money, tokens, tool calls executed / refused / declined / repeated, PRs, CI runs, failures; each number names its source, what cannot be read is listed as NOT MEASURED
   harness: core

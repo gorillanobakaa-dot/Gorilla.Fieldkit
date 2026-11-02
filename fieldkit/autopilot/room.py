@@ -479,6 +479,20 @@ def _ideas(call, event, ctx):
     return ctx
 
 
+def _refusals(call, event, ctx):
+    """'N repeated refusals open' (fieldkit refusals list): silent when none. Never fails the hook."""
+    if event != "UserPromptSubmit":
+        return ctx
+    try:
+        from .. import refusals
+        t = refusals.hook_text()
+        if t:
+            return (ctx + "\n" if ctx else "") + t
+    except Exception:
+        pass
+    return ctx
+
+
 def _context(call, event):
     """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
     rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
@@ -494,6 +508,7 @@ def _context(call, event):
     ctx = _net(call, event, ctx)
     ctx = _plan(call, event, ctx)
     ctx = _ideas(call, event, ctx)
+    ctx = _refusals(call, event, ctx)
     ctx = _relay(call, event, ctx)
     return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
 

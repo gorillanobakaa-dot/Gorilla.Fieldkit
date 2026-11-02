@@ -2670,6 +2670,16 @@
    "refcheck"
   ]
  },
+ "refusals": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "refusals"
+  ]
+ },
  "regress": {
   "platforms": [
    "linux",
