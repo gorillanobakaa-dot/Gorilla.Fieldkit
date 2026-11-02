@@ -191,3 +191,25 @@ def test_only_the_named_version_files_can_be_version_only():
 def test_a_file_under_state_selects_no_test_whatever_its_suffix():
     pl = _plan(["state/coordination/run.py"], {})
     assert pl["no_code"] and pl["tests"] == [] and pl["unmapped"] == []
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_the_hook_says_why_nothing_ran_never_a_false_no_test_covers(repo, tmp_path):
+    """2026-11-02: 68 test files covered a commit, the laptop cap (15) held them back, and the hook printed "no test
+    covers the staged files". It must print what testcost said."""
+    hooks = repo / "hooks"
+    hooks.mkdir()
+    shutil.copy2(ROOT / "hooks" / "pre-commit", hooks / "pre-commit")
+    os.chmod(hooks / "pre-commit", 0o755)
+    git(repo, "config", "core.hooksPath", "hooks")
+    shutil.rmtree(repo / "fieldkit")
+    (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n")
+    git(repo, "add", "-A")
+    env = dict(os.environ, PYTHONPATH=str(ROOT), FIELDKIT_TESTCOST_DIR=str(tmp_path / "state"),
+               VIRTUAL_ENV=str(Path(sys.executable).parent.parent), PYTEST_ADDOPTS="", FIELDKIT_PREFLIGHT="0",
+               PYTHONDONTWRITEBYTECODE="1", FIELDKIT_LOCAL_TEST_CAP="0")
+    env.pop("FIELDKIT_FULL_SUITE", None)
+    r = subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "one"], env=env, capture_output=True, text=True)
+    out = r.stdout + r.stderr
+    assert "(> 0): CI runs them, not this laptop - nothing runs here" in out, out
+    assert "no test covers the staged files" not in out, out

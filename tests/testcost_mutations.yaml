@@ -12,3 +12,6 @@
 - file: fieldkit/testcost.py
   swap: ["        if q.startswith(NON_CODE_TREES) or is_version_only(", "        if is_version_only("]
   why: "state/ selects no tests"
+- file: hooks/pre-commit
+  swap: ['echo "pre-commit: ${TC_WHY:-no test covers the staged files} - nothing runs here', 'echo "pre-commit: no test covers the staged files - nothing runs here']
+  why: the hook prints testcost's own reason when nothing runs, never a false "no test covers"
