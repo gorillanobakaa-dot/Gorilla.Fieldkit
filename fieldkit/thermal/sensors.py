@@ -126,11 +126,21 @@ def tpfan_csv(path=None):
 
 
 def _ps(cmd, timeout=60):
+    """-> PowerShell's output, or "" when it gave none in time. 2026-11-02 13:2x: a Get-Counter call hung 60 s under
+    load, TimeoutExpired killed the governor's thread and the guarded job ran with no governor; a reading that does
+    not come is a missing reading (the governor's STALE_S rule handles it), never a dead governor."""
     if sys.platform != "win32":                  # PowerShell is a Windows reader; elsewhere there is no reading
         return ""
-    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True,
-                       encoding="utf-8", errors="replace", timeout=timeout)
+    try:
+        r = _run_ps(cmd, timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
     return (r.stdout or "").strip()
+
+
+def _run_ps(cmd, timeout):
+    return subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), text=True,
+                       encoding="utf-8", errors="replace", timeout=timeout)
 
 
 def thermalzone():
