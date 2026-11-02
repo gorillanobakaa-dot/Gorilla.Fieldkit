@@ -34,6 +34,12 @@ def iso(tmp_path, monkeypatch):
     monkeypatch.setattr(eta, "HISTORY", tmp_path / "history.jsonl")
 
 
+def ledger():
+    """The agent ledger: every non-hardline item (owner, 2026-11-01: zero owner steps, zero inbox)."""
+    f = inbox.ledger_file()
+    return [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines()] if f.is_file() else []
+
+
 def script(tmp_path, actions, monkeypatch):
     p = tmp_path / "fake-plan.json"
     p.write_text(json.dumps(actions), encoding="utf-8")
@@ -110,8 +116,8 @@ def test_budget_exhausted_past_max_continuations_pauses_resumable_with_a_handoff
     out = job.run_job(tmp_path / "job", "BRIEF", r, max_continuations=2, say=lambda m: None)
     assert out["status"] == "paused-resumable" and out["rc"] == 75
     assert checkpoint.load(tmp_path / "job")["continuations"] == 3
-    items = inbox.items()
-    assert items and items[0]["kind"] == "handoff" and "HANDOFF.md" in items[0]["files"][0]
+    items = ledger()
+    assert not inbox.items() and items and items[0]["kind"] == "handoff" and "HANDOFF.md" in items[0]["files"][0]
 
 
 def test_a_usage_limit_sleeps_until_the_reset_then_resumes(tmp_path, monkeypatch):
@@ -156,7 +162,7 @@ def test_429_without_retry_after_backs_off_exponentially_then_pauses(tmp_path, m
     assert out["rc"] == 75
     assert 30 * 0.5 <= sum(clk.slept) <= sum(min(900, 30 * 2 ** k) for k in range(job.BACKOFF_TRIES))
     assert sum(clk.slept) > 30 * 2 ** 3                        # it grew
-    assert inbox.items()[0]["kind"] == "paused"
+    assert not inbox.items() and ledger()[0]["kind"] == "paused"
 
 
 def test_a_crash_mid_commit_leaves_the_wip_safe_and_one_fix_run_carries_on(tmp_path, monkeypatch):
@@ -179,7 +185,7 @@ def test_a_second_crash_is_a_real_failure_in_the_inbox(tmp_path, monkeypatch):
     script(tmp_path, [{"do": "crash_mid_commit"}], monkeypatch)
     (r / ".git" / "index.lock").unlink(missing_ok=True)
     out = job.run_job(tmp_path / "job", "BRIEF", r, say=lambda m: None)
-    assert out["status"] == "failed" and out["rc"] == 3 and inbox.items()[0]["kind"] == "failed"
+    assert out["status"] == "failed" and out["rc"] == 3 and ledger()[0]["kind"] == "failed" and not inbox.items()
 
 
 def test_the_wall_budget_kills_a_stuck_run_and_the_job_resumes(tmp_path, monkeypatch):
@@ -475,7 +481,7 @@ def test_an_agent_criterion_is_judged_by_a_separate_run_and_no_verdict_is_fail(t
     assert goal.verify("g2", g, st, claude=run.claude)[0]["verdict"] == "FAIL"
 
 
-def test_an_owner_question_goes_to_the_inbox_and_other_work_goes_on(tmp_path, monkeypatch):
+def test_a_question_takes_its_default_never_the_owner_inbox_and_work_goes_on(tmp_path, monkeypatch):
     r = repo(tmp_path)
     mkgoal(tmp_path, r / "x.txt")
     script(tmp_path, [plan_of([{"id": "j1", "brief": "free work", "cwd": str(r)},
@@ -485,12 +491,25 @@ def test_an_owner_question_goes_to_the_inbox_and_other_work_goes_on(tmp_path, mo
                       {"do": "success"}], monkeypatch)
     goal.step("g1", say=lambda m: None)
     _, st = goal.load("g1")
-    assert st["jobs"]["j1"]["status"] == "verified" and st["jobs"]["j2"]["status"] == "queued"
-    assert inbox.items()[0]["kind"] == "decision" and "MIT" in inbox.items()[0]["why"]
-    assert goal.runnable(st) is None
-    inbox.done(inbox.items()[0]["n"], "")                       # empty answer = the default
-    assert goal.collect_answers("g1", st, inbox.items(None))
-    assert st["answers"]["q1"]["answer"] == "MIT" and goal.runnable(st) == "j2"
+    assert st["jobs"]["j1"]["status"] == "verified"
+    assert not inbox.items()                                    # owner, 2026-11-01: never ask him
+    assert st["answers"]["q1"]["answer"] == "MIT" and "default" in st["answers"]["q1"]["by"]
+    assert ledger()[-1]["kind"] == "decision" and "MIT" in ledger()[-1]["why"]
+    assert st["jobs"]["j2"]["status"] in ("verified", "running") or goal.runnable(st) == "j2"
+
+
+def test_only_a_hardline_reaches_the_owner_inbox(tmp_path):
+    assert inbox.add("PARKED feat/x", "two reds")["routed"] == "ledger"
+    assert inbox.add("station MISSING", "net", kind="net")["routed"] == "ledger"
+    assert not inbox.items() and len(ledger()) == 2
+    it = inbox.add("push outside the mandate", "a HARD LINE", kind="hardline")
+    assert it["n"] == 1 and [i["title"] for i in inbox.items()] == ["push outside the mandate"]
+
+
+def test_the_worker_brief_never_tells_a_worker_to_use_the_inbox(tmp_path, monkeypatch):
+    import inspect
+    src = inspect.getsource(goal._start_job)
+    assert "never use `fieldkit inbox add`" in src and "What only the owner may decide goes to" not in src
 
 
 def test_preapproved_answers_need_no_human_and_a_changed_register_is_void(tmp_path, monkeypatch):
