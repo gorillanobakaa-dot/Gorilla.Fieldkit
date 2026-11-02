@@ -232,7 +232,7 @@ def test_friction_flags_an_untagged_session():
 def test_friction_local_rows_include_untagged(tmp_path, monkeypatch):
     from fieldkit.lifecycle import friction
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
-    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows", "board_rows"):
+    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows", "board_rows", "sweep_rows"):
         monkeypatch.setattr(friction, n, lambda *a, **k: [])
     monkeypatch.setattr(friction.desktop, "sessions", lambda dirs=None: [sess("s1", "job")])
     assert [r["kind"] for r in friction.local_rows()] == ["untagged"]
@@ -319,3 +319,10 @@ def test_unpaired_computer_makes_its_tag_without_the_link_code(tmp_path, monkeyp
     monkeypatch.setattr(machine, "_link", lambda: (_ for _ in ()).throw(AssertionError("link imported")))
     r = machine.name(save=False, facts_fn=lambda system=None: L15, system="Windows", hostname="L15HOST")
     assert machine.valid(r["tag"]) and r["source"] == "derived"
+
+
+@pytest.fixture(autouse=True)
+def _multi_mode_for_task_start(monkeypatch):
+    """These tests start several jobs or send one to a peer; the Solo/Multiplayer gate (routing.yaml) is tested in
+    tests/test_routing.py, so here the mode is multi."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")

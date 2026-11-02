@@ -143,7 +143,7 @@ def test_hook_rotate_at_every_prompt_and_once_mid_turn(tmp_path):
 
 
 def test_hook_warn_once_and_quiet_when_ok(tmp_path):
-    p = monster(tmp_path, read=300_000)
+    p = monster(tmp_path, read=130_000)
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit").startswith("session rotation: WARN")
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit") == ""
     q = monster(tmp_path, read=10_000, name="fine")
@@ -210,7 +210,7 @@ def test_hook_knows_an_event_turn_from_the_owners_words(tmp_path):
     assert "initiation \"user_asked\"" in rotate.hook_line(own, "UserPromptSubmit")
     # mid-turn, the line crossed during a turn keeps the kind of the prompt that started the turn
     for prompt, want in (("carry on", "user_asked"), ("<task-notification> done", "may refuse it")):
-        q = monster(tmp_path, read=300_000, name=f"mid-{len(prompt)}")
+        q = monster(tmp_path, read=130_000, name=f"mid-{len(prompt)}")
         t = time.time()
         rotate.hook_line(dict(call(q, "UserPromptSubmit"), prompt=prompt), "UserPromptSubmit", now=t)
         write(q, [line(mid="y", read=400_000)], mode="a")
@@ -367,7 +367,7 @@ def test_cli_check_exit_codes_and_log(tmp_path, capsys, monkeypatch):
     assert rotate.main(["check", "--hours", "1"]) == 2
     assert "1 ROTATE" in capsys.readouterr().out
     assert rotate.main(["check", "--session", "nope"]) == 3
-    q = monster(tmp_path, read=300_000, name="w")
+    q = monster(tmp_path, read=130_000, name="w")
     assert rotate.main(["check", "--session", str(q), "--json"]) == 1
     assert json.loads(capsys.readouterr().out)[0]["level"] == "WARN"
     assert rotate.main(["log", "1"]) == 0 and '"WARN"' in capsys.readouterr().out

@@ -344,7 +344,7 @@ def test_preflight_check_names_the_worst_session(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "adapters_for", lambda s: [sc.Codex(root)])
     st, line = rotate.preflight_check()
     assert st == "warn" and line.startswith("rotate: ROTATE codex 01a0dd9e") and "rotate handover --session" in line
-    rows[-1]["payload"]["usage"]["input_tokens"] = 260_000                  # WARN is named too
+    rows[-1]["payload"]["usage"]["input_tokens"] = 130_000                  # WARN is named too
     root, _ = codex_home(tmp_path, lines=rows)
     shutil.rmtree(tmp_path / "rot", ignore_errors=True)
     st, line = rotate.preflight_check()

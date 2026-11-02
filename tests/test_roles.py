@@ -248,3 +248,10 @@ def test_goal_job_failed_twice_is_fixed_by_the_reviewer_and_checked_again(tmp_pa
 def test_goal_job_passing_its_check_is_verified_with_no_reviewer(tmp_path):
     j, _ = end_job(tmp_path, 1, True, pytest.fail)
     assert j["status"] == "verified" and j["verdict"] == "pass"
+
+
+@pytest.fixture(autouse=True)
+def _multi_mode_for_task_start(monkeypatch):
+    """These tests start several jobs or send one to a peer; the Solo/Multiplayer gate (routing.yaml) is tested in
+    tests/test_routing.py, so here the mode is multi."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")
