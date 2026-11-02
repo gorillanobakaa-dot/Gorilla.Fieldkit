@@ -33,6 +33,9 @@ def _logger(folder=None):
     return say
 
 
+STATUS_EVERY = 10                   # ticks of 3 s: a status line with the temperature every 30 s
+
+
 def forever(target=None, say=None, sensor=None, ticks=None, sleep=time.sleep, folder=None):
     """-> exit code. `sensor` = (fn, surface) for tests; `ticks` ends the loop after that many lease writes."""
     say = say or _logger(folder)
@@ -41,10 +44,23 @@ def forever(target=None, say=None, sensor=None, ticks=None, sleep=time.sleep, fo
         say("thermal watch: a machine governor already runs; not starting a second one")
         return 0
     target = gv.build_target() if target is None else float(target)
+    import threading
+    beat, proving = threading.Event(), sensor is None
+    def _beat():                    # the sensor proof takes 60 s+ on a cold boot: the lease says "running" meanwhile
+        while not beat.is_set():
+            brake.lease_write(folder)
+            beat.wait(3)
+    if proving:
+        brake.lease_write(folder)
+        threading.Thread(target=_beat, daemon=True).start()
     if sensor is None:
-        name, fn, surface = buildrun.thermal_sensor(say)
+        try:
+            name, fn, surface = buildrun.thermal_sensor(say)
+        finally:
+            beat.set()
         if fn is None:
             say("thermal watch: no CPU temperature source responds to load; nothing to govern with")
+            brake.lease_clear(folder)
             return 3
     else:
         (fn, surface), name = sensor, "test"
@@ -60,8 +76,11 @@ def forever(target=None, say=None, sensor=None, ticks=None, sleep=time.sleep, fo
     n = 0
     try:
         while gov.is_alive() and (ticks is None or n < ticks):
-            brake.lease_write(folder)
+            brake.lease_write(folder, temp=gov.last_temp)
             brake.restore_stale_boost(folder, say=say)
+            if n % STATUS_EVERY == 0 and gov.last_temp is not None:
+                say(f"thermal watch: {name} {gov.last_temp:.1f} C (peak {gov.peak:.1f}), cap {gov.cap}%, "
+                    f"{len(brake.holds(folder))} guarded job(s) held")
             n += 1
             sleep(3)
     finally:
