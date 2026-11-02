@@ -1,12 +1,12 @@
 """fieldkit capture: zero-loss capture of everything an agent makes or runs (owner, 2026-11-01).
 
     fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal; always exit 0
-    fieldkit capture scan                                    (not built yet)
+    fieldkit capture scan [--root NAME] [--list] [--json]    gather scripts and commands from the roots and transcripts
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
     fieldkit capture ledger [--json] [--strict]              every item and its state; --strict exits 3 on a loss
     fieldkit capture verify [--json]                         hash chain, duplicates, blobs, orphan events
     fieldkit capture status [--json]                         last capture, store size, hook install state
-    fieldkit capture self-test --first-use|--context|--failed|--before-processing|--crash
+    fieldkit capture self-test --first-use|--context|--failed|--before-processing|--crash|--roots|--kinds
 
 The store is state/capture/ (override: FIELDKIT_CAPTURE_DIR), append-only, hash-chained, fsync per record. Nothing is
 discarded: "refused" means kept in the queue. Exit: 0 fine, 2 bad usage or not built yet, 3 findings.
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from . import store as st
 
-LATER_FLAGS = ["kinds", "roots", "transform", "procedure", "failure-to-check", "languages", "workflows", "registration",
+LATER_FLAGS = ["transform", "procedure", "failure-to-check", "languages", "workflows", "registration",
                "fresh-session"]
 AGENT_FILES = {"claude": "~/.claude/settings.json", "gemini": "~/.gemini/settings.json",
                "opencode": "~/.config/opencode/opencode.json"}
@@ -127,6 +127,15 @@ def cmd_selftest(a):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["scan"]:                               # own module: scan.py (roots.py holds the root table)
+        from . import scan
+        return scan.main(argv[1:])
+    if argv[:1] == ["self-test"] and {"--roots", "--kinds"} & set(argv):     # own module: selftest_scan.py
+        from . import selftest_scan
+        rc = selftest_scan.main([x[2:] for x in argv if x in ("--roots", "--kinds")])
+        rest = [x for x in argv if x not in ("--roots", "--kinds")]
+        return max(rc, main(rest) if len(rest) > 1 else 0)
     ap = argparse.ArgumentParser(prog="fieldkit capture", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="action", required=True)

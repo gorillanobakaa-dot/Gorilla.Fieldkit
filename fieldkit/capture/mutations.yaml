@@ -13,3 +13,8 @@
 - {file: fieldkit/capture/store.py, swap: ['_SECRET_KEY.search(str(k))', 'False'], why: "secret-named keys are redacted"}
 - {file: fieldkit/capture/hook.py, swap: ['if tk is None:', 'if False:'], why: "only work tools are captured"}
 - {file: fieldkit/capture/hook.py, swap: ['m = re.match(r"\s*Exit code (-?\d+)", text)', 'm = None'], why: "exit code read from a failure message"}
+- {file: fieldkit/capture/scan.py, swap: ['    cut = data.rfind(b"\n") + 1', '    cut = len(data)'], why: "a half-written transcript line waits for the next scan"}
+- {file: fieldkit/capture/scan.py, swap: ['        if key in self.seen:', '        if False:'], why: "the seen log stops double counting"}
+- {file: fieldkit/capture/scan.py, swap: ['if len(segs) >= 2:', 'if len(segs) >= 9:'], why: "a command sequence is recognised"}
+- {file: fieldkit/capture/roots.py, swap: ['    add("system-temp", tmp)', '    pass'], why: "the system temp folder is a root"}
+- {file: fieldkit/capture/roots.py, swap: ['    return bool(_SECRET_NAME.search(name or ""))', '    return False'], why: "credential-like files are never opened"}
