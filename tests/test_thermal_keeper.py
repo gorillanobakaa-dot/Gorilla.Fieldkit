@@ -57,6 +57,54 @@ def test_heavy_work_refuses_on_windows_while_the_governor_is_down():
     assert keeper.refusal("win32", up) == ""
 
 
+def test_heavy_work_refuses_on_linux_too_and_never_on_macos():
+    down = lambda **k: {"ok": False, "state": "down", "error": "x"}
+    up = lambda **k: {"ok": True, "state": "up"}
+    assert "governor is down" in keeper.refusal("linux", down)
+    assert keeper.refusal("linux", up) == ""
+    assert keeper.refusal("darwin", down) == ""
+
+
+def test_a_zombie_governor_is_not_alive():
+    import subprocess, sys, time
+    from fieldkit.peers.peers import pid_alive
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    time.sleep(1)                                   # exited, not yet waited on: a zombie
+    try:
+        assert sys.platform != "linux" or not pid_alive(p.pid)
+    finally:
+        p.wait()
+
+
+def test_the_governor_says_the_cpu_temperature(tmp_path):
+    from fieldkit.thermal import watch
+    said = []
+    watch.forever(sensor=(lambda: 61.5, False), ticks=2, sleep=lambda s: __import__("time").sleep(0.4), folder=tmp_path,
+                  say=said.append)
+    assert any("61.5 C" in m for m in said), said
+
+
+def test_the_lease_is_replaced_atomically_never_seen_empty(tmp_path, monkeypatch):
+    calls = []
+    real = brake.os.replace
+    monkeypatch.setattr(brake.os, "replace", lambda a, b: calls.append((a, b)) or real(a, b))
+    brake.lease_write(tmp_path, pid=1, now=5.0, temp=60.0)
+    assert len(calls) == 1 and json.loads((tmp_path / "machine-governor.json").read_text())["temp_c"] == 60.0
+    assert [f.name for f in tmp_path.iterdir()] == ["machine-governor.json"]
+
+
+def test_the_lease_is_written_before_the_sensor_proof(tmp_path, monkeypatch):
+    from fieldkit.buildh import buildrun
+    from fieldkit.thermal import watch
+    seen = []
+    def proof(say):
+        seen.append(brake.machine_alive(tmp_path))
+        return None, None, False
+    monkeypatch.setattr(buildrun, "thermal_sensor", proof)
+    assert watch.forever(folder=tmp_path, say=lambda *_: None) == 3
+    assert seen == [True]
+
+
 def test_the_guard_refuses_when_the_governor_is_down(monkeypatch):
     from fieldkit.thermal import buildguard
     monkeypatch.setattr(keeper, "refusal", lambda *a, **k: "the machine thermal governor is down")
@@ -122,6 +170,7 @@ def test_the_keeper_runs_at_logon_every_5_minutes_and_on_resume():
     assert "<LogonTrigger>" in x and "PT5M" in x and "EventID=107" in x and "EventID=507" in x
     assert "-m fieldkit thermal ensure" in x and "IgnoreNew" in x
     u = keeper.systemd_units("/usr/bin/python3", "/opt/fk")
+    assert "KillMode=process" in u[f"{keeper.UNIT}.service"]      # else systemd kills the governor with the oneshot
     assert "OnUnitActiveSec=5min" in u[f"{keeper.UNIT}.timer"] and "thermal ensure" in u[f"{keeper.UNIT}.service"]
 
 

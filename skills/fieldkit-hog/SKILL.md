@@ -45,6 +45,16 @@ governor is down, `fieldkit guard` and the goal supervisor refuse heavy work. It
 guarded jobs when it is hot and resumes them when it cools; the power plan is never changed. Run it first when the
 laptop is hot, went down, or woke from sleep.
 
+## The laptop shut down or slept by itself (fieldkit power incidents, power drift)
+
+`fieldkit power incidents --since YYYY-MM-DD` lists every unexpected shutdown, cutoff and sleep from the system log
+(Windows: Get-WinEvent; Linux: journalctl; macOS: pmset -g log), each with its class (heat, power-plan reset, program
+sleep request (PROCESS), battery, button/lid, standby (REASON), unexpected cut (cause unknown)), the thermal journal's
+peak CPU C in the 5 minutes before and the battery state. Exit 3 and a defect row in ZERO-OPEN-PROBLEMS.md for each
+unknown cause. `fieldkit power drift` fails when ibmpmsvc.exe (Lenovo) asked for sleep on AC during work in the last 7
+days or the sleep button on AC is not "do nothing"; `--apply` fixes the button without admin and records before/after;
+what needs admin goes through the elevate tool (skill fieldkit-admin-unattended), never to the owner.
+
 ## The one run guard (fieldkit/core/preflight.py)
 
 Every Fieldkit-managed heavy run goes through it, so nothing is started by hand: `fieldkit guard -- CMD` and go
