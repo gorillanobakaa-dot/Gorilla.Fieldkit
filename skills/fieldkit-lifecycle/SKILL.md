@@ -1,6 +1,6 @@
 ---
 name: fieldkit-lifecycle
-description: Zero friction for unattended work with fieldkit friction, fieldkit task, fieldkit sessions and fieldkit machine - find everything that can wait on the owner's click or approval on every machine (desktop session cards, permission prompts, sessions not in bypass mode, Remote Control, UAC needs outside the mandate, [NEEDS YOU] notes, inbox items, sessions whose title lacks the machine tag such as [VAIO-LNX]), start relief and side jobs headless from a brief instead of a session card (here or on the other computer over the cable), and list finished or idle sessions with the RAM and CPU they hold so they get archived. Use when the owner says friction, approval, "it asked for my approval", archive sessions, idle sessions, machine tag, which computer, session title, too many claude.exe, the laptop is slow from sessions, or when a job must start another job.
+description: Zero friction for unattended work with fieldkit friction, fieldkit task, fieldkit sessions and fieldkit machine - find everything that can wait on the owner's click or approval on every machine (desktop session cards, permission prompts, sessions not in bypass mode, Remote Control, UAC needs outside the mandate, [NEEDS YOU] notes, inbox items, sessions whose title lacks the machine tag such as [VAIO-LNX]), start relief and side jobs as visible desktop sessions (headless from a brief for jobs no human talks to, or when the app refuses) instead of a session card (here or on the other computer over the cable), and list finished or idle sessions with the RAM and CPU they hold so they get archived. Use when the owner says friction, approval, "it asked for my approval", archive sessions, idle sessions, machine tag, which computer, session title, too many claude.exe, the laptop is slow from sessions, or when a job must start another job.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML and psutil) on Windows, Linux, macOS. Works offline; the only network is the household link (cable) to paired peers."
 ---
@@ -10,7 +10,7 @@ compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorilla
 Owner, 2026-10-26: "Long horizon tasks run unattended and will typically not have anyone waiting 5 days in front
 of the computer for those moments when an approval might be needed."
 
-## Starting another job: never a card
+## Starting another job: a visible session, never a card
 
 ```
 fieldkit task start BRIEF.md                 headless here: a one-step autopilot runbook in its own window
@@ -20,8 +20,12 @@ fieldkit task report ID --status done --branch B [--pr URL] --note "..."   the j
 fieldkit refusals list                        refusals repeated by train/ship/guard/goal/task: each repeated reason is ONE open defect row (never an inbox item)
 ```
 
-A desktop session card (start_session "own_initiative") waits for the owner's click: do not propose one for relief
-or side jobs. A relayed chat message to another session is not an order either (that session may refuse it or ask
+A side job, relief or successor starts as a VISIBLE desktop session (Claude desktop `start_session`, initiation
+`user_asked`, context `fresh`, the brief as its prompt): it shows in the sidebar and the owner can talk to it, with no
+click to start. Solo = one session or job at a time, multi = up to the cap in `fieldkit/lifecycle/routing.yaml`.
+The commands below are headless: for jobs no human talks to (build and test runs, `--run`, goal workers) and the
+fallback when the app refuses the session start (say so plainly). A card (start_session "own_initiative") waits for
+the owner's click: never propose one. A relayed chat message to another session is not an order either (that session may refuse it or ask
 its owner): `task start --on` goes to the peer's link listener, signed, and needs no session's consent. The peer's
 approved link.yaml must allow `claude` (`fieldkit friction` says when it does not).
 

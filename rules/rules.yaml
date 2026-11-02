@@ -205,7 +205,7 @@ core:
   owner: 2026-10-30
   text: |-
     DEVICES. ThinkPad L15, Windows, [L15-WIN]: Windows builds and Windows-only tests. Sony VAIO, Linux: the owner's main
-    laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (SIDE JOBS, `--on peer`).
+    laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (SIDE JOBS: a visible session or `--on peer`).
     MacBook Air 2011, 4 GB: SSH only, never the cable.
 - id: CLEAN UP
   subject: cleaning up
@@ -234,9 +234,9 @@ generated:
   uses: [fieldkit ship push, fieldkit size recycle]
   parts:
     heading: |-
-      ## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)
+      ## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
     side_jobs: |-
-      SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless autopilot run here, or the other computer's link listener over the cable). Never propose a desktop session card.
+      SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for jobs no human talks to, or when the app refuses; never an `own_initiative` card.
     done_head: |-
       DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
     steps: |-

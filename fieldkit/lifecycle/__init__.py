@@ -7,8 +7,10 @@
     fieldkit friction jobs [--since DATE] [--json]   owner actions per job, counted, with each cause (target 0;
                                                  WARN above it; exit 3 when any): what DID wait on the owner
     fieldkit task start BRIEF.md [--on DEVICE] [--cwd DIR] [--wall MIN] [--title T]
-                                                 a headless job from a brief: autopilot here, the peer's link
-                                                 listener with --on; never a desktop card
+                                                 a headless job (no human talks to it, or the app refused a
+                                                 visible session): autopilot here, the peer's link listener
+                                                 with --on. A side job otherwise starts as a visible desktop
+                                                 session (start_session user_asked, fresh), never a card
     fieldkit task start --on DEVICE --run --tree DIR [--artefact GLOB] [--wall MIN] -- LINE
                                                  no AI: a build or test line run on a copy of DIR there, the
                                                  worker's signed result checked by `task status`
