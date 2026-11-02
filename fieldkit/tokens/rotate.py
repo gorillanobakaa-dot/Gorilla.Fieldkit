@@ -371,7 +371,7 @@ def owner_turn(call):
 
 def next_step(row, transcript=None, owner=False):
     """The exact instruction for a session over the ROTATE line (what the hook shows it). Never a card: on a turn the
-    owner did not type, start_session is not called at all; when the app refuses it, the successor is headless."""
+    owner did not type the app may refuse start_session; when it does, the successor is headless and the refusal is said."""
     tp = transcript or row["path"]
     desktop = (row.get("entrypoint") or "").startswith("claude-desktop")
     where = row.get("cwd") or "the same folder"
@@ -383,10 +383,11 @@ def next_step(row, transcript=None, owner=False):
                  f"the brief as its prompt. If the app refuses it, NEVER propose a card: run {headless} instead. "
                  "Then archive this one (set_remote_control off if it is on, then archive_session \"self\")")
     else:
-        start = ("this turn was not started by the owner, and start_session here would become a card the owner must "
-                 f"click: do NOT call start_session. Run {headless}, then archive this one (set_remote_control off if "
-                 "it is on, then archive_session \"self\"); the command post the owner talks to may instead wait: "
-                 "this line comes back at the owner's next message")
+        start = ("start the fresh session visibly: Claude desktop start_session, initiation \"user_asked\", context "
+                 "\"fresh\", the brief as its prompt. This turn was not started by the owner, so the app may refuse it: "
+                 f"then say so plainly, NEVER propose a card, and run {headless} instead. Then archive this one "
+                 "(set_remote_control off if it is on, then archive_session \"self\"); the command post the owner talks "
+                 "to may instead wait: this line comes back at the owner's next message")
     return (f"SESSION ROTATION (fieldkit rotate): this session is ROTATE - {'; '.join(row['why'])}. Every call now "
             f"re-sends {round(row['context_last'] / 1000)}k tokens. Start no new work here. At the next safe point "
             f"(work committed or written down): 1) python -m fieldkit rotate handover --transcript \"{tp}\" --title "

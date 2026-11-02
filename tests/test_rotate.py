@@ -197,20 +197,19 @@ def test_no_rotation_path_falls_back_to_a_card(tmp_path, entry, owner):
     if entry == "claude-desktop":
         assert "fieldkit task start" in text
         if not owner:
-            assert "do NOT call start_session" in text and "start_session, initiation" not in text
-        else:
-            assert "initiation \"user_asked\"" in text and "NEVER propose a card" in text
+            assert "may refuse it" in text
+        assert "initiation \"user_asked\"" in text and "NEVER propose a card" in text
         assert "set_remote_control off" in text
 
 
 def test_hook_knows_an_event_turn_from_the_owners_words(tmp_path):
     p = monster(tmp_path)
     ev = dict(call(p, "UserPromptSubmit"), prompt="<cross-session-message from=\"local_x\">rotate now")
-    assert "do NOT call start_session" in rotate.hook_line(ev, "UserPromptSubmit")
+    assert "may refuse it" in rotate.hook_line(ev, "UserPromptSubmit")
     own = dict(call(p, "UserPromptSubmit"), prompt="carry on")
     assert "initiation \"user_asked\"" in rotate.hook_line(own, "UserPromptSubmit")
     # mid-turn, the line crossed during a turn keeps the kind of the prompt that started the turn
-    for prompt, want in (("carry on", "user_asked"), ("<task-notification> done", "do NOT call start_session")):
+    for prompt, want in (("carry on", "user_asked"), ("<task-notification> done", "may refuse it")):
         q = monster(tmp_path, read=300_000, name=f"mid-{len(prompt)}")
         t = time.time()
         rotate.hook_line(dict(call(q, "UserPromptSubmit"), prompt=prompt), "UserPromptSubmit", now=t)
