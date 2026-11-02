@@ -51,6 +51,7 @@ import yaml
 
 from . import budget as bud
 from . import goal_fresh
+from . import goal_peer
 from . import hardlines
 from ..core.settings import state_root as _state_root
 
@@ -66,6 +67,7 @@ ACTIONS = ("push_branch", "open_pr")
 PROTECTED_BRANCHES = ("main", "master", "windows-port")    # windows-port: Gorilla.Opencode's release branch
 STALL_ROUNDS = 3                     # planner rounds in a row with no new criterion met: the goal stops and reports
 MAX_WORKERS = 2                      # jobs of one goal running at once, unless goal.json says "max_workers"
+ROUND_WAIT = goal_peer.ROUND_WAIT    # a step blocks on its workers at most this long (2026-11-01: it blocked for hours)
 HEARTBEAT_EVERY = 60                 # the supervisor's lock heartbeat, from its own thread (workers block for hours)
 
 
@@ -601,7 +603,7 @@ PLAN_FILE: {plan_file}
 Shape: {{"signal": "execute" | "done" | "blocked" | "ask", "why": "...",
  "jobs": [{{"id": "lower-case-id", "title": "...", "brief": "the whole job for a worker who knows nothing else",
    "cwd": "absolute folder", "budget": {{"turns": 10000, "wall_minutes": 240, "cost_usd": 20}},
-   "touches": ["paths it changes"], "needs": ["job ids that must be verified first"],
+   "touches": ["paths it changes"], "heavy": true (a build, compile or test run: it may go to the other computer), "needs": ["job ids that must be verified first"],
    "waits_on": ["question ids it cannot start without"],
    "verify": [{{"run": "a command whose exit code proves this job", "cwd": "...", "expect": {{"exit": 0}}}}]}}],
  "questions": [{{"id": "q-id", "title": "...", "why": "...", "category": "short word", "default": "what you would do",
@@ -803,7 +805,9 @@ def running(gid):
 def _recover_orphans(gid, st):
     """A job "running" in state.json with no worker in this process belongs to a supervisor that died (the lock
     makes this one the only one): it resumes from its checkpoint."""
-    mine = _WORKERS.get(gid, {})
+    mine = _WORKERS.setdefault(gid, {})
+    for jid in goal_peer.reattach(gid, st, mine):
+        event(gid, f"job {jid}: still running on {st['jobs'][jid]['remote']['on']} - waiting for its task again")
     for jid, j in st["jobs"].items():
         if j["status"] == "running" and jid not in mine:
             j.update(status="paused-resumable", why="its supervisor stopped while it ran: resumes from its checkpoint",
@@ -811,18 +815,29 @@ def _recover_orphans(gid, st):
             event(gid, f"job {jid}: no worker alive for it - paused-resumable (resumes from its checkpoint)")
 
 
-def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
+def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add, peer=None, start_task=None):
+    """-> True when the job started (here or on the peer), False when it waits (said in the log, with the reason)."""
     j = st["jobs"][jid]
     s = j["spec"]
-    try:                                   # R13: a worker never runs in the main checkout (it would switch its branch)
-        run_cwd, cwd_why = goal_fresh.worker_cwd(gid, jid, s["cwd"], j.get("worktree"), j.get("attempts", 0) + 1)
-    except goal_fresh.Refused as e:
-        j.update(status="failed", why=f"refused: {e}"[:400])
-        event(gid, f"job {jid} refused: {e}")
-        st["needs_plan"] = True
+    where, why, row = goal_peer.place(s, peer)
+    if where == "wait":
+        if j.get("waits_why") != why:
+            j["waits_why"] = why
+            event(gid, f"job {jid} waits: {why}")
+            say(f"  {gid}/{jid} waits: {why}")
         return False
-    if run_cwd != s["cwd"]:
-        j["worktree"] = run_cwd
+    j.pop("waits_why", None)
+    run_cwd, cwd_why = s["cwd"], ""
+    if where == "here":
+        try:                               # R13: a worker never runs in the main checkout (it would switch its branch)
+            run_cwd, cwd_why = goal_fresh.worker_cwd(gid, jid, s["cwd"], j.get("worktree"), j.get("attempts", 0) + 1)
+        except goal_fresh.Refused as e:
+            j.update(status="failed", why=f"refused: {e}"[:400])
+            event(gid, f"job {jid} refused: {e}")
+            st["needs_plan"] = True
+            return False
+        if run_cwd != s["cwd"]:
+            j["worktree"] = run_cwd
     j["status"] = "running"
     j["attempts"] = j.get("attempts", 0) + 1
     event(gid, f"job {jid} starts (attempt {j['attempts']}) in {run_cwd}")
@@ -838,6 +853,23 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
     answers = {q: st["answers"][q]["answer"] for q in s.get("waits_on") or [] if q in st["answers"]}
     if answers:
         brief += "\nOwner answers you need: " + json.dumps(answers, ensure_ascii=False)
+    if where == "peer":
+        ok, tid = goal_peer.send(gid, goal, jid, s, brief, row, GOALS, start=start_task, repo=str(ROOT))
+        if not ok:
+            j["status"] = "queued"
+            j["attempts"] -= 1
+            j["waits_why"] = f"could not start it on {row['name']}: {tid}"
+            event(gid, f"job {jid} waits: could not start it on {row['name']}: {tid}")
+            say(f"  {gid}/{jid} waits: could not start it on {row['name']}: {tid}")
+            return False
+        j["remote"] = {"task": tid, "on": row["name"]}
+        event(gid, f"job {jid} starts on {row['name']} as task {tid}: {why}")
+        say(f"  {gid}/{jid} -> {row['name']} (task {tid}): {why}")
+        _WORKERS.setdefault(gid, {})[jid] = {"future": goal_peer.remote_future(tid, row["name"]), "spend": [],
+                                             "remote": j["remote"]}
+        return True
+    if goal_peer.heavy(s):
+        goal_peer.claim(gid, jid)
     spend_log = []
 
     def spend(usd, who):
@@ -852,6 +884,7 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
                          max_continuations=int(s.get("max_continuations", 3)), fallback=s.get("fallback"),
                          model=s.get("model"), sleep=sleep, now=now, say=say, inbox_add=add, on_spend=spend)
     _WORKERS.setdefault(gid, {})[jid] = {"future": fut, "spend": spend_log}
+    return True
 
 
 def _checks_pass(results):
@@ -863,6 +896,9 @@ def _checks_pass(results):
 def _end_job(gid, goal, st, jid, claude, run):
     """A finished worker -> its spend into state, the verifier on its checks, the job's new status."""
     w = _WORKERS[gid].pop(jid)
+    goal_peer.release(gid, jid)
+    st["jobs"][jid].pop("remote", None)
+    st["activity"] = st.get("activity", 0) + 1
     st["spend"] += w["spend"]
     try:
         r = w["future"].result()
@@ -929,8 +965,12 @@ def stall_check(goal, st):
     in a row (goal.json "stall_rounds") met no criterion that was not already met (2026-10-28: one goal ran 16
     rounds, met 7 of 15 criteria and was ended by a STOP file). The first round only sets the baseline."""
     met = sum(1 for c in st["criteria"].values() if c.get("state") == "completed")
-    if st["rounds"] == 0 or met > st.get("best_met", -1):
-        st.update(best_met=met, stall=0, stall_at=st["rounds"])
+    busy = any(v["status"] in ("queued", "running", "paused-resumable") for v in st["jobs"].values())
+    # 2026-11-02 (R12): "stalled" is false while a job ran, runs or waits for a stated reason - 3 planner rounds around
+    # jobs that were running or waiting for the laptop's slot are progress of another kind, not a stall
+    if st["rounds"] == 0 or met > st.get("best_met", -1) or busy or st.get("activity", 0) != st.get("stall_activity"):
+        st.update(best_met=max(met, st.get("best_met", -1)), stall=0, stall_at=st["rounds"],
+                  stall_activity=st.get("activity", 0))
         return ""
     if st["rounds"] > st.get("stall_at", 0):               # a new round has passed since the last look
         st["stall"] = st.get("stall", 0) + st["rounds"] - st.get("stall_at", 0)
@@ -959,8 +999,9 @@ def _final_if_due(gid, goal, st, claude, run):
 
 
 def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inbox_items=None, now=time.time,
-         sleep=time.sleep, say=print, action=None):
-    """One round of one goal. -> {"status", "why", "wait_until"}."""
+         sleep=time.sleep, say=print, action=None, peer=None, start_task=None):
+    """One round of one goal. -> {"status", "why", "wait_until"}. `peer`: () -> the idle peer's load row or None;
+    `start_task`: tasks.start, for a heavy job sent to the peer while the laptop's slot is held."""
     if claude is None:
         from .run import claude
     if run_job is None:
@@ -995,6 +1036,7 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         save_state(gid, st)
         event(gid, f"paused: {why}")
         return {"status": "waiting", "why": why, "wait_until": until}
+    goal_peer.poll(gid, _WORKERS.get(gid, {}))
     ended = _end_finished(gid, goal, st, claude, run)
     goal_fresh.apply_markers(gid, st)                  # `fieldkit goal reverify` while this supervisor runs
     _final_if_due(gid, goal, st, claude, run)
@@ -1046,8 +1088,14 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         if not p.get("jobs"):
             st["empty_plans"] = st.get("empty_plans", 0) + 1
     for jid in startable(st, t, max_workers(goal) - len(running(gid))):
-        _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add)
+        if _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add, peer=peer, start_task=start_task):
+            st["activity"] = st.get("activity", 0) + 1
     if not running(gid):
+        held = [j for j, v in st["jobs"].items() if v["status"] in ("queued", "paused-resumable") and v.get("waits_why")]
+        if held:                              # a heavy job waits for a stated reason: that is waiting, not a stall
+            save_state(gid, st)
+            return {"status": "waiting", "why": f"{held[0]}: {st['jobs'][held[0]]['waits_why']}",
+                    "wait_until": t + ROUND_WAIT}
         waiting_q = [q for q in st["questions"] if q not in st["answers"]]
         if waiting_q:
             save_state(gid, st)
@@ -1064,7 +1112,9 @@ def step(gid, claude=None, run_job=None, run=subprocess.run, inbox_add=None, inb
         return {"status": "active", "why": "nothing queued: re-plan"}
     st["empty_plans"] = 0
     save_state(gid, st)
-    futures.wait([w["future"] for w in _WORKERS[gid].values()], return_when=futures.FIRST_COMPLETED)
+    futures.wait([w["future"] for w in _WORKERS[gid].values()], timeout=ROUND_WAIT,
+                 return_when=futures.FIRST_COMPLETED)
+    goal_peer.poll(gid, _WORKERS.get(gid, {}))
     ended = _end_finished(gid, goal, st, claude, run)
     _final_if_due(gid, goal, st, claude, run)
     if _all_done(st):
@@ -1227,6 +1277,7 @@ def _heartbeat_thread(now, every=HEARTBEAT_EVERY):
         while not stop_ev.wait(every):
             try:
                 heartbeat(now)
+                goal_peer.check_alarms(unfinished(), now)      # from here: it speaks when the main loop is silent
             except OSError:
                 pass
     threading.Thread(target=beat, name="goal-heartbeat", daemon=True).start()
@@ -1278,7 +1329,9 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
             hold_awake(os.getpid())
         except Exception as e:  # noqa: BLE001
             say(f"  [WARN] stay awake: not held ({e})")
+    goal_peer.beat("start", now)
     born = set(unfinished())           # a goal created after the start joins even when the supervisor was given ids
+    last_line = {}
     try:
         while True:
             goals = [g for g in (ids or unfinished())]
@@ -1296,8 +1349,17 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
             waits, progressed = [], False
             for gid in goals:
                 heartbeat(now, f"goal {gid}")
+                goal_peer.beat(f"goal {gid}", now)
                 r = step(gid, sleep=lambda s: (heartbeat(now), sleep(s)), now=now, say=say, **kw)
-                say(f"[{time.strftime('%H:%M:%S')}] {gid}: {r['status']} - {r.get('why', '')[:200]}")
+                goal_peer.beat(f"goal {gid} stepped", now)
+                _, gst = load(gid)
+                if gst:                                # one heartbeat line per goal per round (R12)
+                    goal_peer.sample(gid, gst, _WORKERS.get(gid, {}), now)
+                    say(goal_peer.heartbeat_line(gid, gst, _WORKERS.get(gid, {}), now))
+                line = f"{gid}: {r['status']} - {r.get('why', '')[:200]}"
+                if line != last_line.get(gid):          # a long job repeats the same answer every round: say it once
+                    last_line[gid] = line
+                    say(f"[{time.strftime('%H:%M:%S')}] {line}")
                 if r["status"] == "waiting":
                     waits.append(r.get("wait_until") or now() + IDLE_POLL)
                 elif r["status"] == "active":
