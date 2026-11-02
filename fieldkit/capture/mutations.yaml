@@ -13,3 +13,11 @@
 - {file: fieldkit/capture/store.py, swap: ['_SECRET_KEY.search(str(k))', 'False'], why: "secret-named keys are redacted"}
 - {file: fieldkit/capture/hook.py, swap: ['if tk is None:', 'if False:'], why: "only work tools are captured"}
 - {file: fieldkit/capture/hook.py, swap: ['m = re.match(r"\s*Exit code (-?\d+)", text)', 'm = None'], why: "exit code read from a failure message"}
+- {file: fieldkit/capture/install.py, swap: ['and f"--agent {agent}" in str(h.get("command"))', 'and True'], why: "a hook for another agent does not count as installed"}
+- {file: fieldkit/capture/install.py, swap: ['    missing = json_missing(agent, home)', '    missing = list(EVENTS[agent])'], why: "install is idempotent"}
+- {file: fieldkit/capture/install.py, swap: ['        return False, err', '        return True, err'], why: "an unreadable settings file is left untouched"}
+- {file: fieldkit/capture/install.py, swap: ['Persistent=true', 'Persistent=false'], why: "the Linux timer catches up after downtime"}
+- {file: fieldkit/capture/install.py, swap: ['        r = run(win_runkey_argv(py))', '        r = subprocess.CompletedProcess([], 0, "", "")'], why: "the Windows schedule also runs at log-on"}
+- {file: fieldkit/capture/status.py, swap: ['if pd is None or not pd.get("ok"):', 'if False:'], why: "a peer that is down makes status --peer non-zero"}
+- {file: fieldkit/capture/status.py, swap: ['"name": "capture"}', '"name": "agents"}'], why: "the peer is asked for its capture status"}
+- {file: fieldkit/lifecycle/friction.py, swap: ['    missing = [f"{k}: {', '    missing = [] and [f"{k}: {'], why: "friction reports a missing capture hook"}

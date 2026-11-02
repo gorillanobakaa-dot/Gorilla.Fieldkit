@@ -119,8 +119,13 @@ def _sessions(arg=None, sessions_fn=None, **_):
     return [str(r.get("name") if isinstance(r, dict) else r) for r in rows] or ["no messageable session"], rows
 
 
+def _capture(arg=None, **_):
+    from ..capture import status
+    return status.probe()
+
+
 PROBES = {"agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
-          "sessions": _sessions}
+          "sessions": _sessions, "capture": _capture}
 
 
 def run(name, arg=None, **kw):
