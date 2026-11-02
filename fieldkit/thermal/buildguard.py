@@ -174,4 +174,6 @@ def run(cmd, cwd=None, say=None, check_fan=True):
             return rc
     except BuildRefused as e:
         say(f"REFUSED: {e}")
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("guard", str(e))
         return 2

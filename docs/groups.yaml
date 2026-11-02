@@ -132,6 +132,7 @@ groups:
       - buildh/vault.py
       - buildh/worker.py
       - ideas.py
+      - refusals.py
       - review.py
       - lmstudio.py
       - metrics.py

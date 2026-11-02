@@ -258,6 +258,8 @@ def approve(gid, confirm=None, say=print, isatty=None):
     """The owner reads the whole register and types yes; the file's sha256 is pinned. Never from autopilot."""
     if os.environ.get("FIELDKIT_AUTOPILOT") == "1":
         say("REFUSED: pre-approvals are the owner's; never approved from inside an autopilot run")
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("goal", "pre-approvals are the owner's")
         return 3
     p = gdir(gid) / "PREAPPROVALS.yaml"
     if not p.is_file():
@@ -278,6 +280,8 @@ def approve(gid, confirm=None, say=print, isatty=None):
     if confirm is None:
         if not (isatty if isatty is not None else sys.stdin.isatty()):
             say("REFUSED: approving needs the owner typing yes at a real terminal")
+            from .. import refusals              # a refusal repeated becomes a defect row (plan R14)
+            refusals.record("goal", "approving needs the owner at a real terminal")
             return 3
         confirm = input(f"Approve every decision above for goal {gid}? Type yes: ").strip().lower() == "yes"
     if not confirm:
