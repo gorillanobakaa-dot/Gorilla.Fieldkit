@@ -167,7 +167,9 @@ def test_the_job_protocol_hands_session_jobs_over_after_its_own_checks(home, man
 
 def test_the_real_inbox_gets_the_row_when_none_is_injected(home):
     osj.refused(req(), "stale (clock differs by more than 120 s)")
-    assert [i["kind"] for i in inbox.items()] == ["mesh-job"]
+    led = inbox.ledger_file()
+    rows = [json.loads(l) for l in led.read_text(encoding="utf-8").splitlines()] if led.is_file() else []
+    assert not inbox.items() and [r["kind"] for r in rows] == ["mesh-job"]
 
 
 def test_a_job_failing_the_cable_check_is_an_inbox_row_too(home):

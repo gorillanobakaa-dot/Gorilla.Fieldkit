@@ -645,11 +645,13 @@ def apply_plan(gid, goal, st, p, reg, inbox_add, say=print):
             st["answers"][q["id"]] = {"answer": ans, "by": f"pre-approval ({rule.get('category')})"}
             event(gid, f"question {q['id']} answered by pre-approval: {ans[:120]}")
             continue
-        item = inbox_add(f"goal {gid}: {q['title']}", f"{q.get('why', '')} Default if you agree: {q.get('default')}. "
-                         f"Answer: fieldkit inbox done N \"your answer\" (empty = the default).",
-                         kind="decision")
-        st["questions"][q["id"]] = {**q, "inbox": item["n"]}
-        event(gid, f"question {q['id']} -> inbox #{item['n']} (no pre-approval covers category {q.get('category')})")
+        # owner, 2026-11-01: never ask him. No pre-approval covers it: the planner's own default is taken and logged
+        # (a HARD LINE is never a planner question: the worker stops there by itself).
+        st["answers"][q["id"]] = {"answer": q.get("default") or "", "by": "default (no owner questions, 2026-11-01)"}
+        st["questions"][q["id"]] = {**q, "inbox": 0}
+        inbox_add(f"goal {gid}: {q['title']}", f"{q.get('why', '')} Taken: the default {q.get('default')!r}.",
+                  kind="decision")
+        event(gid, f"question {q['id']} answered by its default (no pre-approval covers category {q.get('category')})")
 
 
 def collect_answers(gid, st, items):
@@ -793,8 +795,9 @@ def _start_job(gid, goal, st, jid, run_job, sleep, now, say, inbox_add):
              "\n".join(f"- {c}" for c in goal.get("constraints") or []) +
              "\nYour result is judged by a separate verifier running: " +
              "; ".join(v["run"] for v in s.get("verify") or []) +
-             ". Your own claim of success does not count. What only the owner may decide goes to "
-             "`fieldkit inbox add`; carry on with what does not depend on it.")
+             ". Your own claim of success does not count. Never ask the owner and never use `fieldkit inbox add`"
+             " (owner, 2026-11-01: zero owner steps): take the safest choice inside the rules, write it in HANDOFF.md"
+             " under 'Decisions taken', and carry on. Stop only at a HARD LINE of rules/CORE.md.")
     answers = {q: st["answers"][q]["answer"] for q in s.get("waits_on") or [] if q in st["answers"]}
     if answers:
         brief += "\nOwner answers you need: " + json.dumps(answers, ensure_ascii=False)
