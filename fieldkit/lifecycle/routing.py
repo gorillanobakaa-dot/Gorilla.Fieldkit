@@ -7,7 +7,13 @@ RouteLLM and Langfuse are doors to a vendor; the same three moves are done here 
     assess(text, plan)        -> {score, rung, reasons}: the cheapest rung the brief's risk needs
     route(text, requested, pin) -> {model, rung, ceiling, action, why}; action is use | downgrade | capped | park
     cascade(model, failures, ceiling) -> the next rung after a failed round, never above the ceiling, or ""
-    admit(tasks, on, now)     -> (ok, why): solo = one job at a time and nothing on another device; multi = a cap
+    admit(tasks, on, now)     -> (ok, why): solo = one job at a time and nothing on another device; multi = a cap;
+                                 and no new job once the 5-hour window is nearly spent
+    admit_goal(where, live)   the same gate for the goal supervisor's workers
+    plan_round(text, requested, failures) -> route() with the cascade applied (only while the rung below really fails)
+    outcome(model, ok) / failure_rate(model)   what each rung really did
+    refresh_window()          the last 5 hours' dollars from the transcripts into state/lifecycle/window.json
+    hook_line(call, event)    the room hook's line: the session ASKS the owner when today's accept is missing
 
 A model is never raised above the owner's ceiling. A job whose risk needs the park_at rung (Fable) is parked in the
 owner inbox and not started. Every decision is one line in state/lifecycle/routing.jsonl.
@@ -75,7 +81,7 @@ def choice(data=None, today=None):
         c = json.loads(_choice_path().read_text(encoding="utf-8"))
         day = time.strptime(c["accepted"], "%Y-%m-%d")
         age = ((today or time.time()) - time.mktime(day)) / 86400
-        if c["mode"] in MODES and _rung_of(c["ceiling"], d["ladder"]) >= 0 and age < d.get("accept_valid_days", 1) + 1:
+        if c["mode"] in MODES and _rung_of(c["ceiling"], d["ladder"]) >= 0 and age < d.get("accept_valid_days", 1):
             out.update(mode=env if env in MODES else c["mode"], ceiling=c["ceiling"], accepted=c["accepted"],
                        fresh=True)
     except (OSError, ValueError, KeyError, TypeError):
@@ -147,6 +153,9 @@ def route(text, requested=None, pin=False, plan=None, data=None, ch=None):
                 "why": f"risk score {a['score']} needs {d['park_at']} ({'; '.join(a['reasons'])})"}
     top = _rung_of(d.get("worker_top", ceiling), lad)
     pick = min(need, cr, top if top >= 0 else cr)
+    w = window_state(d)
+    if w and w["fraction"] >= d["window"]["squeeze_fraction"]:
+        pick = 0                                       # the window is running out: the cheapest rung only
     model = ceiling if pick == cr else lad[pick]
     action = "downgrade" if pick < cr else "capped" if need > pick else "use"
     return {"model": model, "rung": a["rung"], "ceiling": ceiling, "action": action,
@@ -191,10 +200,15 @@ def running(tasks, now=None, alive=None):
     return out
 
 
-def admit(tasks, on=None, now=None, data=None, ch=None, alive=None):
-    """-> (ok, why). solo: one job at a time and none on another device; multi: at most parallel.multi."""
+def admit(tasks, on=None, now=None, data=None, ch=None, alive=None, window=None):
+    """-> (ok, why). solo: one job at a time and none on another device; multi: at most parallel.multi; and no new
+    job once the 5-hour window is nearly spent (window.json, kept by refresh_window)."""
     d = data or load()
     ch = ch or choice(d)
+    w = window if window is not None else window_state(d, now)
+    if w and w["fraction"] >= d["window"]["stop_fraction"]:
+        return False, (f"the {d['window']['hours']}-hour window is {w['fraction']:.0%} spent (${w['usd']:.2f} of "
+                       f"${w['limit']:.0f}); no new job until it falls, or raise window.usd_limit in routing.yaml")
     if ch["mode"] == "solo" and on and not d["parallel"].get("solo_allows_peer"):
         return False, (f"solo mode sends nothing to another device (--on {on}); "
                        "`fieldkit route choose --mode multi` allows it")
@@ -205,6 +219,134 @@ def admit(tasks, on=None, now=None, data=None, ch=None, alive=None):
         return False, (f"{ch['mode']} mode runs {cap} job(s) at once and {len(live)} still run ({ids}); wait for one "
                        "(`fieldkit task watch ID`) or `fieldkit route choose --mode multi`")
     return True, f"{ch['mode']} mode, {len(live)} of {cap} running"
+
+
+def admit_goal(where, live, tasks=None, now=None, data=None, ch=None, window=None):
+    """The goal supervisor's gate for one more worker: `live` workers already run (here and on peers)."""
+    d = data or load()
+    ch = ch or choice(d)
+    if where == "peer" and ch["mode"] == "solo" and not d["parallel"].get("solo_allows_peer"):
+        return False, "solo mode sends nothing to another device (`fieldkit route choose --mode multi` allows it)"
+    ok, why = admit(tasks or {}, None, now, d, ch, window=window)
+    if not ok:
+        return ok, why
+    cap = int(d["parallel"][ch["mode"]])
+    if live >= cap:
+        return False, f"{ch['mode']} mode runs {cap} job(s) at once and {live} worker(s) already run"
+    return True, why
+
+
+def window_state(data=None, now=None):
+    """-> {usd, limit, fraction, at} from window.json, or None when it is missing, unreadable or older than
+    window.max_age_min (a stale reading is no reading: the gate never blocks on old news)."""
+    d = data or load()
+    try:
+        w = json.loads((state_dir() / "window.json").read_text(encoding="utf-8"))
+        if (now or time.time()) - float(w["at"]) > d["window"]["max_age_min"] * 60:
+            return None
+        lim = float(d["window"]["usd_limit"])
+        return {"usd": float(w["usd"]), "limit": lim, "fraction": float(w["usd"]) / lim, "at": float(w["at"])}
+    except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError):
+        return None
+
+
+def _window_usd(hours, now):
+    from datetime import datetime, timezone
+    from ..tokens import session_cost as sc
+    since = datetime.fromtimestamp(now - hours * 3600, tz=timezone.utc)
+    total = 0.0
+    for ad, path in sc.touched_since(sc.adapters_for("all"), since):
+        calls, _ = sc.measure(ad, path, None, since, None)
+        total += sum(float(c.get("usd") or 0) for c in calls)
+    return total
+
+
+def refresh_window(data=None, now=None, spend=None, force=False):
+    """Read the last window.hours of dollars from every session transcript (tokens/session_cost.py, read-only) into
+    window.json, at most every window.refresh_s seconds. -> the state, or None when it could not be read."""
+    d = data or load()
+    now = now or time.time()
+    if not force:
+        cur = window_state(d, now)
+        if cur and now - cur["at"] < d["window"]["refresh_s"]:
+            return cur
+    try:
+        usd = float(spend) if spend is not None else _window_usd(d["window"]["hours"], now)
+        p = state_dir() / "window.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"at": now, "usd": round(usd, 4), "hours": d["window"]["hours"]}), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - a meter that cannot be read leaves the old reading to expire
+        return None
+    return window_state(d, now)
+
+
+def outcome(model, ok):
+    """One line per finished round: what this model did. The cascade reads them (failure_rate)."""
+    log({"action": "outcome", "model": model, "ok": bool(ok)})
+
+
+def failure_rate(model, data=None):
+    """-> (rate, n) over the last 100 outcomes of this rung; (None, n) when n < cascade.min_samples."""
+    d = data or load()
+    rung = _rung_of(model, d["ladder"])
+    rows = []
+    try:
+        for line in (state_dir() / "routing.jsonl").read_text(encoding="utf-8").splitlines()[-2000:]:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("action") == "outcome" and _rung_of(r.get("model"), d["ladder"]) == rung:
+                rows.append(bool(r.get("ok")))
+    except OSError:
+        pass
+    rows = rows[-100:]
+    if len(rows) < int(d["cascade"]["min_samples"]):
+        return None, len(rows)
+    return round(1 - sum(rows) / len(rows), 3), len(rows)
+
+
+def plan_round(text, requested=None, failures=0, pin=False, plan=None, data=None, ch=None):
+    """route() for round number failures+1: the router's pick, climbed one rung per failed round, but only while the
+    rung below really fails (failure_rate >= cascade.climb_at, or too few samples to know). -> the route dict."""
+    d = data or load()
+    r = route(text, requested, pin, plan, d, ch)
+    if pin or r["action"] == "park" or not r["model"] or int(failures) < 1:
+        return r
+    rate, n = failure_rate(r["model"], d)
+    if rate is not None and rate < float(d["cascade"]["climb_at"]):
+        return dict(r, why=r["why"] + f"; stays on {r['model']} (it fails {rate:.0%} of {n}, below the climb line)")
+    up = cascade(r["model"], failures, r["ceiling"], d)
+    if up and up != r["model"]:
+        return dict(r, model=up, action="escalate", why=r["why"] + f"; round {int(failures) + 1} climbs to {up}")
+    return dict(r, why=r["why"] + "; the ceiling is reached: the reviewer role repairs it")
+
+
+def hook_line(call, event, data=None, ch=None):
+    """The room hook's line on a prompt when today's accept is missing: the session asks the owner, once, in its first
+    reply. Never inside a headless job. Also keeps window.json fresh. Never raises."""
+    try:
+        if event != "UserPromptSubmit" or os.environ.get("FIELDKIT_JOB_DIR") or os.environ.get("FIELDKIT_AUTOPILOT"):
+            return ""
+        if "wt-job-" in str(call.get("cwd") or ""):
+            return ""
+        d = data or load()
+        w = refresh_window(d)
+        ch = ch or choice(d)
+        out = []
+        if not ch["fresh"]:
+            out.append("ROUTE: the owner has not chosen today's mode. Ask them ONCE, first thing in your reply, in "
+                       "plain words: 'Solo (one job at a time, cheapest) or Multiplayer (several jobs, other "
+                       "devices)? And the strongest model a job may use: Fable, Opus, Sonnet or Haiku?' Then run "
+                       "`fieldkit route choose --mode solo|multi --model NAME`. Until they answer: solo + "
+                       f"{ch['ceiling']}. Jobs are routed to the cheapest model that fits, never above that choice; a "
+                       "job that needs Fable is parked for them.")
+        if w and w["fraction"] >= d["window"]["warn_fraction"]:
+            out.append(f"ROUTE: the {d['window']['hours']}-hour window is {w['fraction']:.0%} spent (${w['usd']:.2f}); "
+                       "start no job unless it is needed, and keep this session's replies short.")
+        return "\n".join(out)
+    except Exception:  # noqa: BLE001 - a courtesy line never breaks the hook
+        return ""
 
 
 def log(rec):
@@ -224,7 +366,18 @@ def park(title, why):
 def main(argv=None):
     argv = list(argv or [])
     cmd = argv[0] if argv else "status"
+    if cmd in ("-h", "--help", "help"):
+        print("route status | choose --mode solo|multi --model haiku|sonnet|opus|fable | assess BRIEF.md | "
+              "window [--refresh]")
+        return 0
     d = load()
+    if cmd == "window":
+        w = refresh_window(d, force="--refresh" in argv) if "--refresh" in argv else window_state(d)
+        print(f"WINDOW  {w['fraction']:.0%} of ${w['limit']:.0f} spent (${w['usd']:.2f}, last {d['window']['hours']} h)"
+              if w else "WINDOW  no fresh reading: fieldkit route window --refresh")
+        print("NEXT: jobs squeeze to the cheapest model at "
+              f"{d['window']['squeeze_fraction']:.0%} and stop at {d['window']['stop_fraction']:.0%}")
+        return 0
     if cmd == "choose":
         mode = ceil = None
         it = iter(argv[1:])

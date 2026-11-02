@@ -33,3 +33,21 @@ low_words: [typo, rename, docs, documentation, readme, comment, format, lint, sc
 # Failures climb one rung per failed round (cascade), never above the ceiling; past the ceiling the reviewer role
 # (roles.yaml) repairs it, and a job that needs park_at is parked.
 escalate_after_failures: 1
+# The 5-hour window (the owner's quota). usd_limit is the API-priced dollars that fill the window: on 2026-11-02 about
+# $19 of calls took it from 0 to 77%, so ~$25 is the full window; 30 is a first guess, tune it.
+# The reading is window.json, refreshed by the room hook, `task start` and the goal supervisor; older than
+# max_age_min it is ignored. warn: the session is told; squeeze: only the cheapest rung; stop: no new job.
+window:
+  hours: 5
+  usd_limit: 30
+  warn_fraction: 0.5
+  squeeze_fraction: 0.6
+  stop_fraction: 0.85
+  refresh_s: 120
+  max_age_min: 15
+# The cascade pays for a climb only while the rung below really fails: under min_samples outcomes it climbs (nothing
+# is known), after that only when that rung failed at least climb_at of its last rounds; otherwise the reviewer
+# repairs the job instead of a second worker model re-reading the whole brief.
+cascade:
+  min_samples: 5
+  climb_at: 0.34
