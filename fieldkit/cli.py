@@ -2222,7 +2222,8 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal", "ensure"])
+    th.add_argument("--install", action="store_true", help="ensure: also install the keeper (Task Scheduler / systemd user timer) that runs ensure at logon, every 5 min and on resume")
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
@@ -2783,6 +2784,19 @@ def cmd_repro(a):
 
 
 def cmd_thermal(a):
+    if a.action == "ensure":
+        from .thermal import keeper
+        inst = keeper.install() if a.install else None
+        r = keeper.ensure()
+        k = keeper.installed()
+        def human(d):
+            print(keeper.line(d, k))
+            if inst is not None:
+                print(f"  install: {'OK' if inst['ok'] else 'FAILED'} {inst.get('detail') or inst.get('error') or ''}")
+            print("NEXT: " + ("nothing to do" if d["ok"] and k else "fieldkit thermal ensure --install" if d["ok"]
+                              else "read state/thermal/watch-*.log, fix, run ensure again"))
+        _emit(dict(r, keeper=k, install=inst), a.json, human)
+        return 0 if r["ok"] and k and (inst is None or inst["ok"]) else 3
     if a.action == "journal":
         from .thermal import journal
         return 0 if journal.run() else 1

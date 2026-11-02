@@ -1206,6 +1206,11 @@ def unfinished():
                   and (_rj(d / "state.json") or {}).get("status") in ("active", "waiting")) if GOALS.is_dir() else []
 
 
+def _thermal_refusal():
+    from ..thermal import keeper
+    return keeper.refusal()
+
+
 def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, hold=True, **kw):
     """Run every unfinished goal until none can go on. A goal that waits does not stop the others."""
     out = say
@@ -1242,6 +1247,14 @@ def supervise(ids=None, once=False, sleep=time.sleep, now=time.time, say=print, 
             if not goals:
                 say("SUPERVISOR: no unfinished goal")
                 return 0
+            hot = _thermal_refusal()
+            if hot:                            # 2026-11-02: no worker starts while the machine governor is down
+                say(f"SUPERVISOR: no job starts: {hot}")
+                heartbeat(now, "governor down")
+                if once:
+                    return 0
+                sleep(60)
+                continue
             waits, progressed = [], False
             for gid in goals:
                 heartbeat(now, f"goal {gid}")
