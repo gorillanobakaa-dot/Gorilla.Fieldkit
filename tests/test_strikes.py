@@ -11,9 +11,19 @@ from fieldkit.method import ship, strikes, train
 from test_ci_wait import GH
 
 
+def PASSES(base_sha, ids, job=""):
+    return {i: "pass" for i in ids}
+
+
+def FAILS(base_sha, ids, job=""):
+    return {i: "fail" for i in ids}
+
+
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv(strikes.ENV, str(tmp_path / "parked.json"))
+    # F4: a failed test passes on the merge base unless a test says otherwise (a real run builds a worktree)
+    monkeypatch.setattr(strikes, "default_runner", PASSES)
     return tmp_path / "parked.json"
 
 
@@ -146,8 +156,9 @@ def test_check_reads_gh_run_list_and_parks_on_two_failed_heads():
             {"headSha": "a" * 40, "conclusion": "failure", "name": "lint"},
             {"headSha": "b" * 40, "conclusion": "failure", "name": "ci"},
             {"headSha": "c" * 40, "conclusion": "success", "name": "ci"}]
-    r = strikes.check("feat/z", fetch=lambda b: runs, inbox=Inbox())
-    assert r["parked"] and r["rounds"] == 2
+    log = lambda run: ["FAILED tests/a.py::t1"]       # noqa: E731
+    r = strikes.check("feat/z", fetch=lambda b: runs, inbox=Inbox(), logger=log, base_of=lambda h: "m" * 40)
+    assert r["parked"] and r["rounds"] == 2 and r["own"] == 2
 
 
 def test_list_park_unpark_cli(capsys):
@@ -191,7 +202,8 @@ class MainRedGH(RedGH):
 def test_b2_a_red_that_main_shares_is_not_a_strike():
     ib = Inbox()
     for head in ("a" * 40, "b" * 40, "c" * 40):
-        r = train.ci_wait(MainRedGH(head, ["tests/test_x.py::test_y"]), 166, sleep=lambda s: None, inbox=ib)
+        r = train.ci_wait(MainRedGH(head, ["tests/test_x.py::test_y"]), 166, sleep=lambda s: None, inbox=ib,
+                          runner=FAILS)
         assert r["state"] == "main-red" and "main's failure" in r["why"] and "fix main first" in r["next"]
     assert strikes.parked_for("feat/x") is None and ib.items == []
     assert "feat/x" not in strikes.load()["strikes"]
@@ -203,6 +215,72 @@ def test_b2_a_failure_main_does_not_share_still_counts_and_parks():
     train.ci_wait(gh("a" * 40), 166, sleep=lambda s: None, inbox=ib)
     r = train.ci_wait(gh("b" * 40), 166, sleep=lambda s: None, inbox=ib)
     assert r["state"] == "parked" and len(ib.items) == 1
+
+
+def test_f4_main_red_and_pr_green_on_its_own_files_is_no_strike():
+    """Plan P9: main red now (or earlier), the failed id fails on the merge base too: three heads, no strike."""
+    ib = Inbox()
+    for head in ("a" * 40, "b" * 40, "c" * 40):
+        gh = RedGH(head)
+        r = train.ci_wait(gh, 166, sleep=lambda s: None, inbox=ib, runner=FAILS)
+        assert r["state"] == "main-red" and "also fails on the merge base" in r["why"]
+    assert strikes.parked_for("feat/x") is None and "feat/x" not in strikes.load()["strikes"] and ib.items == []
+
+
+def test_f4_a_failed_id_that_passes_on_the_base_is_a_strike():
+    ib = Inbox()
+    train.ci_wait(RedGH("a" * 40), 166, sleep=lambda s: None, inbox=ib, runner=PASSES)
+    r = train.ci_wait(RedGH("b" * 40), 166, sleep=lambda s: None, inbox=ib, runner=PASSES)
+    assert r["state"] == "parked" and len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 2
+
+
+class NoLogGH(RedGH):
+    def failed_log(self, sha):
+        return ["(log unreadable)"]
+
+
+def test_f4_an_unreadable_log_is_unproven_and_the_third_unproven_counts():
+    ib = Inbox()
+    states = []
+    for head in ("a" * 40, "b" * 40, "c" * 40):
+        r = train.ci_wait(NoLogGH(head), 166, sleep=lambda s: None, inbox=ib, runner=PASSES)
+        states.append(r["state"])
+    assert states == ["unproven", "unproven", "red"]
+    d = strikes.load()
+    assert len(d["strikes"]["feat/x"]["unproven"]) == 3 and len(d["strikes"]["feat/x"]["rounds"]) == 1
+    assert strikes.parked_for("feat/x") is None
+
+
+def test_f4_whose_red_rules():
+    ids = ["tests/a.py::t1", "tests/b.py::t2"]
+    assert strikes.whose_red("h", ids, "m", lambda b, i, j: {"tests/a.py::t1": "fail", "tests/b.py::t2": "pass"})[0] == "own"
+    assert strikes.whose_red("h", ids, "m", FAILS)[0] == "main"
+    assert strikes.whose_red("h", [r"tests\a.py::t1"], "m", lambda b, i, j: {"tests/a.py::t1": "pass"})[0] == "own"
+    assert strikes.whose_red("h", [], "m", PASSES)[0] == "unproven"                       # no ids
+    assert strikes.whose_red("h", ids, "", PASSES)[0] == "unproven"                       # no base
+    assert strikes.whose_red("h", ids, "m", lambda b, i, j: {})[0] == "unproven"          # no answer
+    assert strikes.whose_red("h", ids, "m", lambda b, i, j: {"tests/a.py::t1": "fail"})[0] == "unproven"   # partial
+    boom = lambda b, i, j: 1 / 0                                                          # noqa: E731
+    assert strikes.whose_red("h", ids, "m", boom)[0] == "unproven"
+    seen = []
+    strikes.whose_red("h", ids, "base1", lambda b, i, j: seen.append((b, i, j)) or {}, job="test (ubuntu)")
+    assert seen == [("base1", ids, "test (ubuntu)")]                  # exactly the failed ids, on the base, with the job
+
+
+def test_f4_recount_prints_own_main_unproven_and_reports_a_parked_branch_below_two():
+    strikes.record_failure("feat/p", "a" * 40, "x", pr=295, inbox=Inbox())
+    strikes.record_failure("feat/p", "b" * 40, "x", pr=295, inbox=Inbox())
+    assert strikes.parked_for("feat/p")
+    logs = {"a" * 40: ["FAILED tests/a.py::t1"], "b" * 40: []}
+    runs = [{"headSha": h, "conclusion": "failure", "name": "ci", "databaseId": i} for i, h in enumerate(logs, 1)]
+    r = strikes.recount("feat/p", fetch=lambda b: runs, logger=lambda run: logs["a" * 40 if run["databaseId"] == 1 else "b" * 40],
+                        base_of=lambda h: "m" * 40, runner=FAILS)
+    assert [v["kind"] for v in r["heads"].values()] == ["main", "unproven"]
+    assert r["own"] == 0 and r["parked"] and r["would_unpark"]
+    assert strikes.parked_for("feat/p")                               # never unparked by the tool
+    r = strikes.recount("feat/p", fetch=lambda b: runs, logger=lambda run: ["FAILED tests/a.py::t1"],
+                        base_of=lambda h: "m" * 40, runner=PASSES)
+    assert r["own"] == 2 and not r["would_unpark"]
 
 
 def test_b2_mains_failure_rules():

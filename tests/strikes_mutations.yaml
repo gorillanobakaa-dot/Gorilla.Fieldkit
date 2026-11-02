@@ -1,0 +1,32 @@
+# F4 whose red: every rule must be CAUGHT (2026-11-02):
+#   fieldkit mutate --plan tests/strikes_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_strikes.py
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if passed:'
+  - '    if False:'
+  why: a failed id that passes on the merge base makes the red the branch's own
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if all(got.get(i) == "fail" for i in ids):'
+  - '    if False:'
+  why: every failed id also failing on the merge base is main's red
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if not ids:'
+  - '    if False:'
+  why: no readable ids is unproven, never own or main
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    return {"unproven": len(un), "counted": len(un) > FLAKE_LIMIT}'
+  - '    return {"unproven": len(un), "counted": False}'
+  why: the unproven round past FLAKE_LIMIT counts (fail closed)
+- file: fieldkit/method/strikes.py
+  swap:
+  - '    if kind == "main":'
+  - '    if False:'
+  why: main's red is never recorded as a strike
+- file: fieldkit/method/strikes.py
+  swap:
+  - '            "would_unpark": parked and own < LIMIT}'
+  - '            "would_unpark": False}'
+  why: recount reports a parked branch whose own count is below two

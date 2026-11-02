@@ -6076,18 +6076,37 @@ tools:
   skill: skills/fieldkit-emerge/SKILL.md
   notes: "Owner 2026-10-26: 'I don't want it to be hard ... Be better than Portage. Let's implement that.' Builds ON fieldkit/core/pipeline.py (stages run through Pipeline._run, one stage at a time), testcost (every stage pass/fail recorded under emerge:<recipe>:<stage> with its key; ETA = median of measured passes), the one run guard (core/preflight.py: hog, testcost, scratch; parity once #122 merges) entered ONCE before stage 1, orchestrate_work (offload = run jobs over the cable, signed artefacts by sha256), autopilot run.claude (the fixer) and inbox. State: state/emerge/<recipe>/ (cache/<stage>/<key>.json, last-report.json, overhead.json in fieldkit overhead's shape, journal.jsonl). Mutations: tests/emerge_mutations.yaml."
 - id: testcost
-  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests, budgets from measured runs, every refusal logged
+  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests (data files through tests/testmap.yaml and their package; `unmapped --all` must print 0, CI enforces it), budgets from measured runs, every refusal logged
   harness: core
   entry: [python, -m, fieldkit, testcost]
   path: ${FIELDKIT}/fieldkit/testcost.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "key | seen CHECK | record CHECK STATUS SECONDS | plan | run --fast | budget CHECK | report | flags | docs-only"}
+    - {name: action, flag: null, type: str, required: true, help: "key | seen CHECK | record CHECK STATUS SECONDS | plan | run --fast | budget CHECK | report | flags | docs-only | unmapped [--all] (tracked files no test covers; exit 3; CI runs it on every PR)"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
   exits: {0: "done (seen: this exact tree already passed)", 1: "seen: not passed on this tree / docs-only: suite must run"}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
+
+- id: ciaudit
+  title: What CI really ran - per pull-request run of the tests workflow the selection ci_tests.py printed (whole suite, N test files, no code), its minutes, and the files that sent it to the whole suite; exit 3 over the whole-suite budget
+  harness: method
+  entry: [python, -m, fieldkit, ciaudit]
+  path: ${FIELDKIT}/fieldkit/method/ciaudit.py
+  inputs:
+    - {name: repo, flag: --repo, type: str, required: false, help: "OWNER/NAME (default: this checkout's repository)"}
+    - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD: runs created on or after"}
+    - {name: limit, flag: --limit, type: int, required: false, help: "how many runs to read (100)"}
+    - {name: max_whole_share, flag: --max-whole-share, type: float, required: false, help: "budget: whole-suite runs / judged runs (0.1)"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {1: "gh could not list the runs", 3: "whole-suite runs over the budget (each trigger file is named)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciaudit.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-11-02 from Zero 22's one-off shell loop: 17 of 38 PR runs since 2026-10-26 ran the whole suite (421 min vs 49 min targeted) because data files had no mapped test. Network: gh run list and gh run view --log on GitHub only. Pairs with testcost unmapped --all (the cause) and tests/testmap.yaml (the fix)."
 
 - id: rules
   title: "The core rules every agent reads, as data (rules/rules.yaml): lint them for BOTTLENECKS, duplicates, size and misplaced text, build rules/CORE.md, install every block into each global rules file (Claude Code, Codex, Gemini) with a backup, check them"
