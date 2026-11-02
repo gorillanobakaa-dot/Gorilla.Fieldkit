@@ -73,6 +73,7 @@
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
     fieldkit capture hook|scan|find|ledger|verify|status|self-test   zero-loss capture of what agents make and run
     fieldkit integration check|self-test         is a capability built in (6 surfaces)? check --repo PATH [--changed BASE]
+    fieldkit pins check|self-test                helper sources immutable and sha256-pinned? check --repo PATH [--json]
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
@@ -1724,6 +1725,10 @@ def build_parser():
                         help="is a capability built in? carried, known to the AI, visible, on the release page, on "
                              "every system, tested: check a repo (--changed BASE), self-test (fieldkit integration)")
     ig.add_argument("args", nargs=argparse.REMAINDER)
+    pn = sub.add_parser("pins", add_help=False,
+                        help="refuse rolling (latest, nightly, master) or sha256-unpinned helper source URLs of a "
+                             "Gorilla OpenCode tree: check --repo PATH, self-test (fieldkit pins)")
+    pn.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -2974,6 +2979,9 @@ def main(argv=None):
     if args[:1] == ["integration"]:                   # built in = carried + known + visible + page + systems + tested
         from .integration import cli as integration_cli
         return integration_cli.main(args[1:])
+    if args[:1] == ["pins"]:                          # helper sources: immutable and sha256-pinned
+        from .pins import cli as pins_cli
+        return pins_cli.main(args[1:])
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])

@@ -2557,6 +2557,17 @@
    "peers-wait"
   ]
  },
+ "pins": {
+  "platforms": [
+   "linux",
+   "macos",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pins"
+  ]
+ },
  "pipeline": {
   "platforms": [
    "linux",

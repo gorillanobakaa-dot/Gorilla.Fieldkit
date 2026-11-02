@@ -258,7 +258,7 @@ groups:
 
   - name: methods
     title: "How the work gets done, as tools (wait, mutate, regress, drift, mcp-probe, survey, i18n, ship, handover)"
-    sources: ["method/*.py", "integration/*.py", "capture/*.py"]
+    sources: ["method/*.py", "integration/*.py", "capture/*.py", "pins/*.py"]
 
   - name: icons
     title: "Sharp desktop icons on any computer (IconKit: the icon cache, .ico frames and checks, crisp recoloured icons)"

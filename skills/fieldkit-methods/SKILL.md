@@ -60,6 +60,8 @@ contrast check sees that failure).
 ```
 fieldkit integration check --repo PATH [--changed BASE]   one line per missing surface, with the file to fix; exit 3 = gaps
 fieldkit integration self-test --kind opencode|fieldkit   seeds one omission per surface; exit 0 = every one caught
+fieldkit pins check --repo OPENCODE   refuses rolling (latest, nightly, master) or sha256-unpinned helper URLs; exit 3 = findings
+fieldkit pins self-test               seeds each break kind in a fixture; exit 0 = every one refused
 ```
 Rules per surface are data: `fieldkit/integration/surfaces.yaml`. Run `--changed origin/main` before committing a new
 helper, tool or command.
