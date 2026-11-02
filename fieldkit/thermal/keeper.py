@@ -183,7 +183,8 @@ def task_xml(python, root, user=None):
 
 def systemd_units(python, root):
     service = (f"[Unit]\nDescription=Fieldkit: keep the machine thermal governor running\n\n[Service]\nType=oneshot\n"
-               f"WorkingDirectory={root}\nExecStart={python} -m fieldkit thermal ensure\n")
+               f"WorkingDirectory={root}\nExecStart={python} -m fieldkit thermal ensure\n"
+               f"KillMode=process\n")      # the governor ensure spawns must outlive this oneshot (else systemd kills it)
     timer = (f"[Unit]\nDescription=Fieldkit thermal keeper every {EVERY_MIN} minutes\n\n[Timer]\nOnBootSec=1min\n"
              f"OnUnitActiveSec={EVERY_MIN}min\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n")
     return {f"{UNIT}.service": service, f"{UNIT}.timer": timer}
@@ -236,9 +237,11 @@ def line(r, keeper=None):
 
 def refusal(platform=None, ensure_fn=None):
     """-> "" when heavy work may start, else why not (the guard and the goal supervisor call it; it starts the
-    governor itself when it can). Enforced on Windows, where the laptop has cooked (crashes 2026-10-02, 10-27); on
-    Linux the VAIO's kernel and thermald brake and `watch --forever` there is not yet proven (ZERO-OPEN-PROBLEMS)."""
-    if (platform or sys.platform) != "win32":
+    governor itself when it can). Enforced on Windows (the laptop cooked: crashes 2026-10-02, 10-27) and on Linux (the
+    VAIO: keeper and governor proven there 2026-11-02, plan R11); parity: Windows never gets more than Linux. macOS
+    returns "": the MacBook Air has no keeper and runs no heavy work; macOS cools in firmware."""
+    plat = platform or sys.platform
+    if plat != "win32" and not plat.startswith("linux"):
         return ""
     r = (ensure_fn or ensure)(say=lambda *_: None)
     return "" if r["ok"] else ("the machine thermal governor is down and could not be started: " + r.get("error", ""))
