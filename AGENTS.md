@@ -80,7 +80,7 @@ security claim is made true and proven, never deleted.
 <!-- fieldkit-lifecycle-rule v1 -->
 ## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
 
-SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for jobs no human talks to, or when the app refuses; never an `own_initiative` card.
+SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for no-human jobs or when the app refuses; no `own_initiative` card.
 
 DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
 1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).
