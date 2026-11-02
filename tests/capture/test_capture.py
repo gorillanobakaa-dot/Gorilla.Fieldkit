@@ -154,11 +154,11 @@ def test_self_tests_pass(flag):
     assert r.returncode == 0 and "PASS" in r.stdout and "FAIL" not in r.stdout, r.stdout
 
 
-@pytest.mark.parametrize("flag", ["kinds", "roots", "transform", "fresh-session"])
+@pytest.mark.parametrize("flag", ["transform", "fresh-session"])
 def test_later_jobs_are_stubs_that_exit_2(flag):
     r = fk("self-test", "--" + flag)
     assert r.returncode == 2 and "NOT BUILT YET" in r.stderr
-    assert fk("scan").returncode == 2
+    assert fk("scan", "--list").returncode == 0                  # scan is built (scan.py); only its root table is listed
 
 
 def test_a_broken_store_makes_strict_and_verify_exit_3(tmp_path):
