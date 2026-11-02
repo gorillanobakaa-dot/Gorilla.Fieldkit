@@ -61,6 +61,7 @@ class FakeGH:
         subprocess.run(["git", "clone", "-q", str(bare), str(srv)], check=True)
         self._prs, self.comments, self.ci, self.merges, self.updates = {}, {}, {}, [], []
         self.crash_on_ci = set()
+        self.lag, self.pending = 0, {}
 
     def head(self, branch):
         out = git(self.bare, "rev-parse", f"refs/heads/{branch}", check=False)
@@ -72,6 +73,11 @@ class FakeGH:
         self.comments[n] = []
 
     def pr(self, n):
+        if n in self.pending:
+            self.pending[n] -= 1
+            if not self.pending[n]:
+                del self.pending[n]
+                self._srv_merge(self._prs[n]["headRefName"], "main")
         d = dict(self._prs[n])
         d["headRefOid"] = self.head(d["headRefName"])
         d["labels"] = [{"name": x} for x in sorted(d["labels"])]
@@ -107,6 +113,9 @@ class FakeGH:
         if self.head(br) != head:
             return False, "expected_head_sha does not match"
         self.updates.append(n)
+        if self.lag:                                  # GitHub answers 202 and merges a few reads later
+            self.pending[n] = self.lag
+            return True, "Updating pull request branch."
         return (True, "updated") if self._srv_merge(br, "main") else (False, "merge conflict")
 
     def ci_state(self, sha):
@@ -306,6 +315,22 @@ def test_head_moved_after_ready_is_never_merged(world):
     assert gh.merges == [] and "head moved after the declaration" in r["left"][0]["why"]
     ok, _, why = train.readiness(gh.pr(1), gh.markers(1))
     assert not ok and "declares again" in why
+
+
+def test_an_asynchronous_update_branch_is_the_trains_own_head_and_merges(world):
+    w, gh = world, world["gh"]
+    d = session_pr(w, 1, "feat/a", "b.txt")
+    train.ready(d, 1, gh)
+    other = w["clone"]("other")                        # main moves without touching the PR's files
+    (other / "notes.txt").write_text("n\n", encoding="utf-8")
+    git(other, "add", "notes.txt")
+    git(other, "commit", "-q", "--no-verify", "-m", "notes")
+    git(other, "push", "-q", "origin", "main")
+    gh.lag = 3                                         # GitHub merges after the 202, a few reads later
+    zero = w["clone"]("zero")
+    r = run_train(w, zero)
+    assert gh.updates == [1] and gh.merges == [1] and not gh.pending, r
+    assert train.load_state(zero)["made"]["1"], "the updated head was not recorded as the train's own"
 
 
 def test_fake_gh_refuses_a_head_mismatch(world):

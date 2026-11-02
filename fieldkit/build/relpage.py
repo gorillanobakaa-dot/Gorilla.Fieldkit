@@ -13,13 +13,14 @@ Inputs, relative to --src:
     ReleaseNotes/openings/<v>.md                   the page's first part, as written
     Changelogs/<v>-release-notes.layman.md         its H1 and date block (above the first `---`) dropped,
     Changelogs/<v>-release-notes.developer.md      headings moved one level down
-The table goes where the developer track has `<!-- files table -->`, else before its "Test coverage and CI"
+A "What is built in" table (relbuiltin: generated from internal/toolbox) closes the plain track when the tree has
+a toolbox. The files table goes where the developer track has `<!-- files table -->`, else before its "Test coverage and CI"
 heading, else at its end.
 """
 import re
 from pathlib import Path
 
-from . import relfiles
+from . import relbuiltin, relfiles
 
 TABLE_MARK = "<!-- files table -->"
 LAY_HEAD = ("# In plain language: everything in this release\n\n"
@@ -61,5 +62,7 @@ def compose(src, version, files_dir, commit=""):
     read = lambda k: need[k].read_text(encoding="utf-8")
     built = f" (every file built from {commit}, vcs.modified=false)" if commit else ""
     table = f"Measured from {need['sums'].name}{built}:\n\n" + relfiles.table(need["sums"], files_dir).strip()
-    return (read("opening").strip() + "\n\n---\n" + LAY_HEAD + track(read("layman")) + "\n\n---\n\n" + DEV_HEAD
+    builtin = relbuiltin.table(src)  # plain words first: the table closes the plain-language track
+    lay = track(read("layman")) + (("\n\n" + builtin) if builtin else "")
+    return (read("opening").strip() + "\n\n---\n" + LAY_HEAD + lay + "\n\n---\n\n" + DEV_HEAD
             + place_table(track(read("developer")), table) + "\n")

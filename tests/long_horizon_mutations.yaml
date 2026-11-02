@@ -194,3 +194,13 @@
 - file: fieldkit/autopilot/goal.py
   swap: ['        r = {"status": "failed", "why": f"the worker crashed:', '        r = {"status": "done", "why": f"the worker crashed:']
   why: a worker that raised is a failed job, never a done one
+# criteria added to goal.json later (2026-11-01)
+- file: fieldkit/autopilot/goal.py
+  swap: ['    return (all(st["criteria"].get(i, {}).get("state") == "completed" for i in ids)', '    return (True']
+  why: a criterion in goal.json but missing from state.json never counts as met
+- file: fieldkit/autopilot/goal.py
+  swap: ['    added = sync_criteria(goal, st)', '    added = []']
+  why: every round adds goal.json criteria missing from state.json as pending
+- file: fieldkit/autopilot/goal.py
+  swap: ['goals + [g for g in unfinished() if g not in born]', 'goals + []']
+  why: a supervisor started with ids picks up a goal created after it started

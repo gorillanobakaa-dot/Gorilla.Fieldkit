@@ -905,3 +905,42 @@ def test_resume_reopens_only_a_stall_block(st, stop, ok):
     else:
         assert after["status"] == st["status"]
     assert goal.resume("g", "")[0] is False
+
+
+# ---- criteria added to goal.json after the start (2026-11-01: c6 never ran) ---------------------------------------
+def test_a_criterion_added_to_goal_json_later_is_pending_and_blocks_done(tmp_path, monkeypatch):
+    mkgoal(tmp_path, tmp_path / "x.txt")
+    spec, st = goal.load("g1")
+    st["criteria"]["c1"] = {"state": "completed"}
+    assert goal.all_pass(st, spec)
+    spec["criteria"].append({"id": "c2", "title": "added later", "run": "exit 3"})
+    goal._wj(goal.gdir("g1") / "goal.json", spec)
+    assert not goal.all_pass(st, spec)                          # missing from state.json: not met
+    st.update(paused_until=time.time() + 3600, pause_why="test")
+    goal.save_state("g1", st)
+    r = goal.step("g1", claude=lambda *a, **k: None, run_job=lambda *a, **k: None, say=lambda m: None)
+    assert r["status"] == "waiting"
+    st = goal.load("g1")[1]
+    assert st["criteria"]["c2"] == {"state": "pending"}        # the round added it before anything else
+    assert "criteria added from goal.json: c2" in (goal.gdir("g1") / "events.log").read_text(encoding="utf-8")
+
+
+def test_the_supervisor_given_ids_picks_up_a_goal_created_after_it_started(tmp_path, monkeypatch):
+    goal.GOALS.mkdir(parents=True)
+    for g in ("a", "old"):
+        goal._wj(goal.gdir(g) / "goal.json", {"id": g})
+        goal._wj(goal.gdir(g) / "state.json", {"status": "active", "criteria": {}})
+    seen = []
+
+    def fake_step(gid, **kw):
+        seen.append(gid)
+        if gid == "a" and not (goal.gdir("b") / "goal.json").exists():
+            goal._wj(goal.gdir("b") / "goal.json", {"id": "b"})
+            goal._wj(goal.gdir("b") / "state.json", {"status": "active", "criteria": {}})
+        goal._wj(goal.gdir(gid) / "state.json", {"status": "done", "criteria": {}})
+        return {"status": "active", "why": ""}
+    monkeypatch.setattr(goal, "step", fake_step)
+    monkeypatch.setattr("fieldkit.core.liveness.check", lambda **k: {})
+    monkeypatch.setattr("fieldkit.core.liveness.summary", lambda r: "")
+    assert goal.supervise(ids=["a"], say=lambda m: None, hold=False) == 0
+    assert seen == ["a", "b"]                                   # b joined; "old" was there at the start, not asked for
