@@ -12,3 +12,19 @@
 - file: fieldkit/testcost.py
   swap: ["        if q.startswith(NON_CODE_TREES) or is_version_only(", "        if is_version_only("]
   why: "state/ selects no tests"
+# every file mapped (2026-11-02)
+- file: fieldkit/testcost.py
+  swap: ['        if rows:                                       # a mapped file', '        if False:                                       # a mapped file']
+  why: tests/testmap.yaml globs select their tests
+- file: fieldkit/testcost.py
+  swap: ['        if not hits and q.startswith("fieldkit/"):     # no test names it', '        if False:     # no test names it']
+  why: a file inside a package no test names selects the package's tests, not the whole suite
+- file: fieldkit/testcost.py
+  swap: ['        if MUTATION_PLAN.search(q):', '        if False:']
+  why: a mutation plan selects the test it mutates
+- file: fieldkit/testcost.py
+  swap: ['tests_dir.rglob("test_*.py")', 'tests_dir.glob("test_*.py")']
+  why: tests in subfolders (tests/capture/) are found
+- file: fieldkit/testcost.py
+  swap: ['        return 3 if u else 0', '        return 0']
+  why: testcost unmapped exits 3 when any file is unmapped

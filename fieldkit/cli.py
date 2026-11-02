@@ -1674,6 +1674,10 @@ def build_parser():
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
                              "(fieldkit emerge)")
     em.add_argument("args", nargs=argparse.REMAINDER)
+    ca = sub.add_parser("ciaudit", add_help=False,
+                        help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
+                             "to the whole suite (fieldkit ciaudit)")
+    ca.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -2938,6 +2942,9 @@ def main(argv=None):
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
+        from .method import ciaudit
+        return ciaudit.main(args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
