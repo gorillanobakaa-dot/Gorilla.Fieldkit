@@ -1,0 +1,9 @@
+- file: fieldkit/method/ciaudit.py
+  swap: ['    if m.group("files"):', '    if False:']
+  why: a run sent to the whole suite by unmapped files is counted as whole, with its files
+- file: fieldkit/method/ciaudit.py
+  swap: ['    return 3 if over else 0', '    return 0']
+  why: over the whole-suite budget exits 3
+- file: fieldkit/method/ciaudit.py
+  swap: ['if r.get("event") == "pull_request"]', 'if True]']
+  why: only pull-request runs are judged (a push to main is not a PR's selection)

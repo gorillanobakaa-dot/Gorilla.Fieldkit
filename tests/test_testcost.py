@@ -191,3 +191,64 @@ def test_only_the_named_version_files_can_be_version_only():
 def test_a_file_under_state_selects_no_test_whatever_its_suffix():
     pl = _plan(["state/coordination/run.py"], {})
     assert pl["no_code"] and pl["tests"] == [] and pl["unmapped"] == []
+
+
+# ---- every tracked file has covering tests (2026-11-02: 267 unmapped files sent 17 of 38 PR runs to the whole suite)
+def _repo(tmp_path, files, testmap=None):
+    r = tmp_path / "r"
+    for rel, text in files.items():
+        f = r / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+    if testmap is not None:
+        (r / "tests").mkdir(parents=True, exist_ok=True)
+        (r / "tests" / "testmap.yaml").write_text(testmap, encoding="utf-8")
+    return r
+
+
+def test_a_testmap_glob_selects_its_tests_and_an_empty_list_is_a_declaration(tmp_path):
+    r = _repo(tmp_path, {"tests/test_pins.py": "x = 1\n", "releases/pin.yaml": "a: 1\n", "docs/f/n.yaml": "b\n"},
+              "- {glob: 'releases/*.yaml', tests: [tests/test_pins.py]}\n- {glob: 'docs/f/*.yaml', tests: [], why: w}\n")
+    pl = testcost.plan(r, paths=["releases/pin.yaml", "docs/f/n.yaml"], diff_lines=lambda q: [])
+    assert pl["unmapped"] == [] and [Path(t).name for t in pl["tests"]] == ["test_pins.py"]
+
+
+def test_a_data_file_in_a_package_selects_the_package_tests_not_the_whole_suite(tmp_path):
+    r = _repo(tmp_path, {"tests/test_em.py": "from fieldkit.emerge import recipe\n",
+                         "tests/test_other.py": "from fieldkit import zzz\n",
+                         "fieldkit/emerge/recipes/gorilla-size.yaml": "s: 1\n"})
+    pl = testcost.plan(r, paths=["fieldkit/emerge/recipes/gorilla-size.yaml"], diff_lines=lambda q: [])
+    assert pl["unmapped"] == [] and [Path(t).name for t in pl["tests"]] == ["test_em.py"]
+
+
+def test_a_mutation_plan_selects_the_test_it_mutates(tmp_path):
+    r = _repo(tmp_path, {"tests/test_train.py": "x = 1\n", "tests/test_b.py": "y = 1\n",
+                         "tests/train_mutations.yaml": "- file: a\n"})
+    pl = testcost.plan(r, paths=["tests/train_mutations.yaml"], diff_lines=lambda q: [])
+    assert pl["unmapped"] == [] and [Path(t).name for t in pl["tests"]] == ["test_train.py"]
+
+
+def test_tests_in_subfolders_are_found(tmp_path):
+    r = _repo(tmp_path, {"tests/capture/test_capture.py": "from fieldkit.capture import cli\n",
+                         "fieldkit/capture/cli.py": "x = 1\n"})
+    pl = testcost.plan(r, paths=["fieldkit/capture/cli.py"], diff_lines=lambda q: [])
+    assert [Path(t).name for t in pl["tests"]] == ["test_capture.py"]
+
+
+def test_unmapped_command_exits_3_and_names_the_file(tmp_path, capsys):
+    r = _repo(tmp_path, {"tests/test_a.py": "x = 1\n", "orphan.cfg": "z\n"})
+    subprocess.run(["git", "init", "-q", str(r)], check=True)
+    subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
+    assert testcost.main(["unmapped", "--repo", str(r), "--all"]) == 3
+    assert "unmapped orphan.cfg" in capsys.readouterr().out
+
+
+def test_this_repository_has_no_unmapped_file():
+    """The guard: a new file with no covering test fails here (and in CI) instead of silently running the whole
+    suite on every pull request that touches it."""
+    root = Path(__file__).resolve().parents[1]
+    files = subprocess.run(["git", "-C", str(root), "ls-files"], capture_output=True, text=True).stdout.split()
+    if not files:
+        pytest.skip("not a git checkout")
+    u = testcost.plan(root, paths=files, diff_lines=lambda q: [])["unmapped"]
+    assert u == [], "map these in tests/testmap.yaml or give them a test: " + ", ".join(u)

@@ -1449,6 +1449,17 @@
    "capture"
   ]
  },
+ "ciaudit": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ciaudit"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
