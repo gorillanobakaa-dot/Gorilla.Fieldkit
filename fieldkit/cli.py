@@ -16,7 +16,8 @@
     fieldkit pipeline status NAME
     fieldkit pipeline reset NAME [--stage S]
 
-    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
+    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|install|release]
+    fieldkit triage self-test|checks --kind install|release [--home DIR --root DIR --branch B]
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
     fieldkit image doctor|squash|compare|ocr|privacy ...   pictures offline: compress, compare, read, redact (fieldkit/image)
@@ -649,7 +650,28 @@ def cmd_pipeline(a):
     return 0 if rep["ok"] else 3
 
 
+def cmd_triage_kind(a):
+    """triage self-test|checks --kind install|release: the stored checks of a failure kind."""
+    from .build import failure_checks
+    if a.kind not in ("install", "release"):
+        print("triage self-test|checks needs --kind install or --kind release")
+        return 2
+    if a.log == "self-test":
+        ok, rows = failure_checks.self_test(a.kind)
+        _emit({"ok": ok, "kind": a.kind, "rows": rows}, a.json, lambda r: (
+            [print(f"{'PASS' if x['ok'] else 'FAIL'} {a.kind}/{x['id']}: {x['why']}") for x in r["rows"]],
+            print(f"triage self-test --kind {a.kind}: {'OK' if r['ok'] else 'FAILED'}")))
+        return 0 if ok else 3
+    ctx = {k: v for k, v in (("home", a.home), ("root", a.root), ("branch", a.branch)) if v}
+    hits = failure_checks.run(a.kind, ctx)
+    _emit({"kind": a.kind, "hits": hits}, a.json, lambda r: print(
+        chr(10).join(failure_checks.lines(r["hits"])) or f"{a.kind}: every stored check is clean"))
+    return 3 if hits else 0
+
+
 def cmd_triage(a):
+    if a.log in ("self-test", "checks"):
+        return cmd_triage_kind(a)
     from .build import triage
     rep = triage.triage_file(a.log, a.set)
 
@@ -1825,6 +1847,10 @@ def build_parser():
     tr = sub.add_parser("triage", parents=[common])
     tr.add_argument("log")
     tr.add_argument("--set", default="auto")
+    tr.add_argument("--kind", help="with `self-test` or `checks` as LOG: install or release")
+    tr.add_argument("--home", help="checks: the HOME to inspect (default: this user's)")
+    tr.add_argument("--root", help="checks: the folder or repo to inspect")
+    tr.add_argument("--branch", help="checks: the branch to judge against the push mandate")
     tr.set_defaults(fn=cmd_triage)
 
     tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
