@@ -90,7 +90,7 @@ groups:
 
   - name: builds-releases-thermal
     title: Builds, release checks and the thermal governor
-    sources: ["build/*.py", release.py, "thermal/*.py"]
+    sources: ["build/*.py", release.py, "thermal/*.py", "power/*.py"]
 
   - name: exam
     title: The exam (small models with and without the kit)

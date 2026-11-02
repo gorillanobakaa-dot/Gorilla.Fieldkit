@@ -1128,6 +1128,35 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_thermal_keeper.py"]
   notes: "2026-11-02: the laptop went down at 03:29 and the governor was found not running (its logon line commented out since 10-28) and, when running, braking nothing (watch only). Its lever now pauses guarded jobs' processes instead of the power plan."
 
+- id: power-incidents
+  title: "Why the computer shut down, cut out or slept: every unexpected shutdown and sleep since a date, each with a named cause class, the thermal journal peak before it and the battery state; an unknown cause is a defect row (Windows, Linux, macOS)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, incidents]
+  path: ${FIELDKIT}/fieldkit/power/incidents.py
+  inputs:
+    - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD (default: 7 days ago)"}
+  effects: [reads-files, writes-files]
+  safety: safe
+  headline: "N incident(s) since DATE, M unknown; exit 3 when any cause is unknown."
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py"]
+  notes: "Windows: one Get-WinEvent call (Kernel-Power 41/42/107/187/506/507/566, EventLog 6005/6006/6008, User32 1074, Power-Troubleshooter 1, UserModePowerService 12 counted per process per day). Linux: journalctl boots and suspend/lid/critical-temperature lines. macOS: pmset -g log. Classes: heat, power-plan reset, program sleep request (PROCESS), battery, button/lid, standby (REASON), planned, unexpected cut (cause unknown), unknown. The real cut of a 6008 is the last thermal journal line before that boot when it is later. Each unknown is one row in ZERO-OPEN-PROBLEMS.md (once per incident). Mutation plan tests/power_incidents_mutations.yaml."
+
+- id: power-drift
+  title: "Check that the Lenovo power service (ibmpmsvc.exe) never put the laptop to sleep during work in the last N days and that the sleep button is off on AC; --apply turns the sleep button off without admin and records before/after (Windows)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, drift]
+  path: ${FIELDKIT}/fieldkit/power/drift.py
+  inputs:
+    - {name: days, flag: --days, type: int, required: false, help: "how many days back (default 7)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "set the sleep button on AC to do nothing (powercfg, no admin; before/after kept in state/power/)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  headline: "PASS or FAIL: ibmpmsvc sleep requests during work, and the sleep/power/lid actions on AC."
+  platforms: [windows]
+  platforms_why: "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py", -k, drift]
+
 - id: thermal-monitor
   title: "Keep the processor cool while something heavy runs (a build): lowers the CPU cap when hot, speaks, puts it back (Windows and Linux)"
   harness: thermal

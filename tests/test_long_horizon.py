@@ -314,6 +314,9 @@ def test_the_hard_lines_still_come_first_inside_a_job(tmp_path, monkeypatch):
     ({"rc": 124, "timed_out": True}, "wall"),
     ({"rc": 1, "result": {"is_error": True, "result": "Claude AI usage limit reached|1761300000"}}, "usage_limit"),
     ({"rc": 1, "result": {"is_error": True, "result": "You've hit your limit · resets 3pm (Europe/London)"}}, "usage_limit"),
+    # 2026-11-02 05:06 supervisor.log: read as rate_limit, so it retried every 10 min instead of waiting for 7:10am
+    ({"rc": 1, "result": {"is_error": True, "result": "You've hit your session limit · resets 7:10am (Europe/London) "
+                                                       "(rate limit)"}}, "usage_limit"),
     ({"rc": 1, "result": {"is_error": True, "result": "API Error: 429 rate_limit_error"}}, "rate_limit"),
     ({"rc": 1, "result": {"is_error": True, "result": "API Error: 529 Overloaded"}}, "rate_limit"),
     ({"rc": 1, "result": {"is_error": True, "result": "API Error: 400 invalid_request_error"}}, "api_error"),
@@ -964,3 +967,18 @@ def test_the_supervisor_given_ids_picks_up_a_goal_created_after_it_started(tmp_p
     monkeypatch.setattr("fieldkit.core.liveness.summary", lambda r: "")
     assert goal.supervise(ids=["a"], say=lambda m: None, hold=False) == 0
     assert seen == ["a", "b"]                                   # b joined; "old" was there at the start, not asked for
+
+
+def test_a_planner_round_refused_at_the_limit_is_not_a_round(tmp_path, monkeypatch):
+    """Row 38 (2026-11-02 05:28): limit-refused planner calls counted as rounds and every goal ended 'stalled'."""
+    from fieldkit.autopilot import goal
+    monkeypatch.setattr(goal, "GOALS", tmp_path / "goals")
+    monkeypatch.setattr(goal, "preapprovals", lambda gid, now=None: ({}, "none"))
+    monkeypatch.setattr(goal, "planner_prompt", lambda *a: "plan")
+    st = {"rounds": 4, "spend": [], "criteria": {}, "jobs": {}}
+    limited = lambda *a, **k: {"rc": 1, "result": {"is_error": True,
+                                                   "result": "You've hit your session limit · resets 7:10am"}}
+    for _ in range(3):
+        p, why = goal.plan("g", {}, st, limited)
+        assert p is None and why.startswith("usage_limit")
+    assert st["rounds"] == 4

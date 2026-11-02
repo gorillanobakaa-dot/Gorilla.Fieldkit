@@ -188,7 +188,7 @@ def hook_post(job_dir, now=None):
 
 
 # ---- what ended a run -------------------------------------------------------------------------------------------
-USAGE = re.compile(r"usage limit reached|hit your (?:usage )?limit|(?:5-hour|weekly|session|opus) limit reached|"
+USAGE = re.compile(r"usage limit reached|hit your (?:usage |session |weekly |5-hour |opus )?limit|(?:5-hour|weekly|session|opus) limit reached|"
                    r"out of (?:extra )?usage|limit will reset", re.I)
 EPOCH = re.compile(r"limit reached\|(\d{10})")
 RESETS = re.compile(r"reset[s]?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*\(([^)]+)\))?", re.I)

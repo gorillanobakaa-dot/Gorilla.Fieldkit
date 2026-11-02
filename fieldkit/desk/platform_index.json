@@ -2609,6 +2609,26 @@
    "plan"
   ]
  },
+ "power drift": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-drift"
+  ]
+ },
+ "power incidents": {
+  "platforms": [
+   "linux",
+   "macos",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "power-incidents"
+  ]
+ },
  "prefix-diff": {
   "platforms": [
    "darwin",

@@ -649,6 +649,9 @@ def plan(gid, goal, st, claude, say=print):
         st["spend"].append({"t": time.time(), "usd": float(res["total_cost_usd"]), "who": "planner"})
     kind, detail = bud.classify(r)
     if kind in ("usage_limit", "rate_limit"):
+        # 2026-11-02 05:28 (row 38): three planner calls refused at the session limit counted as three rounds, so
+        # every goal ended "stalled". A round the limit refused never ran: it counts toward neither stall nor max_rounds
+        st["rounds"] -= 1
         return None, f"{kind}: {detail}"
     p = _rj(pf)
     if not isinstance(p, dict):

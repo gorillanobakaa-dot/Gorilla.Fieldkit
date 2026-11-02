@@ -2248,6 +2248,13 @@ def build_parser():
                                                                      "process ends (a build); log ignores --seconds then")
     th.set_defaults(fn=cmd_thermal)
 
+    pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check")
+    pw.add_argument("action", choices=["incidents", "drift"])
+    pw.add_argument("--since", help="incidents: YYYY-MM-DD (default 7 days ago)")
+    pw.add_argument("--days", type=int, default=7, help="drift: how many days back")
+    pw.add_argument("--apply", action="store_true", help="drift: set the sleep button on AC to do nothing (no admin; before/after recorded)")
+    pw.set_defaults(fn=cmd_power)
+
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
@@ -2794,6 +2801,13 @@ def cmd_repro(a):
     r = repro.compare(a.a, a.b, roots=a.root or [])
     _emit(r, a.json, lambda d: print("\n".join(repro.lines(d))))
     return 0 if r["identical"] else 3
+
+
+def cmd_power(a):
+    from .power import drift, incidents
+    if a.action == "drift":
+        return drift.run(days=a.days, do_apply=a.apply, as_json=a.json)
+    return incidents.run(since=a.since, as_json=a.json)
 
 
 def cmd_thermal(a):
