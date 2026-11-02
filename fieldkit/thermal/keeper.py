@@ -144,8 +144,15 @@ class Brake:
 
 # --- the keeper: the system runs `ensure` at logon, every 5 minutes and on resume ----------------------------
 
-def task_xml(python, root):
-    """A user task, no admin: logon, every EVERY_MIN minutes, resume from sleep (Kernel-Power 107 and 507)."""
+def _user():
+    dom, name = os.environ.get("USERDOMAIN", ""), os.environ.get("USERNAME", "")
+    return f"{dom}\\{name}" if dom else name
+
+
+def task_xml(python, root, user=None):
+    """A user task, no admin: logon, every EVERY_MIN minutes, resume from sleep (Kernel-Power 107 and 507). The logon
+    trigger and the principal name this user: without them schtasks says "Access is denied" (2026-11-02 07:5x)."""
+    user = user or _user()
     q = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     sub = ("&lt;QueryList&gt;&lt;Query Id='0' Path='System'&gt;&lt;Select Path='System'&gt;*[System[Provider"
            "[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=107 or EventID=507)]]&lt;/Select&gt;&lt;/Query&gt;"
@@ -154,10 +161,11 @@ def task_xml(python, root):
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Fieldkit: keep the machine thermal governor running (fieldkit thermal ensure)</Description></RegistrationInfo>
   <Triggers>
-    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
+    <LogonTrigger><Enabled>true</Enabled><UserId>{q(user)}</UserId></LogonTrigger>
     <TimeTrigger><Repetition><Interval>PT{EVERY_MIN}M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>2026-01-01T00:00:00</StartBoundary><Enabled>true</Enabled></TimeTrigger>
     <EventTrigger><Enabled>true</Enabled><Subscription>{sub}</Subscription></EventTrigger>
   </Triggers>
+  <Principals><Principal id="Author"><UserId>{q(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>

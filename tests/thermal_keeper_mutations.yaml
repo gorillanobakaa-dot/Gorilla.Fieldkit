@@ -35,3 +35,8 @@
   - '        lever.resume()                                    # never leave a guarded job paused'
   - '        pass'
   why: the governor resumes paused jobs when it stops
+- file: fieldkit/thermal/keeper.py
+  swap:
+  - '    <LogonTrigger><Enabled>true</Enabled><UserId>{q(user)}</UserId></LogonTrigger>'
+  - '    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>'
+  why: the logon trigger names the user (else Access is denied without admin)
