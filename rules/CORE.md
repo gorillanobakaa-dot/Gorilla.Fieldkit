@@ -74,7 +74,7 @@ block, `cd` to a full path first, every program by its full path, PowerShell syn
 after it goes.
 
 DEVICES. ThinkPad L15, Windows, [L15-WIN]: Windows builds and Windows-only tests. Sony VAIO, Linux: the owner's main
-laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (SIDE JOBS, `--on peer`).
+laptop, cable 10.77.0.1 <-> 10.77.0.2; heavy non-Windows work goes there (SIDE JOBS: a visible session or `--on peer`).
 MacBook Air 2011, 4 GB: SSH only, never the cable.
 
 CLEAN UP. Always yes, without asking, for what YOUR job left. Not sure it is yours: leave it and name it.
