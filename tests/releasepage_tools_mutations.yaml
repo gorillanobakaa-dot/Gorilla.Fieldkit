@@ -15,3 +15,8 @@
   - '                              _read(a.extra) if a.extra else "", tools=tools)'
   - '                              _read(a.extra) if a.extra else "")'
   why: the compose command uses the repository's cards
+- file: fieldkit/gdocs/releasepage.py
+  swap:
+  - '    if bad:   # a card with no id'
+  - '    if False:   # a card with no id'
+  why: a card with no id, title or platforms is refused, never silently left off the table
