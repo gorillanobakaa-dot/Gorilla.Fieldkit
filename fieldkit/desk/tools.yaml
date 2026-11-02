@@ -5816,6 +5816,24 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-11-01: built in = properly integrated (docs/INTEGRATION.md). Rules per surface are data: fieldkit/integration/surfaces.yaml. One line per missing surface with the file to fix."
 
+- id: pins
+  title: Are the helper sources of a Gorilla OpenCode tree immutable and hash-pinned? Refuses latest, nightly, rolling, autobuild, master/main archives, unversioned paths and any download without a sha256
+  harness: method
+  entry: [python, -m, fieldkit, pins]
+  path: ${FIELDKIT}/fieldkit/pins
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check | self-test"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "check: the Gorilla OpenCode checkout"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable output"}
+  effects: [reads-files]   # self-test writes a temp fixture and removes it
+  safety: reversible
+  output: own
+  exits: {2: "bad usage or not a folder", 3: "a rolling or unpinned source URL was found (check) or a break kind was not refused (self-test)"}
+  platforms: [windows, linux, macos]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/pins/test_pins.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Goal pinned-helpers (2026-11-01): BtbN's rolling FFmpeg builds were deleted. Reads third_party/PINS.md, internal/toolbox/SHA256SUMS, scripts/build-toolbox.*, scripts/fetch-toolbox-extras.sh."
+
 - id: capture
   title: Zero-loss capture of every script, command and procedure an agent makes or runs - kept at first use with its context, failed attempts linked to their fix, found again by words, never discarded
   harness: method

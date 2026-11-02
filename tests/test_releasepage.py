@@ -171,3 +171,12 @@ def test_the_opening_does_not_end_as_a_heading():
         if line.strip() in ("---", "***", "___") and i:
             assert not lines[i - 1].strip(), \
                 f"line {i}: a rule directly under {lines[i-1]!r} makes that line a heading"
+
+
+def test_tools_table_is_generated_from_the_cards(tmp_path):
+    d = tmp_path / "fieldkit" / "desk"
+    d.mkdir(parents=True)
+    (d / "tools.yaml").write_text("- id: demo\n  title: does a | thing\n  platforms: [windows, linux]\n", encoding="utf-8")
+    t = RP.tools_table(tmp_path)
+    assert "| demo | does a / thing | windows, linux |" in t and t.startswith("## What is built in")
+    assert RP.tools_table(tmp_path / "none") == ""

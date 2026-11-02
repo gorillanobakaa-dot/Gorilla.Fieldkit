@@ -173,5 +173,20 @@ def check(page: str, layman_md: str = "", developer_md: str = "") -> list:
     return findings
 
 
+def tools_table(repo) -> str:
+    """The "What is built in" table, generated from the cards in <repo>/fieldkit/desk/tools.yaml (never typed by hand)."""
+    import yaml
+    f = Path(repo) / "fieldkit" / "desk" / "tools.yaml"
+    if not f.is_file():
+        return ""
+    cards = yaml.safe_load(f.read_text(encoding="utf-8")) or []
+    rows = ["## What is built in", "", "| tool | what it does | systems |", "|---|---|---|"]
+    for c in cards:
+        if isinstance(c, dict) and c.get("id"):
+            title = str(c.get("title", "")).replace("|", "/")
+            rows.append(f"| {c['id']} | {title} | {', '.join(c.get('platforms') or [])} |")
+    return "\n".join(rows) if len(rows) > 4 else ""
+
+
 def philosophy_text() -> str:
     return PHILOSOPHY.read_text(encoding="utf-8")

@@ -106,8 +106,8 @@ def cmd_release_page(a):
                 print("REFUSED: " + gate.refusal(ig))
                 print("\nNEXT: `fieldkit integration check --repo " + a.repo + "`, fix each gap, compose again")
                 return 3
-            page = RP.compose(_read(a.opening), _read(a.layman), _read(a.developer),
-                              _read(a.extra) if a.extra else "")
+            extra = "\n\n".join(x for x in (_read(a.extra) if a.extra else "", RP.tools_table(a.repo)) if x.strip())
+            page = RP.compose(_read(a.opening), _read(a.layman), _read(a.developer), extra)
             findings = RP.check(page, _read(a.layman), _read(a.developer))
             if findings:
                 # Nothing is written: a page that fails is not left lying about
