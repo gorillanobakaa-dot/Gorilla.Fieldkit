@@ -200,3 +200,16 @@ def test_debug_group_needs_a_test_or_check_command(s):
     episodes(s, "debug")
     r = R.build(s, "debug")
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_personal_pattern_takes_private_terms_from_settings_not_from_the_source():
+    assert R.personal_pattern(["zzprivate"]).search("by ZZPrivate today")
+    assert not R.personal_pattern([]).search("by zzprivate today")
+    assert R.personal_pattern([]).search("see " + "/ho" + "me/x")
+def test_cleanup_group_needs_a_size_or_scratch_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "fieldkit size recycle old"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "cleanup")
+    r = R.build(s, "cleanup")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
