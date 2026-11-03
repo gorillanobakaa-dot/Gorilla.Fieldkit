@@ -319,3 +319,21 @@ def test_a_cli_edit_selects_the_tests_naming_the_changed_command_not_every_impor
     assert {Path(t).name for t in narrow["tests"]} == {"test_beta.py"}
     wide = testcost.plan(r, paths=["fieldkit/cli.py"], diff_lines=lambda q: ["+    x = 2"])   # names nothing: keep wide
     assert {"test_alpha.py", "test_noise.py"} <= {Path(t).name for t in wide["tests"]}
+
+def test_a_merge_in_progress_stages_only_the_branch_side_files(tmp_path):
+    """TESTS ONCE: files arriving from the base passed the base's CI; only the branch's own files are tested."""
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=a@b", "-c", "user.name=t", *a],
+                       check=True, capture_output=True)
+    git("init", "-q", "-b", "main")
+    (tmp_path / "base.txt").write_text("0\n")
+    git("add", "-A"); git("commit", "-qm", "0")
+    git("checkout", "-qb", "feat")
+    (tmp_path / "mine.txt").write_text("1\n")
+    git("add", "-A"); git("commit", "-qm", "mine")
+    git("checkout", "-q", "main")
+    (tmp_path / "theirs.txt").write_text("2\n")
+    git("add", "-A"); git("commit", "-qm", "theirs")
+    git("checkout", "-q", "feat")
+    git("merge", "--no-commit", "--no-ff", "main")
+    assert testcost.staged_files(tmp_path) == []

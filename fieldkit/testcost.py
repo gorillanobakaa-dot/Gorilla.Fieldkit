@@ -192,7 +192,15 @@ def changed_files(repo=".", base=None):
 
 
 def staged_files(repo="."):
-    return _git(repo, "diff", "--cached", "--name-only").split()
+    """Staged paths. In the middle of a merge only the branch side's own files: what arrives from the base already
+    passed the base's CI (TESTS ONCE); testing it again held a slot for an hour (2026-11-03, I-18)."""
+    staged = _git(repo, "diff", "--cached", "--name-only").split()
+    gitdir = Path(_git(repo, "rev-parse", "--absolute-git-dir").strip())
+    if not staged or not (gitdir / "MERGE_HEAD").is_file():
+        return staged
+    base = _git(repo, "merge-base", "HEAD", "MERGE_HEAD").strip()
+    ours = set(_git(repo, "diff", "--name-only", base, "HEAD").split()) if base else set()
+    return [p for p in staged if p in ours] if ours else staged
 
 
 def _module_of(path):
