@@ -265,6 +265,88 @@ def _package_tests(q, imports):
     return set()
 
 
+REGISTRY_TOOLS = "fieldkit/desk/tools.yaml"
+REGISTRY_CLI = "fieldkit/cli.py"
+# What proves the registry file still loads and dispatches, whatever entry changed (each exists; a missing one is skipped).
+REGISTRY_INTEGRITY = {
+    REGISTRY_TOOLS: ("tests/test_cards.py", "tests/test_cards_catalogue.py", "tests/test_platform_gate.py",
+                     "tests/test_registry_cli.py", "tests/test_tools_find.py"),
+    REGISTRY_CLI: ("tests/test_core.py", "tests/test_methods_help.py", "tests/test_registry_cli.py",
+                   "tests/test_integration.py", "tests/test_tools_find.py"),
+}
+_NAME = re.compile(r"^[a-z][a-z0-9_-]{3,}$")
+
+
+def _show(repo, ref, path):
+    import subprocess
+    r = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    return r.stdout if r.returncode == 0 else None
+
+
+def _registry_tools_tests(repo, base, test_files, imports):
+    """tools.yaml: the tests of the entries that changed (their `test` command, the tests importing their module,
+    the tests naming the id) + the integrity set. None = cannot prove which entries changed -> the caller keeps the
+    wide mapping (unparseable file, a removed entry, a change outside `tools:`)."""
+    import yaml
+    old_text = _show(repo, base or "HEAD", REGISTRY_TOOLS)
+    new_path = Path(repo) / REGISTRY_TOOLS
+    if old_text is None or not new_path.is_file():
+        return None
+    try:
+        old, new = yaml.safe_load(old_text) or {}, yaml.safe_load(new_path.read_text(encoding="utf-8")) or {}
+        if {k: v for k, v in old.items() if k != "tools"} != {k: v for k, v in new.items() if k != "tools"}:
+            return None
+        olds = {e["id"]: e for e in old.get("tools", [])}
+        news = {e["id"]: e for e in new.get("tools", [])}
+    except (yaml.YAMLError, KeyError, TypeError, AttributeError):
+        return None
+    if set(olds) - set(news):
+        return None
+    changed = [i for i, e in news.items() if olds.get(i) != e]
+    if not changed:
+        return None
+    hits = {str(repo / t) for t in REGISTRY_INTEGRITY[REGISTRY_TOOLS] if (repo / t).is_file()}
+    for i in changed:
+        e = news[i]
+        for tok in map(str, e.get("test") or []):
+            m = re.search(r"tests/[\w/.-]+\.py", tok)
+            if m and (repo / m.group(0)).is_file():
+                hits.add(str(repo / m.group(0)))
+        mod = _module_of(re.sub(r"^\$\{FIELDKIT\}/", "", str(e.get("path") or "")))
+        if mod and mod != "fieldkit":
+            hits |= {str(t) for t, ms in imports.items() if any(m == mod or m.startswith(mod + ".") for m in ms)}
+        if len(i) > 3:
+            hits |= {str(t) for t in test_files if re.search(r"\b" + re.escape(i) + r"\b", t.read_text(encoding="utf-8", errors="replace"))}
+    return hits
+
+
+def _registry_cli_tests(repo, lines, test_files, imports):
+    """cli.py: the command names and modules the changed lines name -> the tests naming/importing them + the integrity
+    set. None = no name found in the changed lines (cannot prove what they affect) -> the caller keeps the wide mapping."""
+    needles, mods = set(), set()
+    for l in lines:
+        body = l[1:]
+        needles |= {n for n in re.findall(r"[\"']([a-z][a-z0-9_-]+)[\"']", body) if _NAME.match(n)}
+        needles |= {n for n in re.findall(r"fieldkit ([a-z][a-z0-9-]{3,})", body)}
+        for m in re.finditer(r"from \.([\w.]*) import ([\w, ]+)", body):
+            base_mod = m.group(1)
+            for name in (x.strip() for x in m.group(2).split(",")):
+                mods.add(f"fieldkit.{base_mod}.{name}" if base_mod else f"fieldkit.{name}")
+    if not needles and not mods:
+        return None
+    hits = {str(repo / t) for t in REGISTRY_INTEGRITY[REGISTRY_CLI] if (repo / t).is_file()}
+    for t in test_files:
+        src = None
+        if any(m == x or m.startswith(x + ".") for m in imports[t] for x in mods):
+            hits.add(str(t))
+            continue
+        src = t.read_text(encoding="utf-8", errors="replace")
+        if any(re.search(r"\b" + re.escape(n) + r"\b", src) for n in needles):
+            hits.add(str(t))
+    return hits
+
+
 def plan(repo=".", base=None, paths=None, diff_lines=None):
     """{"tests": [...], "unmapped": [...], "docs_only": bool, "no_code": bool}: the tests that cover the changed files.
 
@@ -301,6 +383,12 @@ def plan(repo=".", base=None, paths=None, diff_lines=None):
             if hits:
                 chosen |= hits
             continue
+        if q in REGISTRY_INTEGRITY:                    # a shared registry: only the tests of what changed in it
+            narrow = (_registry_tools_tests(repo, base, test_files, imports) if q == REGISTRY_TOOLS else
+                      _registry_cli_tests(repo, diff_lines(q), test_files, imports))
+            if narrow:
+                chosen |= narrow
+                continue
         mod = _module_of(q)
         hits = set()
         if mod and mod != "fieldkit":
