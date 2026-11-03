@@ -60,7 +60,9 @@ def episode_actions(store, state, e):
 # The request words put an episode in a group; these commands show it really did that work. An episode of the group
 # with none of them (a question about a release, a note) is not a flow to learn from and is counted apart.
 ANCHORS = {"release": ["gh release", "fieldkit ship", "fieldkit release-page", "fieldkit publish", "fieldkit release",
-                       "fieldkit build-harness", "git tag"]}
+                       "fieldkit build-harness", "git tag"],
+           "build": ["fieldkit emerge", "go build", "cargo build", "fieldkit guard", "python -m fieldkit guard", "make",
+                     "msbuild", "npm run"]}
 
 
 def group_episodes(store, state, intent, min_steps=3, with_skipped=False):
