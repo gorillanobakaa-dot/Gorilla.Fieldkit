@@ -163,6 +163,9 @@ def test_the_sensor_proof_for_the_always_on_governor_never_runs_powercfg(tmp_pat
     monkeypatch.setattr(sensors, "best", lambda **k: ("die", lambda: 50.0, "under load [die sensor]"))
     calls = []
     monkeypatch.setattr(governor, "_powercfg", lambda *a: calls.append(a) or (0, "0x00000064"))
+    monkeypatch.setattr(governor, "set_cap", lambda pct: calls.append(("set_cap", pct)))
+    monkeypatch.setattr(governor, "restore_stale_cap", lambda say: calls.append(("restore",)))
+    monkeypatch.setattr(governor, "read_cap", lambda: 100)
     buildrun.thermal_sensor(lambda m: None, plan_cap=False)
     assert calls == []
     (tmp_path / "home" / ".fieldkit" / "thermal-proof.json").unlink()
