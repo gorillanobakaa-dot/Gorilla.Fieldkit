@@ -171,6 +171,17 @@ def test_build_group_needs_a_build_command(s):
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
 
 
+def test_test_group_needs_a_test_runner_anchor(s):
+    for i in range(3):
+        flow(s, f"t{i}", ["git add .", "python -m pytest -q", "git commit -m x"], request="run the tests for the parser")
+    flow(s, "n", ["git add .", "git fetch", "git commit -m x"], request="run the tests for the parser")
+    episodes(s, intent="test")
+    r = R.build(s, "test")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+    assert "python -m pytest" in R.ANCHORS["test"] and "go test" in R.ANCHORS["test"]
+
+
+
 def test_group_that_does_not_replay_becomes_a_procedure(s):
     for i in range(2):
         flow(s, f"s{i}", ["git add .", "git commit -m x", "go build ./cmd"])
