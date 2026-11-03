@@ -405,9 +405,13 @@ def main(argv=None, prog="fieldkit testcost"):
         tests = plan(a.repo, paths=staged_files(a.repo))["tests"]
         cap = int(os.environ.get("FIELDKIT_LOCAL_TEST_CAP", "15"))
         if len(tests) > cap:
-            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop: that is the suite, so CI runs it
-            print(f"testcost: {len(tests)} test files cover the staged files (> {cap}): CI runs them, not this laptop",
-                  file=sys.stderr)
+            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop. R15: never dropped - this
+            # computer keeps its share (the cap), the free devices run the rest (fieldkit/testsplit.py), and what no
+            # device takes runs here
+            from . import testsplit
+            rel = [os.path.relpath(t, a.repo).replace("\\", "/") for t in tests]
+            for t in testsplit.start(a.repo, rel, tree_key(a.repo), cap)["local"]:
+                print(t)
             return 0
         for t in tests:
             print(os.path.relpath(t, a.repo).replace("\\", "/"))
