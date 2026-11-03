@@ -169,3 +169,12 @@ def test_documents_group_needs_a_document_or_privacy_command(s):
     episodes(s, "documents")
     r = R.build(s, "documents")
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_debug_group_needs_a_test_or_check_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "python -m pytest tests"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "debug")
+    r = R.build(s, "debug")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
