@@ -71,6 +71,8 @@ def fake_world(tmp_path, monkeypatch):
         return ev, {}
 
     fake_world_silent = {}
+    # build urllib's opener before sys.platform is faked: on Linux, ssl would otherwise try the Windows cert store
+    monkeypatch.setattr(urllib.request, "_opener", urllib.request.build_opener())
     monkeypatch.setattr(gate.sys, "platform", "win32")
     monkeypatch.setattr(se, "is_admin", lambda: False)
     monkeypatch.setattr(se, "build_copy", lambda z, d, policies=None: d)
