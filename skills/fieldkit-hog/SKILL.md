@@ -53,7 +53,7 @@ sleep request (PROCESS), battery, button/lid, standby (REASON), unexpected cut (
 peak CPU C in the 5 minutes before and the battery state. Exit 3 and a defect row in ZERO-OPEN-PROBLEMS.md for each
 unknown cause. `fieldkit power drift` fails when ibmpmsvc.exe (Lenovo) asked for sleep on AC during work in the last 7
 days or the sleep button on AC is not "do nothing"; `--apply` fixes the button without admin and records before/after;
-what needs admin goes through the elevate tool (skill fieldkit-admin-unattended), never to the owner.
+what needs admin goes through the elevate tool (skill fieldkit-admin-unattended), never to the owner. `fieldkit power audit` says whether the machine can name who started a program (Security 4688, command lines, read access): PASS, SIGN-OUT (one new logon) or FAIL; `--write-fix` writes one self-elevating script (one UAC) for the missing steps, `--callers powercfg.exe` lists who started it.
 
 ## The one run guard (fieldkit/core/preflight.py)
 
