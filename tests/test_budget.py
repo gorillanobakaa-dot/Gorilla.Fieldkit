@@ -158,3 +158,62 @@ def test_a_user_started_turn_starts_it_itself():
 def test_every_step_failing_is_reported_not_swallowed():
     r = budget.start_successor("B.md", "T", "session", send=_boom, headless=_boom)
     assert r["step"] == "failed" and "inbox" in r["line"]
+
+
+# ---------------------------------------------------------------- owner 2026-11-03: never a note to a dead Zero
+
+def _net_with(tmp_path, monkeypatch, zero_last, extra=()):
+    ZERO, ME = "claude:aaaaaaaa@H", "claude:bbbbbbbb@H"
+    monkeypatch.setattr(net, "machine", lambda: "H")
+    monkeypatch.setattr(net, "_key", lambda: None)
+    monkeypatch.setattr(net, "station_id", lambda *a, **k: ME)
+    net.open_net(ZERO, now=1000.0, env={"CLAUDE_CODE_SESSION_ID": "aaaaaaaa-1"})
+    st = net.load_stations()
+    n = net.load_net()
+    net.renew(st, ZERO, n, zero_last)
+    for s, t in extra:
+        net.renew(st, s, n, t)
+    net.save_stations(st)
+    return ZERO, ME
+
+
+def test_a_note_goes_to_zero_only_when_zero_is_up(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(net, "send", lambda me, text, to="*", **k: sent.append(to))
+    zero, _ = _net_with(tmp_path, monkeypatch, 1000.0)
+    assert budget._send_zero("x", now=1010.0) == zero and sent == [zero]
+
+
+def test_a_dead_zero_gets_no_note_the_ladder_moves_on(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(net, "send", lambda me, text, to="*", **k: sent.append(to))
+    _net_with(tmp_path, monkeypatch, 1000.0)
+    for late in (1000.0 + 2000, 1000.0 + 10 * 3600):                  # SILENT, then MISSING
+        with pytest.raises(RuntimeError, match="not UP"):
+            budget._send_zero("x", now=late)
+    assert sent == []
+
+
+def test_a_dead_zero_sends_to_the_nearest_up_session(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(net, "send", lambda me, text, to="*", **k: sent.append(to))
+    late = 1000.0 + 10 * 3600
+    zero, _ = _net_with(tmp_path, monkeypatch, 1000.0, extra=[("claude:cccccccc@H", late - 5)])
+    assert budget._send_zero("x", now=late) == "claude:cccccccc@H" and sent == ["claude:cccccccc@H"]
+
+
+def test_this_session_assumes_when_nobody_is_up_and_the_call_still_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(net, "send", lambda *a, **k: pytest.fail("a note was sent"))
+    late = 1000.0 + 10 * 3600
+    _, me = _net_with(tmp_path, monkeypatch, 1000.0, extra=[("claude:bbbbbbbb@H", late - 5)])
+    with pytest.raises(RuntimeError, match="assumed Zero"):
+        budget._send_zero("x", now=late)
+    assert net.zero_of(net.load_net()) == me
+
+
+def test_zero_itself_never_sends_to_itself(tmp_path, monkeypatch):
+    monkeypatch.setattr(net, "send", lambda *a, **k: pytest.fail("a note was sent"))
+    zero, _ = _net_with(tmp_path, monkeypatch, 1000.0)
+    monkeypatch.setattr(net, "station_id", lambda *a, **k: zero)
+    with pytest.raises(RuntimeError, match="Zero is this session"):
+        budget._send_zero("x", now=1010.0)

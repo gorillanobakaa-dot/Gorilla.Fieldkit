@@ -104,7 +104,7 @@ def test_the_room_hook_shows_the_saved_line_once_on_a_prompt(monkeypatch, tmp_pa
     import io
     from fieldkit.autopilot import room
     monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room")
-    for f in ("_net", "_hog", "_rotate"):
+    for f in ("_net", "_hog", "_rotate", "_ideas", "_refusals"):
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
     plan.state_file().write_text(json.dumps({"line": "PLAN: phase 3. X: open R2"}), encoding="utf-8")
 
