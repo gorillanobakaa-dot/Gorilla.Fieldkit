@@ -39,10 +39,13 @@ $o | ConvertTo-Json -Compress
 CALLERS = r"""
 $ErrorActionPreference='Stop'
 $s=[datetime]::Parse('%SINCE%')
-Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;StartTime=$s} | %{
+$all=@(Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;StartTime=$s} | %{
   $x=[xml]$_.ToXml(); $d=@{}; foreach($n in $x.Event.EventData.Data){$d[$n.Name]=[string]$n.'#text'}
-  if((Split-Path $d.NewProcessName -Leaf) -ieq '%PROC%'){ [pscustomobject]@{t=$_.TimeCreated.ToUniversalTime().ToString('o');creator=$d.ParentProcessName;pid=$d.NewProcessId;cmd=$d.CommandLine} }
-} | ConvertTo-Json -Compress
+  $d.t=$_.TimeCreated.ToUniversalTime().ToString('o'); $d })
+$names=@{}; foreach($d in $all){ if($d.NewProcessName){ $names[$d.NewProcessId]=$d.NewProcessName } }   # a pid names its parent when the parent was started inside the window
+$all | ?{ $_.NewProcessName -and ((Split-Path $_.NewProcessName -Leaf) -ieq '%PROC%') } | %{
+  $c=$_.ParentProcessName; if(-not $c){ $c=$names[$_.ProcessId] }; if(-not $c){ $c='pid '+$_.ProcessId+' (started before the audit)' }
+  [pscustomobject]@{t=$_.t;creator=$c;pid=$_.NewProcessId;cmd=$_.CommandLine} } | ConvertTo-Json -Compress
 """
 
 
