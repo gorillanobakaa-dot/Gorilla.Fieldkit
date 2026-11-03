@@ -175,3 +175,10 @@ def test_group_that_does_not_replay_becomes_a_procedure(s):
     tool_item = next(iter(marks))
     s.append_many("state", [{"item": tool_item, "state": "tool", "evidence": "x", "error": None}])
     assert tool_item not in R.procedure(s, rec)[1]                                      # an item with a state keeps it
+def test_documents_group_needs_a_document_or_privacy_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "fieldkit privacy scan docs"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "documents")
+    r = R.build(s, "documents")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
