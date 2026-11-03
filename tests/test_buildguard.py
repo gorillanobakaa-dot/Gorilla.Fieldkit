@@ -108,3 +108,14 @@ def test_under_pythonw_the_guarded_command_s_output_is_kept(tmp_path):
         rc = subprocess.call([pyw, "-c", script], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT,
                              env=env, timeout=120)
     assert rc == 0 and "inner said it" in out.read_text(encoding="utf-8", errors="replace")
+
+
+def test_linux_guard_registers_a_hold_so_the_brake_can_pause_the_job(tmp_path, monkeypatch):
+    """R11: on Linux the guard returned before brake.hold, so a hot machine never paused a guarded job."""
+    from fieldkit.thermal import brake, keeper
+    monkeypatch.setattr(buildguard.sys, "platform", "linux")
+    monkeypatch.setattr(brake, "_dir", lambda: tmp_path)
+    monkeypatch.setattr(keeper, "refusal", lambda *a, **k: "")
+    with buildguard._fan_and_governor(lambda *_: None, "t", None, False, None, None):
+        assert [h["pid"] for h in brake.holds(tmp_path, alive=lambda p: True)] == [os.getpid()]
+    assert brake.holds(tmp_path, alive=lambda p: True) == []
