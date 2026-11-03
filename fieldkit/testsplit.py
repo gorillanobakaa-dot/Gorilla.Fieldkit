@@ -12,8 +12,11 @@ pre-commit ran NOTHING (cli.py fans out to 59-74 test files). Now:
 
     python -m fieldkit.testsplit start --key KEY FILES...   dispatch; stdout = the files to run HERE, one per line
     python -m fieldkit.testsplit collect --key KEY          wait for the remote shares; exit 0 all signed passes,
-                                                            1 a remote share failed (names on stderr), 10 a share has
-                                                            no signed result: its files on stdout, run them here
+                                                            10 a share has no signed pass (missing, unsigned or
+                                                            FAILED on the other device): its files on stdout, run
+                                                            them here, where they must pass (a peer's failure alone
+                                                            never refuses a commit, 2026-11-03: the VAIO's own two
+                                                            environment failures refused #350)
 
 A remote result counts only when a pinned worker key signed it (orchestrate_work.verified_result) and says pass; an
 unsigned, late or missing answer is never a pass (fail closed: the files run here).
@@ -137,11 +140,9 @@ def collect(key, wait_s=WAIT_S, wait_fn=None, result_fn=None, say=None):
             say(f"testsplit: {name}: PASS (signed, job {s['job']}): {len(s['files'])} test file(s)")
         else:
             first = (r.get("evidence") or "").splitlines()[:1]
-            bad.append(f"{name}: {r.get('status')} (job {s['job']}) {first[0][:120] if first else ''}")
-    if bad:
-        for b in bad:
-            say("testsplit: FAILED on " + b)
-        return 1, again, bad
+            say(f"testsplit: {name}: {r.get('status')} (job {s['job']}) {first[0][:120] if first else ''}: its "
+                f"{len(s['files'])} file(s) run here to confirm (another device's own environment can differ)")
+            again += s["files"]
     return (UNVOUCHED if again else 0), again, []
 
 
