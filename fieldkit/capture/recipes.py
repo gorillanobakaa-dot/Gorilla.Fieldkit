@@ -66,7 +66,9 @@ ANCHORS = {"release": ["gh release", "fieldkit ship", "fieldkit release-page", "
            "documents": ["fieldkit privacy", "python -m fieldkit privacy", "fieldkit sitrep", "fieldkit docs",
                          "python -m fieldkit docs", "fieldkit office", "fieldkit release-page"],
            "debug": ["python -m pytest", "go test", "go vet", "cargo test", "fieldkit mutate", "python -m fieldkit mutate",
-                     "fieldkit triage", "fieldkit regress"]}
+                     "fieldkit triage", "fieldkit regress"],
+           "cleanup": ["fieldkit size", "python -m fieldkit size", "fieldkit scratch", "python -m fieldkit scratch",
+                       "fieldkit sweep", "python -m fieldkit sweep", "fieldkit hog", "python -m fieldkit hog"]}
 
 
 def group_episodes(store, state, intent, min_steps=3, with_skipped=False):
