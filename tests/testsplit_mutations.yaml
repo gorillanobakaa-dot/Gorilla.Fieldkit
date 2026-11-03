@@ -18,3 +18,8 @@
   - '            again += s["files"]'
   - '            pass'
   why: R15 a share without a signed result runs here, it is never counted as run
+- file: fieldkit/testsplit.py
+  swap:
+  - "file(s) run here to confirm (another device's own environment can differ)\")"
+  - "file(s) were not run (another device's own environment can differ)\")"
+  why: 2026-11-03 a share that failed on another device is re-run here and said so, never counted as run
