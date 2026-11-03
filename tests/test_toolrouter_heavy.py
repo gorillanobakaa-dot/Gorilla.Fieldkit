@@ -130,3 +130,46 @@ def test_fix5_the_words_of_a_search_are_its_pattern(cmd):
 ])
 def test_fix5_heavy_work_next_to_a_search_is_still_refused(cmd):
     assert tr.heavy_refusal(cmd, platform="win32") is not None
+
+
+# -- P18 stage 3b (2026-11-03): the guard prefix is applied by the hook instead of a refusal
+@pytest.fixture
+def win(monkeypatch):
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+
+
+@pytest.mark.parametrize("cmd, fixed", [
+    ("python -m pytest -q tests", "python -m fieldkit guard -- python -m pytest -q tests"),
+    ("cd /c/x && go test ./...", "cd /c/x && python -m fieldkit guard -- go test ./..."),
+    ("cargo build --release 2>&1", "python -m fieldkit guard -- cargo build --release 2>&1"),
+    ('git commit -m "a; b"', None),            # not a fieldkit checkout here: not heavy, so nothing to fix
+])
+def test_guard_rewrite_prefixes_one_heavy_statement(win, cmd, fixed):
+    got = tr.rewrite(cmd, cwd=".")
+    assert (got[0] if got else None) == fixed or fixed is None
+
+
+@pytest.mark.parametrize("cmd", [
+    "FOO=1 go test ./...",                     # the prefix would turn the variable into the program
+    "git status && go test ./a",               # only the heavy part is guarded, the rest is not ours to split
+    "make -j4 &",                              # background
+    "cargo build | tee log.txt",
+    "go test ./... # toolrouter-ok: measured on purpose",
+    "python -m fieldkit guard -- go test ./...",
+])
+def test_guard_rewrite_leaves_what_it_cannot_do_safely(win, cmd):
+    assert tr.guard_rewrite(cmd) is None
+
+
+def test_the_hook_allows_with_the_guarded_command(win, capsys):
+    import io
+    import json
+    call = {"tool_name": "Bash", "tool_input": {"command": "python -m pytest -q", "description": "d"}}
+    tr.hook(io.StringIO(json.dumps(call)))
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "allow"
+    assert out["updatedInput"] == {"command": "python -m fieldkit guard -- python -m pytest -q", "description": "d"}
+    # the same command in PowerShell is not rewritten (the prefix is a Bash-tool fix): still refused
+    call["tool_name"] = "PowerShell"
+    tr.hook(io.StringIO(json.dumps(call)))
+    assert json.loads(capsys.readouterr().out)["hookSpecificOutput"]["permissionDecision"] == "deny"
