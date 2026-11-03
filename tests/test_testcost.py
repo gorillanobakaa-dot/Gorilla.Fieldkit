@@ -266,3 +266,22 @@ def test_this_repository_has_no_unmapped_file():
         pytest.skip("not a git checkout")
     u = testcost.plan(root, paths=files, diff_lines=lambda q: [])["unmapped"]
     assert u == [], "map these in tests/testmap.yaml or give them a test: " + ", ".join(u)
+
+
+def test_a_merge_in_progress_stages_only_the_branch_side_files(tmp_path):
+    """TESTS ONCE: files arriving from the base passed the base's CI; only the branch's own files are tested."""
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=a@b", "-c", "user.name=t", *a],
+                       check=True, capture_output=True)
+    git("init", "-q", "-b", "main")
+    (tmp_path / "base.txt").write_text("0\n")
+    git("add", "-A"); git("commit", "-qm", "0")
+    git("checkout", "-qb", "feat")
+    (tmp_path / "mine.txt").write_text("1\n")
+    git("add", "-A"); git("commit", "-qm", "mine")
+    git("checkout", "-q", "main")
+    (tmp_path / "theirs.txt").write_text("2\n")
+    git("add", "-A"); git("commit", "-qm", "theirs")
+    git("checkout", "-q", "feat")
+    git("merge", "--no-commit", "--no-ff", "main")
+    assert testcost.staged_files(tmp_path) == []
