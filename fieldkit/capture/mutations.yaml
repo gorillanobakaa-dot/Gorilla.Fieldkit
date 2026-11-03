@@ -37,6 +37,7 @@
 - {file: fieldkit/capture/recipes.py, swap: ['    return " ".join(words[:4])[:80]', '    return " ".join(words)[:80]'], why: "a step command is the start of the command, not one episode's arguments"}
 - {file: fieldkit/capture/recipes.py, swap: ['"--max-budget-usd", BUDGET_USD,', ''], why: "the model call has a dollar cap"}
 - {file: fieldkit/capture/recipes.py, swap: ['                    if sc > best:', '                    if sc > 10 ** 9:'], why: "the recipe order is the one most episodes agree with"}
+- {file: fieldkit/capture/recipes.py, swap: ['"sync": ["git fetch", "git pull", "git merge", "git rebase"],', '"sync": [],'], why: "a sync episode needs a fetch, pull, merge or rebase to count as sync work"}
 - {file: fieldkit/capture/recipes.py, swap: ['"build": ["fieldkit emerge", "go build",', '"build": ["no such build tool", "go build",'], why: "the build group is anchored by its build commands"}
 - {file: fieldkit/capture/recipes.py, swap: ['             if state["state"].get(sid, {}).get("state", "raw") == "raw"}', '             if True}'], why: "an item that already has a state keeps its own evidence"}
 - {file: fieldkit/capture/recipes.py, swap: ['    return "go" if "go" in tools else', '    return "other" if False else'], why: "the procedure counts the Go flows of the group"}
@@ -45,3 +46,10 @@
 - {file: fieldkit/capture/recipes.py, swap: ['"debug": ["python -m pytest",', '"debug": ["no such test tool",'], why: "the debug group is anchored by its test and check commands"}
 - {file: fieldkit/capture/recipes.py, swap: ['[re.escape(t) for t in terms]', '[]'], why: "the owner's private terms (from local settings) are refused in a model's names"}
 - {file: fieldkit/capture/recipes.py, swap: ['"cleanup": ["fieldkit size",', '"cleanup": ["no such cleanup tool",'], why: "the cleanup group is anchored by its size and scratch commands"}
+- {file: fieldkit/capture/weaktest.py, swap: ['    found = re.findall(r"\b(PASS|FAIL)\b", answer or "", re.I)', '    found = []'], why: "a model answer is read for its PASS or FAIL word"}
+- {file: fieldkit/capture/weaktest.py, swap: ['    return found[-1].upper() if found else None', '    return found[0].upper() if found else None'], why: "the last verdict word of a model answer counts"}
+- {file: fieldkit/capture/weaktest.py, swap: ['        if got != expected:', '        if False:'], why: "a wrong model verdict is counted wrong"}
+- {file: fieldkit/capture/weaktest.py, swap: ['        if not r["ok"]:', '        if False:'], why: "a step that fails the reader rules is counted as failed"}
+- {file: fieldkit/capture/weaktest.py, swap: ['res["model_note"] = "not verified: no model asked for"', 'res["model_note"] = ""'], why: "no model run is reported as not verified"}
+- {file: fieldkit/capture/workflows.py, swap: ['d.get("accepted") and d.get("steps") and d.get("intent") == kind', 'd.get("intent") == kind'], why: "only an accepted recipe is offered, never a procedure"}
+- {file: fieldkit/autopilot/room.py, swap: ['        t = workflows.offer_line(call.get("prompt") or "")', '        t = ""'], why: "the prompt hook offers the matching workflow"}

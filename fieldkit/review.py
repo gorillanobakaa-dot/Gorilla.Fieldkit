@@ -2,6 +2,7 @@
 """fieldkit review: ONE list of everything that waits on the owner, answered once (owner, 2026-10-31).
 
     fieldkit review            the owner's, at a real terminal: main goal, everyday problems, then parked ideas, numbered 1..N
+    fieldkit review --inbox    write state/INBOX.md (waiting items with why + command, and the agent ledger) and open it
     fieldkit review --open     write state/REVIEW.md (the same list) and open it in the default viewer
     fieldkit review --list     print the list, change nothing
 
@@ -27,6 +28,7 @@ from .core.settings import state_root
 
 ROOT = ideas.ROOT
 CHOICE_KINDS = ("choice", "decision")
+NL = "\n"
 
 
 class Refused(Exception):
@@ -156,6 +158,59 @@ def render(es, root=None):
     return out
 
 
+def inbox_page_path(root=None):
+    return state_root(root or ROOT) / "state" / "INBOX.md"
+
+
+def ledger_rows(limit=30):
+    """-> the last `limit` rows of the agent ledger (items `fieldkit inbox add` routed away from the owner)."""
+    import json
+    rows = []
+    f = _inbox().ledger_file()
+    if f.is_file():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows[-limit:]
+
+
+def render_inbox(root=None):
+    """The owner's readable inbox: what waits on the owner (why + exact command), then what agents handled alone."""
+    its = _inbox().items("open")
+    out = ["# Inbox", "", "Rewritten on every inbox change. Read-only: answer at a terminal with `fieldkit review`.", "",
+           f"## Waiting on you ({len(its)})", ""]
+    if not its:
+        out.append("Nothing waits for you.")
+    for it in its:
+        out += [f"### [{it['n']}] {it['title']}", f"- Kind: {it['kind']}, added {it.get('added', '')}",
+                f"- Why: {it.get('why', '')}"]
+        if it.get("command"):
+            out += ["- Command:", "", f"      {it['command']}", ""]
+    rows = ledger_rows()
+    out += ["", f"## Handled by the agents, no action from you ({len(rows)} latest)", "",
+            "Only a hard line reaches you; everything else is filed here for Zero and the next agent.", ""]
+    if not rows:
+        out.append("Nothing filed.")
+    for r in reversed(rows):
+        out.append(f"- {r.get('added', '')} [{r.get('kind', '')}] {r.get('title', '')}: {str(r.get('why', ''))[:200]}")
+        if r.get("command"):
+            out.append(f"  - command: {r['command']}")
+    return out
+
+
+def write_inbox_page(root=None):
+    """Rewrite state/INBOX.md. -> the path, or None (never breaks the change that triggered it)."""
+    try:
+        p = inbox_page_path(root)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(NL.join(render_inbox(root)) + NL, encoding="utf-8", newline=NL)
+        return p
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def write_page(root=None):
     """Rewrite state/REVIEW.md from the stores. -> the path, or None when it could not be written."""
     try:
@@ -172,6 +227,7 @@ def write_page(root=None):
 
 
 def refresh(root=None):
+    write_inbox_page(root)
     return write_page(root)
 
 
@@ -252,8 +308,8 @@ def review(root=None, ask=input, say=print, now=None):
     return res
 
 
-def open_page(root=None, run=None):
-    p = write_page(root)
+def open_page(root=None, run=None, inbox=False):
+    p = write_inbox_page(root) if inbox else write_page(root)
     if p is None:
         raise Refused("the page could not be written")
     if run is not None:
@@ -269,10 +325,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit review", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--open", action="store_true", help="write state/REVIEW.md and open it")
+    ap.add_argument("--inbox", action="store_true", help="write state/INBOX.md (waiting items + agent ledger) and open it")
     ap.add_argument("--list", action="store_true", help="print the list, change nothing")
     a = ap.parse_args(argv)
     try:
-        if a.open:
+        if a.inbox:
+            print(f"opened {open_page(inbox=True)}")
+        elif a.open:
             print(f"opened {open_page()}")
         elif a.list:
             write_page()

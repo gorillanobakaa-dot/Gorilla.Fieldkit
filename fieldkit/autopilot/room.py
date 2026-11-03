@@ -493,6 +493,21 @@ def _refusals(call, event, ctx):
     return ctx
 
 
+def _workflows(call, event, ctx):
+    """P18 stage 7: a request that matches a distilled workflow recipe gets the one line that names it (fieldkit capture
+    workflow). Silent when none matches. Never fails the hook."""
+    if event != "UserPromptSubmit":
+        return ctx
+    try:
+        from ..capture import workflows
+        t = workflows.offer_line(call.get("prompt") or "")
+        if t:
+            return (ctx + chr(10) if ctx else "") + t
+    except Exception:
+        pass
+    return ctx
+
+
 def _context(call, event):
     """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
     rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
@@ -509,6 +524,7 @@ def _context(call, event):
     ctx = _plan(call, event, ctx)
     ctx = _ideas(call, event, ctx)
     ctx = _refusals(call, event, ctx)
+    ctx = _workflows(call, event, ctx)
     ctx = _relay(call, event, ctx)
     return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
 

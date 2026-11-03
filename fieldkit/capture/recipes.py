@@ -71,6 +71,7 @@ def episode_actions(store, state, e):
 # with none of them (a question about a release, a note) is not a flow to learn from and is counted apart.
 ANCHORS = {"release": ["gh release", "fieldkit ship", "fieldkit release-page", "fieldkit publish", "fieldkit release",
                        "fieldkit build-harness", "git tag"],
+           "sync": ["git fetch", "git pull", "git merge", "git rebase"],
            "build": ["fieldkit emerge", "go build", "cargo build", "fieldkit guard", "python -m fieldkit guard", "make",
                      "msbuild", "npm run"],
            "research": ["fieldkit tools", "python -m fieldkit tools", "fieldkit evidence", "python -m fieldkit evidence",

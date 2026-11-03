@@ -11,6 +11,8 @@
     fieldkit capture episodes [--dry-run] [--json]           store episodes (session + request -> ordered steps) in the journal
     fieldkit capture distill pairs|refusals|intents [--apply]  P18 stages 2-4 (no model): signatures, refusal table, intent groups
     fieldkit capture distill recipes --intent release [--name] [--apply]  P18 stage 5: align an intent group into a recipe
+    fieldkit capture weaktest [--model ID] [--json]         P18 stage 6: recipes vs the sitrep rules and a small local model
+    fieldkit capture workflow list|show ID|offer REQUEST    P18 stage 7: the recipes one step at a time; the one a request matches
     fieldkit capture self-test --first-use|--context|--failed|--before-processing|--crash
 
 The store is state/capture/ (override: FIELDKIT_CAPTURE_DIR), append-only, hash-chained, fsync per record. Nothing is
@@ -229,6 +231,31 @@ def cmd_distill(a):
     return 0
 
 
+def cmd_weaktest(a):
+    from . import weaktest as W
+    res = W.run(W.load_recipes(), model=a.model)
+    _emit(a, res, W.lines(res))
+    return 3 if any(r["reader"]["failed"] or r.get("model", {}).get("wrong") for r in res["recipes"]) else 0
+
+
+def cmd_workflow(a):
+    from . import workflows as WF
+    if a.what == "list":
+        lines = WF.list_lines()
+    elif a.what == "offer":
+        line = WF.offer_line(" ".join(a.words))
+        lines = [line or "no recipe matches this request"]
+        return _emit(a, {"offer": line}, lines) or 0
+    else:
+        d = WF.load().get(a.words[0] if a.words else "")
+        if not d:
+            print("no such workflow; `fieldkit capture workflow list`")
+            return 2
+        lines = WF.show_lines(d)
+    _emit(a, {"lines": lines}, lines)
+    return 0
+
+
 def cmd_selftest(a):
     from . import selftest
     chosen = [k for k in selftest.TESTS if getattr(a, k)]
@@ -273,6 +300,13 @@ def main(argv=None):
     dd.add_argument("--name", action="store_true", help="recipes: one Sonnet call (spend guard, dollar cap) writes the sentences")
     dd.add_argument("--apply", action="store_true", help="write the states, the data file and the intents")
     dd.add_argument("--json", action="store_true")
+    w = sub.add_parser("weaktest", help="P18 stage 6: recipes against the sitrep rules and a small local model")
+    w.add_argument("--model", help="LM Studio model id to load, ask and unload (heavy: run under fieldkit guard)")
+    w.add_argument("--json", action="store_true")
+    wf = sub.add_parser("workflow", help="P18 stage 7: serve the recipes, offer the one that matches a request")
+    wf.add_argument("what", choices=["list", "show", "offer"])
+    wf.add_argument("words", nargs="*")
+    wf.add_argument("--json", action="store_true")
     t = sub.add_parser("self-test", help="prove capture in a sandbox store")
     from . import selftest
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
@@ -281,7 +315,7 @@ def main(argv=None):
     if a.action == "scan":
         return _not_built("scan")
     return {"hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
-            "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "self-test": cmd_selftest}[a.action](a)
+            "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "self-test": cmd_selftest}[a.action](a)
 
 
 if __name__ == "__main__":
