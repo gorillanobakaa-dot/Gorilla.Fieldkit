@@ -37,3 +37,4 @@
 - {file: fieldkit/capture/recipes.py, swap: ['    return " ".join(words[:4])[:80]', '    return " ".join(words)[:80]'], why: "a step command is the start of the command, not one episode's arguments"}
 - {file: fieldkit/capture/recipes.py, swap: ['"--max-budget-usd", BUDGET_USD,', ''], why: "the model call has a dollar cap"}
 - {file: fieldkit/capture/recipes.py, swap: ['                    if sc > best:', '                    if sc > 10 ** 9:'], why: "the recipe order is the one most episodes agree with"}
+- {file: fieldkit/capture/recipes.py, swap: ['"sync": ["git fetch", "git pull", "git merge", "git rebase"]}', '"sync": []}'], why: "a sync episode needs a fetch, pull, merge or rebase to count as sync work"}
