@@ -741,3 +741,15 @@ def test_align_checks_the_icon_even_when_the_binary_is_already_the_release(monke
 
 def test_the_repo_pin_carries_the_release_icon_hash():
     assert re.fullmatch(r"[0-9a-f]{64}", parity.pin()["gorilla-opencode"]["icon_sha256"])
+
+
+def test_align_runs_install_verify_after_the_install_and_fails_on_a_gap(monkeypatch, tmp_path):
+    import hashlib
+    home, _ = _icon_env(monkeypatch, tmp_path, hashlib.sha256(NEW_ICON).hexdigest())
+    ran = []
+    r = parity.align(apply=True, sysname="linux", run=_runner(home, NEW_ICON, ran),
+                     verify_fn=lambda tag, run: {"ok": False, "why": "install verify exit 3: FAIL icon.64x64"})
+    assert r["state"] == "FAILED" and "install verify" in r["why"]
+    monkeypatch.setattr(parity, "state_dir", lambda: tmp_path / "state2")     # a new download folder
+    r = parity.align(apply=True, sysname="linux", run=_runner(home, NEW_ICON, ran), verify_fn=lambda tag, run: {"ok": True})
+    assert r["state"] == "DONE", r
