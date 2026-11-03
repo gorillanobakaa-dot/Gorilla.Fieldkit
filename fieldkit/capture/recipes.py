@@ -13,6 +13,7 @@ import math
 import re
 import statistics
 
+from ..core import privacy
 from . import distill as D
 from . import episodes as ep
 
@@ -24,7 +25,16 @@ REPLAY_ORDER = 0.8            # share of the matched step pairs that must come i
 REPLAY_NEEDED = 3             # episodes that must replay for the recipe to be accepted
 CHEAP_MODEL = "sonnet"
 BUDGET_USD = "0.50"
-_PERSONAL = re.compile(r"[a-z]:[\\/]|/home/|/users/|@[\w-]+\.|gorilla1|gorillanobaka", re.I)
+_PERSONAL_GENERIC = r"[a-z]:[\\/]|/home/|/users/|@[\w-]+\."
+
+
+def personal_pattern(terms=None):
+    """Paths and e-mails, plus the owner's private terms from the git-ignored local settings (never written in this file)."""
+    terms = privacy.private_terms() if terms is None else terms
+    return re.compile("|".join([_PERSONAL_GENERIC] + [re.escape(t) for t in terms]), re.I)
+
+
+_PERSONAL = personal_pattern()
 
 
 READ_ONLY = {"git status", "git log", "git show", "git diff", "git rev-parse", "git branch", "git ls-files", "git ls-remote",
@@ -64,8 +74,14 @@ ANCHORS = {"release": ["gh release", "fieldkit ship", "fieldkit release-page", "
            "sync": ["git fetch", "git pull", "git merge", "git rebase"],
            "build": ["fieldkit emerge", "go build", "cargo build", "fieldkit guard", "python -m fieldkit guard", "make",
                      "msbuild", "npm run"],
+           "research": ["fieldkit tools", "python -m fieldkit tools", "fieldkit evidence", "python -m fieldkit evidence",
+                        "git grep", "gh api", "fieldkit size", "python -m fieldkit size"],
            "documents": ["fieldkit privacy", "python -m fieldkit privacy", "fieldkit sitrep", "fieldkit docs",
-                         "python -m fieldkit docs", "fieldkit office", "fieldkit release-page"]}
+                         "python -m fieldkit docs", "fieldkit office", "fieldkit release-page"],
+           "debug": ["python -m pytest", "go test", "go vet", "cargo test", "fieldkit mutate", "python -m fieldkit mutate",
+                     "fieldkit triage", "fieldkit regress"],
+           "cleanup": ["fieldkit size", "python -m fieldkit size", "fieldkit scratch", "python -m fieldkit scratch",
+                       "fieldkit sweep", "python -m fieldkit sweep", "fieldkit hog", "python -m fieldkit hog"]}
 
 
 def group_episodes(store, state, intent, min_steps=3, with_skipped=False):
@@ -224,3 +240,26 @@ def build(store, intent, runner=None, known_sigs=None):
             "card": {"how_to_read": "One step at a time: do the sentence, run the command, look at the check. Failures list the "
                                     "error seen and what fixed it.",
                      "replay": "dry run on the group's own captured episodes: nothing is executed"}}
+
+
+# ---- a group that does not replay is kept as a procedure, with the reason (nothing is discarded) ------------------
+def toolchain(acts):
+    tools = {a[0].split(" ")[0] for a in acts}
+    return "go" if "go" in tools else "cargo" if "cargo" in tools else "python" if "python" in tools else "other"
+
+
+def procedure(store, rec):
+    """-> (record, marks): the not-accepted group as a procedure record and a 'procedure' state for each of its items
+    that has no state yet (an item already a tool or a procedure keeps its own evidence)."""
+    state = store.state()
+    seqs = group_episodes(store, state, rec["intent"])
+    split = collections.Counter(toolchain(a) for a in seqs.values())
+    seen = collections.Counter(a[0] for acts in seqs.values() for a in acts if a[0] in ANCHORS.get(rec["intent"], []))
+    ep_ = rec["episodes"]
+    reason = (f"stage5 recipe {rec['intent']} not accepted: {ep_['replayed_ok']} of {ep_['in_group']} episodes replayed, "
+              f"{ep_['needed']} needed; kept as a procedure, toolchains {dict(split)}")
+    marks = {sid: ("procedure", reason) for eid in seqs for sid, *_ in ep.steps_of(store, state["episodes"][eid])
+             if state["state"].get(sid, {}).get("state", "raw") == "raw"}
+    return {"id": "procedure-" + rec["intent"], "intent": rec["intent"], "reason": reason, "episodes": ep_["in_group"],
+            "replayed_ok": f"{ep_['replayed_ok']} of {ep_['in_group']}", "anchors_seen": dict(seen),
+            "toolchain_split": dict(split), "items_marked": len(marks)}, marks
