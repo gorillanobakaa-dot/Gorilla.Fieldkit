@@ -96,7 +96,7 @@ def test_a_crashed_guard_leaves_turbo_off_and_the_next_run_restores_it(fake):
 
 def _guard(monkeypatch, surface=True):
     monkeypatch.setattr(buildguard, "sys", types.SimpleNamespace(platform="win32"))
-    monkeypatch.setattr(buildrun, "thermal_sensor", lambda say: ("ec", lambda: 50.0, surface))
+    monkeypatch.setattr(buildrun, "thermal_sensor", lambda say, **k: ("ec", lambda: 50.0, surface))
     said = []
     return said, buildguard._fan_and_governor(said.append, "t", None, False, None, None)
 
@@ -149,3 +149,28 @@ def test_a_powershell_reader_that_hangs_is_a_missing_reading_not_a_dead_governor
     monkeypatch.setattr(sensors, "_run_ps", hang)
     assert sensors.perf_percent() is None
     assert sensors.thermalzone() is None
+
+
+def test_the_sensor_proof_for_the_always_on_governor_never_runs_powercfg(tmp_path, monkeypatch):
+    """Row 67 (2026-11-03): `thermal watch --forever` ran PROCTHROTTLEMAX 60 / 100 and /setactive through the sensor proof."""
+    from pathlib import Path
+    from fieldkit.thermal import governor, sensors
+    monkeypatch.delenv("FIELDKIT_THERMAL_PROOF", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    monkeypatch.setattr(buildrun, "cool_down", lambda say: 40.0)
+    monkeypatch.setattr(buildrun, "wait_for_idle", lambda say: 0)
+    monkeypatch.setattr(sensors, "PROVIDERS", [("die", lambda: 50.0)])
+    monkeypatch.setattr(sensors, "best", lambda **k: ("die", lambda: 50.0, "under load [die sensor]"))
+    calls = []
+    monkeypatch.setattr(governor, "_powercfg", lambda *a: calls.append(a) or (0, "0x00000064"))
+    buildrun.thermal_sensor(lambda m: None, plan_cap=False)
+    assert calls == []
+    (tmp_path / "home" / ".fieldkit" / "thermal-proof.json").unlink()
+    buildrun.thermal_sensor(lambda m: None)                                   # the explicit proof may still cap
+    assert calls
+
+
+def test_every_caller_inside_the_governor_passes_plan_cap_false():
+    import inspect
+    for mod in (watch, buildguard):
+        assert "thermal_sensor(say, plan_cap=False)" in inspect.getsource(mod)
