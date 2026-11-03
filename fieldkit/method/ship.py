@@ -253,8 +253,11 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
     reds = (counter or _own_reds)(run, repo, branch, pr["number"], runs, base)
     if reds >= STRIKES_AT:
         why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} commits failed CI by their own failures. Auto-merge NOT enabled."
-        return dict(rep, ok=False, state="parked", reds=reds, error=why,
-                    next="PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")
+        from . import strikes
+        up = strikes.escalation(branch)
+        nxt = (f"ESCALATE (ladder on): next attempt with {up}" if up
+               else "PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")
+        return dict(rep, ok=False, state="parked", reds=reds, error=why, escalate_to=up, next=nxt)
     # 2026-10-31: on a repository whose base branch requires no status check (Gorilla.Opencode: no ruleset, auto-merge
     # off) `gh pr merge --auto` merges AT ONCE, before CI ends: PRs #42-#44 there merged 1-4 min ahead of their checks.
     # Main moves only on green CI, so without a required check there is no auto-merge: the PR stays open.
