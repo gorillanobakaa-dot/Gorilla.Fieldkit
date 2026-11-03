@@ -162,6 +162,19 @@ def test_build_group_needs_a_build_command(s):
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
 
 
+def test_group_that_does_not_replay_becomes_a_procedure(s):
+    for i in range(2):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "go build ./cmd"])
+    flow(s, "c", ["git add .", "git commit -m x", "cargo build"])
+    state = episodes(s, "build")
+    rec = R.build(s, "build")
+    rec["accepted"] = False
+    proc, marks = R.procedure(s, rec)
+    assert proc["toolchain_split"] == {"go": 2, "cargo": 1} and proc["items_marked"] == len(marks) == 9
+    assert all(v[0] == "procedure" and "not accepted" in v[1] for v in marks.values())
+    tool_item = next(iter(marks))
+    s.append_many("state", [{"item": tool_item, "state": "tool", "evidence": "x", "error": None}])
+    assert tool_item not in R.procedure(s, rec)[1]                                      # an item with a state keeps it
 def test_research_group_needs_a_search_command(s):
     for i in range(3):
         flow(s, f"s{i}", ["git add .", "git commit -m x", "gh api repos/x/y"])
