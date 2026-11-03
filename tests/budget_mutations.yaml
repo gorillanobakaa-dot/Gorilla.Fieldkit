@@ -46,3 +46,6 @@
 - file: fieldkit/tokens/budget.py
   swap: ["\"--model\", \"sonnet\", \"--pin\"]", "]"]
   why: "the last-resort headless start is pinned to Sonnet, never routed down to Haiku"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if call.get(\"stop_hook_active\") or not tp:", "        if not tp:"]
+  why: "a Stop hook that already blocked once never blocks again (no loop)"
