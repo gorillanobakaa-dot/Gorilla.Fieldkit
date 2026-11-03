@@ -160,3 +160,12 @@ def test_build_group_needs_a_build_command(s):
     episodes(s, "build")
     r = R.build(s, "build")
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_research_group_needs_a_search_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "gh api repos/x/y"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "research")
+    r = R.build(s, "research")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
