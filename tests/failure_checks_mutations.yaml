@@ -1,0 +1,23 @@
+# Each stored failure check must be CAUGHT when weakened:
+#   fieldkit mutate --plan tests/failure_checks_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_failure_checks.py
+- file: fieldkit/build/failure_checks.py
+  swap: ["if rel in theirs and _sha(p) != _sha(theirs[rel])]", "if rel in theirs]"]
+  why: an identical user icon is not a shadow
+- file: fieldkit/build/failure_checks.py
+  swap: ["> cache.stat().st_mtime:", "< cache.stat().st_mtime:"]
+  why: a cache older than the icons is stale
+- file: fieldkit/build/failure_checks.py
+  swap: ["not Path(t).exists():", "Path(t).exists():"]
+  why: a missing Exec target is the failure
+- file: fieldkit/build/failure_checks.py
+  swap: ['(latest|nightly|rolling|continuous|edge)/", re.I)', '(latest|rolling|continuous|edge)/", re.I)']
+  why: nightly is a rolling tag too
+- file: fieldkit/build/failure_checks.py
+  swap: ["    if not b.startswith(ALLOWED_BRANCH):", "    if False:"]
+  why: a push from a branch the mandate refuses is flagged
+- file: fieldkit/build/failure_checks.py
+  swap: ['        if not sample or not s["_rx"].search(sample):', "        if False:"]
+  why: self-test proves the pattern names its sample line
+- file: fieldkit/build/failure_checks.py
+  swap: ["                elif fn(good_ctx):", "                elif False:"]
+  why: self-test proves a check is quiet on a clean tree
