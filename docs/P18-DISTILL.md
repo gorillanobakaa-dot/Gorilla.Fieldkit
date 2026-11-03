@@ -69,3 +69,12 @@ this computer's Claude sessions only. Gemini, Gorilla OpenCode and the Linux lap
 `Documents/Scripts/CaptureFamilies/` (outside this repo): `capture_families.py` (command families, script
 languages), `capture_context.py` (how much context each item carries), `capture_episodes.py` (the table above).
 Stage 1 adopts them into `fieldkit capture`.
+
+## Stage 6 and 7 result (2026-11-03)
+
+- `fieldkit capture weaktest`: sitrep reader rules pass on 17 of 17 steps (release 12, documents 5). Local model
+  `google/gemma-4-12b-qat` (LM Studio, loaded for the test, unloaded after) gave the right PASS/FAIL verdict on 33 of 34
+  cases (release 24/24, documents 9/10; the miss was an answer cut off at the 400-token limit, no verdict word). Not
+  verified: recipes merged after this run (sync, test), and whether the model can run the commands itself.
+- `fieldkit capture workflow list|show|offer` serves a recipe one step at a time; the prompt hook prints the offer line
+  when a request matches an accepted recipe.

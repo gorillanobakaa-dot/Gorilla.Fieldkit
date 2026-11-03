@@ -192,7 +192,15 @@ def changed_files(repo=".", base=None):
 
 
 def staged_files(repo="."):
-    return _git(repo, "diff", "--cached", "--name-only").split()
+    """Staged paths. In the middle of a merge only the branch side's own files: what arrives from the base already
+    passed the base's CI (TESTS ONCE); testing it again held a slot for an hour (2026-11-03, I-18)."""
+    staged = _git(repo, "diff", "--cached", "--name-only").split()
+    gitdir = Path(_git(repo, "rev-parse", "--absolute-git-dir").strip())
+    if not staged or not (gitdir / "MERGE_HEAD").is_file():
+        return staged
+    base = _git(repo, "merge-base", "HEAD", "MERGE_HEAD").strip()
+    ours = set(_git(repo, "diff", "--name-only", base, "HEAD").split()) if base else set()
+    return [p for p in staged if p in ours] if ours else staged
 
 
 def _module_of(path):
@@ -405,9 +413,13 @@ def main(argv=None, prog="fieldkit testcost"):
         tests = plan(a.repo, paths=staged_files(a.repo))["tests"]
         cap = int(os.environ.get("FIELDKIT_LOCAL_TEST_CAP", "15"))
         if len(tests) > cap:
-            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop: that is the suite, so CI runs it
-            print(f"testcost: {len(tests)} test files cover the staged files (> {cap}): CI runs them, not this laptop",
-                  file=sys.stderr)
+            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop. R15: never dropped - this
+            # computer keeps its share (the cap), the free devices run the rest (fieldkit/testsplit.py), and what no
+            # device takes runs here
+            from . import testsplit
+            rel = [os.path.relpath(t, a.repo).replace("\\", "/") for t in tests]
+            for t in testsplit.start(a.repo, rel, tree_key(a.repo), cap)["local"]:
+                print(t)
             return 0
         for t in tests:
             print(os.path.relpath(t, a.repo).replace("\\", "/"))

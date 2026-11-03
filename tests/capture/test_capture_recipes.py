@@ -83,6 +83,15 @@ def test_episode_without_anchor_command_is_left_out(s):
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
 
 
+def test_sync_group_keeps_only_episodes_that_fetch_pull_merge_or_rebase(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git fetch", "git merge origin/main"], request="sync with github")
+    flow(s, "q", ["git add .", "git commit -m x", "gh pr create"], request="sync with github")
+    episodes(s, "sync")
+    r = R.build(s, "sync")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
 def s_with(s):
     episodes(s)
     return s
@@ -155,7 +164,7 @@ def test_order_follows_what_most_episodes_do_not_the_average_position():
 
 def test_build_group_needs_a_build_command(s):
     for i in range(3):
-        flow(s, f"s{i}", ["git add .", "git commit -m x", "go build ./cmd"])
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "fieldkit emerge run x"])
     flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
     episodes(s, "build")
     r = R.build(s, "build")
@@ -170,3 +179,57 @@ def test_test_group_needs_a_test_runner_anchor(s):
     r = R.build(s, "test")
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
     assert "python -m pytest" in R.ANCHORS["test"] and "go test" in R.ANCHORS["test"]
+
+
+
+def test_group_that_does_not_replay_becomes_a_procedure(s):
+    for i in range(2):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "go build ./cmd"])
+    flow(s, "c", ["git add .", "git commit -m x", "cargo build"])
+    state = episodes(s, "build")
+    rec = R.build(s, "build")
+    rec["accepted"] = False
+    proc, marks = R.procedure(s, rec)
+    assert proc["toolchain_split"] == {"go": 2, "cargo": 1} and proc["items_marked"] == len(marks) == 9
+    assert all(v[0] == "procedure" and "not accepted" in v[1] for v in marks.values())
+    tool_item = next(iter(marks))
+    s.append_many("state", [{"item": tool_item, "state": "tool", "evidence": "x", "error": None}])
+    assert tool_item not in R.procedure(s, rec)[1]                                      # an item with a state keeps it
+def test_research_group_needs_a_search_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "gh api repos/x/y"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "research")
+    r = R.build(s, "research")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_documents_group_needs_a_document_or_privacy_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "fieldkit privacy scan docs"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "documents")
+    r = R.build(s, "documents")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_debug_group_needs_a_test_or_check_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "python -m pytest tests"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "debug")
+    r = R.build(s, "debug")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_personal_pattern_takes_private_terms_from_settings_not_from_the_source():
+    assert R.personal_pattern(["zzprivate"]).search("by ZZPrivate today")
+    assert not R.personal_pattern([]).search("by zzprivate today")
+    assert R.personal_pattern([]).search("see " + "/ho" + "me/x")
+def test_cleanup_group_needs_a_size_or_scratch_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "fieldkit size recycle old"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "cleanup")
+    r = R.build(s, "cleanup")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1

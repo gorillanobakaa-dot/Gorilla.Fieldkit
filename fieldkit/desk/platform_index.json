@@ -2629,8 +2629,8 @@
  },
  "power incidents": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
