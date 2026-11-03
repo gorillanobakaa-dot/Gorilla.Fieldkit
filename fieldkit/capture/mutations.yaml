@@ -25,3 +25,14 @@
 - {file: fieldkit/capture/distill.py, swap: ['for kind, words in INTENTS:', 'for kind, words in []:'], why: "a request is sorted into an intent group"}
 - {file: fieldkit/capture/distill.py, swap: ['if p[0] not in marks:', 'if False:'], why: "a pair outside a signature becomes a procedure with the reason"}
 - {file: fieldkit/capture/distill.py, swap: ['state["state"].get(i, {}).get("evidence") != ev', 'True'], why: "applying the states twice writes nothing the second time"}
+- {file: fieldkit/capture/recipes.py, swap: ['    return (fam.split(" ")[0] in ACTION_TOOLS or fam.startswith("python -m ")) and fam not in READ_ONLY', '    return (fam.split(" ")[0] in ACTION_TOOLS or fam.startswith("python -m "))'], why: "reading git state is not a recipe step"}
+- {file: fieldkit/capture/recipes.py, swap: ['keep = [f for f, c in support.most_common() if c >= need][:MAX_STEPS]', 'keep = [f for f, c in support.most_common() if c >= 1][:MAX_STEPS]'], why: "a family seen in too few episodes is not a step"}
+- {file: fieldkit/capture/recipes.py, swap: ['return {"ok": len(hit) >= REPLAY_MIN_STEPS and', 'return {"ok": len(hit) >= 0 and'], why: "a replay needs enough recipe steps in the episode"}
+- {file: fieldkit/capture/recipes.py, swap: ['and order >= REPLAY_ORDER and not unfinished,', 'and not unfinished,'], why: "a replay keeps the recipe order"}
+- {file: fieldkit/capture/recipes.py, swap: ['REPLAY_ORDER and not unfinished,', 'REPLAY_ORDER,'], why: "a replay needs every step to finish"}
+- {file: fieldkit/capture/recipes.py, swap: ['"accepted": len(passed) >= REPLAY_NEEDED,', '"accepted": len(passed) >= 1,'], why: "a recipe is accepted only when 3 episodes replay"}
+- {file: fieldkit/capture/recipes.py, swap: ['if intent in ANCHORS and not any(a[0] in ANCHORS[intent] for a in acts):', 'if False:'], why: "an episode with no anchor command is not a flow of its group"}
+- {file: fieldkit/capture/recipes.py, swap: ['    if any(_PERSONAL.search(t) for t in texts):', '    if False:'], why: "a model name with a path or e-mail is refused"}
+- {file: fieldkit/capture/recipes.py, swap: ['    if sorted(d["steps"]) != sorted(ids):', '    if False:'], why: "the model must name exactly the draft steps"}
+- {file: fieldkit/capture/recipes.py, swap: ['    return " ".join(words[:4])[:80]', '    return " ".join(words)[:80]'], why: "a step command is the start of the command, not one episode's arguments"}
+- {file: fieldkit/capture/recipes.py, swap: ['"--max-budget-usd", BUDGET_USD,', ''], why: "the model call has a dollar cap"}
