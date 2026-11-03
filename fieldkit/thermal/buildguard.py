@@ -102,11 +102,14 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
     why = keeper.refusal()                                # 2026-11-02: no heavy job while the machine governor is down
     if why:
         raise BuildRefused(why)
+    from . import brake
     if sys.platform != "win32":
-        yield None
+        # R11 (VAIO, 2026-11-03): the machine governor's brake pauses the children of every registered hold; without
+        # one here a guarded job on Linux was never paused. The Linux governor is the keeper's, not this block's.
+        with brake.hold(label, say=say):
+            yield None
         return
     from ..buildh import buildrun
-    from . import brake
     if sensor is None:
         name, fn, surface = buildrun.thermal_sensor(say, plan_cap=False)
         if fn is None:
