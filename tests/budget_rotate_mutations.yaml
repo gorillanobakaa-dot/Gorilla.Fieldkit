@@ -1,0 +1,10 @@
+- file: fieldkit/autopilot/budget.py
+  swap:
+  - '        read_tool = False'
+  - '        pass'
+  why: R19 past ROTATE a read tool is refused too, not only writes
+- file: fieldkit/autopilot/budget.py
+  swap:
+  - ' or m.get("rotate_level") == "WARN"):'
+  - '):'
+  why: R19 a session last read as WARN is re-read on every call, not up to nine calls past the line
