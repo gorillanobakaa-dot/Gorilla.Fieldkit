@@ -55,7 +55,7 @@ def forever(target=None, say=None, sensor=None, ticks=None, sleep=time.sleep, fo
         threading.Thread(target=_beat, daemon=True).start()
     if sensor is None:
         try:
-            name, fn, surface = buildrun.thermal_sensor(say)
+            name, fn, surface = buildrun.thermal_sensor(say, plan_cap=False)
         finally:
             beat.set()
         if fn is None:

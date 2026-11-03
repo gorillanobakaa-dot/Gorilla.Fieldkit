@@ -97,7 +97,7 @@ def test_the_lease_is_written_before_the_sensor_proof(tmp_path, monkeypatch):
     from fieldkit.buildh import buildrun
     from fieldkit.thermal import watch
     seen = []
-    def proof(say):
+    def proof(say, **k):
         seen.append(brake.machine_alive(tmp_path))
         return None, None, False
     monkeypatch.setattr(buildrun, "thermal_sensor", proof)
