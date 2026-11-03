@@ -83,6 +83,15 @@ def test_episode_without_anchor_command_is_left_out(s):
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
 
 
+def test_sync_group_keeps_only_episodes_that_fetch_pull_merge_or_rebase(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git fetch", "git merge origin/main"], request="sync with github")
+    flow(s, "q", ["git add .", "git commit -m x", "gh pr create"], request="sync with github")
+    episodes(s, "sync")
+    r = R.build(s, "sync")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
 def s_with(s):
     episodes(s)
     return s
