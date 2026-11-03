@@ -28,6 +28,13 @@ score:
 high_words: [security, secret, credential, migration, migrate, schema, concurrency, race, deadlock, architecture,
              redesign, rewrite, refactor, cryptograph, signature, mandate, rollback, release, force-push, irreversible,
              data loss, privacy, threat model, protocol]
+# The floor (owner 2026-11-03, after T-20261103-013221-61849b, a tests + mutations + design job, went to Haiku on score
+# 0: "release" +2, "count" (in "counter") -1, "docs" (in "docs/WHERE-THINGS-LIVE.md") -1). A brief that names any of
+# these words touches code with tests or mutations, rules, hooks or the lifecycle: it never routes below floor.rung,
+# whatever the score, the low words or the window squeeze say. A ceiling below the floor parks the job in the inbox.
+floor:
+  rung: sonnet
+  words: [test, mutat, hook, rules, core.md, lifecycle, .py, guard, router, rotate, ci-wait, integration]
 low_words: [typo, rename, docs, documentation, readme, comment, format, lint, scan, list, collect, count, copy,
             table, report, changelog, mechanical, boilerplate, fixture]
 # Failures climb one rung per failed round (cascade), never above the ceiling; past the ceiling the reviewer role

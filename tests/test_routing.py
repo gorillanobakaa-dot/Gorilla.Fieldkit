@@ -35,7 +35,7 @@ def test_assess_is_deterministic_and_ranked():
 def test_downgrade_from_the_ceiling_not_above():
     r = routing.route(EASY, "sonnet")
     assert (r["model"], r["action"]) == ("haiku", "downgrade")
-    r = routing.route("add a validated option to the cli with a test", "haiku")
+    r = routing.route(MID, "haiku")
     assert r["model"] == "haiku"                       # the ceiling holds even if the risk wants more
     r = routing.route(MID, "sonnet")
     assert (r["model"], r["action"]) == ("sonnet", "capped")      # needs opus, the owner's ceiling is sonnet
@@ -132,3 +132,27 @@ def test_the_cost_guard_checks_the_ceiling_before_the_router_lowers_it(tmp_path)
     with pytest.raises(ValueError, match="fable"):
         fake_start(tmp_path, EASY, model="fable")           # an easy brief would be lowered, but fable was asked for
     assert not (tmp_path / "lc" / "tasks.jsonl").exists()
+
+
+# The brief that went to Haiku on 2026-11-03 (T-20261103-013221-61849b), its words kept: score 0 by the words alone.
+HAIKU_BRIEF = ("Budget warnings at 50% and 90%, a session counter for names, no release; see docs/WHERE-THINGS-LIVE.md. "
+               "Add tests and mutate the new checks; wire the room hook.")
+
+
+def test_floor_keeps_a_tests_and_hooks_job_on_sonnet():
+    a = routing.assess(HAIKU_BRIEF)
+    assert a["floor"] == "sonnet" and a["rung"] == "sonnet"
+    r = routing.route(HAIKU_BRIEF, "sonnet")
+    assert (r["model"], r["action"]) == ("sonnet", "use")
+    assert routing.route(EASY, "sonnet")["model"] == "haiku"      # no floor word: the router still goes down
+
+
+def test_floor_holds_in_the_window_squeeze(monkeypatch):
+    monkeypatch.setattr(routing, "window_state", lambda d=None: {"fraction": 0.99})
+    assert routing.route(HAIKU_BRIEF, "sonnet")["model"] == "sonnet"
+    assert routing.route(EASY, "sonnet")["model"] == "haiku"
+
+
+def test_floor_above_the_ceiling_parks_instead_of_shrinking():
+    r = routing.route(HAIKU_BRIEF, "haiku")
+    assert r["action"] == "park" and r["model"] == "" and "floor sonnet" in r["why"]

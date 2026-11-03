@@ -129,7 +129,14 @@ def assess(text, plan=None, data=None):
     lad = d["ladder"]
     rung = (lad[0] if score <= s["haiku_max"] else lad[1] if score <= s["sonnet_max"]
             else lad[2] if score <= s["opus_max"] else lad[3])
-    return {"score": score, "rung": rung, "reasons": why or ["no risk or ease words"]}
+    fl = d.get("floor") or {}
+    hits = sorted({w for w in fl.get("words", []) if w in low})
+    floor = fl.get("rung", "") if hits and fl.get("rung") in lad else ""
+    if floor:
+        why.append(f"floor {floor}: " + ", ".join(hits))
+        if lad.index(rung) < lad.index(floor):
+            rung = floor
+    return {"score": score, "rung": rung, "floor": floor, "reasons": why or ["no risk or ease words"]}
 
 
 def route(text, requested=None, pin=False, plan=None, data=None, ch=None):
@@ -156,6 +163,11 @@ def route(text, requested=None, pin=False, plan=None, data=None, ch=None):
     w = window_state(d)
     if w and w["fraction"] >= d["window"]["squeeze_fraction"]:
         pick = 0                                       # the window is running out: the cheapest rung only
+    fr = lad.index(a["floor"]) if a.get("floor") else -1
+    if fr > cr:                                        # the floor is above the owner's ceiling: parked, not shrunk
+        return {"model": "", "rung": a["rung"], "ceiling": ceiling, "action": "park",
+                "why": f"floor {a['floor']} is above the ceiling {ceiling} ({'; '.join(a['reasons'])})"}
+    pick = max(pick, fr)                               # never below the floor, not even in the squeeze
     model = ceiling if pick == cr else lad[pick]
     action = "downgrade" if pick < cr else "capped" if need > pick else "use"
     return {"model": model, "rung": a["rung"], "ceiling": ceiling, "action": action,
