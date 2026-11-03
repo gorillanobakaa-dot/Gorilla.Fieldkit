@@ -46,3 +46,9 @@
 - {file: fieldkit/capture/recipes.py, swap: ['"debug": ["python -m pytest",', '"debug": ["no such test tool",'], why: "the debug group is anchored by its test and check commands"}
 - {file: fieldkit/capture/recipes.py, swap: ['[re.escape(t) for t in terms]', '[]'], why: "the owner's private terms (from local settings) are refused in a model's names"}
 - {file: fieldkit/capture/recipes.py, swap: ['"cleanup": ["fieldkit size",', '"cleanup": ["no such cleanup tool",'], why: "the cleanup group is anchored by its size and scratch commands"}
+- {file: fieldkit/capture/classify.py, swap: ['        if iid in in_ep:', '        if False:'], why: "an item that is a step of an episode cites the episode"}
+- {file: fieldkit/capture/classify.py, swap: ['        elif iid in state["links"] or iid in state["fixes"]:', '        elif False:'], why: "a failure-fix pair is cited as such"}
+- {file: fieldkit/capture/classify.py, swap: ['        elif path and first_path[path] != iid:', '        elif False:'], why: "a repeated path points to the first item"}
+- {file: fieldkit/capture/classify.py, swap: ['        if s.get("state") not in OPEN:', '        if False:'], why: "an item that already has a final state is left alone"}
+- {file: fieldkit/capture/classify.py, swap: ['"evidence": ev, "error": None}', '"evidence": None, "error": None}'], why: "every final state carries its evidence"}
+- {file: fieldkit/capture/cli.py, swap: ['    if a.closed:', '    if False:'], why: "the closed ledger fails while items are still open"}
