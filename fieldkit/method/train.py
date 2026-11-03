@@ -1022,7 +1022,10 @@ def main(argv=None, prog="fieldkit ship"):
         if a.action == "ci-wait":
             if not a.pr:
                 ap.error("ci-wait needs the PR number: fieldkit ship ci-wait 166 [--merge]")
+            from . import ci_wake                     # the marker the end-of-turn guard reads; the wake for the session
+            ci_wake.begin(a.pr, _who())
             r = ci_wait(GH(a.repo), a.pr, a.max_wait * 60, merge=a.merge)
+            ci_wake.end(a.pr, _who(), r)
             emit(r, a.json, _ci_wait_lines)
             return 0 if r["ok"] else strikes.PARKED_EXIT if r["state"] == "parked" else 3
         if a.action == "train":
