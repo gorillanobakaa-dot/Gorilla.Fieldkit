@@ -16,6 +16,8 @@
                                                                  a VISIBLE successor: when the app refuses (session-
                                                                  started turn) ask Zero; headless Sonnet only last
     fieldkit rotate doctor                                       thresholds, transcript folders, state, PLAN.md, hook
+    python -m fieldkit.tokens.rotate --stop-hook                 Claude Code Stop hook: blocks the end of a turn only for an
+                                                                 OPEN PR with no ci-wait running (never loops, never raises)
     python -m fieldkit.tokens.rotate --hook                      Claude Code UserPromptSubmit / PostToolUse hook
                                                                  (the room hook calls hook_line() itself)
 
@@ -582,6 +584,38 @@ def endcheck(transcript, state_fn=None, alive=None):
     return (not fails), fails
 
 
+def stop_hook(stdin=None, state_fn=None, alive=None):
+    """Claude Code Stop hook (`rotate --stop-hook`): stdin {transcript_path, stop_hook_active}. Prints
+    {"decision":"block","reason":...} ONLY for a PR whose gh state is really OPEN with no ci-wait running. A state gh
+    cannot give: a note, no block. stop_hook_active true: never blocks (no loop). Never raises. -> 0."""
+    try:
+        call = json.loads((stdin or sys.stdin).read() or "{}")
+        tp = call.get("transcript_path")
+        if call.get("stop_hook_active") or not tp:
+            return 0
+        from ..method import ci_wake
+        get = state_fn or pr_state
+        unknown = []
+
+        def known(url):
+            st = get(url)
+            if st is None:
+                unknown.append(url)
+                return "MERGED"                           # not proven open: no block, only a note
+            return st
+        a, p = sc.resolve(str(tp), [sc.ClaudeCode()])
+        if a is None:
+            return 0
+        fails = ci_wake.check(measure(a, p)["prs"], known, session=p.stem, alive=alive or ci_wake.pid_alive)
+        if fails:
+            print(json.dumps({"decision": "block", "reason": "ENDCHECK: " + " | ".join(fails)}))
+        elif unknown:
+            print("endcheck: PR state unknown (gh could not say), not blocking: " + ", ".join(unknown), file=sys.stderr)
+    except Exception:  # noqa: BLE001 - a Stop hook must never break the session
+        pass
+    return 0
+
+
 def finished(hours=None, use_gh=False, cfg=None, now=None, adapters=None, exclude=(), gh=pr_state):
     """Claude Code sessions whose last reply ended its turn, idle for idle_minutes, with no open PR. A session that
     mentioned a PR whose state is unknown is never listed as finished (fail closed). -> (finished, held)."""
@@ -760,6 +794,8 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["--hook"]:
         return hook()
+    if argv[:1] == ["--stop-hook"]:
+        return stop_hook()
     p = argparse.ArgumentParser(prog="fieldkit rotate", description="Session rotation: OK / WARN / ROTATE.",
                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("WHY")[0])
     sub = p.add_subparsers(dest="cmd")

@@ -72,3 +72,39 @@ def test_endcheck_fails_on_an_open_pr_the_session_mentioned(tmp_path):
     assert ok is False and fails
     ci_wake.begin(7, "sess-end", pid=99)
     assert rotate.endcheck(str(t), state_fn=lambda u: "OPEN", alive=lambda p: True) == (True, [])
+
+
+def _stop_transcript(tmp_path, name="sess-stop"):
+    t = tmp_path / "projects" / "p" / f"{name}.jsonl"
+    t.parent.mkdir(parents=True)
+    rows = [{"type": "user", "timestamp": "2026-11-03T10:00:00Z", "cwd": "C:/work", "message": {"content": f"Opened {PR}"}},
+            {"type": "assistant", "timestamp": "2026-11-03T10:01:00Z", "cwd": "C:/work",
+             "message": {"id": "m1", "model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [],
+                         "usage": {"input_tokens": 1, "output_tokens": 1}}}]
+    t.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return t
+
+
+def _stop(t, state, active=False, capsys=None, alive=lambda p: False):
+    import io
+    stdin = io.StringIO(json.dumps({"transcript_path": str(t), "stop_hook_active": active}))
+    assert rotate.stop_hook(stdin, state_fn=lambda u: state, alive=alive) == 0
+    return capsys.readouterr()
+
+
+def test_stop_hook_blocks_only_a_really_open_pr(tmp_path, capsys):
+    t = _stop_transcript(tmp_path)
+    out = _stop(t, "OPEN", capsys=capsys)
+    assert json.loads(out.out)["decision"] == "block" and PR in json.loads(out.out)["reason"]
+    assert _stop(t, "MERGED", capsys=capsys).out == ""
+    unknown = _stop(t, None, capsys=capsys)
+    assert unknown.out == "" and "unknown" in unknown.err                 # a note, no block
+    assert _stop(t, "OPEN", active=True, capsys=capsys).out == ""         # no loop
+    ci_wake.begin(7, "sess-stop", pid=99)
+    assert _stop(t, "OPEN", capsys=capsys, alive=lambda p: True).out == ""   # a ci-wait is running
+
+
+def test_stop_hook_never_raises(capsys):
+    import io
+    assert rotate.stop_hook(io.StringIO("not json")) == 0
+    assert rotate.stop_hook(io.StringIO(json.dumps({"transcript_path": "/no/such.jsonl"}))) == 0
