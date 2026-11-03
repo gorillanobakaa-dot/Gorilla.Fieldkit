@@ -39,3 +39,4 @@
 - {file: fieldkit/capture/recipes.py, swap: ['                    if sc > best:', '                    if sc > 10 ** 9:'], why: "the recipe order is the one most episodes agree with"}
 - {file: fieldkit/capture/recipes.py, swap: ['"build": ["fieldkit emerge", "go build",', '"build": ["no such build tool", "go build",'], why: "the build group is anchored by its build commands"}
 - {file: fieldkit/capture/recipes.py, swap: ['"documents": ["fieldkit privacy",', '"documents": ["no such document tool",'], why: "the documents group is anchored by its document and privacy-check commands"}
+- {file: fieldkit/capture/recipes.py, swap: ['"debug": ["python -m pytest",', '"debug": ["no such test tool",'], why: "the debug group is anchored by its test and check commands"}
