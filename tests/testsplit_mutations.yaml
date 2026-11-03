@@ -1,0 +1,20 @@
+- file: fieldkit/testsplit.py
+  swap:
+  - '    local, rest = order[:max(cap, 0)], order[max(cap, 0):]'
+  - '    local, rest = order[:max(cap, 0)], order[max(cap, 0):][:3]'
+  why: R15 the overflow past the local share is dealt in full - a file that falls out is a test never run
+- file: fieldkit/testsplit.py
+  swap:
+  - '    if not devices or len(order) <= cap:'
+  - '    if len(order) <= cap:'
+  why: R15 with no free device nothing is dropped - the files stay on this computer
+- file: fieldkit/testsplit.py
+  swap:
+  - '        elif r.get("status") == "pass":'
+  - '        elif r.get("status") != "xx":'
+  why: R15 only a signed pass counts as a pass for a remote share
+- file: fieldkit/testsplit.py
+  swap:
+  - '            again += s["files"]'
+  - '            pass'
+  why: R15 a share without a signed result runs here, it is never counted as run
