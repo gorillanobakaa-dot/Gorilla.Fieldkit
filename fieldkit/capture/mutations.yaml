@@ -46,3 +46,10 @@
 - {file: fieldkit/capture/recipes.py, swap: ['"debug": ["python -m pytest",', '"debug": ["no such test tool",'], why: "the debug group is anchored by its test and check commands"}
 - {file: fieldkit/capture/recipes.py, swap: ['[re.escape(t) for t in terms]', '[]'], why: "the owner's private terms (from local settings) are refused in a model's names"}
 - {file: fieldkit/capture/recipes.py, swap: ['"cleanup": ["fieldkit size",', '"cleanup": ["no such cleanup tool",'], why: "the cleanup group is anchored by its size and scratch commands"}
+- {file: fieldkit/capture/weaktest.py, swap: ['    found = re.findall(r"\b(PASS|FAIL)\b", answer or "", re.I)', '    found = []'], why: "a model answer is read for its PASS or FAIL word"}
+- {file: fieldkit/capture/weaktest.py, swap: ['    return found[-1].upper() if found else None', '    return found[0].upper() if found else None'], why: "the last verdict word of a model answer counts"}
+- {file: fieldkit/capture/weaktest.py, swap: ['        if got != expected:', '        if False:'], why: "a wrong model verdict is counted wrong"}
+- {file: fieldkit/capture/weaktest.py, swap: ['        if not r["ok"]:', '        if False:'], why: "a step that fails the reader rules is counted as failed"}
+- {file: fieldkit/capture/weaktest.py, swap: ['res["model_note"] = "not verified: no model asked for"', 'res["model_note"] = ""'], why: "no model run is reported as not verified"}
+- {file: fieldkit/capture/workflows.py, swap: ['d.get("accepted") and d.get("steps") and d.get("intent") == kind', 'd.get("intent") == kind'], why: "only an accepted recipe is offered, never a procedure"}
+- {file: fieldkit/autopilot/room.py, swap: ['        t = workflows.offer_line(call.get("prompt") or "")', '        t = ""'], why: "the prompt hook offers the matching workflow"}
