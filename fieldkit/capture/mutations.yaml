@@ -13,3 +13,8 @@
 - {file: fieldkit/capture/store.py, swap: ['_SECRET_KEY.search(str(k))', 'False'], why: "secret-named keys are redacted"}
 - {file: fieldkit/capture/hook.py, swap: ['if tk is None:', 'if False:'], why: "only work tools are captured"}
 - {file: fieldkit/capture/hook.py, swap: ['m = re.match(r"\s*Exit code (-?\d+)", text)', 'm = None'], why: "exit code read from a failure message"}
+- {file: fieldkit/capture/episodes.py, swap: ['    if low.startswith("tool loaded"):', '    if False:'], why: "'Tool loaded' is not a request"}
+- {file: fieldkit/capture/episodes.py, swap: ['rows.sort(key=lambda r: (r[0], r[1]))', 'pass'], why: "episode steps are in time order"}
+- {file: fieldkit/capture/episodes.py, swap: ['k not in have or have[k].get("digest") != e["digest"]', 'k not in have'], why: "a grown episode is rewritten"}
+- {file: fieldkit/capture/episodes.py, swap: ['key = req or first_line(d.get("problem")) or NO_REQUEST', 'key = req or NO_REQUEST'], why: "a noisy request does not merge episodes"}
+- {file: fieldkit/capture/episodes.py, swap: ["if b'\"tool_use\"' in chunk or b'\"toolUse\"' in chunk:", 'if False:'], why: "a transcript with tool calls but no item is a GAP"}

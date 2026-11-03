@@ -6,12 +6,16 @@
     fieldkit capture ledger [--json] [--strict]              every item and its state; --strict exits 3 on a loss
     fieldkit capture verify [--json]                         hash chain, duplicates, blobs, orphan events
     fieldkit capture status [--json]                         last capture, store size, hook install state
+    fieldkit capture coverage [--json]                       every agent's transcripts on this computer: read, or listed with a reason
+    fieldkit capture requests [--json]                       how much of the noisy `problem` the clean `request` recovers
+    fieldkit capture episodes [--dry-run] [--json]           store episodes (session + request -> ordered steps) in the journal
     fieldkit capture self-test --first-use|--context|--failed|--before-processing|--crash
 
 The store is state/capture/ (override: FIELDKIT_CAPTURE_DIR), append-only, hash-chained, fsync per record. Nothing is
 discarded: "refused" means kept in the queue. Exit: 0 fine, 2 bad usage or not built yet, 3 findings.
 """
 import argparse
+import collections
 import json
 import sys
 from pathlib import Path
@@ -112,6 +116,48 @@ def cmd_status(a):
     return 0
 
 
+def cmd_coverage(a):
+    from . import episodes
+    cov = episodes.coverage(st.Store().state())
+    gaps = sum(1 for g in cov["agents"].values() for u in g["uncaptured"] if u["reason"].startswith("GAP"))
+    cov["next"] = "run the capture scan for the GAP sessions" if gaps else "every transcript is read or listed with a reason"
+    lines = [f"machine {cov['machine']} ({cov['platform']})"]
+    for name, g in cov["agents"].items():
+        why = collections.Counter(u["reason"] for u in g["uncaptured"])
+        lines.append(f"{name}: {g['on_disk']} on disk, {g['captured']} captured, {len(g['uncaptured'])} listed" +
+                     (f" ({g['reason']})" if g.get("reason") else ""))
+        lines += [f"    {n} x {r}" for r, n in why.most_common()]
+    lines.append(cov["other_machines"])
+    _emit(a, cov, lines)
+    return 3 if (a.strict and gaps) else 0
+
+
+def cmd_requests(a):
+    from . import episodes
+    r = episodes.request_report(st.Store().state())
+    r["next"] = "nothing to do"
+    lines = [f"{r['items']} items: {r['items_with_clean_request']} with a clean request, {r['items_without_clean_request']} without; "
+             f"{r['distinct_requests']} distinct requests"] + [f"    {k}: {v}" for k, v in sorted(r["by_source"].items(), key=lambda x: -x[1])]
+    _emit(a, r, lines)
+    return 0
+
+
+def cmd_episodes(a):
+    from . import episodes
+    s = st.Store()
+    if a.dry_run:
+        eps, un = episodes.build_episodes(s.state())
+        res = {"episodes_found": len(eps), "with_real_request": sum(1 for e in eps.values() if e["real_request"]),
+               "with_3plus_steps": sum(1 for e in eps.values() if e["n_steps"] >= 3),
+               "items_without_session": un, "episodes_written": 0}
+    else:
+        s.recover()
+        res = episodes.store_episodes(s)
+    res["next"] = "stage 2: failure -> fix pairs" if not a.dry_run else "run without --dry-run to store them"
+    _emit(a, res, [f"{k}: {v}" for k, v in res.items() if k != "next"])
+    return 0
+
+
 def cmd_selftest(a):
     from . import selftest
     chosen = [k for k in selftest.TESTS if getattr(a, k)]
@@ -143,6 +189,13 @@ def main(argv=None):
             p.add_argument("--peer", action="store_true", help="the same on the Linux computer (not built yet)")
         if name == "ledger":
             p.add_argument("--strict", action="store_true", help="exit 3 if any item is lost, unaccounted or stuck")
+    c = sub.add_parser("coverage")
+    c.add_argument("--json", action="store_true")
+    c.add_argument("--strict", action="store_true", help="exit 3 if a transcript has tool calls but no captured item")
+    sub.add_parser("requests").add_argument("--json", action="store_true")
+    e = sub.add_parser("episodes", help="store episodes in the journal")
+    e.add_argument("--json", action="store_true")
+    e.add_argument("--dry-run", action="store_true")
     t = sub.add_parser("self-test", help="prove capture in a sandbox store")
     from . import selftest
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
@@ -151,7 +204,7 @@ def main(argv=None):
     if a.action == "scan":
         return _not_built("scan")
     return {"hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
-            "self-test": cmd_selftest}[a.action](a)
+            "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "self-test": cmd_selftest}[a.action](a)
 
 
 if __name__ == "__main__":
