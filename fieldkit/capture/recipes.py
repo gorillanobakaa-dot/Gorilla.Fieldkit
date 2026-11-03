@@ -11,6 +11,7 @@ import collections
 import json
 import math
 import re
+import statistics
 
 from . import distill as D
 from . import episodes as ep
@@ -76,6 +77,25 @@ def group_episodes(store, state, intent, min_steps=3, with_skipped=False):
 
 
 # ---- align ----------------------------------------------------------------------------------------------------
+def kemeny(order, firsts):
+    """Move one family at a time to the place where more episodes agree with the order, until nothing improves.
+    firsts: per episode {family: index of its first run}. Deterministic: the start order and the scan order are fixed."""
+    def score(o):
+        return sum(f[a] <= f[b] for f in firsts for i, a in enumerate(o) if a in f for b in o[i + 1:] if b in f)
+    best, improved = score(order), True
+    while improved:
+        improved = False
+        for i in range(len(order)):
+            for j in range(len(order)):
+                if i != j:
+                    cand = order[:]
+                    cand.insert(j, cand.pop(i))
+                    sc = score(cand)
+                    if sc > best:
+                        best, order, improved = sc, cand, True
+    return order
+
+
 def align(seqs, known_sigs=None):
     """{episode id: actions} -> draft recipe steps. known_sigs: {signature id: fix text} from stage 2."""
     n = len(seqs)
@@ -89,7 +109,8 @@ def align(seqs, known_sigs=None):
             support[fam] += 1
             pos[fam].append(i / max(1, len(acts) - 1))
     keep = [f for f, c in support.most_common() if c >= need][:MAX_STEPS]
-    keep.sort(key=lambda f: (sum(pos[f]) / len(pos[f]), f))
+    keep.sort(key=lambda f: (statistics.median(pos[f]), f))
+    keep = kemeny(keep, [{a[0]: i for i, a in reversed(list(enumerate(acts)))} for acts in seqs.values()])
     steps = []
     for fam in keep:
         runs = [a for acts in seqs.values() for a in acts if a[0] == fam]

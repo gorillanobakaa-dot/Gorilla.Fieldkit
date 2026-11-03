@@ -2,19 +2,19 @@
 # `fieldkit capture distill recipes --intent release --name --apply`.
 id: recipe-release
 intent: release
-title: Ship a Release
-goal: Get a change reviewed, merged, published as a release, and cleaned up, with checks passing at each stage.
+title: Ship a release
+goal: Get a finished change merged, published as a release, and cleaned up.
 named_by: sonnet
 naming_note: ''
 episodes:
   in_group: 22
   without_anchor_command: 37
-  replayed_ok: 3
+  replayed_ok: 5
   needed: 3
   examples:
   - ep-2a03734bd582
-  - ep-719d9098622f
-  - ep-e2177778d33d
+  - ep-31e05f7e73a2
+  - ep-4e0ac0af9813
 accepted: true
 steps:
 - id: gh-pr
@@ -28,8 +28,8 @@ steps:
   - skim the v0.<N> opening note
   - check pr <N> state
   failures: []
-  sentence: Look at the pull request to read its note and see whether it is open, merged, or blocked.
-  check: The request shows the state you expect, and the note matches the change you plan to ship.
+  sentence: Look at the pull request to see its current state and read its opening note.
+  check: You see the pull request's state and note, and know whether it is open, merged, or blocked.
 - id: git-checkout
   family: git checkout
   command: git checkout -q -b
@@ -41,8 +41,26 @@ steps:
   - resolve with p5c cards, run touched go tests
   - create branch and stage changes
   failures: []
-  sentence: Make a new branch for your work, then gather your changes on it.
-  check: You are on the new branch, and only your intended changes are gathered and ready to save.
+  sentence: Create a new branch for your work and stage your changes on it.
+  check: You are on the new branch, not main, and your changes show as staged.
+- id: git-commit
+  family: git commit
+  command: git commit -q -f
+  support: 6
+  of: 22
+  succeeded: 5
+  runs: 9
+  purposes:
+  - commit the dual-track documentation
+  - commit, tag and push
+  failures:
+  - error: 'pretooluse:bash hook error: tool router: this does by hand what a harness tool does (heavy-work-outside-the-guard).
+      use fieldkit guard -- <t'
+    seen: 2
+    signature: cap-git-commit-5b8065
+    fix: see `fieldkit capture find` with the error text
+  sentence: Save your staged changes as a commit. If the tool router objects, rerun the work through the guard.
+  check: The commit is created on your branch and the tool router raises no complaint.
 - id: fieldkit-guard
   family: fieldkit guard
   command: fieldkit guard -- python
@@ -54,21 +72,8 @@ steps:
   - commit merge and push pr <N>
   - run rules and hardlines tests
   failures: []
-  sentence: Run the heavy checks or merge steps inside the safety wrapper, one at a time.
-  check: The wrapped command finishes with no errors, and the rule and test results all show as passed.
-- id: git-fetch
-  family: git fetch
-  command: git fetch -q origin
-  support: 11
-  of: 22
-  succeeded: 17
-  runs: 20
-  purposes:
-  - merge main into pr <N> branch and push
-  - show opencode main history
-  failures: []
-  sentence: Download the latest changes from the shared copy so your branch can catch up with the main line.
-  check: The download finishes quietly, and your local view of the shared main line is now current.
+  sentence: Run heavy commands, such as the matching tests, through the guard, one at a time.
+  check: The guarded command finishes and the tests covering your change report passing.
 - id: git-add
   family: git add
   command: git add -a
@@ -85,8 +90,21 @@ steps:
     seen: 4
     signature: cap-git-add-267f03
     fix: see `fieldkit capture find` with the error text
-  sentence: Gather all your edited files so they are ready to be saved as one change.
-  check: The list of gathered files matches what you changed, with nothing extra and nothing missing.
+  sentence: Stage the files you changed so they are ready to commit. Use the guard if the router objects.
+  check: The staged list shows exactly the files you meant to include, and no complaint appears.
+- id: git-fetch
+  family: git fetch
+  command: git fetch -q origin
+  support: 11
+  of: 22
+  succeeded: 17
+  runs: 20
+  purposes:
+  - merge main into pr <N> branch and push
+  - show opencode main history
+  failures: []
+  sentence: Fetch the latest from the remote so you can compare against main and merge it in.
+  check: The fetch finishes with no errors and your branch can see the newest main.
 - id: fieldkit-privacy
   family: fieldkit privacy
   command: fieldkit privacy scan .
@@ -103,34 +121,8 @@ steps:
     seen: 2
     signature: cap-fieldkit-privacy-c2a35a
     fix: see `fieldkit capture find` with the error text
-  sentence: Scan the project for private information before you save or share anything.
-  check: The scan reports zero findings, so nothing personal is about to be published.
-- id: fieldkit-task
-  family: fieldkit task
-  command: fieldkit task status --json
-  support: 7
-  of: 22
-  succeeded: 37
-  runs: 39
-  purposes:
-  - start the vaio install and push job
-  - watch the vaio job
-  failures: []
-  sentence: Check on the background job, or start one, and see how far along it is.
-  check: The status shows the job running or finished, with no failure reported.
-- id: gh-release
-  family: gh release
-  command: gh release view v0.<N>
-  support: 12
-  of: 22
-  succeeded: 16
-  runs: 16
-  purposes:
-  - verify release assets and find installer
-  - view the published v0.<N> release
-  failures: []
-  sentence: Open the published release and look at the files attached to it, including the installer.
-  check: The release exists, it shows the right version, and the installer file is attached.
+  sentence: Scan the project for personal or private details before you commit or push anything.
+  check: The scan reports zero findings, so nothing personal will be published.
 - id: fieldkit-ship
   family: fieldkit ship
   command: fieldkit ship ci-wait <N>
@@ -156,8 +148,34 @@ steps:
     seen: 2
     signature: cap-fieldkit-ship-16f542
     fix: see `fieldkit capture find` with the error text
-  sentence: Wait for the automatic checks on the pull request, then let the tool merge it or publish the release.
-  check: The checks turn green, the merge or release completes, and the tool reports success.
+  sentence: Wait for the checks on the pull request, then let it merge once they are green.
+  check: Checks turn green and the pull request merges. A hard-line refusal means stop and ask the owner.
+- id: fieldkit-task
+  family: fieldkit task
+  command: fieldkit task status --json
+  support: 7
+  of: 22
+  succeeded: 37
+  runs: 39
+  purposes:
+  - start the vaio install and push job
+  - watch the vaio job
+  failures: []
+  sentence: Check the status of the background job you started and wait until it finishes.
+  check: The job status shows it finished successfully, with no failed stage.
+- id: gh-release
+  family: gh release
+  command: gh release view v0.<N>
+  support: 12
+  of: 22
+  succeeded: 16
+  runs: 16
+  purposes:
+  - verify release assets and find installer
+  - view the published v0.<N> release
+  failures: []
+  sentence: Open the published release and confirm its files are attached, including the installer.
+  check: The release page exists and lists the expected files, including the installer.
 - id: fieldkit-inbox
   family: fieldkit inbox
   command: fieldkit inbox add <S>
@@ -169,26 +187,8 @@ steps:
   - close inbox <N>, park parity idea, read board format
   - find inbox close command and the item
   failures: []
-  sentence: Add a note to the owner's inbox for anything only the owner can decide, or find an item to close.
-  check: The inbox lists your new note, or the old item shows as closed.
-- id: git-commit
-  family: git commit
-  command: git commit -q -f
-  support: 6
-  of: 22
-  succeeded: 5
-  runs: 9
-  purposes:
-  - commit the dual-track documentation
-  - commit, tag and push
-  failures:
-  - error: 'pretooluse:bash hook error: tool router: this does by hand what a harness tool does (heavy-work-outside-the-guard).
-      use fieldkit guard -- <t'
-    seen: 2
-    signature: cap-git-commit-5b8065
-    fix: see `fieldkit capture find` with the error text
-  sentence: Save your gathered changes with a short message describing what you did.
-  check: The save succeeds, and the history shows your new entry at the top.
+  sentence: Add anything only the owner can decide to the inbox, or close finished items.
+  check: The inbox shows your new item, or the finished item is gone from the open list.
 - id: fieldkit-size
   family: fieldkit size
   command: fieldkit size recycle <P>
@@ -200,8 +200,8 @@ steps:
   - recycle the fetch test folder
   - apply the recycle plan via fieldkit and check the bin
   failures: []
-  sentence: Move leftover test folders and scratch files to the recycle bin instead of deleting them for good.
-  check: The leftovers are gone from their folders and appear in the recycle bin.
+  sentence: Move the leftover test files from your job to the recycle bin. Never delete them for good.
+  check: The leftovers are in the recycle bin, and nothing of other jobs was removed.
 card:
   how_to_read: 'One step at a time: do the sentence, run the command, look at the check. Failures list the error seen and
     what fixed it.'

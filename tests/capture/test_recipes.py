@@ -144,3 +144,10 @@ def test_the_model_call_is_capped_and_goes_through_the_spend_guard(monkeypatch):
     a = seen["argv"]
     assert a[a.index("--model") + 1] == "sonnet" and a[a.index("--max-budget-usd") + 1] == R.BUDGET_USD
     assert seen["env"]["ANTHROPIC_MODEL"] == "sonnet"
+
+
+def test_order_follows_what_most_episodes_do_not_the_average_position():
+    # b is early on average (position of a long episode) but most episodes run a before b
+    firsts = [{"a": 0, "b": 1}, {"a": 0, "b": 1}, {"a": 0, "b": 1}, {"b": 0, "a": 1}]
+    assert R.kemeny(["b", "a"], firsts) == ["a", "b"]
+    assert R.kemeny(["a", "b"], firsts) == ["a", "b"]
