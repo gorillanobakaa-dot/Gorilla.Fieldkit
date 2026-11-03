@@ -670,13 +670,16 @@ def cool_down(say, sleep=time.sleep, clock=time.time, read=None):
     return t
 
 
-def thermal_sensor(say, retry=True):
+def thermal_sensor(say, retry=True, plan_cap=True):
     """The first CPU sensor proven against load (fieldkit.thermal.sensors.best). -> (name, fn) or (None, None).
     2026-10-03 14:24: the proof itself (every core at 100%, uncapped, 80 s, a lagging surface sensor) reset the laptop.
-    Now: a sensor proven this boot is reused for 12 h; a new proof runs with the processor capped and stops at a ceiling."""
+    Now: a sensor proven this boot is reused for 12 h; a new proof runs with the processor capped and stops at a ceiling.
+    plan_cap=False (the always-on governor and the guard, 2026-11-03 row 67): never run powercfg (no restore, no 60%/100% cap,
+    no /setactive); the proof then relies on half the threads and the sensor ceiling alone."""
     from ..thermal import sensors, governor
     import json as _json
-    governor.restore_stale_cap(say)                      # a crash may have left the processor capped
+    if plan_cap:
+        governor.restore_stale_cap(say)                  # a crash may have left the processor capped
     cool_down(say)                                         # never start loading a laptop that is already hot
     c = _proof_cache()
     try:
@@ -693,8 +696,9 @@ def thermal_sensor(say, retry=True):
             say(f"  only a surface sensor: the compile runs with the cap held at {SURFACE_CAP}% of base (no die reading on this machine)")
         return name, fn, surface
     busy = wait_for_idle(say)
-    before = governor.read_cap()
-    governor.set_cap(PROOF_CAP)
+    before = governor.read_cap() if plan_cap else None
+    if plan_cap:
+        governor.set_cap(PROOF_CAP)
     try:
         name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
         if name is None and retry:
@@ -703,7 +707,8 @@ def thermal_sensor(say, retry=True):
             time.sleep(60)
             name, fn, detail = sensors.best(prove=True, settle=8, samples=6, interval=2.0)
     finally:
-        governor.set_cap(before if before else 100)
+        if plan_cap:
+            governor.set_cap(before if before else 100)
     if name:
         try:
             c.parent.mkdir(parents=True, exist_ok=True)

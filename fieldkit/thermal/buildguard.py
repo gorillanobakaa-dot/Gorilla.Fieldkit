@@ -108,7 +108,7 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
     from ..buildh import buildrun
     from . import brake
     if sensor is None:
-        name, fn, surface = buildrun.thermal_sensor(say)
+        name, fn, surface = buildrun.thermal_sensor(say, plan_cap=False)
         if fn is None:
             raise BuildRefused("no CPU temperature source responds to load (fieldkit thermal prove): not building blind")
     else:
