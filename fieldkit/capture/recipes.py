@@ -73,6 +73,8 @@ ANCHORS = {"release": ["gh release", "fieldkit ship", "fieldkit release-page", "
                        "fieldkit build-harness", "git tag"],
            "build": ["fieldkit emerge", "go build", "cargo build", "fieldkit guard", "python -m fieldkit guard", "make",
                      "msbuild", "npm run"],
+           "research": ["fieldkit tools", "python -m fieldkit tools", "fieldkit evidence", "python -m fieldkit evidence",
+                        "git grep", "gh api", "fieldkit size", "python -m fieldkit size"],
            "documents": ["fieldkit privacy", "python -m fieldkit privacy", "fieldkit sitrep", "fieldkit docs",
                          "python -m fieldkit docs", "fieldkit office", "fieldkit release-page"],
            "debug": ["python -m pytest", "go test", "go vet", "cargo test", "fieldkit mutate", "python -m fieldkit mutate",
