@@ -40,4 +40,6 @@
 - {file: fieldkit/capture/recipes.py, swap: ['"build": ["fieldkit emerge", "go build",', '"build": ["no such build tool", "go build",'], why: "the build group is anchored by its build commands"}
 - {file: fieldkit/capture/recipes.py, swap: ['             if state["state"].get(sid, {}).get("state", "raw") == "raw"}', '             if True}'], why: "an item that already has a state keeps its own evidence"}
 - {file: fieldkit/capture/recipes.py, swap: ['    return "go" if "go" in tools else', '    return "other" if False else'], why: "the procedure counts the Go flows of the group"}
+- {file: fieldkit/capture/recipes.py, swap: ['"git grep", "gh api", "fieldkit size",', '"git grep", "no such search", "fieldkit size",'], why: "the research group is anchored by its search commands"}
 - {file: fieldkit/capture/recipes.py, swap: ['"documents": ["fieldkit privacy",', '"documents": ["no such document tool",'], why: "the documents group is anchored by its document and privacy-check commands"}
+- {file: fieldkit/capture/recipes.py, swap: ['"debug": ["python -m pytest",', '"debug": ["no such test tool",'], why: "the debug group is anchored by its test and check commands"}
