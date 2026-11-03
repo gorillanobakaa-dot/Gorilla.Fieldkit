@@ -232,3 +232,27 @@ def test_open_classes_get_a_defect_row_and_exit_3(tmp_path, monkeypatch):
 def test_a_42_just_before_the_187_is_still_one_incident_named_by_the_187():
     inc = incidents.classify_windows([ev(T0 - 5, 42, "Sleep Reason: Application API"), ev(T0, 187, ApiCallerName=IBM, SystemAction="2")], [])
     assert [i["class"] for i in inc] == ["program sleep request (ibmpmsvc.exe)"]
+
+
+def test_cut_time_is_the_last_system_record_when_later_than_the_heartbeat():
+    last = ev(T0 - 15, 9001, "last", last=time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(T0 - 200)) + "Z", src="x/12")
+    inc = _cut([last])[0]
+    assert abs(inc["t"] - (T0 - 200)) < 3601 and "last System record before the boot (later" in inc["detail"]
+
+
+def test_below_os_class_says_who_started_powercfg_is_not_proven_and_names_the_missing_source():
+    src = {"security4688": "not readable or no records (Exception)", "Microsoft-Windows-Sysmon/Operational": "log not installed"}
+    boot = [ev(T0, 6008, "The previous system shutdown at 3:19:52 AM on 11/2 was unexpected."), ev(T0 - 5, 6005),
+            ev(T0 - 14, 20, "The last shutdown's success status was true.")]
+    w = [ev(T0 - 600 - 6 * k, 112, "scheme write", proc="powercfg.exe") for k in range(1, 10)]
+    inc = incidents.classify_windows(boot + w, rows((T0 - 1300, 32.0, 5.0)), sources=src)[0]
+    text = " | ".join(inc["evidence"])
+    assert "NOT proven" in text and "Security 4688" in text and "gaps 6s x8" in text
+
+
+def test_unknown_cut_names_every_missing_source():
+    boot = [ev(T0, 6008, "The previous system shutdown at 3:19:52 AM on 11/2 was unexpected."), ev(T0 - 5, 6005)]
+    inc = incidents.classify_windows(boot, [], sources={})[0]
+    assert inc["class"] == "unexpected cut (cause unknown)"
+    text = " | ".join(inc["evidence"])
+    assert "missing sources" in text and "thermal journal" in text and "Kernel-Power 41" in text and "process-creation record: none" in text

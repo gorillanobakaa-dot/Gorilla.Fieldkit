@@ -95,3 +95,18 @@
   - '            lines.append("Kernel-Boot 20: " + re.sub'
   - '            lines.append("" + re.sub'
   why: the evidence quotes Kernel-Boot 20
+- file: fieldkit/power/incidents.py
+  swap:
+  - '            if sysrec and (cut is None or max(sysrec) > cut) and boot_t - max(sysrec) < 12 * 3600:'
+  - '            if False:'
+  why: the real cut is the last System record when later than the 6008 heartbeat
+- file: fieldkit/power/incidents.py
+  swap:
+  - '                evidence["lines"].append(_who_missing(sources))'
+  - '                pass'
+  why: a below-the-OS class must say who started powercfg is not proven and which source is missing
+- file: fieldkit/power/incidents.py
+  swap:
+  - '                evidence["lines"].append(_unknown_missing(jrows, cut, evidence["has41"], sources))'
+  - '                pass'
+  why: an unknown cut must name the exact missing sources

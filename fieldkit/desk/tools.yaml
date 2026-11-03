@@ -1157,6 +1157,22 @@ tools:
   platforms_why: "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform"
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py", -k, drift]
 
+- id: power-audit
+  title: "Can the machine name who started a program (R9: who ran powercfg.exe before a cut)? Checks Security 4688 process-creation auditing, command lines and read access; --write-fix writes ONE self-elevating script for the missing admin steps (one UAC prompt); --callers PROCESS lists who started it (Windows)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, audit]
+  path: ${FIELDKIT}/fieldkit/power/audit.py
+  inputs:
+    - {name: write_fix, flag: --write-fix, type: flag, required: false, help: "write state/power/enable-process-audit.ps1 for the missing admin steps"}
+    - {name: callers, flag: --callers, type: str, required: false, help: "PROCESS, e.g. powercfg.exe: creator and command line of each start, from Security 4688"}
+  effects: [reads-files, writes-files]
+  safety: safe
+  headline: "PASS, SIGN-OUT or FAIL with the missing steps; exit 3 unless PASS."
+  platforms: [windows]
+  platforms_why: "Security 4688 and Event Log Readers are Windows; elsewhere the check prints not-this-platform"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_audit.py"]
+  notes: "The audit policy, the command-line registry flag and the Event Log Readers group are security settings: only the owner runs the script. A filtered Get-WinEvent reports 'unauthorized' as 'no events', so readability is probed unfiltered."
+
 - id: thermal-monitor
   title: "Keep the processor cool while something heavy runs (a build): lowers the CPU cap when hot, speaks, puts it back (Windows and Linux)"
   harness: thermal

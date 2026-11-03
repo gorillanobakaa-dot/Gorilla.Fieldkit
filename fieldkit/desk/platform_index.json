@@ -2609,6 +2609,15 @@
    "plan"
   ]
  },
+ "power audit": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "Security 4688 and Event Log Readers are Windows; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-audit"
+  ]
+ },
  "power drift": {
   "platforms": [
    "windows"
