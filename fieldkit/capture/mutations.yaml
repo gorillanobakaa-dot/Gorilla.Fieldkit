@@ -38,3 +38,5 @@
 - {file: fieldkit/capture/recipes.py, swap: ['"--max-budget-usd", BUDGET_USD,', ''], why: "the model call has a dollar cap"}
 - {file: fieldkit/capture/recipes.py, swap: ['                    if sc > best:', '                    if sc > 10 ** 9:'], why: "the recipe order is the one most episodes agree with"}
 - {file: fieldkit/capture/recipes.py, swap: ['"build": ["fieldkit emerge", "go build",', '"build": ["no such build tool", "go build",'], why: "the build group is anchored by its build commands"}
+- {file: fieldkit/capture/recipes.py, swap: ['             if state["state"].get(sid, {}).get("state", "raw") == "raw"}', '             if True}'], why: "an item that already has a state keeps its own evidence"}
+- {file: fieldkit/capture/recipes.py, swap: ['    return "go" if "go" in tools else', '    return "other" if False else'], why: "the procedure counts the Go flows of the group"}
