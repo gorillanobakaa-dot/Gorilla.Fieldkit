@@ -7,7 +7,7 @@ Layout (dir = $FIELDKIT_CAPTURE_DIR, default <Fieldkit>/state/capture, git-ignor
     index.json      derived cache of the journal (rebuilt whenever it does not match); never the source of truth
     journal.lock    OS lock (released by the OS when a process dies)
 
-Entry types: event (a raw hook payload, written BEFORE it is parsed), item (a captured record, state raw), dup (the same
+Entry types: episode (P18 stage 1: one session working on one request, its steps linked to items), event (a raw hook payload, written BEFORE it is parsed), item (a captured record, state raw), dup (the same
 content seen again: counted, never dropped), state (raw|processing|tool|procedure|promoted, with evidence), link (a
 failed attempt -> its later correction), error (an internal failure, journaled, never raised to the agent).
 """
@@ -120,7 +120,7 @@ def _locked(path):
 
 def _empty():
     return {"offset": 0, "seq": 0, "last_hash": GENESIS, "items": {}, "by_hash": {}, "counts": {}, "occ": {},
-            "state": {}, "links": {}, "fixes": {}, "events": {}, "paths": {}, "open_fail": {}, "dups": 0,
+            "state": {}, "links": {}, "fixes": {}, "events": {}, "paths": {}, "open_fail": {}, "episodes": {}, "dups": 0,
             "errors": 0, "last_ts": None}
 
 
@@ -160,6 +160,8 @@ def fold(st, e):
         for lst in st["open_fail"].values():
             if d["failed"] in lst:
                 lst.remove(d["failed"])
+    elif t == "episode":
+        st.setdefault("episodes", {})[d["id"]] = d
     elif t == "error":
         st["errors"] += 1
 
@@ -298,6 +300,13 @@ class Store:
         with self.tx() as st:
             return self._append_locked(st, typ, data)
 
+    def append_many(self, typ, datas):
+        """Many entries of one type in one lock and one cache write (a batch of derived records)."""
+        with self.tx() as st:
+            for d in datas:
+                self._append_locked(st, typ, d)
+        return len(datas)
+
     def spill(self, rec):
         """Fields over SPILL bytes go to blobs/<sha>; the journal keeps the hash, size and a preview."""
         out = {}
@@ -420,6 +429,8 @@ class Store:
         d = dict(st["items"][iid])
         d.pop("chash", None)
         s = st["state"].get(iid, {})
+        from . import episodes
+        d["request"], d["request_source"] = episodes.clean_request(d.get("problem"))
         d.update(state=s.get("state"), state_ts=s.get("ts"), evidence=s.get("evidence"), error=s.get("error"),
                  count=st["counts"].get(iid, 1), occurrences=st["occ"].get(iid, []),
                  corrected_by=st["links"].get(iid), fixes=st["fixes"].get(iid, []))
