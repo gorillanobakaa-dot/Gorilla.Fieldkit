@@ -171,14 +171,32 @@ def _log_successor(rec):
         fh.write(json.dumps(rec) + "\n")
 
 
-def _send_zero(text):
-    """-> the Zero station the note went to. Raises when no net is open or Zero is unknown (the caller falls back)."""
+def _send_zero(text, now=None):
+    """-> the station the note went to: Zero when Zero is UP; else the nearest other UP session (owner 2026-11-03: a
+    note to a dead Zero is lost); else this session assumes Zero (only a MISSING Zero, one winner) and the call raises,
+    so the ladder moves on. Never sends to a SILENT/MISSING/absent Zero, never to itself."""
     from ..zero import net
-    zero = net.zero_of(net.load_net())
+    now = time.time() if now is None else now
+    n = net.load_net()
+    zero, me = net.zero_of(n), net.station_id()
     if not zero:
         raise RuntimeError("no Zero on the net")
-    net.send(net.station_id(), text, to=zero, flash=True)
-    return zero
+    st = net.load_stations()["stations"]
+    if zero != me and net.state_of(st.get(zero) or {}, now) == "UP":
+        net.send(me, text, to=zero, flash=True)
+        return zero
+    near = sorted((r.get("last") or 0, s) for s, r in st.items()
+                  if s not in (me, zero) and r.get("kind") == "claude" and net.state_of(r, now) == "UP")
+    if near:
+        peer = near[-1][1]
+        net.send(me, text, to=peer, flash=True)
+        return peer
+    why = "Zero is this session" if zero == me else f"Zero {zero} is not UP"
+    try:
+        net.handover(me, assume=True, now=now)
+        raise RuntimeError(f"{why} and no other session is UP: this session assumed Zero")
+    except net.Refused as e:
+        raise RuntimeError(f"{why}: {e}") from e
 
 
 def _headless_sonnet(brief):

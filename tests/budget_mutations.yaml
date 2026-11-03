@@ -49,3 +49,9 @@
 - file: fieldkit/tokens/rotate.py
   swap: ["        if call.get(\"stop_hook_active\") or not tp:", "        if not tp:"]
   why: "a Stop hook that already blocked once never blocks again (no loop)"
+- file: fieldkit/tokens/budget.py
+  swap: ["    if zero != me and net.state_of(st.get(zero) or {}, now) == \"UP\":", "    if zero != me:"]
+  why: "a note goes only to a Zero that is UP (a dead Zero never gets one)"
+- file: fieldkit/tokens/budget.py
+  swap: ["        net.handover(me, assume=True, now=now)", "        pass"]
+  why: "with no UP Zero and no UP session, this session assumes Zero"
