@@ -178,3 +178,9 @@ def test_debug_group_needs_a_test_or_check_command(s):
     episodes(s, "debug")
     r = R.build(s, "debug")
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_personal_pattern_takes_private_terms_from_settings_not_from_the_source():
+    assert R.personal_pattern(["zzprivate"]).search("by ZZPrivate today")
+    assert not R.personal_pattern([]).search("by zzprivate today")
+    assert R.personal_pattern([]).search("see " + "/ho" + "me/x")
