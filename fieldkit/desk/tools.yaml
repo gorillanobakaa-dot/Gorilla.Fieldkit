@@ -6509,7 +6509,7 @@ tools:
   entry: [python, -m, fieldkit, rotate]
   path: ${FIELDKIT}/fieldkit/tokens/rotate.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor, rule, endcheck], help: "LEAVE EMPTY for check. handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]; rule prints the block for agents with no hook; endcheck --transcript PATH: a turn may end only with no open PR it mentioned unless a ci-wait runs for it (exit 0 / 3)"}
+    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor, rule, endcheck, successor], help: "LEAVE EMPTY for check. successor --brief F --title T --origin user|session: a VISIBLE successor; refused (session-started turn) = an owner line, a note to Zero, headless Sonnet only last; handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]; rule prints the block for agents with no hook; endcheck --transcript PATH: a turn may end only with no open PR it mentioned unless a ci-wait runs for it (exit 0 / 3)"}
     - {name: hours, flag: --hours, type: float, required: false, help: "check/finished: sessions active in the last N hours (24 / 72)"}
     - {name: source, flag: --source, type: str, required: false, help: "check: one agent only: all (default), claude-code, antigravity, codex, gorilla-opencode, generic, ibm-bob"}
     - {name: cwd, flag: --cwd, type: str, required: false, help: "check: only sessions working in this folder or under it"}
@@ -6517,6 +6517,9 @@ tools:
     - {name: install, flag: --install, type: str, required: false, help: "rule: add the rule block to this instruction file (AGENTS.md, GEMINI.md); idempotent"}
     - {name: json, flag: --json, type: flag, required: false, help: "check/handover/finished: JSON"}
     - {name: transcript, flag: --transcript, type: str, required: false, help: "endcheck: the session's transcript file (its .jsonl)"}
+    - {name: brief, flag: --brief, type: str, required: false, help: "successor: the successor's brief file"}
+    - {name: title, flag: --title, type: str, required: false, help: "successor/handover: the session title"}
+    - {name: origin, flag: --origin, type: str, required: false, choices: [user, session], help: "successor: who started this turn: the owner (user) or another session's message (session)"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own

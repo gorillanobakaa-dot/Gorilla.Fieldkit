@@ -3,6 +3,7 @@
 Every number below is worked out by hand: the budget is the ROTATE line (rotate.DEFAULTS: 150k tokens per call,
 $75 a session), so 50% is 75k tokens or $37.50 and 90% is 135k tokens or $67.50.
 """
+import json
 import time
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def test_stop_writes_the_handover_names_the_successor_and_lists_archives(tmp_pat
     monkeypatch.setattr(rotate, "handover", fake_handover)
     monkeypatch.setattr(budget, "archive_candidates", lambda sid, now=None, cfg=None: [{"id": "bbbbbbbb-2"}])
     t = transcript(tmp_path, "s2")
-    text = budget.lines(row(ctx=140_000, sid="s2"), t)
+    text = budget.lines(row(ctx=140_000, sid="s2", entrypoint="claude-desktop"), t)
     assert "you used 140,000 tokens, stop writing: I am preparing the handover and starting a new VISIBLE session " \
            "automatically" in text
     assert "start_session" in text and 'archive_session "bbbbbbbb-2"' in text
@@ -112,3 +113,48 @@ def test_rotate_after_the_stop_says_the_handover_is_done(tmp_path, monkeypatch):
     budget.lines(row(ctx=140_000, sid="s3"), transcript(tmp_path, "s3"))
     assert budget.handed_over("s3")
     assert "already written" in rotate.rotation_done_line(row(ctx=160_000, sid="s3"))
+
+
+# A visible successor the app refused (owner 2026-11-03): never a silent headless or Haiku fallback.
+def _boom(*a):
+    raise RuntimeError("no net")
+
+
+def _log():
+    return [json.loads(x) for x in (rotate.state_dir() / "successors.jsonl").read_text().splitlines()]
+
+
+def test_refused_successor_goes_to_zero_not_headless():
+    sent, ran = [], []
+    r = budget.start_successor("B.md", "[L15-WIN] #02 01:50 job", "session",
+                               send=lambda t: sent.append(t) or "claude:zero@H", headless=lambda b: ran.append(b))
+    assert r["step"] == "zero" and r["line"].startswith("OWNER:") and not ran
+    assert "user_asked" in sent[0] and "B.md" in sent[0]
+    assert [x["step"] for x in _log()] == ["refused", "zero"]       # the owner-visible line is written first
+
+
+def test_headless_sonnet_only_when_zero_is_unreachable():
+    ran = []
+    r = budget.start_successor("B.md", "T", "session", send=_boom, headless=lambda b: ran.append(b) or "T-1")
+    assert r["step"] == "headless-sonnet" and ran == ["B.md"] and "Sonnet" in r["line"]
+
+
+def test_headless_start_pins_sonnet(monkeypatch):
+    seen = {}
+
+    class R:
+        returncode, stdout, stderr = 0, "started T-1", ""
+
+    monkeypatch.setattr("subprocess.run", lambda argv, **k: seen.setdefault("argv", argv) and R())
+    budget._headless_sonnet("B.md")
+    assert seen["argv"][-3:] == ["--model", "sonnet", "--pin"]
+
+
+def test_a_user_started_turn_starts_it_itself():
+    r = budget.start_successor("B.md", "T", "user", send=_boom, headless=_boom)
+    assert r["step"] == "self" and "user_asked" in r["line"]
+
+
+def test_every_step_failing_is_reported_not_swallowed():
+    r = budget.start_successor("B.md", "T", "session", send=_boom, headless=_boom)
+    assert r["step"] == "failed" and "inbox" in r["line"]

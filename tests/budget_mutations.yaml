@@ -17,10 +17,10 @@
   swap: ["        if sid == row_sid or sid[:8] in zero:", "        if sid == row_sid:"]
   why: "Zero is never on the archive list"
 - file: fieldkit/tokens/budget.py
-  swap: ["    if zero is None:\n        return []", "    if zero is None:\n        zero = \"\""]
+  swap: ["    if zero is None:", "    if False:"]
   why: "an unreadable net archives nothing (fail closed)"
 - file: fieldkit/tokens/rotate.py
-  swap: ["text = rotation_done_line(row) if budget.handed_over(sid) else next_step(row, tp, owner)", "text = next_step(row, tp, owner)"]
+  swap: ["text = rotation_done_line(row, owner) if budget.handed_over(sid) else next_step(row, tp, owner)", "text = next_step(row, tp, owner)"]
   why: "after the 90% handover, ROTATE does not write a second one"
 - file: fieldkit/method/ci_wake.py
   swap: ["        if st in (\"MERGED\", \"CLOSED\"):", "        if st == \"MERGED\":"]
@@ -37,3 +37,12 @@
 - file: fieldkit/method/ci_wake.py
   swap: ["    with open(wake / f\"{_safe(session)}.txt\", \"a\", encoding=\"utf-8\") as f:", "    with open(wake / f\"{_safe('all')}.txt\", \"a\", encoding=\"utf-8\") as f:"]
   why: "the wake goes to the session that started the wait, not to every session"
+- file: fieldkit/tokens/budget.py
+  swap: ["        zero = (send or _send_zero)(ask)", "        raise RuntimeError(ask)"]
+  why: "a refused visible successor goes to Zero first, never straight to headless"
+- file: fieldkit/tokens/budget.py
+  swap: ["    _log_successor({**rec, \"step\": \"refused\", \"line\": owner})", "    pass"]
+  why: "the refusal is written where the owner sees it"
+- file: fieldkit/tokens/budget.py
+  swap: ["\"--model\", \"sonnet\", \"--pin\"]", "]"]
+  why: "the last-resort headless start is pinned to Sonnet, never routed down to Haiku"

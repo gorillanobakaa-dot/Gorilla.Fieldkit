@@ -12,6 +12,9 @@
     fieldkit rotate log [N]                                      the last N verdicts
     fieldkit rotate endcheck --transcript PATH                   a turn may end only with no open PR it mentioned unless a
                                                                  ci-wait runs for it (exit 0 / 3; fieldkit/method/ci_wake.py)
+    fieldkit rotate successor --brief F --title T --origin user|session
+                                                                 a VISIBLE successor: when the app refuses (session-
+                                                                 started turn) ask Zero; headless Sonnet only last
     fieldkit rotate doctor                                       thresholds, transcript folders, state, PLAN.md, hook
     python -m fieldkit.tokens.rotate --hook                      Claude Code UserPromptSubmit / PostToolUse hook
                                                                  (the room hook calls hook_line() itself)
@@ -371,30 +374,34 @@ def owner_turn(call):
     return bool(prompt.strip()) and not EVENT_TURN.match(prompt)       # no prompt seen: not the owner's (fail closed)
 
 
-def next_step(row, transcript=None, owner=False):
-    """The exact instruction for a session over the ROTATE line (what the hook shows it). Never a card: on a turn the
-    owner did not type the app may refuse start_session; when it does, the successor is headless and the refusal is said."""
-    tp = transcript or row["path"]
-    desktop = (row.get("entrypoint") or "").startswith("claude-desktop")
+def start_text(row, owner=False):
+    """How the successor starts. Desktop: start_session user_asked; the app refuses it in a turn another session's
+    message started, and then the start goes to Zero (`rotate successor --origin session`, budget.start_successor),
+    never a silent headless or Haiku fallback (owner 2026-11-03). CLI: a fresh `claude`."""
     where = row.get("cwd") or "the same folder"
-    headless = f"`fieldkit task start <the note it wrote> --cwd \"{where}\"` (a headless successor, no click)"
-    if not desktop:
-        start = f"start a fresh `claude` in {where} with that brief, then end this one"
-    elif owner:
-        start = ("start the fresh session: Claude desktop start_session, initiation \"user_asked\", context \"fresh\", "
-                 f"the brief as its prompt. If the app refuses it, NEVER propose a card: run {headless} instead. "
-                 "Then archive this one (set_remote_control off if it is on, then archive_session \"self\")")
-    else:
-        start = ("start the fresh session visibly: Claude desktop start_session, initiation \"user_asked\", context "
-                 "\"fresh\", the brief as its prompt. This turn was not started by the owner, so the app may refuse it: "
-                 f"then say so plainly, NEVER propose a card, and run {headless} instead. Then archive this one "
-                 "(set_remote_control off if it is on, then archive_session \"self\"); the command post the owner talks "
-                 "to may instead wait: this line comes back at the owner's next message")
+    if not (row.get("entrypoint") or "").startswith("claude-desktop"):
+        return f"start a fresh `claude` in {where} with that brief, then end this one"
+    refused = ("`fieldkit rotate successor --brief <the brief file> --title \"<job>\" --origin session` (it writes "
+               "the refusal where the owner sees it, asks Zero to start the session visibly, and starts headless on "
+               "Sonnet only when Zero cannot be reached)")
+    archive = "Then archive this one (set_remote_control off if it is on, then archive_session \"self\")"
+    if owner:
+        return ("start the fresh session: Claude desktop start_session, initiation \"user_asked\", context \"fresh\", "
+                f"the brief as its prompt. If the app refuses it, NEVER propose a card: run {refused}. {archive}")
+    return ("start the fresh session visibly: Claude desktop start_session, initiation \"user_asked\", context "
+            "\"fresh\", the brief as its prompt. This turn was not started by the owner, so the app may refuse it: "
+            f"then say so plainly, NEVER propose a card, and run {refused}. {archive}; the command post the owner "
+            "talks to may instead wait: this line comes back at the owner's next message")
+
+
+def next_step(row, transcript=None, owner=False):
+    """The exact instruction for a session over the ROTATE line (what the hook shows it). Never a card."""
+    tp = transcript or row["path"]
     return (f"SESSION ROTATION (fieldkit rotate): this session is ROTATE - {'; '.join(row['why'])}. Every call now "
             f"re-sends {round(row['context_last'] / 1000)}k tokens. Start no new work here. At the next safe point "
             f"(work committed or written down): 1) python -m fieldkit rotate handover --transcript \"{tp}\" --title "
             "\"<job>\" --done \"<what is done>\" --next \"<what is left>\" --not-verified \"<what is not verified>\" "
-            f"(writes the dated PLAN.md section and the note, prints the brief); 2) {start}.")
+            f"(writes the dated PLAN.md section and the note, prints the brief); 2) {start_text(row, owner)}.")
 
 
 def warn_line(row):
@@ -432,13 +439,13 @@ def hook_line(call, event, now=None):
         mark.parent.mkdir(parents=True, exist_ok=True)
         mark.write_text(json.dumps({"level": row["level"], "t": now, "owner": owner}), encoding="utf-8")
         from . import budget                              # the half-budget and 90% lines (once each per session)
-        bud = budget.lines(row, tp, cfg, now)
+        bud = budget.lines(row, tp, cfg, now, owner)
         text = ""
         if row["level"] == "ROTATE" and (prompt or changed):
-            text = rotation_done_line(row) if budget.handed_over(sid) else next_step(row, tp, owner)
+            text = rotation_done_line(row, owner) if budget.handed_over(sid) else next_step(row, tp, owner)
         elif row["level"] == "WARN" and changed:
             text = warn_line(row)
-        return "\n".join(x for x in (*wakes, bud, text) if x)
+        return "\n".join(x for x in (text, bud, *wakes) if x)      # the verdict first: the hook's contract
     except Exception:  # noqa: BLE001 - a courtesy line must never break the session's hook
         return ""
 
@@ -451,10 +458,10 @@ def _wakes(sid):
         return []
 
 
-def rotation_done_line(row):
+def rotation_done_line(row, owner=False):
     """ROTATE after the 90% handover was already written: do not hand over twice; start the successor, archive this."""
     return (f"SESSION ROTATION (fieldkit rotate): ROTATE - {'; '.join(row['why'])}. The handover was already written at "
-            "90% (see the BUDGET line above): start the successor it names and archive this session. Start no new work here.")
+            f"90% (the BUDGET line names its brief): write no second one; {start_text(row, owner)}. Start no new work here.")
 
 
 from .rotate_stop import HANDOVER_CMD, HANDOVER_FILES, stop_refusal  # noqa: E402,F401 - R1, kept light for the PreToolUse hook
@@ -784,6 +791,10 @@ def main(argv=None):
     sub.add_parser("doctor")
     ec = sub.add_parser("endcheck", help="a session ending its turn: no open PR it mentioned without a ci-wait running")
     ec.add_argument("--transcript", required=True)
+    su = sub.add_parser("successor", help="start a VISIBLE successor; a refused start goes to Zero, never Haiku")
+    su.add_argument("--brief", required=True)
+    su.add_argument("--title", required=True)
+    su.add_argument("--origin", choices=["user", "session"], required=True)
     a = p.parse_args(argv)
     if a.cmd in (None, "check"):
         try:
@@ -840,6 +851,13 @@ def main(argv=None):
         return 0
     if a.cmd == "doctor":
         return doctor()
+    if a.cmd == "successor":
+        from . import budget
+        r = budget.start_successor(a.brief, a.title, a.origin)
+        print(r["line"])
+        print({"self": "NEXT: call start_session now", "zero": "NEXT: archive this session once Zero confirms",
+               "headless-sonnet": "NEXT: fieldkit task status", "failed": "NEXT: fieldkit inbox add"}[r["step"]])
+        return 3 if r["step"] == "failed" else 0
     if a.cmd == "endcheck":
         try:
             ok, fails = endcheck(a.transcript)

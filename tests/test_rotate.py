@@ -133,7 +133,8 @@ def call(p, event):
 def test_hook_rotate_at_every_prompt_and_once_mid_turn(tmp_path):
     p = monster(tmp_path)
     first = rotate.hook_line(call(p, "PostToolUse"), "PostToolUse")
-    assert first.startswith("SESSION ROTATION") and "rotate handover --transcript" in first
+    assert first.startswith("SESSION ROTATION") and "already written" in first      # the 90% budget wrote it
+    assert "BUDGET" in first and "rotate handover --transcript" not in first     # never a second handover
     assert "archive_session" in first                              # a desktop session is told to archive itself
     assert rotate.hook_line(call(p, "PostToolUse"), "PostToolUse") == ""          # said once mid-turn
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit").startswith("SESSION ROTATION")
@@ -195,7 +196,7 @@ def test_no_rotation_path_falls_back_to_a_card(tmp_path, entry, owner):
     text = rotate.next_step(row, owner=owner)
     assert not CARD.search(text)
     if entry == "claude-desktop":
-        assert "fieldkit task start" in text
+        assert "rotate successor" in text and "--origin session" in text   # refused: Zero first, never Haiku
         if not owner:
             assert "may refuse it" in text
         assert "initiation \"user_asked\"" in text and "NEVER propose a card" in text

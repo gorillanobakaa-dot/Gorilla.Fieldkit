@@ -141,7 +141,7 @@ def prepare_successor(row, transcript, now=None, cfg=None):
             "plan_written": r["plan_written"]}
 
 
-def lines(row, transcript, cfg=None, now=None):
+def lines(row, transcript, cfg=None, now=None, owner=False):
     """-> the budget text for the session's context ("" when nothing is due). Each line is said once per session."""
     cfg = cfg or rotate.config()
     sid = row["session"]
@@ -155,14 +155,81 @@ def lines(row, transcript, cfg=None, now=None):
         _set_mark(sid, {**m, "told": "HALF"})
         return f"BUDGET {pct}%: {HALF_TEXT} ({'; '.join(row.get('why') or []) or 'by the meters'})."
     res = prepare_successor(row, transcript, now, cfg)
+    start = rotate.start_text(row, owner).replace("<the brief file>", res["brief"]).replace("<job>", res["title"])
+    desktop = (row.get("entrypoint") or "").startswith("claude-desktop")
     archive = "; ".join(f"archive_session \"{a['id']}\"" for a in res["archive"]) or "none to archive"
     return (f"BUDGET {pct}%: {STOP_TEXT.format(tokens=row['context_last'])}. "
             f"The handover is written: {res['note']} (plan section {'appended' if res['plan_written'] else 'NOT found'}). "
-            f"NOW, before any more work: start the successor visibly - Claude desktop start_session, initiation "
-            f"\"user_asked\", context \"fresh\", prompt = the file {res['brief']} (its title: {res['title']}). "
-            "If the app refuses, say so and run `fieldkit task start <that file>` (headless, no card). Then archive "
-            f"this session (set_remote_control off first if on; archive_session \"self\"). Finished sessions to archive "
-            f"by id, after the successor is up: {archive}.")
+            f"NOW, before any more work: {start} - the brief is {res['brief']}, the title {res['title']}."
+            + (f" Finished sessions to archive by id, after the successor is up: {archive}." if desktop else ""))
+
+
+def _log_successor(rec):
+    f = rotate.state_dir() / "successors.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(rec) + "\n")
+
+
+def _send_zero(text):
+    """-> the Zero station the note went to. Raises when no net is open or Zero is unknown (the caller falls back)."""
+    from ..zero import net
+    zero = net.zero_of(net.load_net())
+    if not zero:
+        raise RuntimeError("no Zero on the net")
+    net.send(net.station_id(), text, to=zero, flash=True)
+    return zero
+
+
+def _headless_sonnet(brief):
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "task", "start", str(brief), "--model", "sonnet", "--pin"],
+                       capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError((r.stderr or r.stdout).strip()[-300:] or f"exit {r.returncode}")
+    return r.stdout.strip().splitlines()[-1:] or [""]
+
+
+def start_successor(brief, title, origin, send=None, headless=None, now=None):
+    """A successor that must be VISIBLE (owner 2026-11-03). The Claude desktop app lets start_session "user_asked" run
+    only in a turn the owner's own message started; a turn started by another session's message is refused. So:
+      origin "user":    the session itself calls start_session user_asked (nothing to do here but say so).
+      origin "session": never a silent headless fallback - (a) an owner-visible line in state/rotate/successors.jsonl,
+                        (b) a flash note to Zero (a top-level session the owner drives) asking it to call start_session
+                        user_asked with this brief, (c) only if Zero cannot be reached: headless on Sonnet, pinned
+                        (never Haiku). -> {step, line}."""
+    now = time.time() if now is None else now
+    if origin not in ("user", "session"):
+        raise ValueError("origin is user or session")
+    rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "brief": str(brief), "title": title,
+           "origin": origin}
+    if origin == "user":
+        line = (f"start it here: start_session initiation \"user_asked\", context \"fresh\", prompt = {brief}, "
+                f"title {title}")
+        _log_successor({**rec, "step": "self"})
+        return {"step": "self", "line": line}
+    owner = (f"OWNER: the app refused a visible successor ({title}): this turn was started by a session message, "
+             "not by you")
+    _log_successor({**rec, "step": "refused", "line": owner})
+    ask = (f"START VISIBLE SUCCESSOR: call start_session initiation \"user_asked\", context \"fresh\", title "
+           f"\"{title}\", prompt = the file {brief}. The session that needs it was refused by the app (its turn came "
+           "from a session message). Do not run it headless.")
+    try:
+        zero = (send or _send_zero)(ask)
+        _log_successor({**rec, "step": "zero", "to": zero})
+        return {"step": "zero", "line": f"{owner}. Asked Zero ({zero}) to start it visibly; do not start it headless."}
+    except Exception as e:                              # no net, no Zero, send refused: the last resort
+        why = str(e)[:200]
+    try:
+        out = (headless or _headless_sonnet)(brief)
+        _log_successor({**rec, "step": "headless-sonnet", "why": why})
+        return {"step": "headless-sonnet",
+                "line": f"{owner}. Zero unreachable ({why}): started HEADLESS on Sonnet (pinned): {out}"}
+    except Exception as e2:
+        _log_successor({**rec, "step": "failed", "why": f"{why}; {e2}"[:300]})
+        return {"step": "failed", "line": f"{owner}. Zero unreachable ({why}) and the headless start failed ({e2}): "
+                                          "fieldkit inbox add it for the owner"}
 
 
 def pending_wakes(sid):
