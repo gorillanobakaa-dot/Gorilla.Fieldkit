@@ -153,6 +153,15 @@ def test_order_follows_what_most_episodes_do_not_the_average_position():
     assert R.kemeny(["a", "b"], firsts) == ["a", "b"]
 
 
+def test_build_group_needs_a_build_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "go build ./cmd"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "build")
+    r = R.build(s, "build")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
 def test_test_group_needs_a_test_runner_anchor(s):
     for i in range(3):
         flow(s, f"t{i}", ["git add .", "python -m pytest -q", "git commit -m x"], request="run the tests for the parser")
