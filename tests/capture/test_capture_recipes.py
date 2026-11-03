@@ -155,7 +155,7 @@ def test_order_follows_what_most_episodes_do_not_the_average_position():
 
 def test_build_group_needs_a_build_command(s):
     for i in range(3):
-        flow(s, f"s{i}", ["git add .", "git commit -m x", "go build ./cmd"])
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "fieldkit emerge run x"])
     flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
     episodes(s, "build")
     r = R.build(s, "build")
