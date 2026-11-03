@@ -187,3 +187,12 @@ def test_debug_group_needs_a_test_or_check_command(s):
     episodes(s, "debug")
     r = R.build(s, "debug")
     assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
+
+
+def test_cleanup_group_needs_a_size_or_scratch_command(s):
+    for i in range(3):
+        flow(s, f"s{i}", ["git add .", "git commit -m x", "fieldkit size recycle old"])
+    flow(s, "q", ["git add .", "git commit -m x", "git fetch"])
+    episodes(s, "cleanup")
+    r = R.build(s, "cleanup")
+    assert r["episodes"]["in_group"] == 3 and r["episodes"]["without_anchor_command"] == 1
