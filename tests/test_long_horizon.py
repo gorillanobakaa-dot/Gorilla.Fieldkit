@@ -982,3 +982,22 @@ def test_a_planner_round_refused_at_the_limit_is_not_a_round(tmp_path, monkeypat
         p, why = goal.plan("g", {}, st, limited)
         assert p is None and why.startswith("usage_limit")
     assert st["rounds"] == 4
+
+
+def test_past_rotate_every_tool_but_a_checkpoint_is_refused_and_a_warn_session_is_read_every_call(tmp_path, monkeypatch):
+    """R19: a planted worker transcript over ROTATE - its next tool call, a read included, is refused with the handover
+    message; a session last read as WARN is re-read on every call, not every 10th."""
+    jd = tmp_path / "job"
+    budget.start(jd, budget.merge({"turns": 100}))
+    tr = tmp_path / "t.jsonl"
+    tr.write_text("{}")
+    level = {"v": "WARN"}
+    reads = []
+    monkeypatch.setattr(budget, "rotate_verdict",
+                        lambda t: reads.append(1) or {"level": level["v"], "why": ["context per call 360k"]})
+    assert budget.hook_pre(jd, "Bash", {"command": "make"}, transcript=str(tr)) is None      # call 1: read, WARN
+    level["v"] = "ROTATE"
+    why = budget.hook_pre(jd, "Read", {"file_path": "x.py"}, transcript=str(tr), read_tool=True)   # call 2: WARN -> re-read
+    assert len(reads) == 2 and why and "SESSION ROTATION" in why
+    assert "SESSION ROTATION" in budget.hook_pre(jd, "Grep", {"pattern": "x"}, transcript=str(tr), read_tool=True)
+    assert budget.hook_pre(jd, "Bash", {"command": "git add -A && git commit -m wip"}, transcript=str(tr)) is None
