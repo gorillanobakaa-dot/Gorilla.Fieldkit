@@ -13,6 +13,7 @@ import math
 import re
 import statistics
 
+from ..core import privacy
 from . import distill as D
 from . import episodes as ep
 
@@ -24,7 +25,16 @@ REPLAY_ORDER = 0.8            # share of the matched step pairs that must come i
 REPLAY_NEEDED = 3             # episodes that must replay for the recipe to be accepted
 CHEAP_MODEL = "sonnet"
 BUDGET_USD = "0.50"
-_PERSONAL = re.compile(r"[a-z]:[\\/]|/home/|/users/|@[\w-]+\.|gorilla1|gorillanobaka", re.I)
+_PERSONAL_GENERIC = r"[a-z]:[\\/]|/home/|/users/|@[\w-]+\."
+
+
+def personal_pattern(terms=None):
+    """Paths and e-mails, plus the owner's private terms from the git-ignored local settings (never written in this file)."""
+    terms = privacy.private_terms() if terms is None else terms
+    return re.compile("|".join([_PERSONAL_GENERIC] + [re.escape(t) for t in terms]), re.I)
+
+
+_PERSONAL = personal_pattern()
 
 
 READ_ONLY = {"git status", "git log", "git show", "git diff", "git rev-parse", "git branch", "git ls-files", "git ls-remote",
