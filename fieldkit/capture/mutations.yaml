@@ -18,3 +18,10 @@
 - {file: fieldkit/capture/episodes.py, swap: ['k not in have or have[k].get("digest") != e["digest"]', 'k not in have'], why: "a grown episode is rewritten"}
 - {file: fieldkit/capture/episodes.py, swap: ['key = req or first_line(d.get("problem")) or NO_REQUEST', 'key = req or NO_REQUEST'], why: "a noisy request does not merge episodes"}
 - {file: fieldkit/capture/episodes.py, swap: ["if b'\"tool_use\"' in chunk or b'\"toolUse\"' in chunk:", 'if False:'], why: "a transcript with tool calls but no item is a GAP"}
+- {file: fieldkit/capture/distill.py, swap: ['        if refusal_rule(d.get("errors")):', '        if False:'], why: "a refusal is counted in stage 3, not as a failure pair"}
+- {file: fieldkit/capture/distill.py, swap: ['nxt = next((t for t in steps[i + 1:] if t[1] == "command" and not t[3]), None)', 'nxt = None'], why: "a failure is paired with the next success"}
+- {file: fieldkit/capture/distill.py, swap: ['if len(ok) >= min_pairs and informative:', 'if False:'], why: "two alike pairs make a signature"}
+- {file: fieldkit/capture/distill.py, swap: ['    text = str(text).lower()', '    text = str(text)'], why: "paths, numbers and hashes are replaced by placeholders (no personal path in a signature)"}
+- {file: fieldkit/capture/distill.py, swap: ['for kind, words in INTENTS:', 'for kind, words in []:'], why: "a request is sorted into an intent group"}
+- {file: fieldkit/capture/distill.py, swap: ['if p[0] not in marks:', 'if False:'], why: "a pair outside a signature becomes a procedure with the reason"}
+- {file: fieldkit/capture/distill.py, swap: ['state["state"].get(i, {}).get("evidence") != ev', 'True'], why: "applying the states twice writes nothing the second time"}
