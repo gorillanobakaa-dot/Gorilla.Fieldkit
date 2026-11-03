@@ -260,7 +260,7 @@ def test_a_prompt_on_a_computer_whose_relay_is_deaf_says_how_to_start_it(monkeyp
     """2026-10-28, owner: "make it FULL WORKING": 100 cable notes sat stored and unheard on the VAIO."""
     from fieldkit.peers import link, link_relay
     monkeypatch.setattr(room, "_relay", REAL_RELAY)                 # conftest turns it off for every other test
-    for f in ("_net", "_hog", "_rotate", "_plan"):
+    for f in ("_net", "_hog", "_rotate", "_plan", "_workflows", "_refusals"):
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
     monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
     monkeypatch.setattr(link, "household", lambda: {"me": "vaio"})
