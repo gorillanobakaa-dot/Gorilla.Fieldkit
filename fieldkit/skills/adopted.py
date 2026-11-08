@@ -25,6 +25,7 @@ vendored, pinned, reviewed scripts the same way every time, with the doors the o
         NAME.skill, a zip with the same exclusions as upstream, sorted entries and fixed timestamps, so the same
         folder always gives the same bytes.
 """
+import argparse
 import fnmatch
 import os
 import socket
@@ -213,6 +214,9 @@ EXCLUDE_GLOBS = ("*.pyc",)
 EXCLUDE_FILES = {".DS_Store"}
 ROOT_EXCLUDE_DIRS = {"evals"}
 EPOCH = (1980, 1, 1, 0, 0, 0)
+MAX_PACKAGE_FILES = 5_000
+MAX_PACKAGE_BYTES = 100 * 1024 * 1024
+MAX_PACKAGE_ENTRIES = 10_000
 
 
 def _excluded(rel):
@@ -223,31 +227,126 @@ def _excluded(rel):
     return rel.name in EXCLUDE_FILES or any(fnmatch.fnmatch(rel.name, g) for g in EXCLUDE_GLOBS)
 
 
-def package(args):
-    if not args or len(args) > 2:
-        print("usage: fieldkit skills package SKILL_DIR [OUT_DIR]")
-        return 2
-    src = Path(args[0]).resolve()
-    errors = [f for f in spec.validate(src) if f[1] == "error"]
-    if errors:
-        for rule, _, msg in errors:
-            print(f"ERROR {src.name}: [{rule}] {msg}")
-        print("package: refused - fix the errors first (fieldkit skills validate)")
-        return 1
-    out_dir = Path(args[1]).resolve() if len(args) > 1 else Path.cwd()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{src.name}.skill"
-    files = sorted((p for p in src.rglob("*") if p.is_file()), key=lambda p: p.relative_to(src).as_posix())
-    n = 0
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for p in files:
-            rel = p.relative_to(src.parent)
-            if _excluded(rel):
+def _package_files(src):
+    files, total_bytes, visited = [], 0, 0
+
+    def walk_error(exc):
+        raise exc
+
+    for current, directories, names in os.walk(src, topdown=True, followlinks=False, onerror=walk_error):
+        current_path = Path(current)
+        kept = []
+        for name in sorted(directories, key=str.casefold):
+            directory = current_path / name
+            relative = Path(src.name) / directory.relative_to(src)
+            if _excluded(relative):
                 continue
-            info = zipfile.ZipInfo(rel.as_posix(), EPOCH)
+            if directory.is_symlink():
+                raise ValueError("skill contains a symbolic link")
+            visited += 1
+            if visited > MAX_PACKAGE_ENTRIES:
+                raise ValueError(f"skill exceeds the {MAX_PACKAGE_ENTRIES}-entry traversal limit")
+            kept.append(name)
+        directories[:] = kept
+        for name in sorted(names, key=str.casefold):
+            path = current_path / name
+            relative = Path(src.name) / path.relative_to(src)
+            if _excluded(relative):
+                continue
+            visited += 1
+            if visited > MAX_PACKAGE_ENTRIES:
+                raise ValueError(f"skill exceeds the {MAX_PACKAGE_ENTRIES}-entry traversal limit")
+            if path.is_symlink():
+                raise ValueError("skill contains a symbolic link")
+            if not path.is_file():
+                continue
+            if len(files) >= MAX_PACKAGE_FILES:
+                raise ValueError(f"skill exceeds the {MAX_PACKAGE_FILES}-file limit")
+            size = path.stat().st_size
+            total_bytes += size
+            if total_bytes > MAX_PACKAGE_BYTES:
+                raise ValueError("skill exceeds the 100 MiB input limit")
+            files.append(path)
+    if not any(path == src / "SKILL.md" for path in files):
+        raise ValueError("skill must contain SKILL.md at its root")
+    return files
+
+
+def _build_package(src):
+    files = _package_files(src)
+    errors = [finding for finding in spec.validate(src) if finding[1] == "error"]
+    if errors:
+        raise ValueError("SKILL.md frontmatter is invalid")
+    import io
+    data = io.BytesIO()
+    total_bytes = 0
+    with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as zipped:
+        for path in files:
+            with path.open("rb") as source:
+                contents = source.read(MAX_PACKAGE_BYTES - total_bytes + 1)
+            total_bytes += len(contents)
+            if total_bytes > MAX_PACKAGE_BYTES:
+                raise ValueError("skill exceeds the 100 MiB input limit")
+            relative = path.relative_to(src.parent)
+            if _excluded(relative):
+                continue
+            info = zipfile.ZipInfo(relative.as_posix(), EPOCH)
             info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16        # one mode on every OS (Windows has no executable bit)
-            z.writestr(info, p.read_bytes())
-            n += 1
-    print(f"PACKAGED {out} ({n} files)")
-    return 0
+            info.external_attr = 0o644 << 16
+            zipped.writestr(info, contents)
+    return data.getvalue(), len(files)
+
+
+def package(args):
+    parser = argparse.ArgumentParser(
+        prog="fieldkit skills package",
+        description="Build a deterministic .skill archive from one validated skill directory.",
+    )
+    parser.add_argument("skill_dir", type=Path)
+    parser.add_argument("output_dir", type=Path, help="directory outside the source skill")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--preview", action="store_true", help="validate and report without writing")
+    modes.add_argument("--verify", action="store_true", help="compare an existing archive with current source")
+    try:
+        args = parser.parse_args(args)
+    except SystemExit as exc:
+        return int(exc.code)
+    try:
+        src = args.skill_dir.resolve(strict=True)
+        if not src.is_dir():
+            raise ValueError("skill path must be a directory")
+        out_dir = args.output_dir.resolve()
+        try:
+            out_dir.relative_to(src)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("output directory must be outside the skill directory")
+        archive, count = _build_package(src)
+        out = out_dir / f"{src.name}.skill"
+        if args.preview:
+            print(f"PREVIEW: {out.name} ({count} files, {len(archive)} bytes); no files written")
+            return 0
+        if args.verify:
+            if out.is_symlink() or not out.is_file() or out.stat().st_size > MAX_PACKAGE_BYTES:
+                raise ValueError("expected archive is missing, linked, or exceeds the 100 MiB limit")
+            if out.read_bytes() != archive:
+                raise ValueError("existing archive does not match the current skill source")
+            print(f"VERIFIED: {out.name} matches the current skill source ({count} files)")
+            return 0
+        out_dir.mkdir(parents=True, exist_ok=True)
+        created = False
+        try:
+            with out.open("xb") as target:
+                created = True
+                target.write(archive)
+        except OSError:
+            if created:
+                out.unlink(missing_ok=True)
+            raise
+        print(f"PACKAGED {out.name} ({count} files)")
+        return 0
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"FAIL: {exc}")
+        print("NEXT: fix the skill or choose a new output directory")
+        return 1

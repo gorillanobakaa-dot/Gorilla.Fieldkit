@@ -1,0 +1,20 @@
+# A displayed checklist only. `fieldkit capture workflow show` never runs these commands.
+id: doc-skill-preflight
+intent: documents
+title: Preflight local Agent Skill documentation
+goal: Validate local skill metadata and linked documentation without executing skill contents.
+accepted: true
+steps:
+- id: validate-skill
+  sentence: Choose the exact local skill folder or folders to validate; captured scripts and commands are data and are never run.
+  command: fieldkit skills validate PATH --strict --json
+  check: The JSON covers only the selected skill folders; exit 0 means no errors, exit 1 lists findings, and no files are changed.
+  failures: []
+- id: confirm-native-card
+  sentence: Confirm the validator is registered as a Fieldkit-owned read-only tool with a focused test.
+  command: fieldkit cards show skill-frontmatter-check --json
+  check: The card points to Fieldkit code and tests; trust can remain carded until Fieldkit records the passing test run.
+  failures: []
+card:
+  how_to_read: Review one step at a time; replace PATH with the exact local skill folder. This checklist is displayed, not executed.
+  replay: No captured command or skill content is executed.

@@ -6855,3 +6855,120 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_review.py"]
   notes: "Owner 2026-10-31: all the items in one place, approve once. fieldkit ideas review and fieldkit inbox review call the same code. Approve on an inbox item marks it done with approved=true and the owner's words; the item's command is never run. Double-click launchers: launchers/review.cmd, review.sh, review.command."
+
+- id: pdf-bbox-check
+  title: "Check form-field rectangles for overlap and entry height smaller than its font; reports indexes only"
+  harness: office
+  entry: [python, -m, fieldkit, office, form-bbox-check]
+  path: ${FIELDKIT}/fieldkit/office/forms.py
+  inputs:
+    - {name: fields-json, flag: null, type: path, required: true, help: "JSON containing form_fields with page and label/entry rectangles"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-input, 3: findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pdf_forms.py"]
+
+- id: pdf-fillable-check
+  title: "Count fillable PDF form fields without exposing field names or values; refuses encrypted PDFs"
+  harness: office
+  entry: [python, -m, fieldkit, office, fillable-check]
+  path: ${FIELDKIT}/fieldkit/office/forms.py
+  inputs:
+    - {name: pdf-path, flag: null, type: path, required: true, help: "local readable unencrypted PDF"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-encrypted-pdf, 3: no-fillable-fields}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pdf_forms.py"]
+
+- id: skill-frontmatter-check
+  title: "Validate a skill's Agent Skills metadata and folder contract; recommendations are errors"
+  harness: skills
+  entry: [python, -m, fieldkit, skills, validate, --strict]
+  path: ${FIELDKIT}/fieldkit/skills/spec.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: false, help: "one or more skill folders (default Fieldkit skill roots)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: validation-findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py"]
+
+- id: pptx-chart-check
+  title: "Check bounded PPTX chart XML for known label-position and axis-reference failure patterns"
+  harness: office
+  entry: [python, -m, fieldkit, office, pptx-chart-check]
+  path: ${FIELDKIT}/fieldkit/office/pptx_checks.py
+  inputs:
+    - {name: presentation, flag: null, type: path, required: true, help: "local PPTX file, at most 50 MiB"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-over-limit-presentation, 3: known-chart-findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pptx_checks.py"]
+
+- id: pptx-master-check
+  title: "Check bounded PPTX master relationships for a known shared-theme failure pattern"
+  harness: office
+  entry: [python, -m, fieldkit, office, pptx-master-check]
+  path: ${FIELDKIT}/fieldkit/office/pptx_checks.py
+  inputs:
+    - {name: presentation, flag: null, type: path, required: true, help: "local PPTX file, at most 50 MiB"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-over-limit-presentation, 3: shared-theme-findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pptx_checks.py"]
+
+- id: pptx-schema-verdict
+  title: "Classify known fatal PowerPoint slide-schema diagnostic categories without echoing source text"
+  harness: office
+  entry: [python, -m, fieldkit, office, pptx-schema-verdict]
+  path: ${FIELDKIT}/fieldkit/office/pptx_checks.py
+  inputs:
+    - {name: diagnostics, flag: null, type: path, required: true, help: "UTF-8 diagnostics, at most 2 MiB and 100,000 lines"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-over-limit-diagnostics, 3: known-fatal-categories}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pptx_checks.py"]
+
+- id: skill-package
+  title: "Package one valid skill directory into a deterministic .skill archive without overwriting existing files"
+  harness: skills
+  entry: [python, -m, fieldkit, skills, package]
+  path: ${FIELDKIT}/fieldkit/skills/adopted.py
+  inputs:
+    - {name: skill-directory, flag: null, type: path, required: true, help: "local skill folder with a valid root SKILL.md"}
+    - {name: output-directory, flag: null, type: path, required: true, help: "directory outside the source skill"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  scope: [one newly created .skill archive]
+  modes:
+    preview: [python, -m, fieldkit, skills, package, "{skill-directory}", "{output-directory}", --preview]
+    verify: [python, -m, fieldkit, skills, package, "{skill-directory}", "{output-directory}", --verify]
+  output: own
+  exits: {1: invalid-input-or-existing-mismatched-archive}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py"]
+
+- id: tools-external
+  title: "Inspect an external tool catalog's cards as data: schema, bounds, paths; never runs them, never grants trust"
+  harness: desk
+  entry: [python, -m, fieldkit, tools, external]
+  path: ${FIELDKIT}/fieldkit/desk/external.py
+  inputs:
+    - {name: catalog-dir, flag: null, type: path, required: true, help: "folder of *.card.json files (for example a distill out/tools folder)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: refused-input, 3: incompatible-cards-or-workflows}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_external_catalog.py"]

@@ -10,6 +10,8 @@ from fieldkit.method import ci_wake
 from fieldkit.tokens import rotate
 
 PR = "https://github.com/o/r/pull/7"
+OTHER = "https://github.com/o/r/pull/9"
+PUSHED = f"pushed 6e035510d478 (new branch) to origin/fix/x (1 commit(s)); {PR} auto-merge on"
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +65,7 @@ def test_endcheck_fails_on_an_open_pr_the_session_mentioned(tmp_path):
     t = tmp_path / "projects" / "p" / "sess-end.jsonl"
     t.parent.mkdir(parents=True)
     rows = [{"type": "user", "timestamp": "2026-11-03T10:00:00Z", "cwd": "C:/work",
-             "message": {"content": f"Opened {PR}"}},
+             "message": {"content": f"Opened {PUSHED}"}},
             {"type": "assistant", "timestamp": "2026-11-03T10:01:00Z", "cwd": "C:/work",
              "message": {"id": "m1", "model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [],
                          "usage": {"input_tokens": 1, "output_tokens": 1}}}]
@@ -77,7 +79,7 @@ def test_endcheck_fails_on_an_open_pr_the_session_mentioned(tmp_path):
 def _stop_transcript(tmp_path, name="sess-stop"):
     t = tmp_path / "projects" / "p" / f"{name}.jsonl"
     t.parent.mkdir(parents=True)
-    rows = [{"type": "user", "timestamp": "2026-11-03T10:00:00Z", "cwd": "C:/work", "message": {"content": f"Opened {PR}"}},
+    rows = [{"type": "user", "timestamp": "2026-11-03T10:00:00Z", "cwd": "C:/work", "message": {"content": f"Opened {PUSHED}"}},
             {"type": "assistant", "timestamp": "2026-11-03T10:01:00Z", "cwd": "C:/work",
              "message": {"id": "m1", "model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [],
                          "usage": {"input_tokens": 1, "output_tokens": 1}}}]
@@ -108,3 +110,28 @@ def test_stop_hook_never_raises(capsys):
     import io
     assert rotate.stop_hook(io.StringIO("not json")) == 0
     assert rotate.stop_hook(io.StringIO(json.dumps({"transcript_path": "/no/such.jsonl"}))) == 0
+
+
+def test_endcheck_ignores_a_pr_the_session_only_mentioned(tmp_path):
+    # I-16: #345 belonged to another worker; the session only read its URL, yet the turn end was blocked 6 times
+    t = tmp_path / "projects" / "p" / "sess-men.jsonl"
+    t.parent.mkdir(parents=True)
+    rows = [{"type": "user", "timestamp": "2026-11-03T10:00:00Z", "cwd": "C:/work",
+             "message": {"content": f"Opened {PUSHED}; also see {OTHER}"}},
+            {"type": "assistant", "timestamp": "2026-11-03T10:01:00Z", "cwd": "C:/work",
+             "message": {"id": "m1", "model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [],
+                         "usage": {"input_tokens": 1, "output_tokens": 1}}}]
+    t.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    seen = []
+    ok, fails = rotate.endcheck(str(t), state_fn=lambda u: seen.append(u) or "OPEN", alive=lambda p: False)
+    assert seen == [PR] and len(fails) == 1 and OTHER not in fails[0]
+
+
+def test_a_ci_wait_that_ended_unproven_clears_the_end_check_and_a_new_wait_reopens_it():
+    assert ci_wake.check([PR], lambda u: "OPEN", alive=lambda p: False)
+    ci_wake.begin(7, "sess-a", pid=4242)
+    ci_wake.end(7, "sess-a", {"state": "unproven", "why": "red not proven this branch's"})
+    assert ci_wake.check([PR], lambda u: "OPEN", alive=lambda p: False) == []
+    ci_wake.begin(7, "sess-a", pid=4242)
+    ci_wake.end(7, "sess-a", {"state": "red"})
+    assert ci_wake.check([PR], lambda u: "OPEN", alive=lambda p: False)
