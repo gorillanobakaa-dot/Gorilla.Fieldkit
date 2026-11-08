@@ -2624,6 +2624,17 @@
    "peers-wait"
   ]
  },
+ "pins": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pins"
+  ]
+ },
  "pipeline": {
   "platforms": [
    "linux",
