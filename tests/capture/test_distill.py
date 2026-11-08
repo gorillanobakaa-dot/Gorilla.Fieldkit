@@ -91,3 +91,9 @@ def test_every_episode_gets_one_intent_from_request_or_purposes(s):
     kinds = sorted(assigned.values())
     assert sm["episodes"] == sm["assigned"] == 3 and kinds == ["build", "other", "test"]
     assert D.apply_intents(s, assigned) == 3 and D.apply_intents(s, assigned) == 0
+
+
+def test_known_fix_takes_the_hand_kept_agent_shell_fix():
+    got = D.known_fix(["SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes"])
+    assert got and got.startswith("Known fix (fieldkit triage --set agent-shell, ")
+    assert D.known_fix(["everything fine here"]) is None
