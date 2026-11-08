@@ -14,6 +14,7 @@ Python 3.6 syntax only (the Mac runs this file by itself).
 """
 import hashlib
 import json
+import ntpath
 import os
 import plistlib
 import shutil
@@ -124,7 +125,7 @@ def windows_environment(env=None):
 def lnk_exe(info):
     """The program a shortcut launches: its target, or the quoted first argument when the target is conhost.exe."""
     t = info.get("target") or ""
-    if os.path.basename(t).lower() == "conhost.exe":
+    if ntpath.basename(t).lower() == "conhost.exe":   # a Windows path, whichever system reads it
         a = (info.get("args") or "").strip()
         return a[1:a.index('"', 1)] if a.startswith('"') and '"' in a[1:] else a.split(" ")[0]
     return t
