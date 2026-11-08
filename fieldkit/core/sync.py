@@ -28,8 +28,30 @@ import json
 import subprocess
 from pathlib import Path
 
+from . import ghhidden
+
 ROOT = Path(__file__).resolve().parents[2]
 NEED_OS = ("windows", "ubuntu")
+# A repository whose job names do not say the system: which job proves which one, as data (plan P14, idea I-11)
+OS_JOBS_FILE = Path(__file__).resolve().parents[1] / "method" / "ci_os_jobs.yaml"
+
+
+def os_jobs(slug, path=None):
+    """-> {system: (job names)} for a repository whose CI job names do not say the system (ci_os_jobs.yaml)."""
+    import yaml
+    try:
+        data = yaml.safe_load(Path(path or OS_JOBS_FILE).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return {o: tuple(names or ()) for o, names in (data.get(slug) or {}).items()}
+
+
+def missing_os(runs, need, slug, path=None):
+    """-> the systems in `need` with no check run: a job named in ci_os_jobs.yaml for `slug`, else one whose name
+    contains the system's word."""
+    named = os_jobs(slug, path) if slug else {}
+    return [o for o in need if not any(x["name"] in named.get(o, ()) if o in named else o in x["name"].lower()
+                                       for x in runs)]
 
 
 def _git(repo, *a, check=True):
@@ -45,19 +67,43 @@ def _slug(repo):
     return url.lstrip(":/").removesuffix(".git")
 
 
-def ci_green(slug, sha, run=subprocess.run):
-    """-> (ok, evidence): every check run of `sha` completed with success, and NEED_OS each had one."""
-    r = run(["gh", "api", f"repos/{slug}/commits/{sha}/check-runs", "--jq",
-             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True)
-    if r.returncode:
-        return False, f"CI unreadable (gh): {(r.stderr or '').strip()[:160]}"
-    runs = json.loads(r.stdout or "[]")
+def _public_check_runs(slug, sha, timeout=15):
+    """-> the check runs of a PUBLIC repository's commit from api.github.com, with no credential (the headless job on
+    the other computer has none, 2026-10-31). Who learns what: GitHub sees this address ask about this commit, as a
+    `git fetch` already tells it. Raises on any failure (the caller fails closed)."""
+    import urllib.request
+    req = urllib.request.Request(f"https://api.github.com/repos/{slug}/commits/{sha}/check-runs?per_page=100",
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "fieldkit-sync"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed https host
+        data = json.loads(resp.read().decode("utf-8"))
+    return [{"name": x.get("name"), "status": x.get("status"), "conclusion": x.get("conclusion")}
+            for x in data.get("check_runs") or []]
+
+
+def ci_green(slug, sha, run=subprocess.run, public=_public_check_runs):
+    """-> (ok, evidence): every check run of `sha` completed with success, and NEED_OS each had one. Read with gh;
+    when gh cannot (no login, not installed), from the public API without a credential; neither -> not green."""
+    try:
+        r = run(["gh", "api", f"repos/{slug}/commits/{sha}/check-runs", "--jq",
+                 "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True)
+        gh_err = (r.stderr or "").strip()[:160] if r.returncode else ""
+    except OSError as e:
+        r, gh_err = None, str(e)[:160]
+    if gh_err:
+        gh_err = ghhidden.explain(gh_err)
+    if gh_err:
+        try:
+            runs = public(slug, sha)
+        except Exception as e:  # noqa: BLE001 - fail closed, say both
+            return False, f"CI unreadable (gh: {gh_err}; public API: {str(e)[:120]})"
+    else:
+        runs = json.loads(r.stdout or "[]")
     if not runs:
         return False, f"no CI run for {sha[:10]}"
     bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]
     if bad:
         return False, f"CI not green for {sha[:10]}: {', '.join(bad[:4])}"
-    missing = [o for o in NEED_OS if not any(o in x["name"].lower() for x in runs)]
+    missing = missing_os(runs, NEED_OS, slug)
     if missing:
         return False, f"CI for {sha[:10]} has no {', '.join(missing)} job"
     return True, f"CI green on {', '.join(NEED_OS)} for {sha[:10]} ({len(runs)} check runs)"
@@ -170,11 +216,18 @@ def skills_row(do_apply=False, installer=None):
     if stale and do_apply:
         import contextlib
         import io
-        with contextlib.redirect_stdout(io.StringIO()):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
             installer.main([])
         left = [r for r in installer.status() if r[2] in ("missing", "outdated", "off-os")]
         row.update(verdict="INSTALLED" if not left else "ERROR", ok=not left,
                    why=f"{len(stale) - len(left)} copy(ies) installed" + (f", {len(left)} still stale" if left else ""))
+        # an off-os copy leaves only through the recycle bin; when that fails the installer says why: show it
+        # (2026-10-31, VAIO: 12 stale for days because gorilla-size was not built, and sync hid the reason)
+        kept = sorted({ln.split("(recycle failed: ", 1)[1].rstrip(")") for ln in buf.getvalue().splitlines()
+                       if ln.startswith("kept") and "(recycle failed: " in ln})
+        if left and kept:
+            row["why"] += "; not recycled: " + "; ".join(kept)
     elif stale:
         row.update(verdict="STALE", ok=False, why=f"{len(stale)} copy(ies) missing, outdated or off this OS: fieldkit sync --apply")
     foreign = [f"{t.parent.name}/{n}" for t, n, s in installer.status() if s == "foreign"]

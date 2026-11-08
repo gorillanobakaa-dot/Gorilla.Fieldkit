@@ -232,7 +232,8 @@ def test_friction_flags_an_untagged_session():
 def test_friction_local_rows_include_untagged(tmp_path, monkeypatch):
     from fieldkit.lifecycle import friction
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
-    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows", "board_rows"):
+    for n in ("desktop_rows", "remote_rows", "link_rows", "prereq_rows", "needs_you_rows", "inbox_rows", "board_rows",
+              "unread_rows", "sweep_rows"):
         monkeypatch.setattr(friction, n, lambda *a, **k: [])
     monkeypatch.setattr(friction.desktop, "sessions", lambda dirs=None: [sess("s1", "job")])
     assert [r["kind"] for r in friction.local_rows()] == ["untagged"]
@@ -299,3 +300,30 @@ def test_task_start_titles_with_the_tag_of_where_it_runs(tmp_path, monkeypatch):
     assert here["title"] == "[TEST-LNX] Fix the thing."
     tasks.report(r["id"], "done", branch="feat/x")
     assert "| [L15-WIN] Fix the thing. |" in (tmp_path / "coord" / "PLAN.md").read_text(encoding="utf-8")
+
+
+def test_rules_parse_is_cached_as_json_and_read_back_without_yaml(tmp_path, monkeypatch):
+    """Hook speed: every tool call on an unpaired computer derives the tag; the YAML import was ~30 ms of it."""
+    cache = tmp_path / "machine_tags.cache.json"
+    monkeypatch.setattr(machine, "_cache_file", lambda: cache)
+    first = machine.rules()
+    assert cache.is_file() and json.loads(cache.read_text(encoding="utf-8"))["rules"] == first
+    monkeypatch.setitem(__import__("sys").modules, "yaml", None)      # an import of yaml now raises
+    assert machine.rules() == first
+    cache.write_text(json.dumps({"key": [0, 0], "rules": {"stale": 1}}), encoding="utf-8")
+    monkeypatch.delitem(__import__("sys").modules, "yaml")
+    assert machine.rules() == first                                    # a stale key is re-parsed, not trusted
+
+
+def test_unpaired_computer_makes_its_tag_without_the_link_code(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "none"))
+    monkeypatch.setattr(machine, "_link", lambda: (_ for _ in ()).throw(AssertionError("link imported")))
+    r = machine.name(save=False, facts_fn=lambda system=None: L15, system="Windows", hostname="L15HOST")
+    assert machine.valid(r["tag"]) and r["source"] == "derived"
+
+
+@pytest.fixture(autouse=True)
+def _multi_mode_for_task_start(monkeypatch):
+    """These tests start several jobs or send one to a peer; the Solo/Multiplayer gate (routing.yaml) is tested in
+    tests/test_routing.py, so here the mode is multi."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")

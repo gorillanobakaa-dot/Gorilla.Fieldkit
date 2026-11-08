@@ -64,8 +64,19 @@ def test_startcheck_catches_unapproved_and_missing_claude(monkeypatch, tmp_path)
     aprun = _ready(monkeypatch, tmp_path)
     monkeypatch.setattr(link, "approvals", lambda: ({}, "no approved link.yaml"))
     monkeypatch.setattr(aprun, "claude_exe", lambda: None)
+    from fieldkit.peers import agentfind
+    monkeypatch.setattr(agentfind, "find_path", lambda *a, **k: None)
     r = rows(link_ops.startcheck())
     assert r["approved in link.yaml"] is False and r["claude found"] is False
+
+
+def test_startcheck_finds_claude_by_the_finder_when_the_old_search_fails(monkeypatch, tmp_path):
+    aprun = _ready(monkeypatch, tmp_path)
+    monkeypatch.setattr(aprun, "claude_exe", lambda: None)
+    from fieldkit.peers import agentfind
+    monkeypatch.setattr(agentfind, "find_path", lambda *a, **k: "/app/cc/claude")
+    r = {c: d for c, ok, d in link_ops.startcheck()}
+    assert r["claude found"] == "/app/cc/claude"
 
 
 def test_startcheck_catches_a_fieldkit_from_the_working_folder(monkeypatch, tmp_path):

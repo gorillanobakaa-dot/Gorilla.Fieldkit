@@ -17,6 +17,7 @@ Stages (pipelines/go-app.yaml, gorilla-opencode.yaml):
                 a difference is named, inside archives too (fieldkit/build/repro.py)
     published   (gorilla-opencode, --var compare_with=FOLDER|release) each binary compared byte for byte with the
                 published file of the same name; a difference names the bytes and go's build info (vcs.*, flags)
+    arch        (gorilla-opencode) the Arch .pkg.tar.zst (Linux only; not-this-platform elsewhere)
     packages    (gorilla-opencode) .deb/.rpm/tarball; every .deb/.xz made passes fieldkit xzcheck (--var xz_cap_mib)
     checksums   SHA256SUMS-<version>.txt for what was built
 
@@ -37,6 +38,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -70,7 +72,7 @@ def find_go():
     return next((str(c) for c in cands if c.is_file()), None)
 
 
-def _src(ctx):
+def _src(ctx, embeds=True):
     v = ctx.vars
     src = v.get("src") or ((settings.local_settings().get("goapps") or {}).get(v.get("name", "")) or "")
     if not src:
@@ -82,7 +84,8 @@ def _src(ctx):
     if not ref:
         return src
     dest = checkout(src, ref, v.get("out") or "")
-    copy_embeds(src, dest, v.get("embed_dirs") or "")
+    if embeds:                          # the arch package of a published release builds no binary: nothing to embed
+        copy_embeds(src, dest, v.get("embed_dirs") or "")
     return dest
 
 
@@ -168,6 +171,44 @@ def check_embeds(ctx, src, goos, goarch):
     if n == 0 and not problems:
         problems.append(f"{sums} pins nothing for {goos}-{goarch}")
     return n, problems
+
+
+def fetch_missing_embeds(ctx, src, goos, goarch, problems):
+    """vars.embed_fetch (a script in the module: `bash SCRIPT OUTDIR` lays out <os>-<arch>/<file> from the official
+    releases, each checked against the pins) fills the pinned helpers `problems` reports missing, gzipped into the
+    embed folder (2026-11-01: the official-release helpers 7za, ffmpeg, ffprobe, cwebp, avifenc, oxipng are not built
+    here, so a clean machine had only the seven built ones). Only "missing" is fetched; wrong bytes stay a failure.
+    -> the problems that remain."""
+    import gzip
+    script = (ctx.vars.get("embed_fetch") or "").strip()
+    root = (ctx.vars.get("embed_root") or "").strip()
+    missing = [p.rsplit(" missing", 1)[0] for p in problems if p.endswith(" missing")]
+    if not script or not root or not missing or len(missing) != len(problems):
+        return problems
+    tmp = Path(tempfile.mkdtemp(prefix="fk-embed-fetch-"))
+    try:
+        bash = shutil.which("bash") or "bash"
+        env = dict(os.environ)
+        if sys.platform == "win32":
+            # Git for Windows: the script needs its unzip, tar (GNU, --wildcards), sha256sum, awk, not System32's bsdtar
+            bd = Path(bash).resolve().parent
+            env["PATH"] = os.pathsep.join([str(d) for d in (bd, bd.parent / "usr" / "bin", bd.parent.parent / "usr" / "bin")
+                                           if d.is_dir()] + [env.get("PATH", "")])
+        # OUTDIR is "." with cwd=tmp: GNU tar reads a "C:/..." -C/-f path as host "C" (tar: Cannot connect to C)
+        r = subprocess.run([bash, (Path(src) / script).as_posix(), "."], capture_output=True, text=True,
+                           timeout=1800, env=env, cwd=str(tmp))
+        if r.returncode != 0:
+            return [f"{script} failed ({r.returncode}): " + (r.stderr or r.stdout).strip()[-300:]] + problems
+        for rel in missing:
+            got = tmp / rel
+            if not got.is_file():
+                continue
+            dest = Path(src) / root / (rel + ".gz")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(gzip.compress(got.read_bytes(), 9, mtime=0))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return check_embeds(ctx, src, goos, goarch)[1]
 
 
 def _guess_clone(name, local=None):
@@ -573,6 +614,9 @@ def stage_build(ctx):
                 f = out / _file_name(ctx, version, goos, goarch)
                 tags = target_tags(ctx, goos, goarch)
                 embedded, problems = check_embeds(ctx, src, goos, goarch)
+                if problems:
+                    problems = fetch_missing_embeds(ctx, src, goos, goarch, problems)
+                    embedded = check_embeds(ctx, src, goos, goarch)[0]
                 if problems:
                     return {"ok": False, "detail": f"{goos}/{goarch} not built, embedded files wrong: "
                                                    + "; ".join(problems[:5])}
@@ -1023,6 +1067,96 @@ def stage_packages(ctx):
                                         + _xz_note(xz)})
 
 
+def _published_linux(ctx, src, tag, fetch):
+    """vars.arch_published (a release tag): the release's own linux binary, from the public download, checked against
+    its published SHA256SUMS line (parity.fetch_public raises when the bytes differ). The download is kept in the
+    stage's report folder as the evidence. -> (path, sha256)."""
+    from .. import parity
+    name = _file_name(ctx, tag, "linux", "amd64")
+    reports = _reports(ctx, src)
+    reports.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(prefix="arch-published-", dir=reports)) / "dl"
+    path, got = (fetch or parity.fetch_public)(tag, ctx.vars.get("repo") or "", name, folder)
+    if _sha(Path(path)) != got:
+        raise RuntimeError(f"{name}: sha256 differs from the published one")
+    return Path(path), got
+
+
+def stage_arch(ctx, fetch=None):
+    """vars.arch_script (the project's scripts/build-arch.sh, run as `sh SCRIPT <version>` with the Linux binary at
+    <src>/<name>): the Arch/CachyOS .pkg.tar.zst, a stage of its own so a run with the nfpm packager gets it too when
+    it runs on Linux. Elsewhere (the script runs the Linux binary, needs bsdtar and zstd): ok, status
+    not-this-platform, no file; the release then adds the package from a Linux run (ship gh-release --add).
+    vars.arch_published=vX: the package of an already published release wraps that release's own linux binary (public
+    download, equal to its SHA256SUMS line), never a rebuilt one; any difference refuses. Empty: the binary this run built."""
+    src = _src(ctx, embeds=not (ctx.vars.get("arch_published") or "").strip())
+    v = ctx.vars
+    script = (v.get("arch_script") or "").strip()
+    if not script:
+        return _save(ctx, src, "arch", {"ok": True, "skipped": True, "files": [], "detail": "no arch_script: skipped"})
+    if sys.platform != "linux":
+        return _save(ctx, src, "arch", {"ok": True, "skipped": True, "status": "not-this-platform", "files": [],
+                                        "detail": "not-this-platform: the Arch package is made on Linux"})
+    tag = (v.get("arch_published") or "").strip()
+    if tag:
+        rec = {"version": tag}
+        try:
+            linux, binary_sha = _published_linux(ctx, src, tag, fetch)
+        except (RuntimeError, OSError, ValueError) as e:
+            return {"ok": False, "detail": f"refused: the published {tag} linux binary is not usable: {e}"[:400]}
+    else:
+        rec = _load(ctx, src, "build")
+        if not rec or not rec.get("ok"):
+            return {"ok": False, "detail": "run the build stage first"}
+        linux = next((b["file"] for b in rec["built"] if b["target"].startswith("linux/")), None)
+        if not linux:
+            return {"ok": False, "detail": "no linux binary in the build: add linux/amd64 to targets"}
+        binary_sha = _sha(Path(linux))
+    if not (src / script).is_file():
+        return {"ok": False, "detail": f"{script} is not in {src}"}
+    missing = [t for t in ("bsdtar", "zstd") if not shutil.which(t)]
+    if missing:
+        return {"ok": False, "detail": f"{script} needs {', '.join(missing)} on PATH"}
+    shutil.copy2(linux, src / (v.get("name") or "app"))
+    (src / (v.get("name") or "app")).chmod(0o755)         # a download arrives 0644; the script wants an executable
+    pkgdir = src / (v.get("package_dir") or "Compiled.Builds")
+    start = time.time() - 1
+    r = _run(ctx, ["sh", script, _plain(rec["version"])], src, "pkg-arch", timeout=1800)
+    made = [p for p in pkgdir.glob("*.pkg.tar.zst") if p.stat().st_mtime >= start] if pkgdir.is_dir() else []
+    if not r.ok or len(made) != 1:
+        last = [l for l in (r.stderr + r.stdout).splitlines() if l.strip()][-4:]
+        return {"ok": False, "detail": f"{script}: {'failed' if not r.ok else f'made {len(made)} .pkg.tar.zst, not one'}: "
+                                       + " | ".join(last)[:300], "log": r.log}
+    dst = _out(ctx, src) / made[0].name
+    shutil.copy2(made[0], dst)
+    files = [{"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size}]
+    return _save(ctx, src, "arch", {"ok": True, "version": rec["version"], "files": files,
+                                    "commit": source_commit(src), "detail": dst.name,
+                                    "binary_sha256": binary_sha, "published": tag})
+
+
+def verify_arch(ctx):
+    src = _src(ctx, embeds=not (ctx.vars.get("arch_published") or "").strip())
+    rec = _load(ctx, src, "arch")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "no arch stage yet"}
+    if rec.get("skipped"):
+        return {"ok": True, "detail": rec["detail"]}
+    why = stale(rec, src, "the arch package")
+    if why:
+        return {"ok": False, "detail": why}
+    for f in rec["files"]:
+        p = Path(f["file"])
+        if not p.is_file() or _sha(p) != f["sha256"]:
+            return {"ok": False, "detail": f"{p.name} is missing or changed"}
+        r = subprocess.run(["zstd", "-t", str(p)], capture_output=True, text=True, timeout=600)
+        if r.returncode != 0:
+            return {"ok": False, "detail": f"{p.name}: zstd -t failed: {(r.stderr or r.stdout)[-200:]}"}
+        if not p.name.endswith("-x86_64.pkg.tar.zst") or _plain(rec["version"]) not in p.name:
+            return {"ok": False, "detail": f"{p.name} is not named for version {_plain(rec['version'])}"}
+    return {"ok": True, "detail": rec["detail"]}
+
+
 def xz_checked(ctx, files):
     """Every .deb/.xz/.txz among the made files through fieldkit xzcheck (the dictionary fits the content, not
     bigger, not smaller; unpacking proven within vars.xz_cap_mib, default 128). -> (results, None), or
@@ -1139,8 +1273,10 @@ def previous_release_deb(repo, version, dest, gh="gh"):
     """The .deb of the release before `version` on GitHub, downloaded into dest/<tag>/ and checked against that
     release's SHA256SUMS. -> (path, tag). Raises ValueError (no earlier release, no .deb, a checksum mismatch)."""
     from . import relfiles
+    from ..method.ship import ship_env        # inside an autopilot run only ship's own environment has gh's account back (#145)
+    env = ship_env()
     r = subprocess.run([gh, "release", "list", "-R", repo, "--limit", "40", "--json", "tagName,isDraft"],
-                       capture_output=True, text=True, timeout=120)
+                       capture_output=True, text=True, timeout=120, env=env)
     if r.returncode != 0:
         raise ValueError(f"gh release list -R {repo} failed: {(r.stderr or r.stdout).strip()[:200]}")
     tags = [x["tagName"] for x in json.loads(r.stdout or "[]")
@@ -1164,7 +1300,7 @@ def previous_release_deb(repo, version, dest, gh="gh"):
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
         g = subprocess.run([gh, "release", "download", tag, "-R", repo, "-D", str(d), "-p", "*_amd64.deb",
-                            "-p", "SHA256SUMS-*.txt"], capture_output=True, text=True, timeout=1800)
+                            "-p", "SHA256SUMS-*.txt"], capture_output=True, text=True, timeout=1800, env=env)
         if g.returncode != 0:
             raise ValueError(f"gh release download {tag} failed: {(g.stderr or g.stdout).strip()[:200]}")
     raise ValueError("unreachable")
@@ -1229,9 +1365,9 @@ def _packages_nfpm(ctx, src, rec, linux):
         shutil.copy2(m, dst)
         files.append({"script": script, "file": str(dst), "sha256": _sha(dst), "bytes": dst.stat().st_size})
     others = [s for s in (x.strip() for x in (v.get("packages") or "").split(",")) if s and
-              not any(k in s for k in ("deb", "rpm", "tarball"))]
+              not any(k in s for k in ("deb", "rpm", "tarball", "arch"))]
     if others:
-        notes.append("not made here: " + ", ".join(others) + " (needs its own system; Arch: the arch-package workflow)")
+        notes.append("not made here: " + ", ".join(others) + " (needs its own system)")
     xz, bad = xz_checked(ctx, files)
     if bad:
         return bad
@@ -1254,6 +1390,7 @@ def published(ctx, src):
             files.append((Path(mac["file"]), mac["sha256"]))
         files += [(Path(x["file"]), x["sha256"]) for x in mac.get("package", [])]
     files += [(Path(f["file"]), f["sha256"]) for f in (_load(ctx, src, "packages") or {}).get("files", [])]
+    files += [(Path(f["file"]), f["sha256"]) for f in (_load(ctx, src, "arch") or {}).get("files", [])]
     return files
 
 
@@ -1282,7 +1419,7 @@ def verify_checksums(ctx):
     rec = _load(ctx, src, "build")
     if not rec:
         return {"ok": False, "detail": "nothing built"}
-    for name in ("build", "mac", "packages"):
+    for name in ("build", "mac", "packages", "arch"):
         r = _load(ctx, src, name) or {}
         why = None if (r.get("skipped") or not r.get("ok")) else stale(r, src, f"the {name} stage")
         if why:
@@ -1306,3 +1443,48 @@ def verify_checksums(ctx):
     if bad:
         return {"ok": False, "detail": f"{t.name}: " + "; ".join(bad[:3])}
     return {"ok": True, "detail": f"{f.name} lists every published file and matches it; {t.name} agrees"}
+
+
+def stage_align(ctx, run=subprocess.run):
+    """After gh-release (release mode, once): bring both computers to the new version with `fieldkit parity align
+    --apply`, here and on every peer over the cable (a `run` link job, no AI, no owner step). The release itself is
+    the source: align downloads the asset and SHA256SUMS from it and checks them, so an unpublished tag fails here."""
+    src = _src(ctx)
+    rec = _load(ctx, src, "build")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": "run the build stage first"}
+    tag = rec["version"] if str(rec["version"]).startswith("v") else "v" + str(rec["version"])
+    cmd = [sys.executable, "-m", "fieldkit", "parity", "align", "--apply", "--version", tag]
+    mine = run(cmd, capture_output=True, text=True, timeout=1800)
+    rows = [{"device": "this computer", "ok": mine.returncode == 0, "tail": (mine.stdout or mine.stderr or "")[-300:]}]
+    from ..lifecycle import tasks
+    from ..peers import link
+    root = Path(tempfile.mkdtemp(prefix="fk-align-"))      # the job needs no files: an empty tree, not the repository
+    for d in link.others(link.household() or {}):
+        try:
+            t = tasks.start_run(["fieldkit", "parity", "align", "--apply", "--version", tag], d["name"], root, wall=30,
+                                again=True)
+        except (ValueError, tasks.AlreadyStarted) as e:
+            rows.append({"device": d["name"], "ok": False, "tail": str(e)[:300]})
+            continue
+        w = run([sys.executable, "-m", "fieldkit", "task", "watch", t["id"]], capture_output=True, text=True,
+                timeout=1800)
+        rows.append({"device": d["name"], "ok": t["status"] == "started" and w.returncode == 0, "task": t["id"],
+                     "tail": (w.stdout or w.stderr or "")[-300:]})
+    root.rmdir()
+    ok = all(r["ok"] for r in rows)
+    return _save(ctx, src, "align", {"ok": ok, "version": tag, "commit": rec.get("commit"), "rows": rows,
+                                     "detail": "; ".join(f"{r['device']}: {'aligned' if r['ok'] else 'FAILED'}"
+                                                         for r in rows)})
+
+
+def verify_align(ctx):
+    """Both computers print the new version (fieldkit parity installed, against this release's tag)."""
+    from .. import parity, parity_goal
+    src = _src(ctx)
+    rec = _load(ctx, src, "align")
+    if not rec or not rec.get("ok"):
+        return {"ok": False, "detail": (rec or {}).get("detail") or "align did not run"}
+    r = parity_goal.installed(newest=parity.norm_version(rec["version"]))
+    return {"ok": r["ok"], "detail": "; ".join(r["problems"]) if not r["ok"] else
+            "installed " + ", ".join(f"{k} {v}" for k, v in r["versions"].items())}

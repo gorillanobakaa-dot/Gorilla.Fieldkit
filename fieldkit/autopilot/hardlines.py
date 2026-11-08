@@ -87,6 +87,10 @@ DELETE = re.compile(
 
 PROTECTED = [
     (r"gorilla\.firefox/harness/", "the owner's build harness"),
+    # I-10 (owner, 2026-10-31): the desktop app's session records; an edit (isArchived, spawnedFrom) would archive or
+    # un-nest a session past the archive guard. Every agent behind these hard lines: Claude, Antigravity, OpenCode
+    (r"claude-code-sessions/", "the desktop app's session records (archive only through archive_session, which "
+                               "the archive guard checks)"),
     (r"(^|[/\s\"'])(gemini|agents|claude)\.md\b", "an AI rules file"),
     (r"\.gemini/config|\.claude/settings[^/\s\"']*\.json|\.claude/hooks", "a guard or AI settings"),
     # 2026-10-28: mutate writes the proof a guard commit is checked against, so it is guarded like the guard
@@ -131,7 +135,7 @@ OWNER_ONLY = [
 # 2026-10-28 (inbox #145, "Yes, ship only"): only fieldkit ship gets the credential back inside a run; a command
 # that points gh or git at it by itself is refused (setting the variables, a credential helper, gh auth)
 REARM = re.compile(r"(\$env:|\b)(GH_CONFIG_DIR|GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN|GIT_ASKPASS|SSH_ASKPASS|"
-                   r"GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)|FIELDKIT_REAL_GH_CONFIG_DIR)\s*=|credential\.helper|"
+                   r"GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+|PARAMETERS)|FIELDKIT_REAL_GH_CONFIG_DIR)\s*=|credential\.helper|"
                    r"\bgh\s+auth\s+(token|login|setup-git|refresh)\b|\bunset\s+[^\n;&|]*\b(GH_CONFIG_DIR|GIT_CONFIG_)", re.I)
 CREDENTIAL = re.compile(
     r"(^|[/\\\s\"'])(\.env(\.[a-z]+)?|id_rsa|id_ed25519|[^/\\\s\"']+\.(pem|pfx|p12|key)|hosts\.yml|"
@@ -246,9 +250,12 @@ def _statements(cmd):
     return [s for s in re.split(r";|&&|\|\||\r?\n", cmd) if s.strip()]
 
 
-FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python3?(?:\.exe)?\s+-m\s+fieldkit)"
-SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base|tag)(?:\s+|=)[^\s;&|`$<>]+)*)\s*$",
-                  re.I)
+# 2026-11-01 (VAIO, fc6e5bb refused three times): a headless job there has no `fieldkit` on PATH and runs it by its
+# full path or as `.../python3.12 -m fieldkit`; both are the same tool and go to the same mandate door
+FIELDKIT = r"(?:\S*[/\\])?(?:fieldkit(?:\.exe|\.cmd)?|python[\d.]*(?:\.exe)?\s+-m\s+fieldkit)"
+# B1 (2026-10-31): `push --auto [--title "T"] [--body-file F]` opens the PR with auto-merge on green, the same door
+SHIP = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+(push|merge)((?:\s+--(?:repo|base|tag|body-file)(?:\s+|=)[^\s;&|`$<>]+"
+                  r"|\s+--auto|\s+--title(?:\s+|=)(?:\"[^\"`$]*\"|'[^']*'|[^\s;&|`$<>]+))*)\s*$", re.I)
 # the owner-wide mandate (2026-10-25): a release of a tag already on origin, once CI is green (the mandate proves it)
 GH_RELEASE = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+gh-release\s+(v[\w.+-]+)((?:\s+--repo(?:\s+|=)[^\s;&|`$<>]+)?)"
                         r"(\s+--\s[^;&|`$<>]*)?\s*$", re.I)
@@ -271,7 +278,11 @@ SUBST = re.compile(r"\$\(|<\(|>\(")
 
 
 CD_THEN = re.compile(r"^\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)\s*&&\s*(.+)$", re.S)
-CD_PUSH = re.compile(r"^\s*(?:python[\d.]*(?:\.exe)?\s+-m\s+)?fieldkit(?:\.exe)?\s+ship\s+push\b(?![^\n]*--tag)", re.I)
+CD_PUSH = re.compile(r"^\s*" + FIELDKIT + r"\s+ship\s+push\b(?![^\n]*--tag)", re.I)
+#: B1 live proof (VAIO, 2026-10-31): a model runs `fieldkit ship push --auto 2>&1 | tail -20`; the pipe made it two
+#: statements and the mandate's door stayed shut. Only stderr joined to stdout and ONE trailing `| tail N` / `| head N`
+#: (they print, write nothing) are read away; `| tee log`, `| sh` and anything else still keep the door shut.
+VIEW_TAIL = re.compile(r"(?:\s+2>&1)?(?:\s*\|\s*(?:tail|head)(?:\s+-n)?(?:\s+-?\d+)?)?\s*$")
 INBOX_NOTE = re.compile(r"^\s*(?:python[\d.]*(?:\.exe)?\s+-m\s+)?fieldkit(?:\.exe)?\s+inbox\s+add\s", re.I)
 
 
@@ -380,7 +391,8 @@ class MandateDoor:
 
 
 def _mandated(cmd, cwd, door):
-    """-> ("allow", why) when a mandate in force opens hard line 1 or 4 for this exact command, else None."""
+    """-> ("allow", why) when a mandate in force opens hard line 1 or 4 for this exact command, ("shut", why) when the
+    mandate was asked and said no (its reason goes into the refusal), else None."""
     if not _one_statement(cmd) or NEVER_OPENED.search(cmd):
         return None
     m = SHIP.match(cmd)
@@ -397,7 +409,7 @@ def _mandated(cmd, cwd, door):
         if v == "allow":
             door.log(path, "push-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
-        return None
+        return "shut", why                                # the refusal says the mandate's own reason (B1, 2026-11-01)
     m = GH_RELEASE.match(cmd)
     if m:                                                 # owner-wide: release of a tag on origin, CI green
         repo = re.search(r"--repo(?:\s+|=)(\S+)", m.group(2) or "")
@@ -406,14 +418,14 @@ def _mandated(cmd, cwd, door):
         if v == "allow":
             door.log(path, "release-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
-        return None
+        return "shut", why                                # the refusal says the mandate's own reason (B1, 2026-11-01)
     m = RELEASE_RUN.match(cmd)
     if m:                                                 # the mandate's release door; never with another release file
         v, why, path = door.decide("release", project=m.group(1), version=m.group(2))
         if v == "allow":
             door.log(path, "release-allowed", f"{why}: {cmd.strip()[:200]}")
             return "allow", f"HARD LINE 1 opened by the mandate: {why}"
-        return None
+        return "shut", why                                # the refusal says the mandate's own reason (B1, 2026-11-01)
     if any(re.search(pat, cmd, re.I) for pat, _ in OWNER_ONLY):
         v, why, path = door.decide("approval", what=cmd)
         if v == "allow":
@@ -461,6 +473,7 @@ def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
         # 2026-10-27 (owner "Da" on inbox #97): `cd REPO && fieldkit ship push` is judged as the push run in REPO;
         # one plain `fieldkit inbox add "..."` is a note, whatever its quoted text names (it was refused for saying
         # "fieldkit ship" while asking the owner to publish)
+        cmd = cmd[:VIEW_TAIL.search(cmd).start()] or cmd     # how the output is shown is not the action
         cd = CD_THEN.match(cmd)
         if cd and _one_statement(cd.group(2)) and CD_PUSH.match(cd.group(2)):    # a branch push only, judged in REPO
             cwd, cmd = cd.group(1).strip("\"'"), cd.group(2)
@@ -468,12 +481,21 @@ def decide(tool, args, stop_file=None, cwd=None, door=None, transcript=None):
             return "allow", "a note to the owner's inbox"
         published = next((why for pat, why in PUBLISH if re.search(pat, cmd, re.I)), None)
         owner = next((why for pat, why in OWNER_ONLY if re.search(pat, cmd, re.I)), None)
+        shut = None
         if published or owner:
             opened = _mandated(cmd, cwd, door)
-            if opened and not (published and owner):
+            if opened and opened[0] == "allow" and not (published and owner):
                 return opened
+            shut = opened[1] if opened and opened[0] == "shut" else None
         if published:
-            return "deny", f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)"
+            # 2026-11-01: a ship command the mandate was never asked about says so, and which shape it is asked about
+            unasked = not opened and re.search(r"\bship\s+(push|merge|gh-release)\b", cmd, re.I)
+            # the line below is the swap text of rules/proofs.yaml HARD LINES proof 1: keep it on one line, as it is
+            tail = ((f"; the mandate did not open it: {shut}" if shut else "")
+                    + ("; the mandate was not asked: it is asked only about ONE plain statement `fieldkit ship "
+                       "push|merge|gh-release ...` (or `cd DIR && fieldkit ship push ...`), with no other "
+                       "; && | or $(...)" if unasked else ""))
+            return "deny", f"HARD LINE 1: {published} is the owner's job (fieldkit publish, after the owner's yes)" + tail
         if owner:
             return "deny", f"HARD LINE 4: {owner} is the owner's alone; put it in the owner inbox (fieldkit inbox add)"
         mac = MAC_RUN.match(cmd) if _one_statement(cmd) else None   # a ; after -- would run HERE, not on the Mac

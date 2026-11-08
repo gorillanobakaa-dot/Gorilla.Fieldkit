@@ -48,14 +48,50 @@ HELLO_TIMEOUT = 8
 
 
 # ---- the tag itself -----------------------------------------------------------------------------------------------
+def _cache_file():
+    from ..core.settings import ROOT, state_root
+    return Path(state_root(ROOT)) / "state" / "machine_tags.cache.json"
+
+
+_SYSTEMS = {"win32": "Windows", "linux": "Linux", "darwin": "Darwin"}
+
+
+def _system():
+    """platform.system() by sys.platform: on Windows the stdlib asks WMI (~50 ms, twice) for the same word."""
+    return _SYSTEMS.get(sys.platform) or platform.system()
+
+
 def rules(path=None):
+    """The tag rules, parsed. The default file's parse is kept as JSON in state/, keyed by its size and
+    mtime: every tool-call hook on a computer with no household derives the tag, and the YAML import was ~30 ms of it."""
+    p = Path(path or RULES)
+    cache = None
+    if path is None:
+        try:
+            st = p.stat()
+            key = [st.st_size, st.st_mtime_ns]
+            cache = _cache_file()
+            c = json.loads(cache.read_text(encoding="utf-8"))
+            if c.get("key") == key and isinstance(c.get("rules"), dict):
+                return c["rules"]
+        except (OSError, ValueError):
+            pass
     import yaml
-    return yaml.safe_load(Path(path or RULES).read_text(encoding="utf-8")) or {}
+    d = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if cache is not None:
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"key": key, "rules": d}), encoding="utf-8")
+            os.replace(tmp, cache)
+        except (OSError, TypeError, ValueError, NameError):
+            pass
+    return d
 
 
 def facts(system=None, dmi=Path("/sys/class/dmi/id"), run=subprocess.run, winreg_mod=None):
     """-> {vendor, product, version, family, model}: what the hardware says it is, read-only. Missing: ""."""
-    system = system or platform.system()
+    system = system or _system()
     out = dict.fromkeys(FIELDS, "")
     try:
         if system == "Linux":
@@ -105,17 +141,29 @@ def _link():
     return link
 
 
+def _home():
+    return Path(os.environ.get("FIELDKIT_LINK_HOME") or (Path.home() / ".fieldkit" / "link"))
+
+
+def _household():
+    """link.household(), but {} without importing the link code (~20 ms) when this computer was never paired."""
+    if not (_home() / "household.json").is_file() and not (_home() / "link.json").is_file():
+        return {}
+    return _link().household()
+
+
 def name(h=None, save=True, facts_fn=None, system=None, hostname=None):
     """-> {tag, source: registry|derived, stored, device, registry}. Reads this machine's row; the first time, makes
     the tag and stores it there. With no household at all the tag is made and said, nothing is written (pair first)."""
-    link = _link()
-    h = link.household() if h is None else h
-    system = system or platform.system()
+    h = _household() if h is None else h
+    link = _link() if h else None                # an unpaired computer never imports the link code
+    registry = str(_home() / "household.json") if link is None else str(link.household_path())
+    system = system or _system()
     hostname = hostname or socket.gethostname()
     row = link.device(h, h.get("me")) if h else None
     if row and valid(row.get("tag")):
         return {"tag": row["tag"], "source": "registry", "stored": True, "device": row["name"],
-                "registry": str(link.household_path())}
+                "registry": registry}
     f = (facts_fn or facts)(system=system)       # looked up at call time, so a patched facts() is the one used
     tag = derive(f, system, hostname)
     stored = False
@@ -125,7 +173,7 @@ def name(h=None, save=True, facts_fn=None, system=None, hostname=None):
         link.save_household(h)
         stored = True
     return {"tag": tag, "source": "derived", "stored": stored, "device": (row or {}).get("name") or hostname,
-            "registry": str(link.household_path()),
+            "registry": registry,
             "note": "" if stored else "no household here yet: the tag is not stored (fieldkit peers link pair ...)"}
 
 
@@ -161,7 +209,7 @@ def tagged(title, tag):
 def tag_of(host, h=None):
     """-> the tag of the device with that name or host name; "" when the registry does not know it."""
     try:
-        h = _link().household() if h is None else h
+        h = _household() if h is None else h
     except Exception:  # noqa: BLE001
         h = {}
     for d in (h or {}).get("devices", []):

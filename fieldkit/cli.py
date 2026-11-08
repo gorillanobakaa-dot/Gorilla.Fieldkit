@@ -18,7 +18,8 @@
 
     fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
-    fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails]
+    fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
+    fieldkit image doctor|squash|compare|ocr|privacy ...   pictures offline: compress, compare, read, redact (fieldkit/image)
     fieldkit gather [--only NAME...] [--check|--test] [--offline]   bring tools in per imports.yaml
     fieldkit harvest [--root DIR] | --find WORDS...   index every script; search it
     fieldkit next PIPELINE                       the one next thing to do: DO / BLOCKED / CANNOT HERE / DONE
@@ -70,6 +71,8 @@
     fieldkit rules check|install                 the one core in every agent's rules file; size limit; no repeats
     fieldkit plan next [--write]                 where the harness plan stands: phase, open items, what merges finished
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
+    fieldkit capture hook|scan|find|ledger|verify|status|self-test   zero-loss capture of what agents make and run
+    fieldkit integration check|self-test         is a capability built in (6 surfaces)? check --repo PATH [--changed BASE]
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
@@ -428,8 +431,30 @@ def cmd_size(a):
     return size.main(a.args)
 
 
+def tools_find(words, rows):
+    """-> the registry rows that match WORDS, best first: a word in the id or title counts 3, elsewhere 1 (every
+    field of the card is searched). Rule USE THE HARNESS names this command; until 2026-11-01 it did not exist."""
+    ws = [w.lower() for w in words if w.strip()]
+    scored = []
+    for t in rows:
+        head = f"{t.get('id', '')} {t.get('title', '')}".lower()
+        body = " ".join(str(v) for v in t.values()).lower()
+        score = sum(3 if w in head else 1 if w in body else 0 for w in ws)
+        if score and all(w in body for w in ws[:1]) or score >= 2 * len(ws):
+            scored.append((-score, t.get("id", ""), t))
+    return [t for _s, _i, t in sorted(scored, key=lambda x: (x[0], x[1]))]
+
+
 def cmd_tools(a):
     from .desk import registry
+    if a.action == "find":
+        if not a.words:
+            raise SystemExit("fieldkit tools find WORDS")
+        rows = tools_find(a.words, registry.load())[:15]
+        _emit(rows, a.json, lambda rs: print("\n".join(f"{t['id']:<26} {t.get('title', '')}" for t in rs)
+                                             + ("\n" if rs else "") + (f"NEXT: fieldkit cards show {rs[0]['id']}"
+                                                                        if rs else "nothing matches: NEXT: fieldkit tools list --all")))
+        return 0 if rows else 3
     if a.action == "list":
         rows = [t for t in registry.load() if not a.harness or t.get("harness") == a.harness]
         if a.all:
@@ -705,6 +730,9 @@ def cmd_privacy(a):
         rep.update(privacy.scan_path(p, git_only=git_only, examined=counted,
                                      allow_paths=a.allow_paths, allow_emails=a.allow_emails))
     examined = sum(counted)
+    if getattr(a, "images", False):
+        from .image import ocr as image_ocr
+        rep.update(image_ocr.scan_images(a.paths, git_only=a.git))
 
     def human(r):
         for f, hits in r.items():
@@ -1053,7 +1081,30 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else ""), indent=1))
+        it = inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", kind=a.kind, plan=a.plan or "",
+                       what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or "")
+        print(json.dumps(it, indent=1, ensure_ascii=False))
+        if it.get("routed") == "ledger":
+            print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
+                  "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
+        return 0
+    if a.action == "self-test":
+        from .autopilot import inbox_selftest
+        rc = inbox_selftest.run()
+        print("NEXT: " + ("none, the owner inbox is empty by construction" if rc == 0 else
+                          "fix the refusal named FAIL in fieldkit/autopilot/inbox.py or fieldkit/zero/net.py"))
+        return rc
+    if a.action == "ledger":
+        rows = []
+        if inbox.ledger_file().is_file():
+            for line in inbox.ledger_file().read_text(encoding="utf-8").splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        for r in rows[-int(a.rest[0]) if a.rest else 0:] if rows else []:
+            print(f"  {r.get('added')}  {r.get('kind'):<9} {r.get('title')}")
+        print(f"agent ledger: {len(rows)} row(s) in {inbox.ledger_file()} (never shown to the owner)")
         return 0
     if a.action == "done":
         print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
@@ -1210,8 +1261,25 @@ def cmd_goal(a):
             return 2
         print("STOPPED: " + (", ".join(goal.stop(gid, " ".join(x[1:]) or "the owner said stop")) or "nothing"))
         return 0
+    if a.action == "resume":
+        if not x:
+            print("goal resume ID WHY (only a goal the stall check blocked)")
+            return 2
+        ok, text = goal.resume(x[0], " ".join(x[1:]))
+        print(("RESUMED: " if ok else "NOT RESUMED: ") + text)
+        print(f"NEXT: fieldkit goal run {x[0]}" if ok else "NEXT: read fieldkit goal status " + x[0])
+        return 0 if ok else 3
     if a.action == "approve":
         return goal.approve(x[0]) if x else 2
+    if a.action == "reverify":
+        if len(x) < 2:
+            print("goal reverify GOAL JOB (re-run one job's checks on a fresh origin/main tree and record the verdict)")
+            return 2
+        from .autopilot import goal_fresh
+        ok, text = goal_fresh.reverify(x[0], x[1])
+        print(text)
+        print("NEXT: fieldkit goal status " + x[0] if ok else "NEXT: read the FAIL lines above; the worker's branch must be merged to origin/main")
+        return 0 if ok else 3
     if a.action == "report":
         goal.report(x[0])
         print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
@@ -1588,6 +1656,14 @@ def build_parser():
                         help="the resource watchdog: RAM, idle local models, leaks, orphans, pinned CPU, heat, disk; "
                              "check, act, watch every 5 min (fieldkit hog)")
     hg.add_argument("args", nargs=argparse.REMAINDER)
+    ob = sub.add_parser("observe", add_help=False,
+                        help="see inside the machine, the same on Linux, Windows and macOS: open-file, port, proc, "
+                             "watch, trace, usage, events (fieldkit/observe)")
+    ob.add_argument("args", nargs=argparse.REMAINDER)
+    ap_ = sub.add_parser("app", add_help=False,
+                         help="find and start any program by name on Windows, Linux and macOS: app find NAME, "
+                              "app start NAME [-- ARGS] (fieldkit/app)")
+    ap_.add_argument("args", nargs=argparse.REMAINDER)
     lv = sub.add_parser("liveness", add_help=False,
                         help="process liveness: every harness long run OK, STALLED or ORPHAN; --act stops the "
                              "harness's own orphans and overdue steps (fieldkit liveness)")
@@ -1611,6 +1687,8 @@ def build_parser():
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
+                                 "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
                        ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
                                   "(models report; fieldkit/lifecycle/models.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
@@ -1629,10 +1707,23 @@ def build_parser():
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
                              "(fieldkit emerge)")
     em.add_argument("args", nargs=argparse.REMAINDER)
+    ca = sub.add_parser("ciaudit", add_help=False,
+                        help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
+                             "to the whole suite (fieldkit ciaudit)")
+    ca.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
     tc.add_argument("args", nargs=argparse.REMAINDER)
+    sn = sub.add_parser("sessions-nested", add_help=False,
+                        help="archive never takes a live side session with it: the children still nested under a "
+                             "session (check), a child that detached itself (ok)")
+    sn.add_argument("args", nargs=argparse.REMAINDER)
+    ho = sub.add_parser("honesty", add_help=False,
+                        help="a report's claims backed by what the tools printed: success words need a quoted line "
+                             "from the recorded tool output, merged/pushed/wrote checked at the source, a NOT verified "
+                             "field (fieldkit honesty check REPORT --session ID)")
+    ho.add_argument("args", nargs=argparse.REMAINDER)
     ru = sub.add_parser("rules", add_help=False,
                         help="the one core (rules/CORE.md) in every agent's rules file, every rules file under its size "
                              "limit, no core text repeated (fieldkit rules check|install)")
@@ -1645,6 +1736,14 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rfp = sub.add_parser("refusals", add_help=False,
+                         help="refusals repeated by train, ship, guard, goal or task: each repeated reason opens one "
+                              "defect row (fieldkit refusals list)")
+    rfp.add_argument("args", nargs=argparse.REMAINDER)
+    rvp = sub.add_parser("review", add_help=False,
+                         help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
+                              "once at a terminal; --open opens state/REVIEW.md")
+    rvp.add_argument("args", nargs=argparse.REMAINDER)
     mt = sub.add_parser("metrics", add_help=False,
                         help="long-horizon proof from the harness's own records: days running, Zero epochs, session "
                              "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
@@ -1662,6 +1761,14 @@ def build_parser():
                         help="test parity: manifest per machine, compare over the link (SAME/DRIFT), align to the pinned "
                              "release checked by sha256, the preflight's shared-ground check (fieldkit parity)")
     pa.add_argument("args", nargs=argparse.REMAINDER)
+    cp = sub.add_parser("capture", add_help=False,
+                        help="zero-loss capture of every script and command an agent makes or runs: hook, find, "
+                             "ledger, verify, status, self-test (fieldkit capture)")
+    cp.add_argument("args", nargs=argparse.REMAINDER)
+    ig = sub.add_parser("integration", add_help=False,
+                        help="is a capability built in? carried, known to the AI, visible, on the release page, on "
+                             "every system, tested: check a repo (--changed BASE), self-test (fieldkit integration)")
+    ig.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -1679,6 +1786,11 @@ def build_parser():
     ev.add_argument("args", nargs=argparse.REMAINDER)
     ev.set_defaults(fn=lambda a: __import__("fieldkit.evidence.cli", fromlist=["main"]).main(a.args))
 
+    im = sub.add_parser("image", add_help=False, help="pictures offline: doctor, squash (compress/convert), compare, ocr, "
+                                                      "privacy (personal text in images) (fieldkit image)")
+    im.add_argument("args", nargs=argparse.REMAINDER)
+    im.set_defaults(fn=lambda a: __import__("fieldkit.image.cli", fromlist=["main"]).main(a.args))
+
     wb = sub.add_parser("web", add_help=False, help="web pages through a real headless browser when the HTTP reader is "
                                                      "blocked or gets nothing (fieldkit web fetch|doctor)")
     wb.add_argument("args", nargs=argparse.REMAINDER)
@@ -1689,7 +1801,8 @@ def build_parser():
                    ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
-    t.add_argument("action", choices=["list", "check"])
+    t.add_argument("action", choices=["list", "check", "find"])
+    t.add_argument("words", nargs="*", help="find: the words to look for (rule USE THE HARNESS)")
     t.add_argument("--harness")
     t.add_argument("--all", action="store_true", help="also every script discovered in toolbox/")
     t.add_argument("--run-tests", action="store_true")
@@ -1749,6 +1862,8 @@ def build_parser():
     pr.add_argument("--allow-paths", action="store_true")
     pr.add_argument("--allow-emails", action="store_true")
     pr.add_argument("--git", action="store_true", help="scan only what git would publish (respects .gitignore)")
+    pr.add_argument("--images", action="store_true", help="scan: also read the text in picture files (Tesseract) "
+                    "and scan it; a picture that cannot be read is a finding. Off by default")
     pr.add_argument("--all", action="store_true", help="in a git checkout, scan every file, ignored ones too "
                     "(default there: what git would publish)")
     pr.set_defaults(fn=cmd_privacy)
@@ -1841,9 +1956,15 @@ def build_parser():
     apl.set_defaults(fn=cmd_autopilot)
 
     ib = sub.add_parser("inbox", parents=[common])
-    ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
+    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger", "self-test"], nargs="?", default="list")
+    ib.add_argument("--kind", default="approval", help="add: only 'hardline' reaches the owner; anything else goes to "
+                                                         "the agent ledger (fieldkit inbox ledger)")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
     ib.add_argument("--all", action="store_true", help="list: done items too")
+    ib.add_argument("--plan", help="add: the plan row this belongs to (P5, W10 ...)")
+    ib.add_argument("--what", help="add: what it is, in plain words")
+    ib.add_argument("--if-approve", dest="if_approve", help="add: what happens if the owner approves")
+    ib.add_argument("--if-leave", dest="if_leave", help="add: what happens if the owner leaves it")
     ib.set_defaults(fn=cmd_inbox)
 
     pb = sub.add_parser("publish", parents=[common])
@@ -1879,8 +2000,8 @@ def build_parser():
     rb.set_defaults(fn=cmd_runbook)
 
     gl = sub.add_parser("goal", parents=[common], help="long horizon goals: planner, workers, verifier, supervisor")
-    gl.add_argument("action", choices=["new", "status", "run", "stop", "approve", "report", "supervisor-script"])
-    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID")
+    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "reverify", "supervisor-script"])
+    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID; reverify GOAL JOB")
     gl.add_argument("--from", dest="from_file", help="new: the goal spec (goal.json shape)")
     gl.add_argument("--objective", help="new: the objective (without --from)")
     gl.add_argument("--criterion", action="append", default=[], help="new: a command that must exit 0 (repeatable)")
@@ -2102,6 +2223,8 @@ def build_parser():
                              "render, example, doctor (fieldkit/sitrep)")
     st.add_argument("action", choices=["template", "check", "render", "example", "doctor"])
     st.add_argument("file", nargs="?", help="the filled-in report (check, render)")
+    st.add_argument("--session", help="check: also back every claim with this session's tool output "
+                                      "(fieldkit honesty; rule HONESTY)")
     st.add_argument("--lang", default="en", help="heading language: en es pt it de ro")
     st.add_argument("--order", choices=["ask-first", "classic"], default="ask-first",
                     help="ask-first puts 'What I need from you' second; classic is the military order, asks last")
@@ -2124,7 +2247,8 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal", "ensure"])
+    th.add_argument("--install", action="store_true", help="ensure: also install the keeper (Task Scheduler / systemd user timer) that runs ensure at logon, every 5 min and on resume")
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
@@ -2135,6 +2259,15 @@ def build_parser():
     th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux), monitor (both systems): run until this "
                                                                      "process ends (a build); log ignores --seconds then")
     th.set_defaults(fn=cmd_thermal)
+
+    pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check")
+    pw.add_argument("action", choices=["incidents", "drift", "audit"])
+    pw.add_argument("--write-fix", action="store_true", help="audit: write the one self-elevating script for the missing admin steps")
+    pw.add_argument("--callers", help="audit: who started PROCESS (e.g. powercfg.exe), from Security 4688")
+    pw.add_argument("--since", help="incidents: YYYY-MM-DD (default 7 days ago)")
+    pw.add_argument("--days", type=int, default=7, help="drift: how many days back")
+    pw.add_argument("--apply", action="store_true", help="drift: set the sleep button on AC to do nothing (no admin; before/after recorded)")
+    pw.set_defaults(fn=cmd_power)
 
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
@@ -2506,6 +2639,13 @@ def cmd_sitrep(a):
         raise SystemExit(f"REFUSED: cannot read {a.file}: {e.strerror}")
     if a.action == "check":
         d = sitrep.check(text)
+        if getattr(a, "session", None):               # rule HONESTY: every claim backed by recorded tool output
+            from .method import honesty
+            ev, _kind = honesty.session_evidence(a.session)
+            bad = honesty.check(text, ev, require_nv=False)
+            d["problems"] = list(d.get("problems") or []) + [f"FAIL honesty {x['kind']} line {x['line']}: "
+                                                              f"{x['detail']}" for x in bad]
+            d["ok"] = bool(d.get("ok")) and not bad
         _emit(d, a.json, lambda x: print("\n".join(sitrep.lines(x))))
         return sitrep.exit_code(d)
     d = sitrep.render(text, lang=a.lang, order=a.order, md=a.md)
@@ -2677,7 +2817,30 @@ def cmd_repro(a):
     return 0 if r["identical"] else 3
 
 
+def cmd_power(a):
+    from .power import drift, incidents
+    if a.action == "audit":
+        from .power import audit
+        return audit.run_cmd(write_fix=a.write_fix, proc=a.callers, since=a.since, as_json=a.json)
+    if a.action == "drift":
+        return drift.run(days=a.days, do_apply=a.apply, as_json=a.json)
+    return incidents.run(since=a.since, as_json=a.json)
+
+
 def cmd_thermal(a):
+    if a.action == "ensure":
+        from .thermal import keeper
+        inst = keeper.install() if a.install else None
+        r = keeper.ensure()
+        k = keeper.installed()
+        def human(d):
+            print(keeper.line(d, k))
+            if inst is not None:
+                print(f"  install: {'OK' if inst['ok'] else 'FAILED'} {inst.get('detail') or inst.get('error') or ''}")
+            print("NEXT: " + ("nothing to do" if d["ok"] and k else "fieldkit thermal ensure --install" if d["ok"]
+                              else "read state/thermal/watch-*.log, fix, run ensure again"))
+        _emit(dict(r, keeper=k, install=inst), a.json, human)
+        return 0 if r["ok"] and k and (inst is None or inst["ok"]) else 3
     if a.action == "journal":
         from .thermal import journal
         return 0 if journal.run() else 1
@@ -2818,6 +2981,12 @@ def main(argv=None):
     if args[:1] == ["hog"]:                           # the resource watchdog has its own parser (fieldkit/hog)
         from . import hog
         return hog.main(args[1:])
+    if args[:1] == ["observe"]:                       # one observe toolkit for three systems (fieldkit/observe)
+        from . import observe
+        return observe.main(args[1:])
+    if args[:1] == ["app"]:                           # find and start any program (fieldkit/app)
+        from . import app as app_cli
+        return app_cli.main(args[1:])
     if args[:1] == ["liveness"]:                      # process liveness: STALLED / ORPHAN / OK (fieldkit/core/liveness)
         from .core import liveness
         return liveness.main(args[1:])
@@ -2840,6 +3009,9 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
+    if args[:1] == ["route"]:                         # solo / multiplayer and the model router (lifecycle/routing.py)
+        from .lifecycle import routing
+        return routing.main(args[1:])
     if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
         from .lifecycle import models
         return models.main(args[1:])
@@ -2849,16 +3021,34 @@ def main(argv=None):
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
+        from .method import ciaudit
+        return ciaudit.main(args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
+    if args[:1] == ["sessions-nested"]:               # no archive takes a nested side session with it
+        from .lifecycle import nested
+        return nested.main(args[1:])
+    if args[:1] == ["honesty"]:                       # rule HONESTY: claims backed by recorded tool output
+        from .method import honesty
+        return honesty.main(args[1:])
     if args[:1] == ["rules"]:                         # the one core in every agent's rules file; every rules file small
         from . import rules
         return rules.main(args[1:])
     if args[:1] == ["plan"]:                          # where the harness plan stands: phase, open items, merged ones
         from . import plan
         return plan.main(args[1:])
-    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+    if args[:1] == ["review"]:                        # the one review: parked ideas and inbox items, answered once
+        from . import review
+        return review.main(args[1:])
+    if args[:2] == ["inbox", "review"]:
+        from . import review
+        return review.main(args[2:])
+    if args[:1] == ["refusals"]:                      # repeated refusals -> defect rows (plan R14)
+        from . import refusals
+        return refusals.main(args[1:])
+    if args[:1] == ["ideas"]:                       # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
@@ -2870,9 +3060,18 @@ def main(argv=None):
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])
+    if args[:1] == ["capture"]:                       # append-only journal of agent work, preserved before processing
+        from .capture import cli as capture_cli
+        return capture_cli.main(args[1:])
+    if args[:1] == ["integration"]:                   # built in = carried + known + visible + page + systems + tested
+        from .integration import cli as integration_cli
+        return integration_cli.main(args[1:])
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])
+    if args[:1] == ["image"]:                         # pictures: squash, compare, ocr, privacy (fieldkit/image)
+        from .image import cli as image_cli
+        return image_cli.main(args[1:])
     if args[:1] == ["web"]:                           # pages through a real browser when HTTP is blocked (fieldkit/web)
         from .web import cli as web_cli
         return web_cli.main(args[1:])

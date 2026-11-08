@@ -439,6 +439,15 @@ def test_private_address_refused():
         browser.check_public("file:///etc/passwd")
 
 
+def test_nat64_addresses_follow_the_ipv4_inside():
+    nat64 = lambda ip: (lambda h, p: [(23, 1, 6, "", (ip, p, 0, 0))])         # noqa: E731
+    browser.check_public("https://excalidraw.com/", resolve=nat64("64:ff9b::d896:101"))
+    with pytest.raises(browser.BrowserError, match="not a public address"):
+        browser.check_public("https://x/", resolve=nat64("64:ff9b::7f00:1"))
+    with pytest.raises(browser.BrowserError, match="not a public address"):
+        browser.check_public("https://x/", resolve=nat64("64:ff9b::a9fe:a9fe"))
+
+
 # -- the command: HTTP first ----------------------------------------------------------------------------------
 def _got(**k):
     return {"title": "B", "final_url": "https://x/", "text": "x" * 500, "browser": "Microsoft Edge",
@@ -544,3 +553,19 @@ def test_no_install_or_download_path():
     assert "pip" not in src.replace("pipe", "").replace("pump", "") or "pip install" not in src
     assert "urlretrieve" not in src and "geckodriver-v" not in src
     assert base64 and hashlib                                  # (the websocket handshake uses both)
+
+
+def test_gorilla_build_is_not_drivable(tmp_path):
+    # P6: Gorilla builds lock the remote agent in code, so no driver method is offered (by name, marker file or ini)
+    assert discover.method_for("gecko", "158.0", gorilla=True)[0] == ""
+    assert "not drivable" in discover.method_for("gecko", "158.0", gorilla=True)[1]
+    exe = tmp_path / "firefox.exe"
+    exe.write_text("")
+    assert not discover.is_gorilla("Mozilla Firefox", str(exe))
+    (tmp_path / "gorilla-install.json").write_text("{}")
+    assert discover.is_gorilla("Mozilla Firefox", str(exe))
+    assert discover.row("Mozilla Firefox", exe, "t", version="158.0")["method"] == ""
+    (tmp_path / "gorilla-install.json").unlink()
+    (tmp_path / "application.ini").write_text("[App]\nCodeName=Gorilla Unleashed\nVersion=158.0\n")
+    assert discover.is_gorilla("Mozilla Firefox", str(exe))
+    assert discover.row("Firefox", exe, "t")["method"] == ""

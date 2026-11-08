@@ -192,7 +192,15 @@ def changed_files(repo=".", base=None):
 
 
 def staged_files(repo="."):
-    return _git(repo, "diff", "--cached", "--name-only").split()
+    """Staged paths. In the middle of a merge only the branch side's own files: what arrives from the base already
+    passed the base's CI (TESTS ONCE); testing it again held a slot for an hour (2026-11-03, I-18)."""
+    staged = _git(repo, "diff", "--cached", "--name-only").split()
+    gitdir = Path(_git(repo, "rev-parse", "--absolute-git-dir").strip())
+    if not staged or not (gitdir / "MERGE_HEAD").is_file():
+        return staged
+    base = _git(repo, "merge-base", "HEAD", "MERGE_HEAD").strip()
+    ours = set(_git(repo, "diff", "--name-only", base, "HEAD").split()) if base else set()
+    return [p for p in staged if p in ours] if ours else staged
 
 
 def _module_of(path):
@@ -222,6 +230,123 @@ def _imports(test_file):
     return mods
 
 
+TESTMAP = "tests/testmap.yaml"
+MUTATION_PLAN = re.compile(r"(^|/)([^/]+_mutations\.yaml|mutations\.yaml|mutations-[^/]+\.yaml)$")
+
+
+def testmap(repo):
+    """[(glob, [test files])] from tests/testmap.yaml: files outside the Python packages (workflows, pins, hooks,
+    vendored skills) and the tests that read them. Data, not code (2026-11-02: 17 of 38 PR runs ran the whole suite
+    because a data file had no mapped test)."""
+    f = Path(repo) / TESTMAP
+    if not f.is_file():
+        return []
+    import yaml
+    rows = yaml.safe_load(f.read_text(encoding="utf-8")) or []
+    return [(r["glob"], list(r.get("tests") or [])) for r in rows if isinstance(r, dict) and r.get("glob")]
+
+
+def _glob_match(path, pattern):
+    from fnmatch import fnmatchcase
+    return fnmatchcase(path, pattern) or (pattern.endswith("/**") and path.startswith(pattern[:-2]))
+
+
+def _package_tests(q, imports):
+    """A file inside a package no test names (fieldkit/emerge/recipes/x.yaml, fieldkit/buildh/x.js, an untested
+    module): the tests that import the nearest enclosing package that any test imports."""
+    parts = Path(q).parts
+    for n in range(len(parts) - 1, 1, -1):
+        pkg = ".".join(parts[:n])
+        if pkg == "fieldkit":
+            break
+        hits = {str(t) for t, ms in imports.items() if any(m == pkg or m.startswith(pkg + ".") for m in ms)}
+        if hits:
+            return hits
+    return set()
+
+
+REGISTRY_TOOLS = "fieldkit/desk/tools.yaml"
+REGISTRY_CLI = "fieldkit/cli.py"
+# What proves the registry file still loads and dispatches, whatever entry changed (each exists; a missing one is skipped).
+REGISTRY_INTEGRITY = {
+    REGISTRY_TOOLS: ("tests/test_cards.py", "tests/test_cards_catalogue.py", "tests/test_platform_gate.py",
+                     "tests/test_registry_cli.py", "tests/test_tools_find.py"),
+    REGISTRY_CLI: ("tests/test_core.py", "tests/test_methods_help.py", "tests/test_registry_cli.py",
+                   "tests/test_integration.py", "tests/test_tools_find.py"),
+}
+_NAME = re.compile(r"^[a-z][a-z0-9_-]{3,}$")
+
+
+def _show(repo, ref, path):
+    import subprocess
+    r = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    return r.stdout if r.returncode == 0 else None
+
+
+def _registry_tools_tests(repo, base, test_files, imports):
+    """tools.yaml: the tests of the entries that changed (their `test` command, the tests importing their module,
+    the tests naming the id) + the integrity set. None = cannot prove which entries changed -> the caller keeps the
+    wide mapping (unparseable file, a removed entry, a change outside `tools:`)."""
+    import yaml
+    old_text = _show(repo, base or "HEAD", REGISTRY_TOOLS)
+    new_path = Path(repo) / REGISTRY_TOOLS
+    if old_text is None or not new_path.is_file():
+        return None
+    try:
+        old, new = yaml.safe_load(old_text) or {}, yaml.safe_load(new_path.read_text(encoding="utf-8")) or {}
+        if {k: v for k, v in old.items() if k != "tools"} != {k: v for k, v in new.items() if k != "tools"}:
+            return None
+        olds = {e["id"]: e for e in old.get("tools", [])}
+        news = {e["id"]: e for e in new.get("tools", [])}
+    except (yaml.YAMLError, KeyError, TypeError, AttributeError):
+        return None
+    if set(olds) - set(news):
+        return None
+    changed = [i for i, e in news.items() if olds.get(i) != e]
+    if not changed:
+        return None
+    hits = {str(repo / t) for t in REGISTRY_INTEGRITY[REGISTRY_TOOLS] if (repo / t).is_file()}
+    for i in changed:
+        e = news[i]
+        for tok in map(str, e.get("test") or []):
+            m = re.search(r"tests/[\w/.-]+\.py", tok)
+            if m and (repo / m.group(0)).is_file():
+                hits.add(str(repo / m.group(0)))
+        mod = _module_of(re.sub(r"^\$\{FIELDKIT\}/", "", str(e.get("path") or "")))
+        if mod and mod != "fieldkit":
+            hits |= {str(t) for t, ms in imports.items() if any(m == mod or m.startswith(mod + ".") for m in ms)}
+        if len(i) > 3:
+            hits |= {str(t) for t in test_files if re.search(r"\b" + re.escape(i) + r"\b", t.read_text(encoding="utf-8", errors="replace"))}
+    return hits
+
+
+def _registry_cli_tests(repo, lines, test_files, imports):
+    """cli.py: the command names and modules the changed lines name -> the tests naming/importing them + the integrity
+    set. None = no name found in the changed lines (cannot prove what they affect) -> the caller keeps the wide mapping."""
+    needles, mods = set(), set()
+    for l in lines:
+        body = l[1:]
+        needles |= {n for n in re.findall(r"[\"']([a-z][a-z0-9_-]+)[\"']", body) if _NAME.match(n)}
+        needles |= {n for n in re.findall(r"fieldkit ([a-z][a-z0-9-]{3,})", body)}
+        for m in re.finditer(r"from \.([\w.]*) import ([\w, ]+)", body):
+            base_mod = m.group(1)
+            for name in (x.strip() for x in m.group(2).split(",")):
+                mods.add(f"fieldkit.{base_mod}.{name}" if base_mod else f"fieldkit.{name}")
+    if not needles and not mods:
+        return None
+    hits = {str(repo / t) for t in REGISTRY_INTEGRITY[REGISTRY_CLI] if (repo / t).is_file()}
+    for t in test_files:
+        src = None
+        if any(m == x or m.startswith(x + ".") for m in imports[t] for x in mods):
+            hits.add(str(t))
+            continue
+        src = t.read_text(encoding="utf-8", errors="replace")
+        if any(re.search(r"\b" + re.escape(n) + r"\b", src) for n in needles):
+            hits.add(str(t))
+    return hits
+
+
 def plan(repo=".", base=None, paths=None, diff_lines=None):
     """{"tests": [...], "unmapped": [...], "docs_only": bool, "no_code": bool}: the tests that cover the changed files.
 
@@ -234,9 +359,10 @@ def plan(repo=".", base=None, paths=None, diff_lines=None):
     repo = Path(repo)
     paths = changed_files(repo, base) if paths is None else paths
     tests_dir = repo / "tests"
-    test_files = sorted(tests_dir.glob("test_*.py")) if tests_dir.is_dir() else []
+    test_files = sorted(tests_dir.rglob("test_*.py")) if tests_dir.is_dir() else []   # tests/capture/ too
     imports = {t: _imports(t) for t in test_files}
     diff_lines = diff_lines or (lambda path: _line_diff(repo, base, path))
+    tmap = testmap(repo)
     chosen, unmapped = set(), []
     for p in paths:
         q = p.replace("\\", "/")
@@ -247,17 +373,36 @@ def plan(repo=".", base=None, paths=None, diff_lines=None):
             continue
         if Path(q).suffix.lower() in DOC_SUFFIXES and not q.startswith(CODE_TREES):
             continue
+        rows = [ts for g, ts in tmap if _glob_match(q, g)]
+        if rows:                                       # a mapped file; tests: [] = declared read by no test
+            chosen |= {str(repo / t) for ts in rows for t in ts}
+            continue
+        if MUTATION_PLAN.search(q):                    # read only by `fieldkit mutate`: the tests of what it mutates
+            own = repo / "tests" / ("test_" + Path(q).name.replace("_mutations.yaml", ".py").replace("mutations-", ""))
+            hits = {str(own)} if own.is_file() else (_package_tests(q, imports) if q.startswith("fieldkit/") else set())
+            if hits:
+                chosen |= hits
+            continue
+        if q in REGISTRY_INTEGRITY:                    # a shared registry: only the tests of what changed in it
+            narrow = (_registry_tools_tests(repo, base, test_files, imports) if q == REGISTRY_TOOLS else
+                      _registry_cli_tests(repo, diff_lines(q), test_files, imports))
+            if narrow:
+                chosen |= narrow
+                continue
         mod = _module_of(q)
         hits = set()
         if mod and mod != "fieldkit":
             hits = {str(t) for t, ms in imports.items() if any(m == mod or m.startswith(mod + ".") for m in ms)}
         if not hits:
-            needles = [Path(q).name] + ([mod.rsplit(".", 1)[-1]] if mod else [])
+            needles = [Path(q).name] + ([mod.rsplit(".", 1)[-1]] if mod else []) +                 ([Path(q).stem] if Path(q).suffix != ".py" and Path(q).stem not in ("mutations", "data", "index") else [])
             needles = [n for n in needles if len(n) > 3 and n not in ("__init__.py", "cli.py", "cli")]
             for t in test_files:
                 src = t.read_text(encoding="utf-8", errors="replace")
                 if any(re.search(r"\b" + re.escape(n) + r"\b", src) for n in needles):
                     hits.add(str(t))
+        if not hits and q.startswith("fieldkit/"):     # no test names it: the tests of its package (the whole
+            # suite would add nothing for a file no test imports or names)
+            hits = _package_tests(q, imports)
         if hits:
             chosen |= hits
         else:
@@ -332,6 +477,9 @@ def main(argv=None, prog="fieldkit testcost"):
     sub.add_parser("flags")
     st = sub.add_parser("staged", help="the test files that cover the staged files, one per line (the pre-commit hook)")
     st.add_argument("--repo", default=".")
+    um = sub.add_parser("unmapped", help="tracked files no test covers (each one makes CI run the whole suite)")
+    um.add_argument("--repo", default=".")
+    um.add_argument("--all", action="store_true", help="every tracked file, not only the changed ones")
     d = sub.add_parser("docs-only")
     d.add_argument("--repo", default=".")
     a = ap.parse_args(argv)
@@ -353,9 +501,13 @@ def main(argv=None, prog="fieldkit testcost"):
         tests = plan(a.repo, paths=staged_files(a.repo))["tests"]
         cap = int(os.environ.get("FIELDKIT_LOCAL_TEST_CAP", "15"))
         if len(tests) > cap:
-            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop: that is the suite, so CI runs it
-            print(f"testcost: {len(tests)} test files cover the staged files (> {cap}): CI runs them, not this laptop",
-                  file=sys.stderr)
+            # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop. R15: never dropped - this
+            # computer keeps its share (the cap), the free devices run the rest (fieldkit/testsplit.py), and what no
+            # device takes runs here
+            from . import testsplit
+            rel = [os.path.relpath(t, a.repo).replace("\\", "/") for t in tests]
+            for t in testsplit.start(a.repo, rel, tree_key(a.repo), cap)["local"]:
+                print(t)
             return 0
         for t in tests:
             print(os.path.relpath(t, a.repo).replace("\\", "/"))
@@ -400,6 +552,19 @@ def main(argv=None, prog="fieldkit testcost"):
             print(f"  {'ON ' if f[name] else 'off'}  {name}: {why}")
         print('  (set in fieldkit.local.json "testcost": {...} only on the owner\'s yes)')
         return 0
+    if a.cmd == "unmapped":
+        files = _git(a.repo, "ls-files").split() if a.all else changed_files(a.repo)
+        u = plan(a.repo, paths=files, diff_lines=lambda q: [])["unmapped"]
+        if getattr(a, "json", False):
+            print(json.dumps({"unmapped": u, "checked": len(files)}))
+        else:
+            for x in u:
+                print("  unmapped", x)
+            print(f"testcost unmapped: {len(u)} of {len(files)} file(s) covered by no test"
+                  + ("" if not u else " - each one runs the whole suite in CI; map it in tests/testmap.yaml or "
+                     "give it a test"))
+            print("NEXT: " + ("nothing to do" if not u else "map or test the files listed"))
+        return 3 if u else 0
     if a.cmd == "docs-only":
         # exit 0 = the hook may skip the suite: the owner's flag is ON and every STAGED path is documentation
         return 0 if flags()["docs_only_privacy_only"] and is_docs_only(staged_files(a.repo)) else 1

@@ -98,13 +98,20 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
         say("  " + msg)
         if not ok:
             raise BuildRefused(msg)
+    from . import keeper
+    why = keeper.refusal()                                # 2026-11-02: no heavy job while the machine governor is down
+    if why:
+        raise BuildRefused(why)
+    from . import brake
     if sys.platform != "win32":
-        yield None
+        # R11 (VAIO, 2026-11-03): the machine governor's brake pauses the children of every registered hold; without
+        # one here a guarded job on Linux was never paused. The Linux governor is the keeper's, not this block's.
+        with brake.hold(label, say=say):
+            yield None
         return
     from ..buildh import buildrun
-    from . import brake
     if sensor is None:
-        name, fn, surface = buildrun.thermal_sensor(say)
+        name, fn, surface = buildrun.thermal_sensor(say, plan_cap=False)
         if fn is None:
             raise BuildRefused("no CPU temperature source responds to load (fieldkit thermal prove): not building blind")
     else:
@@ -170,4 +177,6 @@ def run(cmd, cwd=None, say=None, check_fan=True):
             return rc
     except BuildRefused as e:
         say(f"REFUSED: {e}")
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("guard", str(e))
         return 2

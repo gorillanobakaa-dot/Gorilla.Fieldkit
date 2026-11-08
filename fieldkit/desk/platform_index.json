@@ -279,6 +279,17 @@
    "admit"
   ]
  },
+ "app": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "sources and launchers tested with faked registries, .desktop folders, mdfind output and process tables for all three systems; run live on Windows 2026-10-31; Linux and macOS not run",
+  "ids": [
+   "app"
+  ]
+ },
  "audio": {
   "platforms": [
    "linux"
@@ -1428,6 +1439,27 @@
    "canary"
   ]
  },
+ "capture": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "capture"
+  ]
+ },
+ "ciaudit": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ciaudit"
+  ]
+ },
  "cost": {
   "platforms": [
    "darwin",
@@ -1806,14 +1838,91 @@
    "ideas"
   ]
  },
+ "image accept": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-accept"
+  ]
+ },
+ "image compare": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-compare"
+  ]
+ },
+ "image doctor": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-doctor"
+  ]
+ },
+ "image ocr": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-ocr"
+  ]
+ },
+ "image privacy": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-privacy"
+  ]
+ },
+ "image squash": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "image-squash"
+  ]
+ },
  "inbox": {
   "platforms": [
+   "darwin",
    "linux",
    "windows"
   ],
   "why": "",
   "ids": [
    "inbox"
+  ]
+ },
+ "integration": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "integration"
   ]
  },
  "jobs": {
@@ -2115,6 +2224,17 @@
    "next-step"
   ]
  },
+ "observe": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run",
+  "ids": [
+   "observe"
+  ]
+ },
  "office": {
   "platforms": [
    "linux",
@@ -2257,6 +2377,28 @@
    "parity"
   ]
  },
+ "parity helpers": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-helpers"
+  ]
+ },
+ "parity installed": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-installed"
+  ]
+ },
  "peers link": {
   "platforms": [
    "linux",
@@ -2315,6 +2457,17 @@
   "why": "status run on Windows 2026-10-26 (task missing: the prerequisite is not applied yet); the Linux units, install and status run offline with fake systemctl/loginctl; not yet installed on the VAIO",
   "ids": [
    "peers-link-keepalive"
+  ]
+ },
+ "peers link probe": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "finder and probes tested with faked PATH, processes and folders for each OS; run live Windows -> Linux 2026-10-31; macOS not run",
+  "ids": [
+   "peers-link-probe"
   ]
  },
  "peers link relay": {
@@ -2467,6 +2620,35 @@
    "plan"
   ]
  },
+ "power audit": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "Security 4688 and Event Log Readers are Windows; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-audit"
+  ]
+ },
+ "power drift": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-drift"
+  ]
+ },
+ "power incidents": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "power-incidents"
+  ]
+ },
  "prefix-diff": {
   "platforms": [
    "darwin",
@@ -2506,6 +2688,16 @@
   "why": "",
   "ids": [
    "refcheck"
+  ]
+ },
+ "refusals": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "refusals"
   ]
  },
  "regress": {
@@ -2578,6 +2770,17 @@
    "repro-compare"
   ]
  },
+ "review": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "review"
+  ]
+ },
  "rotate": {
   "platforms": [
    "darwin",
@@ -2587,6 +2790,17 @@
   "why": "",
   "ids": [
    "rotate"
+  ]
+ },
+ "route": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "route"
   ]
  },
  "rules": {
@@ -3057,6 +3271,16 @@
    "testcost"
   ]
  },
+ "thermal ensure": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "macOS (the MacBook Air) runs no heavy work and cools in firmware",
+  "ids": [
+   "thermal-ensure"
+  ]
+ },
  "thermal monitor": {
   "platforms": [
    "linux",
@@ -3223,8 +3447,8 @@
  },
  "web browsers": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
@@ -3234,8 +3458,8 @@
  },
  "web doctor": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
@@ -3245,8 +3469,8 @@
  },
  "web fetch": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
@@ -3256,8 +3480,8 @@
  },
  "web search": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",

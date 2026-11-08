@@ -120,9 +120,13 @@ fi
 # the test files that cover the staged files (fieldkit testcost staged); none -> nothing runs here. The full suite runs
 # in CI, and a PR merges only on green CI. FIELDKIT_FULL_SUITE=1 runs the whole suite here when wanted.
 if [ -z "$SKIP" ] && [ -z "$FIELDKIT_FULL_SUITE" ]; then
-  TESTS="$("$PY" -m fieldkit.testcost staged 2>/dev/null | tr -d '\r' | tr '\n' ' ')"   # Windows Python writes CRLF
+  TC_ERR="$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-tc-$$")"
+  TESTS="$("$PY" -m fieldkit.testcost staged 2>"$TC_ERR" | tr -d '\r' | tr '\n' ' ')"   # Windows Python writes CRLF
+  TC_WHY="$(tr -d '\r' < "$TC_ERR" 2>/dev/null | tail -n 1)"; rm -f "$TC_ERR"
   if [ -z "$TESTS" ]; then
-    echo "pre-commit: no test covers the staged files - nothing runs here; the full suite runs in CI"
+    # 2026-11-02: this said "no test covers the staged files" when 68 did and the laptop cap (15) held them back:
+    # say what testcost said, never a reason it did not give
+    echo "pre-commit: ${TC_WHY:-no test covers the staged files} - nothing runs here; CI runs the covering tests"
     SKIP=1
   fi
 else
@@ -161,6 +165,25 @@ if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp
   for t in $FAILED; do echo "$(date '+%Y-%m-%d %H:%M:%S') failed once, passed when run again: $t" >> state/flaky-tests.log; done
   echo "pre-commit: WARNING - failed once and passed when run again (logged in state/flaky-tests.log): $FAILED"
 fi
+# 2026-11-03 (HARNESS-PLAN R15): the covering test files above this laptop's share went to free devices when `testcost
+# staged` ran (fieldkit/testsplit.py). Their signed results are collected here. A share that came back FAILED or with no
+# signed result runs here (exit 10), where it must pass (2026-11-03: the VAIO's own environment failures refused #350): a test file is never dropped.
+if [ -z "$SKIP" ] && [ -z "$FIELDKIT_FULL_SUITE" ] && [ -n "$KEY" ]; then
+  SPL="$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-split-$$")"
+  "$PY" -m fieldkit.testsplit collect --key "$KEY" >"$SPL" 2>"$OUT"; SPL_RC=$?
+  sed 's/^/pre-commit: /' "$OUT"
+  if [ "$SPL_RC" = "1" ]; then
+    echo "pre-commit: a test share failed on another device - commit refused"; rm -f "$SPL"; exit 1
+  fi
+  AGAIN="$(tr -d '
+' <"$SPL" | tr '
+' ' ')"; rm -f "$SPL"
+  if [ "$SPL_RC" = "10" ] && [ -n "$AGAIN" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf $AGAIN >"$OUT" 2>&1; then
+    tail -20 "$OUT"
+    echo "pre-commit: the test files no device vouched for failed here - commit refused"
+    exit 1
+  fi
+fi
 if [ -z "$SKIP" ]; then
   grep -E '^  (preflight|run guard|fan check|governor)' "$OUT" | sed 's/^  /pre-commit: /'
   if [ -n "$TESTS" ]; then
@@ -187,6 +210,16 @@ if git diff --cached --name-only | grep -qE '^(AGENTS\.md|rules/CORE\.md)$'; the
   if ! "$PY" -m fieldkit rules check --repo-only >"$OUT" 2>&1; then
     cat "$OUT"
     echo "pre-commit: a rules file is over its size limit or repeats the core - commit refused"
+    exit 1
+  fi
+fi
+# 2026-11-01 (goal integrated-everywhere, docs/INTEGRATION.md): a change that adds or edits a tool, package or card is
+# refused while it is not built in (carried, known, visible, on the release page, on every system, tested). Only what
+# the commit changes is looked at (--changed HEAD), so the check is fast and an old gap never blocks an unrelated commit.
+if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+  if ! "$PY" -m fieldkit integration check --repo . --changed HEAD >"$OUT" 2>&1; then
+    cat "$OUT"
+    echo "pre-commit: a capability is not built in (docs/INTEGRATION.md) - commit refused"
     exit 1
   fi
 fi

@@ -794,9 +794,26 @@ def owner_terminal():
     orchestrator session ran an owner-only allowlist approval script that this check let through (the change was
     restored from git at once). So: refuse when the process carries an AI agent's environment marker, or when any
     ancestor process is an AI agent."""
-    if agent_shell():
+    return not owner_terminal_why()
+
+
+def owner_terminal_why():
+    """-> "" when a person can type into this process, else the reason not (shown to the person who was refused)."""
+    why = agent_shell()
+    if why:
+        return why
+    return "" if sys.stdin.isatty() else "stdin is not a terminal"
+
+
+def _elevated():
+    """True when this process runs elevated on Windows (the person clicked a UAC prompt to get it)."""
+    if sys.platform != "win32":
         return False
-    return sys.stdin.isatty()
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:                                       # fail closed
+        return False
 
 
 #: environment variables an AI agent's shell carries (Claude Code, the Agent SDK, Antigravity/Gemini, Codex)
@@ -813,11 +830,12 @@ PERSON_CHAIN = re.compile(r"^(windowsterminal|openconsole|conhost|wt|powershell|
                           r"|gnome-terminal(-server|\.real)?|kgx|ptyxis(-agent)?|konsole|xfce4-terminal|tilix|terminator"
                           r"|xterm|uxterm|alacritty|kitty|foot|wezterm(-gui)?|lxterminal|mate-terminal|qterminal)"
                           r"(\.exe)?$", re.I)
+SHELLS = re.compile(r"^(powershell|pwsh|cmd)(\.exe)?$", re.I)
 DESKTOPS = re.compile(r"^(explorer(\.exe)?|plasmashell|gnome-shell|kwin\w*|xfce4-session|lxsession|"
                       r"sshd|login|systemd)$", re.I)
 
 
-def agent_shell(env=None, ancestors=None):
+def agent_shell(env=None, ancestors=None, elevated=None):
     """-> the reason this process may NOT be a person's own terminal, or "" when it positively is one.
 
     A person's terminal: no agent environment marker, and the parent chain reaches the desktop (explorer.exe, or a
@@ -846,6 +864,13 @@ def agent_shell(env=None, ancestors=None):
             return ""
         if not PERSON_CHAIN.match(name or ""):
             return f"not a person's terminal: {name} stands between this process and the desktop"
+    # 2026-10-31: the owner's "Administrator: Windows PowerShell" (Start menu / Win+X) was refused here: the launcher
+    # that started it had already exited, so the chain ended at powershell.exe. A broken chain is accepted ONLY when
+    # this process is elevated (a person clicked UAC to get it; a non-elevated agent cannot type into an elevated
+    # window, UIPI) and a console shell heads the chain - besides the marker and ancestor checks above.
+    elevated = _elevated() if elevated is None else elevated
+    if elevated and any(SHELLS.match(n or "") for n, _c in ancestors):
+        return ""
     return "no path to the desktop (the parent chain is broken or detached)"
 
 

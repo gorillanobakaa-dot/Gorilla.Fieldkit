@@ -72,7 +72,6 @@ import uuid
 from pathlib import Path
 
 from . import channels as ch
-from ..peers import link_off
 from ..core.settings import state_root as _state_root
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -526,6 +525,10 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
     net.pop("handover_pending", None)
     net["updated"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now))
     with _Lock():
+        cur = load_net()                              # the epoch fence: the check above ran before the lock
+        if int(cur.get("epoch") or 0) != int(net["epoch"]) - 1:
+            raise Refused(f"the net moved to epoch {cur.get('epoch')} while this handover was prepared: "
+                          "another station won; nothing changed")
         save_net(net)
         st = load_stations()
         if to == me:
@@ -893,7 +896,7 @@ def unacked(net, now):
 
 def _cable_layer(device):
     """True when the ladder finds the peer silent on every rung (down, asleep or unplugged): it is off, not lost."""
-    from ..peers import link_heal
+    from ..peers import link_heal, link_off
     try:
         rows, facts = link_heal.ladder(device)
         return link_off.looks_off(link_heal.verdict(rows, facts)[0])
@@ -961,6 +964,7 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
             continue
         append("retry", "net", ref=u["entry"]["id"], data={"missing": u["missing"]}, now=now)
         retried.append(u["entry"]["id"])
+    from ..peers import link_off                    # lazy: the hook never needs the cable code (hook speed)
     cab = cable or ch.Cable()
     links = []
     for d in cab.devices():
@@ -1082,6 +1086,24 @@ def _ingest_due(st, now):
     return True
 
 
+def _auto_assume(me, net, event, now):
+    """Owner 2026-11-03: if no Zero is UP, one of the present sessions takes over. Run by the hook of a live session
+    when Zero is MISSING (two lapsed leases); handover re-checks inside the lock, so only one session wins and Zero
+    UP is never taken. -> the lines to show."""
+    zero = zero_of(net)
+    if event not in ("UserPromptSubmit", "SessionStart") or not zero or zero == me:
+        return []
+    zrec = load_stations()["stations"].get(zero)
+    if zrec is None or state_of(zrec, now) != "MISSING":
+        return []
+    try:
+        r = handover(me, assume=True, now=now)
+        return [f"NET: Zero {zero} was MISSING; you assumed Zero (epoch {r['net']['epoch']}). Announce it: "
+                "fieldkit zero rollcall"]
+    except Refused:                                   # not the 2IC, not UP, or another station won
+        return []
+
+
 def _net_line(call, event, now=None):
     """Every Claude Code session on this computer: checked in by the hook (the lease renewed at most once a minute),
     shown its unseen net traffic (acked), told once who Zero is. Zero is told which stations went quiet, once per
@@ -1132,10 +1154,12 @@ def _net_line(call, event, now=None):
                                                              if v}, now=now)
             if tell_far:                              # Zero is on the other computer: its lease is renewed there (C2)
                 (ch.Cable(timeout=CABLE_HOOK_TIMEOUT_S)).push(e, net)
+        out.extend(_auto_assume(me, net, event, now))
         if new:
             out.append(f"NET: Zero is {zero_of(net)} (epoch {net.get('epoch')}); you are station {me}, checked in by "
-                       "the hook. Owner words: 'zero', 'sitrep', 'comms check', 'roll call' mean fieldkit zero "
-                       "(skill fieldkit-net).")
+                       "the hook. Owner words: 'zero', 'comms check', 'roll call' mean fieldkit zero (skill "
+                       "fieldkit-net); 'sitrep' means the session report (skill fieldkit-sitrep): where we started, "
+                       "what we did, what is going on now, what is left.")
         for _, e in items[:HOOK_MAX_LINES]:
             out.append(ch.human(e, net))
         if len(items) > HOOK_MAX_LINES:

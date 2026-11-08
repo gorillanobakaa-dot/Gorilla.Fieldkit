@@ -219,7 +219,7 @@ def main(argv=None):
     if r["written"]:
         print(f"written DONE: {' '.join(r['written'])} in {PLAN}")
     if r.get("parked_ideas"):
-        print(f"  {r['parked_ideas']} parked ideas (not plan work): fieldkit ideas review")
+        print(f"  {r['parked_ideas']} parked ideas (not plan work): fieldkit review")
     print("NEXT: " + (f"work on {r['open'][0]} (phase {r['phase']})" if r["open"] else "nothing open")
           + ("" if a.write or not stale else f"; fieldkit plan next --write marks merged items in {PLAN}"))
     return 0

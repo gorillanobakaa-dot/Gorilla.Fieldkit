@@ -141,8 +141,12 @@ def ci_green(repo_path, commit, cfg, run=subprocess.run):
     import json
     from ..core import sync
     slug = sync._slug(repo_path)
+    env = None
+    if run is subprocess.run:       # inside an autopilot run only ship's environment has gh's account back (#145)
+        from ..method import ship
+        env = ship.ship_env()
     r = run(["gh", "api", f"repos/{slug}/commits/{commit}/check-runs", "--jq",
-             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True)
+             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True, **({"env": env} if env else {}))
     if r.returncode:
         return False, f"CI unreadable (gh): {(r.stderr or '').strip()[:160]}"
     runs = json.loads(r.stdout or "[]")
@@ -151,7 +155,7 @@ def ci_green(repo_path, commit, cfg, run=subprocess.run):
     bad = [x["name"] for x in runs if x["status"] != "completed" or x["conclusion"] not in ("success", "skipped")]
     if bad:
         return False, f"CI not green for {commit[:10]}: {', '.join(bad[:4])}"
-    missing = [o for o in (cfg or {}).get("ci_os") or [] if not any(o in x["name"].lower() for x in runs)]
+    missing = sync.missing_os(runs, (cfg or {}).get("ci_os") or [], slug)     # job names as data (P14)
     if missing:
         return False, f"CI for {commit[:10]} has no {', '.join(missing)} job"
     return True, f"CI green for {commit[:10]} ({len(runs)} check runs)"

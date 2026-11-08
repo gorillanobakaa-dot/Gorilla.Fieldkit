@@ -133,7 +133,8 @@ def startcheck(agent="claude", run=_run):
         unknown = [a for a in used if a.startswith("--") and a not in flags]
         rows.append(("every start option exists", not unknown, "unknown: " + " ".join(unknown) if unknown else "ok"))
         from ..autopilot import run as aprun
-        exe = aprun.claude_exe()
+        from . import agentfind
+        exe = aprun.claude_exe() or agentfind.find_path("claude")     # the one finder: process file, desktop copy
         rows.append(("claude found", bool(exe), exe or "not on PATH or in the desktop app"))
         seen = {}
 

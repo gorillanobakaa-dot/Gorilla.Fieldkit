@@ -76,8 +76,8 @@ tools:
   entry: [python, -m, fieldkit, goal]
   path: ${FIELDKIT}/fieldkit/autopilot/goal.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, supervisor-script], help: "status first; run = the supervisor"}
-    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
+    - {name: action, flag: null, type: str, required: true, choices: [new, status, run, stop, approve, report, reverify, supervisor-script], help: "status first; run = the supervisor; reverify = one job's checks on a fresh origin/main tree"}
+    - {name: args, flag: null, type: str, required: false, help: "new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID; reverify GOAL JOB; supervisor-script [OUT.ps1 | OUT.sh on Linux]"}
     - {name: from_file, flag: --from, type: str, required: false, help: "new: the goal spec (goal.json shape)"}
     - {name: objective, flag: --objective, type: str, required: false, help: "new: the objective (without --from)"}
     - {name: criterion, flag: --criterion, type: str, required: false, help: "new: a command that must exit 0 (repeatable)"}
@@ -206,15 +206,16 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_core_eta.py", "${FIELDKIT}/tests/test_calibrate.py"]
 
 - id: inbox
-  title: The owner inbox - every approval an unattended run needs, collected for one sitting
+  title: The owner inbox holds only HARD LINE items (owner, 2026-11-01 - zero owner steps); every other item an agent, worker, ship push, goal or the net files goes to the agent ledger (fieldkit inbox ledger), read by Zero, never by the owner
   harness: core
   entry: [python, -m, fieldkit, inbox]
   path: ${FIELDKIT}/fieldkit/autopilot/inbox.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [list, show, add, done], help: "list (default)"}
+    - {name: action, flag: null, type: str, required: false, choices: [list, show, add, done, ledger], help: "list (default) | ledger [N]: the agent ledger's last N rows"}
     - {name: rest, flag: null, type: str, required: false, help: "show/done: N [note]; add: TITLE WHY [COMMAND]"}
     - {name: all, flag: --all, type: bool, required: false, help: "list: done items too"}
-  platforms: [windows, linux]
+    - {name: kind, flag: --kind, type: str, required: false, help: "add: hardline reaches the owner; anything else is routed to the agent ledger"}
+  platforms: [windows, linux, darwin]
   changes: true
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_autopilot_run.py"]
 
@@ -1112,6 +1113,66 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_laptop.py", -k, profile or danger or hwinfo]
 
+- id: thermal-ensure
+  title: "The machine thermal governor is always running: start it when it is down, install the keeper that checks it at logon, every 5 min and on resume; heavy work refuses while it is down (Windows and Linux)"
+  harness: thermal
+  entry: [python, -m, fieldkit, thermal, ensure]
+  path: ${FIELDKIT}/fieldkit/thermal/keeper.py
+  inputs:
+    - {name: install, flag: --install, type: flag, required: false, help: "also install the keeper (a user task on Windows, a systemd user timer on Linux; no admin)"}
+  effects: [processes, writes-files]
+  safety: reversible
+  headline: "GOVERNOR UP / STARTED / DOWN, and whether the keeper is installed."
+  platforms: [windows, linux]
+  platforms_why: "macOS (the MacBook Air) runs no heavy work and cools in firmware"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_thermal_keeper.py"]
+  notes: "2026-11-02: the laptop went down at 03:29 and the governor was found not running (its logon line commented out since 10-28) and, when running, braking nothing (watch only). Its lever now pauses guarded jobs' processes instead of the power plan."
+
+- id: power-incidents
+  title: "Why the computer shut down, cut out or slept: every unexpected shutdown and sleep since a date, each with a named cause class, the thermal journal peak before it and the battery state; an unknown cause is a defect row (Windows, Linux, macOS)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, incidents]
+  path: ${FIELDKIT}/fieldkit/power/incidents.py
+  inputs:
+    - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD (default: 7 days ago)"}
+  effects: [reads-files, writes-files]
+  safety: safe
+  headline: "N incident(s) since DATE, M unknown; exit 3 when any cause is unknown."
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py"]
+  notes: "Windows: one Get-WinEvent call (Kernel-Power 41/42/107/187/506/507/566, EventLog 6005/6006/6008, User32 1074, Power-Troubleshooter 1, UserModePowerService 12 counted per process per day). Linux: journalctl boots and suspend/lid/critical-temperature lines. macOS: pmset -g log. Classes: heat, power-plan reset, program sleep request (PROCESS), battery, button/lid, standby (REASON), planned, unexpected cut (cause unknown), unknown. The real cut of a 6008 is the last thermal journal line before that boot when it is later. Each unknown is one row in ZERO-OPEN-PROBLEMS.md (once per incident). Mutation plan tests/power_incidents_mutations.yaml."
+
+- id: power-drift
+  title: "Check that the Lenovo power service (ibmpmsvc.exe) never put the laptop to sleep during work in the last N days and that the sleep button is off on AC; --apply turns the sleep button off without admin and records before/after (Windows)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, drift]
+  path: ${FIELDKIT}/fieldkit/power/drift.py
+  inputs:
+    - {name: days, flag: --days, type: int, required: false, help: "how many days back (default 7)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "set the sleep button on AC to do nothing (powercfg, no admin; before/after kept in state/power/)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  headline: "PASS or FAIL: ibmpmsvc sleep requests during work, and the sleep/power/lid actions on AC."
+  platforms: [windows]
+  platforms_why: "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py", -k, drift]
+
+- id: power-audit
+  title: "Can the machine name who started a program (R9: who ran powercfg.exe before a cut)? Checks Security 4688 process-creation auditing, command lines and read access; --write-fix writes ONE self-elevating script for the missing admin steps (one UAC prompt); --callers PROCESS lists who started it (Windows)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, audit]
+  path: ${FIELDKIT}/fieldkit/power/audit.py
+  inputs:
+    - {name: write_fix, flag: --write-fix, type: flag, required: false, help: "write state/power/enable-process-audit.ps1 for the missing admin steps"}
+    - {name: callers, flag: --callers, type: str, required: false, help: "PROCESS, e.g. powercfg.exe: creator and command line of each start, from Security 4688"}
+  effects: [reads-files, writes-files]
+  safety: safe
+  headline: "PASS, SIGN-OUT or FAIL with the missing steps; exit 3 unless PASS."
+  platforms: [windows]
+  platforms_why: "Security 4688 and Event Log Readers are Windows; elsewhere the check prints not-this-platform"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_audit.py"]
+  notes: "The audit policy, the command-line registry flag and the Event Log Readers group are security settings: only the owner runs the script. A filtered Get-WinEvent reports 'unauthorized' as 'no events', so readability is probed unfiltered."
+
 - id: thermal-monitor
   title: "Keep the processor cool while something heavy runs (a build): lowers the CPU cap when hot, speaks, puts it back (Windows and Linux)"
   harness: thermal
@@ -1770,6 +1831,24 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_link.py", -k, agents]
 
+- id: peers-link-probe
+  title: "Fixed read-only probes over the cable (agents, where PROGRAM, disk, temps, load, versions, sessions) and the one agent finder: PATH, the running process's own file, the known install places"
+  harness: peers
+  entry: [python, -m, fieldkit, peers, link, probe]
+  path: ${FIELDKIT}/fieldkit/peers/link_probe.py
+  inputs:
+    - {name: name, flag: null, type: str, required: true, choices: [agents, where, disk, temps, load, versions, sessions], help: "the probe; a name outside this set is refused"}
+    - {name: arg, flag: null, type: str, required: false, help: "where: the program name"}
+    - {name: device, flag: --device, type: str, required: false, help: "which device of the household; none = this computer"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable"}
+  effects: [network, processes]   # runs only `PROGRAM --version` (5 s cap) of tools found by name
+  safety: reversible
+  output: own
+  platforms: [windows, linux, darwin]
+  platforms_why: 'finder and probes tested with faked PATH, processes and folders for each OS; run live Windows -> Linux 2026-10-31; macOS not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_peers_agentfind.py"]
+  notes: "The listener answers verb probe (read-only, signed request, cable address only). Probes are code with a test (link_probe.PROBES), never typed ad hoc. agentfind.py is the one finder behind hello/agents and the claude start check."
+
 - id: peers-link-setup
   title: "The whole agent link in ONE command per computer: finds the cable port (never the internet one), sets 10.77.0.1/.2 (one UAC click / pkexec), pairs, opens the firewall for the peer only, writes the USB kit (code bundle + key + setup-linux.sh + SHA256SUMS), listens, says hello"
   harness: peers
@@ -1794,7 +1873,7 @@ tools:
   entry: [python, -m, fieldkit, peers, link]
   path: ${FIELDKIT}/fieldkit/peers/link.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put, devices], help: "setup does all of it (peers-link-setup); doctor first; pair init --me IP --peer IP | pair import FILE; put FILE|FOLDER; devices list|add|remove|export|import"}
+    - {name: action, flag: null, type: str, required: true, choices: [setup, agents, pair, approve, serve, hello, send, ask, inbox, doctor, put, devices, probe], help: "setup does all of it (peers-link-setup); probe NAME [ARG] --device D runs a fixed read-only probe (peers-link-probe); doctor first; pair init --me IP --peer IP | pair import FILE; put FILE|FOLDER; devices list|add|remove|export|import"}
     - {name: rest, flag: null, type: str, required: false, help: "pair: init|import FILE; send: the text; put: files or folders; devices: the subcommand and NAME or FILE"}
     - {name: device, flag: --device, type: str, required: false, help: "hello/send/ask/put: which device of the household; devices import: this device's name"}
     - {name: bundle, flag: --bundle, type: str, required: false, help: "put: a git bundle of every ref of this repository"}
@@ -2345,7 +2424,7 @@ tools:
   output: first-party
   exits: {3: findings}
   answer_lines: 15
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: web-fetch
@@ -2363,7 +2442,7 @@ tools:
   output: third-party
   exits: {1: error, 3: findings}
   answer_lines: 30
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: web-search
@@ -2379,7 +2458,7 @@ tools:
   output: third-party
   exits: {2: bad usage, 3: findings}
   answer_lines: 30
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: web-doctor
@@ -2393,7 +2472,7 @@ tools:
   output: first-party
   exits: {3: findings}
   answer_lines: 20
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_web_fetch.py"]
 
 - id: evidence-import
@@ -5779,6 +5858,45 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_method_flaky.py"]
   skill: skills/fieldkit-methods/SKILL.md
 
+- id: integration
+  title: Is a capability built in? Carried, known to the AI, visible, on the release page, on every system, tested - check a repo or self-test the rules
+  harness: method
+  entry: [python, -m, fieldkit, integration]
+  path: ${FIELDKIT}/fieldkit/integration
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check | self-test"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "check: the Gorilla.Opencode or Fieldkit checkout"}
+    - {name: changed, flag: --changed, type: str, required: false, help: "check: only capabilities that git diff BASE adds or changes"}
+    - {name: kind, flag: --kind, type: str, required: false, help: "self-test (required): opencode | fieldkit"}
+  effects: [reads-files, processes]   # processes only with --changed (starts git diff); self-test writes a temp fixture and removes it
+  safety: reversible
+  output: own
+  exits: {2: "bad usage, or the folder is not a Gorilla.Opencode or Fieldkit repo", 3: "gaps found (check) or a seeded omission was not caught (self-test)"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_integration.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01: built in = properly integrated (docs/INTEGRATION.md). Rules per surface are data: fieldkit/integration/surfaces.yaml. One line per missing surface with the file to fix."
+
+- id: capture
+  title: Capture of the scripts, commands and procedures an agent makes or runs, only while a lesson is taught (capture on --lesson WHY --for MINUTES, capture off, capture state) - kept with its context, failed attempts linked to their fix, found again by words
+  harness: method
+  entry: [python, -m, fieldkit, capture]
+  path: ${FIELDKIT}/fieldkit/capture
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "hook | scan | find | ledger | verify | status | coverage | episodes | distill | weaktest | workflow | self-test"}
+    - {name: agent, flag: --agent, type: str, required: false, help: "hook: claude | gemini | opencode (the agent's hook JSON arrives on stdin)"}
+    - {name: words, flag: null, type: str, required: false, help: "find: words every record must contain"}
+    - {name: strict, flag: --strict, type: bool, required: false, help: "ledger: exit 3 if any item is lost, unaccounted or stuck"}
+    - {name: json, flag: --json, type: bool, required: false, help: "find, ledger, verify, status: machine-readable output"}
+  effects: [reads-files, writes-files]   # the store is state/capture/ (FIELDKIT_CAPTURE_DIR); self-test uses a temp sandbox it removes
+  safety: reversible
+  output: own
+  exits: {2: "bad usage, or a part that a later job builds (scan, other self-test flags)", 3: "verify or strict ledger found a loss, a broken chain or an unaccounted item; a self-test failed"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py", "${FIELDKIT}/tests/capture/test_weaktest.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "P18: `capture workflow list|show|offer` serves the distilled recipes one step at a time (sentence, command, check) and the prompt hook offers the one a request matches; `capture weaktest [--model ID]` measures every recipe against the sitrep reader rules and a small LM Studio model. Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
+
 - id: version-sync
   title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program
   harness: method
@@ -5908,6 +6026,42 @@ tools:
   notes: "Plants files in temporary folders it removes, and runs each check's own command or public function (fieldkit/method/canary_checks.py) there; nothing else is touched and nothing goes to the network. Registry: fieldkit/method/canaries.yaml + local/canaries.yaml. Born 2026-10-18 from the telemetry scan that passed a program carrying a tracing library 1,036 times."
   notes: "repeat/log run pytest n times in fresh processes, each with its own --basetemp; the tests' own effects apply. scan only reads (exit 0 always). Reachable as `fieldkit flaky` since 2026-10-18."
 
+- id: app
+  title: "Find and start any program by name on Windows, Linux and macOS - every match with path, version, how found (PATH, running process, App Paths, Uninstall keys, Start Menu shortcuts, Store apps / .desktop files, flatpak, snap / mdfind, application bundles) and whether it runs now; start it detached the way the OS does (CreateProcess/ShellExecute, gtk-launch/gio, open -a), the new PID verified after 3 s; never elevated, ambiguous names listed and never guessed"
+  harness: desk
+  entry: [python, -m, fieldkit, app]
+  path: ${FIELDKIT}/fieldkit/app/__init__.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, choices: [find, start], help: "find lists matches (read-only); start launches the one program the name resolves to"}
+    - {name: name, flag: null, type: str, required: true, help: "the program: case, spaces and dashes do not matter (Gorilla OpenCode = gorilla-opencode)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "machine-readable"}
+  effects: [reads-files, processes]
+  safety: reversible
+  output: own
+  exits: {1: "start: not started (elevated, exited at once, needs administrator)", 3: "not found, or several different programs match (listed)"}
+  platforms: [windows, linux, darwin]
+  platforms_why: 'sources and launchers tested with faked registries, .desktop folders, mdfind output and process tables for all three systems; run live on Windows 2026-10-31; Linux and macOS not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_app.py"]
+  notes: "Owner 2026-10-31: the agent finder should find and start every program, not only Claude. Nothing found is executed to read a version (notepad --version opens Notepad): versions come from the registry, Info.plist or the file's version resource. Arguments only after --, none over the cable. Over the cable: peers link start-app NAME (signed, cable only, the peer's allow_apps in link.yaml; default the agents, gorilla-opencode, TPFanControl) and probe where NAME. Stopping is not here: by PID, as everywhere."
+
+- id: observe
+  title: "See inside the machine, the same on Linux, Windows and macOS - who has a file open or locked, who uses a port, a process in full (exe, cwd, command line, user, children, memory map), watch a folder, which files a process opens or starts, a process's CPU/memory/disk over time, system event log search"
+  harness: desk
+  entry: [python, -m, fieldkit, observe]
+  path: ${FIELDKIT}/fieldkit/observe/__init__.py
+  inputs:
+    - {name: question, flag: null, type: str, required: true, choices: [open-file, port, proc, watch, trace, usage, events], help: "the question; then its arguments: PATH | N | PID | DIR SECONDS | PID SECONDS | PID SECONDS | WORDS"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, processes]
+  safety: safe
+  headline: "{verdict}"
+  output: own
+  exits: {1: "error, no such process, or this system has no reader", 3: "trace needs administrator or root (it says so, asks nothing)"}
+  platforms: [windows, linux, darwin]
+  platforms_why: 'one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run'
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_observe.py"]
+  notes: "Owner 2026-10-31 (idea I-07, plan row P10): a Qwen model could not delete a file because something held it. Linux: /proc, inotify via ctypes, strace, journalctl. Windows: Restart Manager (kits/wintrace fuser), GetExtendedTcpTable, Toolhelp, ReadDirectoryChangesW, Get-WinEvent, trace through kits/wintrace opensnoop. macOS: lsof, vmmap, fs_usage, log show; watch polls once a second (no FSEvents binding shipped). Per-process network use is not claimed on Linux (needs root and eBPF). Read-only; a process is acted on by PID, never by name. No Sysinternals."
+
 - id: hog
   title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, parents hoarding children (dozens of consoles/shells) reported, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
   harness: desk
@@ -5983,12 +6137,12 @@ tools:
   skill: skills/fieldkit-emerge/SKILL.md
   notes: "Owner 2026-10-26: 'I don't want it to be hard ... Be better than Portage. Let's implement that.' Builds ON fieldkit/core/pipeline.py (stages run through Pipeline._run, one stage at a time), testcost (every stage pass/fail recorded under emerge:<recipe>:<stage> with its key; ETA = median of measured passes), the one run guard (core/preflight.py: hog, testcost, scratch; parity once #122 merges) entered ONCE before stage 1, orchestrate_work (offload = run jobs over the cable, signed artefacts by sha256), autopilot run.claude (the fixer) and inbox. State: state/emerge/<recipe>/ (cache/<stage>/<key>.json, last-report.json, overhead.json in fieldkit overhead's shape, journal.jsonl). Mutations: tests/emerge_mutations.yaml."
 - id: testcost
-  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests, budgets from measured runs, every refusal logged
+  title: What the checks cost and the cheapest set that is enough - a passed tree is never re-tested (tree-hash cache in the pre-commit hook), changed files mapped to their tests (data files through tests/testmap.yaml and their package; `unmapped --all` must print 0, CI enforces it), budgets from measured runs, every refusal logged
   harness: core
   entry: [python, -m, fieldkit, testcost]
   path: ${FIELDKIT}/fieldkit/testcost.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "key | seen CHECK | record CHECK STATUS SECONDS | plan | run --fast | budget CHECK | report | flags | docs-only"}
+    - {name: action, flag: null, type: str, required: true, help: "key | seen CHECK | record CHECK STATUS SECONDS | plan | run --fast | budget CHECK | report | flags | docs-only | unmapped [--all] (tracked files no test covers; exit 3; CI runs it on every PR)"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
@@ -5996,13 +6150,32 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_testcost.py"]
 
+- id: ciaudit
+  title: What CI really ran - per pull-request run of the tests workflow the selection ci_tests.py printed (whole suite, N test files, no code), its minutes, and the files that sent it to the whole suite; exit 3 over the whole-suite budget
+  harness: method
+  entry: [python, -m, fieldkit, ciaudit]
+  path: ${FIELDKIT}/fieldkit/method/ciaudit.py
+  inputs:
+    - {name: repo, flag: --repo, type: str, required: false, help: "OWNER/NAME (default: this checkout's repository)"}
+    - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD: runs created on or after"}
+    - {name: limit, flag: --limit, type: int, required: false, help: "how many runs to read (100)"}
+    - {name: max_whole_share, flag: --max-whole-share, type: float, required: false, help: "budget: whole-suite runs / judged runs (0.1)"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {1: "gh could not list the runs", 3: "whole-suite runs over the budget (each trigger file is named)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ciaudit.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-11-02 from Zero 22's one-off shell loop: 17 of 38 PR runs since 2026-10-26 ran the whole suite (421 min vs 49 min targeted) because data files had no mapped test. Network: gh run list and gh run view --log on GitHub only. Pairs with testcost unmapped --all (the cause) and tests/testmap.yaml (the fix)."
+
 - id: rules
-  title: The one core (rules/CORE.md) in every agent's global rules file (Claude Code, Codex, Gemini), every rules file under 8 KB, a project file never repeating the core; install puts in or updates only the block, with a backup
+  title: "The core rules every agent reads, as data (rules/rules.yaml): lint them for BOTTLENECKS, duplicates, size and misplaced text, build rules/CORE.md, install every block into each global rules file (Claude Code, Codex, Gemini) with a backup, check them"
   harness: core
   entry: [python, -m, fieldkit, rules]
   path: ${FIELDKIT}/fieldkit/rules.py
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "check | install"}
+    - {name: action, flag: null, type: str, required: true, help: "lint (drift, budget, duplicates, misplaced, contradictions, BOTTLENECKS) | build (rules/CORE.md from rules/rules.yaml) | install (every block) | check (files + lint)"}
     - {name: repo_only, flag: --repo-only, type: flag, required: false, help: "check: only this repository's rules files (the pre-commit hook)"}
     - {name: file, flag: --file, type: path, required: false, help: "install: a rules file, repeatable (default: every global one)"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
@@ -6050,6 +6223,22 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ideas.py"]
   notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
+
+- id: refusals
+  title: Repeated refusals - train, ship, guard, goal and task write every refusal to state/refusals.jsonl (tool, reason key with heads and ids stripped, text, time, session); the same reason twice opens ONE row in ZERO-OPEN-PROBLEMS.md (never an inbox item); list shows each reason, its count and whether its row is open
+  harness: core
+  entry: [python, -m, fieldkit, refusals]
+  path: ${FIELDKIT}/fieldkit/refusals.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "list | record"}
+    - {name: json, flag: --json, type: flag, required: false, help: "list: JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_refusals.py"]
+  notes: "Plan R14 (defect 8: the train said 'head moved' five times and nobody triaged it). The room hook shows 'N repeated refusals open'. record() never raises."
 
 - id: metrics
   title: Long-horizon proof from the harness's own records - days running, Zero epochs and changes, session rotations, sessions and subagents, headless sub-jobs per device, stations and machines, money, tokens, tool calls executed / refused / declined / repeated, PRs, CI runs, failures; each number names its source, what cannot be read is listed as NOT MEASURED
@@ -6340,21 +6529,25 @@ tools:
   entry: [python, -m, fieldkit, rotate]
   path: ${FIELDKIT}/fieldkit/tokens/rotate.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor, rule], help: "LEAVE EMPTY for check. handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]; rule prints the block for agents with no hook"}
+    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor, rule, endcheck, successor], help: "LEAVE EMPTY for check. successor --brief F --title T --origin user|session: a VISIBLE successor; refused (session-started turn) = an owner line, a note to Zero, headless Sonnet only last; handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]; rule prints the block for agents with no hook; endcheck --transcript PATH: a turn may end only with no open PR it mentioned unless a ci-wait runs for it (exit 0 / 3)"}
     - {name: hours, flag: --hours, type: float, required: false, help: "check/finished: sessions active in the last N hours (24 / 72)"}
     - {name: source, flag: --source, type: str, required: false, help: "check: one agent only: all (default), claude-code, antigravity, codex, gorilla-opencode, generic, ibm-bob"}
     - {name: cwd, flag: --cwd, type: str, required: false, help: "check: only sessions working in this folder or under it"}
     - {name: newest, flag: --newest, type: flag, required: false, help: "check: only the most recently active session (an agent asking about itself)"}
     - {name: install, flag: --install, type: str, required: false, help: "rule: add the rule block to this instruction file (AGENTS.md, GEMINI.md); idempotent"}
     - {name: json, flag: --json, type: flag, required: false, help: "check/handover/finished: JSON"}
+    - {name: transcript, flag: --transcript, type: str, required: false, help: "endcheck: the session's transcript file (its .jsonl)"}
+    - {name: brief, flag: --brief, type: str, required: false, help: "successor: the successor's brief file"}
+    - {name: title, flag: --title, type: str, required: false, help: "successor/handover: the session title"}
+    - {name: origin, flag: --origin, type: str, required: false, choices: [user, session], help: "successor: who started this turn: the owner (user) or another session's message (session)"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
-  exits: {1: "check: a session is WARN / handover: PLAN.md not found (note written, plan not)", 2: "check: a session is ROTATE", 3: "session not found"}
+  exits: {0: "endcheck: no open PR without a ci-wait running", 1: "check: a session is WARN / handover: PLAN.md not found (note written, plan not)", 2: "check: a session is ROTATE", 3: "session not found"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py", "${FIELDKIT}/tests/test_rotate_agents.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py", "${FIELDKIT}/tests/test_rotate_agents.py", "${FIELDKIT}/tests/test_budget.py", "${FIELDKIT}/tests/test_ci_wake.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
-  notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. 1.1.0 (2026-10-26): also measures OpenAI Codex, Gorilla OpenCode and the generic JSONL contract (IBM Bob: not measured, no verified format, doctor says WARN); agents with no hook get the rule block (rotate rule --install FILE: ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md) and the run guard (core/preflight.py) names any session over a line; doctor lists measured/triggered per agent. Mutations: tests/rotate_mutations.yaml, tests/rotate_agents_mutations.yaml."
+  notes: "1.2.0 (2026-11-03, owner): the session budget (fieldkit/tokens/budget.py): the budget is the ROTATE line (the worse of context and dollars). At 50%: 'you are at half the budget'. At 90%: 'you used N tokens, stop writing: I am preparing the handover and starting a new VISIBLE session automatically'; the tool writes the handover, the successor's brief (state/rotate/briefs/) and the archive list; the session starts the successor (a script cannot press start_session). Session names '[TAG] #NN HH:MM job' from state/rotate/counter.json. The end-of-turn guard `rotate endcheck` (fieldkit/method/ci_wake.py): an open PR the session mentioned without a running `ship ci-wait` fails; a finished ci-wait wakes the session that started it. Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 120k WARN / 150k ROTATE tokens per call (owner 2026-11-02: a 300k-context Zero burned the quota) (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. 1.1.0 (2026-10-26): also measures OpenAI Codex, Gorilla OpenCode and the generic JSONL contract (IBM Bob: not measured, no verified format, doctor says WARN); agents with no hook get the rule block (rotate rule --install FILE: ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md) and the run guard (core/preflight.py) names any session over a line; doctor lists measured/triggered per agent. Mutations: tests/rotate_mutations.yaml, tests/rotate_agents_mutations.yaml."
 - id: zero
   title: "The agent net, the military way - 'Zero has been established': one net control station (Zero) for every agent session, an epoch that fences a second Zero out (split-brain refused), a 2IC for failover, check-ins on a lease (comms check / radio check), roll calls answered with a fixed sitrep, LATE / SILENT / MISSING stations on the PLAN.md Board and in the owner inbox, a dead cable revived, clocks compared, an append-only hash-chained net log with acked, retried messages; the command layer: orders per station (objective, ground, done), ground claims enforced by the PreToolUse hook (a write on another station's ground or outside its own is refused), drift and idle-without-done flagged by the scheduled check, a station idle asked why, Zero woken only by a NEW finding (the 2IC through the inbox when Zero is silent), orders carried across rotation. Also `fieldkit net VERB`."
   harness: core
@@ -6390,6 +6583,24 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
+
+- id: route
+  title: "Solo or Multiplayer and the model router - the owner accepts a mode (solo = one job at a time, nothing on another device; multi = up to 3) and the strongest model (haiku, sonnet, opus, fable) once a day; every `task start` then scores the brief's risk and runs it on the cheapest model that needs, never above the accepted one; a failed round climbs one rung up to the ceiling; a job that needs Fable is parked in the owner inbox"
+  harness: core
+  entry: [python, -m, fieldkit, route]
+  path: ${FIELDKIT}/fieldkit/lifecycle/routing.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [status, choose, assess], help: "LEAVE EMPTY for status. choose --mode solo|multi --model haiku|sonnet|opus|fable is the daily accept; assess BRIEF.md shows the model a brief would get"}
+    - {name: mode, flag: --mode, type: str, required: false, choices: [solo, multi], help: "choose: solo (default) or multi"}
+    - {name: model, flag: --model, type: str, required: false, help: "choose: the strongest model a job may use"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {2: "bad mode or model"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_routing.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-11-02: one hour of 7 parallel jobs and a 300k-context Opus session burned the 5-hour quota; 'Solo' and 'Multiplayer', the owner picks the model, the harness routes down on its own (risk score, cascade, fallback), Fable only parked for approval. Data: fieldkit/lifecycle/routing.yaml (words, thresholds, caps). State: state/lifecycle/mode.json (the accept, valid one day; without it solo + sonnet), routing.jsonl (every decision). Deterministic, no network, no model: LiteLLM, Portkey, RouteLLM and Langfuse were not adopted because each is a vendor door; the same router, cascade and fallback are a score and a table here. `task start --model M --pin` keeps M exactly. The cost guard (models.py) still checks the owner's ceiling first. Mutations: tests/routing_mutations.yaml."
 
 - id: board
   title: "Board rows - every finished session has its row in state/coordination/PLAN.md (plan R3): check counts sessions with a row / all for a day and lists each one without, add writes the row from the session's own transcript (title, id, branch, PRs, cost), no model"
@@ -6505,3 +6716,144 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_parity.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."
+
+- id: parity-helpers
+  title: "Gorilla OpenCode pins the same helpers for windows-amd64, linux-amd64 and darwin-amd64 (internal/toolbox/SHA256SUMS) and parityBacklog is empty; names what each system lacks"
+  harness: core
+  entry: [python, -m, fieldkit, parity, helpers]
+  path: ${FIELDKIT}/fieldkit/parity_goal.py
+  inputs:
+    - {name: repo, flag: null, type: str, required: false, help: "the Gorilla.Opencode clone (default: sync.repos in fieldkit.local.json)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {0: "same helpers on all three systems, backlog empty", 1: "the repo's files cannot be read", 3: "a system lacks a helper or the backlog is not empty"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_adopt_every_script.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01: goal parity-everywhere C1; was local/goal-checks/oc_parity.py, a loose script. Mutations: tests/adopt_every_script_mutations.yaml."
+
+- id: parity-installed
+  title: "gorilla-opencode's version on this computer and on the peer (over the cable) equal each other and the newest release tag"
+  harness: core
+  entry: [python, -m, fieldkit, parity, installed]
+  path: ${FIELDKIT}/fieldkit/parity_goal.py
+  inputs:
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, network]
+  safety: read-only
+  output: own
+  exits: {0: "both computers run the newest release", 1: "the newest tag cannot be learned (gh)", 3: "a computer differs from the newest release, or no peer answered"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_adopt_every_script.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Owner 2026-11-01: goal parity-everywhere C3; was local/goal-checks/both_installed.py. Network: one gh release view of the pinned repo; the peer is asked the read-only manifest verb. Mutations: tests/adopt_every_script_mutations.yaml."
+
+- id: image-doctor
+  title: "Which picture tools are present (ImageMagick, Tesseract, cwebp, avifenc, mozjpeg cjpeg, oxipng): version, path, and for each missing one the exact install command and source; installs nothing"
+  harness: shot
+  entry: [python, -m, fieldkit, image, doctor]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 when magick or tesseract is missing. No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: image-accept
+  title: "Acceptance check that REQUIRES Tesseract and ImageMagick: tesseract reads a generated picture of known text, magick identify and convert run on it; an absent binary fails, a model's vision never counts"
+  harness: shot
+  entry: [python, -m, fieldkit, image, accept]
+  path: ${FIELDKIT}/fieldkit/image/acceptance.py
+  inputs: []
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_arsenal_ocr.py"]
+  notes: "exit 3 when a step failed or a program is absent. Declared in core/requirements.json (for: image) for debian, fedora, windows, mac; installed per user, no sudo. No telemetry."
+
+- id: image-squash
+  title: "Compress or convert pictures to WebP, AVIF, JPEG or PNG with the real codecs (ImageMagick when absent): bytes before/after, codec, settings, measured SSIM and PSNR; below the target is refused, the original is never overwritten"
+  harness: shot
+  entry: [python, -m, fieldkit, image, squash]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "picture files"}
+    - {name: to, flag: --to, type: choice, choices: [webp, avif, jpeg, png], required: false, help: "target format (webp)"}
+    - {name: quality, flag: --quality, type: int, required: false, help: "codec quality 1-100 (80)"}
+    - {name: target_ssim, flag: --target-ssim, type: str, required: false, help: "search the smallest quality that reaches this SSIM; also the floor (0.98)"}
+    - {name: max_px, flag: --max-px, type: int, required: false, help: "shrink so no side exceeds N pixels"}
+    - {name: out, flag: --out, type: str, required: false, help: "output folder (a squashed folder next to each file)"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 when any file was refused. No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: image-compare
+  title: "Two pictures: SSIM, PSNR and one picture with A, B and the difference (amplified) side by side"
+  harness: shot
+  entry: [python, -m, fieldkit, image, compare]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: a, flag: null, type: str, required: true, help: "first picture"}
+    - {name: b, flag: null, type: str, required: true, help: "second picture, same size"}
+    - {name: out, flag: --out, type: str, required: false, help: "where to write the picture"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+
+- id: image-ocr
+  title: "The text in each picture with Tesseract, word boxes in --json"
+  harness: shot
+  entry: [python, -m, fieldkit, image, ocr]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "picture files"}
+    - {name: lang, flag: --lang, type: str, required: false, help: "Tesseract language (eng)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 when a picture could not be read. No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: image-privacy
+  title: "Personal text inside pictures: OCR, then the detectors of privacy-scan; --redact writes a copy with those boxes blacked out, never the original; a picture that cannot be read is a finding"
+  harness: shot
+  entry: [python, -m, fieldkit, image, privacy]
+  path: ${FIELDKIT}/fieldkit/image/cli.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: true, help: "picture files or folders"}
+    - {name: redact, flag: --redact, type: flag, required: false, help: "write NAME.redacted.png"}
+    - {name: lang, flag: --lang, type: str, required: false, help: "Tesseract language (eng)"}
+    - {name: git, flag: --git, type: flag, required: false, help: "only the pictures git would publish"}
+  effects: [reads-files, writes-files]
+  safety: changes
+  output: own
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, -p, no:cacheprovider, "${FIELDKIT}/tests/test_image.py"]
+  notes: "exit 3 on a finding or when nothing was read; `fieldkit privacy scan --images` does the same inside a scan (off by default). No telemetry: ImageMagick, Tesseract and the codecs make no network calls; Squoosh's own CLI was removed upstream 2023-01-03, so the codecs are driven directly."
+
+- id: review
+  title: ONE review of everything waiting on the owner - parked ideas (I-nn) first, then open inbox items (#nnn), each with its plain-language why and the command it would run, answered once (a / p / f / numbers / both, words after ':' recorded as the owner's note); --open opens state/REVIEW.md, rewritten on every inbox or ideas change
+  harness: core
+  entry: [python, -m, fieldkit, review]
+  path: ${FIELDKIT}/fieldkit/review.py
+  inputs:
+    - {name: open, flag: --open, type: flag, required: false, help: "write state/REVIEW.md and open it"}
+    - {name: list, flag: --list, type: flag, required: false, help: "print the list, change nothing"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 1: "refused (not a person's terminal) or a store unreadable", 2: "bad arguments"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_review.py"]
+  notes: "Owner 2026-10-31: all the items in one place, approve once. fieldkit ideas review and fieldkit inbox review call the same code. Approve on an inbox item marks it done with approved=true and the owner's words; the item's command is never run. Double-click launchers: launchers/review.cmd, review.sh, review.command."

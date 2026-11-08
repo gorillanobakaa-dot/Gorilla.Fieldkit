@@ -24,6 +24,7 @@ fieldkit ship push [--tag vX] / ship gh-release   pushes and releases, through t
 fieldkit inbox add TITLE WHY [COMMAND]            what only the owner may do, for the one morning review
 fieldkit size find|recycle|hash ...               search, recycle (never a permanent delete), hashes
 fieldkit privacy scan PATH --git                  before any commit, push or release
+fieldkit integration check --repo . --changed BASE   is the new feature built in (docs/INTEGRATION.md)
 fieldkit task start BRIEF.md [--on peer]          a side job, headless, here or on the VAIO
 fieldkit rotate check --source AGENT --cwd . --newest    session length (Claude Code: the hook does it)
 fieldkit sync [--apply]                           both machines against GitHub, at session start and end
@@ -34,6 +35,8 @@ and tests live in `local/` (git-ignored). `state/` is git-ignored: plans and rep
 owner says "add it to git" (rules/CORE.md DONE PROTOCOL).
 
 ## Changing Fieldkit
+
+- "Built in" has one definition, all six conditions: `docs/INTEGRATION.md`. `fieldkit integration check` enforces it.
 
 - Run the tests covering your change (`fieldkit testcost staged`); the full suite runs in CI. A new check needs a test
   that proves it can fail (`fieldkit mutate`).
@@ -69,24 +72,21 @@ security claim is made true and proven, never deleted.
 - Notes between the computers: `fieldkit peers link send`. The tool numbers and signs them; `--needs-you` and
   `--done --evidence ...` set the tags. A `!! LINK CHECK` line is a fact to resolve, never noise.
 - The agent net: `fieldkit zero` says who Zero (the coordinating session) is. Claude Code sessions are checked in by
-  the hook; other agents run `fieldkit zero checkin --as AGENT:NAME` at start. Owner words "zero", "sitrep",
-  "comms check", "roll call" mean `fieldkit zero` (skill fieldkit-net).
+  the hook; other agents run `fieldkit zero checkin --as AGENT:NAME` at start. Owner words "zero", "comms check",
+  "roll call" mean `fieldkit zero` (skill fieldkit-net); "comms check" is the owner's word for the roll call too: run
+  `fieldkit zero check`, then `fieldkit zero rollcall --wait 10` (owner, 2026-10-31). "SITREP" / "sitrep" means the session report (skill
+  fieldkit-sitrep): where we started, what we did, what is going on now, what is left (owner, 2026-10-31).
 
 <!-- fieldkit-lifecycle-rule v1 -->
-## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)
+## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
 
-SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless autopilot run here, or the other computer's link listener over the cable). Never propose a desktop session card or ask a person to click: a card waits for the owner, who is asleep.
-
-Nothing may wait on the owner (no cards, prompts or [NEEDS YOU] for what the mandate covers): `fieldkit friction` lists what could, exit 0 = none.
-
-Idle sessions eat RAM and CPU. The command post runs `fieldkit sessions sweep` on every watchdog wake and archives what it lists.
+SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for no-human jobs or when the app refuses; no `own_initiative` card.
 
 DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
-1. the tests covering your changes pass (the full suite runs once, when the project is finished); commit on your own branch (never main).
-2. push with `fieldkit ship push` (the owner-wide mandate covers it; never a GORILLA_OWNER_APPROVED line).
-3. open the pull request where your agent can (a headless run reports the branch; the command post opens it).
-4. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
-5. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
-6. stop your own background jobs and listeners (by PID, never by name).
-7. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero archives only into a new Zero: hand the seat over (`fieldkit zero handover --to ST`, or `fieldkit rotate handover` and the relief's `--take`), wait until the new Zero is UP, write state/coordination/HANDOFF.md, and `fieldkit zero retire` must exit 0 (the tool router refuses the archive until it does). A Zero that opens a PR turns the app's auto-archive off for it (`set_monitor auto_archive_on_close false`): the app archives on merge, where no hook sees it (2026-10-30 17:17).
+1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).
+2. `fieldkit ship push --auto` (headless runs too): it pushes, opens the pull request, merges on green CI.
+3. report: a Board row in state/coordination/PLAN.md (what was done, what was NOT verified).
+4. recycle what YOUR job left (test copies, scratch, your own worktrees) with `fieldkit size recycle`; unload any local model you loaded.
+5. stop your own background jobs and listeners (by PID, never by name).
+6. archive yourself: Claude desktop `archive_session "self"` (turn Remote Control off first with `set_remote_control` if it is on: it blocks the archive); any other agent ends its session. Zero: hand the seat over first (skill fieldkit-net; the tool router enforces it).
 <!-- /fieldkit-lifecycle-rule -->

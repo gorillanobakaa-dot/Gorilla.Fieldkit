@@ -96,7 +96,7 @@ def test_a_crashed_guard_leaves_turbo_off_and_the_next_run_restores_it(fake):
 
 def _guard(monkeypatch, surface=True):
     monkeypatch.setattr(buildguard, "sys", types.SimpleNamespace(platform="win32"))
-    monkeypatch.setattr(buildrun, "thermal_sensor", lambda say: ("ec", lambda: 50.0, surface))
+    monkeypatch.setattr(buildrun, "thermal_sensor", lambda say, **k: ("ec", lambda: 50.0, surface))
     said = []
     return said, buildguard._fan_and_governor(said.append, "t", None, False, None, None)
 
@@ -136,3 +136,44 @@ def test_a_stale_cap_marker_at_the_current_cap_writes_nothing(tmp_path, monkeypa
     monkeypatch.setattr(governor, "read_cap", lambda: 40)
     m.write_text('{"original": 100}', encoding="utf-8")
     assert governor.restore_stale_cap(said.append) == 100 and writes == [100] and not m.exists()
+
+
+def test_a_powershell_reader_that_hangs_is_a_missing_reading_not_a_dead_governor(monkeypatch):
+    """2026-11-02 13:2x: Get-Counter timed out after 60 s, TimeoutExpired killed the governor thread mid-job."""
+    import subprocess
+    from fieldkit.thermal import sensors
+    monkeypatch.setattr(sensors.sys, "platform", "win32")
+
+    def hang(cmd, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    monkeypatch.setattr(sensors, "_run_ps", hang)
+    assert sensors.perf_percent() is None
+    assert sensors.thermalzone() is None
+
+
+def test_the_sensor_proof_for_the_always_on_governor_never_runs_powercfg(tmp_path, monkeypatch):
+    """Row 67 (2026-11-03): `thermal watch --forever` ran PROCTHROTTLEMAX 60 / 100 and /setactive through the sensor proof."""
+    from pathlib import Path
+    from fieldkit.thermal import governor, sensors
+    monkeypatch.delenv("FIELDKIT_THERMAL_PROOF", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    monkeypatch.setattr(buildrun, "cool_down", lambda say: 40.0)
+    monkeypatch.setattr(buildrun, "wait_for_idle", lambda say: 0)
+    monkeypatch.setattr(sensors, "PROVIDERS", [("die", lambda: 50.0)])
+    monkeypatch.setattr(sensors, "best", lambda **k: ("die", lambda: 50.0, "under load [die sensor]"))
+    calls = []
+    monkeypatch.setattr(governor, "_powercfg", lambda *a: calls.append(a) or (0, "0x00000064"))
+    monkeypatch.setattr(governor, "set_cap", lambda pct: calls.append(("set_cap", pct)))
+    monkeypatch.setattr(governor, "restore_stale_cap", lambda say: calls.append(("restore",)))
+    monkeypatch.setattr(governor, "read_cap", lambda: 100)
+    buildrun.thermal_sensor(lambda m: None, plan_cap=False)
+    assert calls == []
+    (tmp_path / "home" / ".fieldkit" / "thermal-proof.json").unlink()
+    buildrun.thermal_sensor(lambda m: None)                                   # the explicit proof may still cap
+    assert calls
+
+
+def test_every_caller_inside_the_governor_passes_plan_cap_false():
+    import inspect
+    for mod in (watch, buildguard):
+        assert "thermal_sensor(say, plan_cap=False)" in inspect.getsource(mod)

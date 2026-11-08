@@ -39,7 +39,7 @@ def test_a_broken_call_is_denied_not_waved_through():
 
 def test_an_autopilot_run_cannot_reach_a_credential(state):
     env = run.isolated_env({"GH_TOKEN": "ghp_secret", "PATH": "x"})
-    assert env["GH_TOKEN"] == "" and env["GIT_CONFIG_KEY_0"] == "credential.helper" and env["GIT_CONFIG_VALUE_0"] == ""
+    assert env["GH_TOKEN"] == "" and env["GIT_CONFIG_PARAMETERS"] == "'credential.helper='"
     assert env["GIT_TERMINAL_PROMPT"] == "0" and env["FIELDKIT_AUTOPILOT"] == "1"
     assert not any((state / "no-credentials").iterdir())          # gh sees no hosts.yml
 
@@ -60,8 +60,8 @@ def test_switch_stop_and_resume(state):
 
 
 def test_the_inbox_collects_and_closes_items():
-    a = inbox.add("approve 17 dispositions", "the leak gate needs them", "fieldkit build-harness leakgate-approve x")
-    b = inbox.add("publish 158 build 2", "release ready", kind="publish")
+    a = inbox.add("approve 17 dispositions", "the leak gate needs them", "fieldkit build-harness leakgate-approve x", kind="hardline")
+    b = inbox.add("publish 158 build 2", "release ready", kind="hardline")
     assert [i["n"] for i in inbox.items()] == [a["n"], b["n"]]
     inbox.done(a["n"], "approved")
     assert [i["n"] for i in inbox.items()] == [b["n"]] and "INBOX: 1 item" in inbox.lines(inbox.items())[0]
@@ -135,12 +135,12 @@ def test_the_prompt_goes_on_stdin_so_a_dash_prompt_is_not_an_option(state, monke
 
 
 def test_the_same_open_question_is_one_inbox_item_with_a_count():
-    a = inbox.add("vaio does not answer on the cable", "first", "fieldkit peers link heal vaio")
-    b = inbox.add("vaio does not answer on the cable", "second")
+    a = inbox.add("vaio does not answer on the cable", "first", "fieldkit peers link heal vaio", kind="hardline")
+    b = inbox.add("vaio does not answer on the cable", "second", kind="hardline")
     assert b["n"] == a["n"] and b["repeats"] == 2 and b["why"] == "second" and b["command"].endswith("heal vaio")
     assert len(inbox.items()) == 1 and "(x2, last " in inbox.lines(inbox.items())[1]
     inbox.done(a["n"])
-    assert inbox.add("vaio does not answer on the cable", "again")["n"] != a["n"]
+    assert inbox.add("vaio does not answer on the cable", "again", kind="hardline")["n"] != a["n"]
 
 
 def test_claude_found_where_the_installers_put_it_when_not_on_path(monkeypatch, tmp_path):
@@ -158,10 +158,10 @@ def test_claude_found_where_the_installers_put_it_when_not_on_path(monkeypatch, 
 
 def test_the_repeat_count_keeps_counting_and_a_broken_item_does_not_hide_the_match():
     # fieldkit mutate (2026-10-28): both kill mutants the test above let through
-    a = inbox.add("vaio does not answer on the cable", "first")
-    inbox.add("vaio does not answer on the cable", "second")
+    a = inbox.add("vaio does not answer on the cable", "first", kind="hardline")
+    inbox.add("vaio does not answer on the cable", "second", kind="hardline")
     (inbox.INBOX / "0000-broken.json").write_text("{not json", encoding="utf-8")
-    c = inbox.add("vaio does not answer on the cable", "third")
+    c = inbox.add("vaio does not answer on the cable", "third", kind="hardline")
     assert c["n"] == a["n"] and c["repeats"] == 3 and len(inbox.items()) == 1
 
 

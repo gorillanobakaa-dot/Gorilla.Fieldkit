@@ -86,6 +86,15 @@ def test_an_ipv4_address_written_as_ipv6_is_named_for_what_it_is():
     assert urls.blocked_ip("::ffff:169.254.169.254").startswith("link-local")
 
 
+def test_a_nat64_address_is_judged_by_the_ipv4_inside():
+    """A DNS64 network answers 64:ff9b::/96 for every IPv4-only site (2026-10-31: excalidraw.com, squoosh.app and
+    quotes.toscrape.com were all refused as 'reserved' on the owner's network). The IPv4 inside decides."""
+    assert urls.blocked_ip("64:ff9b::d896:101") == ""                 # 216.150.1.1, public
+    assert urls.blocked_ip("64:ff9b::7f00:1") == "loopback"           # 127.0.0.1 wrapped
+    assert urls.blocked_ip("64:ff9b::a9fe:a9fe").startswith("link-local")   # the metadata address wrapped
+    assert urls.blocked_ip("64:ff9b:1::a00:1")                         # local-use prefix: not the well-known one
+
+
 # -- fetch and store -------------------------------------------------------------------------------------------
 def test_a_fetch_is_kept_with_its_words_and_hashes(site, tmp_path):
     f = fetcher(tmp_path)

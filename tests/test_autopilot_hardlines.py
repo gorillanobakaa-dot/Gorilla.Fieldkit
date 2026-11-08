@@ -19,6 +19,7 @@ def d(tool, args, stop):
     'gh release create v158.0-win64 dist/x.exe --notes-file body.md',
     "gh pr merge 75 --squash",
     "gh api repos/o/r/releases -X POST -f tag_name=v1",
+    "gh api repos/o/r/git/refs/heads/feat-x -X DELETE",          # HARD LINES: never delete on GitHub
     "gh api repos/o/r/git/refs -f ref=refs/tags/x -f sha=abc",
     "twine upload dist/*",
     "git remote set-url origin https://evil.example/r.git",
@@ -194,6 +195,18 @@ def test_only_the_plain_tool_command_is_opened(cmd, nostop):
     assert dm(cmd, Door(allow={"push", "approval"}, force=True), nostop) == "deny"
 
 
+def test_a_mandated_push_whose_output_is_tailed_is_still_the_push(nostop):
+    """B1 live proof (VAIO, 2026-10-31): `fieldkit ship push --auto 2>&1 | tail -20` was refused by the hard lines."""
+    door = Door(allow={"push"}, force=True)
+    for cmd in ("python3 -m fieldkit ship push --auto 2>&1 | tail -20", "fieldkit ship push --auto 2>&1",
+                "fieldkit ship push | head -n 5", "cd /w/r && fieldkit ship push --auto 2>&1 | tail -5"):
+        assert dm(cmd, door, nostop) == "allow", cmd
+    for cmd in ("fieldkit ship push 2>&1 | tee log", "fieldkit ship push | tail -5 | sh",
+                "fieldkit ship push | tail -5; git push", "git push 2>&1 | tail -5"):
+        assert dm(cmd, door, nostop) == "deny", cmd
+    assert dm("fieldkit ship push --auto 2>&1 | tail -20", Door(), nostop) == "deny"     # no mandate: denied
+
+
 def test_ship_merge_goes_through_only_while_a_mandate_is_in_force(nostop):
     assert dm("fieldkit ship merge", Door(force=True), nostop) == "allow"
     assert dm("fieldkit ship merge", Door(force=False), nostop) == "deny"
@@ -252,6 +265,37 @@ def test_a_mandated_tag_push_asks_the_tag_door(nostop):
     assert dm("fieldkit ship push --tag v1.2.3", door, nostop) == "allow"
     assert door.asked[-1] == ("tag", {"repo_path": "/w/repo", "tag": "v1.2.3"})
     assert dm("fieldkit ship push --tag v1.2.3", Door(allow={"push"}, force=True), nostop) == "deny"
+
+
+def test_a_shut_mandate_door_says_its_reason_in_the_refusal(nostop):
+    # B1 (2026-11-01): a headless `ship push --tag v0.8.0 2>&1 | tail -6` was refused as "pushing is the owner's job"
+    # while the mandate's real answer ("no local tag v0.8.0") was thrown away: the refusal must carry it
+    v, why = hl.decide("Bash", {"command": "fieldkit ship push --tag v1.2.3 2>&1 | tail -6"}, stop_file=nostop,
+                       cwd="/w/repo", door=Door(force=True))
+    assert v == "deny" and "HARD LINE 1" in why and "the mandate did not open it: not granted" in why
+    v, why = hl.decide("Bash", {"command": "git push origin main"}, stop_file=nostop, cwd="/w/repo",
+                       door=Door(force=True))
+    assert v == "deny" and "mandate did not open it" not in why     # no door was asked: nothing to report
+    assert "mandate was not asked" not in why                       # git push is no ship command
+
+
+@pytest.mark.parametrize("cmd", [
+    "cd /opt/w/.cache/oc && /opt/w/.local/bin/fieldkit ship push --auto",
+    "cd /opt/w/.cache/oc && /opt/w/Fieldkit/.venv/bin/python3.12 -m fieldkit ship push --auto",
+    "/opt/w/Fieldkit/.venv/bin/python3.12 -m fieldkit ship push --auto",
+])
+def test_a_ship_push_by_its_full_path_asks_the_push_door(cmd, nostop):
+    # 2026-11-01 (VAIO, fc6e5bb): no fieldkit on the job's PATH, so it ran the tool by its full path; the cd form was
+    # not recognized, the mandate never asked, and the refusal carried no reason three runs in a row
+    door = Door(allow={"push"}, force=True)
+    assert dm(cmd, door, nostop) == "allow"
+    assert door.asked[-1][0] == "push"
+
+
+def test_a_ship_command_the_mandate_was_not_asked_about_says_so(nostop):
+    v, why = hl.decide("Bash", {"command": "cd /w/repo; fieldkit ship push --auto"}, stop_file=nostop,
+                       cwd="/w/repo", door=Door(allow={"push"}, force=True))
+    assert v == "deny" and "the mandate was not asked" in why and "ONE plain statement" in why
 
 
 def test_a_release_of_a_tag_opens_only_through_the_release_tag_door(nostop):
@@ -383,3 +427,24 @@ def test_fix4_the_text_of_a_note_heredoc_is_not_a_command(cmd, nostop):
 ])
 def test_fix4_a_heredoc_that_runs_or_writes_a_protection_is_still_refused(cmd, nostop):
     assert d("Bash", {"command": cmd}, nostop) == "deny"
+
+
+REC = "D:/AppData/Roaming/Claude/claude-code-sessions/acc/org/local_1.json"
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("Bash", {"command": f'sed -i s/false/true/ "{REC}"'}),
+    ("Bash", {"command": f"echo x > {REC}"}),
+    ("Write", {"file_path": REC, "content": "{}"}),
+    ("Edit", {"file_path": REC, "old_string": "false", "new_string": "true"}),
+    ("write_to_file", {"TargetFile": REC, "CodeContent": "{}"}),           # Antigravity's name
+])
+def test_the_app_session_records_are_never_written(tool, args, nostop):
+    """I-10 (owner, 2026-10-31): editing isArchived/spawnedFrom would archive past the archive guard, by any agent."""
+    v, why = hl.decide(tool, args, stop_file=nostop)
+    assert v == "deny" and "session records" in why
+
+
+def test_the_app_session_records_can_be_read(nostop):
+    assert hl.decide("Bash", {"command": f"cat {REC}"}, stop_file=nostop)[0] == "allow"
+    assert hl.decide("Read", {"file_path": REC}, stop_file=nostop)[0] == "allow"

@@ -35,7 +35,19 @@ def test_an_agent_ancestor_refuses_even_with_a_clean_environment(chain):
     [("?", ""), ("explorer.exe", "")],                   # an unreadable ancestor is not a terminal
 ])
 def test_no_positive_path_to_the_desktop_refuses(chain):
-    assert t.agent_shell(env={}, ancestors=chain) != ""
+    assert t.agent_shell(env={}, ancestors=chain, elevated=False) != ""
+    assert t.agent_shell(env={}, ancestors=chain, elevated=True) != ""      # no console shell heads these chains
+
+
+def test_an_elevated_admin_powershell_whose_launcher_exited_passes():
+    """2026-10-31: the owner's 'Administrator: Windows PowerShell' was refused: its launcher (PID 9996) had exited."""
+    admin = [("fieldkit.exe", ""), ("powershell.exe", "")]
+    assert t.agent_shell(env={}, ancestors=admin, elevated=True) == ""
+    assert "no path to the desktop" in t.agent_shell(env={}, ancestors=admin, elevated=False)
+    assert "agent environment" in t.agent_shell(env={"CLAUDECODE": "1"}, ancestors=admin, elevated=True)
+    assert "agent ancestor" in t.agent_shell(env={}, ancestors=admin + [("claude.exe", "")], elevated=True)
+    assert "not a person's terminal" in t.agent_shell(env={}, ancestors=[("node.exe", ""), ("powershell.exe", "")],
+                                                      elevated=True)
 
 
 def test_owner_terminal_is_false_whenever_agent_shell_names_a_reason(monkeypatch):

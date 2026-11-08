@@ -4,24 +4,35 @@ import subprocess
 
 import pytest
 
-from fieldkit.method import ship
+from fieldkit.method import ship, strikes
 
 SHA = "a" * 40
 URL = "https://github.com/o/r/pull/7"
 
 
+@pytest.fixture(autouse=True)
+def _own_registry(tmp_path, monkeypatch):
+    """F4: the registry is a temp file; the merge base is fixed; the failed test PASSES on the base unless a test says
+    otherwise (a real run would build a worktree)."""
+    monkeypatch.setenv(strikes.ENV, str(tmp_path / "parked.json"))
+    monkeypatch.setattr(strikes, "merge_base", lambda head, base="main", repo=".": "m" * 40)
+    monkeypatch.setattr(strikes, "default_runner", lambda base_sha, ids, job="": {i: "pass" for i in ids})
+
+
 class Gh:
     """A fake subprocess.run for gh: answers by the sub-command, records every call."""
-    def __init__(self, prs=(), runs=(), fail=None):
-        self.prs, self.runs, self.fail, self.calls = list(prs), list(runs), fail, []
+    def __init__(self, prs=(), runs=(), fail=None, rules=("pull_request", "required_status_checks")):
+        self.prs, self.runs, self.fail, self.calls, self.rules = list(prs), list(runs), fail, [], list(rules)
 
     def __call__(self, cmd, **kw):
         self.calls.append(cmd)
         key = " ".join(cmd[1:3])
+        if cmd[1] == "api":
+            key = "api"
         if self.fail == key:
             return subprocess.CompletedProcess(cmd, 1, "", "gh: boom")
         out = {"pr list": json.dumps(self.prs), "run list": json.dumps(self.runs), "pr create": URL + "\n",
-               "pr merge": ""}[key]
+               "pr merge": "", "run view": "FAILED tests/test_x.py::test_y - boom\n", "api": json.dumps(self.rules)}[key]
         return subprocess.CompletedProcess(cmd, 0, out, "")
 
     def did(self, key):
@@ -66,13 +77,36 @@ def test_gh_failure_is_exit_1_text_and_the_push_stands(which):
     assert not r["ok"] and r["gh_failed"] and "gh: boom" in r["error"] and r["branch"] == "feat/x"
 
 
-def test_two_red_runs_park_and_never_call_merge():
+def test_two_red_commits_park_and_never_call_merge():
     gh = Gh(prs=[{"number": 7, "url": URL}],
-            runs=[{"conclusion": "failure"}, {"conclusion": "success"}, {"conclusion": "failure"}])
+            runs=[{"conclusion": "failure", "headSha": "b" * 40, "databaseId": 1},
+                  {"conclusion": "success", "headSha": "c" * 40},
+                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2}])
     r, notes = go(gh)
     assert not r["ok"] and r["state"] == "parked" and not r.get("gh_failed")
     assert not gh.did("pr merge")
-    assert len(notes) == 1 and "#7" in notes[0][1] and "feat/x" in notes[0][1]
+    assert notes == [] and "#7" in r["error"] and "feat/x" in r["error"]      # F4: no inbox item
+    assert len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 2
+
+
+def test_two_red_commits_that_fail_on_main_too_are_not_strikes(monkeypatch):
+    """F4: PR 295 was parked for main's red; a failed test that also fails on the merge base is main's."""
+    monkeypatch.setattr(strikes, "default_runner", lambda base_sha, ids, job="": {i: "fail" for i in ids})
+    gh = Gh(prs=[{"number": 7, "url": URL}],
+            runs=[{"conclusion": "failure", "headSha": "b" * 40, "databaseId": 1},
+                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2}])
+    r, notes = go(gh)
+    assert r["ok"] and r["auto"] and gh.did("pr merge") and not notes
+    assert strikes.load()["strikes"].get("feat/x", {}).get("rounds", []) == []
+
+
+def test_one_red_commit_with_two_red_runs_is_one_strike():
+    # P14 (I-11): Opencode PR 47, one red commit read by two workflow triggers, was parked as TWO STRIKES
+    gh = Gh(prs=[{"number": 7, "url": URL}],
+            runs=[{"conclusion": "failure", "headSha": SHA}, {"conclusion": "failure", "headSha": SHA}])
+    r, notes = go(gh)
+    assert r["ok"] and r["auto"] and not notes
+    assert "headSha" in gh.did("run list")[0][gh.did("run list")[0].index("--json") + 1]
 
 
 def test_one_red_run_still_turns_auto_merge_on():
@@ -99,3 +133,18 @@ def test_exit_codes(monkeypatch):
     assert ship.main(["push", "--auto"]) == 1
     monkeypatch.setattr(ship, "auto", lambda *a, **k: {"ok": True, "auto": True, "said": "x"})
     assert ship.main(["push", "--auto"]) == 0
+
+
+def test_no_auto_merge_where_the_base_branch_requires_no_check():
+    """2026-10-31: Gorilla.Opencode has no ruleset; `gh pr merge --auto` merged #42-#44 before CI ended."""
+    gh = Gh(prs=[{"number": 7, "url": URL}], rules=())
+    r, notes = go(gh)
+    assert not r["ok"] and r["state"] == "no-required-checks" and not gh.did("pr merge")
+    assert notes and "left open" in notes[0][0]
+    assert [c[2] for c in gh.calls if c[1] == "api"] == ["repos/{owner}/{repo}/rules/branches/main"]
+
+
+def test_a_failed_rules_lookup_does_not_merge():
+    gh = Gh(prs=[{"number": 7, "url": URL}], fail="api")
+    r, _ = go(gh)
+    assert not r["ok"] and r["state"] == "auto-failed" and not gh.did("pr merge")

@@ -8,6 +8,7 @@ TRACKING = re.compile(r"^(utm_[a-z]+|fbclid|gclid|mc_cid|mc_eid|_hsenc|_hsmi|ref
 URL_RE = re.compile(r"https?://[^\s<>\"'`|\])}]+", re.I)
 DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"'<>|\])}]+)", re.I)
 SHARED = ipaddress.ip_network("100.64.0.0/10")          # carrier-grade NAT: not public, not flagged by is_private
+NAT64 = ipaddress.ip_network("64:ff9b::/96")           # RFC 6052 well-known prefix: an IPv4 address wrapped for DNS64
 
 
 def normalize(url):
@@ -49,12 +50,22 @@ def fetchable(url):
     return "https://doi.org/" + url[4:] if url.startswith("doi:") else url
 
 
+def unwrap(ip):
+    """The IPv4 address an IPv6 address carries (::ffff:a.b.c.d, or the NAT64 prefix 64:ff9b::a.b.c.d a DNS64
+    network hands out for every IPv4-only site), else the address itself. Python calls 64:ff9b::/96 reserved and
+    global at once; the IPv4 inside is what the connection reaches, so that is what gets judged."""
+    ip = ipaddress.ip_address(str(ip).split("%")[0])
+    if getattr(ip, "ipv4_mapped", None):
+        return ip.ipv4_mapped
+    if ip.version == 6 and ip in NAT64:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return ip
+
+
 def blocked_ip(ip):
     """Why an address must not be fetched, or ''. The guard exists for model-chosen URLs: loopback, private
     networks, link-local (the cloud metadata service lives at 169.254.169.254), multicast and the rest."""
-    ip = ipaddress.ip_address(ip)
-    if getattr(ip, "ipv4_mapped", None):
-        ip = ip.ipv4_mapped
+    ip = unwrap(ip)
     for test, why in ((ip.is_loopback, "loopback"), (ip.is_link_local, "link-local (cloud metadata lives here)"),
                       (ip.is_private, "a private network"), (ip.is_multicast, "multicast"),
                       (ip.is_unspecified, "unspecified"), (ip.is_reserved, "reserved"),

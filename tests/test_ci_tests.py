@@ -19,8 +19,8 @@ def fake(monkeypatch, plan=None, out=None):
 
 def test_full_when_asked_or_no_before():
     assert ci.selection("full")[0] is None
-    assert ci.selection("0" * 40)[0] is None
-    assert ci.selection("")[0] is None
+    assert ci.selection("0" * 40)[0] is ci.REFUSED
+    assert ci.selection("")[0] is ci.REFUSED
 
 
 def test_only_the_covering_tests(monkeypatch):
@@ -38,16 +38,29 @@ def test_no_code_runs_nothing_even_when_docs_only_is_false(monkeypatch):
     assert ci.selection("origin/main") == ([], "no code changed - no tests")
 
 
-def test_unmapped_runs_the_whole_suite_but_mutation_plans_do_not(monkeypatch):
+def test_unmapped_refuses_and_never_runs_the_whole_suite_but_mutation_plans_select_normally(monkeypatch):
     fake(monkeypatch, {"tests": ["tests/test_a.py"], "unmapped": ["fieldkit/x.py"], "docs_only": False})
-    assert ci.selection("origin/main")[0] is None
+    tests, why = ci.selection("origin/main")
+    assert tests is ci.REFUSED and "fieldkit/x.py" in why and "testmap.yaml" in why
     fake(monkeypatch, {"tests": ["tests/test_a.py"], "unmapped": ["tests/x_mutations.yaml"], "docs_only": False})
     assert ci.selection("origin/main")[0] == ["tests/test_a.py"]
 
 
-def test_no_answer_from_testcost_is_the_whole_suite(monkeypatch):
+def test_no_answer_from_testcost_refuses_never_the_whole_suite(monkeypatch):
     fake(monkeypatch, out="Traceback ...")
-    assert ci.selection("origin/main")[0] is None
+    assert ci.selection("origin/main")[0] is ci.REFUSED
+
+
+def test_a_refused_selection_fails_ci_in_seconds_and_runs_no_pytest(monkeypatch, capsys):
+    fake(monkeypatch, {"tests": [], "unmapped": ["fieldkit/x.py"], "docs_only": False})
+    called = []
+    monkeypatch.setattr(ci.subprocess, "call", lambda *a, **k: called.append(a) or 0)
+    assert ci.main(["ci_tests.py", "origin/main"]) == 1 and not called
+    assert "REFUSED - no test was run" in capsys.readouterr().out
+
+
+def test_only_full_runs_the_whole_suite():
+    assert ci.selection("full")[0] is None
 
 
 @pytest.mark.parametrize("tests,code", [([], 0)])

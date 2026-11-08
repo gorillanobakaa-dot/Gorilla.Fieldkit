@@ -30,6 +30,9 @@ groups:
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
+  - name: observe
+    title: See inside the machine, the same on Linux, Windows and macOS - who holds a file or a port, a process in full, folder changes, what a process opens, its usage over time, system events
+    sources: [observe/*.py]
   - name: lifecycle
     title: Zero friction - everything that can wait on the owner's click found on every machine, side jobs started headless instead of as session cards, and finished or idle sessions listed with the RAM they hold for archiving
     sources: [lifecycle/*.py]
@@ -66,6 +69,9 @@ groups:
   - name: shot
     title: Reading numbers off a screenshot and reasoning about which layer is limiting; cropping, enlarging and comparing screenshots and measuring their text
     sources: [shot/*.py]
+  - name: image
+    title: Pictures offline - compress and convert with the real codecs, measured quality, comparing, reading the text in them and finding personal text before publishing
+    sources: [image/*.py]
   - name: voice
     title: A voice worth listening to, on Linux (piper, speech-dispatcher, the loudness chain)
     sources: [voice/*.py]
@@ -87,7 +93,7 @@ groups:
 
   - name: builds-releases-thermal
     title: Builds, release checks and the thermal governor
-    sources: ["build/*.py", release.py, "thermal/*.py"]
+    sources: ["build/*.py", release.py, "thermal/*.py", "power/*.py"]
 
   - name: exam
     title: The exam (small models with and without the kit)
@@ -129,6 +135,8 @@ groups:
       - buildh/vault.py
       - buildh/worker.py
       - ideas.py
+      - refusals.py
+      - review.py
       - lmstudio.py
       - metrics.py
       - orchestrate.py
@@ -139,10 +147,13 @@ groups:
       - overhead.py
       - testcost.py
       - parity.py
+      - parity_goal.py
       - plan.py
       - review_verdict.py
       - rules.py
+      - rules_lint.py
       - suite_offload.py
+      - testsplit.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build
@@ -230,6 +241,10 @@ groups:
     title: "The Windows 11 tweaks framework, driven safely: modules, fit to this PC, the maker's buttons, elevated runs"
     sources: ["win11/*.py"]
 
+  - name: app
+    title: "Find and start any program by name on Windows, Linux and macOS: every match, how it was found, started detached and verified"
+    sources: ["app/*.py"]
+
   - name: peers
     title: "Messages between AI sessions on this computer, in Gorilla OpenCode's protocol: list, send, wait"
     sources: ["peers/*.py"]
@@ -248,7 +263,7 @@ groups:
 
   - name: methods
     title: "How the work gets done, as tools (wait, mutate, regress, drift, mcp-probe, survey, i18n, ship, handover)"
-    sources: ["method/*.py"]
+    sources: ["method/*.py", "integration/*.py", "capture/*.py"]
 
   - name: icons
     title: "Sharp desktop icons on any computer (IconKit: the icon cache, .ico frames and checks, crisp recoloured icons)"

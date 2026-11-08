@@ -24,6 +24,19 @@ never: [force_push, delete_outside_scratch, credentials]
 DAY = date(2026, 10, 23)
 
 
+class _Day(date):
+    @classmethod
+    def today(cls):
+        return DAY
+
+
+@pytest.fixture(autouse=True)
+def _the_mandates_day(monkeypatch):
+    """The fixture mandate expires 2026-10-30; commands that read the clock see DAY, so the tests do not expire with
+    it (2026-10-31: three tests failed at midnight). Expiry itself is tested with explicit dates."""
+    monkeypatch.setattr(M, "date", _Day)
+
+
 class Facts:
     """proofs.py's shape, with the answers fixed: what git and the provers would find."""
 

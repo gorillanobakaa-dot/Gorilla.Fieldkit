@@ -312,6 +312,20 @@ def test_sync_skills_row_reports_then_installs(inst):
     assert sync.skills_row(False, install_skills)["verdict"] == "IN-SYNC"
 
 
+def test_sync_names_why_an_off_os_copy_stays(inst, monkeypatch):
+    home, _ = inst
+    mk(home / ".claude" / "skills", "fieldkit-win", "name: fieldkit-win\ndescription: x")
+    (home / "cards.yaml").write_text("- {id: w, skill: skills/fieldkit-win/SKILL.md, platforms: [windows]}\n",
+                                     encoding="utf-8")
+    monkeypatch.setattr(install_skills, "CARDS", [home / "cards.yaml"])
+    monkeypatch.setattr(install_skills, "this_os", lambda plat=None: "linux")
+    monkeypatch.setattr(install_skills, "recycle", lambda p: (False, "gorilla-size is not built here"))
+    mk(install_skills.SRC, "fieldkit-win", "name: fieldkit-win\ndescription: x")
+    row = sync.skills_row(True, install_skills)
+    assert row["verdict"] == "ERROR" and "still stale" in row["why"]
+    assert "not recycled: gorilla-size is not built here" in row["why"]
+
+
 def test_hook_runs_the_validator_only_for_the_watched_paths():
     hook = (ROOT / "hooks" / "pre-commit").read_text(encoding="utf-8")
     m = re.search(r"grep -qE '([^']+)'; then\n  if ! \"\$PY\" -m fieldkit skills validate", hook)

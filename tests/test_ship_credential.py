@@ -22,8 +22,8 @@ def in_run(tmp_path, monkeypatch):
 
 
 def test_the_run_itself_still_has_no_credential(in_run, tmp_path):
-    assert in_run["GH_TOKEN"] == "" and in_run["GIT_CONFIG_KEY_0"] == "credential.helper"
-    assert in_run["GIT_CONFIG_VALUE_0"] == "" and in_run["GH_CONFIG_DIR"] == str(tmp_path / "no-credentials")
+    assert in_run["GH_TOKEN"] == "" and in_run["GIT_CONFIG_PARAMETERS"] == "'credential.helper='"
+    assert "GIT_CONFIG_VALUE_0" not in in_run and in_run["GH_CONFIG_DIR"] == str(tmp_path / "no-credentials")
     assert in_run["FIELDKIT_REAL_GH_CONFIG_DIR"] == str(tmp_path / "owner-gh")      # a folder name, not a secret
 
 
@@ -31,7 +31,7 @@ def test_ship_gets_git_and_gh_their_own_credential_places_back(in_run, tmp_path)
     env = ship.ship_env()
     assert env["GH_CONFIG_DIR"] == str(tmp_path / "owner-gh")
     for k in ("GH_TOKEN", "GITHUB_TOKEN", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0",
-              "GIT_CONFIG_VALUE_0", "FIELDKIT_REAL_GH_CONFIG_DIR"):
+              "GIT_CONFIG_VALUE_0", "GIT_CONFIG_PARAMETERS", "FIELDKIT_REAL_GH_CONFIG_DIR"):
         assert k not in env, k
     assert env["FIELDKIT_SHIP_PUSH"] == "1" and env["GIT_TERMINAL_PROMPT"] == "0"     # still never prompts
     os.environ["GITHUB_TOKEN"] = "set-before-ship"                                   # not a blank of the run's
@@ -83,6 +83,8 @@ def test_ships_gh_calls_carry_ships_environment(in_run, monkeypatch, tmp_path):
     "gh auth token",
     "gh auth setup-git",
     "unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0; git fetch origin",
+    "GIT_CONFIG_PARAMETERS= git fetch origin",
+    "unset GIT_CONFIG_PARAMETERS; git fetch origin",
     "FIELDKIT_REAL_GH_CONFIG_DIR=x python -m fieldkit ship push",
 ])
 def test_any_other_way_to_the_credential_stays_refused(cmd):
@@ -94,3 +96,36 @@ def test_any_other_way_to_the_credential_stays_refused(cmd):
                                  "git status --short"])
 def test_reading_about_the_credential_is_not_rearming_it(cmd):
     assert hl.decide("Bash", {"command": cmd})[0] == "allow", cmd
+
+
+def test_b1_git_works_in_a_run_even_where_empty_variables_vanish(in_run, tmp_path):
+    """B1 (2026-10-31): Windows drops a variable set to "", so GIT_CONFIG_VALUE_0="" left git failing on every call
+    and the hook's mandate refused each headless `fieldkit ship push`. Drop every empty value, as Windows does: git
+    still reads origin, and the credential helpers stay reset (the last helper value is empty)."""
+    import subprocess
+    env = {k: v for k, v in in_run.items() if v != ""}
+    repo = tmp_path / "r"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", "https://example.invalid/o/R.git"], check=True,
+                   env=env)
+    r = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True, text=True, env=env)
+    assert r.returncode == 0 and r.stdout.strip().endswith("/o/R.git"), r.stderr
+    h = subprocess.run(["git", "-C", str(repo), "config", "--get-all", "credential.helper"], capture_output=True,
+                       text=True, env=env)
+    assert h.stdout.splitlines()[-1] == "", h.stdout
+
+
+@pytest.mark.parametrize("cmd", ["fieldkit ship push", "fieldkit ship push --auto",
+                                 'fieldkit ship push --auto --title "rules: lint" --body-file C:/x/b.md'])
+def test_b1_a_headless_run_pushes_like_a_session(cmd):
+    class Door:
+        def decide(self, action, **kw):
+            return "allow", "owner-wide: test", None
+
+        def log(self, *a):
+            pass
+
+        def in_force(self):
+            return True
+    assert hl.decide("Bash", {"command": cmd}, cwd=".", door=Door())[0] == "allow", cmd
+    assert hl.decide("Bash", {"command": cmd + "; git push"}, cwd=".", door=Door())[0] == "deny"

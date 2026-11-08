@@ -1,4 +1,4 @@
-# Version: 1.0.0 · updated 26-10-29-14-04
+# Version: 1.1.0 · updated 26-10-31-21-00
 """TWO STRIKES (rules/CORE.md; owner, 2026-10-29): a branch or PR that fails CI twice is PARKED, never tried a third
 time, and the plan goes on. Deterministic, no model.
 
@@ -6,12 +6,19 @@ time, and the plan goes on. Deterministic, no model.
     fieldkit strikes park ID [--why TEXT]        park by hand (ID: a branch name or a PR number)
     fieldkit strikes unpark ID [--note TEXT]     owner only: let a parked branch be tried again; logged
     fieldkit strikes check BRANCH                read `gh run list` for the branch and record its failed rounds
+    fieldkit strikes recount BRANCH              re-read the recorded rounds through whose_red: own/main/unproven per
+                                                 head; parked branches whose own count drops below 2 are reported
 
 A failed round is one red CI verdict on one head commit; the same head read red twice is one round. The second
 failed round parks: a record in state/parked.json (git-ignored), an owner inbox item with the PR, the branch and both
 failures. Then `fieldkit ship ci-wait` exits 4 (NEXT: parked, go on with the plan), `fieldkit ship push` refuses the
 branch, `fieldkit task start` refuses a brief that names the branch or its PR (`#N`), and `fieldkit plan next` shows
 the parked items on one line.
+
+WHOSE RED (plan P9, F4): a red round is a strike only when at least one failed test id PASSES when run on the PR's merge
+base with main (a direct run of exactly those ids on a fresh detached worktree; a green main CI proves nothing, its push
+CI runs only targeted tests). Every id failing there too = main's red, no strike. Ids unreadable or not runnable =
+unproven: recorded, FLAKE_LIMIT of them per branch forgiven, the next counts (fail closed).
 
 Exit 0 fine, 2 bad input, 3 refused or found parked, 4 parked by this call (ci-wait).
 """
@@ -27,6 +34,8 @@ from pathlib import Path
 from . import emit
 
 LIMIT = 2                                   # failed rounds that park a branch
+FLAKE_LIMIT = 2                             # flake rounds forgiven per branch; the next one counts (fail closed)
+TIMING = Path(__file__).with_name("timing_tests.yaml")
 PARKED_EXIT = 4
 ENV = "FIELDKIT_PARKED_FILE"
 
@@ -87,7 +96,12 @@ def parked_for(branch, p=None):
     return load(p)["parked"].get(branch)
 
 
-def record_failure(branch, head, why="", pr=None, inbox=None, p=None):
+def attempt_model():
+    """P9: the model making this attempt, from the environment (the cost guard sets ANTHROPIC_MODEL); '' when unknown."""
+    return os.environ.get("FIELDKIT_ATTEMPT_MODEL") or os.environ.get("ANTHROPIC_MODEL") or ""
+
+
+def record_failure(branch, head, why="", pr=None, inbox=None, p=None, model=None):
     """One red CI verdict of `head`. -> {"rounds": N, "parked": bool, "new": bool (parked by this call)}.
     `inbox`: callable(title, why, command) -> item; default fieldkit's owner inbox."""
     d = load(p)
@@ -95,7 +109,8 @@ def record_failure(branch, head, why="", pr=None, inbox=None, p=None):
     if pr:
         rec["pr"] = pr
     if all(r["head"] != head for r in rec["rounds"]):
-        rec["rounds"].append({"head": head, "at": _now(), "why": str(why)[:400]})
+        rec["rounds"].append({"head": head, "at": _now(), "why": str(why)[:400],
+                              "model": attempt_model() if model is None else model})
     n = len(rec["rounds"])
     new = False
     if n >= LIMIT and branch not in d["parked"]:
@@ -105,6 +120,169 @@ def record_failure(branch, head, why="", pr=None, inbox=None, p=None):
     if new:
         _inbox(branch, d["parked"][branch], inbox)
     return {"rounds": n, "parked": branch in d["parked"], "new": new}
+
+
+FAILED_TEST = re.compile(r"\bFAILED\s+(\S+::\S+)")
+
+
+def failed_tests(log_lines):
+    """-> the pytest ids a failed log names (`FAILED tests/x.py::test_y`)."""
+    return {m.group(1) for x in log_lines or () for m in FAILED_TEST.finditer(x)}
+
+
+def timing_tests(p=None):
+    """-> the listed timing-sensitive pytest ids (forward slashes). Plain line reading: the hook path loads no YAML."""
+    try:
+        text = Path(p or TIMING).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {m.group(1) for m in re.finditer(r"^-\s+test:\s*(\S+)\s*$", text, re.M)}
+
+
+def flake(log_lines, p=None):
+    """Owner, 2026-10-31 ("all approved"): -> the evidence when EVERY test the red log names is a listed timing test,
+    else "". No test names in the log: never a flake (fail closed)."""
+    own = {x.replace("\\", "/") for x in failed_tests(log_lines)}
+    listed = timing_tests(p)
+    return f"only timing-sensitive test(s) failed: {', '.join(sorted(own))}" if own and own <= listed else ""
+
+
+def record_flake(branch, head, why="", pr=None, p=None):
+    """One flake round of `head`. -> {"flakes": N, "counted": bool}: the round past FLAKE_LIMIT is counted as a
+    strike by the caller."""
+    d = load(p)
+    rec = d["strikes"].setdefault(branch, {"pr": pr, "rounds": []})
+    fl = rec.setdefault("flakes", [])
+    if all(r["head"] != head for r in fl):
+        fl.append({"head": head, "at": _now(), "why": str(why)[:400]})
+    save(d, p)
+    return {"flakes": len(fl), "counted": len(fl) > FLAKE_LIMIT}
+
+
+def mains_failure(own_log, main_log, own_checks=(), main_checks=()):
+    """B2 (2026-10-31: #253 parked for two failures that came from main): -> the evidence when this red is main's,
+    else "". Main's when every test the branch fails also fails on main's head; with no test names in the logs,
+    when every failed check of the branch is failed on main's head too. A failure main does not share is the
+    branch's own and counts."""
+    own, mains = failed_tests(own_log), failed_tests(main_log)
+    if own:
+        return (f"main's head fails the same test(s): {', '.join(sorted(own)[:3])}"
+                if own <= mains else "")
+    own_c, main_c = set(own_checks or ()), set(main_checks or ())
+    if own_c and own_c <= main_c:
+        return f"main's head fails the same check(s): {', '.join(sorted(own_c)[:3])}"
+    return ""
+
+
+def record_unproven(branch, head, why="", pr=None, p=None):
+    """One red round of `head` whose owner could not be proven. -> {"unproven": N, "counted": bool}: the round past
+    FLAKE_LIMIT is counted as a strike by the caller (fail closed, as record_flake)."""
+    d = load(p)
+    rec = d["strikes"].setdefault(branch, {"pr": pr, "rounds": []})
+    un = rec.setdefault("unproven", [])
+    if all(r["head"] != head for r in un):
+        un.append({"head": head, "at": _now(), "why": str(why)[:400]})
+    save(d, p)
+    return {"unproven": len(un), "counted": len(un) > FLAKE_LIMIT}
+
+
+def whose_red(branch_head, failed_ids, base_sha, runner, job=""):
+    """F4 / plan P9: -> (verdict, evidence). `runner(base_sha, ids, job)` runs exactly `ids` (never a suite) on a fresh
+    detached tree of `base_sha` and returns {id: "pass" | "fail"}. "own": at least one failed id passes on the merge
+    base with main. "main": every failed id also fails there. "unproven": no ids, no base, or the run gave no answer
+    for them (a raise counts as no answer)."""
+    ids = sorted({x.replace("\\", "/") for x in failed_ids or ()})
+    if not ids:
+        return "unproven", "no failed test id could be read from the log"
+    if not base_sha:
+        return "unproven", "the merge base with main could not be read"
+    try:
+        got = {k.replace("\\", "/"): v for k, v in (runner(base_sha, ids, job) or {}).items()}
+    except Exception as e:  # noqa: BLE001 - any runner trouble is an unproven red, never a strike or a pass
+        return "unproven", f"the failed test(s) could not be run on {base_sha[:10]}: {str(e)[:120]}"
+    passed = [i for i in ids if got.get(i) == "pass"]
+    if passed:
+        return "own", f"{', '.join(passed[:3])} passes on the merge base {base_sha[:10]}: the failure is this branch's"
+    if all(got.get(i) == "fail" for i in ids):
+        return "main", f"every failed test also fails on the merge base {base_sha[:10]}: {', '.join(ids[:3])}"
+    return "unproven", f"the run on {base_sha[:10]} gave no answer for {', '.join(i for i in ids if got.get(i) not in ('pass', 'fail'))[:160]}"
+
+
+def default_runner(base_sha, ids, job="", repo="."):
+    """Runs exactly `ids` with pytest on a fresh detached worktree of `base_sha` in the scratch root; on Windows under
+    `fieldkit guard --`; a job named ubuntu goes to the peer (`fieldkit task start --on peer --run --tree DIR -- LINE`).
+    -> {id: "pass" | "fail"}, ids missing from pytest's report left out (unproven)."""
+    out = subprocess.run([sys.executable, "-m", "fieldkit", "scratch", "new", "whose-red", "--print-path"],
+                         capture_output=True, text=True, timeout=120, cwd=repo)
+    scratch = out.stdout.strip().splitlines()[-1] if out.returncode == 0 and out.stdout.strip() else ""
+    if not scratch:
+        raise RuntimeError(f"fieldkit scratch new: {(out.stderr or out.stdout).strip()[-120:]}")
+    tree = str(Path(scratch) / "base")
+    try:
+        subprocess.run(["git", "fetch", "-q", "origin", base_sha], capture_output=True, timeout=300, cwd=repo)
+        r = subprocess.run(["git", "worktree", "add", "--detach", tree, base_sha], capture_output=True, text=True,
+                           timeout=300, cwd=repo)
+        if r.returncode:
+            raise RuntimeError(f"git worktree add: {r.stderr.strip()[-120:]}")
+        line = [sys.executable, "-m", "pytest", "-q", "-rA", "--no-header", "-p", "no:cacheprovider", *ids]
+        if "ubuntu" in job.lower() and sys.platform == "win32":
+            cmd = [sys.executable, "-m", "fieldkit", "task", "start", "--on", "peer", "--run", "--tree", tree, "--",
+                   "python3 -m pytest -q -rA --no-header " + " ".join(ids)]
+        elif sys.platform == "win32":
+            cmd = [sys.executable, "-m", "fieldkit", "guard", "--", *line]
+        else:
+            cmd = line
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800,
+                           cwd=tree)
+        text = (r.stdout or "") + (r.stderr or "")
+        res = {}
+        for m in re.finditer(r"^(PASSED|FAILED|ERROR)\s+(\S+::\S+)", text, re.M):
+            res[m.group(2).replace("\\", "/")] = "pass" if m.group(1) == "PASSED" else "fail"
+        return {i: res[i] for i in ids if i in res}
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", tree], capture_output=True, timeout=120, cwd=repo)
+        subprocess.run([sys.executable, "-m", "fieldkit", "scratch", "clean", "--mine"], capture_output=True,
+                       timeout=300, cwd=repo)
+
+
+def count_red(branch, head, log, base_sha, why="", pr=None, job="", runner=None, inbox=None, p=None):
+    """One red CI verdict of `head`, judged by whose_red. -> {"kind": own|main|unproven, "evidence", "counted": bool,
+    "rounds", "parked", "new"}; only `counted` rounds are strikes (an unproven round past FLAKE_LIMIT counts)."""
+    kind, ev = whose_red(head, failed_tests(log), base_sha, runner or default_runner, job)
+    if kind == "main":
+        _attempt(branch, job, False, p)
+        return {"kind": kind, "evidence": ev, "counted": False, "parked": parked_for(branch, p) is not None}
+    if kind == "unproven" and not record_unproven(branch, head, f"{ev}; {why}", pr=pr, p=p)["counted"]:
+        return {"kind": kind, "evidence": ev, "counted": False, "parked": parked_for(branch, p) is not None}
+    s = record_failure(branch, head, why, pr=pr, inbox=inbox, p=p)
+    _attempt(branch, job, kind == "own", p)
+    return dict(s, kind=kind, evidence=ev, counted=True)
+
+
+def _attempt(branch, job, own, p=None):
+    """P9: every red round is an attempt of the current model; one not the branch's own is marked so the success table
+    leaves it out. Never raises (the ledger is advice)."""
+    try:
+        from ..lifecycle import models
+        models.record_attempt(branch, job, attempt_model(), "fail", own=own)
+    except (OSError, ValueError, KeyError):
+        pass
+
+
+def escalation(branch, p=None):
+    """P9: -> the model for the next attempt on a branch when the ladder is on, else None. Counts the branch's own
+    rounds made by the model of the last round."""
+    try:
+        from ..lifecycle import models
+        if not models.ladder_cfg().get("enabled"):
+            return None
+        rounds = (load(p)["strikes"].get(branch) or load(p)["parked"].get(branch) or {}).get("rounds", [])
+    except (StoreError, OSError, KeyError):
+        return None
+    if not rounds:
+        return None
+    cur = rounds[-1].get("model") or ""
+    return models.next_model(cur, sum(1 for r in rounds if (r.get("model") or "") == cur))
 
 
 def _inbox(branch, rec, inbox=None):
@@ -182,23 +360,76 @@ def parked_line(p=None):
 
 def runs_from_gh(branch):
     r = subprocess.run(["gh", "run", "list", "--branch", branch, "--limit", "30", "--json",
-                        "headSha,conclusion,status,name"], capture_output=True, text=True, timeout=120)
+                        "headSha,conclusion,status,name,databaseId"], capture_output=True, text=True, timeout=120)
     if r.returncode:
         raise RuntimeError(f"gh run list: {(r.stderr or r.stdout).strip()[-200:]}")
     return json.loads(r.stdout or "[]")
 
 
-def check(branch, fetch=runs_from_gh, inbox=None, p=None):
-    """Record every head of `branch` whose workflow run failed (one round per head). -> the last record's answer."""
+def run_log(run, lines=60):
+    """-> the last lines of `gh run view --log-failed` for one run dict ([] when unreadable: the red is unproven)."""
+    if not run.get("databaseId"):
+        return []
+    r = subprocess.run(["gh", "run", "view", str(run["databaseId"]), "--log-failed"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=300)
+    return r.stdout.splitlines()[-lines:] if r.returncode == 0 else []
+
+
+def merge_base(head, base="main", repo="."):
+    """-> the merge base of `head` with origin/`base` (main at the same time), "" when it cannot be read."""
+    subprocess.run(["git", "fetch", "-q", "origin", base, head], capture_output=True, timeout=300, cwd=repo)
+    r = subprocess.run(["git", "merge-base", f"origin/{base}", head], capture_output=True, text=True, timeout=60,
+                       cwd=repo)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def red_heads(runs):
+    """-> {head: first failed run of it}: a strike is a red COMMIT, not a red run."""
     heads = {}
-    for run in fetch(branch):
+    for run in runs:
         if run.get("conclusion") == "failure":
-            heads.setdefault(run["headSha"], run.get("name") or "red")
+            heads.setdefault(run.get("headSha") or f"run{len(heads)}", run)
+    return heads
+
+
+def check(branch, fetch=runs_from_gh, inbox=None, p=None, logger=run_log, base_of=merge_base, runner=None):
+    """Record every head of `branch` whose workflow run failed (one round per head), each judged by whose_red.
+    -> the last record's answer, plus `own`/`main`/`unproven` head counts."""
+    heads = red_heads(fetch(branch))
     res = {"rounds": len(load(p)["strikes"].get(branch, {}).get("rounds", [])), "parked": parked_for(branch, p) is not None,
            "new": False}
-    for sha, name in heads.items():
-        res = record_failure(branch, sha, name, inbox=inbox, p=p)
-    return dict(res, ok=True, branch=branch)
+    kinds = {"own": 0, "main": 0, "unproven": 0}
+    for sha, run in heads.items():
+        r = count_red(branch, sha, logger(run), base_of(sha), run.get("name") or "red", job=run.get("name") or "",
+                      runner=runner, inbox=inbox, p=p)
+        kinds[r["kind"]] += 1
+        res = dict(res, **{k: r[k] for k in ("rounds", "parked", "new") if k in r})
+    return dict(res, ok=True, branch=branch, **kinds)
+
+
+def recount(branch, fetch=runs_from_gh, p=None, logger=run_log, base_of=merge_base, runner=None):
+    """Re-read the recorded rounds (and the red heads `gh run list` still shows) of `branch` through whose_red, writing
+    nothing. -> {"heads": {head: {"kind","evidence"}}, "own": N, "parked": bool, "would_unpark": bool}: a parked
+    branch whose own count is below LIMIT is reported; unpark is the owner's."""
+    d = load(p)
+    rec = d["strikes"].get(branch) or d["parked"].get(branch) or {}
+    runs = {}
+    try:
+        runs = red_heads(fetch(branch))
+    except RuntimeError:
+        pass
+    heads = [r["head"] for r in rec.get("rounds", [])]
+    heads += [h for h in runs if h not in heads]
+    out = {}
+    for h in heads:
+        run = runs.get(h) or {}
+        kind, ev = whose_red(h, failed_tests(logger(run)) if run else (), base_of(h), runner or default_runner,
+                             run.get("name") or "")
+        out[h] = {"kind": kind, "evidence": ev}
+    own = sum(1 for v in out.values() if v["kind"] == "own")
+    parked = branch in d["parked"]
+    return {"ok": True, "branch": branch, "heads": out, "own": own, "parked": parked,
+            "would_unpark": parked and own < LIMIT}
 
 
 def _list_lines(d):
@@ -208,9 +439,18 @@ def _list_lines(d):
     return out or ["no failed CI rounds recorded"]
 
 
+def _recount_lines(r):
+    out = [f"{h[:10]}: {v['kind']} - {v['evidence']}" for h, v in r["heads"].items()] or ["no red head recorded"]
+    out.append(f"{r['branch']}: {r['own']} own strike(s)" + (" - PARKED" if r["parked"] else ""))
+    if r["would_unpark"]:
+        out.append(f"{r['branch']} is parked with fewer than {LIMIT} own strikes: report it; only the owner unparks "
+                   "(`fieldkit strikes unpark`)")
+    return out
+
+
 def main(argv=None, prog="fieldkit strikes"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["list", "park", "unpark", "check"])
+    ap.add_argument("action", choices=["list", "park", "unpark", "check", "recount"])
     ap.add_argument("ident", nargs="?", help="park, unpark: a branch name or PR number; check: the branch")
     ap.add_argument("--why", default="parked by hand")
     ap.add_argument("--note", default="")
@@ -227,6 +467,10 @@ def main(argv=None, prog="fieldkit strikes"):
             r = park(a.ident, a.why)
         elif a.action == "unpark":
             r = unpark(a.ident, a.note)
+        elif a.action == "recount":
+            r = recount(a.ident)
+            emit(r, a.json, _recount_lines)
+            return 0
         else:
             r = check(a.ident)
     except (StoreError, RuntimeError) as e:

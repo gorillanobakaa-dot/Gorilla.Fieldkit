@@ -1,0 +1,4 @@
+# Proof that each row-38 rule can fail (fieldkit mutate): break one rule, tests/test_long_horizon.py must fail.
+#   python -m fieldkit mutate --plan tests/goal_limit_mutations.yaml -- python -m pytest -q -x tests/test_long_horizon.py -k "classify or limit_is_not_a_round"
+- {file: fieldkit/autopilot/budget.py, swap: ['hit your (?:usage |session |weekly |5-hour |opus )?limit', 'hit your (?:usage )?limit'], why: "'hit your session limit' is a usage limit with a reset time"}
+- {file: fieldkit/autopilot/goal.py, swap: ['        st["rounds"] -= 1', '        pass'], why: "a planner round the limit refused is not a round"}

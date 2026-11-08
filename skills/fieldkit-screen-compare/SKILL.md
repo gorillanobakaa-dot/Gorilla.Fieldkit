@@ -45,3 +45,9 @@ blurry almost". The question was anti-aliasing or serif. These commands answered
   open that, or `osascript -e 'tell application "Gorilla Unleashed" to open POSIX file "/tmp/x.html"'`.
 - `/usr/local/bin/python3` on the Air is not on the SSH PATH: give the full path.
 - Compare boxes holding the same words; a box with a picture or a border in it measures the picture.
+
+## Shrinking and checking pictures
+
+`fieldkit image squash PATH... --to webp|avif|jpeg|png [--target-ssim 0.95]` keeps a smaller copy only when its measured SSIM
+holds; `fieldkit image compare A B` gives SSIM, PSNR and a picture of the difference; `fieldkit image privacy PATH... --redact`
+finds an email or private name in a screenshot before it is published. `fieldkit image doctor` lists missing codecs.

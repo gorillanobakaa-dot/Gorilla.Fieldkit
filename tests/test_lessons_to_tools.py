@@ -223,3 +223,10 @@ def test_the_plan_line_counts_lessons_with_no_tool_or_no_test(tmp_path):
 def test_every_lesson_in_this_checkout_names_a_tool_and_a_test_that_exists():
     ls = plan.lessons(plan.ROOT)
     assert ls and ls["total"] >= 10 and ls["untooled"] == []
+
+
+@pytest.fixture(autouse=True)
+def _multi_mode_for_task_start(monkeypatch):
+    """These tests start several jobs or send one to a peer; the Solo/Multiplayer gate (routing.yaml) is tested in
+    tests/test_routing.py, so here the mode is multi."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")

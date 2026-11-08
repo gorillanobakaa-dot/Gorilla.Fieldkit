@@ -157,6 +157,16 @@ def _no_real_cable():
             pytest.fail("this test tried to reach the REAL cable: " + ", ".join(f.read().split()))
 
 
+# A test never starts the real machine governor (keeper.refusal would spawn it), the build guard's own tests included;
+# tests of the keeper are marked `real_keeper` and inject their own spawn and lease folder.
+@pytest.fixture(autouse=True)
+def _no_real_keeper(request, monkeypatch):
+    if not request.node.get_closest_marker("real_keeper"):
+        from fieldkit.thermal import keeper
+        monkeypatch.setattr(keeper, "refusal", lambda *a, **k: "")
+    yield
+
+
 # Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
 # no-op for every test, except tests marked `real_build_guard`, which test the guard itself on fake status files.
 # There is deliberately NO runtime switch to skip the guard (2026-10-13: fail closed; an agent could flip a switch).
@@ -178,6 +188,7 @@ def _no_real_build_guard(request, monkeypatch):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "real_build_guard: run the real build guard (fan check) on fake inputs")
+    config.addinivalue_line("markers", "real_keeper: the real keeper.refusal (tests of the thermal keeper)")
 
 
 # ============================================================================

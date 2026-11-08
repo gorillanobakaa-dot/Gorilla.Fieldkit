@@ -43,7 +43,6 @@ import io
 import json
 import os
 import re
-import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -291,6 +290,7 @@ class Antigravity:
         return ""
 
     def read(self, path, state):
+        import sqlite3                                  # lazy: the PreToolUse hook imports this module (hook speed)
         last = state.get("last_idx", -1)
         con = sqlite3.connect("file:%s?mode=ro" % path.as_posix(), uri=True, timeout=5)
         try:
@@ -522,9 +522,11 @@ class GorillaOpenCode:
         self.db = self.root / "gorilla-opencode.db"
 
     def _con(self):
+        import sqlite3
         return sqlite3.connect("file:%s?mode=ro" % self.db.as_posix(), uri=True, timeout=5)
 
     def sessions(self):
+        import sqlite3
         if not self.db.is_file():
             return []
         try:

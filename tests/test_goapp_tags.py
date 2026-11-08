@@ -65,6 +65,23 @@ def test_every_pinned_helper_must_be_there_with_its_bytes_before_a_build(tmp_pat
     assert r["ok"] is False and "embedded files wrong" in r["detail"]
 
 
+def test_a_missing_pinned_helper_is_fetched_by_the_module_script_and_checked(tmp_path):
+    src = _module(tmp_path)
+    pins = _pins(src, {"a.exe": b"A" * 100, "b.exe": b"B"})
+    gz = src / "bin" / "windows-amd64" / "b.exe.gz"
+    gz.unlink()
+    plain = Context(_pipeline(tmp_path, src, **pins))
+    probs = goapp.check_embeds(plain, src, "windows", "amd64")[1]
+    assert probs == ["windows-amd64/b.exe missing"]
+    assert goapp.fetch_missing_embeds(plain, src, "windows", "amd64", probs) == probs     # no embed_fetch: unchanged
+    (src / "fetch.sh").write_text('mkdir -p "$1/windows-amd64"; printf B > "$1/windows-amd64/b.exe"\n', newline="\n")
+    ctx = Context(_pipeline(tmp_path, src, embed_fetch="fetch.sh", **pins))
+    assert goapp.fetch_missing_embeds(ctx, src, "windows", "amd64", probs) == []
+    gz.write_bytes(gzip.compress(b"other"))                                  # wrong bytes: never fetched over
+    wrong = goapp.check_embeds(ctx, src, "windows", "amd64")[1]
+    assert goapp.fetch_missing_embeds(ctx, src, "windows", "amd64", wrong) == wrong
+
+
 def _git(*a, cwd):
     subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
 

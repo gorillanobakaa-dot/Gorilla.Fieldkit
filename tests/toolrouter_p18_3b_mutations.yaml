@@ -1,0 +1,47 @@
+# P18 stage 3b: the router's two automatic corrections; every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/toolrouter_p18_3b_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_autopilot_toolrouter.py tests/test_toolrouter_heavy.py
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '    return head + GUARD_PREFIX + tail'
+  - '    return head + tail'
+  why: the guard prefix is what makes the command safe
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - 'or not _one_statement(tail) or'
+  - 'or'
+  why: a chained command must not be wrapped whole
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - 're.match(r"\S*=", tail.split(None, 1)[0])'
+  - 'False'
+  why: a VAR=value prefix must not become the program
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '    if not command or OVERRIDE.search(command) or heavy_refusal'
+  - '    if not command or heavy_refusal'
+  why: a documented override is respected
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '        if _EXPANDS.search(m.group(5)):'
+  - '        if False:'
+  why: quoting would stop a shell expansion the author may have wanted
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - "r\"\\1'\\2'\""
+  - "r\"\\1\\2\""
+  why: the delimiter must end up quoted
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '    if not new or new == command or route(new, cwd):'
+  - '    if not new or new == command:'
+  why: a fix that leaves another refusal in place must not be applied
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - 'if tool == "bash" else None'
+  - 'if tool else None'
+  why: the rewrite is for the Bash tool only
+- file: fieldkit/autopilot/toolrouter.py
+  swap:
+  - '"permissionDecision": "allow",'
+  - '"permissionDecision": "deny",'
+  why: the corrected call must be allowed

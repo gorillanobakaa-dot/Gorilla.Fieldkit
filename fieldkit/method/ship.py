@@ -6,13 +6,15 @@
                                            FIELDKIT_SHIP_PUSH=1, so a repository's pre-push hook asks the mandate gate
     fieldkit ship push --auto [--title T] [--body-file F]
                                            push the branch, open its PR if none, turn GitHub auto-merge on for the pushed
-                                           commit, exit; GitHub merges on green CI. 2+ red CI runs: PARKED, inbox, exit 3
+                                           commit, exit; GitHub merges on green CI. 2+ OWN red commits (strikes.whose_red; main's reds do not count): PARKED, exit 3
     fieldkit ship push --tag vX.Y.Z        push ONE new tag (never moved) under a mandate's tags: pattern, and only when
                                            its commit can publish: version, notes, page, CI green (tagguard.py)
     fieldkit ship release-ready vX.Y.Z     the same checks as a dry run: what is missing, in order, and the fix for each
     fieldkit ship gh-release vX.Y.Z -- ARGS   gh release create --verify-tag of a tag on origin, under a mandate's
                                            release: from_tag, once CI is green on the tag's commit; does nothing when
                                            the repository's release.yml publishes on tags
+    fieldkit ship gh-release vX.Y.Z --add FILE...   add files to that published release, same mandate: each hashed,
+                                           SHA256SUMS-vX.Y.Z.txt regenerated and re-uploaded, a page table row each
     fieldkit ship commit --message-file F  commit what is staged; a known hook refusal fixed and tried again, the same
                                            one twice or an unknown one stops and is reported; never --no-verify
     fieldkit ship merge  [--base main]     merge the branch into main ONLY when a project mandate allows it, every
@@ -117,7 +119,8 @@ def sync(repo=".", base="main"):
     trailers = git(repo, "config", "--get-all", "fieldkit.trailer").stdout.strip()   # e.g. Co-Authored-By lines
     if trailers:
         msg += "\n\n" + trailers
-    git(repo, "merge", "-s", "ours", "--no-edit", f"origin/{st['branch']}", "-m", msg, check=True)
+    from .mergeproof import identity
+    git(repo, *identity(repo), "merge", "-s", "ours", "--no-edit", f"origin/{st['branch']}", "-m", msg, check=True)
     if _tree(repo, "HEAD") != _tree(repo, "HEAD~1"):
         raise RuntimeError("the merge changed the tree: stop and look (git show HEAD)")
     return dict(status(repo, base, fetch=False), synced=True)
@@ -150,6 +153,11 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     if strikes.parked_for(st["branch"]):               # TWO STRIKES: no third round
         return dict(st, ok=False, pushed=False, state="parked", error=strikes.refusal([st["branch"]]),
                     next="parked, go on with the plan; nothing was pushed")
+    from ..integration import gate                       # docs/INTEGRATION.md: a branch that adds a capability not built in
+    ig = gate.guard(repo, base)                          # in is not pushed (exit 3)
+    if not ig["ok"]:
+        return dict(st, ok=False, pushed=False, state="integration-gap", error=gate.refusal(ig),
+                    next="fix the files named after `fix`, then `fieldkit integration check --repo . --changed " + base + "`")
     # an unattended push reaches here only through the hard line, which asked the mandate first; here it is logged
     verdict, why, mpath = mandate("push", repo_path=repo)
     delay, last = 2, ""
@@ -168,7 +176,7 @@ def push(repo=".", base="main", tries=5, sleep=time.sleep, mandate=_mandate):
     return dict(st, ok=False, pushed=False, error=last[-300:], next="the network kept failing: try again later")
 
 
-STRIKES_AT = 2                                         # TWO STRIKES (rules/CORE.md): the second red run parks
+STRIKES_AT = 2                                         # TWO STRIKES (rules/CORE.md): the second red commit parks
 
 
 def _gh(run, repo, *args):
@@ -182,9 +190,25 @@ def _inbox_add(title, why, command=""):
     return inbox.add(title, why, command)
 
 
-def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add):
+def _own_reds(run, repo, branch, pr, runs, base, runner=None):
+    """F4: -> the number of this branch's OWN red commits. Each distinct red head is judged by strikes.whose_red (a
+    failed test that passes on the merge base with main); main's reds are not counted, unproven ones are recorded and
+    forgiven up to FLAKE_LIMIT. Nothing is filed in the owner's inbox."""
+    from . import strikes
+    for sha, rn in strikes.red_heads(runs).items():
+        log = []
+        if rn.get("databaseId"):
+            ok, out, _ = _gh(run, repo, "run", "view", str(rn["databaseId"]), "--log-failed")
+            log = out.splitlines()[-60:] if ok else []
+        strikes.count_red(branch, sha, log, strikes.merge_base(sha, base, repo), rn.get("name") or "red", pr=pr,
+                          job=rn.get("name") or "", runner=runner, inbox=lambda *a, **k: None)
+    return len(strikes.load()["strikes"].get(branch, {}).get("rounds", []))
+
+
+def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, pusher=None, inbox=_inbox_add,
+         counter=None):
     """push, then the branch's PR (found or created), then auto-merge on for the pushed commit. The push stands whatever
-    gh says. Exit 3 for PARKED (2+ red CI runs on the branch): no auto-merge, a note in the owner's inbox."""
+    gh says. Exit 3 for PARKED (2+ commits of the branch red on CI): no auto-merge, a note in the owner's inbox."""
     st = (pusher or push)(repo, base)
     if not st.get("ok"):
         return st
@@ -217,18 +241,41 @@ def auto(repo=".", base="main", title="", body_file="", run=subprocess.run, push
             return fail("gh pr create", f"no PR url in: {out[:200]}")
         pr = {"number": int(m.group(1)), "url": m.group(0)}
     rep.update(pr=pr["number"], pr_url=pr["url"])
-    ok, out, err = _gh(run, repo, "run", "list", "--branch", branch, "--json", "conclusion", "--limit", "100")
+    ok, out, err = _gh(run, repo, "run", "list", "--branch", branch, "--json", "conclusion,headSha,databaseId,name", "--limit", "100")
     if not ok:
         return fail("gh run list", err)
     try:
-        reds = sum(1 for x in json.loads(out or "[]") if x.get("conclusion") == "failure")
+        # P14 (I-11): a strike is a red COMMIT, not a red run (Opencode PR 47: one red commit, two workflow triggers,
+        # read as TWO STRIKES). F4 (plan P9): and only a red the branch owns (strikes.whose_red), never main's.
+        runs = json.loads(out or "[]")
     except ValueError:
         return fail("gh run list", f"not JSON: {out[:200]}")
+    reds = (counter or _own_reds)(run, repo, branch, pr["number"], runs, base)
     if reds >= STRIKES_AT:
-        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} failed CI runs. Auto-merge NOT enabled."
-        inbox(f"PARKED {branch}: failed CI {reds} times", why, f"gh pr view {pr['number']} --web")
-        return dict(rep, ok=False, state="parked", reds=reds, error=why,
-                    next="PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")
+        why = f"PR #{pr['number']} ({pr['url']}), branch {branch}: {reds} commits failed CI by their own failures. Auto-merge NOT enabled."
+        from . import strikes
+        up = strikes.escalation(branch)
+        nxt = (f"ESCALATE (ladder on): next attempt with {up}" if up
+               else "PARKED (TWO STRIKES): left open for a stronger model's repair; go on with the plan")
+        return dict(rep, ok=False, state="parked", reds=reds, error=why, escalate_to=up, next=nxt)
+    # 2026-10-31: on a repository whose base branch requires no status check (Gorilla.Opencode: no ruleset, auto-merge
+    # off) `gh pr merge --auto` merges AT ONCE, before CI ends: PRs #42-#44 there merged 1-4 min ahead of their checks.
+    # Main moves only on green CI, so without a required check there is no auto-merge: the PR stays open.
+    ok, out, err = _gh(run, repo, "api", f"repos/{{owner}}/{{repo}}/rules/branches/{base}", "--jq", "[.[].type]")
+    if not ok:
+        return fail("gh api rules", err)
+    try:
+        rules = json.loads(out or "[]")
+    except ValueError:
+        return fail("gh api rules", f"not JSON: {out[:200]}")
+    if "required_status_checks" not in rules:
+        why = (f"PR #{pr['number']} ({pr['url']}): {base} requires no status check here, so GitHub would merge it "
+               f"before CI ends. Auto-merge NOT enabled; the PR stays open.")
+        inbox(f"No required CI check on {base}: PR #{pr['number']} left open", why + " Fix: a ruleset on " + base +
+              " requiring the CI checks, and 'Allow auto-merge' on (as Gorilla.Fieldkit has; `fieldkit github`).",
+              f"gh pr view {pr['number']} --web")
+        return dict(rep, ok=False, state="no-required-checks", error=why,
+                    next="the PR stays open; it merges once the base branch requires CI (owner: repository settings)")
     ok, out, err = _gh(run, repo, "pr", "merge", str(pr["number"]), "--auto", "--merge", "--match-head-commit", sha)
     if not ok:
         return fail("gh pr merge --auto", err)
@@ -289,6 +336,8 @@ def ship_env():
                   "SSH_ASKPASS"):
             if not env.get(k):                        # the run's blanks; a real value was never put there
                 env.pop(k, None)
+        if env.get("GIT_CONFIG_PARAMETERS") == "'credential.helper='":      # the run's reset (run.NO_HELPER)
+            env.pop("GIT_CONFIG_PARAMETERS")
         if env.get("GIT_CONFIG_KEY_0") == "credential.helper" and not env.get("GIT_CONFIG_VALUE_0"):
             for k in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"):
                 env.pop(k, None)
@@ -307,7 +356,9 @@ def push_tag(repo=".", tag="", tries=5, sleep=time.sleep, mandate=_mandate, guar
         return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
                 "next": "pushing this tag is the owner's unless a mandate allows it"}
     from . import tagguard
-    g = (guard or tagguard.check)(repo, tag)
+    # CI is read with gh: inside an autopilot run only ship's own environment has the credential back (#145, "ship only")
+    g = (guard or (lambda r, t: tagguard.check(r, t, run=lambda *a, **k: subprocess.run(
+        *a, **{**k, "env": ship_env()}))))(repo, tag)
     if not g["ok"]:
         bad = [x for x in g["rows"] if not x["ok"]]
         return {"ok": False, "state": "not-release-ready", "tag": tag, "rows": g["rows"],
@@ -350,6 +401,84 @@ def gh_release(repo=".", tag="", extra=(), mandate=_mandate, run=subprocess.run)
                 "next": "nothing was published"}
     _mandate_log(mpath, "release", why, tag=tag, url=(r.stdout or "").strip()[-200:])
     return {"ok": True, "state": "released", "tag": tag, "mandate": why, "next": (r.stdout or "").strip()[-200:]}
+
+
+def merge_sums(text, files):
+    """SHA256SUMS text with each {name: sha256} of FILES added, or its line replaced; the other lines kept in order."""
+    from ..build import relfiles
+    sums = relfiles.parse_sums(text if "\n" in text else text + "\n") if text.strip() else {}
+    sums.update(files)
+    return "".join(f"{sha}  {name}\n" for name, sha in sums.items())
+
+
+def add_rows(page, rows):
+    """The page with each (name, size, sha256) row put in its 'File | Bytes | SHA-256' table: a row of the same name
+    replaced, a new one after the table's last row. Raises ValueError when the page has no such table."""
+    from ..build import relfiles
+    found = list(relfiles.ROW.finditer(page or ""))
+    if not found:
+        raise ValueError("the release page has no 'File | Bytes | SHA-256' table")
+    def end(m):                                        # ROW's trailing \s* also takes the newlines after the row
+        return m.start() + len(m.group(0).rstrip())
+
+    for name, size, sha in rows:
+        line = f"| `{name}` | {size:,} | `{sha}` |"
+        same = [m for m in relfiles.ROW.finditer(page) if m.group(1).strip() == name]
+        if same:
+            page = page[:same[0].start()] + line + page[end(same[0]):]
+        else:
+            last = end(list(relfiles.ROW.finditer(page))[-1])
+            page = page[:last] + "\n" + line + page[last:]
+    return page
+
+
+def gh_release_add(repo=".", tag="", files=(), mandate=_mandate, run=subprocess.run, workdir=None):
+    """Add FILES to the published release TAG through the same mandate door as gh-release (release_tag): each file
+    hashed, SHA256SUMS-TAG.txt downloaded, its lines added and uploaded again (--clobber), the files uploaded, and a
+    row per file put in the page's 'File | Bytes | SHA-256' table. Never creates a release or touches a tag."""
+    import tempfile
+    from ..build import relfiles
+    from ..core import sync
+    paths = [Path(f) for f in files]
+    missing = [str(p) for p in paths if not p.is_file()]
+    sums_name = f"SHA256SUMS-{tag}.txt"
+    if not paths or missing or any(p.name.startswith("SHA256SUMS") for p in paths):
+        return {"ok": False, "state": "bad-input", "tag": tag,
+                "error": f"missing: {' '.join(missing)}" if missing else "no files, or a SHA256SUMS file given",
+                "next": f"give the files to add; {sums_name} is regenerated, never given"}
+    verdict, why, mpath = mandate("release_tag", repo_path=repo, tag=tag)
+    if verdict != "allow":
+        return {"ok": False, "state": "not-mandated", "tag": tag, "error": why,
+                "next": "changing a release is the owner's unless a mandate allows it"}
+    slug = sync._slug(repo)
+
+    def gh(*args):
+        r = run(["gh", *args, "-R", slug], cwd=str(repo), capture_output=True, text=True, env=ship_env())
+        if r.returncode != 0:
+            raise RuntimeError(f"gh {' '.join(args[:2])}: {(r.stderr or r.stdout or '').strip()[-300:]}")
+        return r.stdout or ""
+
+    work = Path(workdir or tempfile.mkdtemp(prefix="gh-release-add-"))
+    try:
+        view = json.loads(gh("release", "view", tag, "--json", "body,assets"))
+        if sums_name not in [a.get("name") for a in view.get("assets", [])]:
+            return {"ok": False, "state": "no-sums", "tag": tag, "error": f"{sums_name} is not on the release",
+                    "next": "nothing was changed"}
+        new = {p.name: relfiles.sha256(p) for p in paths}
+        page = add_rows(view.get("body", ""), [(p.name, p.stat().st_size, new[p.name]) for p in paths])
+        gh("release", "download", tag, "-p", sums_name, "-D", str(work), "--clobber")
+        sums = work / sums_name
+        sums.write_text(merge_sums(sums.read_text(encoding="utf-8"), new), encoding="utf-8", newline="\n")
+        notes = work / "page.md"
+        notes.write_text(page, encoding="utf-8", newline="\n")
+        gh("release", "upload", tag, *[str(p) for p in paths], str(sums), "--clobber")
+        gh("release", "edit", tag, "--notes-file", str(notes))
+    except (RuntimeError, ValueError) as e:
+        return {"ok": False, "state": "refused", "tag": tag, "error": str(e)[-300:],
+                "next": "read the error; files already uploaded stay, run it again to finish"}
+    _mandate_log(mpath, "release-add", why, tag=tag, files=sorted(new))
+    return {"ok": True, "state": "assets-added", "tag": tag, "mandate": why, "files": new,
+            "next": f"fieldkit release verify {tag} --repo {slug}"}
 
 
 def request_test_job(repo, commit, call=None):
@@ -443,6 +572,8 @@ def main(argv=None, prog="fieldkit ship"):
                     help="prune: save a branch whose work is not proven on the base as tag archive/<branch>, then delete it")
     ap.add_argument("--scaffold", action="store_true", help="release: write the missing note files and stop")
     ap.add_argument("--wait", type=int, default=900, help="release: seconds to wait for the published release")
+    ap.add_argument("--add", nargs="+", default=[], metavar="FILE",
+                    help="gh-release: add these files to the published release (sums and page table updated)")
     ap.add_argument("--base", default="main")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--json", action="store_true")
@@ -460,7 +591,12 @@ def main(argv=None, prog="fieldkit ship"):
     if a.action == "gh-release" or (a.action == "push" and a.push_tag):
         if a.action == "gh-release" and not a.tag:
             ap.error("gh-release needs a tag: fieldkit ship gh-release vX.Y.Z -- --title ... --notes-file F FILES")
-        r = gh_release(a.repo, a.tag, extra) if a.action == "gh-release" else push_tag(a.repo, a.push_tag)
+        if a.add and (a.action != "gh-release" or extra):
+            ap.error("--add is for `ship gh-release vX.Y.Z --add FILE...`, without `-- ARGS`")
+        if a.action != "gh-release":
+            r = push_tag(a.repo, a.push_tag)
+        else:
+            r = gh_release_add(a.repo, a.tag, a.add) if a.add else gh_release(a.repo, a.tag, extra)
         emit(r, a.json, lambda d: [f"{d.get('tag')}: {d.get('state')}"]
              + ([f"error: {d['error']}"] if d.get("error") else [])
              + ([f"mandate: {d['mandate']}"] if d.get("mandate") else []))
