@@ -45,6 +45,20 @@ def test_shipped_recipes_pass_the_reader_rules():
         assert not W.reader_check(rec)["failed"], rec["id"]
 
 
+def test_doc_skill_preflight_is_listed_offered_and_shown_as_data():
+    from fieldkit.capture import workflows as WF
+
+    recipes = WF.load()
+    recipe = recipes["doc-skill-preflight"]
+    assert recipe["accepted"] is True
+    assert any("doc-skill-preflight" in line for line in WF.list_lines())
+    assert "doc-skill-preflight" in WF.offer_line("preflight this skill doc")
+    shown = "\n".join(WF.show_lines(recipe))
+    assert "fieldkit skills validate PATH --strict --json" in shown
+    assert "fieldkit cards show skill-frontmatter-check --json" in shown
+    assert not W.reader_check(recipe)["failed"]
+
+
 def test_workflow_offer_matches_intent_only_for_accepted_recipes(tmp_path):
     import yaml
     from fieldkit.capture import workflows as WF
