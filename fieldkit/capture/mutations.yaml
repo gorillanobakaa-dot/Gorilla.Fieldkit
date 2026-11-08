@@ -60,3 +60,6 @@
 - {file: fieldkit/capture/weaktest.py, swap: ['res["model_note"] = "not verified: no model asked for"', 'res["model_note"] = ""'], why: "no model run is reported as not verified"}
 - {file: fieldkit/capture/workflows.py, swap: ['d.get("accepted") and d.get("steps") and d.get("intent") == kind', 'd.get("intent") == kind'], why: "only an accepted recipe is offered, never a procedure"}
 - {file: fieldkit/autopilot/room.py, swap: ['        t = workflows.offer_line(call.get("prompt") or "")', '        t = ""'], why: "the prompt hook offers the matching workflow"}
+- {file: fieldkit/capture/cli.py, swap: ['        if not switch.is_on():', '        if False:'], why: "the hook records nothing while capture is off"}
+- {file: fieldkit/capture/switch.py, swap: ['        return (now or _now()) < datetime.fromisoformat(until)', '        return True'], why: "capture stops by itself at --for"}
+- {file: fieldkit/capture/switch.py, swap: ['            hs = [h for h in g.get("hooks") or [] if not _ours(h)]', '            hs = []'], why: "off keeps other tools' hooks"}
