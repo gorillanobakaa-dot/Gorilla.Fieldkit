@@ -152,6 +152,7 @@ def test_without_a_slot_the_guard_does_not_wait_when_every_slot_is_held(tmp_path
     monkeypatch.setattr(admission, "base_slots", lambda *a, **k: 1)
     monkeypatch.setattr(admission, "temperature", lambda: None)
     monkeypatch.setattr(preflight, "skipped", lambda: True)
+    monkeypatch.setattr(buildguard, "_fan_and_governor", lambda *x, **k: __import__("contextlib").nullcontext())
     held = admission.try_take(1, "build", "parent")
     assert held is not None
     try:
