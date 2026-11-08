@@ -22,7 +22,8 @@
     fieldkit pipeline status NAME
     fieldkit pipeline reset NAME [--stage S]
 
-    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
+    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|agent-shell]
+    fieldkit pyliterals FILE... [--apply]   stray backslashes in Python strings; raw only when the value stays
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
     fieldkit image doctor|squash|compare|ocr|privacy ...   pictures offline: compress, compare, read, redact (fieldkit/image)
@@ -744,6 +745,11 @@ def cmd_triage(a):
             print("\n  " + r["hint"])
     _emit(rep, a.json, human)
     return 0 if rep["verdict"] == "known" else 3
+
+
+def cmd_pyliterals(a):
+    from .build import pyliterals
+    return pyliterals.main(a.files + (["--apply"] if a.apply else []) + (["--json"] if a.json else []))
 
 
 def cmd_triage_learn(a):
@@ -1918,6 +1924,11 @@ def build_parser():
     tr.add_argument("log")
     tr.add_argument("--set", default="auto")
     tr.set_defaults(fn=cmd_triage)
+
+    pl = sub.add_parser("pyliterals", parents=[common], help="stray backslashes in Python strings; --apply makes them raw only when the value stays the same")
+    pl.add_argument("files", nargs="+")
+    pl.add_argument("--apply", action="store_true")
+    pl.set_defaults(fn=cmd_pyliterals)
 
     tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
     tl.add_argument("--set", default="auto")
