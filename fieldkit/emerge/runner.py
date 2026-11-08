@@ -468,8 +468,7 @@ class Emerge:
             tail += f"\ntriage: {json.dumps(entry['triage'], default=str)[:1500]}"
         if not passed:
             from ..build import failure_checks
-            tail += "".join("
-" + ln for kind in ("install", "release")
+            tail += "".join("\n" + ln for kind in ("install", "release")
                             for ln in failure_checks.lines(failure_checks.run(kind, {"branch": ""})))
         outs = []
         if passed:
