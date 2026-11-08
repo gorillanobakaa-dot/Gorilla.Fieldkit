@@ -1655,6 +1655,17 @@
    "friction"
   ]
  },
+ "github": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "github"
+  ]
+ },
  "goal": {
   "platforms": [
    "linux",
