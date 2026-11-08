@@ -32,6 +32,17 @@ class _FakeDoh:
         pass
 
 
+class _SysAs:
+    """The gate module's own view of sys, with one platform. sys.platform itself is never faked: ssl (the Windows
+    cert store) and psutil (its platform module) read it too, and on Linux they break when it says win32."""
+    def __init__(self, platform):
+        self.platform = platform
+
+    def __getattr__(self, name):
+        import sys
+        return getattr(sys, name)
+
+
 def _post(url, obj):
     urllib.request.urlopen(urllib.request.Request(url, data=json.dumps(obj).encode(), method="POST"), timeout=10).read()
 
@@ -71,7 +82,7 @@ def fake_world(tmp_path, monkeypatch):
         return ev, {}
 
     fake_world_silent = {}
-    monkeypatch.setattr(gate.sys, "platform", "win32")
+    monkeypatch.setattr(gate, "sys", _SysAs("win32"))
     monkeypatch.setattr(se, "is_admin", lambda: False)
     monkeypatch.setattr(se, "build_copy", lambda z, d, policies=None: d)
     monkeypatch.setattr(se, "run_one", run_one)

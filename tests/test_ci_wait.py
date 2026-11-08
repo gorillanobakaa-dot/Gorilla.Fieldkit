@@ -85,3 +85,48 @@ def test_the_cli_exit_code_follows_the_verdict(monkeypatch, capsys):
     assert "RED" in capsys.readouterr().out
     monkeypatch.setattr(train, "GH", lambda repo: GH(["green"]))
     assert train.main(["ci-wait", "166"]) == 0
+
+
+class BehindGH(GH):
+    """R17 (#315): head green, GitHub reads the PR BEHIND; the merge is refused until the branch is updated."""
+
+    def __init__(self):
+        super().__init__(["green"])
+        self.head, self.updates = "a" * 40, []
+        self.is_behind = True
+
+    def pr(self, n):
+        return dict(super().pr(n), headRefOid=self.head, baseRefName="main")
+
+    def behind(self, n):
+        return self.is_behind
+
+    def update_branch(self, n, head):
+        self.updates.append(head)
+        self.head, self.is_behind = "b" * 40, False
+        return True, "Updating"
+
+    def merge(self, n, head):
+        if self.is_behind:
+            self.merges.append("REFUSED-BEHIND")
+            return False, "the head branch is not up to date"
+        return super().merge(n, head)
+
+
+def test_behind_means_update_first_never_a_merge_attempt():
+    gh = BehindGH()
+    r = train.ci_wait(gh, 315, merge=True, sleep=lambda s: None)
+    assert r["state"] == "merged" and gh.updates == ["a" * 40] and gh.merges == ["b" * 40], r
+
+
+def test_ci_wait_merge_waits_for_required_checks_on_the_head():
+    gh = GH(["green"])
+    gh.polls = 0
+    gh.required_checks = lambda base: {"ubuntu"}
+
+    def runs(sha):
+        gh.polls += 1
+        return [] if gh.polls < 3 else [{"name": "ubuntu", "status": "completed", "conclusion": "success"}]
+    gh.check_runs = runs
+    r = train.ci_wait(gh, 315, merge=True, sleep=lambda s: None)
+    assert r["state"] == "merged" and gh.polls == 3, r

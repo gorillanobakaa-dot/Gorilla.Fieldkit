@@ -11,6 +11,7 @@ What is held, each by a test that fails when the rule breaks (fieldkit mutate, s
 """
 import gzip
 import json
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -505,3 +506,19 @@ def test_a_missing_goapps_entry_names_the_exact_line(monkeypatch):
         vars = {"name": "gorilla-opencode"}
     with pytest.raises(ValueError, match='add to fieldkit.local.json: {"goapps": {"gorilla-opencode": "D:/work/'):
         goapp._src(Ctx)
+
+
+def test_previous_release_deb_reads_github_with_ships_own_environment(tmp_path, monkeypatch):
+    """An autopilot run hides gh's account; the release read must get it back through ship_env (#145)."""
+    seen = []
+
+    def fake_run(cmd, *a, **k):
+        seen.append(k.get("env"))
+        return subprocess.CompletedProcess(cmd, 1, "", "no")
+    monkeypatch.setattr(goapp.subprocess, "run", fake_run)
+    monkeypatch.setenv("FIELDKIT_AUTOPILOT", "1")
+    monkeypatch.setenv("GH_CONFIG_DIR", "HIDDEN")
+    monkeypatch.setenv("FIELDKIT_REAL_GH_CONFIG_DIR", "REAL")
+    with pytest.raises(ValueError):
+        goapp.previous_release_deb("o/r", "v1.2.3", tmp_path / "prev")
+    assert seen[0] and seen[0]["GH_CONFIG_DIR"] != "HIDDEN"

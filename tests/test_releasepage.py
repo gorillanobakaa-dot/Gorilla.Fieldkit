@@ -4,6 +4,9 @@ Each case below is a page that a writer really produced or would produce by
 copying the last one. The first is the page that was published on 2026-10-04.
 """
 import json
+from pathlib import Path
+
+import pytest
 
 from fieldkit import cli
 from fieldkit.core import settings
@@ -173,10 +176,55 @@ def test_the_opening_does_not_end_as_a_heading():
                 f"line {i}: a rule directly under {lines[i-1]!r} makes that line a heading"
 
 
-def test_tools_table_is_generated_from_the_cards(tmp_path):
-    d = tmp_path / "fieldkit" / "desk"
-    d.mkdir(parents=True)
-    (d / "tools.yaml").write_text("- id: demo\n  title: does a | thing\n  platforms: [windows, linux]\n", encoding="utf-8")
-    t = RP.tools_table(tmp_path)
-    assert "| demo | does a / thing | windows, linux |" in t and t.startswith("## What is built in")
-    assert RP.tools_table(tmp_path / "none") == ""
+def test_the_tool_table_is_generated_from_the_cards_and_must_be_on_the_page(tmp_path):
+    cards = tmp_path / "fieldkit" / "desk" / "tools.yaml"
+    cards.parent.mkdir(parents=True)
+    cards.write_text("tools:\n"
+                     "- {id: ciaudit, title: 'How much CI ran the whole suite', entry: [python, -m, fieldkit, ciaudit],"
+                     " platforms: [windows, linux]}\n"
+                     "- {id: zeta, title: 'a | pipe', entry: [zeta.exe], platforms: [linux]}\n", encoding="utf-8")
+    table = RP.tool_table(tmp_path)
+    assert RP.TOOLS_BEGIN in table and "Every tool in this release (2)" in table
+    assert "| `fieldkit ciaudit` | How much CI ran the whole suite | windows, linux |" in table
+    assert "a \| pipe" in table and table.index("ciaudit") < table.index("zeta")
+    page = RP.compose(OPENING, LAYMAN, DEVELOPER, tools=table)
+    assert RP.check(page, LAYMAN, DEVELOPER, tools=table) == []
+    assert page.index(RP.LAYMAN_MARK) < page.index(RP.TOOLS_BEGIN) < page.index(RP.DEVELOPER_MARK)
+    # a row removed by hand is refused
+    cut = page.replace("| `fieldkit ciaudit` | How much CI ran the whole suite | windows, linux |\n", "")
+    assert any("tool table" in f for f in RP.check(cut, LAYMAN, DEVELOPER, tools=table))
+    assert RP.tool_table(tmp_path / "none") == ""
+
+
+def test_the_compose_command_puts_this_repositorys_cards_on_the_page(tmp_path, monkeypatch):
+    from fieldkit.integration import gate
+    monkeypatch.setattr(gate, "guard", lambda *a, **k: {"ok": True})   # the gate has its own tests; this one is the table
+    files = {}
+    for name, text in (("opening", OPENING), ("layman", LAYMAN), ("developer", DEVELOPER)):
+        files[name] = tmp_path / f"{name}.md"
+        files[name].write_text(text, encoding="utf-8")
+    cards = tmp_path / "fieldkit" / "desk" / "tools.yaml"
+    cards.parent.mkdir(parents=True)
+    cards.write_text("tools:\n- {id: sync, title: Keep level, entry: [python, -m, fieldkit, sync], platforms: [windows]}\n",
+                     encoding="utf-8")
+    out = tmp_path / "page.md"
+    args = PARSER.parse_args(["release-page", "compose", "--opening", str(files["opening"]),
+                              "--layman", str(files["layman"]), "--developer", str(files["developer"]),
+                              "--out", str(out), "--repo", str(tmp_path)])
+    assert args.fn(args) == 0
+    assert "| `fieldkit sync` | Keep level | windows |" in out.read_text(encoding="utf-8")
+
+
+def test_every_real_card_has_a_row_and_a_card_without_one_is_refused(tmp_path):
+    import yaml
+    root = Path(__file__).resolve().parent.parent
+    cards = yaml.safe_load((root / RP.CARDS).read_text(encoding="utf-8"))["tools"]
+    table = RP.tool_table(root)
+    assert f"({len(cards)})" in table
+    assert sum(1 for line in table.splitlines() if line.startswith("| `")) == len(cards)
+    bad = tmp_path / "fieldkit" / "desk" / "tools.yaml"
+    bad.parent.mkdir(parents=True)
+    bad.write_text("tools:\n- {id: ok, title: t, platforms: [linux]}\n- {title: no id, platforms: [linux]}\n",
+                   encoding="utf-8")
+    with pytest.raises(ValueError):
+        RP.tool_table(tmp_path)

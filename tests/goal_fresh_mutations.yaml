@@ -1,0 +1,13 @@
+# Proof that each R13 rule can fail (fieldkit mutate): break one rule, tests/test_goal_fresh.py must fail.
+#   python -m fieldkit mutate --plan tests/goal_fresh_mutations.yaml -- python -m pytest -q -x tests/test_goal_fresh.py
+- {file: fieldkit/autopilot/goal.py, swap: ['        fx = goal_fresh.tree_for(goal, gid)', '        fx = goal_fresh.Null("")'], why: "the checks run on origin/main, not in the main checkout"}
+- {file: fieldkit/autopilot/goal.py, swap: ['    if getattr(fx, "failed", ""):', '    if False:'], why: "no fresh tree is a FAIL, never the main checkout"}
+- {file: fieldkit/autopilot/goal.py, swap: ['        run_cwd, cwd_why = goal_fresh.worker_cwd(gid, jid, s["cwd"], j.get("worktree"), j.get("attempts", 0) + 1)', '        run_cwd, cwd_why = s["cwd"], ""'], why: "a worker never runs in the main checkout"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['        return str(self.path / rel) if rel != "." else str(self.path)', '        return cwd'], why: "a check inside the main checkout moves into the tree"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['COPY = ("local/goal-checks", "fieldkit.local.json")', 'COPY = ()'], why: "the git-ignored checkers are copied into the tree"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['        if self.path is not None and self.main is not None:', '        if False:'], why: "the fresh worktree is removed after"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['        if self.dir is not None:', '        if False:'], why: "the scratch job folder is removed after"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['    if not WORKTREES or not is_main_checkout(cwd, run):', '    if True:'], why: "a job in the main checkout gets its own worktree"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['    if prior and Path(prior).is_dir():', '    if False:'], why: "a later attempt keeps the worker worktree"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['        if not j or not m.get("ok") or j["status"] == "verified":', '        if not j:'], why: "only a passing re-check marks a job verified"}
+- {file: fieldkit/autopilot/goal_fresh.py, swap: ['    ok = bool(own) and all(x["verdict"] == "PASS" for x in own)', '    ok = True'], why: "a failing re-check reports FAIL"}

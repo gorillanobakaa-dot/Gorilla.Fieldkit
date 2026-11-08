@@ -7,3 +7,14 @@ cheap: [sonnet, haiku, local, qwen, gemma, llama]
 review: [opus]                   # the reviewer role only (roles.yaml reviewer.model)
 premium: [fable, mythos, carbon, argon, gpt, gemini, o1, o3, grok]
 ledger: model-spend.jsonl        # in the lifecycle state folder (state/lifecycle/)
+# Plan P9, escalation ladder (owner idea I-06). Every attempt records the model that made it; a red the branch owns
+# (strikes.whose_red) is an own failure; `own_limit` own failures on one rung climb to the next rung (the same model
+# retries once in between). Stepping onto a rung that is not cheap still passes check_model (mandate / reviewer role).
+# The ladder replaces the flat two-strikes park only when the owner turns it on: `enabled`.
+escalation:
+  enabled: false
+  ladder: [haiku, sonnet, opus, fable]
+  own_limit: 2
+  attempts: escalation.jsonl      # in the lifecycle state folder
+  risky: [guard, hook, fan, security, release, mandate]   # job-type words that get a top-model plan review first
+  review_model: opus

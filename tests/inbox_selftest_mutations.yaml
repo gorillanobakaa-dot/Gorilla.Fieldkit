@@ -1,0 +1,12 @@
+# The owner inbox self-test (goal integrated-everywhere c7): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/inbox_selftest_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_inbox_selftest.py
+- file: fieldkit/autopilot/inbox.py
+  swap:
+  - '    if kind not in OWNER_KINDS:'
+  - '    if False:'
+  why: an agent item of any kind is refused the owner inbox
+- file: fieldkit/zero/net.py
+  swap:
+  - '                    inbox.add(title, why, "fieldkit zero rollcall", kind="net")'
+  - '                    inbox.add(title, why, "fieldkit zero rollcall", kind="hardline")'
+  why: the rollcall never files a silent or missing station for the owner

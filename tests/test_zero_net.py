@@ -741,7 +741,7 @@ def test_guard_a_missing_station_reaches_only_the_tmp_inbox(tmp_path):
     net.checkin(GEM, now=T0, env={})
     net.check(heal=False, now=T0 + 3601)
     assert str(inbox.INBOX).startswith(str(tmp_path))
-    got = list((tmp_path / "autopilot" / "inbox").glob("*.json"))
+    got = [inbox.ledger_file()] if inbox.ledger_file().is_file() else []   # the tmp agent ledger
     assert got and any(GEM in p.read_text(encoding="utf-8") for p in got)
     after = sorted(p.name for p in real.glob("*.json")) if real.is_dir() else []
     assert after == before
@@ -852,3 +852,54 @@ def test_retire_cli_exit_codes(monkeypatch, capsys):
     assert net.main(["retire"]) == net.REFUSED and "RETIRE NOT YET" in capsys.readouterr().out
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bbbbbbbb-2")
     assert net.main(["retire"]) == net.OK
+
+
+# ---------------------------------------------------------------- owner 2026-11-03: no Zero UP -> a present session takes over
+
+def _live(sid, now):
+    st = net.load_stations()
+    net.renew(st, sid, net.load_net(), now)
+    net.save_stations(st)
+
+
+def test_the_hook_of_a_live_session_assumes_when_zero_is_missing():
+    opened()
+    late = T0 + 3 * 3600
+    _live(ZERO, T0)
+    out = net._net_line({"session_id": "bbbbbbbb-1"}, "UserPromptSubmit", now=late)
+    assert "you assumed Zero" in out and net.zero_of(net.load_net()) == TWO and net.load_net()["epoch"] == 2
+
+
+def test_the_hook_never_assumes_while_zero_is_up_or_silent():
+    opened()
+    _live(ZERO, T0)
+    for dt in (60, 31 * 60):                                         # UP, then SILENT (one lapsed lease)
+        out = net._net_line({"session_id": "bbbbbbbb-1"}, "UserPromptSubmit", now=T0 + dt)
+        assert "assumed" not in out and net.zero_of(net.load_net()) == ZERO
+
+
+def test_only_one_session_wins_the_assume():
+    opened()
+    late = T0 + 3 * 3600
+    _live(TWO, late - 5)
+    _live(GEM, late - 5)
+    net.handover(TWO, assume=True, channels=[FakeChannel()], now=late)
+    with pytest.raises(net.Refused):                                  # the second finds Zero UP: refused, no epoch change
+        net.handover(GEM, assume=True, channels=[FakeChannel()], now=late + 1)
+    assert net.zero_of(net.load_net()) == TWO and net.load_net()["epoch"] == 2
+
+
+def test_the_epoch_moving_inside_the_lock_refuses_the_handover(monkeypatch):
+    opened()
+    late = T0 + 3 * 3600
+    _live(TWO, late - 5)
+    real = net.load_net
+    calls = {"n": 0}
+
+    def moved():                                                      # the net is at epoch 2 when the lock is taken
+        calls["n"] += 1
+        n = real()
+        return dict(n, epoch=2) if calls["n"] >= 2 else n
+    monkeypatch.setattr(net, "load_net", moved)
+    with pytest.raises(net.Refused, match="another station won"):
+        net.handover(TWO, assume=True, channels=[FakeChannel()], now=late)

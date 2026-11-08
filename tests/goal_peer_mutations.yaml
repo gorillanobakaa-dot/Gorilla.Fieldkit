@@ -1,0 +1,11 @@
+# Proof that each R12 rule can fail (fieldkit mutate): break one rule, tests/test_goal_peer.py must fail.
+#   python -m fieldkit mutate --plan tests/goal_peer_mutations.yaml -- python -m pytest -q -x tests/test_goal_peer.py
+- {file: fieldkit/autopilot/goal_peer.py, swap: ['    if not held and not gate_busy():', '    if True:'], why: "a heavy job goes to the peer while the slot is held"}
+- {file: fieldkit/autopilot/goal_peer.py, swap: ['    if spec.get("windows_only"):', '    if False:'], why: "a windows-only job waits for the laptop"}
+- {file: fieldkit/autopilot/goal_peer.py, swap: ['if _LAST["t"] is not None and t - _LAST["t"] > STALL_ROUNDS * ROUND_NOMINAL:', 'if False:'], why: "a silent main loop raises the alarm"}
+- {file: fieldkit/autopilot/goal_peer.py, swap: ['if seen >= IDLE_MIN_SEEN and share > IDLE_LIMIT:', 'if False:'], why: "a goal idle over 50% raises the alarm"}
+- {file: fieldkit/autopilot/goal_peer.py, swap: ['    if tag in body:', '    if False:'], why: "the same alarm is written once per hour"}
+- {file: fieldkit/autopilot/goal_peer.py, swap: ['    idle = not workers and not reason', '    idle = not workers'], why: "waiting for a reason is not idle"}
+- {file: fieldkit/autopilot/goal.py, swap: ['    futures.wait([w["future"] for w in _WORKERS[gid].values()], timeout=ROUND_WAIT,', '    futures.wait([w["future"] for w in _WORKERS[gid].values()], timeout=None,'], why: "a step never blocks on a worker for hours"}
+- {file: fieldkit/autopilot/goal.py, swap: ['met > st.get("best_met", -1) or busy or', 'met > st.get("best_met", -1) or False or'], why: "stalled is false while a job waits or runs"}
+- {file: fieldkit/autopilot/goal.py, swap: ['or st.get("activity", 0) != st.get("stall_activity"):', 'or False:'], why: "stalled is false when a job ran"}

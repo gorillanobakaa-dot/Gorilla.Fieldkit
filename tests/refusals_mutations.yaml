@@ -1,0 +1,42 @@
+# fieldkit refusals (plan R14): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/refusals_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_refusals.py
+- file: fieldkit/refusals.py
+  swap:
+  - f.write(json.dumps(row)
+  - f.write(str("")
+  why: the refusal is never written
+- file: fieldkit/refusals.py
+  swap:
+  - '    lines.insert(last + 1, '
+  - '    lines.append('
+  why: the row is not written inside the table
+- file: fieldkit/refusals.py
+  swap:
+  - "    if f\"{MARK}{key} (\" in body:\n        return 0\n"
+  - ''
+  why: a third refusal opens a second row
+- file: fieldkit/refusals.py
+  swap:
+  - 'REPEAT = 2 '
+  - 'REPEAT = 3 '
+  why: the second refusal does not open the row
+- file: fieldkit/refusals.py
+  swap:
+  - '[0-9a-f]{7,40}'
+  - '[0-9a-f]{70,400}'
+  why: a different head is a different reason
+- file: fieldkit/refusals.py
+  swap:
+  - '"| OPEN |" in x'
+  - 'True'
+  why: a closed row still counts as open
+- file: fieldkit/method/train.py
+  swap:
+  - '        refusals.record("train", f"{what}: {kw.get(''why'', '''')}")'
+  - '        pass'
+  why: train refusals are not recorded
+- file: fieldkit/method/__init__.py
+  swap:
+  - '        refusals.record("ship", f"{data[''state'']}: {data.get(''error'') or ''''}")'
+  - '        pass'
+  why: ship refusals are not recorded
