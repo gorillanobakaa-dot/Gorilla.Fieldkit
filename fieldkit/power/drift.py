@@ -98,6 +98,22 @@ def verdict(found, settings):
     return p
 
 
+def next_step(found, settings, days=7):
+    """-> the NEXT text. Pure. --apply only changes the sleep button: a past ibmpmsvc request cannot be undone, so when
+    that is all that is left the text says so and when the last such event leaves the window (row 55)."""
+    sb = settings.get("SBUTTONACTION", {}).get("ac")
+    bad = [s for s in found if s["on_ac"] and s["busy"]]
+    if sb is not None and sb != 0:
+        return "fieldkit power drift --apply"
+    if not bad:
+        return "nothing to do"
+    last = max(s["t"] for s in bad)
+    gone = time.strftime("%Y-%m-%d", time.localtime(last + days * 86400))
+    at = time.strftime("%H:%M", time.localtime(last))
+    return (f"nothing to apply (the sleep button is already off on AC); the {at} event on "
+            f"{time.strftime('%Y-%m-%d', time.localtime(last))} leaves the {days}-day window on {gone}")
+
+
 def apply(settings, run=subprocess.run):
     """Set SBUTTONACTION AC to 0 on the current scheme. -> {"ok", "before", "after", "command", ["elevate"]}."""
     before = settings.get("SBUTTONACTION", {}).get("ac")
@@ -150,5 +166,5 @@ def run(days=7, do_apply=False, as_json=False, out=print, state_dir=None):
             out("DRIFT: " + p)
         out("PASS: no ibmpmsvc sleep during work, sleep button off on AC" if not problems
             else f"FAIL: {len(problems)} drift finding(s)")
-        out("NEXT: " + ("nothing to do" if not problems else "fieldkit power drift --apply"))
+        out("NEXT: " + next_step(found, st, days))
     return 3 if problems else 0
