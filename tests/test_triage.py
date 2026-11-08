@@ -91,3 +91,24 @@ def test_harness_halt_reason_is_extracted_not_the_banner():
     lines = [e["line"] for e in r["errors"]]
     assert "FATAL HALT" not in " ".join(lines) and lines[0].startswith("Installer icon")
     assert any(m["id"] == "harness-blocker" for m in r["matches"])
+
+
+AGENT_SHELL_SAMPLES = {
+    "shell-heredoc-eof": "bash: line 3: warning: here-document at line 1 delimited by end-of-file (wanted `EOF')",
+    "shell-msys-path-to-native": "ls: cannot access '/c/Users/x/file': No such file or directory",
+    "py-unicodeescape-path": "SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 2-3",
+    "py-invalid-escape-warning": r"x.py:1: SyntaxWarning: invalid escape sequence '\d'",
+    "py-missing-stdlib-import": "NameError: name 'shutil' is not defined",
+    "py-script-not-found": r"python.exe: can't open file 'C:\x\y.py': [Errno 2] No such file or directory",
+    "git-terminal-auth": "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+    "py-cp1252-charmap": "UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'",
+    "pwsh-bash-syntax": "ParserError: Missing file specification after redirection operator. MissingFileSpecification",
+    "git-conflict-append-both": "<<<<<<< HEAD",
+}
+
+
+@pytest.mark.parametrize("sid", sorted(AGENT_SHELL_SAMPLES))
+def test_agent_shell_signature_matches_its_sample(sid):
+    assert {s["id"] for s in triage.load_signatures("agent-shell")} == set(AGENT_SHELL_SAMPLES)
+    r = triage.triage_text(AGENT_SHELL_SAMPLES[sid] + "\n", "agent-shell")
+    assert r["verdict"] == "known" and sid in [m["id"] for m in r["matches"]]

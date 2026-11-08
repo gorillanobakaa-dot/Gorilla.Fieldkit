@@ -2669,6 +2669,17 @@
    "publish"
   ]
  },
+ "pyliterals": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pyliterals"
+  ]
+ },
  "refcheck": {
   "platforms": [
    "linux",

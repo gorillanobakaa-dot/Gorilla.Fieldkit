@@ -31,8 +31,13 @@ fieldkit pipeline status debian-kernel
 ## When a build fails
 
 ```
-fieldkit triage LOG --set auto          # or firefox-windows | firefox-linux | debian-kernel | debian-packaging
+fieldkit triage LOG --set auto          # or firefox-windows | firefox-linux | debian-kernel | debian-packaging | agent-shell
 ```
+
+Agent shell and Python-script failures (heredoc, /c/ paths, unicodeescape, cp1252, conflict markers) are the
+`agent-shell` set. For a Python file with stray backslashes (`"\d+"`, `"C:\Users"`): `fieldkit pyliterals FILE`
+shows them; `--apply` makes only those literals raw, and only when the value stays the same (or it is a drive
+path); the file must parse afterwards or nothing is written.
 
 The verdict is one of:
 - **known** – cause and fix are given; follow the fix.
