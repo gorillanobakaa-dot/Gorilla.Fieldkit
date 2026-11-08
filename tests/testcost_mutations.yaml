@@ -31,3 +31,13 @@
 - file: fieldkit/testcost.py
   swap: ['        return 3 if u else 0', '        return 0']
   why: testcost unmapped exits 3 when any file is unmapped
+# shared registries select only what changed (Worker 5, 2026-11-03: cli.py + tools.yaml selected 142 test files)
+- file: fieldkit/testcost.py
+  swap: ["        if q in REGISTRY_INTEGRITY:  ", "        if False:  "]
+  why: a registry edit selects the tests of what changed in it, not every importer
+- file: fieldkit/testcost.py
+  swap: ["    if set(olds) - set(news):", "    if False:"]
+  why: a removed tools entry cannot be proven safe, so the wide mapping stays
+- file: fieldkit/testcost.py
+  swap: ["    changed = [i for i, e in news.items() if olds.get(i) != e]", "    changed = []"]
+  why: the tests of the entry that changed are selected

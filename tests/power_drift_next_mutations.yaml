@@ -1,0 +1,16 @@
+# R16 (2026-11-02): fieldkit mutate --plan tests/power_drift_next_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_power_drift_next.py
+- file: fieldkit/power/drift.py
+  swap:
+  - '        return "fieldkit power drift --apply"'
+  - '        return "nothing to do"'
+  why: a past event alone must not send the owner back to --apply
+- file: fieldkit/power/drift.py
+  swap:
+  - '    if not bad:'
+  - '    if False:'
+  why: a clean run says nothing to do
+- file: fieldkit/power/drift.py
+  swap:
+  - '    last = max(s["t"] for s in bad)'
+  - '    last = min(s["t"] for s in bad)'
+  why: the window is left when the LAST bad event ages out

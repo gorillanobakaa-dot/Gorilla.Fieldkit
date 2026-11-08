@@ -14,7 +14,7 @@ import os
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 STATUS = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "TPFanControl" / "status.txt"
@@ -75,15 +75,16 @@ def kill_children(pid=None):
 
 
 @contextmanager
-def guard(say=print, label="build", csv_dir=None, check_fan=True, sensor=None):
-    """Fan check (fail closed), then the governor around the block. Yields the governor (verdict, peak)."""
+def guard(say=print, label="build", csv_dir=None, check_fan=True, sensor=None, slot=True):
+    """Fan check (fail closed), then the governor around the block. Yields the governor (verdict, peak). `slot` False:
+    no admission slot (a git commit: its hook guards its own tests and would queue behind the slot its parent holds)."""
     from ..core import preflight
     from .. import admission
     # 2026-10-26: the ONE run guard around every guarded build: the preflight first (idle models unloaded, orphans
     # stopped, the free-RAM floor), the RAM/temperature sampler during it, one end line after it. Stage O4: a slot of
     # the machine-wide gate first (fieldkit/admission.py), so a build waits its turn beside a suite or a mutate
     try:
-        with admission.admitted("build", label, say=say), preflight.guard(label, "build", say) as rg:
+        with (admission.admitted("build", label, say=say) if slot else nullcontext()), preflight.guard(label, "build", say) as rg:
             with _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg) as gov:
                 yield gov
     except preflight.Refused as e:
@@ -102,13 +103,16 @@ def _fan_and_governor(say, label, csv_dir, check_fan, sensor, rg):
     why = keeper.refusal()                                # 2026-11-02: no heavy job while the machine governor is down
     if why:
         raise BuildRefused(why)
+    from . import brake
     if sys.platform != "win32":
-        yield None
+        # R11 (VAIO, 2026-11-03): the machine governor's brake pauses the children of every registered hold; without
+        # one here a guarded job on Linux was never paused. The Linux governor is the keeper's, not this block's.
+        with brake.hold(label, say=say):
+            yield None
         return
     from ..buildh import buildrun
-    from . import brake
     if sensor is None:
-        name, fn, surface = buildrun.thermal_sensor(say)
+        name, fn, surface = buildrun.thermal_sensor(say, plan_cap=False)
         if fn is None:
             raise BuildRefused("no CPU temperature source responds to load (fieldkit thermal prove): not building blind")
     else:
@@ -157,6 +161,18 @@ def _sayer(env=None):
     return say
 
 
+def is_commit(cmd):
+    """True for `git [-C DIR|-c K=V|--opt]... commit ...`: the hook it starts runs the tests under the guard itself
+    (2026-11-03 and 2026-11-08, I-18: the slot held here starved the hook's own, 2 held 1.5 h, 14 waiting)."""
+    c = [Path(x).stem.lower() if i == 0 else x for i, x in enumerate(cmd)]
+    if not c or c[0] != "git":
+        return False
+    i = 1
+    while i < len(c) and c[i].startswith("-"):
+        i += 2 if c[i] in ("-C", "-c") else 1
+    return c[i:i + 1] == ["commit"]
+
+
 def run(cmd, cwd=None, say=None, check_fan=True):
     """fieldkit guard -- CMD: run CMD under the guard. -> exit code (2 when refused). The guard's own lines go to
     stderr: stdout is CMD's alone (2026-10-28, R4: `guard -- token-audit --json` gave invalid JSON); to the file
@@ -165,7 +181,7 @@ def run(cmd, cwd=None, say=None, check_fan=True):
     from ..core.proc import std_handles
     say = say or _sayer()
     try:
-        with guard(say, label=Path(cmd[0]).stem, check_fan=check_fan) as gov:
+        with guard(say, label=Path(cmd[0]).stem, check_fan=check_fan, slot=not is_commit(cmd)) as gov:
             env = {k: v for k, v in os.environ.items() if k != GUARD_LOG}
             rc = subprocess.run(cmd, cwd=cwd, env=env, **std_handles()).returncode
             if gov is not None and gov.verdict:
@@ -174,4 +190,6 @@ def run(cmd, cwd=None, say=None, check_fan=True):
             return rc
     except BuildRefused as e:
         say(f"REFUSED: {e}")
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("guard", str(e))
         return 2

@@ -2254,6 +2254,61 @@
    "office-deliver"
   ]
  },
+ "office fillable-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-fillable-check"
+  ]
+ },
+ "office form-bbox-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-bbox-check"
+  ]
+ },
+ "office pptx-chart-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-chart-check"
+  ]
+ },
+ "office pptx-master-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-master-check"
+  ]
+ },
+ "office pptx-schema-verdict": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-schema-verdict"
+  ]
+ },
  "office read": {
   "platforms": [
    "linux",
@@ -2609,6 +2664,15 @@
    "plan"
   ]
  },
+ "power audit": {
+  "platforms": [
+   "windows"
+  ],
+  "why": "Security 4688 and Event Log Readers are Windows; elsewhere the check prints not-this-platform",
+  "ids": [
+   "power-audit"
+  ]
+ },
  "power drift": {
   "platforms": [
    "windows"
@@ -2620,8 +2684,8 @@
  },
  "power incidents": {
   "platforms": [
+   "darwin",
    "linux",
-   "macos",
    "windows"
   ],
   "why": "",
@@ -2668,6 +2732,16 @@
   "why": "",
   "ids": [
    "refcheck"
+  ]
+ },
+ "refusals": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "refusals"
   ]
  },
  "regress": {
@@ -2760,6 +2834,17 @@
   "why": "",
   "ids": [
    "rotate"
+  ]
+ },
+ "route": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "route"
   ]
  },
  "rules": {
@@ -3114,6 +3199,17 @@
    "skills"
   ]
  },
+ "skills package": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-package"
+  ]
+ },
  "skills sets": {
   "platforms": [
    "darwin",
@@ -3123,6 +3219,17 @@
   "why": "",
   "ids": [
    "skill-sets"
+  ]
+ },
+ "skills validate": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-frontmatter-check"
   ]
  },
  "snapshot diff": {
@@ -3269,6 +3376,17 @@
   "why": "",
   "ids": [
    "token-audit"
+  ]
+ },
+ "tools external": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "tools-external"
   ]
  },
  "triage": {

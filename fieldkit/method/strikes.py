@@ -96,7 +96,12 @@ def parked_for(branch, p=None):
     return load(p)["parked"].get(branch)
 
 
-def record_failure(branch, head, why="", pr=None, inbox=None, p=None):
+def attempt_model():
+    """P9: the model making this attempt, from the environment (the cost guard sets ANTHROPIC_MODEL); '' when unknown."""
+    return os.environ.get("FIELDKIT_ATTEMPT_MODEL") or os.environ.get("ANTHROPIC_MODEL") or ""
+
+
+def record_failure(branch, head, why="", pr=None, inbox=None, p=None, model=None):
     """One red CI verdict of `head`. -> {"rounds": N, "parked": bool, "new": bool (parked by this call)}.
     `inbox`: callable(title, why, command) -> item; default fieldkit's owner inbox."""
     d = load(p)
@@ -104,7 +109,8 @@ def record_failure(branch, head, why="", pr=None, inbox=None, p=None):
     if pr:
         rec["pr"] = pr
     if all(r["head"] != head for r in rec["rounds"]):
-        rec["rounds"].append({"head": head, "at": _now(), "why": str(why)[:400]})
+        rec["rounds"].append({"head": head, "at": _now(), "why": str(why)[:400],
+                              "model": attempt_model() if model is None else model})
     n = len(rec["rounds"])
     new = False
     if n >= LIMIT and branch not in d["parked"]:
@@ -244,11 +250,39 @@ def count_red(branch, head, log, base_sha, why="", pr=None, job="", runner=None,
     "rounds", "parked", "new"}; only `counted` rounds are strikes (an unproven round past FLAKE_LIMIT counts)."""
     kind, ev = whose_red(head, failed_tests(log), base_sha, runner or default_runner, job)
     if kind == "main":
+        _attempt(branch, job, False, p)
         return {"kind": kind, "evidence": ev, "counted": False, "parked": parked_for(branch, p) is not None}
     if kind == "unproven" and not record_unproven(branch, head, f"{ev}; {why}", pr=pr, p=p)["counted"]:
         return {"kind": kind, "evidence": ev, "counted": False, "parked": parked_for(branch, p) is not None}
     s = record_failure(branch, head, why, pr=pr, inbox=inbox, p=p)
+    _attempt(branch, job, kind == "own", p)
     return dict(s, kind=kind, evidence=ev, counted=True)
+
+
+def _attempt(branch, job, own, p=None):
+    """P9: every red round is an attempt of the current model; one not the branch's own is marked so the success table
+    leaves it out. Never raises (the ledger is advice)."""
+    try:
+        from ..lifecycle import models
+        models.record_attempt(branch, job, attempt_model(), "fail", own=own)
+    except (OSError, ValueError, KeyError):
+        pass
+
+
+def escalation(branch, p=None):
+    """P9: -> the model for the next attempt on a branch when the ladder is on, else None. Counts the branch's own
+    rounds made by the model of the last round."""
+    try:
+        from ..lifecycle import models
+        if not models.ladder_cfg().get("enabled"):
+            return None
+        rounds = (load(p)["strikes"].get(branch) or load(p)["parked"].get(branch) or {}).get("rounds", [])
+    except (StoreError, OSError, KeyError):
+        return None
+    if not rounds:
+        return None
+    cur = rounds[-1].get("model") or ""
+    return models.next_model(cur, sum(1 for r in rounds if (r.get("model") or "") == cur))
 
 
 def _inbox(branch, rec, inbox=None):

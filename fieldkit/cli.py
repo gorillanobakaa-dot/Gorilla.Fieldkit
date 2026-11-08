@@ -3,10 +3,16 @@
     fieldkit host                                  what machine is this
     fieldkit tools list [--harness H] [--all]      registered tools (+ every toolbox script)
     fieldkit tools check [--run-tests] [--id ...]  exists? safe to probe? tested?
+    fieldkit tools external CATALOG_DIR            inspect external cards as data; never runs them
 
     fieldkit office read FILE [--engine builtin|markitdown|docling] [--out F]
     fieldkit office create SPEC.(json|yaml) OUT [--force]
     fieldkit office check FILE...
+    fieldkit office form-bbox-check FIELDS.json     form overlaps and entry-height findings
+    fieldkit office fillable-check FILE.pdf         count fillable fields without exposing their names
+    fieldkit office pptx-chart-check FILE.pptx       known chart XML failure patterns (read-only)
+    fieldkit office pptx-master-check FILE.pptx      known shared-theme master pattern (read-only)
+    fieldkit office pptx-schema-verdict ERRORS.txt   classify known fatal schema diagnostics
     fieldkit office scrub FILE... [--check] [--term WORD...] [--no-backup]
     fieldkit office deliver FILE...              check, scrub names, recheck, privacy scan: safe to send?
 
@@ -448,6 +454,34 @@ def tools_find(words, rows):
 
 def cmd_tools(a):
     from .desk import registry
+    if a.action == "external":
+        from .desk import external
+        if len(a.words) != 1:
+            raise SystemExit("fieldkit tools external CATALOG_DIR")
+        try:
+            report = external.inspect(a.words[0])
+        except (FileNotFoundError, NotADirectoryError, OSError, RuntimeError, ValueError) as exc:
+            print(f"REFUSED: {exc}")
+            return 2
+
+        def human(d):
+            for tool in d["tools"]:
+                print(f"{tool['status']:<14} {tool['id']:<32} {tool['title']}")
+                for issue in tool.get("issues", []):
+                    print(f"  - {issue}")
+            for workflow in d["workflows"]:
+                print(f"{workflow['status']:<14} {workflow['path']}")
+                for issue in workflow["issues"]:
+                    print(f"  - {issue}")
+            counts = d["counts"]
+            print(f"\n{counts['tools']} card(s), {counts['compatible_untrusted']} compatible but untrusted, "
+                  f"{counts['incompatible']} incompatible, {counts['workflows']} workflow file(s); "
+                  f"{counts['runnable']} runnable")
+            if d["scan_limited"]:
+                print("inventory truncated at a safety limit")
+            print(f"NEXT: {d['next']}")
+        _emit(report, a.json, human)
+        return 3 if report["counts"]["incompatible"] or report["counts"]["workflows"] or report["scan_limited"] else 0
     if a.action == "find":
         if not a.words:
             raise SystemExit("fieldkit tools find WORDS")
@@ -493,6 +527,50 @@ def cmd_tools(a):
 
 def cmd_office(a):
     from .office import check, create, read, scrub
+    if a.action == "form-bbox-check":
+        from .office import forms
+        report = forms.check_bbox_file(a.files[0])
+        _emit(report, a.json, lambda d: forms.show_bbox_report(d))
+        return 1 if report.get("error") else 0 if report["ok"] else 3
+    if a.action == "fillable-check":
+        from .office import forms
+        report = forms.check_fillable_pdf(a.files[0])
+        _emit(report, a.json, lambda d: forms.show_fillable_report(d))
+        return 1 if report.get("error") else 0 if report["field_count"] else 3
+    if a.action in ("pptx-chart-check", "pptx-master-check", "pptx-schema-verdict"):
+        from .office import pptx_checks
+        try:
+            if a.action == "pptx-chart-check":
+                report = pptx_checks.check_charts(a.files[0])
+            elif a.action == "pptx-master-check":
+                report = pptx_checks.check_masters(a.files[0])
+            else:
+                report = pptx_checks.check_schema_diagnostics(a.files[0])
+        except (OSError, pptx_checks.PptxCheckError) as exc:
+            report = {"ok": False, "error": str(exc), "next": "provide a readable local input within the safety limits"}
+            _emit(report, a.json, lambda d: print(f"FAIL: {d['error']}\nNEXT: {d['next']}"))
+            return 1
+        if a.action == "pptx-chart-check":
+            has_findings = bool(report["findings"])
+            name, count = "chart", report["chart_count"]
+        elif a.action == "pptx-master-check":
+            has_findings = bool(report["shared_theme_findings"])
+            name, count = "master", report["master_count"]
+        else:
+            has_findings = bool(report["findings"])
+            name, count = "known fatal schema issue", sum(report["findings"].values())
+
+        def human(d):
+            if a.action == "pptx-schema-verdict":
+                print(f"{'FINDINGS' if has_findings else 'PASS'}: {count} {name}(s)")
+                for category, number in sorted(d["findings"].items()):
+                    print(f"- {category}: {number}")
+            else:
+                print(f"{'FINDINGS' if has_findings else 'PASS'}: {count} {name} part(s), "
+                      f"{d.get('shared_theme_findings', sum(d.get('findings', {}).values()))} finding(s)")
+            print(f"NEXT: {d['next']}")
+        _emit(report, a.json, human)
+        return 3 if has_findings else 0
     if a.action == "render":
         from .office import render
         try:
@@ -1110,6 +1188,12 @@ def cmd_inbox(a):
             print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
                   "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
         return 0
+    if a.action == "self-test":
+        from .autopilot import inbox_selftest
+        rc = inbox_selftest.run()
+        print("NEXT: " + ("none, the owner inbox is empty by construction" if rc == 0 else
+                          "fix the refusal named FAIL in fieldkit/autopilot/inbox.py or fieldkit/zero/net.py"))
+        return rc
     if a.action == "ledger":
         rows = []
         if inbox.ledger_file().is_file():
@@ -1703,6 +1787,8 @@ def build_parser():
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
+                                 "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
                        ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
                                   "(models report; fieldkit/lifecycle/models.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
@@ -1750,6 +1836,10 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rfp = sub.add_parser("refusals", add_help=False,
+                         help="refusals repeated by train, ship, guard, goal or task: each repeated reason opens one "
+                              "defect row (fieldkit refusals list)")
+    rfp.add_argument("args", nargs=argparse.REMAINDER)
     rvp = sub.add_parser("review", add_help=False,
                          help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
                               "once at a terminal; --open opens state/REVIEW.md")
@@ -1807,8 +1897,8 @@ def build_parser():
                    ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
-    t.add_argument("action", choices=["list", "check", "find"])
-    t.add_argument("words", nargs="*", help="find: the words to look for (rule USE THE HARNESS)")
+    t.add_argument("action", choices=["list", "check", "find", "external"])
+    t.add_argument("words", nargs="*", help="find: words to search; external: catalog directory to inspect")
     t.add_argument("--harness")
     t.add_argument("--all", action="store_true", help="also every script discovered in toolbox/")
     t.add_argument("--run-tests", action="store_true")
@@ -1816,7 +1906,9 @@ def build_parser():
     t.set_defaults(fn=cmd_tools)
 
     o = sub.add_parser("office", parents=[common])
-    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver", "render"])
+    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver", "render",
+                                      "form-bbox-check", "fillable-check", "pptx-chart-check",
+                                      "pptx-master-check", "pptx-schema-verdict"])
     o.add_argument("files", nargs="+")
     o.add_argument("--engine", default="builtin", choices=["builtin", "markitdown", "docling"])
     o.add_argument("--out")
@@ -1966,7 +2058,7 @@ def build_parser():
     apl.set_defaults(fn=cmd_autopilot)
 
     ib = sub.add_parser("inbox", parents=[common])
-    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger"], nargs="?", default="list")
+    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger", "self-test"], nargs="?", default="list")
     ib.add_argument("--kind", default="approval", help="add: only 'hardline' reaches the owner; anything else goes to "
                                                          "the agent ledger (fieldkit inbox ledger)")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
@@ -2271,7 +2363,9 @@ def build_parser():
     th.set_defaults(fn=cmd_thermal)
 
     pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check")
-    pw.add_argument("action", choices=["incidents", "drift"])
+    pw.add_argument("action", choices=["incidents", "drift", "audit"])
+    pw.add_argument("--write-fix", action="store_true", help="audit: write the one self-elevating script for the missing admin steps")
+    pw.add_argument("--callers", help="audit: who started PROCESS (e.g. powercfg.exe), from Security 4688")
     pw.add_argument("--since", help="incidents: YYYY-MM-DD (default 7 days ago)")
     pw.add_argument("--days", type=int, default=7, help="drift: how many days back")
     pw.add_argument("--apply", action="store_true", help="drift: set the sleep button on AC to do nothing (no admin; before/after recorded)")
@@ -2827,6 +2921,9 @@ def cmd_repro(a):
 
 def cmd_power(a):
     from .power import drift, incidents
+    if a.action == "audit":
+        from .power import audit
+        return audit.run_cmd(write_fix=a.write_fix, proc=a.callers, since=a.since, as_json=a.json)
     if a.action == "drift":
         return drift.run(days=a.days, do_apply=a.apply, as_json=a.json)
     return incidents.run(since=a.since, as_json=a.json)
@@ -3014,6 +3111,9 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
+    if args[:1] == ["route"]:                         # solo / multiplayer and the model router (lifecycle/routing.py)
+        from .lifecycle import routing
+        return routing.main(args[1:])
     if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
         from .lifecycle import models
         return models.main(args[1:])
@@ -3047,7 +3147,10 @@ def main(argv=None):
     if args[:2] == ["inbox", "review"]:
         from . import review
         return review.main(args[2:])
-    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+    if args[:1] == ["refusals"]:                      # repeated refusals -> defect rows (plan R14)
+        from . import refusals
+        return refusals.main(args[1:])
+    if args[:1] == ["ideas"]:                       # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran

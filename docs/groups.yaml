@@ -132,6 +132,7 @@ groups:
       - buildh/vault.py
       - buildh/worker.py
       - ideas.py
+      - refusals.py
       - review.py
       - lmstudio.py
       - metrics.py
@@ -149,6 +150,7 @@ groups:
       - rules.py
       - rules_lint.py
       - suite_offload.py
+      - testsplit.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build

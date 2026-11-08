@@ -31,7 +31,13 @@ def split_command(text, platform=None):
     return out
 
 
+REFUSAL_STATES = ("refused", "push-refused", "not-final", "parked")
+
+
 def emit(data, as_json, lines):
+    if isinstance(data, dict) and data.get("ok") is False and data.get("state") in REFUSAL_STATES:
+        from .. import refusals                  # a refusal repeated becomes a defect row (plan R14)
+        refusals.record("ship", f"{data['state']}: {data.get('error') or ''}")
     if as_json:
         print(json.dumps(data, indent=1, ensure_ascii=False, default=str))
     else:

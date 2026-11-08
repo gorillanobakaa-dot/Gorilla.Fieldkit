@@ -388,7 +388,7 @@ def test_task_start_here_writes_a_runbook_and_launches_it_headless(tmp_path):
     if steps:
         b = steps[0]["agent"]
         assert b.startswith("Do the job.") and f"fieldkit task report {rec_['id']}" in b and "exit: the run ends" in b
-        assert "never a desktop" not in b or "Never propose a desktop session card" in b
+        assert "VISIBLE desktop session" in b and "own_initiative` card" in b
     assert tasks.ledger()[rec_["id"]]["status"] == "started"
     assert f"task:{rec_['id']}" in (tmp_path / "room" / "ROOM.log").read_text(encoding="utf-8")
 
@@ -460,7 +460,7 @@ def test_done_protocol_has_every_step():
     assert "auto_archive_on_close false" in z
     assert "Zero: hand the seat over first" in d and "Zero archives only" not in d   # the pointer, not Zero's text
     tail = protocol.brief_tail()
-    assert "fieldkit task start" in tail and "Never propose a desktop session card" in tail
+    assert "fieldkit task start" in tail and "VISIBLE desktop session" in tail and "user_asked" in tail
 
 
 def test_install_rule_add_update_same_and_line_endings(tmp_path):
@@ -470,7 +470,7 @@ def test_install_rule_add_update_same_and_line_endings(tmp_path):
     raw = p.read_bytes()
     assert raw.startswith(b"# mine\r\nkeep\r\n") and b"\n" not in raw.replace(b"\r\n", b"")
     assert protocol.install_rule(p) == "same"
-    p.write_bytes(raw.replace(b"Never propose a desktop", b"Old words"))
+    p.write_bytes(raw.replace(b"VISIBLE desktop session", b"Old words"))
     assert not protocol.rule_present(p)
     assert protocol.install_rule(p) == "updated" and protocol.rule_present(p)
     assert p.read_bytes().count(protocol.RULE_BEGIN.encode()) == 1
@@ -539,3 +539,10 @@ def test_task_status_shows_a_task_whose_process_is_gone_as_died(tmp_path, monkey
     assert lc.cmd_task(["status", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert [t["status"] for t in out if t["id"] == a["id"]] == ["died"]
+
+
+@pytest.fixture(autouse=True)
+def _multi_mode_for_task_start(monkeypatch):
+    """These tests start several jobs or send one to a peer; the Solo/Multiplayer gate (routing.yaml) is tested in
+    tests/test_routing.py, so here the mode is multi."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")

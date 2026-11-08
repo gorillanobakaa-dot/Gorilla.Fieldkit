@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from ..method import emit
-from . import acceptance, measure, ocr, squash, tools
+from . import acceptance, fetch, measure, ocr, squash, tools
 
 
 def _doctor(a):
@@ -22,6 +22,21 @@ def _doctor(a):
           "next": "a person installs the missing ones (nothing is installed by this command)" if missing else ""},
          a.json, lines)
     return 0 if not {"magick", "tesseract"} & {r["tool"] for r in missing} else 3
+
+
+def _fetch(a):
+    names = a.tools or list(fetch.pins())
+    rows, bad = [], 0
+    for n in names:
+        try:
+            rows.append(fetch.fetch_one(n))
+        except Exception as e:      # network, hash, archive: all are a refusal, nothing is installed
+            rows.append({"tool": n, "error": str(e)})
+            bad = 1
+    emit({"rows": rows, "next": "" if not bad else "fix the line above; a hash mismatch means the file is not the pinned one"},
+         a.json, lambda d: [f"[{'FAIL' if 'error' in r else 'ok'}] {r['tool']}: " + (r.get("error") or f"{r['version']} -> {r['path']} sha256 {r['sha256'][:12]} verified")
+                            for r in d["rows"]])
+    return 3 if bad else 0
 
 
 def _squash(a):
@@ -130,6 +145,10 @@ def main(argv):
     d = sub.add_parser("doctor", help="which picture tools are present, and how to install the missing ones")
     d.add_argument("--json", action="store_true")
     d.set_defaults(fn=_doctor)
+    f = sub.add_parser("fetch", help="download the pinned codecs (sha256 checked) into the Fieldkit tool folder")
+    f.add_argument("tools", nargs="*", help="default: every pinned codec")
+    f.add_argument("--json", action="store_true")
+    f.set_defaults(fn=_fetch)
     x = sub.add_parser("accept", help="acceptance: tesseract reads a generated picture, magick identify/convert; fails when absent")
     x.add_argument("--json", action="store_true")
     x.set_defaults(fn=_accept)

@@ -14,6 +14,7 @@ files), then with a hand-typed robocopy line, because the harness had no tool fo
 Use this, never an improvised one-liner.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -155,7 +156,35 @@ def main(argv, prog="fieldkit size"):
     # pass the streams explicitly: a console-less parent (a tool's pipe) starts the child with CREATE_NO_WINDOW and, with no
     # handle named, the child's output went nowhere (2026-10-30: `fieldkit size --help` printed nothing there)
     sys.stdout.flush()
+    if any(a in PLAN_SUBS for a in argv[:1]):
+        return _run_renamed(exe, argv)
     return subprocess.run([str(exe), *argv], stdout=sys.stdout, stderr=sys.stderr).returncode
+
+
+#: the subcommands whose last lines tell the reader which command to run next
+PLAN_SUBS = ("recycle", "apply", "undo", "move", "copy", "trash")
+
+
+def rename_next(text):
+    """gorilla-size is not on PATH in Git Bash or PowerShell; `fieldkit size` is. Every command the program tells the
+    reader to run next ("gorilla-size apply PLAN", "gorilla-size undo JOURNAL") names the one that runs (2026-11-02, row 54)."""
+    return re.sub(r"\bgorilla-size (apply|undo|recycle|move|copy|trash)\b", r"fieldkit size \1", text)
+
+
+def _run_renamed(exe, argv):
+    """Run the program with both streams read here, line by line (still live), and print them renamed."""
+    import threading
+    p = subprocess.Popen([str(exe), *argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def pump(src, dst):
+        for raw in iter(src.readline, b""):
+            dst.write(rename_next(raw.decode("utf-8", "replace")))
+            dst.flush()
+    t = threading.Thread(target=pump, args=(p.stderr, sys.stderr))
+    t.start()
+    pump(p.stdout, sys.stdout)
+    t.join()
+    return p.wait()
 
 
 HELP_DIR = Path(__file__).resolve().parent / "size_help"

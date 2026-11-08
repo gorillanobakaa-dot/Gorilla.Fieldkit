@@ -140,7 +140,8 @@ class Parked(ValueError):
 
 
 def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch=None, now=None, again=False,
-          worktree=None, plan=None, model=None, accept=None, allow_expensive=False, unpark=None):
+          worktree=None, plan=None, model=None, accept=None, allow_expensive=False, unpark=None, pin=False,
+          park=None):
     """-> the ledger record. Raises ValueError when the brief is missing or empty or the worker model is an expensive
     one, Parked when it names a parked branch or PR (TWO STRIKES), BriefRefused when it names no plan id
     (HARNESS-PLAN O3; `plan` gives one from outside), AlreadyStarted when the same brief is still started somewhere
@@ -164,6 +165,23 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     if plan:
         text += f"\nPLAN ITEM: {plan}"
     tid = task_id(text, now)
+    from . import routing
+    ok, why = routing.admit(ledger(), on, now)           # solo / multiplayer (routing.yaml): the quota guard
+    if not ok:
+        routing.log({"id": tid, "action": "refused", "why": why})
+        raise routing.ModeRefused(why)
+    if model and not pin:                                # the owner's ceiling passes the cost guard BEFORE the router
+        from . import models as _models, roles as _roles
+        _models.require(_roles.worker_model(model, allow_expensive=allow_expensive), "worker", "task start")
+    if not pin:                                          # the router goes down from the ceiling, never above it
+        r = routing.route(text, model, pin, plan)
+        routing.log({"id": tid, "action": r["action"], "model": r["model"], "why": r["why"]})
+        if r["action"] == "park":
+            (park or routing.park)(text.splitlines()[0][:100], f"{r['why']}; start it with --model {model or 'fable'} "
+                                   "--pin --allow-expensive if the owner agrees")
+            raise routing.ModelParked(f"parked in the owner inbox: {r['why']}")
+        if r["model"]:
+            model = r["model"]
     from . import roles
     model = roles.worker_model(model, allow_expensive=allow_expensive)
     from . import models
