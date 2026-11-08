@@ -15,6 +15,7 @@ dependencies = [
   "openpyxl>=3.1",
   "python-pptx>=1.0",
   "reportlab>=4",
+  "pypdf>=5",
   "pypdfium2>=4",
   "pdfplumber>=0.10",      # study materials, page by page (academic/read_sources.py)
   "fluent.syntax>=0.19",   # Mozilla's Fluent parser: .ftl files of a port must parse (buildh/fluent.py)
@@ -42,7 +43,7 @@ fk = "fieldkit.aliases:main"          # short plain-English names for long comma
 include = ["fieldkit*"]
 
 [tool.setuptools.package-data]
-fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "desk/platform_index.json", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "desk/size_help/*.txt", "mandate/*.yaml", "mandate/hooks/*/*", "scratch/owner/*.ps1", "mandate/prereqs/*.ps1", "peers/*.yaml", "lifecycle/*.yaml", "integration/*.yaml", "capture/*.yaml", "github/*.yaml"]
+fieldkit = ["build/signatures/*.yaml", "build/api-drift/*.yaml", "build/pipelines/*.yaml", "desk/*.yaml", "desk/platform_index.json", "gdocs/*.md", "core/requirements.json", "build/ci/*.yml", "audio/*.yaml", "career/*.yaml", "career/trades/*.yaml", "icons/*.json", "academic/*.yaml", "academic/locales/*.yaml", "evidence/data/*.json", "win11/*.yaml", "method/*.yaml", "method/workflows/*.yaml", "desk/size_help/*.txt", "mandate/*.yaml", "mandate/hooks/*/*", "scratch/owner/*.ps1", "mandate/prereqs/*.ps1", "peers/*.yaml", "lifecycle/*.yaml", "integration/*.yaml", "capture/*.yaml", "github/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "local/tests"]

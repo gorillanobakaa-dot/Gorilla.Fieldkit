@@ -8,7 +8,8 @@ signatures:
   source: captured
   cause: 'Seen 19 times in captured agent sessions: cat fails with ''<P>: -c: line <N>: unexpected eof while looking for matching
     `''''''.'
-  fix: 'No single fix repeats in the 19 captured cases: `fieldkit capture find` the error text to read each one.'
+  fix: 'Known fix (fieldkit triage --set agent-shell, shell-heredoc-eof): Write the script to a file with the Write tool (or
+    in the scratch root, fieldkit scratch new), then run the file. Never paste multi-line code into a one-line shell command.'
 - id: cap-ls-f338ab
   pattern: ls:\s+cannot\s+access\s+.*?:\s+no\s+such\s+file\s+or\s+directory
   check: null
@@ -21,14 +22,16 @@ signatures:
   source: captured
   cause: 'Seen 13 times in captured agent sessions: python script fails with ''<P>: -c: line <N>: unexpected eof while looking
     for matching `''''''.'
-  fix: 'No single fix repeats in the 13 captured cases: `fieldkit capture find` the error text to read each one.'
+  fix: 'Known fix (fieldkit triage --set agent-shell, shell-heredoc-eof): Write the script to a file with the Write tool (or
+    in the scratch root, fieldkit scratch new), then run the file. Never paste multi-line code into a one-line shell command.'
 - id: cap-python-script-32df41
   pattern: <stdin>:.*?:\s+syntaxwarning:\s+invalid\s+escape\s+sequence\s+.*?
   check: null
   source: captured
   cause: 'Seen 5 times in captured agent sessions: python script fails with ''<stdin>:<N>: syntaxwarning: invalid escape sequence
     <S>''.'
-  fix: 'No single fix repeats in the 5 captured cases: `fieldkit capture find` the error text to read each one.'
+  fix: 'Known fix (fieldkit triage --set agent-shell, py-invalid-escape-warning): python -m fieldkit.build.pyliterals FILE,
+    then --apply; it adds r only where the string''s value stays exactly the same.'
 - id: cap-python-script-3fb34f
   pattern: syntaxerror:\s+\(unicode\s+error\)\s+.*?\s+codec\s+can't\s+decode\s+bytes\s+in\s+position\s+.*?\-.*?:\s+truncated\s+\\uxxxxxxxx\s+escape
   check: null
@@ -145,7 +148,8 @@ signatures:
   source: captured
   cause: 'Seen 2 times in captured agent sessions: scratchpad fails with ''<P>: -c: line <N>: unexpected eof while looking
     for matching `''''''.'
-  fix: 'No single fix repeats in the 2 captured cases: `fieldkit capture find` the error text to read each one.'
+  fix: 'Known fix (fieldkit triage --set agent-shell, shell-heredoc-eof): Write the script to a file with the Write tool (or
+    in the scratch root, fieldkit scratch new), then run the file. Never paste multi-line code into a one-line shell command.'
 - id: cap-sed-6a919c
   pattern: sed:\s+\-e\s+expression\s+\#.*?,\s+char\s+.*?:\s+unknown\s+command:\s+`
   check: null

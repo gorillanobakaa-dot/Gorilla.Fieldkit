@@ -101,6 +101,13 @@ def test_frontmatter_shape_and_unquoted_colon(tmp_path):
     assert rules(tmp_path / "empty") == {"skill-md"}
 
 
+def test_frontmatter_rejects_duplicate_and_unhashable_keys(tmp_path):
+    duplicate = mk(tmp_path, "duplicate", "name: duplicate\nname: hidden\ndescription: x")
+    assert rules(duplicate) == {"yaml"}
+    unhashable = mk(tmp_path, "unhashable", "? [a, b]\n: value\nname: unhashable\ndescription: x")
+    assert rules(unhashable) == {"yaml"}
+
+
 def test_lowercase_skill_md_accepted_with_warning(tmp_path):
     d = mk(tmp_path, "a", "name: a\ndescription: x", name="skill.md")
     assert [(r, lv) for r, lv, _ in spec.validate(d)] == [("skill-md", "warn")]
@@ -376,6 +383,40 @@ def test_package_is_deterministic_and_validates_first(tmp_path):
     assert names == ["my-skill/SKILL.md", "my-skill/deep/evals/kept.json", "my-skill/scripts/run.py"]
     bad = mk(tmp_path / "bad", "Bad", "name: Bad\ndescription: x")
     assert adopted.package([str(bad), str(tmp_path / "o3")]) == 1 and not (tmp_path / "o3").exists()
+
+
+def test_package_preview_verify_and_no_overwrite(tmp_path, capsys):
+    skill = mk(tmp_path / "source", "test-skill", "name: test-skill\ndescription: x")
+    output = tmp_path / "output"
+    assert adopted.package([str(skill), str(output), "--preview"]) == 0
+    assert "no files written" in capsys.readouterr().out
+    assert not output.exists()
+    assert adopted.package([str(skill), str(output)]) == 0
+    archive = output / "test-skill.skill"
+    original = archive.read_bytes()
+    assert adopted.package([str(skill), str(output), "--verify"]) == 0
+    assert adopted.package([str(skill), str(output)]) == 1
+    assert archive.read_bytes() == original
+    (skill / "SKILL.md").write_text("---\nname: test-skill\ndescription: changed\n---\n", encoding="utf-8")
+    assert adopted.package([str(skill), str(output), "--verify"]) == 1
+
+
+def test_package_rejects_symlinks_and_file_limits(tmp_path, monkeypatch):
+    skill = mk(tmp_path / "source", "bounded", "name: bounded\ndescription: x")
+    linked = skill / "linked.txt"
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    try:
+        linked.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation is not permitted on this host")
+    with pytest.raises(ValueError, match="symbolic link"):
+        adopted._package_files(skill)
+    linked.unlink()
+    (skill / "extra.txt").write_text("extra", encoding="utf-8")
+    monkeypatch.setattr(adopted, "MAX_PACKAGE_FILES", 1)
+    with pytest.raises(ValueError, match="file limit"):
+        adopted._package_files(skill)
 
 
 def test_benchmark_runs_the_vendored_aggregator_offline(tmp_path):
