@@ -116,6 +116,17 @@ def sig_id(fam, key):
     return "cap-" + re.sub(r"[^a-z0-9]+", "-", fam.lower()).strip("-")[:24] + "-" + st.sha(fam + "\0" + key)[:6]
 
 
+def known_fix(lines, set_name="agent-shell"):
+    """The fix of the first hand-kept triage signature (set agent-shell, trust-reviewed) whose pattern matches one of
+    the failure lines, as one sentence; None when none matches. Used when the captured cases repeat no fix."""
+    from ..build import triage
+    for sig in triage.load_signatures(set_name):
+        rx = re.compile(sig["pattern"], re.I | re.M)
+        if any(rx.search(line or "") for line in lines):
+            return f"Known fix (fieldkit triage --set {set_name}, {sig['id']}): {sig['fix']}"
+    return None
+
+
 def stage2(store, min_pairs=2):
     """Pairs -> signatures (a group of >= min_pairs whose regex matches every member's own error line), the rest ->
     procedures with the reason. Returns (summary, signature list, {item: (state, evidence)})."""
@@ -138,6 +149,7 @@ def stage2(store, min_pairs=2):
             sigs.append({"id": sid, "pattern": key_regex(key), "check": None, "source": "captured",
                          "cause": f"Seen {len(ok)} times in captured agent sessions: {fam} fails with '{key[:100]}'.",
                          "fix": (f"In the captured sessions the next command that succeeded ({n} of {len(ok)} times) was `{fix}`." if n >= 2 else
+                             known_fix([error_line(state["items"][p[0]].get("errors")) for p in ok] + [key]) or
                              f"No single fix repeats in the {len(ok)} captured cases: `fieldkit capture find` the error text to read each one.")})
             for p in ok:
                 marks[p[0]] = ("procedure", f"stage2 signature {sid}: fixed by item {p[1]} in episode {p[2]}")
