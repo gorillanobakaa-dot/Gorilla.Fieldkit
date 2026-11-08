@@ -1,6 +1,9 @@
 """fieldkit capture: zero-loss capture of everything an agent makes or runs (owner, 2026-11-01).
 
-    fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal; always exit 0
+    fieldkit capture on --lesson WHY [--for MINUTES]          capture only while teaching one lesson (default 120 min, max 24 h)
+    fieldkit capture off                                     hooks out, periodic scan disabled; the default way to run
+    fieldkit capture state [--json] [--check]                on / off / expired, the lesson, hooks and schedule found
+    fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal (only while on); exit 0
     fieldkit capture scan                                    (not built yet)
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
     fieldkit capture ledger [--json] [--strict] [--closed]   every item and its state; --strict exits 3 on a loss, --closed also while any is open
@@ -49,6 +52,9 @@ def _emit(a, data, lines):
 def cmd_hook(a):
     try:
         text = sys.stdin.buffer.read().decode("utf-8", "replace")
+        from . import switch
+        if not switch.is_on():                             # off or expired: record nothing (owner, 2026-11-08)
+            return 0
         from . import hook
         hook.handle(a.agent, text)
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
@@ -292,6 +298,14 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="action", required=True)
     h = sub.add_parser("hook", help="journal one agent hook event from stdin")
     h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode"])
+    on = sub.add_parser("on", help="capture for one lesson, for a fixed time")
+    on.add_argument("--lesson", required=True, help="what the harness is being taught")
+    on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 1440)")
+    on.add_argument("--json", action="store_true")
+    sub.add_parser("off", help="stop capture: hooks out, scan disabled").add_argument("--json", action="store_true")
+    sw = sub.add_parser("state", help="is capture on, for which lesson, until when")
+    sw.add_argument("--json", action="store_true")
+    sw.add_argument("--check", action="store_true", help="exit 3 unless capture is off and no hook is left")
     sub.add_parser("scan", help="(not built yet)").add_argument("rest", nargs="*")
     f = sub.add_parser("find", help="records matching every word")
     f.add_argument("words", nargs="+")
@@ -334,6 +348,9 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.action == "scan":
         return _not_built("scan")
+    if a.action in ("on", "off", "state"):
+        from . import switch
+        return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)
     return {"hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
             "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
 

@@ -5878,7 +5878,7 @@ tools:
   notes: "Owner 2026-11-01: built in = properly integrated (docs/INTEGRATION.md). Rules per surface are data: fieldkit/integration/surfaces.yaml. One line per missing surface with the file to fix."
 
 - id: capture
-  title: Zero-loss capture of every script, command and procedure an agent makes or runs - kept at first use with its context, failed attempts linked to their fix, found again by words, never discarded
+  title: Capture of the scripts, commands and procedures an agent makes or runs, only while a lesson is taught (capture on --lesson WHY --for MINUTES, capture off, capture state) - kept with its context, failed attempts linked to their fix, found again by words
   harness: method
   entry: [python, -m, fieldkit, capture]
   path: ${FIELDKIT}/fieldkit/capture
