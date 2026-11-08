@@ -8,7 +8,12 @@
     ends, leaves a wake line for THAT session. The room hook (rotate.hook_line) hands the wake to the session at its
     next prompt or tool call, so the session is woken by the finish, not by a poll.
 
-Files: state/ci-waits/pr-N.json (the marker, removed at the end) and state/ci-waits/wake/SESSION.txt (the wake lines).
+A wait that ENDS "unproven" (red not proven this branch's) leaves state/ci-waits/handed/pr-N.json: the PR is handed to
+ci-wait's verdict, not open work of the session, and the end-of-turn check passes it (I-16: the session looped every
+turn). A new wait for the PR removes it.
+
+Files: state/ci-waits/pr-N.json (the marker, removed at the end), state/ci-waits/handed/pr-N.json and
+state/ci-waits/wake/SESSION.txt (the wake lines).
 Writes nothing else; never calls GitHub itself (the caller passes the PR state in).
 """
 import json
@@ -59,6 +64,7 @@ def begin(pr, session, pid=None, now=None):
     """The marker for a running wait: this process, for this PR, started by this session."""
     d = waits_dir()
     d.mkdir(parents=True, exist_ok=True)
+    (d / "handed" / f"pr-{int(pr)}.json").unlink(missing_ok=True)
     (d / f"pr-{int(pr)}.json").write_text(json.dumps({
         "pr": int(pr), "pid": int(pid or os.getpid()), "session": str(session or "?"),
         "started": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() if now is None else now))}),
@@ -71,6 +77,10 @@ def end(pr, session, result, now=None):
     wake = waits_dir() / "wake"
     wake.mkdir(parents=True, exist_ok=True)
     state = str(result.get("state") or "?").upper()
+    if state == "UNPROVEN":
+        (waits_dir() / "handed").mkdir(parents=True, exist_ok=True)
+        (waits_dir() / "handed" / f"pr-{int(pr)}.json").write_text(
+            json.dumps({"pr": int(pr), "session": str(session or "?")}), encoding="utf-8")
     why = " ".join(str(result.get("why") or "").split())[:300]
     nxt = " ".join(str(result.get("next") or "").split())[:300]
     line = f"CI #{int(pr)} finished: {state}" + (f" - {why}" if why else "") + (f". NEXT: {nxt}" if nxt else "")
@@ -110,7 +120,7 @@ def check(sessions_prs, state_fn, session=None, alive=pid_alive):
         num = url.rstrip("/").rsplit("/", 1)[-1]
         if not num.isdigit():
             continue
-        if running(num, session, alive):
+        if running(num, session, alive) or (waits_dir() / "handed" / f"pr-{num}.json").is_file():
             continue
         fails.append(f"{url} is {st or 'not checked'} and no `fieldkit ship ci-wait {num}` is running for it: start it "
                      f"in the background (it wakes this session when CI ends), or say why this session does not wait")
