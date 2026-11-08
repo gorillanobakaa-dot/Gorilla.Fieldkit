@@ -1,0 +1,26 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-test-python
+intent: test
+toolchain: python
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 106
+replayed_ok: 15 of 106
+step_families:
+- gh pr
+- git fetch
+- python -m pytest
+- python -m fieldkit guard
+- git add
+- python -m fieldkit size
+- fieldkit task
+- python -m fieldkit wait
+- fieldkit ship
+side_effects:
+  network_or_remote: 3
+  write_or_release: 2
+  code_execution: 1
+blocker: Combines PR/fetch, pytest, guard/size/wait/task/ship families, and git staging. Pytest executes project code; remote
+  PR/ship and unknown wait/size commands need target approvals, test selection/pass checks, and recovery semantics.
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv
