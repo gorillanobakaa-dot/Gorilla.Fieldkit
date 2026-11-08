@@ -1,0 +1,28 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-release-other
+intent: release
+toolchain: other
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 10
+replayed_ok: 4 of 10
+step_families:
+- gh pr
+- git checkout
+- fieldkit guard
+- git fetch
+- fieldkit inbox
+- git add
+- fieldkit privacy
+- fieldkit ship
+- gh release
+- fieldkit size
+side_effects:
+  network_or_remote: 4
+  write_or_release: 4
+  code_execution: 1
+blocker: Includes PR checkout/fetch, privacy/inbox, git staging, ship, and `gh release`. External publication and repository
+  writes need a verified artifact, explicit human release approval, exact remote/tag, and rollback plan; 4/10 replay is not
+  authorization.
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv
