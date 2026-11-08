@@ -115,6 +115,14 @@ core:
   text: |-
     MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
     model-spend guard allows it (`fieldkit/lifecycle/models.py`).
+- id: ZERO COMMANDS
+  subject: finishing started work
+  audience: all
+  enforced_by:
+  - fieldkit zero rollcall
+  owner: 2026-11-08 (owner's own words, confirmed)
+  text: |-
+    ZERO COMMANDS (owner, 2026-11-08). Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
 - id: IDEAS
   subject: ideas
   audience: all
@@ -127,9 +135,8 @@ core:
   owner_decision: the owner answers parked ideas himself, once per milestone, in `fieldkit review` (owner 2026-10-31)
   text: |-
     IDEAS. A new owner suggestion while a job or plan runs is parked (`fieldkit ideas add TITLE --why W`; reply
-    "parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". The room hook
-    shows "N parked ideas"; at a milestone Zero asks the owner to `fieldkit review` (every parked idea and inbox item,
-    in plain words, answered once). `fieldkit backup` keeps `state/ideas/`.
+    "parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". At a
+    milestone Zero asks the owner to `fieldkit review` (every parked idea and inbox item, in plain words, answered once).
 - id: SHORT SESSIONS
   subject: session length
   audience: all
@@ -279,16 +286,16 @@ tails:
     - The hooks check you in with Zero and run the rotate check: you need not run them.
     - On Windows the Bash tool is Git Bash; write a multi-line script to a file with Write, then run it.
     - Claude desktop: end with `archive_session "self"` (turn Remote Control off first if it is on).
-    - A project's own AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
+    - A project's AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
   codex: |-
     # Codex
-    - On Windows the shell is PowerShell: no heredocs, no `&&` chains, no backslash escapes; write a script to a file, then run the file.
-    - At start `fieldkit zero checkin --as codex:NAME`; a roll call is answered with the fields `fieldkit zero --help`
-      lists; leaving: `fieldkit zero checkin --off`.
-    - A project's own AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
+    - On Windows the shell is PowerShell (no heredocs, `&&` or backslash escapes): write a script to a file, run it.
+    - At start `fieldkit zero checkin --as codex:NAME`; roll call: answer with the fields in
+      `fieldkit zero --help`; leaving: `fieldkit zero checkin --off`.
+    - A project's AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
   gemini: |-
-    # Gemini / Antigravity
-    - On Windows the shell is PowerShell: no heredocs, no `&&` chains, no backslash escapes; write a script to a file, then run the file.
-    - At start `fieldkit zero checkin --as gemini:NAME`; a roll call is answered with the fields `fieldkit zero --help`
-      lists; leaving: `fieldkit zero checkin --off`.
-    - A project's own AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
+    # Gemini, Antigravity
+    - On Windows the shell is PowerShell (no heredocs, `&&` or backslash escapes): write a script to a file, run it.
+    - At start `fieldkit zero checkin --as gemini:NAME`; roll call: answer with the fields in
+      `fieldkit zero --help`; leaving: `fieldkit zero checkin --off`.
+    - A project's AGENTS.md / GEMINI.md / CLAUDE.md holds only that project's rules.
