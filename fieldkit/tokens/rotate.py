@@ -71,6 +71,9 @@ DEFAULTS = {"ctx_warn": 120_000, "ctx_rotate": 150_000, "usd_warn": 40.0, "usd_r
 LEVELS = ("OK", "WARN", "ROTATE")
 EXIT = {"OK": 0, "WARN": 1, "ROTATE": 2}
 PR_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
+#: what the ship push command prints: "pushed SHA (...) to origin/BRANCH (N commit(s)); PR_URL ..." (the line is JSON text)
+PUSHED_PR = re.compile(r"\bpushed [0-9a-f]{7,40}\b[^\"\\]{0,200}?\bto origin/[^\"\\]{0,300}?"
+                       r"(https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)")
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 
 
@@ -154,7 +157,7 @@ def _save_meter(path, m):
 def _fresh_meter():
     return {"read": {}, "facts_off": 0, "usd": 0.0, "calls": 0, "unpriced": 0, "context_last": 0,
             "context_peak": 0, "first_ts": None, "last_ts": None, "cwd": None, "branch": None,
-            "entrypoint": None, "stop_reason": None, "prs": [], "task": None, "size": 0}
+            "entrypoint": None, "stop_reason": None, "prs": [], "pushed_prs": [], "task": None, "size": 0}
 
 
 def _user_text(d):
@@ -174,7 +177,7 @@ def _facts(path, m):
         return
     end = chunk.rfind(b"\n") + 1
     m["facts_off"] += end
-    prs = set(m["prs"])
+    prs, pushed = set(m["prs"]), set(m["pushed_prs"])
     for line in chunk[:end].splitlines():
         try:
             d = json.loads(line)
@@ -182,7 +185,9 @@ def _facts(path, m):
             continue
         if not isinstance(d, dict):
             continue
-        prs.update(PR_URL.findall(line.decode("utf-8", "replace")))
+        text = line.decode("utf-8", "replace")
+        prs.update(PR_URL.findall(text))
+        pushed.update(PUSHED_PR.findall(text))
         if d.get("isSidechain"):
             continue
         for k, f in (("cwd", "cwd"), ("gitBranch", "branch"), ("entrypoint", "entrypoint")):
@@ -196,7 +201,7 @@ def _facts(path, m):
                 m["task"] = t[:2000]
         if d.get("timestamp"):
             m["last_ts"] = d["timestamp"]
-    m["prs"] = sorted(prs)
+    m["prs"], m["pushed_prs"] = sorted(prs), sorted(pushed)
 
 
 def measure(adapter, path, use_cache=True):
@@ -207,7 +212,8 @@ def measure(adapter, path, use_cache=True):
         size = path.stat().st_size
     except OSError:
         size = 0
-    if m is None or m.get("source") != adapter.name or (adapter.name == "claude-code" and size < m.get("size", 0)):
+    if (m is None or m.get("source") != adapter.name or "pushed_prs" not in m
+            or (adapter.name == "claude-code" and size < m.get("size", 0))):
         m = _fresh_meter()                            # first look, or the file was rewritten: start over
     m["source"] = adapter.name
     for c in adapter.read(path, m["read"]):
@@ -238,7 +244,7 @@ def measure(adapter, path, use_cache=True):
             "calls": m["calls"], "usd": round(m["usd"], 4), "unpriced_calls": m["unpriced"],
             "context_last": m["context_last"], "context_peak": m["context_peak"],
             "first": m["first_ts"], "last": m["last_ts"], "cwd": m["cwd"], "branch": m["branch"],
-            "entrypoint": m["entrypoint"], "stop_reason": m["stop_reason"], "prs": m["prs"], "task": m["task"]}
+            "entrypoint": m["entrypoint"], "stop_reason": m["stop_reason"], "prs": m["prs"], "pushed_prs": m["pushed_prs"], "task": m["task"]}
 
 
 def _title_from_transcript(path):
@@ -572,14 +578,15 @@ def pr_state(url, run=subprocess.run):
 
 
 def endcheck(transcript, state_fn=None, alive=None):
-    """The end-of-turn check (owner, 2026-11-03): a session ending its turn while a PR it mentioned is OPEN, with no
+    """The end-of-turn check (owner, 2026-11-03): a session ending its turn while a PR it PUSHED (the push command's
+    output in its transcript; I-16: not every PR it mentioned, another worker's PR is not its to wait for) is OPEN, with no
     `fieldkit ship ci-wait` running for it, fails. -> (ok, [reasons]). Reads the transcript, asks gh (through
     state_fn) for each PR's state; never edits anything."""
     from ..method import ci_wake
     a, p = sc.resolve(str(transcript), [sc.ClaudeCode()])
     if a is None:
         raise FileNotFoundError(str(transcript))
-    fails = ci_wake.check(measure(a, p)["prs"], state_fn or pr_state, session=p.stem,
+    fails = ci_wake.check(measure(a, p)["pushed_prs"], state_fn or pr_state, session=p.stem,
                           alive=alive or ci_wake.pid_alive)
     return (not fails), fails
 
@@ -606,7 +613,7 @@ def stop_hook(stdin=None, state_fn=None, alive=None):
         a, p = sc.resolve(str(tp), [sc.ClaudeCode()])
         if a is None:
             return 0
-        fails = ci_wake.check(measure(a, p)["prs"], known, session=p.stem, alive=alive or ci_wake.pid_alive)
+        fails = ci_wake.check(measure(a, p)["pushed_prs"], known, session=p.stem, alive=alive or ci_wake.pid_alive)
         if fails:
             print(json.dumps({"decision": "block", "reason": "ENDCHECK: " + " | ".join(fails)}))
         elif unknown:

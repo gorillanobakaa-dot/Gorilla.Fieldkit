@@ -2254,6 +2254,61 @@
    "office-deliver"
   ]
  },
+ "office fillable-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-fillable-check"
+  ]
+ },
+ "office form-bbox-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-bbox-check"
+  ]
+ },
+ "office pptx-chart-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-chart-check"
+  ]
+ },
+ "office pptx-master-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-master-check"
+  ]
+ },
+ "office pptx-schema-verdict": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-schema-verdict"
+  ]
+ },
  "office read": {
   "platforms": [
    "linux",
@@ -2678,6 +2733,17 @@
   "why": "",
   "ids": [
    "publish"
+  ]
+ },
+ "pyliterals": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pyliterals"
   ]
  },
  "refcheck": {
@@ -3155,6 +3221,17 @@
    "skills"
   ]
  },
+ "skills package": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-package"
+  ]
+ },
  "skills sets": {
   "platforms": [
    "darwin",
@@ -3164,6 +3241,17 @@
   "why": "",
   "ids": [
    "skill-sets"
+  ]
+ },
+ "skills validate": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-frontmatter-check"
   ]
  },
  "snapshot diff": {
@@ -3310,6 +3398,17 @@
   "why": "",
   "ids": [
    "token-audit"
+  ]
+ },
+ "tools external": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "tools-external"
   ]
  },
  "triage": {
