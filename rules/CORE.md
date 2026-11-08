@@ -41,10 +41,11 @@ background.
 MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
 model-spend guard allows it (`fieldkit/lifecycle/models.py`).
 
+ZERO COMMANDS (owner, 2026-11-08). Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
+
 IDEAS. A new owner suggestion while a job or plan runs is parked (`fieldkit ideas add TITLE --why W`; reply
-"parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". The room hook
-shows "N parked ideas"; at a milestone Zero asks the owner to `fieldkit review` (every parked idea and inbox item,
-in plain words, answered once). `fieldkit backup` keeps `state/ideas/`.
+"parked as I-NN"), never added to the running plan unless the owner says "now" or "add to the plan". At a
+milestone Zero asks the owner to `fieldkit review` (every parked idea and inbox item, in plain words, answered once).
 
 SHORT SESSIONS. Every call re-sends the whole conversation. One job per session. `fieldkit rotate check`: WARN =
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.

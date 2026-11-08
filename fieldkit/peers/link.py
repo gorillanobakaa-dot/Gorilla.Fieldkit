@@ -980,6 +980,11 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # the boss's `fieldkit friction` audits every machine of the household
         from ..lifecycle import friction
         return {"ok": True, "rows": friction.local_rows()}
+    if verb == "cost":
+        # read-only, like friction: this computer's own AI dollars, for the other side's `fieldkit cost report|daily`
+        # (fieldkit/tokens/cost_daily.py answer, row 20, 2026-11-02)
+        from ..tokens import cost_daily
+        return cost_daily.answer(req)
     if verb == "message":
         from . import link_receipt
         item = store("message", req)
