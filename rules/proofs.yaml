@@ -519,3 +519,7 @@ ROTATE:
   - demand: run `fieldkit rotate handover` with its fields and start a fresh session
     why: handover writing is tested (test_handover_writes_note_and_plan_section); that an agent actually ends its session
       is not enforced
+ZERO COMMANDS:
+  gaps:
+  - demand: Zero checks every side session's work against its diff and PR and finishes it
+    why: 'buildable: rollcall shows each station''s branch and PR state and flags a session that handed over with an open, unmerged PR'
