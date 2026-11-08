@@ -78,9 +78,9 @@ security claim is made true and proven, never deleted.
   fieldkit-sitrep): where we started, what we did, what is going on now, what is left (owner, 2026-10-31).
 
 <!-- fieldkit-lifecycle-rule v1 -->
-## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)
+## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
 
-SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless autopilot run here, or the other computer's link listener over the cable). Never propose a desktop session card.
+SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for no-human jobs or when the app refuses; no `own_initiative` card.
 
 DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
 1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).

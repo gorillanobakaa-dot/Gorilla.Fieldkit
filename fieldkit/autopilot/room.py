@@ -493,6 +493,21 @@ def _refusals(call, event, ctx):
     return ctx
 
 
+def _workflows(call, event, ctx):
+    """P18 stage 7: a request that matches a distilled workflow recipe gets the one line that names it (fieldkit capture
+    workflow). Silent when none matches. Never fails the hook."""
+    if event != "UserPromptSubmit":
+        return ctx
+    try:
+        from ..capture import workflows
+        t = workflows.offer_line(call.get("prompt") or "")
+        if t:
+            return (ctx + chr(10) if ctx else "") + t
+    except Exception:
+        pass
+    return ctx
+
+
 def _context(call, event):
     """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
     rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
@@ -509,6 +524,7 @@ def _context(call, event):
     ctx = _plan(call, event, ctx)
     ctx = _ideas(call, event, ctx)
     ctx = _refusals(call, event, ctx)
+    ctx = _workflows(call, event, ctx)
     ctx = _relay(call, event, ctx)
     return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
 
@@ -554,6 +570,7 @@ def set_name(session_id, name):
 
 
 HOOK_CMD = '"{py}" -m fieldkit.autopilot.room --hook'
+STOP_CMD = '"{py}" -m fieldkit.tokens.rotate --stop-hook'
 ROUTER_CMD = '"{py}" -m fieldkit.autopilot.toolrouter --hook'
 #: the tools the one tool-call hook must see: the router's checks and the room's lines (SendMessage: ask / approve;
 #: archive_session: Zero retires only into a new Zero, fieldkit/zero/retire.py)
@@ -595,6 +612,8 @@ def doctor(settings=None, python=None):
         missing.append("PreToolUse")
     if not _has(hooks.get("UserPromptSubmit", []), "fieldkit.autopilot.room"):
         missing.append("UserPromptSubmit")
+    if not _has(hooks.get("Stop", []), "fieldkit.tokens.rotate --stop-hook"):
+        missing.append("Stop")
     if _has(hooks.get("PostToolUse", []), "fieldkit.autopilot.room"):
         stale.append("PostToolUse")
     py = nowindow.windowless(python or sys.executable)
@@ -604,7 +623,8 @@ def doctor(settings=None, python=None):
     snippet = {"PreToolUse": [{"matcher": TOOL_MATCH, "hooks": [{"type": "command", "command": ROUTER_CMD.format(py=py),
                                                                  "timeout": 15}]}],
                "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command", "command": HOOK_CMD.format(py=py),
-                                                                "timeout": 10}]}]}
+                                                                "timeout": 10}]}],
+               "Stop": [{"hooks": [{"type": "command", "command": STOP_CMD.format(py=py), "timeout": 30}]}]}
     snippet = {ev: snippet[ev] for ev in missing}
     return {"ok": not missing and not stale, "missing": missing, "stale": stale, "settings": str(settings),
             "snippet": snippet}
@@ -636,6 +656,9 @@ def apply(settings=None, python=None, keep_dir=None):
     if "UserPromptSubmit" in r["missing"]:
         hooks.setdefault("UserPromptSubmit", []).extend(r["snippet"]["UserPromptSubmit"])
         done.append("UserPromptSubmit: room added")
+    if "Stop" in r["missing"]:
+        hooks.setdefault("Stop", []).extend(r["snippet"]["Stop"])      # the existing Stop hooks stay as they are
+        done.append("Stop: end-of-turn open-PR check added")
     for ev in ("PreToolUse", "UserPromptSubmit", "Stop"):
         if "console:" + ev in r["stale"]:
             for h in _console_hooks(hooks.get(ev, [])):

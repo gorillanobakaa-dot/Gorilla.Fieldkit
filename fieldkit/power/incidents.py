@@ -51,7 +51,10 @@ Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows
   $u[$k]=1+[int]$u[$k]
   if((Split-Path $h.ProcessPath -Leaf) -eq 'powercfg.exe'){ $o+=[pscustomobject]@{t=$_.TimeCreated.ToUniversalTime().ToString('o');id=112;prov='UMPS';msg='scheme write';data=@{proc='powercfg.exe'}} }
   if($h.OldSchemeGuid -ne $h.NewSchemeGuid){ $o+=[pscustomobject]@{t=$_.TimeCreated.ToUniversalTime().ToString('o');id=12;prov='UMPS';msg='scheme change';data=$h} } }
-[pscustomobject]@{events=$o;resets=$u.GetEnumerator()|%{[pscustomobject]@{k=$_.Key;n=$_.Value}}}|ConvertTo-Json -Depth 6 -Compress
+$src=@{}
+try{ $q=Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;StartTime=$s} -MaxEvents 1 -ErrorAction Stop; $src.security4688=if($q){'present'}else{'none since '+$s.ToString('yyyy-MM-dd')} }catch{ $src.security4688='not readable or no records ('+$_.Exception.GetType().Name+')' }
+foreach($l in 'Microsoft-Windows-Sysmon/Operational','Microsoft-Windows-TaskScheduler/Operational'){ $g=Get-WinEvent -ListLog $l -ErrorAction SilentlyContinue; $src[$l]=if(-not $g){'log not installed'}elseif($g.IsEnabled){'enabled'}else{'installed, disabled'} }
+[pscustomobject]@{events=$o;sources=$src;resets=$u.GetEnumerator()|%{[pscustomobject]@{k=$_.Key;n=$_.Value}}}|ConvertTo-Json -Depth 6 -Compress
 """
 
 
@@ -82,7 +85,7 @@ def read_windows(since, run=subprocess.run):
     for x in rs:
         day, proc, changed = (x["k"].split("|") + ["", "", "0"])[:3]
         resets.append({"day": day, "process": proc, "changed": changed == "1", "n": x["n"]})
-    return {"events": ev, "resets": resets}
+    return {"events": ev, "resets": resets, "sources": j.get("sources") or {}}
 
 
 def read_linux(since, run=subprocess.run):
@@ -260,7 +263,44 @@ def _cut_evidence(ev, e6, logged, boot_t, cut, has41):
     return {"lines": lines, "_boot20": boot20, "has41": has41}
 
 
-def classify_windows(events, jrows, usage=(), now=None):
+def _cadence(ev, cut):
+    """One line: the gaps between powercfg scheme writes in the hour before the cut (a loop shows one dominant gap)."""
+    ts = sorted(x["t"] for x in ev if x["id"] == 112 and cut - 3600 <= x["t"] <= cut)
+    gaps = {}
+    for a, b in zip(ts, ts[1:]):
+        g = int(round(b - a))
+        gaps[g] = gaps.get(g, 0) + 1
+    if not gaps:
+        return "powercfg write cadence in the hour before the cut: fewer than 2 writes"
+    top = sorted(gaps.items(), key=lambda kv: -kv[1])[:3]
+    return "powercfg write cadence in the hour before the cut: %d writes, gaps %s" % (
+        len(ts), ", ".join("%ds x%d" % kv for kv in top))
+
+
+def _who_missing(sources):
+    """One line: who started powercfg is NOT named by any source; which process-creation sources exist on this machine."""
+    if not sources:
+        return "who started powercfg.exe: no source read (process-creation records unavailable)"
+    got = ", ".join("%s: %s" % (k, v) for k, v in sorted(sources.items()))
+    named = any(v == "present" or v == "enabled" for v in sources.values())
+    return "who started powercfg.exe: %s (%s)" % (
+        "a process-creation source exists; read it" if named else "NOT proven; missing source = a process-creation record (Security 4688 with command line, or Sysmon 1)", got)
+
+
+def _unknown_missing(jrows, cut, has41, sources):
+    """One line: the exact sources that would have named an unexplained cut and do not exist for it."""
+    miss = []
+    last = last_line_before(jrows, cut)
+    if last is None or cut - last > 900:
+        first = time.strftime("%Y-%m-%d %H:%M", time.localtime(jrows[0][0])) if jrows else "never"
+        miss.append("thermal journal (no row in the 15 min before the cut; it starts %s)" % first)
+    if not has41:
+        miss.append("Kernel-Power 41 / memory dump (the OS never saw the cut)")
+    miss.append("process-creation record: " + ("present" if (sources or {}).get("security4688") == "present" else "none"))
+    return "missing sources, so the cause stays unknown: " + "; ".join(miss)
+
+
+def classify_windows(events, jrows, usage=(), now=None, sources=None):
     """Pure: normalized events + journal rows + battery usage -> incidents, oldest first."""
     ev = sorted(events, key=lambda e: e["t"])
     used = set()
@@ -315,6 +355,10 @@ def classify_windows(events, jrows, usage=(), now=None):
             cut, note = stated, "stated by the event log"
             if last is not None and (cut is None or last > cut) and boot_t - last < 12 * 3600:
                 cut, note = last, "last thermal journal line (later than the log's last heartbeat)"
+            sysrec = [_ts(x["data"]["last"]) for x in ev if x["id"] == 9001 and abs(x["t"] - boot_t) <= 600
+                      and isinstance(x["data"].get("last"), str)]
+            if sysrec and (cut is None or max(sysrec) > cut) and boot_t - max(sysrec) < 12 * 3600:
+                cut, note = max(sysrec), "last System record before the boot (later than the log's last heartbeat)"
             if cut is None:
                 cut, note = logged, "log time"
             peak, n = peak_before(jrows, cut)
@@ -334,6 +378,10 @@ def classify_windows(events, jrows, usage=(), now=None):
                 cls = CUT_BELOW_OS_WRITES
                 evidence["lines"].append("powercfg.exe scheme resets (UserModePowerService 12) in the %d min before the cut: %d, last at %s" % (
                     WRITES_WINDOW_S // 60, len(writes), time.strftime("%H:%M:%S", time.localtime(max(x["t"] for x in writes)))))
+                evidence["lines"].append(_cadence(ev, cut))
+                evidence["lines"].append(_who_missing(sources))
+            if cls == "unexpected cut (cause unknown)":
+                evidence["lines"].append(_unknown_missing(jrows, cut, evidence["has41"], sources))
             inc = {"class": cls, "what": "EventLog 6008" + (" + Kernel-Power 41" if any(x["id"] == 41 for x in grp) else ""),
                    "detail": f"cut time: {note}; logged {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(logged))}"}
             inc["evidence"] = evidence["lines"]
@@ -435,7 +483,7 @@ def collect(since):
     resets = []
     if sys.platform == "win32":
         w = read_windows(since)
-        inc = classify_windows(w["events"], jrows, battery_usage())
+        inc = classify_windows(w["events"], jrows, battery_usage(), sources=w.get("sources"))
         resets = [r for r in w["resets"] if not r["changed"]]
         err = w.get("error")
     elif sys.platform.startswith("linux"):

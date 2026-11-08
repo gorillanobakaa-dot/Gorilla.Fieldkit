@@ -320,3 +320,10 @@ def test_unpaired_computer_makes_its_tag_without_the_link_code(tmp_path, monkeyp
     monkeypatch.setattr(machine, "_link", lambda: (_ for _ in ()).throw(AssertionError("link imported")))
     r = machine.name(save=False, facts_fn=lambda system=None: L15, system="Windows", hostname="L15HOST")
     assert machine.valid(r["tag"]) and r["source"] == "derived"
+
+
+@pytest.fixture(autouse=True)
+def _multi_mode_for_task_start(monkeypatch):
+    """These tests start several jobs or send one to a peer; the Solo/Multiplayer gate (routing.yaml) is tested in
+    tests/test_routing.py, so here the mode is multi."""
+    monkeypatch.setenv("FIELDKIT_ROUTING_MODE", "multi")

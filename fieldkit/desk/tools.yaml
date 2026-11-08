@@ -1138,7 +1138,7 @@ tools:
   effects: [reads-files, writes-files]
   safety: safe
   headline: "N incident(s) since DATE, M unknown; exit 3 when any cause is unknown."
-  platforms: [windows, linux, macos]
+  platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py"]
   notes: "Windows: one Get-WinEvent call (Kernel-Power 41/42/107/187/506/507/566, EventLog 6005/6006/6008, User32 1074, Power-Troubleshooter 1, UserModePowerService 12 counted per process per day). Linux: journalctl boots and suspend/lid/critical-temperature lines. macOS: pmset -g log. Classes: heat, power-plan reset, program sleep request (PROCESS), battery, button/lid, standby (REASON), planned, unexpected cut (cause unknown), unknown. The real cut of a 6008 is the last thermal journal line before that boot when it is later. Each unknown is one row in ZERO-OPEN-PROBLEMS.md (once per incident). Mutation plan tests/power_incidents_mutations.yaml."
 
@@ -1156,6 +1156,22 @@ tools:
   platforms: [windows]
   platforms_why: "ibmpmsvc.exe is Lenovo's Windows power service; elsewhere the check prints not-this-platform"
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py", -k, drift]
+
+- id: power-audit
+  title: "Can the machine name who started a program (R9: who ran powercfg.exe before a cut)? Checks Security 4688 process-creation auditing, command lines and read access; --write-fix writes ONE self-elevating script for the missing admin steps (one UAC prompt); --callers PROCESS lists who started it (Windows)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, audit]
+  path: ${FIELDKIT}/fieldkit/power/audit.py
+  inputs:
+    - {name: write_fix, flag: --write-fix, type: flag, required: false, help: "write state/power/enable-process-audit.ps1 for the missing admin steps"}
+    - {name: callers, flag: --callers, type: str, required: false, help: "PROCESS, e.g. powercfg.exe: creator and command line of each start, from Security 4688"}
+  effects: [reads-files, writes-files]
+  safety: safe
+  headline: "PASS, SIGN-OUT or FAIL with the missing steps; exit 3 unless PASS."
+  platforms: [windows]
+  platforms_why: "Security 4688 and Event Log Readers are Windows; elsewhere the check prints not-this-platform"
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_audit.py"]
+  notes: "The audit policy, the command-line registry flag and the Event Log Readers group are security settings: only the owner runs the script. A filtered Get-WinEvent reports 'unauthorized' as 'no events', so readability is probed unfiltered."
 
 - id: thermal-monitor
   title: "Keep the processor cool while something heavy runs (a build): lowers the CPU cap when hot, speaks, puts it back (Windows and Linux)"
@@ -5862,12 +5878,12 @@ tools:
   notes: "Owner 2026-11-01: built in = properly integrated (docs/INTEGRATION.md). Rules per surface are data: fieldkit/integration/surfaces.yaml. One line per missing surface with the file to fix."
 
 - id: capture
-  title: Zero-loss capture of every script, command and procedure an agent makes or runs - kept at first use with its context, failed attempts linked to their fix, found again by words, never discarded
+  title: Capture of the scripts, commands and procedures an agent makes or runs, only while a lesson is taught (capture on --lesson WHY --for MINUTES, capture off, capture state) - kept with its context, failed attempts linked to their fix, found again by words
   harness: method
   entry: [python, -m, fieldkit, capture]
   path: ${FIELDKIT}/fieldkit/capture
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "hook | scan | find | ledger | verify | status | self-test"}
+    - {name: action, flag: null, type: str, required: true, help: "hook | scan | find | ledger | verify | status | coverage | episodes | distill | weaktest | workflow | self-test"}
     - {name: agent, flag: --agent, type: str, required: false, help: "hook: claude | gemini | opencode (the agent's hook JSON arrives on stdin)"}
     - {name: words, flag: null, type: str, required: false, help: "find: words every record must contain"}
     - {name: strict, flag: --strict, type: bool, required: false, help: "ledger: exit 3 if any item is lost, unaccounted or stuck"}
@@ -5877,9 +5893,9 @@ tools:
   output: own
   exits: {2: "bad usage, or a part that a later job builds (scan, other self-test flags)", 3: "verify or strict ledger found a loss, a broken chain or an unaccounted item; a self-test failed"}
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py", "${FIELDKIT}/tests/capture/test_weaktest.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
+  notes: "P18: `capture workflow list|show|offer` serves the distilled recipes one step at a time (sentence, command, check) and the prompt hook offers the one a request matches; `capture weaktest [--model ID]` measures every recipe against the sitrep reader rules and a small LM Studio model. Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
 
 - id: version-sync
   title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program
@@ -6493,21 +6509,25 @@ tools:
   entry: [python, -m, fieldkit, rotate]
   path: ${FIELDKIT}/fieldkit/tokens/rotate.py
   inputs:
-    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor, rule], help: "LEAVE EMPTY for check. handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]; rule prints the block for agents with no hook"}
+    - {name: action, flag: null, type: str, required: false, choices: [check, handover, finished, log, doctor, rule, endcheck, successor], help: "LEAVE EMPTY for check. successor --brief F --title T --origin user|session: a VISIBLE successor; refused (session-started turn) = an owner line, a note to Zero, headless Sonnet only last; handover needs --transcript or --session, --title, --next (--done, --not-verified); finished [--gh] [--exclude ID]; rule prints the block for agents with no hook; endcheck --transcript PATH: a turn may end only with no open PR it mentioned unless a ci-wait runs for it (exit 0 / 3)"}
     - {name: hours, flag: --hours, type: float, required: false, help: "check/finished: sessions active in the last N hours (24 / 72)"}
     - {name: source, flag: --source, type: str, required: false, help: "check: one agent only: all (default), claude-code, antigravity, codex, gorilla-opencode, generic, ibm-bob"}
     - {name: cwd, flag: --cwd, type: str, required: false, help: "check: only sessions working in this folder or under it"}
     - {name: newest, flag: --newest, type: flag, required: false, help: "check: only the most recently active session (an agent asking about itself)"}
     - {name: install, flag: --install, type: str, required: false, help: "rule: add the rule block to this instruction file (AGENTS.md, GEMINI.md); idempotent"}
     - {name: json, flag: --json, type: flag, required: false, help: "check/handover/finished: JSON"}
+    - {name: transcript, flag: --transcript, type: str, required: false, help: "endcheck: the session's transcript file (its .jsonl)"}
+    - {name: brief, flag: --brief, type: str, required: false, help: "successor: the successor's brief file"}
+    - {name: title, flag: --title, type: str, required: false, help: "successor/handover: the session title"}
+    - {name: origin, flag: --origin, type: str, required: false, choices: [user, session], help: "successor: who started this turn: the owner (user) or another session's message (session)"}
   effects: [reads-files, writes-files]
   safety: reversible
   output: own
-  exits: {1: "check: a session is WARN / handover: PLAN.md not found (note written, plan not)", 2: "check: a session is ROTATE", 3: "session not found"}
+  exits: {0: "endcheck: no open PR without a ci-wait running", 1: "check: a session is WARN / handover: PLAN.md not found (note written, plan not)", 2: "check: a session is ROTATE", 3: "session not found"}
   platforms: [windows, linux, darwin]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py", "${FIELDKIT}/tests/test_rotate_agents.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_rotate.py", "${FIELDKIT}/tests/test_rotate_agents.py", "${FIELDKIT}/tests/test_budget.py", "${FIELDKIT}/tests/test_ci_wake.py"]
   skill: skills/fieldkit-token-audit/SKILL.md
-  notes: "Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 250k WARN / 350k ROTATE tokens per call (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. 1.1.0 (2026-10-26): also measures OpenAI Codex, Gorilla OpenCode and the generic JSONL contract (IBM Bob: not measured, no verified format, doctor says WARN); agents with no hook get the rule block (rotate rule --install FILE: ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md) and the run guard (core/preflight.py) names any session over a line; doctor lists measured/triggered per agent. Mutations: tests/rotate_mutations.yaml, tests/rotate_agents_mutations.yaml."
+  notes: "1.2.0 (2026-11-03, owner): the session budget (fieldkit/tokens/budget.py): the budget is the ROTATE line (the worse of context and dollars). At 50%: 'you are at half the budget'. At 90%: 'you used N tokens, stop writing: I am preparing the handover and starting a new VISIBLE session automatically'; the tool writes the handover, the successor's brief (state/rotate/briefs/) and the archive list; the session starts the successor (a script cannot press start_session). Session names '[TAG] #NN HH:MM job' from state/rotate/counter.json. The end-of-turn guard `rotate endcheck` (fieldkit/method/ci_wake.py): an open PR the session mentioned without a running `ship ci-wait` fails; a finished ci-wait wakes the session that started it. Owner 2026-10-26: 'you should periodically get rid of the monster sessions and create new ones that costs less'. Defaults: context 120k WARN / 150k ROTATE tokens per call (owner 2026-11-02: a 300k-context Zero burned the quota) (the session's own last call, not a subagent's), $40 WARN / $75 ROTATE per session; override under 'rotate' in fieldkit.local.json. The room hook (UserPromptSubmit + PostToolUse) carries the line, so no session has to remember to ask; inside an autopilot job the budget hook denies all but the checkpoint and job.py restarts from HANDOFF.md in a NEW session (max_rotations 5). Verdicts: state/rotate/verdicts.jsonl; handovers: a dated PLAN.md section + state/coordination/rotate-*.md. Never edits or deletes a transcript; finished sessions are reported, the Desktop agent archives them. --gh is the only network: the local gh asks GitHub for the state of PRs a session mentioned. 1.1.0 (2026-10-26): also measures OpenAI Codex, Gorilla OpenCode and the generic JSONL contract (IBM Bob: not measured, no verified format, doctor says WARN); agents with no hook get the rule block (rotate rule --install FILE: ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md) and the run guard (core/preflight.py) names any session over a line; doctor lists measured/triggered per agent. Mutations: tests/rotate_mutations.yaml, tests/rotate_agents_mutations.yaml."
 - id: zero
   title: "The agent net, the military way - 'Zero has been established': one net control station (Zero) for every agent session, an epoch that fences a second Zero out (split-brain refused), a 2IC for failover, check-ins on a lease (comms check / radio check), roll calls answered with a fixed sitrep, LATE / SILENT / MISSING stations on the PLAN.md Board and in the owner inbox, a dead cable revived, clocks compared, an append-only hash-chained net log with acked, retried messages; the command layer: orders per station (objective, ground, done), ground claims enforced by the PreToolUse hook (a write on another station's ground or outside its own is refused), drift and idle-without-done flagged by the scheduled check, a station idle asked why, Zero woken only by a NEW finding (the 2IC through the inbox when Zero is silent), orders carried across rotation. Also `fieldkit net VERB`."
   harness: core
@@ -6543,6 +6563,24 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_zero_friction.py"]
   skill: skills/fieldkit-lifecycle/SKILL.md
   notes: "Owner 2026-10-26: 'the other linux machine asked for my approval. this should not have happened. We want zero friction.' Reads the Claude desktop app's session records and transcripts (read-only; of a session's environment ONLY CLAUDE_CODE_HOST_SESSION_ID is read, never its token), the link inbox, the owner inbox, link.yaml approvals and the sealed mandates (verified once per file version, cached in state/lifecycle). Network: the household link only (cable, HMAC-signed): verb friction, answered read-only by each peer. Zero tokens. Mutations: tests/zero_friction_mutations.yaml."
+
+- id: route
+  title: "Solo or Multiplayer and the model router - the owner accepts a mode (solo = one job at a time, nothing on another device; multi = up to 3) and the strongest model (haiku, sonnet, opus, fable) once a day; every `task start` then scores the brief's risk and runs it on the cheapest model that needs, never above the accepted one; a failed round climbs one rung up to the ceiling; a job that needs Fable is parked in the owner inbox"
+  harness: core
+  entry: [python, -m, fieldkit, route]
+  path: ${FIELDKIT}/fieldkit/lifecycle/routing.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [status, choose, assess], help: "LEAVE EMPTY for status. choose --mode solo|multi --model haiku|sonnet|opus|fable is the daily accept; assess BRIEF.md shows the model a brief would get"}
+    - {name: mode, flag: --mode, type: str, required: false, choices: [solo, multi], help: "choose: solo (default) or multi"}
+    - {name: model, flag: --model, type: str, required: false, help: "choose: the strongest model a job may use"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {2: "bad mode or model"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_routing.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-11-02: one hour of 7 parallel jobs and a 300k-context Opus session burned the 5-hour quota; 'Solo' and 'Multiplayer', the owner picks the model, the harness routes down on its own (risk score, cascade, fallback), Fable only parked for approval. Data: fieldkit/lifecycle/routing.yaml (words, thresholds, caps). State: state/lifecycle/mode.json (the accept, valid one day; without it solo + sonnet), routing.jsonl (every decision). Deterministic, no network, no model: LiteLLM, Portkey, RouteLLM and Langfuse were not adopted because each is a vendor door; the same router, cascade and fallback are a score and a table here. `task start --model M --pin` keeps M exactly. The cost guard (models.py) still checks the owner's ceiling first. Mutations: tests/routing_mutations.yaml."
 
 - id: board
   title: "Board rows - every finished session has its row in state/coordination/PLAN.md (plan R3): check counts sessions with a row / all for a day and lists each one without, add writes the row from the session's own transcript (title, id, branch, PRs, cost), no model"

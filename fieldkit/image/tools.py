@@ -37,7 +37,11 @@ def find(name, local=None, which=shutil.which):
     configured = ((local.get("image") or {}).get("tools") or {}).get(name)
     if configured:
         return which(configured)            # a configured path that is not a program is 'absent', not a PATH guess
-    return which(name)
+    found = which(name)
+    if found:
+        return found
+    from .fetch import install_dir      # a pinned download made by `fieldkit image fetch`
+    return which(str(install_dir() / name))
 
 
 def version(path, name, run=subprocess.run):

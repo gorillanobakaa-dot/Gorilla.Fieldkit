@@ -62,6 +62,10 @@ class FakeGH:
         self._prs, self.comments, self.ci, self.merges, self.updates = {}, {}, {}, [], []
         self.crash_on_ci = set()
         self.lag, self.pending = 0, {}
+        self.required, self.register_after, self.polls = set(), 0, {}   # R17: GitHub registers checks late
+        self.merge_refusals, self.early, self.during_ci = 0, 0, []
+        git(self.srv, "config", "user.name", "github")
+        git(self.srv, "config", "user.email", "github-fixture")
 
     def head(self, branch):
         out = git(self.bare, "rev-parse", f"refs/heads/{branch}", check=False)
@@ -122,15 +126,37 @@ class FakeGH:
         if sha in self.crash_on_ci:
             self.crash_on_ci.discard(sha)
             raise KeyboardInterrupt("the train crashed while waiting for CI")
+        if self.during_ci:
+            self.during_ci.pop(0)()
         return self.ci.get(sha, "green"), f"fake CI {self.ci.get(sha, 'green')} for {sha[:10]}"
 
     def wait_checks(self, n, timeout):
         pass
 
+    def required_checks(self, base="main"):
+        return set(self.required)
+
+    def check_runs(self, sha):
+        self.polls[sha] = self.polls.get(sha, 0) + 1
+        if self.polls[sha] <= self.register_after:
+            return []
+        return [{"name": k, "status": "completed", "conclusion": "success"} for k in sorted(self.required)]
+
+    def behind(self, n):
+        r = subprocess.run(["git", "-C", str(self.bare), "merge-base", "--is-ancestor", "refs/heads/main",
+                            f"refs/heads/{self._prs[n]['headRefName']}"], capture_output=True)
+        return r.returncode != 0
+
     def merge(self, n, head):
         br = self._prs[n]["headRefName"]
         if self.head(br) != head:
             return False, "Head branch was modified. Review and try the merge again."
+        if self.merge_refusals:
+            self.merge_refusals -= 1
+            return False, "Repository rule violations found - 2 of 2 required status checks are expected."
+        if self.required and self.polls.get(head, 0) <= self.register_after:
+            self.early += 1
+            return False, "Repository rule violations found - 2 of 2 required status checks are expected."
         if not self._srv_merge("main", br):
             return False, "conflict"
         self._prs[n]["state"] = "MERGED"
@@ -497,3 +523,103 @@ def test_hook_prints_test_names_with_lf_and_forward_slashes(tmp_path, monkeypatc
     assert mp.main(["hook", "--repo", str(tmp_path)]) == 0
     out.flush()
     assert raw.getvalue() == b"tests/a.py\ntests/b.py\n"
+
+
+# -- R17: the train against GitHub's real behaviour --------------------------------------------------------------------
+def _no_identity(monkeypatch, tmp_path):
+    """No git identity anywhere: not in env, not in HOME, not in the system config (the CI runner of #304)."""
+    for k in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(k, raising=False)
+    (tmp_path / "emptyhome").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "emptyhome"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "emptyhome"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+
+
+def test_the_local_update_merge_carries_its_own_identity(world, monkeypatch):
+    w, gh = world, world["gh"]
+    a = session_pr(w, 1, "feat/a", "b.txt")
+    b = session_pr(w, 2, "feat/b", "y.txt")
+    for n, d in ((1, a), (2, b)):
+        train.ready(d, n, gh)
+    zero = w["clone"]("zero")
+    _no_identity(monkeypatch, w["tmp"])
+    monkeypatch.setattr(mp, "gh_noreply", lambda repo=".": ("octo", "7+octo@users.noreply.github.com"))
+    r = run_train(w, zero)
+    assert gh.merges == [1, 2], r
+    work = train.clone_for(zero)
+    assert git(work, "log", "-1", "--format=%ae", "refs/remotes/origin/feat/b") == "7+octo@users.noreply.github.com"
+
+
+def test_identity_prefers_the_repos_config_then_gh_then_a_fixed_noreply(world, monkeypatch):
+    d = world["clone"]("who")
+    _no_identity(monkeypatch, world["tmp"])
+    monkeypatch.setattr(mp, "gh_noreply", lambda repo=".": None)
+    assert "user.email=" + mp.FALLBACK_IDENTITY[1] in mp.identity(d)
+    monkeypatch.setattr(mp, "gh_noreply", lambda repo=".": ("octo", "7+octo@users.noreply.github.com"))
+    assert "user.email=7+octo@users.noreply.github.com" in mp.identity(d)
+    git(d, "config", "user.name", "Me")
+    git(d, "config", "user.email", "me-fixture")
+    assert mp.identity(d) == ["-c", "user.name=Me", "-c", "user.email=me-fixture"]
+
+
+def test_the_train_waits_for_the_required_checks_to_register(world):
+    w, gh = world, world["gh"]
+    d = session_pr(w, 1, "feat/a", "b.txt")
+    train.ready(d, 1, gh)
+    gh.required, gh.register_after = {"windows", "ubuntu"}, 4        # GitHub registers them 4 reads after the head
+    r = run_train(w, w["clone"]("zero"))
+    assert gh.merges == [1] and gh.early == 0, r
+    assert gh.polls[gh.head("feat/a")] > 4, "the train never read the check runs of the head"
+
+
+def test_a_required_checks_refusal_is_recorded_and_retried_not_reported(world, monkeypatch):
+    w, gh = world, world["gh"]
+    d = session_pr(w, 1, "feat/a", "b.txt")
+    train.ready(d, 1, gh)
+    gh.merge_refusals = 2                                              # the rules could not be read: GitHub refuses twice
+    seen = []
+    monkeypatch.setattr(train, "_record_refusal", lambda repo, n, msg: seen.append((n, msg)))
+    r = run_train(w, w["clone"]("zero"))
+    assert gh.merges == [1] and len(seen) == 2 and "required status checks" in seen[0][1], (r, seen)
+
+
+def test_a_required_check_that_failed_is_never_merged(world):
+    w, gh = world, world["gh"]
+    d = session_pr(w, 1, "feat/a", "b.txt")
+    train.ready(d, 1, gh)
+    gh.required = {"windows"}
+    gh.check_runs = lambda sha: [{"name": "windows", "status": "completed", "conclusion": "failure"}]
+    r = run_train(w, w["clone"]("zero"))
+    assert gh.merges == [] and "required checks red" in r["left"][0]["why"], r
+
+
+def test_required_state_reads_missing_pending_red_ok():
+    run = lambda name, st="completed", c="success": {"name": name, "status": st, "conclusion": c}
+    assert train.required_state({"a", "b"}, [run("a")]) == ("missing", ["b"])
+    assert train.required_state({"a"}, [run("a", "in_progress", None)]) == ("pending", ["a"])
+    assert train.required_state({"a"}, [run("a", c="failure")]) == ("red", ["a"])
+    assert train.required_state({"a"}, [run("a")]) == ("ok", [])
+
+
+def test_main_moving_during_ci_means_update_first_not_a_merge_attempt(world):
+    w, gh = world, world["gh"]
+    d = session_pr(w, 1, "feat/a", "b.txt")
+    train.ready(d, 1, gh)
+    other = w["clone"]("other")
+
+    def main_moves():                                  # the PR is green, then main moves: BEHIND
+        (other / "notes.txt").write_text("n\n", encoding="utf-8")
+        git(other, "add", "notes.txt")
+        git(other, "commit", "-q", "--no-verify", "-m", "notes")
+        git(other, "push", "-q", "origin", "main")
+    gh.during_ci = [main_moves]                        # main moves while the first CI read runs
+    real_merge = gh.merge
+
+    def merge(n, head):
+        assert not gh.behind(n), "a merge was tried while the PR was BEHIND"
+        return real_merge(n, head)
+    gh.merge = merge
+    r = run_train(w, w["clone"]("zero"))
+    assert gh.merges == [1], r

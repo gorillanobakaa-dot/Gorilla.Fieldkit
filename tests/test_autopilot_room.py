@@ -116,7 +116,7 @@ def test_doctor_reports_the_missing_hooks_and_prints_the_change(tmp_path):
     s = tmp_path / "settings.json"
     s.write_text(json.dumps({"hooks": {}}), encoding="utf-8")
     r = room.doctor(s, python="py")
-    assert not r["ok"] and set(r["missing"]) == {"PreToolUse", "UserPromptSubmit"} and r["stale"] == []
+    assert not r["ok"] and set(r["missing"]) == {"PreToolUse", "UserPromptSubmit", "Stop"} and r["stale"] == []
     s.write_text(json.dumps({"hooks": r["snippet"]}), encoding="utf-8")
     assert room.doctor(s, python="py")["ok"]
 
@@ -135,13 +135,14 @@ def test_doctor_apply_makes_one_process_per_tool_call_and_keeps_every_other_hook
         "Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}, "model": "x"}
     s.write_text(json.dumps(old), encoding="utf-8")
     r = room.doctor(s, python="py")
-    assert not r["ok"] and r["missing"] == ["PreToolUse"] and r["stale"] == ["PostToolUse"]
+    assert not r["ok"] and r["missing"] == ["PreToolUse", "Stop"] and r["stale"] == ["PostToolUse"]
     code, lines = room.apply(s, python="py", keep_dir=tmp_path / "keep")
     assert code == 0 and "checked: ROOM HOOKS OK" in lines
     new = json.loads(s.read_text(encoding="utf-8"))
     assert new["hooks"]["PreToolUse"][0]["matcher"] == room.TOOL_MATCH
     assert new["hooks"]["PostToolUse"] == [{"matcher": old["hooks"]["PostToolUse"][0]["matcher"], "hooks": [other]}]
-    assert new["hooks"]["Stop"] == old["hooks"]["Stop"] and new["model"] == "x"
+    assert new["hooks"]["Stop"][0] == old["hooks"]["Stop"][0] and new["model"] == "x"
+    assert "fieldkit.tokens.rotate --stop-hook" in new["hooks"]["Stop"][1]["hooks"][0]["command"]
     assert json.loads(next((tmp_path / "keep").iterdir()).read_text(encoding="utf-8")) == old   # copied aside
     assert room.apply(s, python="py", keep_dir=tmp_path / "keep")[0] == 0                 # nothing left to change
     assert len(list((tmp_path / "keep").iterdir())) == 1
@@ -259,7 +260,7 @@ def test_a_prompt_on_a_computer_whose_relay_is_deaf_says_how_to_start_it(monkeyp
     """2026-10-28, owner: "make it FULL WORKING": 100 cable notes sat stored and unheard on the VAIO."""
     from fieldkit.peers import link, link_relay
     monkeypatch.setattr(room, "_relay", REAL_RELAY)                 # conftest turns it off for every other test
-    for f in ("_net", "_hog", "_rotate", "_plan"):
+    for f in ("_net", "_hog", "_rotate", "_plan", "_workflows", "_refusals"):
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
     monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
     monkeypatch.setattr(link, "household", lambda: {"me": "vaio"})

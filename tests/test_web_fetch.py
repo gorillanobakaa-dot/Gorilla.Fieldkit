@@ -553,3 +553,19 @@ def test_no_install_or_download_path():
     assert "pip" not in src.replace("pipe", "").replace("pump", "") or "pip install" not in src
     assert "urlretrieve" not in src and "geckodriver-v" not in src
     assert base64 and hashlib                                  # (the websocket handshake uses both)
+
+
+def test_gorilla_build_is_not_drivable(tmp_path):
+    # P6: Gorilla builds lock the remote agent in code, so no driver method is offered (by name, marker file or ini)
+    assert discover.method_for("gecko", "158.0", gorilla=True)[0] == ""
+    assert "not drivable" in discover.method_for("gecko", "158.0", gorilla=True)[1]
+    exe = tmp_path / "firefox.exe"
+    exe.write_text("")
+    assert not discover.is_gorilla("Mozilla Firefox", str(exe))
+    (tmp_path / "gorilla-install.json").write_text("{}")
+    assert discover.is_gorilla("Mozilla Firefox", str(exe))
+    assert discover.row("Mozilla Firefox", exe, "t", version="158.0")["method"] == ""
+    (tmp_path / "gorilla-install.json").unlink()
+    (tmp_path / "application.ini").write_text("[App]\nCodeName=Gorilla Unleashed\nVersion=158.0\n")
+    assert discover.is_gorilla("Mozilla Firefox", str(exe))
+    assert discover.row("Firefox", exe, "t")["method"] == ""
