@@ -31,6 +31,7 @@ fieldkit pipeline status debian-kernel
 ## When a build fails
 
 ```
+fieldkit triage checks --kind install|release   # stored install/release checks (old icon shadowing, stale icon cache, rolling URL, push refused); `triage self-test --kind install` proves them
 fieldkit triage LOG --set auto          # or firefox-windows | firefox-linux | debian-kernel | debian-packaging | agent-shell
 ```
 

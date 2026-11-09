@@ -339,14 +339,14 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pipeline.py"]
 
 - id: triage
-  title: Name a build failure from its log (Firefox, kernel, Debian packaging)
+  title: Name a build, install or release failure from its log, and run the stored checks (old icon shadowing the new one, stale GNOME icon cache, rolling download URL deleted, push refused by the mandate); `triage self-test --kind install|release` proves they fire
   harness: build
   entry: [python, -m, fieldkit, triage]
   path: ${FIELDKIT}/fieldkit/build/triage.py
   inputs:
     - {name: log, flag: null, type: str, required: true, help: "the build or install log file"}
     - {name: set, flag: --set, type: str, required: false, help: "rule set",
-       choices: [auto, firefox-windows, debian-kernel, debian-packaging, agent-shell]}
+       choices: [auto, firefox-windows, debian-kernel, debian-packaging, install, release, agent-shell]}
   effects: [reads-files]
   safety: read-only
   platforms: [windows, linux]

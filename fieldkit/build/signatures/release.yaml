@@ -1,0 +1,26 @@
+# Release failures: what stops a publish or a published release from verifying, as data.
+# See install.yaml for the shape. `triage self-test --kind release` proves each check fires.
+success:
+- 'release verify: OK'
+
+signatures:
+- id: rolling-upstream-url
+  pattern: '404.*releases/download/(latest|nightly|rolling|continuous|edge)|rolling upstream'
+  check: rolling-url
+  whole_log: true
+  sample: 'curl: (22) The requested URL returned error: 404 https://github.com/o/r/releases/download/nightly/app.tar.gz'
+  cause: >-
+    A script or recipe downloads from a rolling release tag (latest, nightly, rolling...). Upstream deletes and
+    recreates those, so the URL and its bytes change or vanish.
+  fix: Pin a versioned tag and verify the sha256, or mirror the file as our own release asset.
+
+- id: headless-push-refused
+  pattern: 'GORILLA_OWNER_APPROVED|mandate.*(refus|blocked)|push (refused|blocked) by .*hook'
+  check: branch-mandate
+  whole_log: true
+  sample: 'pre-push hook: push refused by the mandate; GORILLA_OWNER_APPROVED is not set'
+  cause: >-
+    The owner-wide mandate allows pushes only from feat/ fix/ release- night/ branches through fieldkit ship push.
+    A raw git push, or a push from another branch name (main, wip/, a detached HEAD), is refused.
+  fix: >-
+    Commit on a feat/ or fix/ branch and run fieldkit ship push --auto. Never set GORILLA_OWNER_APPROVED.
