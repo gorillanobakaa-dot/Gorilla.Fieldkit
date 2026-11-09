@@ -152,7 +152,9 @@ def trace(pid, seconds):
         return {"error": NEEDS_ADMIN, "needs_admin": True, "events": []}
     r = subprocess.run([sys.executable, str(WINTRACE), "opensnoop", "--seconds", str(int(float(seconds))),
                         "--pid", str(int(pid)), "--yes", "--json"], capture_output=True, text=True, timeout=300)
-    return {"events": r.stdout.splitlines()[-200:], "error": r.stderr.strip()[:200] or None}
+    err = r.stderr.strip()[:200] or ("wintrace is not ready (the elevate kit is missing): run wintrace doctor"
+                                      if "NOT READY" in r.stdout else None)
+    return {"events": r.stdout.splitlines()[-200:], "error": err}
 
 
 def usage(pid, seconds):

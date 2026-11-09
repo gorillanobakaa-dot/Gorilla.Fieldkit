@@ -92,6 +92,8 @@ def test_usage_samples_this_process():
 def test_trace_answers_or_says_it_needs_admin():
     import shutil
     import subprocess
+    if not sys.platform.startswith("linux"):
+        pytest.skip("this fixture is strace on Linux; the Windows trace needs administrator and the elevate kit")
     if not shutil.which("strace"):
         pytest.skip("strace not installed")
     c = subprocess.Popen([sys.executable, "-c", "import time\nwhile True:\n open('/etc/hostname').close();time.sleep(.1)"])
