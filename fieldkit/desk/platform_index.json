@@ -3120,6 +3120,17 @@
    "ship-push-tag"
   ]
  },
+ "ship tags": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "ship-tags"
+  ]
+ },
  "ship train": {
   "platforms": [
    "darwin",

@@ -117,6 +117,11 @@ fieldkit ship status        where the branch stands
 fieldkit ship push          sync a squash-merged branch (merge -s ours, tree unchanged) and push; never forces
 fieldkit ship push --tag vX a NEW tag on a commit GitHub has (or that this push carries); never moves a tag
 fieldkit ship gh-release vX -- ARGS   gh release create --verify-tag, the repository from git, CI green
+fieldkit ship prune [--archive-unproven]   delete remote branches proven merged; a delete a hook refuses is a DO row with git's words
+fieldkit ship tags [--repo R | --all] [--fix-local]   every tag classed (release / version-no-release / archive / other), only real
+                            candidates flagged (unreachable, duplicate, local-only); GitHub tags are never deleted by an agent: the
+                            owner command is printed; --fix-local removes only local tags never pushed
+fieldkit ship prune|audit|tags --all   every non-archived repo of the owner (local clone, else scratch), one before/after table
 fieldkit strikes recount BRANCH   whose red: own / main / unproven per head (a failed test run on the merge base with main); a strike is only an own one
 fieldkit mandate doctor     the owner-wide mandate: in force, days left, keys, every covered hook honoring the gate
 ```
