@@ -113,3 +113,40 @@ def test_temp_folders_are_removed():
     seen = []
     accept.run_job(job("see-file"), "m", agent=lambda p, f, m, t: seen.append(f) or "MARMALADE")
     assert seen and not seen[0].exists()
+
+
+def test_miss_row_keeps_what_the_model_ran():
+    reply = "I did it.\n--- what actually ran (recorded) ---\nbash: del junk.tmp -> error"
+    row = accept.run_job(job("see-file"), "m", agent=lambda p, f, m, t: reply)
+    assert row["result"] == "MISS" and "bash: del junk.tmp" in row["ran"]
+    assert accept.ran_record("plain reply") == ""
+
+
+def test_cloud_model_carries_only_its_own_provider(tmp_path, monkeypatch):
+    import json
+    home = tmp_path / "home"
+    d = home / ".config" / "gorilla-opencode"
+    d.mkdir(parents=True)
+    (d / "config.json").write_text(json.dumps({"providers": {"cloudA": {"apiKey": "k1"}, "cloudB": {"apiKey": "k2"}}}))
+    (d / "cloudA-oauth.json").write_text("{}")
+    monkeypatch.setattr(accept.Path, "home", lambda: home)
+    accept.isolated_env(tmp_path / "e", "cloudA.some-model")
+    out = tmp_path / "e" / "config" / "gorilla-opencode"
+    assert json.loads((out / "config.json").read_text())["providers"] == {"cloudA": {"apiKey": "k1"}}
+    assert (out / "cloudA-oauth.json").exists()
+    accept.isolated_env(tmp_path / "f", "local.some-model")
+    assert "providers" not in json.loads((tmp_path / "f" / "config" / "gorilla-opencode" / "config.json").read_text())
+
+
+def test_setup_png_is_a_valid_png(tmp_path):
+    import struct
+    import zlib
+    accept._make(tmp_path / "a.png", "png:")
+    data = (tmp_path / "a.png").read_bytes()
+    pos = 8
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    while pos < len(data):
+        n = struct.unpack(">I", data[pos:pos + 4])[0]
+        body = data[pos + 4:pos + 8 + n]
+        assert struct.unpack(">I", data[pos + 8 + n:pos + 12 + n])[0] == zlib.crc32(body)
+        pos += 12 + n
