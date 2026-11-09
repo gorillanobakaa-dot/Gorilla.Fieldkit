@@ -268,6 +268,9 @@ def main(argv=None):
             return rc
         print("models gguf FILE|URL [--file NAME] [--bandwidth GBPS] [--json]: dense or MoE, active parameters, expected tokens/s")
         return 2
+    if argv[:1] == ["tune"]:                         # P22: host analysis, right load settings, lms load
+        from . import tune
+        return tune.main(argv)
     if argv[:1] == ["table"]:
         tab = success_table()
         if "--json" in argv:
@@ -283,6 +286,8 @@ def main(argv=None):
         print("models report [--json]: counts per device and day from the spend ledger\n"
               "models table [--json]: success rate per model and job type (plan P9)\n"
               "models gguf FILE|URL: before loading a local model, dense or MoE and the expected speed (P21)\n"
+              "models tune MODEL [--apply]: analyse this machine and the GGUF, pick the load settings, load through lms (P22)\n"
+              "              models tune --record MODEL --first-word S --tps N | --report | --host\n"
               "models bandwidth [--measure]: this machine's memory bandwidth")
         return 2
     try:

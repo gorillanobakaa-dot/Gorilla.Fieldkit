@@ -1190,6 +1190,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_models_gguf.py"]
   notes: "Rules: MoE = expert_count > 0, an expert tensor (_exps), or moe in the architecture name; active parameters = non-expert tensors + experts_used/experts of the expert tensors; bytes per token = active tensor bytes (ggml block sizes) minus the embedding table when a separate output matrix exists; tokens/s = bandwidth / bytes per token; FAST >= 15, USABLE >= 5, else SLOW. Network only for a URL the caller types (https, Range requests of 1 MiB blocks, a server that ignores Range is refused; the host sees the request). Bandwidth: python copy benchmark counting read+write bytes, cached in state/models/bandwidth.json (`models bandwidth --measure` to redo; run heavy re-measures under `fieldkit guard --` on the Windows laptop). Split GGUF shards say their totals are partial. Estimate, never a promise: 2026-11-09 dense 27B IQ4_XS 1.3 t/s estimated against about 1 t/s measured. Mutation plan tests/models_gguf_mutations.yaml (8/8); a network test runs only with FIELDKIT_NET_TESTS=1."
 
+- id: models-tune
+  title: "Make a local model start fast: analyse this host (performance and efficiency cores, GPU and its VRAM, free RAM, measured memory bandwidth) and the model's GGUF, pick the load settings (context sized to the job, threads, GPU offload, KV-cache type, flash attention, MTP/draft) with a reason each, and with --apply load it through LM Studio's lms and verify with lms ps; --record / --report keep first-word time and tokens/s per run"
+  harness: build
+  entry: [python, -m, fieldkit, models, tune]
+  path: ${FIELDKIT}/fieldkit/lifecycle/tune.py
+  inputs:
+    - {name: model, flag: null, type: str, required: false, help: "a .gguf path, or part of a model's name under LM Studio's models folder"}
+    - {name: context, flag: --context, type: str, required: false, help: "context tokens the job needs (default 32768, never the model maximum)"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "load it through lms load with those settings and check lms ps"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: caution
+  headline: "host line, then context / threads / gpu / kv cache / flash attention / mtp each with its reason, expected RAM held, NEXT."
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_models_tune.py"]
+  notes: "Rules are data (fieldkit/lifecycle/tune.yaml): context = the job's need (default 32k) never the model maximum and shrunk until the f16 KV cache fits 15 % of free RAM; threads = performance cores only; GPU offload only to a discrete GPU with at least 2 GB VRAM (an iGPU shares system RAM); KV cache q8_0 when model + KV exceed 60 % of RAM; flash attention on; MTP when the GGUF has next-token-prediction tensors and 4 GB RAM is left. --apply reads `lms load --help` live and passes only flags it prints (never guessed). No network, no telemetry. Not measured on Windows or macOS by this card's author: the Windows core-type reader (GetLogicalProcessorInformationEx) and the PowerShell VRAM reader are tested only on their parsers."
+
 - id: power-drift
   title: "Check that the Lenovo power service (ibmpmsvc.exe) never put the laptop to sleep during work in the last N days and that the sleep button is off on AC; --apply turns the sleep button off without admin and records before/after (Windows)"
   harness: thermal

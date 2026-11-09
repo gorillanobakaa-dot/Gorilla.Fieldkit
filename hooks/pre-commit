@@ -175,9 +175,7 @@ if [ -z "$SKIP" ] && [ -z "$FIELDKIT_FULL_SUITE" ] && [ -n "$KEY" ]; then
   if [ "$SPL_RC" = "1" ]; then
     echo "pre-commit: a test share failed on another device - commit refused"; rm -f "$SPL"; exit 1
   fi
-  AGAIN="$(tr -d '
-' <"$SPL" | tr '
-' ' ')"; rm -f "$SPL"
+  AGAIN="$(tr -d '\r' <"$SPL" | tr '\n' ' ')"; rm -f "$SPL"
   if [ "$SPL_RC" = "10" ] && [ -n "$AGAIN" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf $AGAIN >"$OUT" 2>&1; then
     tail -20 "$OUT"
     echo "pre-commit: the test files no device vouched for failed here - commit refused"
