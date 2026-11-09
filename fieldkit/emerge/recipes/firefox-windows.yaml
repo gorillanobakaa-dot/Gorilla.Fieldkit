@@ -34,8 +34,7 @@ stages:
   bootstrap: {uses: [toolchain, config], needs: [source]}
   patches-check: {uses: [sources, patches, config], needs: [bootstrap], bucket: tests}
   patches: {uses: [sources, patches, config], needs: [patches-check]}
-  generated: {uses: [sources, patches, config, inputs], inputs: ["{harness}/harness/*.py"], needs: [patches]}
-  build: {uses: [sources, patches, config, toolchain], needs: [generated]}
+  build: {uses: [sources, patches, config, toolchain], needs: [patches]}
   package: {uses: [sources, patches, config], needs: [build], outputs: ["{harness}/state/artifacts.json"]}
   restore-power: {always_run: true, bucket: tools}
 extra_stages:

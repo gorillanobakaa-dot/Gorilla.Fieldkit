@@ -153,3 +153,19 @@ signatures:
   source: Gorilla.firefox status logs 2026-09-09
   cause: The calibrated thermal profile is invalid - the temperature sensor did not respond to load during calibration.
   fix: Re-run calibrate with a sensor that responds to load before any capped build.
+
+- id: newtab-sources-unpatched
+  pattern: "None of the bundle's sources are patched"
+  check: null
+  source: firefox-windows emerge 2026-11-09 (158 tree, stage generated)
+  cause: >-
+    The generated stage guards a newtab bundle rebuild by checking that
+    Base.jsx, DiscoveryStreamBase.jsx and TopSites.jsx differ from git HEAD.
+    The 158 patch set has no patch for those sources or for the bundle (git diff
+    against the upstream base commit is empty for all four), so there is nothing
+    Gorilla to carry into a rebuild and the guard rightly halts. It is not a
+    patches-stage fault (that stage did run).
+  fix: >-
+    The generated stage is removed from the firefox-windows pipeline and recipe
+    for 158; the upstream bundle ships as is. Bring it back only with a patch
+    that changes those JSX sources.
