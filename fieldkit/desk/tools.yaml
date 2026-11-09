@@ -1173,6 +1173,23 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_investigate.py"]
   notes: "Rules: a cut below 50 C or below 40 % load is not heat, not load; battery health below 70 % is a suspect; a UserModePowerService 12 storm (10+ a day by ipf_uf.exe, WUDFHost.exe, powercfg.exe) is a suspect; a driver or firmware install since the first cut minus 7 days is a suspect; TPFanControl running at a cut (it writes the embedded controller) is a suspect; hardware (charger, cable, board) is the residual. Windows reads battery, daemons, changes and fan control; elsewhere those rows say not-this-platform."
 
+- id: models-gguf
+  title: "Before a local model is loaded: read its GGUF header (a file, or a Hugging Face URL by HTTP range, header bytes only) and say dense or MoE, total and active parameters, bits per weight, MTP/vision notes and the expected tokens/s on THIS machine from its measured memory bandwidth, with a FAST / USABLE / SLOW verdict"
+  harness: build
+  entry: [python, -m, fieldkit, models, gguf]
+  path: ${FIELDKIT}/fieldkit/lifecycle/gguf.py
+  inputs:
+    - {name: source, flag: null, type: str, required: true, help: "a .gguf file, a https .gguf URL, or a Hugging Face repo link"}
+    - {name: file, flag: --file, type: str, required: false, help: "which .gguf of a repo"}
+    - {name: bandwidth, flag: --bandwidth, type: str, required: false, help: "memory bandwidth in GB/s (default: measured once, cached in state/models/)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, network, writes-files]
+  safety: safe
+  headline: "arch -> dense|MoE, N B total / M B active, ESTIMATE X tokens/s, VERDICT FAST|USABLE|SLOW."
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_models_gguf.py"]
+  notes: "Rules: MoE = expert_count > 0, an expert tensor (_exps), or moe in the architecture name; active parameters = non-expert tensors + experts_used/experts of the expert tensors; bytes per token = active tensor bytes (ggml block sizes) minus the embedding table when a separate output matrix exists; tokens/s = bandwidth / bytes per token; FAST >= 15, USABLE >= 5, else SLOW. Network only for a URL the caller types (https, Range requests of 1 MiB blocks, a server that ignores Range is refused; the host sees the request). Bandwidth: python copy benchmark counting read+write bytes, cached in state/models/bandwidth.json (`models bandwidth --measure` to redo; run heavy re-measures under `fieldkit guard --` on the Windows laptop). Split GGUF shards say their totals are partial. Estimate, never a promise: 2026-11-09 dense 27B IQ4_XS 1.3 t/s estimated against about 1 t/s measured. Mutation plan tests/models_gguf_mutations.yaml (8/8); a network test runs only with FIELDKIT_NET_TESTS=1."
+
 - id: power-drift
   title: "Check that the Lenovo power service (ibmpmsvc.exe) never put the laptop to sleep during work in the last N days and that the sleep button is off on AC; --apply turns the sleep button off without admin and records before/after (Windows)"
   harness: thermal

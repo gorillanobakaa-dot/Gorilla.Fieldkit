@@ -1805,7 +1805,9 @@ def build_parser():
                        ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
                                  "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
                        ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
-                                  "(models report; fieldkit/lifecycle/models.py)"),
+                                  "(models report); models gguf FILE|URL: dense or MoE, active parameters and the expected "
+                                  "tokens/s on this machine before a local model is loaded "
+                                  "(fieldkit/lifecycle/models.py, gguf.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "

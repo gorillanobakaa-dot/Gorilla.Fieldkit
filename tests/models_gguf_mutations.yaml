@@ -1,0 +1,42 @@
+# P21 (2026-11-09): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/models_gguf_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_models_gguf.py
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '    moe = n_exp > 0 or "moe" in arch.lower() or has_exps'
+  - '    moe = False'
+  why: MoE is told from dense
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '            share = min(cls["experts_used"], cls["experts"]) / cls["experts"]'
+  - '            share = 1.0'
+  why: only the used share of the experts is active
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '    return "FAST" if tps >= FAST_TPS else "USABLE" if tps >= USABLE_TPS else "SLOW"'
+  - '    return "USABLE"'
+  why: the verdict has three outcomes
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '    return gbps * 1e9 / bytes_per_token'
+  - '    return gbps * 1e9 / (bytes_per_token * 2)'
+  why: speed is bandwidth over bytes read per token
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '    if "output.weight" in names:'
+  - '    if False:'
+  why: the embedding lookup is not read per token
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '            s.skip(n * struct.calcsize(_SCALAR[et]))          # numeric tables: never fetched'
+  - '            s.read(n * struct.calcsize(_SCALAR[et]))'
+  why: numeric tables are never fetched
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '            if status == 200 and len(data) > CHUNK:'
+  - '            if False:'
+  why: a server that ignores Range is refused
+- file: fieldkit/lifecycle/gguf.py
+  swap:
+  - '    if s.read(4) != MAGIC:'
+  - '    if False:'
+  why: a non-GGUF is refused
