@@ -22,6 +22,8 @@
     fieldkit ship audit  [--offline]       is the work on main, is the checkout on main, is main released (shiprelease.py)
     fieldkit ship release vX.Y.Z [--scaffold]   tag and publish, only when main, CI, version and notes all agree
     fieldkit ship prune  [--archive-unproven]   delete remote branches git or GitHub prove merged; one source of truth
+    fieldkit ship tags   [--repo R | --all] [--fix-local]   tags classed, only real candidates flagged; never deletes on GitHub
+    fieldkit ship prune|audit --all        every non-archived repo of the owner, one before/after table (shiptags.py)
     fieldkit ship update [--base main]     merge origin/main into the branch the train's way: generated files
                                            regenerated, cards merged entry by entry, proven only a merge (mergeproof.py)
     fieldkit ship proof OURS THEIRS [R]    what each path of a merge is; exit 0 only a merge
@@ -558,7 +560,7 @@ def main(argv=None, prog="fieldkit ship"):
         from . import mergeproof
         return mergeproof.main([PROOF[argv[0]], *argv[1:]], f"{prog} {argv[0]}")
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune",
+    ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune", "tags",
                                        "gh-release", "release-ready", *TRAIN, *PROOF])
     ap.add_argument("--tag", dest="push_tag", help="push: this NEW tag (never moved) instead of the branch")
     ap.add_argument("--auto", action="store_true",
@@ -570,6 +572,9 @@ def main(argv=None, prog="fieldkit ship"):
     ap.add_argument("--offline", action="store_true", help="audit: git only, no network")
     ap.add_argument("--archive-unproven", action="store_true",
                     help="prune: save a branch whose work is not proven on the base as tag archive/<branch>, then delete it")
+    ap.add_argument("--all", action="store_true", dest="all_repos",
+                    help="prune, audit, tags: every non-archived repo of the owner (local clone, else a scratch clone), one table")
+    ap.add_argument("--fix-local", action="store_true", help="tags: remove local tags that were never pushed (git tag -d)")
     ap.add_argument("--scaffold", action="store_true", help="release: write the missing note files and stop")
     ap.add_argument("--wait", type=int, default=900, help="release: seconds to wait for the published release")
     ap.add_argument("--add", nargs="+", default=[], metavar="FILE",
@@ -607,6 +612,19 @@ def main(argv=None, prog="fieldkit ship"):
             ap.error("commit needs --message-file F")
         r = shipcommit.commit(a.repo, a.message_file)
         emit(r, a.json, shipcommit.lines)
+        return 0 if r["ok"] else 3
+    if a.all_repos and a.action not in ("audit", "prune", "tags"):
+        ap.error("--all is for audit, prune and tags")
+    if a.action == "tags" or (a.all_repos and a.action in ("audit", "prune")):
+        from . import shiptags as st
+        from . import shiprelease as sr
+        if a.all_repos:
+            r = st.run_all(a.action, archive_unproven=a.archive_unproven)
+            emit(r, a.json, lambda d: [f"SHIP {a.action.upper()} --ALL {'OK' if d['ok'] else 'NOT OK'}"] + st.all_lines(d))
+            st.cleanup(r)
+        else:
+            r = st.tags(a.repo, fix_local=a.fix_local)
+            emit(r, a.json, lambda d: [f"SHIP TAGS {'OK' if d['ok'] else 'NOT OK'}"] + sr.lines(d))
         return 0 if r["ok"] else 3
     if a.action in ("audit", "release", "prune"):
         from . import shiprelease as sr

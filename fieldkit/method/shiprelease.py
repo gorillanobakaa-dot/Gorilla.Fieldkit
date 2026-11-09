@@ -234,6 +234,13 @@ def _local_leftovers(repo, base, row):
         "unpushed: push and open a pull request (fieldkit ship push); merged: git branch -d NAME (refuses unmerged)")
 
 
+def _why(r):
+    """git's own words for a refused push (git's generic 'failed to push' line dropped)."""
+    ls = [l.strip() for l in (r.stderr or r.stdout or "").splitlines() if l.strip()]
+    ls = [l for l in ls if not l.startswith(("error: failed to", "To "))] or ls
+    return " | ".join(ls)[:300] or f"exit {r.returncode}"
+
+
 def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
     """One source of truth (owner 2026-10-16: 'only what is necessary, too many branches, a single source of truth').
     Deletes on the remote: branches fully merged into origin/<base> (git proves it), and branches whose pull request
@@ -259,10 +266,13 @@ def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
         if "OPEN" in states:
             continue
         (stale if "MERGED" in states or content_on_base(repo, line, base) else unproven).append(name)
-    deleted, archived, kept = [], [], []
+    deleted, archived, kept, refused = [], [], [], []
     for b in merged + stale:
-        if git(repo, "push", "--quiet", "origin", "--delete", b).returncode == 0:
+        r = git(repo, "push", "--quiet", "origin", "--delete", b)
+        if r.returncode == 0:
             deleted.append(b)
+        else:                                               # a hook or GitHub refused: say so, never drop it (2026-11-09)
+            refused.append((b, _why(r)))
     for b in unproven:
         if not archive_unproven:
             kept.append(b)
@@ -287,7 +297,11 @@ def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
              f"{len(kept)} branch(es) with work not proven on {base}, kept: {', '.join(kept)}",
              "run": "" if not kept else "look at each, or: fieldkit ship prune --archive-unproven"},
             {"check": "local", "state": "OK", "say": f"{len(local)} merged local branch(es) removed"}]
-    return {"ok": not kept, "rows": rows, "deleted": deleted, "archived": archived, "kept": kept, "local": local}
+    for b, why in refused:
+        rows.append({"check": "refused", "state": "DO", "say": f"delete of {b} on the remote was refused: {why}",
+                     "run": "a repository hook or GitHub rule refuses it (owner mandate): never bypassed; the owner deletes it"})
+    return {"ok": not kept and not refused, "rows": rows, "deleted": deleted, "archived": archived, "kept": kept,
+            "local": local, "refused": [{"branch": b, "why": w} for b, w in refused]}
 
 
 def package_version(repo):
