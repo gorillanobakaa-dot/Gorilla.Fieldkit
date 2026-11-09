@@ -97,3 +97,20 @@ def test_git_output_is_decoded_as_utf8(tmp_path):
     subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
                     "--allow-empty", "-m", "\u0150 check"], check=True)
     assert ship.git(tmp_path, "log", "-1", "--format=%s").stdout.strip() == "\u0150 check"
+
+
+def test_content_on_base_handles_a_diff_with_emoji(tmp_path):
+    # 2026-11-09: `ship prune --all` crashed on pfind and code-review-toolkit: the diff (with an emoji) went to
+    # `git apply` through cp1252 (UnicodeEncodeError). A branch whose emoji change is on the base must read as on the base.
+    from fieldkit.method import shiprelease as sr
+    clone = _origin_and_clone(tmp_path)
+    _g(clone, "switch", "-q", "-c", "feat/emoji")
+    (clone / "e.md").write_text("robot \U0001f916\n", encoding="utf-8")
+    _g(clone, "add", "e.md")
+    _g(clone, "commit", "-q", "-m", "emoji")
+    _g(clone, "push", "-q", "origin", "feat/emoji")
+    _g(clone, "switch", "-q", "main")
+    _g(clone, "cherry-pick", "feat/emoji")
+    _g(clone, "push", "-q", "origin", "main")
+    _g(clone, "fetch", "-q", "origin")
+    assert sr.content_on_base(clone, "origin/feat/emoji", "main") is True

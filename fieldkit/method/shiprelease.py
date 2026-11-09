@@ -43,7 +43,7 @@ MAX_DAYS = 7
 
 def _gh(args, timeout=60):
     try:
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, str(e)
     return (r.stdout if r.returncode == 0 else None), (r.stderr or "").strip()
@@ -94,7 +94,7 @@ def content_on_base(repo, ref, base="main"):
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(d) / "index")}
         subprocess.run(["git", "-C", str(repo), "read-tree", f"origin/{base}"], env=env, capture_output=True)
         r = subprocess.run(["git", "-C", str(repo), "apply", "--cached", "--check", "-R", "-"], input=diff, env=env,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")   # cp1252 crashed on emoji (2026-11-09)
     return r.returncode == 0
 
 
