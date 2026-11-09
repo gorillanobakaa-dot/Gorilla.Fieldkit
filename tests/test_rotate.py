@@ -498,3 +498,46 @@ def test_archived_ids_reads_the_desktop_records(tmp_path, monkeypatch):
                                         encoding="utf-8")
     monkeypatch.setenv("FIELDKIT_CLAUDE_APP_DIRS", str(tmp_path / "app"))
     assert rotate.archived_ids() == {"cli-a"}
+
+
+# ---------------------------------------------------------------- owner 2026-11-09: the permanent Zero never rotates
+
+def _zero_list(tmp_path, monkeypatch, stems):
+    f = tmp_path / "pz.json"
+    f.write_text(json.dumps({"transcripts": stems}), encoding="utf-8")
+    monkeypatch.setenv("FIELDKIT_PERMANENT_ZERO", str(f))
+
+
+def test_permanent_zero_is_exempt_only_by_listed_stem(tmp_path, monkeypatch):
+    _zero_list(tmp_path, monkeypatch, ["zero1"])
+    tp0 = _said(tmp_path, "ROTATE", stem="zero1")
+    tp1 = _said(tmp_path, "ROTATE", stem="other")
+    assert rotate.stop_refusal(pre(tp0, "Bash", command="python -m pytest tests")) is None
+    assert rotate.stop_refusal(pre(tp1, "Bash", command="python -m pytest tests")).startswith("SESSION ROTATION STOP")
+
+
+def test_permanent_zero_gets_no_rotate_line_others_do(tmp_path, monkeypatch):
+    _zero_list(tmp_path, monkeypatch, ["zero"])
+    monkeypatch.setattr(rotate, "config", lambda: {**CFG, "hook_every_s": 0})
+    for name, want in (("zero", False), ("other", True)):
+        tp = monster(tmp_path, name=name)
+        out = rotate.hook_line({"transcript_path": str(tp)}, "UserPromptSubmit")
+        assert ("ROTATE" in out) is want, (name, out)
+
+
+def test_permanent_zero_stop_hook_never_blocks(tmp_path, monkeypatch, capsys):
+    import io
+    _zero_list(tmp_path, monkeypatch, ["zero"])
+    called = []
+    for name in ("zero", "other"):
+        tp = monster(tmp_path, name=name)
+        rotate.stop_hook(io.StringIO(json.dumps({"transcript_path": str(tp)})),
+                         state_fn=lambda u: called.append(name) or "OPEN", alive=lambda p: False)
+    assert "zero" not in called
+
+
+def test_shipped_permanent_zero_list_names_session_zero(monkeypatch):
+    monkeypatch.delenv("FIELDKIT_PERMANENT_ZERO", raising=False)
+    from fieldkit.tokens import rotate_stop
+    assert rotate_stop.permanent_zero("407131e1-ce0d-40e5-bc4e-e373a9749717")
+    assert not rotate_stop.permanent_zero("407131e1")
