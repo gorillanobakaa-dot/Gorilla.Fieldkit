@@ -426,6 +426,10 @@ def apply(model_key, s, rules=None, run=_run, lms=None):
     lms = lms or find_lms()
     if not lms:
         return False, ["lms (LM Studio's command line) was not found: install it from LM Studio (Developer > lms) or put it on PATH"]
+    base = model_key.split("/")[-1].lower()
+    ps0 = run([lms, "ps"]) or ""
+    if base in ps0.lower() or model_key.lower() in ps0.lower():
+        return True, ["ALREADY LOADED  lms ps lists it: never a second copy", ps0.strip()[:400]]
     help_text = run([lms, "load", "--help"])
     if not help_text:
         return False, [f"`{lms} load --help` printed nothing: flags are not guessed, nothing loaded"]

@@ -50,3 +50,8 @@
   - '    ok = base in ps.lower() or model_key.lower() in ps.lower()'
   - '    ok = True'
   why: the load is verified with lms ps
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    if base in ps0.lower() or model_key.lower() in ps0.lower():'
+  - '    if False:'
+  why: a model lms ps already lists is never loaded a second time

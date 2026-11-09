@@ -140,12 +140,16 @@ def test_a_flag_name_inside_another_flag_is_not_a_match():
     assert t.supported_flag("  --gpu <v>", ["--gpu"]) == "--gpu"
 
 
-def fake_lms(tmp_path, loaded=True):
+def fake_lms(tmp_path, loaded=True, preloaded=False):
+    """ps lists the model once a load ran (state file), or from the start when preloaded."""
     p = tmp_path / "lms"
+    st = tmp_path / "state"
+    if preloaded:
+        st.write_text("x")
     p.write_text(f"""#!/bin/sh
 case "$1" in
- load) if [ "$2" = "--help" ]; then printf '{HELP.replace(chr(10), "\\n")}'; else echo loaded; fi;;
- ps) {'echo "IDENTIFIER m/k"' if loaded else 'echo none'};;
+ load) if [ "$2" = "--help" ]; then printf '{HELP.replace(chr(10), "\\n")}'; else echo loaded >> "{tmp_path}/loads"; {'touch "' + str(st) + '"' if loaded else ':'}; fi;;
+ ps) if [ -e "{st}" ]; then echo "IDENTIFIER m/k"; else echo none; fi;;
 esac
 """)
     p.chmod(0o755)
@@ -157,8 +161,16 @@ def test_apply_verifies_with_lms_ps(tmp_path):
     s = t.decide(host(), info())["settings"]
     ok, lines = t.apply("m/k", s, R, lms=fake_lms(tmp_path))
     assert ok and any("VERIFIED" in x for x in lines) and any("NOT PASSED" in x for x in lines)
-    ok, lines = t.apply("m/k", s, R, lms=fake_lms(tmp_path, loaded=False))
+    (tmp_path / "b").mkdir()
+    ok, lines = t.apply("m/k", s, R, lms=fake_lms(tmp_path / "b", loaded=False))
     assert not ok and any("NOT VERIFIED" in x for x in lines)
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="shell stub")
+def test_a_model_already_loaded_is_never_loaded_twice(tmp_path):
+    s = t.decide(host(), info())["settings"]
+    ok, lines = t.apply("m/k", s, R, lms=fake_lms(tmp_path, preloaded=True))
+    assert ok and any("ALREADY LOADED" in x for x in lines) and not (tmp_path / "loads").exists()
 
 
 def test_apply_without_lms_says_so(monkeypatch):
