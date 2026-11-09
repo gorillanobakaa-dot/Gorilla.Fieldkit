@@ -6,22 +6,32 @@ signatures:
   pattern: .*?:\s+\-c:\s+line\s+.*?:\s+unexpected\s+eof\s+while\s+looking\s+for\s+matching\s+`''
   check: null
   source: captured
-  cause: 'Seen 16 times in captured agent sessions: cat fails with ''<P>: -c: line <N>: unexpected eof while looking for matching
+  cause: 'Seen 19 times in captured agent sessions: cat fails with ''<P>: -c: line <N>: unexpected eof while looking for matching
     `''''''.'
-  fix: 'No single fix repeats in the 16 captured cases: `fieldkit capture find` the error text to read each one.'
+  fix: 'Known fix (fieldkit triage --set agent-shell, shell-heredoc-eof): Write the script to a file with the Write tool (or
+    in the scratch root, fieldkit scratch new), then run the file. Never paste multi-line code into a one-line shell command.'
+- id: cap-ls-f338ab
+  pattern: ls:\s+cannot\s+access\s+.*?:\s+no\s+such\s+file\s+or\s+directory
+  check: null
+  source: captured
+  cause: 'Seen 13 times in captured agent sessions: ls fails with ''ls: cannot access <S>: no such file or directory''.'
+  fix: 'No single fix repeats in the 13 captured cases: `fieldkit capture find` the error text to read each one.'
 - id: cap-python-script-908cc0
   pattern: .*?:\s+\-c:\s+line\s+.*?:\s+unexpected\s+eof\s+while\s+looking\s+for\s+matching\s+`''
   check: null
   source: captured
   cause: 'Seen 13 times in captured agent sessions: python script fails with ''<P>: -c: line <N>: unexpected eof while looking
     for matching `''''''.'
-  fix: 'No single fix repeats in the 13 captured cases: `fieldkit capture find` the error text to read each one.'
-- id: cap-ls-f338ab
-  pattern: ls:\s+cannot\s+access\s+.*?:\s+no\s+such\s+file\s+or\s+directory
+  fix: 'Known fix (fieldkit triage --set agent-shell, shell-heredoc-eof): Write the script to a file with the Write tool (or
+    in the scratch root, fieldkit scratch new), then run the file. Never paste multi-line code into a one-line shell command.'
+- id: cap-python-script-32df41
+  pattern: <stdin>:.*?:\s+syntaxwarning:\s+invalid\s+escape\s+sequence\s+.*?
   check: null
   source: captured
-  cause: 'Seen 12 times in captured agent sessions: ls fails with ''ls: cannot access <S>: no such file or directory''.'
-  fix: 'No single fix repeats in the 12 captured cases: `fieldkit capture find` the error text to read each one.'
+  cause: 'Seen 5 times in captured agent sessions: python script fails with ''<stdin>:<N>: syntaxwarning: invalid escape sequence
+    <S>''.'
+  fix: 'Known fix (fieldkit triage --set agent-shell, py-invalid-escape-warning): python -m fieldkit.build.pyliterals FILE,
+    then --apply; it adds r only where the string''s value stays exactly the same.'
 - id: cap-python-script-3fb34f
   pattern: syntaxerror:\s+\(unicode\s+error\)\s+.*?\s+codec\s+can't\s+decode\s+bytes\s+in\s+position\s+.*?\-.*?:\s+truncated\s+\\uxxxxxxxx\s+escape
   check: null
@@ -50,12 +60,12 @@ signatures:
   source: captured
   cause: 'Seen 4 times in captured agent sessions: grep fails with ''ls: cannot access <S>: no such file or directory''.'
   fix: 'No single fix repeats in the 4 captured cases: `fieldkit capture find` the error text to read each one.'
-- id: cap-python-script-32df41
-  pattern: <stdin>:.*?:\s+syntaxwarning:\s+invalid\s+escape\s+sequence\s+.*?
+- id: cap-python-script-6bd4b6
+  pattern: <tool_use_error>error:\s+no\s+such\s+tool\s+available:\s+bash\.\s+tool\s+names\s+are\s+case\-sensitive:\s+call\s+bash\s+instead\.</tool_use_error>
   check: null
   source: captured
-  cause: 'Seen 4 times in captured agent sessions: python script fails with ''<stdin>:<N>: syntaxwarning: invalid escape sequence
-    <S>''.'
+  cause: 'Seen 4 times in captured agent sessions: python script fails with ''<tool_use_error>error: no such tool available:
+    bash. tool names are case-sensitive: call bash instea''.'
   fix: 'No single fix repeats in the 4 captured cases: `fieldkit capture find` the error text to read each one.'
 - id: cap-ls-5ac364
   pattern: plan\.md\s+row\s+of\s+this\s+goal,\s+and\s+in\s+the\s+inbox\s+items\s+this\s+goal\s+raised:\s+fixed,\s+with\s+a\s+test\s+that\s+fails\s+before\s+and
@@ -91,6 +101,19 @@ signatures:
   cause: 'Seen 2 times in captured agent sessions: cat fails with ''plan.md row of this goal, and in the inbox items this
     goal raised: fixed, with a test that fails bef''.'
   fix: 'No single fix repeats in the 2 captured cases: `fieldkit capture find` the error text to read each one.'
+- id: cap-echo-e1b862
+  pattern: <tool_use_error>error:\s+no\s+such\s+tool\s+available:\s+bash\.\s+tool\s+names\s+are\s+case\-sensitive:\s+call\s+bash\s+instead\.</tool_use_error>
+  check: null
+  source: captured
+  cause: 'Seen 2 times in captured agent sessions: echo fails with ''<tool_use_error>error: no such tool available: bash.
+    tool names are case-sensitive: call bash instea''.'
+  fix: 'No single fix repeats in the 2 captured cases: `fieldkit capture find` the error text to read each one.'
+- id: cap-fieldkit-guard-ae3430
+  pattern: transcript\s+ended\s+before\s+tool\s+result
+  check: null
+  source: captured
+  cause: 'Seen 2 times in captured agent sessions: fieldkit guard fails with ''transcript ended before tool result''.'
+  fix: 'No single fix repeats in the 2 captured cases: `fieldkit capture find` the error text to read each one.'
 - id: cap-git-add-5d7734
   pattern: push\-check\s+refused:\s+.*?\s+finding\(s\)\s+in\s+.*?\s+of\s+.*?\s+pushed\s+file\(s\),\s+range\s+.*?\.\..*?
   check: null
@@ -112,13 +135,6 @@ signatures:
   cause: 'Seen 2 times in captured agent sessions: harness_backup_2026-09-22_10-15-10"; fails with ''+# every backup since
     <N> october <N> reported failed (found <N> october <N>).''.'
   fix: 'No single fix repeats in the 2 captured cases: `fieldkit capture find` the error text to read each one.'
-- id: cap-python-script-6bd4b6
-  pattern: <tool_use_error>error:\s+no\s+such\s+tool\s+available:\s+bash\.\s+tool\s+names\s+are\s+case\-sensitive:\s+call\s+bash\s+instead\.</tool_use_error>
-  check: null
-  source: captured
-  cause: 'Seen 2 times in captured agent sessions: python script fails with ''<tool_use_error>error: no such tool available:
-    bash. tool names are case-sensitive: call bash instea''.'
-  fix: 'No single fix repeats in the 2 captured cases: `fieldkit capture find` the error text to read each one.'
 - id: cap-python-script-30f0e2
   pattern: internal/commands/registry\.go:.*?:\s+missing\s+.*?\s+before\s+newline\s+in\s+composite\s+literal
   check: null
@@ -132,7 +148,8 @@ signatures:
   source: captured
   cause: 'Seen 2 times in captured agent sessions: scratchpad fails with ''<P>: -c: line <N>: unexpected eof while looking
     for matching `''''''.'
-  fix: 'No single fix repeats in the 2 captured cases: `fieldkit capture find` the error text to read each one.'
+  fix: 'Known fix (fieldkit triage --set agent-shell, shell-heredoc-eof): Write the script to a file with the Write tool (or
+    in the scratch root, fieldkit scratch new), then run the file. Never paste multi-line code into a one-line shell command.'
 - id: cap-sed-6a919c
   pattern: sed:\s+\-e\s+expression\s+\#.*?,\s+char\s+.*?:\s+unknown\s+command:\s+`
   check: null

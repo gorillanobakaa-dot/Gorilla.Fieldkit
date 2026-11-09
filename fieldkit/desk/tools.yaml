@@ -339,19 +339,36 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pipeline.py"]
 
 - id: triage
-  title: Name a build failure from its log (Firefox, kernel, Debian packaging)
+  title: Name a build, install or release failure from its log, and run the stored checks (old icon shadowing the new one, stale GNOME icon cache, rolling download URL deleted, push refused by the mandate); `triage self-test --kind install|release` proves they fire
   harness: build
   entry: [python, -m, fieldkit, triage]
   path: ${FIELDKIT}/fieldkit/build/triage.py
   inputs:
     - {name: log, flag: null, type: str, required: true, help: "the build or install log file"}
     - {name: set, flag: --set, type: str, required: false, help: "rule set",
-       choices: [auto, firefox-windows, debian-kernel, debian-packaging]}
+       choices: [auto, firefox-windows, debian-kernel, debian-packaging, install, release, agent-shell]}
   effects: [reads-files]
   safety: read-only
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_triage.py"]
   supersedes: firefox-triage
+
+- id: pyliterals
+  title: Python strings with stray backslashes ("\d+", "C:\Users") - find them; --apply makes only those literals raw, and only when the value stays the same or it is a drive path
+  harness: build
+  entry: [python, -m, fieldkit, pyliterals]
+  path: ${FIELDKIT}/fieldkit/build/pyliterals.py
+  inputs:
+    - {name: files, flag: null, type: path, required: true, help: "one or more Python files"}
+    - {name: apply, flag: --apply, type: flag, required: false, help: "rewrite the fixable literals; the file must parse afterwards or nothing is written"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "nothing to fix, or every finding fixed", 1: "a file could not be read or would not parse after the fix", 3: "findings left"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pyliterals.py"]
+  notes: "P18 distill, Kiro pass (2026-11-05), trust-reviewed 2026-11-08: replaces Kiro's invalid-escape-fix and unicode-escape-fix, whose regex rewriters changed string values and overwrote in place. Reads tokens, never imports or runs the file. The fix named by triage set agent-shell (py-unicodeescape-path, py-invalid-escape-warning)."
 
 - id: privacy-scan
   title: Find secrets, personal paths, emails and private names before publishing
@@ -5877,13 +5894,31 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-11-01: built in = properly integrated (docs/INTEGRATION.md). Rules per surface are data: fieldkit/integration/surfaces.yaml. One line per missing surface with the file to fix."
 
+- id: pins
+  title: Are the helper sources of a Gorilla OpenCode tree immutable and hash-pinned? Refuses latest, nightly, rolling, autobuild, master/main archives, unversioned paths and any download without a sha256
+  harness: method
+  entry: [python, -m, fieldkit, pins]
+  path: ${FIELDKIT}/fieldkit/pins
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "check | self-test"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "check: the Gorilla OpenCode checkout"}
+    - {name: json, flag: --json, type: bool, required: false, help: "machine-readable output"}
+  effects: [reads-files]   # self-test writes a temp fixture and removes it
+  safety: reversible
+  output: own
+  exits: {2: "bad usage or not a folder", 3: "a rolling or unpinned source URL was found (check) or a break kind was not refused (self-test)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/pins/test_pins.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Goal pinned-helpers (2026-11-01): BtbN's rolling FFmpeg builds were deleted. Reads third_party/PINS.md, internal/toolbox/SHA256SUMS, scripts/build-toolbox.*, scripts/fetch-toolbox-extras.sh."
+
 - id: capture
-  title: Zero-loss capture of every script, command and procedure an agent makes or runs - kept at first use with its context, failed attempts linked to their fix, found again by words, never discarded
+  title: Capture of the scripts, commands and procedures an agent makes or runs, only while a lesson is taught (capture on --lesson WHY --for MINUTES, capture off, capture state) - kept with its context, failed attempts linked to their fix, found again by words
   harness: method
   entry: [python, -m, fieldkit, capture]
   path: ${FIELDKIT}/fieldkit/capture
   inputs:
-    - {name: action, flag: null, type: str, required: true, help: "hook | scan | find | ledger | verify | status | self-test"}
+    - {name: action, flag: null, type: str, required: true, help: "hook | scan | find | ledger | verify | status | coverage | episodes | distill | weaktest | workflow | self-test"}
     - {name: agent, flag: --agent, type: str, required: false, help: "hook: claude | gemini | opencode (the agent's hook JSON arrives on stdin)"}
     - {name: words, flag: null, type: str, required: false, help: "find: words every record must contain"}
     - {name: strict, flag: --strict, type: bool, required: false, help: "ledger: exit 3 if any item is lost, unaccounted or stuck"}
@@ -5893,9 +5928,9 @@ tools:
   output: own
   exits: {2: "bad usage, or a part that a later job builds (scan, other self-test flags)", 3: "verify or strict ledger found a loss, a broken chain or an unaccounted item; a self-test failed"}
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py", "${FIELDKIT}/tests/capture/test_weaktest.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
+  notes: "P18: `capture workflow list|show|offer` serves the distilled recipes one step at a time (sentence, command, check) and the prompt hook offers the one a request matches; `capture weaktest [--model ID]` measures every recipe against the sitrep reader rules and a small LM Studio model. Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
 
 - id: version-sync
   title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program
@@ -5931,6 +5966,28 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_strikes.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner order 2026-10-29. Registry state/parked.json (git-ignored). A failed round is one red verdict on one head commit. ship ci-wait exits 4 when it parks."
+
+- id: install-verify
+  title: A program is installed the way its release says, on this computer, the peer and the Mac - the binary on PATH is the one the menu entry or shortcut launches (sha256 = the release's), every icon size installed with the release's hash, the .desktop / shortcuts / app bundle exist, caches newer than the icons, no older install shadows; self-test seeds each break
+  harness: method
+  entry: [python, -m, fieldkit, install]
+  path: ${FIELDKIT}/fieldkit/method/installverify.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "verify | self-test"}
+    - {name: product, flag: null, type: str, required: false, help: "gorilla-opencode"}
+    - {name: tag, flag: --tag, type: str, required: false, help: "the release to compare with (default: the parity pin)"}
+    - {name: proof, flag: --proof, type: str, required: false, help: "write the resolved icon paths and sha256 per size to this JSON file"}
+    - {name: peer, flag: --peer, type: bool, required: false, help: "verify the paired computer (its link listener runs the install-verify probe)"}
+    - {name: host, flag: --host, type: str, required: false, help: "verify this Mac over ssh (macair)"}
+    - {name: os, flag: --os, type: str, required: false, help: "self-test: all | linux | windows | macos"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible             # writes only the --proof JSON and the downloaded reference package
+  output: own
+  exits: {2: "bad usage or no reference", 3: "a check failed (each line names its fix)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_installverify.py", "${FIELDKIT}/tests/test_installverify_os.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-11-01 (plan W6) after an old Jul-23 icon in ~/.local/share/icons shadowed the release's in /usr/share. The reference is the release itself (its .deb, fetched from the public URL and checked against SHA256SUMS). Network: that one download. Wayland keeps the old icon in the running GNOME session until log out/in; reported as INFO. Windows reads the shortcuts with PowerShell's WScript.Shell and the exe's icon frames with pefile; macOS reads the app bundle when the release ships one. --peer sends one read-only probe over the cable link; --host sends this module to the Mac's python3 over ssh."
 
 - id: xzcheck
   title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)
@@ -6045,12 +6102,12 @@ tools:
   notes: "Owner 2026-10-31: the agent finder should find and start every program, not only Claude. Nothing found is executed to read a version (notepad --version opens Notepad): versions come from the registry, Info.plist or the file's version resource. Arguments only after --, none over the cable. Over the cable: peers link start-app NAME (signed, cable only, the peer's allow_apps in link.yaml; default the agents, gorilla-opencode, TPFanControl) and probe where NAME. Stopping is not here: by PID, as everywhere."
 
 - id: observe
-  title: "See inside the machine, the same on Linux, Windows and macOS - who has a file open or locked, who uses a port, a process in full (exe, cwd, command line, user, children, memory map), watch a folder, which files a process opens or starts, a process's CPU/memory/disk over time, system event log search"
+  title: "See inside the machine, the same on Linux, Windows and macOS - who has a file open or locked, who uses a port, a process in full (exe, cwd, command line, user, children, memory map), watch a folder, which files a process opens or starts, a process's CPU/memory/disk over time, system event log search, every connection of a process, the DNS servers a process talks to"
   harness: desk
   entry: [python, -m, fieldkit, observe]
   path: ${FIELDKIT}/fieldkit/observe/__init__.py
   inputs:
-    - {name: question, flag: null, type: str, required: true, choices: [open-file, port, proc, watch, trace, usage, events], help: "the question; then its arguments: PATH | N | PID | DIR SECONDS | PID SECONDS | PID SECONDS | WORDS"}
+    - {name: question, flag: null, type: str, required: true, choices: [open-file, port, proc, watch, trace, usage, events, conns, dns], help: "the question; then its arguments: PATH | N | PID | DIR SECONDS | PID SECONDS | PID SECONDS | WORDS | PID | PID SECONDS"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
   effects: [reads-files, processes]
   safety: safe
@@ -6058,9 +6115,9 @@ tools:
   output: own
   exits: {1: "error, no such process, or this system has no reader", 3: "trace needs administrator or root (it says so, asks nothing)"}
   platforms: [windows, linux, darwin]
-  platforms_why: 'one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run'
+  platforms_why: 'one reader per system, each returns nothing elsewhere; live fixtures (a held file, listening and connected sockets, the test PID) run on Linux and Windows 2026-11-09; the macOS reader is tested by CI and was not run on a Mac'
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_observe.py"]
-  notes: "Owner 2026-10-31 (idea I-07, plan row P10): a Qwen model could not delete a file because something held it. Linux: /proc, inotify via ctypes, strace, journalctl. Windows: Restart Manager (kits/wintrace fuser), GetExtendedTcpTable, Toolhelp, ReadDirectoryChangesW, Get-WinEvent, trace through kits/wintrace opensnoop. macOS: lsof, vmmap, fs_usage, log show; watch polls once a second (no FSEvents binding shipped). Per-process network use is not claimed on Linux (needs root and eBPF). Read-only; a process is acted on by PID, never by name. No Sysinternals."
+  notes: "Owner 2026-10-31 (idea I-07, plan row P10): a Qwen model could not delete a file because something held it. Linux: /proc, inotify via ctypes, strace, journalctl. Windows: Restart Manager (kits/wintrace fuser), GetExtendedTcpTable, Toolhelp, ReadDirectoryChangesW, Get-WinEvent, trace through kits/wintrace opensnoop. macOS: lsof, vmmap, fs_usage, log show; watch polls once a second (no FSEvents binding shipped). Per-process network use is not claimed on Linux (needs root and eBPF). conns/dns: psutil, shared by the three readers; dns is socket sampling (Windows adds the resolver cache, system-wide), not a packet trace. Read-only; a process is acted on by PID, never by name. No Sysinternals."
 
 - id: hog
   title: "The resource watchdog - RAM and commit charge, idle local models (LM Studio, Ollama) unloaded, leaks, orphaned test runners/listeners/browsers of ended sessions stopped, parents hoarding children (dozens of consoles/shells) reported, pinned CPU, heat, disk; check, act, every 5 minutes on its own, and the one preflight before builds and tests"
@@ -6258,14 +6315,35 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_metrics.py"]
   notes: "Owner 2026-10-29, idea I-01 (started on the owner's word 2026-10-30): prove the harness runs long-horizon tasks. Sources: net-log.jsonl + NET.yaml, state/rotate/handovers.jsonl, Claude Code transcripts of this machine, state/lifecycle/tasks.jsonl, fieldkit cost report (peer from its cable file), gh pr/run list. Refused = a tool_result error carrying a PreToolUse refusal; repeated = same tool + input as the call before (breaker.py). No model; network only for gh, none with --offline."
 
+- id: github
+  title: Guided, verified GitHub setup for people new to GitHub - profiles (Full Speed Ahead, Long Horizon Tasks, AI Assisted Auditing, Check My Work, First Repository, Team, Public Release, Private Backup, Freeze), plain-words explanations from data, plan (now to wanted), apply with a yes before every change and a read-back after, check against six known mistakes, undo from a snapshot
+  harness: core
+  entry: [python, -m, fieldkit, github]
+  path: ${FIELDKIT}/fieldkit/github/__init__.py
+  inputs:
+    - {name: command, type: str, required: true, help: "doctor | profiles | explain | plan | apply | check | undo | menu"}
+    - {name: target, type: str, required: false, help: "PROFILE (explain, plan, apply, check) or SNAPSHOT / latest (undo)"}
+    - {name: repo, flag: --repo, type: str, required: false, help: "OWNER/NAME (default: origin of this folder)"}
+    - {name: checks, flag: --checks, type: str, required: false, help: "required checks, comma list, instead of the ones that really ran"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [network, reads-files, writes-files]
+  safety: reversible             # apply snapshots first and undo restores; plan, check, explain, doctor only read
+  output: own
+  exits: {0: "fine", 1: "error or refused", 2: "bad usage", 3: "findings or changes pending"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_github_setup.py"]
+  skill: skills/fieldkit-github/SKILL.md
+  notes: "Owner order 2026-10-30 (G1): setting up GitHub cost an evening. Data: fieldkit/github/profiles.yaml, glossary.yaml, doctor.yaml. Only plan/check/explain/profiles/doctor are read only; apply and undo need a person's terminal (task.owner_terminal) and snapshot first to state/github/. Never handles a secret (the person logs in to gh); never deletes on GitHub (undo disables a ruleset it made). Launchers: launchers/github-setup.{cmd,sh,command}. No model."
+
 - id: overhead
   title: How much longer than the bare pre-AI build script a job took, and where the extra time went - bare work, rework, tests and gates, LLM, waiting for the owner, idle; one line per job, WARN over the budget
   harness: core
   entry: [python, -m, fieldkit, overhead]
   path: ${FIELDKIT}/fieldkit/overhead.py
   inputs:
-    - {name: job, flag: null, type: str, required: false, help: "a build-harness task (firefox-158.0, 'firefox-158.0 #2'), goal:<id>, or baselines; none = one line per known job"}
+    - {name: job, flag: null, type: str, required: false, help: "a build-harness task (firefox-158.0, 'firefox-158.0 #2'), goal:<id>, baselines, or bash-calls (every foreground Bash call in the transcripts by kind, from --since); none = one line per known job"}
     - {name: session, flag: --session, type: str, required: false, help: "a Claude Code session id (prefix) of this job, repeatable; splits LLM / tools / owner time"}
+    - {name: since, flag: --since, type: str, required: false, help: "from this date (YYYY-MM-DD); bash-calls counts only calls after it"}
     - {name: bare, flag: --bare, type: float, required: false, help: "the bare minutes when no stage log gives them"}
     - {name: state, flag: --state, type: path, required: false, help: "Fieldkit state folder (default: this checkout's state/)"}
     - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
@@ -6276,7 +6354,7 @@ tools:
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_overhead.py"]
   skill: skills/fieldkit-overhead/SKILL.md
-  notes: "Owner 2026-10-26: the bar is Gentoo Portage / his pre-AI script, a 90-minute compile + package, unattended. Baseline = the build-harness journal's own stage runs (first migration burst + longest successful compile + its package). Every second of the wall clock in exactly one bucket by priority bare > rework > tests > tools > llm > owner > idle. Sources: journal.jsonl, leak gate run folders, testcost runs.jsonl, autopilot inbox, goal events.log/CHECKPOINT.json/verdicts.jsonl, Claude Code transcripts given by --session or overhead.sessions (never guessed). Budget overhead.max_ratio (default 1.5) in fieldkit.local.json; goal status + REPORT.md show the line; board_line() is the zero-net Board's hook. Read-only, no network, no model. First real run: Firefox 158 = bare 2 h 49 min, took 62 h 55 min = 22.4x."
+  notes: "Owner 2026-10-26: the bar is Gentoo Portage / his pre-AI script, a 90-minute compile + package, unattended. Baseline = the build-harness journal's own stage runs (first migration burst + longest successful compile + its package). Every second of the wall clock in exactly one bucket by priority bare > rework > tests > tools > llm > owner > idle. Sources: journal.jsonl, leak gate run folders, testcost runs.jsonl, autopilot inbox, goal events.log/CHECKPOINT.json/verdicts.jsonl, Claude Code transcripts given by --session or overhead.sessions (never guessed). Budget overhead.max_ratio (default 1.5) in fieldkit.local.json; goal status + REPORT.md show the line; board_line() is the zero-net Board's hook. Read-only, no network, no model. First real run: Firefox 158 = bare 2 h 49 min, took 62 h 55 min = 22.4x. bash-calls (2026-11-08) folds in Kiro's bash-calls-wallclock: foreground Bash time per kind (commit hook, pytest, mutate, CI waits)."
 
 - id: skills
   title: "Agent Skills (agentskills.io, the standard Anthropic gave the Agentic AI Foundation) - every spec rule checked on every skill, network doors in adopted third-party skills, installed copies against the sources, license/compatibility aligned, third-party skills rebuilt from a pinned upstream; plus the adopted skill-creator scripts (package, benchmark, eval)"
@@ -6856,3 +6934,296 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_accept.py"]
   skill: skills/fieldkit-methods/SKILL.md
   notes: "HARNESS-PLAN P5a (owner 2026-10-31: a Qwen model could not see or delete a file). Jobs are data in fieldkit/method/accept_suite.yaml, identical on Windows and Linux (P5d); each runs in a fresh temp folder with its own gorilla-opencode config pinned to the model (the owner's live config cannot skew a row). Rows go to state/accept/results.jsonl. Mutations: tests/accept_mutations.yaml."
+
+- id: pdf-bbox-check
+  title: "Check form-field rectangles for overlap and entry height smaller than its font; reports indexes only"
+  harness: office
+  entry: [python, -m, fieldkit, office, form-bbox-check]
+  path: ${FIELDKIT}/fieldkit/office/forms.py
+  inputs:
+    - {name: fields-json, flag: null, type: path, required: true, help: "JSON containing form_fields with page and label/entry rectangles"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-input, 3: findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pdf_forms.py"]
+
+- id: pdf-fillable-check
+  title: "Count fillable PDF form fields without exposing field names or values; refuses encrypted PDFs"
+  harness: office
+  entry: [python, -m, fieldkit, office, fillable-check]
+  path: ${FIELDKIT}/fieldkit/office/forms.py
+  inputs:
+    - {name: pdf-path, flag: null, type: path, required: true, help: "local readable unencrypted PDF"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-encrypted-pdf, 3: no-fillable-fields}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pdf_forms.py"]
+
+- id: skill-frontmatter-check
+  title: "Validate a skill's Agent Skills metadata and folder contract; recommendations are errors"
+  harness: skills
+  entry: [python, -m, fieldkit, skills, validate, --strict]
+  path: ${FIELDKIT}/fieldkit/skills/spec.py
+  inputs:
+    - {name: paths, flag: null, type: list, required: false, help: "one or more skill folders (default Fieldkit skill roots)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: validation-findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py"]
+
+- id: pptx-chart-check
+  title: "Check bounded PPTX chart XML for known label-position and axis-reference failure patterns"
+  harness: office
+  entry: [python, -m, fieldkit, office, pptx-chart-check]
+  path: ${FIELDKIT}/fieldkit/office/pptx_checks.py
+  inputs:
+    - {name: presentation, flag: null, type: path, required: true, help: "local PPTX file, at most 50 MiB"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-over-limit-presentation, 3: known-chart-findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pptx_checks.py"]
+
+- id: pptx-master-check
+  title: "Check bounded PPTX master relationships for a known shared-theme failure pattern"
+  harness: office
+  entry: [python, -m, fieldkit, office, pptx-master-check]
+  path: ${FIELDKIT}/fieldkit/office/pptx_checks.py
+  inputs:
+    - {name: presentation, flag: null, type: path, required: true, help: "local PPTX file, at most 50 MiB"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-over-limit-presentation, 3: shared-theme-findings}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pptx_checks.py"]
+
+- id: pptx-schema-verdict
+  title: "Classify known fatal PowerPoint slide-schema diagnostic categories without echoing source text"
+  harness: office
+  entry: [python, -m, fieldkit, office, pptx-schema-verdict]
+  path: ${FIELDKIT}/fieldkit/office/pptx_checks.py
+  inputs:
+    - {name: diagnostics, flag: null, type: path, required: true, help: "UTF-8 diagnostics, at most 2 MiB and 100,000 lines"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: invalid-or-over-limit-diagnostics, 3: known-fatal-categories}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_pptx_checks.py"]
+
+- id: skill-package
+  title: "Package one valid skill directory into a deterministic .skill archive without overwriting existing files"
+  harness: skills
+  entry: [python, -m, fieldkit, skills, package]
+  path: ${FIELDKIT}/fieldkit/skills/adopted.py
+  inputs:
+    - {name: skill-directory, flag: null, type: path, required: true, help: "local skill folder with a valid root SKILL.md"}
+    - {name: output-directory, flag: null, type: path, required: true, help: "directory outside the source skill"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  scope: [one newly created .skill archive]
+  modes:
+    preview: [python, -m, fieldkit, skills, package, "{skill-directory}", "{output-directory}", --preview]
+    verify: [python, -m, fieldkit, skills, package, "{skill-directory}", "{output-directory}", --verify]
+  output: own
+  exits: {1: invalid-input-or-existing-mismatched-archive}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_skills.py"]
+
+- id: tools-external
+  title: "Inspect an external tool catalog's cards as data: schema, bounds, paths; never runs them, never grants trust"
+  harness: desk
+  entry: [python, -m, fieldkit, tools, external]
+  path: ${FIELDKIT}/fieldkit/desk/external.py
+  inputs:
+    - {name: catalog-dir, flag: null, type: path, required: true, help: "folder of *.card.json files (for example a distill out/tools folder)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {2: refused-input, 3: incompatible-cards-or-workflows}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_external_catalog.py"]
+
+- id: cp1252-stdout-fix
+  title: "Windows cp1252 UnicodeEncodeError in a Python script: find text-mode open()/read_text()/write_text() calls with no encoding and the missing stdout UTF-8 setting; --apply adds exactly those arguments"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, cp1252-stdout-fix]
+  path: ${FIELDKIT}/fieldkit/repair/cp1252_stdout_fix.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair cp1252-stdout-fix --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: missing-import-fix
+  title: "Find modules a Python file uses (shutil.copy, re.sub) without importing them and, with --apply, add the import after the docstring and __future__ lines; the file must still parse"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, missing-import-fix]
+  path: ${FIELDKIT}/fieldkit/repair/missing_import_fix.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair missing-import-fix --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: keep-both
+  title: "Resolve git conflict blocks in an append-only file (log, Board table) by keeping ours then theirs; --apply removes the markers; a malformed file or generated registry is refused"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, keep-both]
+  path: ${FIELDKIT}/fieldkit/repair/keep_both.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair keep-both --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: brace-parity-check
+  title: "C and C++ delimiter balance ({} () []) before a two-hour compile; comments, strings and preprocessor lines are blanked first; lexical only"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, brace-parity-check]
+  path: ${FIELDKIT}/fieldkit/repair/brace_parity_check.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair brace-parity-check --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: pwsh-syntax-check
+  title: "PowerShell .ps1 files with bash written into them (heredoc, export, $(cmd)) or unbalanced braces; also asks powershell/pwsh's own parser when present"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, pwsh-syntax-check]
+  path: ${FIELDKIT}/fieldkit/repair/pwsh_syntax_check.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair pwsh-syntax-check --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: pwsh-parent-chains
+  title: "Who opened all those consoles: the parent chain of every PowerShell, pwsh and conhost process and the parents owning the most"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, pwsh-parent-chains]
+  path: ${FIELDKIT}/fieldkit/repair/pwsh_parent_chains.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair pwsh-parent-chains --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: pid-guarded-stop
+  title: "Stop a process only when its name AND start time match the PID you meant; check by default, --stop ends it and its children"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, pid-guarded-stop]
+  path: ${FIELDKIT}/fieldkit/repair/pid_guarded_stop.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair pid-guarded-stop --help)"}
+  effects: [reads-files, processes]
+  safety: irreversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: worktree-classify-recycle
+  title: "Classify git worktrees against origin/main and PR state (merged, open-pr, unmerged, +dirty); lists only clean merged ones as recyclable, with the command; deletes nothing"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, worktree-classify-recycle]
+  path: ${FIELDKIT}/fieldkit/repair/worktree_classify_recycle.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair worktree-classify-recycle --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: plan-row-insert
+  title: "Insert one Board or Waiting row into a markdown file before an anchor line that must match exactly one line; --apply writes"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, plan-row-insert]
+  path: ${FIELDKIT}/fieldkit/repair/plan_row_insert.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair plan-row-insert --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: evidence-macho-extract
+  title: "Mach-O binary (thin or universal): cpu, minimum macOS and loaded dylibs from the header alone; fails when it asks for newer than --max-minos (Mac 10.13 release check)"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, evidence-macho-extract]
+  path: ${FIELDKIT}/fieldkit/repair/evidence_macho_extract.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair evidence-macho-extract --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: tpfan-config-verify
+  title: "TPFanControl.ini: switch the Active= mode safely and verify TPFanControl.exe against a caller-given SHA-256 pin"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, tpfan-config-verify]
+  path: ${FIELDKIT}/fieldkit/repair/tpfan_config_verify.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair tpfan-config-verify --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."

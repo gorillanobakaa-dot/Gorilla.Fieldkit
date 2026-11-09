@@ -1,9 +1,12 @@
 """fieldkit capture: zero-loss capture of everything an agent makes or runs (owner, 2026-11-01).
 
-    fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal; always exit 0
+    fieldkit capture on --lesson WHY [--for MINUTES]          capture only while teaching one lesson (default 120 min, max 24 h)
+    fieldkit capture off                                     hooks out, periodic scan disabled; the default way to run
+    fieldkit capture state [--json] [--check]                on / off / expired, the lesson, hooks and schedule found
+    fieldkit capture hook --agent claude|gemini|opencode     one hook event on stdin -> the journal (only while on); exit 0
     fieldkit capture scan                                    (not built yet)
     fieldkit capture find WORDS... [--json]                  records matching every word, with full context
-    fieldkit capture ledger [--json] [--strict]              every item and its state; --strict exits 3 on a loss
+    fieldkit capture ledger [--json] [--strict] [--closed]   every item and its state; --strict exits 3 on a loss, --closed also while any is open
     fieldkit capture verify [--json]                         hash chain, duplicates, blobs, orphan events
     fieldkit capture status [--json]                         last capture, store size, hook install state
     fieldkit capture coverage [--json]                       every agent's transcripts on this computer: read, or listed with a reason
@@ -11,6 +14,9 @@
     fieldkit capture episodes [--dry-run] [--json]           store episodes (session + request -> ordered steps) in the journal
     fieldkit capture distill pairs|refusals|intents [--apply]  P18 stages 2-4 (no model): signatures, refusal table, intent groups
     fieldkit capture distill recipes --intent release [--name] [--apply]  P18 stage 5: align an intent group into a recipe
+    fieldkit capture classify [--apply] [--json]             P18 stage 8: every open item gets a final state with evidence
+    fieldkit capture weaktest [--model ID] [--json]         P18 stage 6: recipes vs the sitrep rules and a small local model
+    fieldkit capture workflow list|show ID|offer REQUEST    P18 stage 7: the recipes one step at a time; the one a request matches
     fieldkit capture self-test --first-use|--context|--failed|--before-processing|--crash
 
 The store is state/capture/ (override: FIELDKIT_CAPTURE_DIR), append-only, hash-chained, fsync per record. Nothing is
@@ -46,6 +52,9 @@ def _emit(a, data, lines):
 def cmd_hook(a):
     try:
         text = sys.stdin.buffer.read().decode("utf-8", "replace")
+        from . import switch
+        if not switch.is_on():                             # off or expired: record nothing (owner, 2026-11-08)
+            return 0
         from . import hook
         hook.handle(a.agent, text)
     except Exception as exc:                               # noqa: BLE001 - the agent never sees a failure
@@ -74,14 +83,18 @@ def cmd_ledger(a):
     s.recover()
     led = s.ledger()
     bad = led["lost"] + led["unaccounted"] + led["stuck"]
+    if a.closed:
+        bad = bad + led["outstanding"]
     led["next"] = ("fix what is listed in lost / unaccounted / stuck" if bad else
                    f"{len(led['outstanding'])} item(s) wait for a worker" if led["outstanding"] else "nothing to do")
     lines = [f"{len(led['items'])} items, {led['hook_events_total']} hook events, {led['deduplicated']} repeats counted, "
              f"{len(led['outstanding'])} outstanding"]
+    if bad and a.closed and led["outstanding"] and not (led["lost"] or led["unaccounted"] or led["stuck"]):
+        led["next"] = "`fieldkit capture classify --apply` gives every open item a final state with evidence"
     for k in ("lost", "unaccounted", "stuck"):
         lines += [f"{k.upper()}: {i}" for i in led[k]]
     _emit(a, led, lines)
-    return 3 if (a.strict and bad) else 0
+    return 3 if ((a.strict or a.closed) and bad) else 0
 
 
 def cmd_verify(a):
@@ -229,6 +242,42 @@ def cmd_distill(a):
     return 0
 
 
+def cmd_classify(a):
+    from . import classify as C
+    s = st.Store()
+    s.recover()
+    marks, rules = C.classify(s)
+    data = {"open_items": len(marks), "rules": rules, "written": C.apply(s, marks) if a.apply else 0,
+            "next": "`fieldkit capture ledger --closed`" if a.apply else "rerun with --apply to write the states"}
+    _emit(a, data, [f"open items: {len(marks)}", f"rules: {rules}", f"written: {data['written']}"])
+    return 0
+
+
+def cmd_weaktest(a):
+    from . import weaktest as W
+    res = W.run(W.load_recipes(), model=a.model)
+    _emit(a, res, W.lines(res))
+    return 3 if any(r["reader"]["failed"] or r.get("model", {}).get("wrong") for r in res["recipes"]) else 0
+
+
+def cmd_workflow(a):
+    from . import workflows as WF
+    if a.what == "list":
+        lines = WF.list_lines()
+    elif a.what == "offer":
+        line = WF.offer_line(" ".join(a.words))
+        lines = [line or "no recipe matches this request"]
+        return _emit(a, {"offer": line}, lines) or 0
+    else:
+        d = WF.load().get(a.words[0] if a.words else "")
+        if not d:
+            print("no such workflow; `fieldkit capture workflow list`")
+            return 2
+        lines = WF.show_lines(d)
+    _emit(a, {"lines": lines}, lines)
+    return 0
+
+
 def cmd_selftest(a):
     from . import selftest
     chosen = [k for k in selftest.TESTS if getattr(a, k)]
@@ -249,6 +298,14 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="action", required=True)
     h = sub.add_parser("hook", help="journal one agent hook event from stdin")
     h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode"])
+    on = sub.add_parser("on", help="capture for one lesson, for a fixed time")
+    on.add_argument("--lesson", required=True, help="what the harness is being taught")
+    on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 1440)")
+    on.add_argument("--json", action="store_true")
+    sub.add_parser("off", help="stop capture: hooks out, scan disabled").add_argument("--json", action="store_true")
+    sw = sub.add_parser("state", help="is capture on, for which lesson, until when")
+    sw.add_argument("--json", action="store_true")
+    sw.add_argument("--check", action="store_true", help="exit 3 unless capture is off and no hook is left")
     sub.add_parser("scan", help="(not built yet)").add_argument("rest", nargs="*")
     f = sub.add_parser("find", help="records matching every word")
     f.add_argument("words", nargs="+")
@@ -260,6 +317,7 @@ def main(argv=None):
             p.add_argument("--peer", action="store_true", help="the same on the Linux computer (not built yet)")
         if name == "ledger":
             p.add_argument("--strict", action="store_true", help="exit 3 if any item is lost, unaccounted or stuck")
+            p.add_argument("--closed", action="store_true", help="like --strict, and exit 3 while any item is still open (P18 stage 8)")
     c = sub.add_parser("coverage")
     c.add_argument("--json", action="store_true")
     c.add_argument("--strict", action="store_true", help="exit 3 if a transcript has tool calls but no captured item")
@@ -273,6 +331,16 @@ def main(argv=None):
     dd.add_argument("--name", action="store_true", help="recipes: one Sonnet call (spend guard, dollar cap) writes the sentences")
     dd.add_argument("--apply", action="store_true", help="write the states, the data file and the intents")
     dd.add_argument("--json", action="store_true")
+    cl = sub.add_parser("classify", help="P18 stage 8: a final state with evidence for every open item")
+    cl.add_argument("--apply", action="store_true")
+    cl.add_argument("--json", action="store_true")
+    w = sub.add_parser("weaktest", help="P18 stage 6: recipes against the sitrep rules and a small local model")
+    w.add_argument("--model", help="LM Studio model id to load, ask and unload (heavy: run under fieldkit guard)")
+    w.add_argument("--json", action="store_true")
+    wf = sub.add_parser("workflow", help="P18 stage 7: serve the recipes, offer the one that matches a request")
+    wf.add_argument("what", choices=["list", "show", "offer"])
+    wf.add_argument("words", nargs="*")
+    wf.add_argument("--json", action="store_true")
     t = sub.add_parser("self-test", help="prove capture in a sandbox store")
     from . import selftest
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
@@ -280,8 +348,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.action == "scan":
         return _not_built("scan")
+    if a.action in ("on", "off", "state"):
+        from . import switch
+        return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)
     return {"hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
-            "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "self-test": cmd_selftest}[a.action](a)
+            "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+# R16 (2026-11-02): fieldkit mutate --plan tests/size_next_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_size_next_names_fieldkit.py
+- file: fieldkit/desk/size.py
+  swap:
+  - '    if any(a in PLAN_SUBS for a in argv[:1]):'
+  - '    if False:'
+  why: recycle/apply/undo output goes through the renamer
+- file: fieldkit/desk/size.py
+  swap:
+  - '    return p.wait()'
+  - '    return 0'
+  why: the program's exit code is kept

@@ -184,6 +184,28 @@ def test_put_retries_by_itself_after_a_drop(here):
     assert r["ok"] and r["attempts"] == 2 and r["resumed_bytes"] > 0, r
 
 
+def test_a_file_that_shrank_after_the_manifest_is_listed_again_on_retry(here):
+    src = make_tree(here / "tree")
+    (src / ".git").mkdir()
+    cfg = src / ".git" / "config"
+    cfg.write_bytes(b"x" * 100)
+    real = lt.manifest_for
+    calls = []
+
+    def manifest(p):
+        calls.append(p)
+        out = real(p)
+        if len(calls) == 1:
+            cfg.write_bytes(b"x" * 99)                        # git rewrote its config after the listing
+        return out
+    lt.manifest_for = manifest
+    try:
+        r = lt.put_stream(src, retries=2, connect=receiver(), sleep=lambda s: None)
+    finally:
+        lt.manifest_for = real
+    assert r["ok"] and r["attempts"] == 2 and len(calls) == 2, r
+
+
 def test_a_damaged_byte_is_caught_by_sha256_discarded_and_resent_next_time(here):
     src = here / "one.bin"
     src.write_bytes(os.urandom(200_000))

@@ -466,6 +466,10 @@ class Emerge:
         tail += "".join(f"\n{m}" for m in entry.get("verify") or [] if m.startswith("FAIL"))
         if entry.get("triage"):
             tail += f"\ntriage: {json.dumps(entry['triage'], default=str)[:1500]}"
+        if not passed:
+            from ..build import failure_checks
+            tail += "".join("\n" + ln for kind in ("install", "release")
+                            for ln in failure_checks.lines(failure_checks.run(kind, {"branch": ""})))
         outs = []
         if passed:
             try:

@@ -114,3 +114,9 @@ anything captured was lost, and `capture verify` checks the hash chain.
 convert, OCR, probe a video, each through `gorilla-opencode -p` in a fresh folder with its own config pinned to the
 model. The judge reads the disk (a model's "done" is never believed); a missing program is SKIP. Same jobs on Windows
 and Linux (HARNESS-PLAN P5); rows land in state/accept/results.jsonl.
+
+More tools by job: `fieldkit web browsers` (card web-browsers: every installed browser), `fieldkit web fetch URL` (card web-fetch: a page as text),
+`fieldkit web search WORDS` (card web-search: the Gorilla OpenCode engines), `fieldkit web doctor` (card web-doctor: which browsers cannot be driven
+and the fix), `fieldkit app NAME` (find and start a program), `fieldkit observe` (open files, ports, processes),
+`fieldkit rules` (the core rules as data, linted), `fieldkit review` (the owner's one review of parked ideas and
+inbox items).

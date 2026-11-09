@@ -38,6 +38,7 @@ CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fa
 
 ## An xz archive you made or ship (.xz, .tar.xz, a .deb)
 ```
+fieldkit install verify PRODUCT [--peer|--host macair] | self-test [--os all]   installed as its release says on Linux (GNOME), Windows (shortcuts, .ico, exe icon) and macOS (bundle, .icns): binary, every icon size, caches, nothing older shadowing; parity align and the release cycle call it
 fieldkit xzcheck FILE... [--cap-mib 128]     dictionary = what the content needs (not more, not less); unpacks within the cap
 ```
 Never "improve" compression with a bigger `dict=`: past the content's size it adds no bytes saved, only memory every
@@ -62,6 +63,8 @@ contrast check sees that failure).
 ```
 fieldkit integration check --repo PATH [--changed BASE]   one line per missing surface, with the file to fix; exit 3 = gaps
 fieldkit integration self-test --kind opencode|fieldkit   seeds one omission per surface; exit 0 = every one caught
+fieldkit pins check --repo OPENCODE   refuses rolling (latest, nightly, master) or sha256-unpinned helper URLs; exit 3 = findings
+fieldkit pins self-test               seeds each break kind in a fixture; exit 0 = every one refused
 ```
 Rules per surface are data: `fieldkit/integration/surfaces.yaml`. Run `--changed origin/main` before committing a new
 helper, tool or command.

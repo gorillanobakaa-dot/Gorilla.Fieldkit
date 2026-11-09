@@ -1666,6 +1666,17 @@
    "friction"
   ]
  },
+ "github": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "github"
+  ]
+ },
  "goal": {
   "platforms": [
    "linux",
@@ -1913,6 +1924,17 @@
   "why": "",
   "ids": [
    "inbox"
+  ]
+ },
+ "install": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "install-verify"
   ]
  },
  "integration": {
@@ -2230,7 +2252,7 @@
    "linux",
    "windows"
   ],
-  "why": "one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run",
+  "why": "one reader per system, each returns nothing elsewhere; live fixtures (a held file, listening and connected sockets, the test PID) run on Linux and Windows 2026-11-09; the macOS reader is tested by CI and was not run on a Mac",
   "ids": [
    "observe"
   ]
@@ -2263,6 +2285,61 @@
   "why": "",
   "ids": [
    "office-deliver"
+  ]
+ },
+ "office fillable-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-fillable-check"
+  ]
+ },
+ "office form-bbox-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pdf-bbox-check"
+  ]
+ },
+ "office pptx-chart-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-chart-check"
+  ]
+ },
+ "office pptx-master-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-master-check"
+  ]
+ },
+ "office pptx-schema-verdict": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pptx-schema-verdict"
   ]
  },
  "office read": {
@@ -2580,6 +2657,17 @@
    "peers-wait"
   ]
  },
+ "pins": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pins"
+  ]
+ },
  "pipeline": {
   "platforms": [
    "linux",
@@ -2680,6 +2768,17 @@
    "publish"
   ]
  },
+ "pyliterals": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pyliterals"
+  ]
+ },
  "refcheck": {
   "platforms": [
    "linux",
@@ -2758,6 +2857,127 @@
   "why": "",
   "ids": [
    "release-cycle"
+  ]
+ },
+ "repair brace-parity-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "brace-parity-check"
+  ]
+ },
+ "repair cp1252-stdout-fix": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cp1252-stdout-fix"
+  ]
+ },
+ "repair evidence-macho-extract": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-macho-extract"
+  ]
+ },
+ "repair keep-both": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "keep-both"
+  ]
+ },
+ "repair missing-import-fix": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "missing-import-fix"
+  ]
+ },
+ "repair pid-guarded-stop": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pid-guarded-stop"
+  ]
+ },
+ "repair plan-row-insert": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "plan-row-insert"
+  ]
+ },
+ "repair pwsh-parent-chains": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pwsh-parent-chains"
+  ]
+ },
+ "repair pwsh-syntax-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pwsh-syntax-check"
+  ]
+ },
+ "repair tpfan-config-verify": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "tpfan-config-verify"
+  ]
+ },
+ "repair worktree-classify-recycle": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "worktree-classify-recycle"
   ]
  },
  "repro compare": {
@@ -3155,6 +3375,17 @@
    "skills"
   ]
  },
+ "skills package": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-package"
+  ]
+ },
  "skills sets": {
   "platforms": [
    "darwin",
@@ -3164,6 +3395,17 @@
   "why": "",
   "ids": [
    "skill-sets"
+  ]
+ },
+ "skills validate": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "skill-frontmatter-check"
   ]
  },
  "snapshot diff": {
@@ -3310,6 +3552,17 @@
   "why": "",
   "ids": [
    "token-audit"
+  ]
+ },
+ "tools external": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "tools-external"
   ]
  },
  "triage": {

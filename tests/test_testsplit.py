@@ -91,11 +91,13 @@ def test_collect_passes_only_on_a_signed_pass(tmp_path, monkeypatch):
     assert not T._pending_file(k).exists()
 
 
-def test_collect_refuses_a_failed_share(tmp_path, monkeypatch):
+def test_a_share_that_failed_on_another_device_runs_here_and_never_refuses_alone(tmp_path, monkeypatch):
     k = _pending(tmp_path, monkeypatch)
-    rc, _, bad = T.collect(k, wait_fn=lambda j, w: True,
-                           result_fn=lambda *a: {"status": "fail", "evidence": "1 failed"}, say=lambda s: None)
-    assert rc == 1 and "vaio" in bad[0]
+    said = []
+    rc, again, bad = T.collect(k, wait_fn=lambda j, w: True,
+                               result_fn=lambda *a: {"status": "fail", "evidence": "1 failed"}, say=said.append)
+    assert rc == T.UNVOUCHED and again == ["tests/test_a.py"] and bad == []
+    assert "vaio" in said[0] and "run here" in said[0]
 
 
 @pytest.mark.parametrize("wait,result", [(False, None), (True, None)])
