@@ -2205,6 +2205,17 @@
    "metrics"
   ]
  },
+ "models gguf": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-gguf"
+  ]
+ },
  "mutate": {
   "platforms": [
    "linux",
