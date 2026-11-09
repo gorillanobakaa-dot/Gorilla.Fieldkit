@@ -33,16 +33,11 @@ stages:
     run: {cmd: ["{py}", "{entry}", bootstrap], cwd: "{harness}"}
     triage: firefox-windows
 
-  - id: patches-check
-    platforms: [windows]
-    run: {cmd: ["{py}", "{entry}", patches, --check], cwd: "{harness}"}
-    triage: firefox-windows
-
-  - id: patches
-    platforms: [windows]
-    run: {cmd: ["{py}", "{entry}", patches], cwd: "{harness}"}
-    triage: firefox-windows
-
+  # No `patches-check` / `patches` stages on the 158 tree: src/ is the checkpointed,
+  # already patched 158 tree (git HEAD), and the patch policy only knows the 155/157
+  # groups. Applying them again rewrote 82 files of the finished tree (re-added the
+  # 157 widevinecdm pref block, which preflight then refused as an unrecorded owner
+  # decision). Signature: patches-reapplied-on-158.
   # No `generated` stage on 158: it regenerates the newtab bundle from Base.jsx,
   # DiscoveryStreamBase.jsx and TopSites.jsx, and the 158 patch set carries no
   # change to them or to the bundle (proved: git diff 3c71aeacdb on the tree is
