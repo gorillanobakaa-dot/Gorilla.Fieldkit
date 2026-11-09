@@ -5967,6 +5967,28 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner order 2026-10-29. Registry state/parked.json (git-ignored). A failed round is one red verdict on one head commit. ship ci-wait exits 4 when it parks."
 
+- id: install-verify
+  title: A program is installed the way its release says, on this computer, the peer and the Mac - the binary on PATH is the one the menu entry or shortcut launches (sha256 = the release's), every icon size installed with the release's hash, the .desktop / shortcuts / app bundle exist, caches newer than the icons, no older install shadows; self-test seeds each break
+  harness: method
+  entry: [python, -m, fieldkit, install]
+  path: ${FIELDKIT}/fieldkit/method/installverify.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "verify | self-test"}
+    - {name: product, flag: null, type: str, required: false, help: "gorilla-opencode"}
+    - {name: tag, flag: --tag, type: str, required: false, help: "the release to compare with (default: the parity pin)"}
+    - {name: proof, flag: --proof, type: str, required: false, help: "write the resolved icon paths and sha256 per size to this JSON file"}
+    - {name: peer, flag: --peer, type: bool, required: false, help: "verify the paired computer (its link listener runs the install-verify probe)"}
+    - {name: host, flag: --host, type: str, required: false, help: "verify this Mac over ssh (macair)"}
+    - {name: os, flag: --os, type: str, required: false, help: "self-test: all | linux | windows | macos"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible             # writes only the --proof JSON and the downloaded reference package
+  output: own
+  exits: {2: "bad usage or no reference", 3: "a check failed (each line names its fix)"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_installverify.py", "${FIELDKIT}/tests/test_installverify_os.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "Born 2026-11-01 (plan W6) after an old Jul-23 icon in ~/.local/share/icons shadowed the release's in /usr/share. The reference is the release itself (its .deb, fetched from the public URL and checked against SHA256SUMS). Network: that one download. Wayland keeps the old icon in the running GNOME session until log out/in; reported as INFO. Windows reads the shortcuts with PowerShell's WScript.Shell and the exe's icon frames with pefile; macOS reads the app bundle when the release ships one. --peer sends one read-only probe over the cable link; --host sends this module to the Mac's python3 over ssh."
+
 - id: xzcheck
   title: An xz archive is as small as xz can make it and unpacks within a memory cap (.xz, .tar.xz, a .deb's members)
   harness: method
