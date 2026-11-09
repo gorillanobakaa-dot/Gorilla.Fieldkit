@@ -152,7 +152,9 @@ def trace(pid, seconds):
         return {"error": NEEDS_ADMIN, "needs_admin": True, "events": []}
     r = subprocess.run([sys.executable, str(WINTRACE), "opensnoop", "--seconds", str(int(float(seconds))),
                         "--pid", str(int(pid)), "--yes", "--json"], capture_output=True, text=True, timeout=300)
-    return {"events": r.stdout.splitlines()[-200:], "error": r.stderr.strip()[:200] or None}
+    err = r.stderr.strip()[:200] or ("wintrace is not ready (the elevate kit is missing): run wintrace doctor"
+                                      if "NOT READY" in r.stdout else None)
+    return {"events": r.stdout.splitlines()[-200:], "error": err}
 
 
 def usage(pid, seconds):
@@ -185,3 +187,29 @@ def events(words):
           "($_.Message -split \"`n\")[0] }")
     r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=180)
     return {"lines": r.stdout.splitlines()}
+
+
+def _resolver_cache():
+    """Names in the Windows DNS client cache (system-wide: Windows does not say which process asked)."""
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-DnsClientCache | Select-Object -First 100 | "
+                        "ForEach-Object { '{0} {1}' -f $_.Entry, $_.Data }"], capture_output=True, text=True, timeout=60)
+    return r.stdout.splitlines()
+
+
+def conns(pid):
+    """Connections of PID (psutil, shared)."""
+    if not _here():
+        return None
+    from fieldkit.observe import _common
+    return _common.conns(pid)
+
+
+def dns(pid, seconds):
+    """DNS servers PID talks to (socket sampling, shared); plus the system resolver cache."""
+    if not _here():
+        return None
+    from fieldkit.observe import _common
+    r = _common.dns(pid, seconds)
+    r["resolver_cache"] = _resolver_cache()
+    return r
+
