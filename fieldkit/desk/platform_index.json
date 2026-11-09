@@ -2216,6 +2216,17 @@
    "models-gguf"
   ]
  },
+ "models tune": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "models-tune"
+  ]
+ },
  "mutate": {
   "platforms": [
    "linux",

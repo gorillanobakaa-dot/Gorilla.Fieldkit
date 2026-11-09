@@ -1,0 +1,52 @@
+# P22 (2026-11-09): every mutation must be CAUGHT:
+#   fieldkit mutate --plan tests/models_tune_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_models_tune.py
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '        ctx = min(ctx, info["context"])'
+  - '        pass'
+  why: the context never exceeds the model maximum
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    budget = free_ram_gb * c["kv_budget_share"]'
+  - '    budget = 1e9'
+  why: the context shrinks until the KV cache fits
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    n = cpu.get("performance") if rules["threads"]["use"] == "performance_cores" else None'
+  - '    n = None'
+  why: threads are the performance cores
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '        if x.get("shared") or x["vendor"] in g["shared_memory_vendors"]:'
+  - '        if False:'
+  why: an integrated GPU is not offloaded to
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    frac = round(min(1.0, usable / weights_gb), 2) if weights_gb else 0.0'
+  - '    frac = 1.0'
+  why: a GPU that is too small takes a share
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    if (weights_gb + kv_f16_gb) / total > k["tight_ram_share"]:'
+  - '    if False:'
+  why: the KV cache is quantized when RAM is tight
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    mtp = bool(r["speculative"]["mtp"] and info.get("mtp_tensors") and'
+  - '    mtp = bool(r["speculative"]["mtp"] and True and'
+  why: MTP only when the file has the tensors
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    attn_layers = max(layers // interval, 1) if layers else 0'
+  - '    attn_layers = layers'
+  why: a hybrid model pays KV only for its attention layers
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '        if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", help_text or ""):'
+  - '        if n in (help_text or ""):'
+  why: a flag is passed only when the help prints it whole
+- file: fieldkit/lifecycle/tune.py
+  swap:
+  - '    ok = base in ps.lower() or model_key.lower() in ps.lower()'
+  - '    ok = True'
+  why: the load is verified with lms ps

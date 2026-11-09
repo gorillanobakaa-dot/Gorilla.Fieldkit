@@ -61,6 +61,7 @@ fieldkit pipeline run gorilla-opencode --only toolchain modules build repro publ
 fieldkit release table dist/SHA256SUMS-v0.1.153.txt --check PAGE.md            # the page's table is the measured one
 fieldkit lmstudio-log --day 2026-10-25 --last 10                     # a local model is slow: why
 fieldkit models gguf URL_OR_FILE [--file NAME]                       # BEFORE downloading a local model: dense or MoE, active parameters, expected tokens/s here
+fieldkit models tune MODEL --apply                                  # a local model is slow or heavy: pick the load settings for THIS machine, load with lms, then `fieldkit models tune --record MODEL --first-word S --tps N`
 ```
 
 - One run makes the .exe, the Linux binary, the tarball, the .deb, the .rpm, the Mac 10.13 zip
