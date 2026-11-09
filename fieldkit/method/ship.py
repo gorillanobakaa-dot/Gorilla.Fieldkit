@@ -64,7 +64,8 @@ from . import emit
 
 
 def git(repo, *args, check=False, timeout=600, env=None):
-    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=timeout, env=env)
+    r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=timeout, env=env)   # git output is UTF-8; cp1252 crashed --all (2026-11-09)
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {(r.stderr or r.stdout).strip()[-300:]}")
     return r
