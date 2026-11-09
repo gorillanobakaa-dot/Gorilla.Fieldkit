@@ -1159,6 +1159,20 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_incidents.py"]
   notes: "Windows: one Get-WinEvent call (Kernel-Power 41/42/107/187/506/507/566, EventLog 6005/6006/6008, User32 1074, Power-Troubleshooter 1, UserModePowerService 12 counted per process per day). Linux: journalctl boots and suspend/lid/critical-temperature lines. macOS: pmset -g log. Classes: heat, power-plan reset, program sleep request (PROCESS), battery, button/lid, standby (REASON), planned, unexpected cut (cause unknown), unknown. The real cut of a 6008 is the last thermal journal line before that boot when it is later. Each unknown is one row in ZERO-OPEN-PROBLEMS.md (once per incident). Mutation plan tests/power_incidents_mutations.yaml."
 
+- id: power-investigate
+  title: "Investigate an unexplained shutdown or restart: replays the checks of 2026-11-09 (unknown cuts, thermal journal's last 3 minutes, battery health, BIOS and model, vendor power daemons and the reset storm, drivers and updates since the first cut, fan control) and prints one ranked suspect table with the evidence line per suspect and the owner's physical steps (Windows full; Linux and macOS read the cuts, the journal and the model)"
+  harness: thermal
+  entry: [python, -m, fieldkit, power, investigate]
+  path: ${FIELDKIT}/fieldkit/power/investigate.py
+  inputs:
+    - {name: since, flag: --since, type: str, required: false, help: "YYYY-MM-DD (default: 7 days ago)"}
+  effects: [reads-files]
+  safety: safe
+  headline: "N unknown cut(s); top suspect: NAME (verdict); exit 3 when a cut stays unexplained."
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_power_investigate.py"]
+  notes: "Rules: a cut below 50 C or below 40 % load is not heat, not load; battery health below 70 % is a suspect; a UserModePowerService 12 storm (10+ a day by ipf_uf.exe, WUDFHost.exe, powercfg.exe) is a suspect; a driver or firmware install since the first cut minus 7 days is a suspect; TPFanControl running at a cut (it writes the embedded controller) is a suspect; hardware (charger, cable, board) is the residual. Windows reads battery, daemons, changes and fan control; elsewhere those rows say not-this-platform."
+
 - id: power-drift
   title: "Check that the Lenovo power service (ibmpmsvc.exe) never put the laptop to sleep during work in the last N days and that the sleep button is off on AC; --apply turns the sleep button off without admin and records before/after (Windows)"
   harness: thermal
