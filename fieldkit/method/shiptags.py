@@ -209,8 +209,8 @@ def run_all(action, archive_unproven=False, gh=sr._gh, repos=owner_repos, find=f
 def all_lines(d):
     out = [f"  DO  {d['error']}"] if d.get("error") else []
     for e in d["table"]:
-        b, a = e.get("before"), e.get("after")
-        nums = "" if not b else "  ".join(f"{k} {b[k]}->{a[k]}" for k in ("branches", "tags", "prs", "worktrees"))
+        b, a = e.get("before"), e.get("after") or {}             # a repo that failed mid-way has no after
+        nums = "" if not b else "  ".join(f"{k} {b[k]}->{a.get(k, '?')}" for k in ("branches", "tags", "prs", "worktrees"))
         out.append(f"  {'OK ' if e.get('ok') else 'DO '} {e['repo']} [{e['where']}] {nums} {e.get('say', '')}".rstrip())
         for x in e.get("rows", []):
             out.append(f"        {x['check']}: {x['say']}")

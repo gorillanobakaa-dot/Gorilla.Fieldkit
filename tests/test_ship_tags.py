@@ -79,3 +79,21 @@ def test_owner_repos_lists_non_archived_with_their_default_branch():
 def test_run_all_without_github_says_so_and_touches_nothing():
     r = st.run_all("prune", gh=lambda args, timeout=60: (None, "gh hidden"))
     assert not r["ok"] and r["table"] == [] and "gh repo list failed" in "\n".join(st.all_lines(r))
+
+
+def test_all_lines_survives_a_repo_with_before_but_no_after():
+    # 2026-11-09: a repo that failed after its "before" snapshot crashed the whole --all report (TypeError on None)
+    d = {"table": [{"repo": "o/half", "where": "local", "ok": False, "say": "RuntimeError: boom",
+                    "before": {"branches": 3, "tags": 2, "prs": 0, "worktrees": 1}}]}
+    text = "\n".join(st.all_lines(d))
+    assert "o/half" in text and "branches 3->?" in text
+
+
+def test_git_output_is_decoded_as_utf8(tmp_path):
+    # 2026-11-09: byte 0x90 (in "\u0150", UTF-8 c5 90) is undefined in cp1252 and crashed `ship prune --all` on Windows
+    import subprocess
+    from fieldkit.method import ship
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                    "--allow-empty", "-m", "\u0150 check"], check=True)
+    assert ship.git(tmp_path, "log", "-1", "--format=%s").stdout.strip() == "\u0150 check"
