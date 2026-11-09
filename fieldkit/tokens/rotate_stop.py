@@ -18,6 +18,16 @@ HANDOVER_CMD = re.compile(r"\bfieldkit\s+(rotate|ship|task|privacy|testcost|zero
 HANDOVER_FILES = ("PLAN.md", "HANDOFF.md")
 
 
+def permanent_zero(stem):
+    """True when this transcript stem is the permanent Zero, which the owner exempted from rotation (2026-11-09).
+    The list is data: rules/permanent_zero.json (FIELDKIT_PERMANENT_ZERO overrides the path, for tests). Never raises."""
+    try:
+        f = os.environ.get("FIELDKIT_PERMANENT_ZERO") or (Path(__file__).resolve().parents[2] / "rules" / "permanent_zero.json")
+        return bool(stem) and stem in (json.loads(Path(f).read_text(encoding="utf-8")).get("transcripts") or [])
+    except Exception:  # noqa: BLE001 - unreadable list: nobody is exempt
+        return False
+
+
 def _said_dir():
     root = os.environ.get("FIELDKIT_ROTATE_DIR") or (_state_root(Path(__file__).resolve().parents[2]) / "state" / "rotate")
     return Path(root) / "said"
@@ -32,6 +42,8 @@ def stop_refusal(call):
         tp = call.get("transcript_path")
         if not tp:
             return None
+        if permanent_zero(Path(tp).stem):
+            return None                                   # owner 2026-11-09: Session 0 never rotates
         said = json.loads((_said_dir() / (Path(tp).stem + ".json")).read_text(encoding="utf-8"))
         if said.get("level") != "ROTATE":
             return None
