@@ -107,3 +107,10 @@ mandate does not cover (deletes, moved tags, the decision register) or when no m
 every script and command an agent wrote or ran, one-offs and failed attempts included, with the fix that followed.
 The agents' hooks run `fieldkit capture hook --agent claude|gemini|opencode`; `capture ledger --strict` exits 3 if
 anything captured was lost, and `capture verify` checks the hash chain.
+
+## Does Gorilla OpenCode manage the everyday jobs? (acceptance suite)
+
+`fieldkit accept list|run --model M|report`: see, delete, move a file, tail, find, grep, unzip, JSON, download, image
+convert, OCR, probe a video, each through `gorilla-opencode -p` in a fresh folder with its own config pinned to the
+model. The judge reads the disk (a model's "done" is never believed); a missing program is SKIP. Same jobs on Windows
+and Linux (HARNESS-PLAN P5); rows land in state/accept/results.jsonl.

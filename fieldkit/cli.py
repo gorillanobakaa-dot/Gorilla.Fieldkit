@@ -74,6 +74,7 @@
     fieldkit capture hook|scan|find|ledger|verify|status|self-test   zero-loss capture of what agents make and run
     fieldkit integration check|self-test         is a capability built in (6 surfaces)? check --repo PATH [--changed BASE]
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
+    fieldkit accept list|run|report              everyday-jobs acceptance suite for Gorilla OpenCode (any model, both OSes)
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
@@ -1757,6 +1758,9 @@ def build_parser():
                         help="test parity: manifest per machine, compare over the link (SAME/DRIFT), align to the pinned "
                              "release checked by sha256, the preflight's shared-ground check (fieldkit parity)")
     pa.add_argument("args", nargs=argparse.REMAINDER)
+    ac = sub.add_parser("accept", add_help=False,
+                        help="everyday-jobs acceptance suite for Gorilla OpenCode: list, run --model M, report (fieldkit accept)")
+    ac.add_argument("args", nargs=argparse.REMAINDER)
     cp = sub.add_parser("capture", add_help=False,
                         help="zero-loss capture of every script and command an agent makes or runs: hook, find, "
                              "ledger, verify, status, self-test (fieldkit capture)")
@@ -3059,6 +3063,9 @@ def main(argv=None):
     if args[:1] == ["integration"]:                   # built in = carried + known + visible + page + systems + tested
         from .integration import cli as integration_cli
         return integration_cli.main(args[1:])
+    if args[:1] == ["accept"]:                        # everyday jobs through gorilla-opencode, judged on the disk
+        from . import accept
+        return accept.main(args[1:])
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])
