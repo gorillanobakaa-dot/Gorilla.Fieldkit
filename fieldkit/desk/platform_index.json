@@ -2737,6 +2737,17 @@
    "power-incidents"
   ]
  },
+ "power investigate": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "power-investigate"
+  ]
+ },
  "prefix-diff": {
   "platforms": [
    "darwin",

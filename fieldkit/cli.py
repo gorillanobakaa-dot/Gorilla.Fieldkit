@@ -2399,11 +2399,11 @@ def build_parser():
                                                                      "process ends (a build); log ignores --seconds then")
     th.set_defaults(fn=cmd_thermal)
 
-    pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check")
-    pw.add_argument("action", choices=["incidents", "drift", "audit"])
+    pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check; investigate ranks the suspects of an unexplained cut")
+    pw.add_argument("action", choices=["incidents", "drift", "audit", "investigate"])
     pw.add_argument("--write-fix", action="store_true", help="audit: write the one self-elevating script for the missing admin steps")
     pw.add_argument("--callers", help="audit: who started PROCESS (e.g. powercfg.exe), from Security 4688")
-    pw.add_argument("--since", help="incidents: YYYY-MM-DD (default 7 days ago)")
+    pw.add_argument("--since", help="incidents, investigate: YYYY-MM-DD (default 7 days ago)")
     pw.add_argument("--days", type=int, default=7, help="drift: how many days back")
     pw.add_argument("--apply", action="store_true", help="drift: set the sleep button on AC to do nothing (no admin; before/after recorded)")
     pw.set_defaults(fn=cmd_power)
@@ -2963,6 +2963,9 @@ def cmd_power(a):
         return audit.run_cmd(write_fix=a.write_fix, proc=a.callers, since=a.since, as_json=a.json)
     if a.action == "drift":
         return drift.run(days=a.days, do_apply=a.apply, as_json=a.json)
+    if a.action == "investigate":
+        from .power import investigate
+        return investigate.run(since=a.since, as_json=a.json)
     return incidents.run(since=a.since, as_json=a.json)
 
 
