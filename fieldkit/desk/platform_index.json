@@ -1915,6 +1915,17 @@
    "inbox"
   ]
  },
+ "install": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "install-verify"
+  ]
+ },
  "integration": {
   "platforms": [
    "linux",

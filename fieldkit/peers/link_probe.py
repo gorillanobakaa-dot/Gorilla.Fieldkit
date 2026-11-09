@@ -119,7 +119,15 @@ def _sessions(arg=None, sessions_fn=None, **_):
     return [str(r.get("name") if isinstance(r, dict) else r) for r in rows] or ["no messageable session"], rows
 
 
-PROBES = {"agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
+def _install_verify(arg=None, **_):
+    """`fieldkit install verify PRODUCT` on this computer, from the release itself: lines + {ok, os, rows}."""
+    from ..method import installverify
+    if arg not in installverify.PRODUCTS:
+        raise ValueError("install-verify needs one product: " + ", ".join(installverify.PRODUCTS))
+    return installverify.probe_lines(arg)
+
+
+PROBES = {"install-verify": _install_verify, "agents": _agents, "where": _where, "disk": _disk, "temps": _temps, "load": _load, "versions": _versions,
           "sessions": _sessions}
 
 
