@@ -6916,6 +6916,25 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_review.py"]
   notes: "Owner 2026-10-31: all the items in one place, approve once. fieldkit ideas review and fieldkit inbox review call the same code. Approve on an inbox item marks it done with approved=true and the owner's words; the item's command is never run. Double-click launchers: launchers/review.cmd, review.sh, review.command."
 
+- id: accept
+  title: "Everyday-jobs acceptance suite for Gorilla OpenCode: see, delete, move a file, tail, find, grep, unzip, JSON, download, image convert, OCR, probe a video, run through gorilla-opencode -p with any model; the judge reads the disk, a false claim is a MISS, a missing program is SKIP; pass/miss per model and OS"
+  harness: core
+  entry: [python, -m, fieldkit, accept]
+  path: ${FIELDKIT}/fieldkit/accept.py
+  inputs:
+    - {name: command, flag: null, type: str, required: true, help: "list | run | report"}
+    - {name: model, flag: --model, type: str, required: false, help: "model id for run (own config pinned to it)"}
+    - {name: job, flag: --job, type: str, required: false, help: "one job id (repeatable)"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible             # appends rows to state/accept/results.jsonl; every job runs in a temp folder that is removed
+  output: own
+  exits: {0: "no miss", 2: "bad usage", 3: "a job missed or errored"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_accept.py"]
+  skill: skills/fieldkit-methods/SKILL.md
+  notes: "HARNESS-PLAN P5a (owner 2026-10-31: a Qwen model could not see or delete a file). Jobs are data in fieldkit/method/accept_suite.yaml, identical on Windows and Linux (P5d); each runs in a fresh temp folder with its own gorilla-opencode config pinned to the model (the owner's live config cannot skew a row). Rows go to state/accept/results.jsonl. Mutations: tests/accept_mutations.yaml."
+
 - id: pdf-bbox-check
   title: "Check form-field rectangles for overlap and entry height smaller than its font; reports indexes only"
   harness: office
