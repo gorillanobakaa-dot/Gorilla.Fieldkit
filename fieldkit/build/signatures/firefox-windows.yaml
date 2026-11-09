@@ -184,3 +184,28 @@ signatures:
     recipe. If the tree was already hit: save the diff, then restore the files the
     stage wrote (the ones modified that minute) from git HEAD.
     Never edit the owner's pref decisions.
+
+- id: thermal-status-window-stale
+  pattern: "CONSTANT, sensor is not live"
+  check: null
+  source: firefox-windows emerge 2026-11-09 12:17 (stage build, validate_provider)
+  cause: >-
+    The Firefox harness read TPFanControl through its window Status edit, which returned 58 C idle and a flat
+    41 C under load, while the engine's status file (C:/ProgramData/TPFanControl/status.txt, what fieldkit thermal
+    status reads as tpfan_status) moved 40 -> 72 C. The halt was right about the reading and wrong about the
+    sensor. Do not weaken the halt.
+  fix: >-
+    harness/lib/thermal.py reads status.txt first (_temp_tpfan_status, ignores a file older than 30 s and the 148
+    dummy register); the window reader stays as fallback. Run `fieldkit thermal prove` to see which source is live.
+
+- id: msvc-config-status-stale
+  pattern: 'fatal error: .(?:algorithm|type_traits|stdio\.h). file not found'
+  check: null
+  source: firefox-windows emerge 2026-11-09 12:11 (stage build, clang-cl)
+  cause: >-
+    mach bootstrap replaced MSVC 14.50.35717 with 14.51.36231 under ~/.mozbuild/vs, but the objdir's
+    config.status (C:/gfobj) still recorded INCLUDE/LIB/AS under 14.50, so clang-cl found no standard headers.
+    mach does not notice that a recorded toolchain directory is gone.
+  fix: >-
+    Stage build (harness/stages/s40_build.py) lists the MSVC directories config.status names
+    (toolchain.stale_msvc_paths); if one is missing it moves config.status aside so mach build runs configure.

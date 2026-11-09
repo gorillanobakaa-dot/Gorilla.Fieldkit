@@ -112,3 +112,11 @@ def test_agent_shell_signature_matches_its_sample(sid):
     assert {s["id"] for s in triage.load_signatures("agent-shell")} == set(AGENT_SHELL_SAMPLES)
     r = triage.triage_text(AGENT_SHELL_SAMPLES[sid] + "\n", "agent-shell")
     assert r["verdict"] == "known" and sid in [m["id"] for m in r["matches"]]
+
+
+def test_firefox_windows_2026_11_09_failures_are_known():
+    r = triage.triage_text("[!!!] FATAL HALT: TPFanControl: idle 58.00 C, under load 41.00-41.00 C - CONSTANT, sensor is not live\n",
+                           "firefox-windows")
+    assert r["verdict"] == "known" and r["matches"][0]["id"] == "thermal-status-window-stale"
+    r = triage.triage_text("In file included from x.cpp:1:\nfatal error: 'algorithm' file not found\n", "firefox-windows")
+    assert r["verdict"] == "known" and r["matches"][0]["id"] == "msvc-config-status-stale"
