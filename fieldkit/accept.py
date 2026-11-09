@@ -15,12 +15,14 @@ import argparse
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import zipfile
+import zlib
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,8 +31,14 @@ import yaml
 
 SUITE = Path(__file__).parent / "method" / "accept_suite.yaml"
 RESULTS = Path(__file__).resolve().parent.parent / "state" / "accept" / "results.jsonl"
-_PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da6360f8cf"
-                     "c0f01f0005000201a2c1c4ab0000000049454e44ae426082")
+
+
+def _png():
+    """A valid 1x1 PNG (every chunk with its CRC), built here so no hand-typed byte string can be corrupt."""
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00")) + chunk(b"IEND", b""))
 
 
 def jobs():
@@ -59,10 +67,10 @@ def _make(path, spec):
             for n, t in yaml.safe_load(body).items():
                 z.writestr(n, str(t))
     elif kind == "png":
-        path.write_bytes(_PNG)
+        path.write_bytes(_png())
     elif kind == "png-text":
-        subprocess.run([shutil.which("magick") or shutil.which("convert"), "-size", "400x120", "xc:white", "-pointsize",
-                        "64", "-fill", "black", "-annotate", "+20+80", body, str(path)], check=True, capture_output=True)
+        subprocess.run([shutil.which("magick") or shutil.which("convert"), "-size", "500x160", "xc:white", "-pointsize",
+                        "96", "-fill", "black", "-annotate", "+20+110", body, str(path)], check=True, capture_output=True)
     elif kind == "mp4-seconds":
         subprocess.run([shutil.which("ffmpeg"), "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=" + body, str(path)],
                        check=True, capture_output=True)
@@ -117,13 +125,23 @@ def judge(spec, folder, reply):
 
 def isolated_env(root, model):
     """Own config/data/state pinned to MODEL, so the owner's live config changing mid-run cannot skew a row.
-    Copies only the local endpoints and MCP servers (no provider keys), as the harness-scenarios kit does."""
+    Copies the local endpoints and MCP servers, plus the saved sign-in of the ONE provider a cloud model names
+    (antigravity.gemini-..., never the others)."""
     real = Path.home() / ".config" / "gorilla-opencode" / "config.json"
     try:
         src = json.loads(real.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         src = {}
     cfg = {k: src[k] for k in ("localEndpoints", "mcpServers", "shell", "extras", "extrasChoiceMade") if k in src}
+    prefix = model.split(".", 1)[0]
+    if prefix != "local" and isinstance(src.get("providers", {}).get(prefix), dict):
+        # a cloud model: carry that one provider's saved sign-in (never read or printed here); the env folder is
+        # removed when the job ends
+        cfg["providers"] = {prefix: src["providers"][prefix]}
+        oauth = real.parent / f"{prefix}-oauth.json"
+        if oauth.is_file():
+            (root / "config" / "gorilla-opencode").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(oauth, root / "config" / "gorilla-opencode" / oauth.name)
     cfg["agents"] = {a: {"model": model} for a in ("coder", "summarizer", "task", "title")}
     cfg["permissions"] = {"mode": "auto"}
     d = root / "config" / "gorilla-opencode"
@@ -138,6 +156,15 @@ def default_agent(prompt, folder, model, timeout):
     r = subprocess.run(["gorilla-opencode", "-p", prompt, "-q", "-c", str(folder)], cwd=folder, env=env,
                        capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
     return (r.stdout or "") + (r.stderr or "")
+
+
+RAN_MARK = "--- what actually ran"
+
+
+def ran_record(reply, limit=1500):
+    """What the model actually did, as Gorilla OpenCode records it at the end of the reply ('' when absent)."""
+    i = (reply or "").find(RAN_MARK)
+    return reply[i:i + limit] if i >= 0 else ""
 
 
 def run_job(job, model, agent=default_agent, timeout=300, which=shutil.which):
@@ -166,7 +193,7 @@ def run_job(job, model, agent=default_agent, timeout=300, which=shutil.which):
         ok, why = judge(job["judge"], folder, reply)
         out = {**row, "result": "PASS" if ok else "MISS", "seconds": round(time.time() - t0, 1)}
         if not ok:
-            out.update(reason=why, prompt=prompt, reply_tail=(reply or "")[-600:])
+            out.update(reason=why, prompt=prompt, reply_tail=(reply or "")[-600:], ran=ran_record(reply))
         return out
     finally:
         if server:

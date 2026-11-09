@@ -30,3 +30,18 @@
   - '        ok = str(spec["value"]).lower() in (reply or "").lower()'
   - '        ok = True'
   why: the answer judge reads the reply
+- file: fieldkit/accept.py
+  swap:
+  - '        cfg["providers"] = {prefix: src["providers"][prefix]}'
+  - '        cfg["providers"] = dict(src["providers"])'
+  why: a cloud model must carry only its own provider's sign-in
+- file: fieldkit/accept.py
+  swap:
+  - '    return reply[i:i + limit] if i >= 0 else ""'
+  - '    return ""'
+  why: a miss row must keep what the model ran
+- file: fieldkit/accept.py
+  swap:
+  - '+ struct.pack(">I", zlib.crc32(tag + data))'
+  - '+ struct.pack(">I", 0)'
+  why: the fixture PNG must have valid chunk checksums
