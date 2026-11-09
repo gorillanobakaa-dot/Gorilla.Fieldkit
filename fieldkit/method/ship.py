@@ -550,6 +550,9 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
 
 TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze", "ci-wait")             # train.py
 PROOF = {"update": "update", "proof": "prove", "ci-record": "ci-record"}  # mergeproof.py
+#: every subcommand; tests/test_autopilot_hardlines.py makes each one be classed publishing or not for hard line 1
+ACTIONS = ("status", "sync", "push", "merge", "commit", "audit", "release", "prune", "tags", "gh-release",
+           "release-ready", *TRAIN, *PROOF)
 
 
 def main(argv=None, prog="fieldkit ship"):
@@ -561,8 +564,7 @@ def main(argv=None, prog="fieldkit ship"):
         from . import mergeproof
         return mergeproof.main([PROOF[argv[0]], *argv[1:]], f"{prog} {argv[0]}")
     ap = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["status", "sync", "push", "merge", "commit", "audit", "release", "prune", "tags",
-                                       "gh-release", "release-ready", *TRAIN, *PROOF])
+    ap.add_argument("action", choices=list(ACTIONS))
     ap.add_argument("--tag", dest="push_tag", help="push: this NEW tag (never moved) instead of the branch")
     ap.add_argument("--auto", action="store_true",
                     help="push: after the push open the PR if none, enable GitHub auto-merge, exit (branches only)")
