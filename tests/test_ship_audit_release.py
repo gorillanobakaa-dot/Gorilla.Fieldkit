@@ -151,3 +151,18 @@ def test_prune_reports_a_refused_delete_with_gits_words(tmp_path):
     assert not r["ok"] and r["deleted"] == [] and r["refused"][0]["branch"] == "done"
     row = [x for x in r["rows"] if x["check"] == "refused"][0]
     assert row["state"] == "DO" and "mandate: deletes refused" in row["say"]
+
+
+def test_prune_deletes_nothing_when_github_is_unreadable(tmp_path, monkeypatch):
+    # an open PR's head looks unproven without GitHub: prune must refuse, not archive or delete it
+    w = _origin_and_clone(tmp_path)
+    _g(w, "checkout", "-q", "-b", "open-pr", "main")
+    (w / "o.txt").write_text("o")
+    _g(w, "add", "-A")
+    _g(w, "commit", "-qm", "open")
+    _g(w, "push", "-q", "origin", "open-pr")
+    _g(w, "checkout", "-q", "main")
+    monkeypatch.setattr(sr, "repo_slug", lambda repo: "o/r")
+    r = sr.prune(w, gh=lambda args, timeout=60: (None, "gh hidden"), archive_unproven=True)
+    assert not r["ok"] and r["archived"] == [] and r["rows"][0]["check"] == "github"
+    assert "refs/heads/open-pr" in _g(w, "ls-remote", "origin")

@@ -170,7 +170,11 @@ def snapshot(repo, base, gh):
 def run_all(action, archive_unproven=False, gh=sr._gh, repos=owner_repos, find=find_local, clone=scratch_clone):
     """action: prune | audit | tags -> {"ok", "table": [{repo, before, after, ...}], "rows"}; one repo failing never stops the rest."""
     table, scratch = [], []
-    for r in repos(gh):
+    try:
+        listed = repos(gh)
+    except RuntimeError as e:                                        # gh signed out or hidden: say so, no traceback
+        return {"ok": False, "table": [], "scratch": [], "error": str(e)}
+    for r in listed:
         slug, base = r["slug"], r["base"]
         entry = {"repo": slug, "base": base, "where": "local"}
         path = find(slug)
@@ -203,7 +207,7 @@ def run_all(action, archive_unproven=False, gh=sr._gh, repos=owner_repos, find=f
 
 
 def all_lines(d):
-    out = []
+    out = [f"  DO  {d['error']}"] if d.get("error") else []
     for e in d["table"]:
         b, a = e.get("before"), e.get("after")
         nums = "" if not b else "  ".join(f"{k} {b[k]}->{a[k]}" for k in ("branches", "tags", "prs", "worktrees"))

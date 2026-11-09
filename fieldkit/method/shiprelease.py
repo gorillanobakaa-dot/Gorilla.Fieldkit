@@ -250,6 +250,14 @@ def prune(repo=".", base="main", archive_unproven=False, gh=_gh):
     removed with git branch -d (git refuses an unmerged one). Never touches the base. -> {"ok", "deleted", "archived",
     "kept", "local"}"""
     git(repo, "fetch", "--quiet", "--prune", "origin")
+    slug0 = repo_slug(repo)
+    if slug0:
+        out, err = gh(["pr", "list", "-R", slug0, "--state", "open", "--limit", "1", "--json", "number"])
+        if out is None:             # without GitHub an open PR's head looks unproven: delete nothing (2026-11-09)
+            why = ghhidden.explain(err[:160])
+            return {"ok": False, "deleted": [], "archived": [], "kept": [], "local": [], "refused": [],
+                    "rows": [{"check": "github", "state": "DO", "say": f"pull requests not readable ({why}): nothing was deleted",
+                              "run": "run it where gh is signed in (not inside an autopilot run)"}]}
     r = audit(repo, base, offline=False, max_commits=10 ** 9, gh=gh)
     merged = [x.split("/", 1)[1] for x in git(repo, "branch", "-r", "--merged", f"origin/{base}",
                                               "--format=%(refname:short)").stdout.split()

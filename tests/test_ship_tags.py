@@ -74,3 +74,8 @@ def test_unreadable_releases_are_never_guessed(tmp_path):
 def test_owner_repos_lists_non_archived_with_their_default_branch():
     gh = _gh(repos=[{"nameWithOwner": "o/a", "defaultBranchRef": {"name": "master"}}, {"nameWithOwner": "o/b", "defaultBranchRef": None}])
     assert st.owner_repos(gh) == [{"slug": "o/a", "base": "master"}, {"slug": "o/b", "base": "main"}]
+
+
+def test_run_all_without_github_says_so_and_touches_nothing():
+    r = st.run_all("prune", gh=lambda args, timeout=60: (None, "gh hidden"))
+    assert not r["ok"] and r["table"] == [] and "gh repo list failed" in "\n".join(st.all_lines(r))
