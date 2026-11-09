@@ -72,7 +72,9 @@ PUBLISH = [
     (r"\b(twine|npm|pnpm|yarn|cargo|poetry|flit)\b[^\n]*\bpublish\b|\btwine\b[^\n]*\bupload\b", "publishing a package"),
     (r"\bgit\b[^\n]*\bremote\b[^\n]*\b(add|set-url)\b", "changing where git pushes"),
     # 2026-10-23: ship push/merge/release/prune push through git inside the tool, which the line above never saw
-    (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune|gh-release)\b", "publishing through fieldkit ship"),
+    # 2026-11-09: (?![\w-]) not \b: `ship release-ready` (a read-only dry run) matched `release` at the hyphen and
+    # blocked the v0.9.0 readiness check in jobs T-20261109-204139 and -233546
+    (r"\bfieldkit\b[^\n]*\bship\s+(push|merge|release|prune|gh-release)(?![\w-])", "publishing through fieldkit ship"),
     # 2026-10-23: release-cycle run publishes a GitHub release inside the tool (plan, next and reset only read)
     (r"\bfieldkit\b[^\n]*\brelease-cycle\s+\S+\s+run\b", "publishing a release (fieldkit release-cycle run)"),
 ]

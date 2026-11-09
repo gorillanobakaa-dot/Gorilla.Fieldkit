@@ -448,3 +448,10 @@ def test_the_app_session_records_are_never_written(tool, args, nostop):
 def test_the_app_session_records_can_be_read(nostop):
     assert hl.decide("Bash", {"command": f"cat {REC}"}, stop_file=nostop)[0] == "allow"
     assert hl.decide("Read", {"file_path": REC}, stop_file=nostop)[0] == "allow"
+
+
+def test_ship_release_ready_is_a_read_not_a_release(nostop):
+    # 2026-11-09: the hyphen in release-ready was a word boundary, so the dry run was refused as publishing
+    assert d("Bash", {"command": "fieldkit ship release-ready v0.9.0"}, nostop) == "allow"
+    for cmd in ("fieldkit ship release v0.9.0", "fieldkit ship release", "fieldkit ship release-ready v0.9.0; fieldkit ship release"):
+        assert d("Bash", {"command": cmd}, nostop) == "deny", cmd
