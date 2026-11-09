@@ -2848,6 +2848,127 @@
    "release-cycle"
   ]
  },
+ "repair brace-parity-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "brace-parity-check"
+  ]
+ },
+ "repair cp1252-stdout-fix": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "cp1252-stdout-fix"
+  ]
+ },
+ "repair evidence-macho-extract": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "evidence-macho-extract"
+  ]
+ },
+ "repair keep-both": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "keep-both"
+  ]
+ },
+ "repair missing-import-fix": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "missing-import-fix"
+  ]
+ },
+ "repair pid-guarded-stop": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pid-guarded-stop"
+  ]
+ },
+ "repair plan-row-insert": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "plan-row-insert"
+  ]
+ },
+ "repair pwsh-parent-chains": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pwsh-parent-chains"
+  ]
+ },
+ "repair pwsh-syntax-check": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pwsh-syntax-check"
+  ]
+ },
+ "repair tpfan-config-verify": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "tpfan-config-verify"
+  ]
+ },
+ "repair worktree-classify-recycle": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "worktree-classify-recycle"
+  ]
+ },
  "repro compare": {
   "platforms": [
    "linux",

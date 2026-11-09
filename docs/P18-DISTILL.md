@@ -131,17 +131,17 @@ with its exact blocker; `fieldkit capture workflow list` shows them. Replay-back
 | session-active-span | incompatible | Fieldkit already has it | `fieldkit overhead` (wall clock split by bucket) |
 | tool-honesty-verify | incompatible | Fieldkit already has it | `fieldkit honesty check` and `fieldkit mutate` |
 | toolbox-drop-verify | incompatible | Fieldkit already has it | `fieldkit release verify` (SHA256SUMS of a release) |
-| brace-parity-check | incompatible | port queued (idea I-19) | C/C++ delimiter balance before a two-hour Firefox build; belongs in the emerge preflight |
-| cp1252-stdout-fix | incompatible | port queued (idea I-19) | rewrites print/open calls; needs the same value-preserving proof as pyliterals. Until then triage `py-cp1252-charmap` |
-| evidence-macho-extract | incompatible | port queued (idea I-19) | Mach-O minimum OS for the Mac 10.13 release check; no Fieldkit equivalent |
-| keep-both | incompatible | port queued (idea I-19) | keeps both sides of append-only logs; `fieldkit merge-driver` covers tools.yaml/platform_index/groups.yaml only |
-| missing-import-fix | incompatible | port queued (idea I-19) | AST detector is sound; the fixer edits imports in place - port with a parse-after check. Until then triage `py-missing-stdlib-import` |
-| pid-guarded-stop | incompatible | port queued (idea I-19) | stop by PID only after name + start time match; `fieldkit liveness` tracks runs but has no such stop |
-| plan-row-insert | incompatible | port queued (idea I-19) | Board rows; `fieldkit board` checks them but does not insert one |
-| pwsh-parent-chains | incompatible | port queued (idea I-19) | who opened dozens of consoles; `fieldkit hog` reports the hoarding, not the parent chain |
-| pwsh-syntax-check | incompatible | port queued (idea I-19) | bash heredoc/export in .ps1 files; triage `pwsh-bash-syntax` names the failure after the fact |
-| tpfan-config-verify | incompatible | port queued (idea I-19) | belongs to the fan-control kit (skill fieldkit-fan-control-test); no equivalent |
-| worktree-classify-recycle | incompatible | port queued (idea I-19) | worktrees vs PR merge state before recycling; done by hand in every DONE PROTOCOL step 4 |
+| brace-parity-check | incompatible | native in Fieldkit now | `fieldkit repair brace-parity-check` (I-19): C/C++ delimiter balance before a two-hour Firefox build; belongs in the emerge preflight |
+| cp1252-stdout-fix | incompatible | native in Fieldkit now | `fieldkit repair cp1252-stdout-fix` (I-19): rewrites print/open calls; needs the same value-preserving proof as pyliterals. Until then triage `py-cp1252-charmap` |
+| evidence-macho-extract | incompatible | native in Fieldkit now | `fieldkit repair evidence-macho-extract` (I-19): Mach-O minimum OS for the Mac 10.13 release check; no Fieldkit equivalent |
+| keep-both | incompatible | native in Fieldkit now | `fieldkit repair keep-both` (I-19): keeps both sides of append-only logs; `fieldkit merge-driver` covers tools.yaml/platform_index/groups.yaml only |
+| missing-import-fix | incompatible | native in Fieldkit now | `fieldkit repair missing-import-fix` (I-19): AST detector is sound; the fixer edits imports in place. |
+| pid-guarded-stop | incompatible | native in Fieldkit now | `fieldkit repair pid-guarded-stop` (I-19): stop by PID only after name + start time match; `fieldkit liveness` tracks runs but has no such stop |
+| plan-row-insert | incompatible | native in Fieldkit now | `fieldkit repair plan-row-insert` (I-19): Board rows; `fieldkit board` checks them but does not insert one |
+| pwsh-parent-chains | incompatible | native in Fieldkit now | `fieldkit repair pwsh-parent-chains` (I-19): who opened dozens of consoles; `fieldkit hog` reports the hoarding, not the parent chain |
+| pwsh-syntax-check | incompatible | native in Fieldkit now | `fieldkit repair pwsh-syntax-check` (I-19): bash heredoc/export in .ps1 files; triage `pwsh-bash-syntax` names the failure after the fact |
+| tpfan-config-verify | incompatible | native in Fieldkit now | `fieldkit repair tpfan-config-verify` (I-19): belongs to the fan-control kit (skill fieldkit-fan-control-test); no equivalent |
+| worktree-classify-recycle | incompatible | native in Fieldkit now | `fieldkit repair worktree-classify-recycle` (I-19): worktrees vs PR merge state before recycling; done by hand in every DONE PROTOCOL step 4 |
 | benchmark-html-report | incompatible | not ported | an HTML view of the same results; reports here are text and JSON |
 | build-dispatch-table | incompatible | not ported | a second router; folded into triage signatures, the refusal table and workflow offer (see Router) |
 | build-multiturn | incompatible | not ported | training-data export for a local model: W10, the owner's final goal, not now |
@@ -162,4 +162,4 @@ with its exact blocker; `fieldkit capture workflow list` shows them. Replay-back
 | untriaged-source-review | incompatible | not ported | one-time review of Kiro's 104 source groups, done (out/RECONCILIATION.md) |
 | workflow-readiness-review | incompatible | not ported | one-time screen; its verdicts are the `blocker` lines of the procedures below |
 
-Totals: 10 native in Fieldkit now, 17 Fieldkit already has it, 11 port queued (idea I-19), 19 not ported.
+Totals: 21 native in Fieldkit now, 17 Fieldkit already has it, 0 port queued, 19 not ported.
