@@ -335,3 +335,15 @@ def test_hard_lines_and_the_rest_are_never_rewritten(cmd):
 def test_a_fix_is_not_applied_while_another_rule_still_refuses():
     cmd = "python - <<EOF\nprint('" + BS * 2 + "n')\nEOF\nrm -rf C:/x/y"
     assert tr.heredoc_rewrite(cmd) is not None and tr.rewrite(cmd) is None
+
+
+def test_a_refusal_carries_the_measured_correction_from_the_table(tmp_path):
+    from fieldkit.autopilot import toolrouter as tr
+    t = tmp_path / "t.yaml"
+    t.write_text("rules:\n- rule: router:x\n  count: 10\n  correction: a\n  corrections:\n  - command: (no success within the next 5 steps)\n"
+                 "    count: 6\n  - command: the family fieldkit foo\n    count: 3\n- rule: router:y\n  count: 5\n  corrections:\n"
+                 "  - command: the family bar\n    count: 4\n", encoding="utf-8")
+    assert "fieldkit foo (3 of 10 times)" in tr.measured_correction("x", t)    # skips the 'no success' row, own rule only
+    assert tr.measured_correction("nope", t) == "" and tr.measured_correction("x", tmp_path / "missing") == ""
+    r = tr.route("sleep 60")
+    assert r and "Measured:" in tr.message(r) and r["use"] in tr.message(r)    # same refusal, better text

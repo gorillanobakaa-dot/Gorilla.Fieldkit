@@ -446,10 +446,43 @@ def rewrite(command, cwd=""):
     return new, r["route"]
 
 
+TABLE = "capture/refusal_table.yaml"          # measured by `fieldkit capture distill refusals`; data, never a rule source
+
+
+def measured_correction(route_name, path=None):
+    """-> the step that most often followed this refusal to success, with its count, or ''. A line scan of the table
+    (no YAML parse: the hook decides in under 100 ms). Never raises: no table, no row, no measured step -> ''."""
+    try:
+        from pathlib import Path
+        text = Path(path or Path(__file__).resolve().parent.parent / TABLE).read_text(encoding="utf-8")
+        total, cmd, inside = 0, None, False
+        for line in text.splitlines():
+            m = re.match(r"- rule: (\S+)\s*$", line)
+            if m:
+                if inside:
+                    break
+                inside = m.group(1) in (route_name, "router:" + route_name)
+            elif inside:
+                if (t := re.match(r"  count: (\d+)\s*$", line)):
+                    total = int(t.group(1))
+                elif (c := re.match(r"  - command: (.+?)\s*$", line)):
+                    cmd = c.group(1).strip("'\"")
+                elif cmd and (n := re.match(r"    count: (\d+)\s*$", line)):
+                    if not cmd.startswith("(no success"):     # rows are sorted by count; this is the best real step
+                        return (f"Measured: after this refusal the step that most often worked was "
+                                f"{cmd.replace('the family ', '')} ({n.group(1)} of {total} times).")
+                    cmd = None
+    except Exception:
+        pass
+    return ""
+
+
 def message(r):
+    fix = measured_correction(r["route"])
     return (f"TOOL ROUTER: this does by hand what a harness tool does ({r['route']}). Use {r['use']}, for example:\n"
             f"  {r['example']}\n"
-            "If the tool truly cannot do it, add '# toolrouter-ok: <why>' to the command (the reason is logged).")
+            + (f"{fix}\n" if fix else "")
+            + "If the tool truly cannot do it, add '# toolrouter-ok: <why>' to the command (the reason is logged).")
 
 
 def _claims(call):
