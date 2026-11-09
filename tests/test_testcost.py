@@ -337,3 +337,34 @@ def test_a_merge_in_progress_stages_only_the_branch_side_files(tmp_path):
     git("checkout", "-q", "feat")
     git("merge", "--no-commit", "--no-ff", "main")
     assert testcost.staged_files(tmp_path) == []
+
+
+def test_a_merge_tests_only_what_the_branch_itself_changed_in_the_cli_hub(tmp_path):
+    """Owner 2026-11-09: a merge of main into a branch ran ~420 test files (fieldkit/cli.py fans out) at 73-81 C.
+    The registry narrowing must read the branch's own change (merge base -> HEAD), not main's lines that arrive."""
+    def g(*a):
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=a@b", "-c", "user.name=t", *a],
+                       check=True, capture_output=True)
+    (tmp_path / "fieldkit").mkdir()
+    (tmp_path / "tests").mkdir()
+    for name in ("__init__", "cli"):
+        (tmp_path / "fieldkit" / f"{name}.py").write_text("CMDS = []\nEND = 1\n")
+    (tmp_path / "tests" / "test_mine.py").write_text("def test_x():\n    assert 'mine-cmd'\n")
+    (tmp_path / "tests" / "test_theirs.py").write_text("def test_x():\n    assert 'their-cmd'\n")
+    g("init", "-q", "-b", "main")
+    g("add", "-A"); g("commit", "-qm", "0")
+    g("checkout", "-qb", "feat")
+    (tmp_path / "fieldkit" / "cli.py").write_text("CMDS = ['mine-cmd']\nEND = 1\n")
+    g("commit", "-qam", "mine")
+    g("checkout", "-q", "main")
+    (tmp_path / "fieldkit" / "cli.py").write_text("CMDS = []\nEND = 1\nOTHER = ['their-cmd']\n")
+    g("commit", "-qam", "theirs")
+    g("checkout", "-q", "feat")
+    r = subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=a@b", "-c", "user.name=t", "merge", "--no-commit", "--no-ff", "main"],
+                       capture_output=True, text=True)
+    mb = testcost.merge_base(tmp_path)
+    assert mb, (r.stdout, r.stderr)
+    paths = ["fieldkit/cli.py"]
+    names = lambda own: {Path(t).name for t in testcost.plan(tmp_path, paths=paths, own_base=own)["tests"]}
+    assert names(mb) == {"test_mine.py"}                       # only what the branch itself changed
+    assert "test_theirs.py" in names(None)                     # without the merge base main's lines count too

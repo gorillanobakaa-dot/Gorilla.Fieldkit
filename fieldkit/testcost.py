@@ -191,6 +191,14 @@ def changed_files(repo=".", base=None):
     return sorted(x for x in out if x)
 
 
+def merge_base(repo="."):
+    """In the middle of a merge: the merge base of HEAD and MERGE_HEAD (the branch side starts there), else None."""
+    gitdir = Path(_git(repo, "rev-parse", "--absolute-git-dir").strip())
+    if not (gitdir / "MERGE_HEAD").is_file():
+        return None
+    return _git(repo, "merge-base", "HEAD", "MERGE_HEAD").strip() or None
+
+
 def staged_files(repo="."):
     """Staged paths. In the middle of a merge only the branch side's own files: what arrives from the base already
     passed the base's CI (TESTS ONCE); testing it again held a slot for an hour (2026-11-03, I-18)."""
@@ -284,17 +292,19 @@ def _show(repo, ref, path):
     return r.stdout if r.returncode == 0 else None
 
 
-def _registry_tools_tests(repo, base, test_files, imports):
+def _registry_tools_tests(repo, base, test_files, imports, new_ref=None):
     """tools.yaml: the tests of the entries that changed (their `test` command, the tests importing their module,
     the tests naming the id) + the integrity set. None = cannot prove which entries changed -> the caller keeps the
     wide mapping (unparseable file, a removed entry, a change outside `tools:`)."""
     import yaml
     old_text = _show(repo, base or "HEAD", REGISTRY_TOOLS)
     new_path = Path(repo) / REGISTRY_TOOLS
-    if old_text is None or not new_path.is_file():
+    new_text = _show(repo, new_ref, REGISTRY_TOOLS) if new_ref else (
+        new_path.read_text(encoding="utf-8") if new_path.is_file() else None)
+    if old_text is None or new_text is None:
         return None
     try:
-        old, new = yaml.safe_load(old_text) or {}, yaml.safe_load(new_path.read_text(encoding="utf-8")) or {}
+        old, new = yaml.safe_load(old_text) or {}, yaml.safe_load(new_text) or {}
         if {k: v for k, v in old.items() if k != "tools"} != {k: v for k, v in new.items() if k != "tools"}:
             return None
         olds = {e["id"]: e for e in old.get("tools", [])}
@@ -347,7 +357,7 @@ def _registry_cli_tests(repo, lines, test_files, imports):
     return hits
 
 
-def plan(repo=".", base=None, paths=None, diff_lines=None):
+def plan(repo=".", base=None, paths=None, diff_lines=None, own_base=None):
     """{"tests": [...], "unmapped": [...], "docs_only": bool, "no_code": bool}: the tests that cover the changed files.
 
     "no_code": nothing changed but documentation, state/ files or version lines (read from the diff, `diff_lines`
@@ -361,6 +371,10 @@ def plan(repo=".", base=None, paths=None, diff_lines=None):
     tests_dir = repo / "tests"
     test_files = sorted(tests_dir.rglob("test_*.py")) if tests_dir.is_dir() else []   # tests/capture/ too
     imports = {t: _imports(t) for t in test_files}
+    if own_base and not diff_lines:                    # a merge in progress: only the branch's own change counts, what
+        base = own_base                                # arrives from the other side already passed its CI (TESTS ONCE)
+        diff_lines = lambda path: [l for l in _git(repo, "diff", "-U0", own_base, "HEAD", "--", path).splitlines()
+                                   if l[:1] in "+-" and not l.startswith(("+++", "---"))]
     diff_lines = diff_lines or (lambda path: _line_diff(repo, base, path))
     tmap = testmap(repo)
     chosen, unmapped = set(), []
@@ -384,7 +398,7 @@ def plan(repo=".", base=None, paths=None, diff_lines=None):
                 chosen |= hits
             continue
         if q in REGISTRY_INTEGRITY:                    # a shared registry: only the tests of what changed in it
-            narrow = (_registry_tools_tests(repo, base, test_files, imports) if q == REGISTRY_TOOLS else
+            narrow = (_registry_tools_tests(repo, base, test_files, imports, "HEAD" if own_base else None) if q == REGISTRY_TOOLS else
                       _registry_cli_tests(repo, diff_lines(q), test_files, imports))
             if narrow:
                 chosen |= narrow
@@ -498,7 +512,7 @@ def main(argv=None, prog="fieldkit testcost"):
         return 0
     if a.cmd == "staged":
         # owner 2026-10-27 (verbatim): "Da: pe laptop doar testele fișierelor atinse, suita completă doar în CI."
-        tests = plan(a.repo, paths=staged_files(a.repo))["tests"]
+        tests = plan(a.repo, paths=staged_files(a.repo), own_base=merge_base(a.repo))["tests"]
         cap = int(os.environ.get("FIELDKIT_LOCAL_TEST_CAP", "15"))
         if len(tests) > cap:
             # a hub file (cli.py) fans out to ~60 test files = 30+ min on the laptop. R15: never dropped - this
