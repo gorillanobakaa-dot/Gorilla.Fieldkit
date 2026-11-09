@@ -2241,7 +2241,7 @@
    "linux",
    "windows"
   ],
-  "why": "one reader per system, each returns nothing elsewhere; run live on Linux 2026-10-31 (fixtures: a held file, a listening socket, the test PID); the Windows reader (ctypes) is tested by CI only and the macOS reader was not run",
+  "why": "one reader per system, each returns nothing elsewhere; live fixtures (a held file, listening and connected sockets, the test PID) run on Linux and Windows 2026-11-09; the macOS reader is tested by CI and was not run on a Mac",
   "ids": [
    "observe"
   ]
