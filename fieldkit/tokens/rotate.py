@@ -429,6 +429,8 @@ def hook_line(call, event, now=None):
         now = now or time.time()
         cfg = config()
         sid = Path(tp).stem
+        if rotate_stop.permanent_zero(sid):
+            return "\n".join(_wakes(sid))               # owner 2026-11-09: Session 0 never rotates (no ROTATE/BUDGET)
         wakes = _wakes(sid)                               # a ci-wait that ended wakes its session (method/ci_wake.py)
         mark = state_dir() / "said" / (sid + ".json")
         try:
@@ -472,6 +474,7 @@ def rotation_done_line(row, owner=False):
             f"90% (the BUDGET line names its brief): write no second one; {start_text(row, owner)}. Start no new work here.")
 
 
+from . import rotate_stop  # noqa: E402
 from .rotate_stop import HANDOVER_CMD, HANDOVER_FILES, stop_refusal  # noqa: E402,F401 - R1, kept light for the PreToolUse hook
 
 
@@ -598,8 +601,8 @@ def stop_hook(stdin=None, state_fn=None, alive=None):
     try:
         call = json.loads((stdin or sys.stdin).read() or "{}")
         tp = call.get("transcript_path")
-        if call.get("stop_hook_active") or not tp:
-            return 0
+        if call.get("stop_hook_active") or not tp or rotate_stop.permanent_zero(Path(tp).stem):
+            return 0                                      # the permanent Zero is exempt (owner 2026-11-09)
         from ..method import ci_wake
         get = state_fn or pr_state
         unknown = []
