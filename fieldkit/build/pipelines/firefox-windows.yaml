@@ -43,10 +43,11 @@ stages:
     run: {cmd: ["{py}", "{entry}", patches], cwd: "{harness}"}
     triage: firefox-windows
 
-  - id: generated
-    platforms: [windows]
-    run: {cmd: ["{py}", "{entry}", generated], cwd: "{harness}"}
-    triage: firefox-windows
+  # No `generated` stage on 158: it regenerates the newtab bundle from Base.jsx,
+  # DiscoveryStreamBase.jsx and TopSites.jsx, and the 158 patch set carries no
+  # change to them or to the bundle (proved: git diff 3c71aeacdb on the tree is
+  # empty for all four), so the shipped upstream bundle is already right.
+  # Signature: newtab-sources-unpatched.
 
   - id: build
     platforms: [windows]
