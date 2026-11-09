@@ -7032,3 +7032,179 @@ tools:
   exits: {2: refused-input, 3: incompatible-cards-or-workflows}
   platforms: [windows, linux, darwin]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_external_catalog.py"]
+
+- id: cp1252-stdout-fix
+  title: "Windows cp1252 UnicodeEncodeError in a Python script: find text-mode open()/read_text()/write_text() calls with no encoding and the missing stdout UTF-8 setting; --apply adds exactly those arguments"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, cp1252-stdout-fix]
+  path: ${FIELDKIT}/fieldkit/repair/cp1252_stdout_fix.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair cp1252-stdout-fix --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: missing-import-fix
+  title: "Find modules a Python file uses (shutil.copy, re.sub) without importing them and, with --apply, add the import after the docstring and __future__ lines; the file must still parse"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, missing-import-fix]
+  path: ${FIELDKIT}/fieldkit/repair/missing_import_fix.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair missing-import-fix --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: keep-both
+  title: "Resolve git conflict blocks in an append-only file (log, Board table) by keeping ours then theirs; --apply removes the markers; a malformed file or generated registry is refused"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, keep-both]
+  path: ${FIELDKIT}/fieldkit/repair/keep_both.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair keep-both --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: brace-parity-check
+  title: "C and C++ delimiter balance ({} () []) before a two-hour compile; comments, strings and preprocessor lines are blanked first; lexical only"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, brace-parity-check]
+  path: ${FIELDKIT}/fieldkit/repair/brace_parity_check.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair brace-parity-check --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: pwsh-syntax-check
+  title: "PowerShell .ps1 files with bash written into them (heredoc, export, $(cmd)) or unbalanced braces; also asks powershell/pwsh's own parser when present"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, pwsh-syntax-check]
+  path: ${FIELDKIT}/fieldkit/repair/pwsh_syntax_check.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair pwsh-syntax-check --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: pwsh-parent-chains
+  title: "Who opened all those consoles: the parent chain of every PowerShell, pwsh and conhost process and the parents owning the most"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, pwsh-parent-chains]
+  path: ${FIELDKIT}/fieldkit/repair/pwsh_parent_chains.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair pwsh-parent-chains --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: pid-guarded-stop
+  title: "Stop a process only when its name AND start time match the PID you meant; check by default, --stop ends it and its children"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, pid-guarded-stop]
+  path: ${FIELDKIT}/fieldkit/repair/pid_guarded_stop.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair pid-guarded-stop --help)"}
+  effects: [reads-files, processes]
+  safety: irreversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: worktree-classify-recycle
+  title: "Classify git worktrees against origin/main and PR state (merged, open-pr, unmerged, +dirty); lists only clean merged ones as recyclable, with the command; deletes nothing"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, worktree-classify-recycle]
+  path: ${FIELDKIT}/fieldkit/repair/worktree_classify_recycle.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair worktree-classify-recycle --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: plan-row-insert
+  title: "Insert one Board or Waiting row into a markdown file before an anchor line that must match exactly one line; --apply writes"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, plan-row-insert]
+  path: ${FIELDKIT}/fieldkit/repair/plan_row_insert.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair plan-row-insert --help)"}
+  effects: [reads-files, writes-files]
+  safety: reversible
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: evidence-macho-extract
+  title: "Mach-O binary (thin or universal): cpu, minimum macOS and loaded dylibs from the header alone; fails when it asks for newer than --max-minos (Mac 10.13 release check)"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, evidence-macho-extract]
+  path: ${FIELDKIT}/fieldkit/repair/evidence_macho_extract.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair evidence-macho-extract --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: tpfan-config-verify
+  title: "TPFanControl.ini: switch the Active= mode safely and verify TPFanControl.exe against a caller-given SHA-256 pin"
+  harness: desk
+  entry: [python, -m, fieldkit, repair, tpfan-config-verify]
+  path: ${FIELDKIT}/fieldkit/repair/tpfan_config_verify.py
+  inputs:
+    - {name: args, flag: null, type: str, required: false, help: "the tool's own arguments (fieldkit repair tpfan-config-verify --help)"}
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  exits: {1: "error", 3: "findings"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
+  skill: skills/fieldkit-repair/SKILL.md
+  notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."

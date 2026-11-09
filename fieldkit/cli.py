@@ -24,6 +24,7 @@
 
     fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|install|release|agent-shell]
     fieldkit triage self-test|checks --kind install|release [--home DIR --root DIR --branch B]
+    fieldkit repair ACTION ...              11 small repair/check tools (cp1252, imports, conflicts, braces, ps1, pids, worktrees, Mach-O)
     fieldkit pyliterals FILE... [--apply]   stray backslashes in Python strings; raw only when the value stays
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
@@ -773,6 +774,11 @@ def cmd_triage(a):
 def cmd_pyliterals(a):
     from .build import pyliterals
     return pyliterals.main(a.files + (["--apply"] if a.apply else []) + (["--json"] if a.json else []))
+
+
+def cmd_repair(a):
+    from . import repair
+    return repair.run(a.action, a.args + (["--json"] if a.json else []))
 
 
 def cmd_triage_learn(a):
@@ -1965,6 +1971,12 @@ def build_parser():
     pl.add_argument("files", nargs="+")
     pl.add_argument("--apply", action="store_true")
     pl.set_defaults(fn=cmd_pyliterals)
+
+    rp = sub.add_parser("repair", parents=[common], help="small repair and check tools: cp1252, missing imports, conflict markers, brace parity, ps1 syntax, pid-guarded stop, worktrees, Board rows, Mach-O, TPFan ini")
+    from . import repair as _repair
+    rp.add_argument("action", choices=sorted(_repair.ACTIONS))
+    rp.add_argument("args", nargs=argparse.REMAINDER, help="the tool's own arguments (fieldkit repair ACTION --help)")
+    rp.set_defaults(fn=cmd_repair)
 
     tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
     tl.add_argument("--set", default="auto")

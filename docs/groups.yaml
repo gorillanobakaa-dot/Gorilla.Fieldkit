@@ -27,6 +27,9 @@ groups:
   - name: github-setup
     title: Guided, verified GitHub setup - profiles, plain-words explanations, plan, apply with consent, check for known mistakes, undo
     sources: [github/*.py]
+  - name: repair
+    title: Small repair and check tools ported from Kiro - cp1252, missing imports, conflict markers, brace parity, ps1 syntax, guarded stop, worktrees, Board rows, Mach-O, TPFan ini
+    sources: [repair/*.py]
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
