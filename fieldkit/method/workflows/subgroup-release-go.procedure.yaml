@@ -1,0 +1,18 @@
+# Kiro workflow candidate kept as a procedure (P18 distill, integrated 2026-11-08). Hand-kept data:
+# promote it only by adding steps, each with a command and a PASS check, and `accepted: true`.
+id: subgroup-release-go
+intent: release
+toolchain: go
+reason: Kiro pass (2026-11-05), mined subgroup; no step has a PASS check, so it is a procedure, not a recipe (`fieldkit capture
+  workflow offer` serves only recipes)
+episodes: 3
+replayed_ok: 0 of 3
+step_families:
+- go test
+side_effects:
+  network_or_remote: 0
+  write_or_release: 0
+  code_execution: 1
+blocker: Only `go test` appears and replay is 0/3. No package/target selection, test result predicate, release artifact, or
+  release approval exists; treat as an unverified test fragment, not a release workflow.
+source: Desktop/50000.scripts.experience/out/WORKFLOW-DISPOSITIONS.csv

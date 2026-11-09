@@ -4,6 +4,9 @@ Each case below is a page that a writer really produced or would produce by
 copying the last one. The first is the page that was published on 2026-10-04.
 """
 import json
+from pathlib import Path
+
+import pytest
 
 from fieldkit import cli
 from fieldkit.core import settings
@@ -210,3 +213,18 @@ def test_the_compose_command_puts_this_repositorys_cards_on_the_page(tmp_path, m
                               "--out", str(out), "--repo", str(tmp_path)])
     assert args.fn(args) == 0
     assert "| `fieldkit sync` | Keep level | windows |" in out.read_text(encoding="utf-8")
+
+
+def test_every_real_card_has_a_row_and_a_card_without_one_is_refused(tmp_path):
+    import yaml
+    root = Path(__file__).resolve().parent.parent
+    cards = yaml.safe_load((root / RP.CARDS).read_text(encoding="utf-8"))["tools"]
+    table = RP.tool_table(root)
+    assert f"({len(cards)})" in table
+    assert sum(1 for line in table.splitlines() if line.startswith("| `")) == len(cards)
+    bad = tmp_path / "fieldkit" / "desk" / "tools.yaml"
+    bad.parent.mkdir(parents=True)
+    bad.write_text("tools:\n- {id: ok, title: t, platforms: [linux]}\n- {title: no id, platforms: [linux]}\n",
+                   encoding="utf-8")
+    with pytest.raises(ValueError):
+        RP.tool_table(tmp_path)

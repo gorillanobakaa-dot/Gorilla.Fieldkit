@@ -1,0 +1,17 @@
+# Rules of the escalation ladder (plan P9). Every one must be CAUGHT:
+#   fieldkit mutate --plan tests/escalation_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_escalation.py
+- file: fieldkit/lifecycle/models.py
+  swap: ['    if own_failures < int(cfg.get("own_limit") or 2):', '    if False:']
+  why: the same model retries until it has failed its own limit
+- file: fieldkit/lifecycle/models.py
+  swap: ['        if r.get("outcome") == "fail" and not r.get("own", True):', '        if False:']
+  why: a failure that was not the branch's own is not held against the model
+- file: fieldkit/lifecycle/models.py
+  swap: ['(c["rate"] or 0) >= 0.8', '(c["rate"] or 0) >= 0.0']
+  why: a model is delegated to only with a high success rate
+- file: fieldkit/method/strikes.py
+  swap: ['        if not models.ladder_cfg().get("enabled"):', '        if False:']
+  why: the ladder replaces two strikes only when switched on
+- file: fieldkit/method/strikes.py
+  swap: ['    _attempt(branch, job, kind == "own", p)', '    _attempt(branch, job, True, p)']
+  why: an unproven red is not recorded as the model's own failure

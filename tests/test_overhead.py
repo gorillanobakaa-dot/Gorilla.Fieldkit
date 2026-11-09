@@ -263,3 +263,23 @@ def test_an_open_inbox_item_that_names_a_goal_is_not_waiting_for_the_owner(tmp_p
     r = overhead.measure("goal:g2", jobs["goal:g2"], cfg=CFG, projects=DATA / "projects", inbox_dir=str(inbox),
                          testcost_log=DATA / "none.jsonl")
     assert r["buckets"]["owner"] == 0
+
+
+def test_bash_calls_by_kind(tmp_path):
+    def use(i, t, cmd, bg=False):
+        return {"timestamp": t, "message": {"content": [{"type": "tool_use", "name": "Bash", "id": i,
+                                                          "input": {"command": cmd, "run_in_background": bg}}]}}
+
+    def res(i, t):
+        return {"timestamp": t, "message": {"content": [{"type": "tool_result", "tool_use_id": i}]}}
+    rows = [use("a", "2026-11-01T10:00:00Z", "git commit -m x"), res("a", "2026-11-01T10:05:00Z"),
+            use("b", "2026-11-01T10:06:00Z", "python -m fieldkit mutate y"), res("b", "2026-11-01T10:07:00Z"),
+            use("c", "2026-11-01T10:08:00Z", "sleep 30", bg=True), res("c", "2026-11-01T10:09:00Z"),
+            use("d", "2026-10-01T10:00:00Z", "ls"), res("d", "2026-10-01T10:01:00Z")]
+    (tmp_path / "p").mkdir()
+    (tmp_path / "p" / "s.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    got = {r["kind"]: r for r in overhead.bash_calls(tmp_path, since="2026-10-15")}
+    assert set(got) == {"git commit (pre-commit hook)", "fieldkit mutate"}
+    assert got["git commit (pre-commit hook)"]["seconds"] == 300 and got["fieldkit mutate"]["calls"] == 1
+    assert overhead.bash_category("python -m pytest tests/test_x.py") == "pytest targeted"
+    assert overhead.bash_category("echo hi") == "other"

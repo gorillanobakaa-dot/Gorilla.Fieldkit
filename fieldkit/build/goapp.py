@@ -1273,8 +1273,10 @@ def previous_release_deb(repo, version, dest, gh="gh"):
     """The .deb of the release before `version` on GitHub, downloaded into dest/<tag>/ and checked against that
     release's SHA256SUMS. -> (path, tag). Raises ValueError (no earlier release, no .deb, a checksum mismatch)."""
     from . import relfiles
+    from ..method.ship import ship_env        # inside an autopilot run only ship's own environment has gh's account back (#145)
+    env = ship_env()
     r = subprocess.run([gh, "release", "list", "-R", repo, "--limit", "40", "--json", "tagName,isDraft"],
-                       capture_output=True, text=True, timeout=120)
+                       capture_output=True, text=True, timeout=120, env=env)
     if r.returncode != 0:
         raise ValueError(f"gh release list -R {repo} failed: {(r.stderr or r.stdout).strip()[:200]}")
     tags = [x["tagName"] for x in json.loads(r.stdout or "[]")
@@ -1298,7 +1300,7 @@ def previous_release_deb(repo, version, dest, gh="gh"):
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
         g = subprocess.run([gh, "release", "download", tag, "-R", repo, "-D", str(d), "-p", "*_amd64.deb",
-                            "-p", "SHA256SUMS-*.txt"], capture_output=True, text=True, timeout=1800)
+                            "-p", "SHA256SUMS-*.txt"], capture_output=True, text=True, timeout=1800, env=env)
         if g.returncode != 0:
             raise ValueError(f"gh release download {tag} failed: {(g.stderr or g.stdout).strip()[:200]}")
     raise ValueError("unreachable")

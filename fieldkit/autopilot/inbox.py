@@ -52,6 +52,7 @@ def add(title, why, command="", kind="approval", files=(), plan="", what="", if_
         ledger_file().parent.mkdir(parents=True, exist_ok=True)
         with open(ledger_file(), "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        _refresh()
         return row
     INBOX.mkdir(parents=True, exist_ok=True)
     for p in sorted(INBOX.glob("*.json")):

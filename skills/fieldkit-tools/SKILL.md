@@ -107,3 +107,9 @@ mandate does not cover (deletes, moved tags, the decision register) or when no m
 every script and command an agent wrote or ran, one-offs and failed attempts included, with the fix that followed.
 The agents' hooks run `fieldkit capture hook --agent claude|gemini|opencode`; `capture ledger --strict` exits 3 if
 anything captured was lost, and `capture verify` checks the hash chain.
+
+More tools by job: `fieldkit web browsers` (card web-browsers: every installed browser), `fieldkit web fetch URL` (card web-fetch: a page as text),
+`fieldkit web search WORDS` (card web-search: the Gorilla OpenCode engines), `fieldkit web doctor` (card web-doctor: which browsers cannot be driven
+and the fix), `fieldkit app NAME` (find and start a program), `fieldkit observe` (open files, ports, processes),
+`fieldkit rules` (the core rules as data, linted), `fieldkit review` (the owner's one review of parked ideas and
+inbox items).

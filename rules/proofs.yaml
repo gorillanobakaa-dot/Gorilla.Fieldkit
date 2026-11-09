@@ -418,8 +418,8 @@ CLEAN UP:
       naming it is not deterministic
 LIFECYCLE:
   proofs:
-  - demand: 'SIDE JOBS: a side job starts through `fieldkit task start` which appends the side-jobs rule and DONE protocol
-      to the brief'
+  - demand: 'SIDE JOBS: a headless side job starts through `fieldkit task start` which appends the side-jobs rule and DONE
+      protocol to the brief'
     test: tests/test_zero_friction.py::test_task_start_here_writes_a_runbook_and_launches_it_headless
     mutate:
     - fieldkit/lifecycle/tasks.py
@@ -497,7 +497,7 @@ LIFECYCLE:
     why: fieldkit guard preflight unloads idle models (hog); a job-specific unload check is buildable
   - demand: 'DONE 6: any other agent ends its session / Claude desktop archive_session self'
     why: 'buildable: a Stop hook requiring archive_session for non-Zero sessions; the order of the steps is not checked'
-  - demand: never propose a desktop session card
+  - demand: 'SIDE JOBS: a side job starts as a visible desktop session (start_session user_asked), never a card'
     why: friction scans cards (fieldkit/lifecycle/desktop.py); not mutated here
 ROTATE:
   proofs:
@@ -519,3 +519,7 @@ ROTATE:
   - demand: run `fieldkit rotate handover` with its fields and start a fresh session
     why: handover writing is tested (test_handover_writes_note_and_plan_section); that an agent actually ends its session
       is not enforced
+ZERO COMMANDS:
+  gaps:
+  - demand: Zero checks every side session's work against its diff and PR and finishes it
+    why: 'buildable: rollcall shows each station''s branch and PR state and flags a session that handed over with an open, unmerged PR'

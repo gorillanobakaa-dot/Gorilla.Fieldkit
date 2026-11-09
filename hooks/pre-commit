@@ -165,6 +165,25 @@ if [ -z "$SKIP" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp
   for t in $FAILED; do echo "$(date '+%Y-%m-%d %H:%M:%S') failed once, passed when run again: $t" >> state/flaky-tests.log; done
   echo "pre-commit: WARNING - failed once and passed when run again (logged in state/flaky-tests.log): $FAILED"
 fi
+# 2026-11-03 (HARNESS-PLAN R15): the covering test files above this laptop's share went to free devices when `testcost
+# staged` ran (fieldkit/testsplit.py). Their signed results are collected here. A share that came back FAILED or with no
+# signed result runs here (exit 10), where it must pass (2026-11-03: the VAIO's own environment failures refused #350): a test file is never dropped.
+if [ -z "$SKIP" ] && [ -z "$FIELDKIT_FULL_SUITE" ] && [ -n "$KEY" ]; then
+  SPL="$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/fk-split-$$")"
+  "$PY" -m fieldkit.testsplit collect --key "$KEY" >"$SPL" 2>"$OUT"; SPL_RC=$?
+  sed 's/^/pre-commit: /' "$OUT"
+  if [ "$SPL_RC" = "1" ]; then
+    echo "pre-commit: a test share failed on another device - commit refused"; rm -f "$SPL"; exit 1
+  fi
+  AGAIN="$(tr -d '
+' <"$SPL" | tr '
+' ' ')"; rm -f "$SPL"
+  if [ "$SPL_RC" = "10" ] && [ -n "$AGAIN" ] && ! guarded "$PY" -m pytest -q -p no:cacheprovider --basetemp "$BT" -rf $AGAIN >"$OUT" 2>&1; then
+    tail -20 "$OUT"
+    echo "pre-commit: the test files no device vouched for failed here - commit refused"
+    exit 1
+  fi
+fi
 if [ -z "$SKIP" ]; then
   grep -E '^  (preflight|run guard|fan check|governor)' "$OUT" | sed 's/^  /pre-commit: /'
   if [ -n "$TESTS" ]; then

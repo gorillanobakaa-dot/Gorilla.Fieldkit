@@ -56,8 +56,8 @@ def monster(tmp_path, read=400_000, n=1, stop="end_turn", ts=None, name="sess-bi
 # ---------------------------------------------------------------- the verdict
 
 @pytest.mark.parametrize("ctx,usd,level", [
-    (249_999, 39.99, "OK"), (250_000, 0, "WARN"), (0, 40.0, "WARN"), (349_999, 74.99, "WARN"),
-    (350_000, 0, "ROTATE"), (0, 75.0, "ROTATE"), (350_000, 40.0, "ROTATE")])
+    (119_999, 39.99, "OK"), (120_000, 0, "WARN"), (0, 40.0, "WARN"), (149_999, 74.99, "WARN"),
+    (150_000, 0, "ROTATE"), (0, 75.0, "ROTATE"), (150_000, 40.0, "ROTATE")])
 def test_verdict_lines(ctx, usd, level):
     got, why = rotate.verdict(ctx, usd, CFG)
     assert got == level
@@ -66,7 +66,7 @@ def test_verdict_lines(ctx, usd, level):
 
 def test_verdict_names_both_rules():
     _, why = rotate.verdict(400_000, 80.0, CFG)
-    assert why == ["context per call 400k >= ROTATE 350k", "session dollars $80.00 >= ROTATE $75.00"]
+    assert why == ["context per call 400k >= ROTATE 150k", "session dollars $80.00 >= ROTATE $75.00"]
 
 
 # ---------------------------------------------------------------- measuring
@@ -133,7 +133,8 @@ def call(p, event):
 def test_hook_rotate_at_every_prompt_and_once_mid_turn(tmp_path):
     p = monster(tmp_path)
     first = rotate.hook_line(call(p, "PostToolUse"), "PostToolUse")
-    assert first.startswith("SESSION ROTATION") and "rotate handover --transcript" in first
+    assert first.startswith("SESSION ROTATION") and "already written" in first      # the 90% budget wrote it
+    assert "BUDGET" in first and "rotate handover --transcript" not in first     # never a second handover
     assert "archive_session" in first                              # a desktop session is told to archive itself
     assert rotate.hook_line(call(p, "PostToolUse"), "PostToolUse") == ""          # said once mid-turn
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit").startswith("SESSION ROTATION")
@@ -143,7 +144,7 @@ def test_hook_rotate_at_every_prompt_and_once_mid_turn(tmp_path):
 
 
 def test_hook_warn_once_and_quiet_when_ok(tmp_path):
-    p = monster(tmp_path, read=300_000)
+    p = monster(tmp_path, read=130_000)
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit").startswith("session rotation: WARN")
     assert rotate.hook_line(call(p, "UserPromptSubmit"), "UserPromptSubmit") == ""
     q = monster(tmp_path, read=10_000, name="fine")
@@ -195,23 +196,22 @@ def test_no_rotation_path_falls_back_to_a_card(tmp_path, entry, owner):
     text = rotate.next_step(row, owner=owner)
     assert not CARD.search(text)
     if entry == "claude-desktop":
-        assert "fieldkit task start" in text
+        assert "rotate successor" in text and "--origin session" in text   # refused: Zero first, never Haiku
         if not owner:
-            assert "do NOT call start_session" in text and "start_session, initiation" not in text
-        else:
-            assert "initiation \"user_asked\"" in text and "NEVER propose a card" in text
+            assert "may refuse it" in text
+        assert "initiation \"user_asked\"" in text and "NEVER propose a card" in text
         assert "set_remote_control off" in text
 
 
 def test_hook_knows_an_event_turn_from_the_owners_words(tmp_path):
     p = monster(tmp_path)
     ev = dict(call(p, "UserPromptSubmit"), prompt="<cross-session-message from=\"local_x\">rotate now")
-    assert "do NOT call start_session" in rotate.hook_line(ev, "UserPromptSubmit")
+    assert "may refuse it" in rotate.hook_line(ev, "UserPromptSubmit")
     own = dict(call(p, "UserPromptSubmit"), prompt="carry on")
     assert "initiation \"user_asked\"" in rotate.hook_line(own, "UserPromptSubmit")
     # mid-turn, the line crossed during a turn keeps the kind of the prompt that started the turn
-    for prompt, want in (("carry on", "user_asked"), ("<task-notification> done", "do NOT call start_session")):
-        q = monster(tmp_path, read=300_000, name=f"mid-{len(prompt)}")
+    for prompt, want in (("carry on", "user_asked"), ("<task-notification> done", "may refuse it")):
+        q = monster(tmp_path, read=130_000, name=f"mid-{len(prompt)}")
         t = time.time()
         rotate.hook_line(dict(call(q, "UserPromptSubmit"), prompt=prompt), "UserPromptSubmit", now=t)
         write(q, [line(mid="y", read=400_000)], mode="a")
@@ -241,7 +241,7 @@ def test_handover_writes_note_and_plan_section(tmp_path, monkeypatch):
     assert r["plan_written"]
     text = plan.read_text(encoding="utf-8")
     assert text.startswith("# PLAN\n") and "session rotated: [TEST-LNX] Rotation / job (sess-big)" in text
-    assert "| ROTATE: context per call 400k >= ROTATE 350k | module | write tests | CI |" in text
+    assert "| ROTATE: context per call 400k >= ROTATE 150k | module | write tests | CI |" in text
     note = Path(r["note"]).read_text(encoding="utf-8")
     assert Path(r["note"]).name.endswith("-sess-big.md")
     assert "## Next\n\nwrite tests" in note and "feat/x" in note and "https://github.com/o/r/pull/7" in note
@@ -332,7 +332,7 @@ def fake_claude(jd, ends):
         end = ends[len(seen) - 1]
         if end == "rotate":
             m = json.loads((jd / "meter.json").read_text(encoding="utf-8"))
-            m.update(exhausted="rotate", rotate_why="context per call 400k >= ROTATE 350k")
+            m.update(exhausted="rotate", rotate_why="context per call 400k >= ROTATE 150k")
             (jd / "meter.json").write_text(json.dumps(m), encoding="utf-8")
         return {"rc": 0, "seconds": 1, "result": {"is_error": False, "result": "ended", "session_id": "S1",
                                                   "num_turns": 3, "subtype": "success"}}
@@ -368,7 +368,7 @@ def test_cli_check_exit_codes_and_log(tmp_path, capsys, monkeypatch):
     assert rotate.main(["check", "--hours", "1"]) == 2
     assert "1 ROTATE" in capsys.readouterr().out
     assert rotate.main(["check", "--session", "nope"]) == 3
-    q = monster(tmp_path, read=300_000, name="w")
+    q = monster(tmp_path, read=130_000, name="w")
     assert rotate.main(["check", "--session", str(q), "--json"]) == 1
     assert json.loads(capsys.readouterr().out)[0]["level"] == "WARN"
     assert rotate.main(["log", "1"]) == 0 and '"WARN"' in capsys.readouterr().out
@@ -498,3 +498,46 @@ def test_archived_ids_reads_the_desktop_records(tmp_path, monkeypatch):
                                         encoding="utf-8")
     monkeypatch.setenv("FIELDKIT_CLAUDE_APP_DIRS", str(tmp_path / "app"))
     assert rotate.archived_ids() == {"cli-a"}
+
+
+# ---------------------------------------------------------------- owner 2026-11-09: the permanent Zero never rotates
+
+def _zero_list(tmp_path, monkeypatch, stems):
+    f = tmp_path / "pz.json"
+    f.write_text(json.dumps({"transcripts": stems}), encoding="utf-8")
+    monkeypatch.setenv("FIELDKIT_PERMANENT_ZERO", str(f))
+
+
+def test_permanent_zero_is_exempt_only_by_listed_stem(tmp_path, monkeypatch):
+    _zero_list(tmp_path, monkeypatch, ["zero1"])
+    tp0 = _said(tmp_path, "ROTATE", stem="zero1")
+    tp1 = _said(tmp_path, "ROTATE", stem="other")
+    assert rotate.stop_refusal(pre(tp0, "Bash", command="python -m pytest tests")) is None
+    assert rotate.stop_refusal(pre(tp1, "Bash", command="python -m pytest tests")).startswith("SESSION ROTATION STOP")
+
+
+def test_permanent_zero_gets_no_rotate_line_others_do(tmp_path, monkeypatch):
+    _zero_list(tmp_path, monkeypatch, ["zero"])
+    monkeypatch.setattr(rotate, "config", lambda: {**CFG, "hook_every_s": 0})
+    for name, want in (("zero", False), ("other", True)):
+        tp = monster(tmp_path, name=name)
+        out = rotate.hook_line({"transcript_path": str(tp)}, "UserPromptSubmit")
+        assert ("ROTATE" in out) is want, (name, out)
+
+
+def test_permanent_zero_stop_hook_never_blocks(tmp_path, monkeypatch, capsys):
+    import io
+    _zero_list(tmp_path, monkeypatch, ["zero"])
+    called = []
+    for name in ("zero", "other"):
+        tp = monster(tmp_path, name=name)
+        rotate.stop_hook(io.StringIO(json.dumps({"transcript_path": str(tp)})),
+                         state_fn=lambda u: called.append(name) or "OPEN", alive=lambda p: False)
+    assert "zero" not in called
+
+
+def test_shipped_permanent_zero_list_names_session_zero(monkeypatch):
+    monkeypatch.delenv("FIELDKIT_PERMANENT_ZERO", raising=False)
+    from fieldkit.tokens import rotate_stop
+    assert rotate_stop.permanent_zero("407131e1-ce0d-40e5-bc4e-e373a9749717")
+    assert not rotate_stop.permanent_zero("407131e1")

@@ -141,8 +141,11 @@ def hook_pre(job_dir, tool, args, transcript=None, now=None, read_tool=False):
     if transcript and (m["calls"] % COST_EVERY == 1 or m.get("usd") is None) and b.get("cost_usd"):
         usd = transcript_usd(transcript)
         m["usd"] = usd if usd is not None else m.get("usd")
-    if transcript and m.get("exhausted") != "rotate" and m["calls"] % COST_EVERY == 1:
+    # R19: every 10th call, and every call once the last reading was WARN: a session near the line must not run up to
+    # nine more calls past it (Zero 21 ran at 364k per call against ROTATE 350k)
+    if transcript and m.get("exhausted") != "rotate" and (m["calls"] % COST_EVERY == 1 or m.get("rotate_level") == "WARN"):
         row = rotate_verdict(transcript)
+        m["rotate_level"] = row["level"] if row else None
         if row and row["level"] == "ROTATE":
             m["exhausted"] = "rotate"
             m["rotate_why"] = "; ".join(row["why"])
@@ -150,6 +153,9 @@ def hook_pre(job_dir, tool, args, transcript=None, now=None, read_tool=False):
     why = None
     if share >= 0.8 and m.get("mark80") is None:
         m["mark80"] = now
+    # past ROTATE even a read is refused (R19): every call re-sends the whole context, a read costs as much as a write
+    if m.get("exhausted") == "rotate" and not is_checkpoint_call(tool, args):
+        read_tool = False
     if not read_tool and not is_checkpoint_call(tool, args):
         if m.get("exhausted") == "rotate":
             why = (f"SESSION ROTATION: this session is over the ROTATE line ({m.get('rotate_why')}). Write "
