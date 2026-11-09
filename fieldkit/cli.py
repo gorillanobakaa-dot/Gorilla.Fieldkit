@@ -22,8 +22,9 @@
     fieldkit pipeline status NAME
     fieldkit pipeline reset NAME [--stage S]
 
-    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|install|release]
+    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|install|release|agent-shell]
     fieldkit triage self-test|checks --kind install|release [--home DIR --root DIR --branch B]
+    fieldkit pyliterals FILE... [--apply]   stray backslashes in Python strings; raw only when the value stays
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
     fieldkit image doctor|squash|compare|ocr|privacy ...   pictures offline: compress, compare, read, redact (fieldkit/image)
@@ -80,6 +81,7 @@
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
     fieldkit capture hook|scan|find|ledger|verify|status|self-test   zero-loss capture of what agents make and run
     fieldkit integration check|self-test         is a capability built in (6 surfaces)? check --repo PATH [--changed BASE]
+    fieldkit pins check|self-test                helper sources immutable and sha256-pinned? check --repo PATH [--json]
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
@@ -766,6 +768,11 @@ def cmd_triage(a):
             print("\n  " + r["hint"])
     _emit(rep, a.json, human)
     return 0 if rep["verdict"] == "known" else 3
+
+
+def cmd_pyliterals(a):
+    from .build import pyliterals
+    return pyliterals.main(a.files + (["--apply"] if a.apply else []) + (["--json"] if a.json else []))
 
 
 def cmd_triage_learn(a):
@@ -1849,6 +1856,10 @@ def build_parser():
                              "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
                              "failures; what cannot be read is listed, never estimated (fieldkit metrics)")
     mt.add_argument("args", nargs=argparse.REMAINDER)
+    gh = sub.add_parser("github", add_help=False,
+                        help="guided, verified GitHub setup with profiles: doctor, profiles, explain, plan, apply, "
+                             "check, undo, menu; asks before every change (fieldkit github)")
+    gh.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
@@ -1865,6 +1876,10 @@ def build_parser():
                         help="is a capability built in? carried, known to the AI, visible, on the release page, on "
                              "every system, tested: check a repo (--changed BASE), self-test (fieldkit integration)")
     ig.add_argument("args", nargs=argparse.REMAINDER)
+    pn = sub.add_parser("pins", add_help=False,
+                        help="refuse rolling (latest, nightly, master) or sha256-unpinned helper source URLs of a "
+                             "Gorilla OpenCode tree: check --repo PATH, self-test (fieldkit pins)")
+    pn.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -1944,6 +1959,11 @@ def build_parser():
     tr.add_argument("--root", help="checks: the folder or repo to inspect")
     tr.add_argument("--branch", help="checks: the branch to judge against the push mandate")
     tr.set_defaults(fn=cmd_triage)
+
+    pl = sub.add_parser("pyliterals", parents=[common], help="stray backslashes in Python strings; --apply makes them raw only when the value stays the same")
+    pl.add_argument("files", nargs="+")
+    pl.add_argument("--apply", action="store_true")
+    pl.set_defaults(fn=cmd_pyliterals)
 
     tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
     tl.add_argument("--set", default="auto")
@@ -3156,6 +3176,9 @@ def main(argv=None):
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
         from . import metrics
         return metrics.main(args[1:])
+    if args[:1] == ["github"]:                        # guided GitHub setup: profiles, plan, apply with consent, check, undo
+        from . import github
+        return github.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])
@@ -3165,6 +3188,9 @@ def main(argv=None):
     if args[:1] == ["integration"]:                   # built in = carried + known + visible + page + systems + tested
         from .integration import cli as integration_cli
         return integration_cli.main(args[1:])
+    if args[:1] == ["pins"]:                          # helper sources: immutable and sha256-pinned
+        from .pins import cli as pins_cli
+        return pins_cli.main(args[1:])
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])

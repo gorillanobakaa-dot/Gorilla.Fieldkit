@@ -1655,6 +1655,17 @@
    "friction"
   ]
  },
+ "github": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "github"
+  ]
+ },
  "goal": {
   "platforms": [
    "linux",
@@ -2624,6 +2635,17 @@
    "peers-wait"
   ]
  },
+ "pins": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pins"
+  ]
+ },
  "pipeline": {
   "platforms": [
    "linux",
@@ -2722,6 +2744,17 @@
   "why": "",
   "ids": [
    "publish"
+  ]
+ },
+ "pyliterals": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "pyliterals"
   ]
  },
  "refcheck": {
