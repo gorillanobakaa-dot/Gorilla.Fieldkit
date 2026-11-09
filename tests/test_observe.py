@@ -12,9 +12,9 @@ import pytest
 from fieldkit import observe
 
 ARGS = {"open-file": ("/x",), "port": (1,), "proc": (1,), "watch": (".", 0), "trace": (1, 0), "usage": (1, 0),
-        "events": (["x"],)}
+        "events": (["x"],), "conns": (1,), "dns": (1, 0)}
 HERE = {"linux": sys.platform.startswith("linux"), "windows": sys.platform == "win32", "macos": sys.platform == "darwin"}
-live = pytest.mark.skipif(not HERE["linux"], reason="live fixtures run on the reader of this system; Windows by CI")
+live = pytest.mark.skipif(not (HERE["linux"] or HERE["windows"]), reason="live fixtures run on Linux and Windows; macOS by CI or the MacBook Air")
 
 
 @pytest.mark.parametrize("system", observe.SYSTEMS)
@@ -30,7 +30,8 @@ def test_a_reader_returns_nothing_on_another_system(system, question):
 
 
 def test_questions_match_the_plan_row():
-    assert set(observe.QUESTIONS) == {"open-file", "port", "proc", "watch", "trace", "usage", "events"}
+    assert set(observe.QUESTIONS) == {"open-file", "port", "proc", "watch", "trace", "usage", "events", "conns",
+                                  "dns"}
 
 
 @live
@@ -91,6 +92,8 @@ def test_usage_samples_this_process():
 def test_trace_answers_or_says_it_needs_admin():
     import shutil
     import subprocess
+    if not sys.platform.startswith("linux"):
+        pytest.skip("this fixture is strace on Linux; the Windows trace needs administrator and the elevate kit")
     if not shutil.which("strace"):
         pytest.skip("strace not installed")
     c = subprocess.Popen([sys.executable, "-c", "import time\nwhile True:\n open('/etc/hostname').close();time.sleep(.1)"])
@@ -112,9 +115,43 @@ def test_events_filters_by_every_word(monkeypatch):
     assert r["lines"] == []
 
 
+@live
+def test_conns_lists_this_process_sockets_and_fails_for_none():
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    cli = socket.create_connection(srv.getsockname())
+    try:
+        rows = observe.ask("conns", os.getpid())["connections"]
+        assert any(r["state"] == "LISTEN" and r["local"].endswith(str(srv.getsockname()[1])) for r in rows)
+        assert any(r["remote"].endswith(str(srv.getsockname()[1])) for r in rows)
+    finally:
+        cli.close()
+        srv.close()
+    assert observe.ask("conns", 2 ** 22 + 12345)["error"]
+
+
+@live
+def test_dns_sees_a_socket_to_a_dns_port_and_nothing_else(monkeypatch):
+    from fieldkit.observe import _common
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    port = str(srv.getsockname()[1])
+    cli = socket.create_connection(srv.getsockname())
+    try:
+        monkeypatch.setattr(_common, "DNS_PORTS", (port,))
+        assert any(s["remote"].endswith(port) for s in observe.ask("dns", os.getpid(), 0)["servers"])
+        monkeypatch.setattr(_common, "DNS_PORTS", ("1",))
+        assert observe.ask("dns", os.getpid(), 0)["servers"] == []
+    finally:
+        cli.close()
+        srv.close()
+
+
 def test_cli_exit_codes(capsys):
-    if not HERE["linux"]:
-        pytest.skip("linux")
+    if not (HERE["linux"] or HERE["windows"]):
+        pytest.skip("linux or windows")
     assert observe.main(["proc", str(os.getpid())]) == 0
     assert "VERDICT" in capsys.readouterr().out
     assert observe.main(["proc", str(2 ** 22 + 12345)]) == 1
