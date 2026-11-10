@@ -409,3 +409,12 @@ def _no_real_worktrees(monkeypatch):
     monkeypatch.setattr(worktrees, "make", lambda repo, name, **k: (None, "tests: in place"))
     monkeypatch.setattr(worktrees, "reap", lambda repo, **k: {"removed": [], "kept": []})
     yield
+
+
+# Tests never write the real task ledger (2026-11-10: two "[TEST-LNX] PLAN ITEM: P23" rows reached
+# state/lifecycle/tasks.jsonl from tasks.start in a test and showed as started jobs). A test may set its own.
+@pytest.fixture(autouse=True)
+def _isolated_lifecycle(tmp_path_factory, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path_factory.mktemp("lifecycle")))
+    yield
+

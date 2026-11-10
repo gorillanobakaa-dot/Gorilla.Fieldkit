@@ -262,3 +262,10 @@ def test_fieldkit_sync_also_syncs_the_ledger(monkeypatch):
     import argparse
     assert cli.cmd_sync(argparse.Namespace(apply=False, repo=[], no_fetch=True, json=False)) == 0
     assert calls == [1]
+
+
+def test_the_real_task_ledger_is_out_of_reach():
+    # 2026-11-10: tasks.start in this file wrote two "[TEST-LNX] PLAN ITEM: P23" rows to the real ledger
+    from fieldkit.core import settings
+    from fieldkit.lifecycle import tasks
+    assert not str(tasks.ledger_path()).startswith(str(settings.state_root() / "state"))
