@@ -1,6 +1,6 @@
 """fieldkit capture: zero-loss capture of everything an agent makes or runs (owner, 2026-11-01).
 
-    fieldkit capture on --lesson WHY [--for MINUTES]          capture only while teaching one lesson (default 120 min, max 24 h)
+    fieldkit capture on --lesson WHY [--for MINUTES]          capture only while teaching one lesson (default 120 min, max one week)
     fieldkit capture off [--distill]                         hooks out, periodic scan disabled; --distill then makes candidate tools
                                                              (fieldkit emerge run does on/off/distill by itself, see capture/loop.py)
     fieldkit capture state [--json] [--check]                on / off / expired, the lesson, hooks and schedule found
@@ -311,8 +311,8 @@ def main(argv=None):
     h = sub.add_parser("hook", help="journal one agent hook event from stdin")
     h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode"])
     on = sub.add_parser("on", help="capture for one lesson, for a fixed time")
-    on.add_argument("--lesson", required=True, help="what the harness is being taught")
-    on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 1440)")
+    on.add_argument("--lesson", default=None, help="what the harness is being taught (omit it, with capture on, to extend it)")
+    on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 10080, one week)")
     on.add_argument("--json", action="store_true")
     off = sub.add_parser("off", help="stop capture: hooks out, scan disabled")
     off.add_argument("--json", action="store_true")

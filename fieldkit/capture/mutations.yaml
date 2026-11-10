@@ -71,3 +71,8 @@
 - {file: fieldkit/capture/autoadopt.py, swap: ["    if found:\n        kinds", "    if False:\n        kinds"], why: "a privacy finding refuses the candidate"}
 - {file: fieldkit/capture/autoadopt.py, swap: ['    if r["baseline"] != "passed":', '    if False:'], why: "a candidate whose own test fails is refused"}
 - {file: fieldkit/capture/loop.py, swap: ['    done = A.adopt_all(passed,', '    done = A.adopt_all([],'], why: "only candidates that passed are adopted"}
+- {file: fieldkit/capture/switch.py, swap: ['if not 1 <= minutes <= cap:', 'if False:'], why: "a manual lesson keeps its one-week cap"}
+- {file: fieldkit/capture/switch.py, swap: ['    return left if left < EXTEND_WITHIN_H else None', '    return None'], why: "a capture with under 12 h left asks the owner for an extension"}
+- {file: fieldkit/capture/switch.py, swap: ['        if d.get("asked_until") != until:', '        if False:'], why: "the extension is filed in the owner inbox"}
+- {file: fieldkit/capture/switch.py, swap: ['    d = {k: v for k, v in cur.items() if k not in ("until", "asked_until")}', '    d = {k: v for k, v in cur.items() if k not in ("until",)}'], why: "an extension re-arms the one-time ask"}
+- {file: fieldkit/plan.py, swap: ['            out = "\n".join(x for x in (out, switch.ask_extension()) if x)', '            pass'], why: "the capture extension line rides the hook line"}
