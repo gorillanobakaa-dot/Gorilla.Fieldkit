@@ -904,3 +904,18 @@ def test_the_epoch_moving_inside_the_lock_refuses_the_handover(monkeypatch):
     with pytest.raises(net.Refused, match="another station won"):
         net.handover(TWO, assume=True, channels=[FakeChannel()], now=late)
 
+
+
+def test_a_station_on_another_computer_never_assumes_from_a_zero_that_answers_the_cable():
+    # 2026-11-10: the ThinkPad's ZeroKeeper took Zero from a live VAIO Zero (epoch 36 -> 42, two Zeros)
+    opened()                                                        # Zero on HOSTA, no 2IC
+    far = "claude:cccccccc@HOSTB"
+    late = T0 + 3 * 3600
+    st = net.load_stations()
+    net.renew(st, far, net.load_net(), late - 10)
+    net.save_stations(st)
+    with pytest.raises(net.Refused, match="answers over the cable"):
+        net.handover(far, assume=True, channels=[FakeChannel()], now=late, far_alive=lambda: True)
+    assert net.zero_of(net.load_net()) == ZERO
+    r = net.handover(far, assume=True, channels=[FakeChannel()], now=late, far_alive=lambda: False)
+    assert net.zero_of(r["net"]) == far

@@ -262,3 +262,16 @@ def test_fieldkit_sync_also_syncs_the_ledger(monkeypatch):
     import argparse
     assert cli.cmd_sync(argparse.Namespace(apply=False, repo=[], no_fetch=True, json=False)) == 0
     assert calls == [1]
+
+
+def test_a_guard_refusal_of_a_read_only_command_is_recorded_as_read_only(tmp_path, monkeypatch):
+    # P23 hook wiring: the v0.9.0 block was the guard refusing `fieldkit ship release-ready`, a read
+    import io
+    import json as _json
+    from fieldkit.autopilot import claude_hook, hardlines
+    seen = {}
+    monkeypatch.setattr(refusals, "record", lambda tool, why, **kw: seen.update(kw, tool=tool) or 0)
+    monkeypatch.setattr(hardlines, "decide", lambda *a, **k: ("deny", "HARD LINE 1 (test)"))
+    payload = {"tool_name": "Bash", "tool_input": {"command": "fieldkit ship release-ready v0.9.0"}, "session_id": "s1"}
+    claude_hook.main(stdin=io.StringIO(_json.dumps(payload)), stdout=io.StringIO())
+    assert seen.get("tool") == "guard" and seen.get("command") == "fieldkit ship release-ready v0.9.0", seen

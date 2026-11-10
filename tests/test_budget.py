@@ -217,3 +217,13 @@ def test_zero_itself_never_sends_to_itself(tmp_path, monkeypatch):
     monkeypatch.setattr(net, "station_id", lambda *a, **k: zero)
     with pytest.raises(RuntimeError, match="Zero is this session"):
         budget._send_zero("x", now=1010.0)
+
+
+def test_zero_gets_no_handover_at_the_stop_line(tmp_path, monkeypatch):
+    # owner 2026-11-10: "Zero never rotates"; the 90% handover had written handover_pending for Zero's own seat
+    monkeypatch.setattr(rotate, "handover", lambda *a, **k: pytest.fail("no handover is written for Zero"))
+    coord = tmp_path / "coord"
+    coord.mkdir(exist_ok=True)
+    (coord / "NET.yaml").write_text("net: open\nzero:\n  station: claude:zz@h\n  session: abcdef12-0000\n", encoding="utf-8")
+    text = budget.lines(row(ctx=140_000, sid="abcdef12-0000"), transcript(tmp_path, "abcdef12-0000"))
+    assert "you are Zero, which never rotates" in text and "stop writing" not in text
