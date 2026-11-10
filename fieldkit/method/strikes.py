@@ -111,6 +111,12 @@ def record_failure(branch, head, why="", pr=None, inbox=None, p=None, model=None
     if all(r["head"] != head for r in rec["rounds"]):
         rec["rounds"].append({"head": head, "at": _now(), "why": str(why)[:400],
                               "model": attempt_model() if model is None else model})
+        try:                                              # P23: a red CI round is a ledger row (both computers share it)
+            from .. import refusals
+            if p is None:                                 # a test's own strikes file never writes the real ledger
+                refusals.record("ci", f"CI red: {str(why)[:100]} ({branch})")
+        except Exception:  # noqa: BLE001
+            pass
     n = len(rec["rounds"])
     new = False
     if n >= LIMIT and branch not in d["parked"]:

@@ -40,3 +40,28 @@
   - '        refusals.record("ship", f"{data[''state'']}: {data.get(''error'') or ''''}")'
   - '        pass'
   why: ship refusals are not recorded
+- file: fieldkit/refusals.py
+  swap:
+  - "                if r[\"id\"] in have:\n                    continue\n"
+  - ''
+  why: the same row from the other computer is added twice
+- file: fieldkit/refusals.py
+  swap:
+  - '    if len(rows) < REPEAT and not ro:'
+  - '    if len(rows) < REPEAT and False:'
+  why: a single refusal opens a defect
+- file: fieldkit/refusals.py
+  swap:
+  - '    if cur.get("readonly"):'
+  - '    if False:'
+  why: a read-only false positive closes without a passing test
+- file: fieldkit/refusals.py
+  swap:
+  - '        if r.get("machine") not in (None, "", me):'
+  - '        if False:'
+  why: rows that came from the other computer are sent back to it
+- file: fieldkit/refusals.py
+  swap:
+  - '        if any((tasks.get(j) or {}).get("hash") == brief_hash'
+  - '        if not any((tasks.get(j) or {}).get("hash") == brief_hash'
+  why: the task runner blocks the wrong brief

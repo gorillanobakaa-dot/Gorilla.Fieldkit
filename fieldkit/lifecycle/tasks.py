@@ -135,6 +135,10 @@ def running_twin(h, title, now=None, tasks=None):
     return None
 
 
+class DefectOpen(ValueError):
+    """P23: the brief's earlier run was refused a read-only command; it is not run again until that defect is closed."""
+
+
 class Parked(ValueError):
     """The brief names a branch or PR that failed CI twice (TWO STRIKES); the message says which."""
 
@@ -189,6 +193,11 @@ def start(brief_path, on=None, cwd=None, wall=120, title=None, call=None, launch
     from ..peers import machine
     title = machine.prefix(title or text.splitlines()[0][:100], tag_for(on))
     h = brief_hash(text)
+    from .. import refusals
+    dfx = refusals.blocking_defect(h, ledger())
+    if dfx:
+        raise DefectOpen(f"an earlier run of this brief was refused a read-only command ({dfx['key']}): a defect, not an "
+                         "owner question. Not re-run until the cause is known: fieldkit refusals close KEY --test FILE::TEST")
     twin = None if again else running_twin(h, title, now)
     if twin:
         raise AlreadyStarted(f"already started: {twin['id']} on {twin.get('on')} at {twin.get('at')} "

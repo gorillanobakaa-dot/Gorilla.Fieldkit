@@ -1414,6 +1414,8 @@ def cmd_goal(a):
 
 def cmd_sync(a):
     from .core import sync
+    from . import refusals                      # P23: the refusals ledger of both computers meets at every sync
+    refusals.sync_quiet()
     rows = sync.run(do_apply=a.apply, extra=a.repo, fetch=not a.no_fetch)
     print(json.dumps(sync.as_json(rows), indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
     return sync.exit_code(rows)
