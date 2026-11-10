@@ -91,11 +91,16 @@ def entries(root=None):
     [{"type", "group", "plan", "ref", "title", "what", "if_approve", "if_leave", "command", "words", "raw"}]."""
     titles = plan_titles(root)
     out = []
-    for it in _inbox().items("open"):
+    ib = _inbox()
+    ib.migrate_legacy()                               # 2026-11-10: only a kind that reaches the owner is his to answer
+    for it in ib.items("open"):
+        if it.get("kind") not in ib.OWNER_KINDS:
+            continue
         row = plan_of(it, titles)
+        w = ib.words_for(it)
         out.append({"type": "inbox", "group": "goal" if row else "problem", "plan": row, "ref": f"#{it['n']}",
-                    "title": it["title"], "what": it.get("what", ""), "if_approve": it.get("if_approve", ""),
-                    "if_leave": it.get("if_leave", ""), "command": it.get("command", ""), "words": needs_words(it),
+                    "title": it["title"], "what": w["what"], "if_approve": w["if_approve"],
+                    "if_leave": w["if_leave"], "command": it.get("command", ""), "words": needs_words(it),
                     "raw": it})
     for e in ideas.listing("parked", root or ROOT):
         built = ideas.built_note(e)

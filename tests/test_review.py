@@ -56,7 +56,8 @@ def test_page_in_three_groups_in_plain_words(env):
     assert "P5 - Gorilla OpenCode can do everyday jobs on Windows and Linux" in text
     assert text.count("If you approve:") == len(es) and text.count("If you leave it:") == len(es)
     assert "1. Toolbox size?  [#3, plan row P5]" in text
-    assert "(no plain explanation was written for this item)" in text
+    assert "(no plain explanation was written for this item)" not in text        # 2026-11-10: always plain words
+    assert "It is closed as approved. The review runs nothing" in text
     assert text.index("fieldkit ship gh-release v1") > text.index("2. Publish v1")
     assert "Plan row: P5 - Gorilla" in text
 
@@ -153,3 +154,29 @@ def test_a_row_the_owner_holds_is_never_shown_as_work_to_do(env):
         PLAN.replace("| FINAL GOAL |", "| FINAL GOAL, not now |").replace("| PLANNED |", "| DONE |"), encoding="utf-8")
     lines = review.where_we_are(env)
     assert lines[0] == "Where we are: no plan row is open to start." and "W10" in lines[-1] and "[held]" in lines[-1]
+
+
+def test_items_of_a_kind_that_no_longer_reaches_the_owner_move_to_the_ledger(env):
+    # 2026-11-10: 13 items from 10-31/11-01 (build, paused, report, approval) still sat in the owner's review
+    import json as _json
+    inbox.INBOX.mkdir(parents=True, exist_ok=True)
+    for n, kind in ((1, "build"), (2, "paused"), (3, "approval")):
+        (inbox.INBOX / f"{n:04d}-{kind}.json").write_text(_json.dumps(
+            {"n": n, "kind": kind, "title": f"old {kind}", "why": "w", "state": "open"}), encoding="utf-8")
+    inbox.add("Publish v1", "release is green", "fieldkit ship gh-release v1", kind="hardline")
+    es = review.entries(env)
+    assert [e["title"] for e in es if e["type"] == "inbox"] == ["Publish v1"]
+    assert {r["title"] for r in map(_json.loads, inbox.ledger_file().read_text().splitlines())} >= {"old build", "old paused", "old approval"}
+    assert review.entries(env) == es                                          # idempotent
+
+
+def test_an_item_without_words_is_explained_from_its_own_fields(env):
+    import json as _json
+    inbox.INBOX.mkdir(parents=True, exist_ok=True)
+    (inbox.INBOX / "0007-hardline.json").write_text(_json.dumps(
+        {"n": 7, "kind": "hardline", "title": "Tag v2", "why": "CI green on abc", "command": "fieldkit ship push --tag v2",
+         "state": "open"}), encoding="utf-8")
+    e = [x for x in review.entries(env) if x["ref"] == "#7"][0]
+    assert e["what"] == "Tag v2: CI green on abc"
+    assert "runs nothing" in e["if_approve"] and "fieldkit ship push --tag v2" in e["if_approve"]
+    assert e["if_leave"].startswith("It stays open")
