@@ -135,3 +135,26 @@ def test_the_tag_is_read_back_from_the_binary(tmp_path):
     goapp._save(ctx, src, "build", rec)
     v = goapp.verify_build(ctx)
     assert v["ok"] is False and "records -tags=''" in v["detail"]
+
+
+def test_seed_folder_fills_pinned_helpers_the_checkout_lacks_and_skips_unpinned(tmp_path):
+    src = _module(tmp_path)
+    v = _pins(src, {"a.exe": b"A" * 50})
+    for f in (src / "bin" / "windows-amd64").iterdir():
+        f.unlink()                                          # the checkout holds none, as on a clean machine
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / "a.exe").write_bytes(b"A" * 50)
+    (seed / "sg.exe").write_bytes(b"not pinned")
+    v["embed_seed"] = str(seed)
+    seeds = goapp._seed_files(src, v)
+    assert list(seeds) == ["a.exe.gz"]
+    dest = tmp_path / "clone"
+    (dest / "bin").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(dest)], check=True)
+    (dest / ".gitignore").write_text("bin/windows-amd64/\n")
+    goapp.copy_embeds(src, dest, v["embed_dirs"], seeds=seeds)
+    assert gzip.decompress((dest / "bin" / "windows-amd64" / "a.exe.gz").read_bytes()) == b"A" * 50
+    assert not (dest / "bin" / "windows-amd64" / "sg.exe.gz").exists()
+    with pytest.raises(ValueError):                         # no seed, nothing in the checkout: still refused
+        goapp.copy_embeds(src, dest, v["embed_dirs"])

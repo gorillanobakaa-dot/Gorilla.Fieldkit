@@ -432,7 +432,7 @@ def test_src_copies_the_embedded_files_only_when_asked(tmp_path, monkeypatch):
     ctx = _ctx(_pipeline(tmp_path, src, git_ref="HEAD", embed_dirs="x/y"))
     seen = []
     monkeypatch.setattr(goapp, "checkout", lambda repo, ref, out="": tmp_path / "clone")
-    monkeypatch.setattr(goapp, "copy_embeds", lambda *a: seen.append(a))
+    monkeypatch.setattr(goapp, "copy_embeds", lambda *a, **k: seen.append(a))
     goapp._src(ctx, embeds=False)
     assert not seen
     goapp._src(ctx)
