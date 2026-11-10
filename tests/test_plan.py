@@ -145,3 +145,15 @@ def test_an_item_the_owner_holds_is_never_the_next_thing(tmp_path):
         (r / "docs" / "HARNESS-PLAN.md").read_text().replace("| R1 | brake | DONE |", "| R1 | brake | PLANNED |"))
     n = plan.next_(r, run=lambda *a, **k: subprocess.CompletedProcess(a, 1, "", ""))
     assert n["open"] == ["R1"] and n["line"].startswith("PLAN: phase 1. Brakes: open R1") and "held by the owner: W10" in n["line"]
+
+
+def test_plan_next_prints_a_held_row_as_held_never_done_or_open(tmp_path, capsys):
+    r = tmp_path / "fk"
+    (r / "docs").mkdir(parents=True)
+    (r / "docs" / "HARNESS-PLAN.md").write_text(
+        "| R1 | brake | PLANNED |\n| W10 | one system | FINAL GOAL, not now |\n\n## Order\n\n| phase | items | why |\n"
+        "|---|---|---|\n| 1. Brakes | R1 | x |\n| 8. One system | W10 | last |\n", encoding="utf-8")
+    plan.main(["next", "--repo", str(r)])
+    out = capsys.readouterr().out
+    assert "  held  8. One system: W10 (held by the owner, not work to do)" in out, out
+    assert "done  8." not in out and "open W10" not in out and "NEXT: work on R1" in out

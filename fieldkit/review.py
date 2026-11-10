@@ -113,13 +113,19 @@ def where_we_are(root=None):
     """Plain lines: the phase now and its rows, each id spelled out."""
     from . import plan
     r = plan.next_(root or ROOT)
-    if not r.get("ok") or not r.get("phase"):
+    if not r.get("ok"):
         return ["Where we are: the plan file is not readable here."]
     titles = plan_titles(root)
-    out = [f"Where we are: phase {r['phase']} of the plan is the current one. Rows not finished yet:"]
+    out = ([f"Where we are: phase {r['phase']} of the plan is the current one. Rows not finished yet:"] if r.get("phase")
+           else ["Where we are: no plan row is open to start."])
     for ph in r["phases"]:
         for i in ph["open"]:
             out.append(f"  - {i} - {titles.get(i, '(no title)')} [phase {ph['phase']}]")
+    # 2026-11-10 (owner): a row the owner holds (W10, the final goal) is never shown as work to do
+    held = [i for ph in r["phases"] for i in ph.get("held", [])]
+    if held:
+        out.append("Held by the owner, not work to do (only when you say so, at the very end):")
+        out += [f"  - {i} - {titles.get(i, '(no title)')} [held]" for i in held]
     return out
 
 

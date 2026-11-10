@@ -224,8 +224,10 @@ def main(argv=None):
     if r["parked"]:
         print(r["parked"])
     for ph in r["phases"]:
-        mark = "done" if not ph["open"] else ("NOW " if ph["phase"] == r["phase"] else "open")
-        print(f"  {mark}  {ph['phase']}: " + " ".join(i + ("*" if i in ph["done"] else "") for i in ph["items"]))
+        mark = ("NOW " if ph["phase"] == r["phase"] else "open") if ph["open"] else ("held" if ph["held"] else "done")
+        print(f"  {mark}  {ph['phase']}: " + " ".join(
+            i + ("*" if i in ph["done"] else " (held by the owner, not work to do)" if i in ph["held"] else "")
+            for i in ph["items"]))
     if r.get("lessons") and r["lessons"]["untooled"]:
         print(f"  lessons with no tool yet ({LESSONS}): {' '.join(r['lessons']['untooled'])}")
     stale = [i for i in r["merged"] if r["statuses"].get(i) == "PLANNED" and i not in r["written"]]

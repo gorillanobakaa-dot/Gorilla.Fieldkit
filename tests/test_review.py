@@ -138,3 +138,18 @@ def test_inbox_page_shows_owner_items_and_the_agent_ledger(env):
     assert "Worker note" in agents and "Worker note" not in owner
     got = []
     assert review.open_page(env, run=got.append, inbox=True) == review.inbox_page_path(env) and got
+
+
+def test_a_row_the_owner_holds_is_never_shown_as_work_to_do(env):
+    # 2026-11-10 (owner, angry): W10 (the final goal) was listed under "Rows not finished yet" and pushed as work
+    (env / "docs").mkdir()
+    (env / "docs" / "HARNESS-PLAN.md").write_text(PLAN.replace("| FINAL GOAL |", "| FINAL GOAL, not now |"),
+                                                     encoding="utf-8")
+    lines = review.where_we_are(env)
+    todo = lines[:lines.index(next(x for x in lines if x.startswith("Held by the owner")))]
+    assert any(x.startswith("  - P5 -") for x in todo) and not any("W10" in x for x in todo), lines
+    assert any(x.startswith("  - W10 - ") and x.endswith("[held]") for x in lines), lines
+    (env / "docs" / "HARNESS-PLAN.md").write_text(
+        PLAN.replace("| FINAL GOAL |", "| FINAL GOAL, not now |").replace("| PLANNED |", "| DONE |"), encoding="utf-8")
+    lines = review.where_we_are(env)
+    assert lines[0] == "Where we are: no plan row is open to start." and "W10" in lines[-1] and "[held]" in lines[-1]
