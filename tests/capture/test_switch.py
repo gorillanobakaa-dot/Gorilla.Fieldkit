@@ -12,12 +12,17 @@ from fieldkit.capture import switch
 OTHER = {"type": "command", "command": "python -m fieldkit.tokens.rotate --stop-hook", "timeout": 30}
 
 
+OC_OTHER = {"event": "before_tool", "command": "echo mine", "tools": ["bash"]}
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_CAPTURE_DIR", str(tmp_path / "store"))
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
     (home / ".gemini").mkdir()
+    (home / ".config" / "gorilla-opencode").mkdir(parents=True)
+    (home / ".config" / "gorilla-opencode" / "config.json").write_text(json.dumps({"hooks": [OC_OTHER], "theme": "x"}))
     (home / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [OTHER]}]}, "x": 1}))
     (home / ".gemini" / "settings.json").write_text("{}")
     return home
@@ -33,8 +38,8 @@ def _no_schedule(argv):
 
 def test_on_adds_hooks_once_and_keeps_others(env):
     d = switch.turn_on("teach the release recipe", 30, home=env, py="py")
-    assert d["hooks_added"] == {"claude": 2, "gemini": 2}
-    assert switch.turn_on("again", 30, home=env, py="py")["hooks_added"] == {"claude": 0, "gemini": 0}
+    assert d["hooks_added"] == {"claude": 2, "gemini": 2, "opencode": 1}
+    assert switch.turn_on("again", 30, home=env, py="py")["hooks_added"] == {"claude": 0, "gemini": 0, "opencode": 0}
     s = _settings(env, "claude")
     assert s["x"] == 1 and OTHER in s["hooks"]["Stop"][0]["hooks"]
     assert s["hooks"]["PostToolUse"][0]["matcher"] == switch.CLAUDE_TOOLS
@@ -45,7 +50,7 @@ def test_on_adds_hooks_once_and_keeps_others(env):
 def test_off_removes_only_ours(env):
     switch.turn_on("lesson", 30, home=env, py="py")
     d = switch.turn_off(home=env, run=_no_schedule, system="win32")
-    assert d["hooks_removed"] == {"claude": 2, "gemini": 2} and d["last_lesson"] == "lesson"
+    assert d["hooks_removed"] == {"claude": 2, "gemini": 2, "opencode": 1} and d["last_lesson"] == "lesson"
     assert d["schedule"] == {"task": "absent", "logon": "absent"}
     s = _settings(env, "claude")
     assert switch.count_hooks(s) == 0 and s["hooks"]["Stop"] == [{"hooks": [OTHER]}]
@@ -171,3 +176,37 @@ def test_plan_hook_line_carries_the_capture_line(env, monkeypatch, tmp_path):
     assert out.startswith("PLAN: x") and "job-x" in out
     switch.turn_off(home=env, run=_no_schedule, system="win32")
     assert plan.line(live=False) == "PLAN: x"
+
+
+def test_opencode_hook_is_installed_and_removed_beside_the_users_own(env, tmp_path):
+    cfg = switch.settings_file("opencode", env)
+    switch.turn_on("lesson", 30, home=env, py="py")
+    d = json.loads(cfg.read_text())
+    ours = [h for h in d["hooks"] if switch._ours(h)]
+    assert d["hooks"][0] == OC_OTHER and d["theme"] == "x" and len(ours) == 1
+    assert ours[0]["event"] == "after_tool" and "bash" in ours[0]["tools"] and "--agent opencode" in ours[0]["command"]
+    assert switch.state(home=env, run=_no_schedule, system="win32")["hooks"]["opencode"] == 1
+    switch.turn_off(home=env, run=_no_schedule, system="win32")
+    assert json.loads(cfg.read_text())["hooks"] == [OC_OTHER]
+
+
+def test_one_opencode_tool_call_lands_in_the_store(env, tmp_path):
+    """The hook command exactly as Gorilla OpenCode runs it: raw tool input on stdin, GORILLA_HOOK_* in the environment."""
+    from fieldkit.capture import store as st
+    store_dir = tmp_path / "store"
+    switch.turn_on("lesson", 30, home=env, py="py")
+    e = {**os.environ, "FIELDKIT_CAPTURE_DIR": str(store_dir), "GORILLA_HOOK_EVENT": "after_tool", "GORILLA_HOOK_TOOL": "bash",
+         "GORILLA_HOOK_SESSION": "oc-1", "GORILLA_HOOK_TOOL_RESULT": "hello\n", "GORILLA_HOOK_TOOL_ERROR": "0"}
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "capture", "hook", "--agent", "opencode"],
+                       input=json.dumps({"command": "echo hello"}), capture_output=True, text=True, env=e)
+    assert r.returncode == 0, r.stderr
+    hits = st.Store().find(["echo hello"])             # the fixture's FIELDKIT_CAPTURE_DIR is store_dir
+    assert len(hits) == 1 and "opencode" in json.dumps(hits[0], default=str)
+
+
+def test_opencode_payload_marks_a_failed_call():
+    from fieldkit.capture import hook
+    p = hook.opencode_payload('{"command": "false"}', {"GORILLA_HOOK_EVENT": "after_tool", "GORILLA_HOOK_TOOL": "bash",
+                                                          "GORILLA_HOOK_TOOL_ERROR": "1", "GORILLA_HOOK_TOOL_RESULT": "boom"})
+    assert hook.parse("opencode", p)["exit_code"] == 1
+    assert hook.opencode_payload("{}", {"GORILLA_HOOK_EVENT": "before_tool", "GORILLA_HOOK_TOOL": "bash"}) is None

@@ -35,7 +35,7 @@ from . import store as st
 LATER_FLAGS = ["kinds", "roots", "transform", "procedure", "failure-to-check", "languages", "workflows", "registration",
                "fresh-session"]
 AGENT_FILES = {"claude": "~/.claude/settings.json", "gemini": "~/.gemini/settings.json",
-               "opencode": "~/.config/opencode/opencode.json"}
+               "opencode": "~/.config/gorilla-opencode/config.json"}
 
 
 def _not_built(what):

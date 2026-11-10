@@ -26,8 +26,12 @@ MAX_MINUTES = 7 * 24 * 60   # owner 2026-11-10: one week; an extension only when
 DEFAULT_MINUTES = 120
 EXTEND_WITHIN_H = 12          # P26: under this many hours left, the owner is asked (never extended by a model)
 CLAUDE_TOOLS = "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit"
+OPENCODE_TOOLS = ["bash", "write", "edit", "multiedit", "patch"]
 EVENTS = {"claude": {"PostToolUse": CLAUDE_TOOLS, "Stop": None},
-          "gemini": {"AfterTool": "run_shell_command|write_file|replace", "SessionEnd": None}}
+          "gemini": {"AfterTool": "run_shell_command|write_file|replace", "SessionEnd": None},
+          # Gorilla OpenCode (P26): config.json "hooks" is a LIST of {event, tools, command, timeout_seconds}; an
+          # after_tool hook gets the tool, its input (stdin) and result (GORILLA_HOOK_* environment), see capture/hook.py
+          "opencode": {"after_tool": OPENCODE_TOOLS}}
 WIN_TASK = "FieldkitCaptureScan"
 WIN_RUN_KEY = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 WIN_RUN_NAME = "FieldkitCaptureCatchup"
@@ -77,6 +81,11 @@ def _write(d):
 
 # ---- agent settings (JSON) --------------------------------------------------------------------------------------
 def settings_file(agent, home):
+    if agent == "opencode":
+        import os
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(xdg) if xdg and Path(home) == Path.home() else Path(home) / ".config"
+        return base / "gorilla-opencode" / "config.json"
     return Path(home) / f".{agent}" / "settings.json"
 
 
@@ -105,6 +114,8 @@ def _ours(h):
 
 
 def count_hooks(d):
+    if isinstance(d.get("hooks"), list):                      # Gorilla OpenCode
+        return sum(1 for h in d["hooks"] if _ours(h))
     return sum(1 for gs in (d.get("hooks") or {}).values() for g in gs or [] if isinstance(g, dict)
                for h in g.get("hooks") or [] if _ours(h))
 
@@ -112,6 +123,11 @@ def count_hooks(d):
 def strip_hooks(d):
     """Remove our hooks; groups left empty go too. Returns how many were removed."""
     removed = 0
+    if isinstance(d.get("hooks"), list):                      # Gorilla OpenCode
+        kept = [h for h in d["hooks"] if not _ours(h)]
+        removed = len(d["hooks"]) - len(kept)
+        d["hooks"] = kept
+        return removed
     for ev, gs in list((d.get("hooks") or {}).items()):
         kept = []
         for g in gs or []:
@@ -130,6 +146,11 @@ def add_hooks(d, agent, py=None):
     """Add our hooks (idempotent). Returns how many were added."""
     if count_hooks(d):
         return 0
+    if agent == "opencode":
+        d["hooks"] = list(d.get("hooks") or []) + [
+            {"event": ev, "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}
+            for ev, tools in EVENTS[agent].items()]
+        return len(EVENTS[agent])
     hooks = d.setdefault("hooks", {})
     for ev, matcher in EVENTS[agent].items():
         g = {"hooks": [{"type": "command", "command": hook_command(agent, py), "timeout": 20}]}

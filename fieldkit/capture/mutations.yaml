@@ -66,7 +66,6 @@
 - {file: fieldkit/capture/loop.py, swap: ['if switch.is_on(cur, now) and not cur.get("legacy"):', 'if False:'], why: "a switch someone else turned on is never taken over"}
 - {file: fieldkit/capture/loop.py, swap: ['if cur.get("owner") == token["who"]:', 'if True:'], why: "only the owner of the switch turns it off"}
 - {file: fieldkit/capture/loop.py, swap: ['if not fresh:', 'if False:'], why: "an empty run leaves a ledger line with its reason"}
-- {file: fieldkit/capture/switch.py, swap: ['if not 1 <= minutes <= cap:', 'if False:'], why: "a manual lesson keeps its 24 h cap"}
 - {file: fieldkit/capture/autoadopt.py, swap: ["    if not r[\"ok\"]:\n        bad =", "    if False:\n        bad ="], why: "a test that cannot fail is refused (mutate step)"}
 - {file: fieldkit/capture/autoadopt.py, swap: ["    if found:\n        kinds", "    if False:\n        kinds"], why: "a privacy finding refuses the candidate"}
 - {file: fieldkit/capture/autoadopt.py, swap: ['    if r["baseline"] != "passed":', '    if False:'], why: "a candidate whose own test fails is refused"}
@@ -87,3 +86,8 @@
 - {file: fieldkit/capture/loop.py, swap: ['    own = project_of(who)', '    own = None'], why: "a group takes its project from the run first"}
 - {file: fieldkit/capture/projects.py, swap: ['    open_lines = [x for x in ledger if x.get("project") == name]', '    open_lines = list(ledger)'], why: "a section lists only its own project open lines"}
 - {file: fieldkit/capture/projects.py, swap: ['    ids = sorted(t for t in tools if t.startswith(pre) or t in fam)', '    ids = sorted(tools)'], why: "a section lists only its own project tools"}
+- {file: fieldkit/capture/switch.py, swap: ['        return sum(1 for h in d["hooks"] if _ours(h))', '        return 0'], why: "an installed Gorilla OpenCode hook is found"}
+- {file: fieldkit/capture/switch.py, swap: ['        kept = [h for h in d["hooks"] if not _ours(h)]', '        kept = []'], why: "removing our Gorilla OpenCode hook keeps the user's own hooks"}
+- {file: fieldkit/capture/switch.py, swap: ['            {"event": ev, "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}', '            {"event": "before_tool", "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}'], why: "the Gorilla OpenCode hook runs after the tool (it records, never gates)"}
+- {file: fieldkit/capture/hook.py, swap: ['    if env.get("GORILLA_HOOK_EVENT") != "after_tool" or not env.get("GORILLA_HOOK_TOOL"):', '    if False:'], why: "only an OpenCode after_tool call is recorded"}
+- {file: fieldkit/capture/hook.py, swap: ['        resp.update(error=result or "tool error", exit_code=1)', '        pass'], why: "a failed OpenCode tool call is recorded as a failure"}
