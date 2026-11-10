@@ -71,3 +71,8 @@
 - {file: fieldkit/capture/switch.py, swap: ['        if d.get("asked_until") != until:', '        if False:'], why: "the extension is filed in the owner inbox"}
 - {file: fieldkit/capture/switch.py, swap: ['    d = {k: v for k, v in cur.items() if k not in ("until", "asked_until")}', '    d = {k: v for k, v in cur.items() if k not in ("until",)}'], why: "an extension re-arms the one-time ask"}
 - {file: fieldkit/plan.py, swap: ['            out = "\n".join(x for x in (out, switch.ask_extension()) if x)', '            pass'], why: "the capture extension line rides the hook line"}
+- {file: fieldkit/capture/switch.py, swap: ['        return sum(1 for h in d["hooks"] if _ours(h))', '        return 0'], why: "an installed Gorilla OpenCode hook is found"}
+- {file: fieldkit/capture/switch.py, swap: ['        kept = [h for h in d["hooks"] if not _ours(h)]', '        kept = []'], why: "removing our Gorilla OpenCode hook keeps the user's own hooks"}
+- {file: fieldkit/capture/switch.py, swap: ['            {"event": ev, "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}', '            {"event": "before_tool", "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}'], why: "the Gorilla OpenCode hook runs after the tool (it records, never gates)"}
+- {file: fieldkit/capture/hook.py, swap: ['    if env.get("GORILLA_HOOK_EVENT") != "after_tool" or not env.get("GORILLA_HOOK_TOOL"):', '    if False:'], why: "only an OpenCode after_tool call is recorded"}
+- {file: fieldkit/capture/hook.py, swap: ['        resp.update(error=result or "tool error", exit_code=1)', '        pass'], why: "a failed OpenCode tool call is recorded as a failure"}
