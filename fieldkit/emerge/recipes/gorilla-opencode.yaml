@@ -34,3 +34,4 @@ stages:
   mac: {needs: [build]}
   packages: {needs: [build, mac]}
   checksums: {needs: [packages, repro]}
+  align: {needs: [checksums], tier: release}   # after the GitHub release: parity align here and on the peer

@@ -413,26 +413,42 @@ def _plan(call, event, ctx):
     return ctx
 
 
-def _relay(call, event, ctx):
-    """A cable note is heard only while a session on this computer runs the relay listener in the background
-    (fieldkit/peers/link_relay.py: it ends when a note arrives, which wakes that session). On a prompt, a session on a
-    computer whose relay is not listening is told so, with the line that starts it: the first to start it is the
-    relay, and when that session ends its listener ends and the next session is told (owner, 2026-10-28: "make it FULL
-    WORKING", after 100 notes sat stored and unheard on the VAIO). Not in a headless run: it ends too soon to listen
-    for others. Never fails the hook."""
-    if event != "UserPromptSubmit" or os.environ.get("FIELDKIT_AUTOPILOT") == "1":
-        return ctx
+def _ear(call, event):
+    """I-27 (owner, 2026-11-10: "that is not real-time communication"): every session runs its own ear, `relay listen
+    --as STATION` as a background command (fieldkit/peers/link_relay.py): it ends when net traffic for the station
+    arrives, which wakes the session even when idle. A session whose ear is not running is told the exact line on
+    every prompt and at most every EAR_NAG_S on tool calls: NOT through only_new, because an ear that ended after a
+    note must be restarted every time (the old one-relay-per-computer line was said once and the relay died with its
+    session, 97 notes unheard). Not in a headless run (it ends too soon to listen), not on the call that starts the
+    ear, not when this computer has no household. Never fails the hook."""
+    if os.environ.get("FIELDKIT_AUTOPILOT") == "1" or not call.get("session_id"):
+        return ""
+    if event not in ("UserPromptSubmit", "PreToolUse", "SessionStart"):
+        return ""
+    if "relay listen" in str((call.get("tool_input") or {}).get("command") or ""):
+        return ""
     try:
         from ..peers import link, link_relay
-        if not link.household() or link_relay.other_listener():
-            return ctx
-        stored = max(link_relay.numbers() or [0])
-        line = ("RELAY NOT LISTENING: notes from the other computer are stored here but nobody hears them. Start it as "
-                f"its own background command: {link_relay.fieldkit_command()} peers link relay listen --since {stored}"
-                " ; when it ends, read the notes, pass each to the session it is for, and start it again")
-        return (ctx + "\n" if ctx else "") + line
+        from ..zero import net
+        if not link.household():
+            return ""
+        me = net.hook_station(call["session_id"])
+        if link_relay.ear_state(me)["state"] == "running":
+            return ""
+        if event == "PreToolUse":
+            stamp = ROOM_DIR / "room-cursors" / f"{re.sub(r'[^A-Za-z0-9_-]', '_', call['session_id'])}.ear"
+            try:
+                if time.time() - stamp.stat().st_mtime < link_relay.EAR_NAG_S:
+                    return ""
+            except OSError:
+                pass
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(str(time.time()), encoding="utf-8")
+        return ("EAR NOT RUNNING: messages from the other computer and from other sessions reach you only at your next "
+                f"call. Start your ear as its own background command (Bash run_in_background): {link_relay.ear_line(me)}"
+                " ; when it ends, read what it printed and start it again with the line it prints")
     except Exception:
-        return ctx
+        return ""
 
 
 SAID_MAX = 200
@@ -479,6 +495,35 @@ def _ideas(call, event, ctx):
     return ctx
 
 
+def _refusals(call, event, ctx):
+    """'N repeated refusals open' (fieldkit refusals list): silent when none. Never fails the hook."""
+    if event != "UserPromptSubmit":
+        return ctx
+    try:
+        from .. import refusals
+        t = refusals.hook_text()
+        if t:
+            return (ctx + "\n" if ctx else "") + t
+    except Exception:
+        pass
+    return ctx
+
+
+def _workflows(call, event, ctx):
+    """P18 stage 7: a request that matches a distilled workflow recipe gets the one line that names it (fieldkit capture
+    workflow). Silent when none matches. Never fails the hook."""
+    if event != "UserPromptSubmit":
+        return ctx
+    try:
+        from ..capture import workflows
+        t = workflows.offer_line(call.get("prompt") or "")
+        if t:
+            return (ctx + chr(10) if ctx else "") + t
+    except Exception:
+        pass
+    return ctx
+
+
 def _context(call, event):
     """-> the added context for this hook call: the room's unseen lines, then the riders' lines not shown before."""
     rows = context(unseen(call.get("session_id")))      # already only the unseen room lines
@@ -494,8 +539,9 @@ def _context(call, event):
     ctx = _net(call, event, ctx)
     ctx = _plan(call, event, ctx)
     ctx = _ideas(call, event, ctx)
-    ctx = _relay(call, event, ctx)
-    return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx)) if x)
+    ctx = _refusals(call, event, ctx)
+    ctx = _workflows(call, event, ctx)
+    return "\n".join(x for x in (rows, only_new(call.get("session_id"), ctx), _ear(call, event)) if x)
 
 
 def pretool(call):
@@ -539,6 +585,7 @@ def set_name(session_id, name):
 
 
 HOOK_CMD = '"{py}" -m fieldkit.autopilot.room --hook'
+STOP_CMD = '"{py}" -m fieldkit.tokens.rotate --stop-hook'
 ROUTER_CMD = '"{py}" -m fieldkit.autopilot.toolrouter --hook'
 #: the tools the one tool-call hook must see: the router's checks and the room's lines (SendMessage: ask / approve;
 #: archive_session: Zero retires only into a new Zero, fieldkit/zero/retire.py)
@@ -580,6 +627,8 @@ def doctor(settings=None, python=None):
         missing.append("PreToolUse")
     if not _has(hooks.get("UserPromptSubmit", []), "fieldkit.autopilot.room"):
         missing.append("UserPromptSubmit")
+    if not _has(hooks.get("Stop", []), "fieldkit.tokens.rotate --stop-hook"):
+        missing.append("Stop")
     if _has(hooks.get("PostToolUse", []), "fieldkit.autopilot.room"):
         stale.append("PostToolUse")
     py = nowindow.windowless(python or sys.executable)
@@ -589,7 +638,8 @@ def doctor(settings=None, python=None):
     snippet = {"PreToolUse": [{"matcher": TOOL_MATCH, "hooks": [{"type": "command", "command": ROUTER_CMD.format(py=py),
                                                                  "timeout": 15}]}],
                "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command", "command": HOOK_CMD.format(py=py),
-                                                                "timeout": 10}]}]}
+                                                                "timeout": 10}]}],
+               "Stop": [{"hooks": [{"type": "command", "command": STOP_CMD.format(py=py), "timeout": 30}]}]}
     snippet = {ev: snippet[ev] for ev in missing}
     return {"ok": not missing and not stale, "missing": missing, "stale": stale, "settings": str(settings),
             "snippet": snippet}
@@ -621,6 +671,9 @@ def apply(settings=None, python=None, keep_dir=None):
     if "UserPromptSubmit" in r["missing"]:
         hooks.setdefault("UserPromptSubmit", []).extend(r["snippet"]["UserPromptSubmit"])
         done.append("UserPromptSubmit: room added")
+    if "Stop" in r["missing"]:
+        hooks.setdefault("Stop", []).extend(r["snippet"]["Stop"])      # the existing Stop hooks stay as they are
+        done.append("Stop: end-of-turn open-PR check added")
     for ev in ("PreToolUse", "UserPromptSubmit", "Stop"):
         if "console:" + ev in r["stale"]:
             for h in _console_hooks(hooks.get(ev, [])):

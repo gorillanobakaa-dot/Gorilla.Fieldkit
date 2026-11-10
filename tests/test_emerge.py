@@ -659,3 +659,25 @@ def test_a_branch_switch_with_the_same_head_is_a_move_too(env):
         "subprocess.run(['git','-C',r'%s','checkout','-q','-b','sibling'],check=True)" % (work, work, work, work)]}
     rep = emerge(recipe(tmp, s)).run()
     assert not rep["ok"] and "sibling" in rep["refused"]
+
+
+def test_a_fix_committed_in_the_repo_holding_the_config_is_seen(env):
+    """2026-11-09: firefox-windows' fix landed in the harness checkout, which is neither the recipe's repo nor a git
+    source; the runner judged it "committed nothing". Repos holding the config files and patch dir are watched."""
+    tmp, work = env
+    harness = make_repo(tmp / "harness")
+    write(harness / "fix.py", "import sys; sys.exit(1)\n")
+    write(harness / "cfg.txt", "c\n")
+    commit_all(harness, "broken")
+    s = spec(work)
+    s["stages"][0]["run"] = {"cmd": [PY, str(harness / "fix.py")]}
+    s["stages"][0]["outputs"] = []
+    s["config"] = {"files": [str(harness / "cfg.txt")]}
+    assert str(harness.resolve()) in [str(Path(x).resolve()) for x in E.fix_repos(recipe(tmp, s))]
+
+    def fix():
+        git(harness, "checkout", "-q", "-b", "fix/emerge-demo-one")
+        write(harness / "fix.py", "print('ok')\n")
+        commit_all(harness, "fix")
+    rep = emerge(recipe(tmp, s), fixer=Fixer(fix)).run()
+    assert rep["fixes"][0]["ok"], rep["fixes"][0]["why"]

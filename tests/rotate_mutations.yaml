@@ -111,3 +111,12 @@
 - file: fieldkit/autopilot/toolrouter.py
   swap: ["    stop = _rotate_stop(call)\n    if stop:", "    stop = _rotate_stop(call)\n    if False:"]
   why: "R1: the PreToolUse hook enforces the stop"
+- file: fieldkit/tokens/rotate_stop.py
+  swap: ["        if permanent_zero(Path(tp).stem):", "        if False:"]
+  why: "owner 2026-11-09: the permanent Zero is exempt from the PreToolUse refusal"
+- file: fieldkit/tokens/rotate_stop.py
+  swap: ["stem in (json.loads", "True or stem in (json.loads"]
+  why: "owner 2026-11-09: only a listed stem is exempt"
+- file: fieldkit/tokens/rotate.py
+  swap: ["        if rotate_stop.permanent_zero(sid):", "        if False:"]
+  why: "owner 2026-11-09: the permanent Zero gets no ROTATE/BUDGET line"

@@ -1,6 +1,6 @@
 ---
 name: fieldkit-build
-description: Run or resume staged build pipelines (Gorilla Firefox on Windows and on Debian, custom Debian kernel packages, every Gorilla OpenCode release file from Linux or Windows - .deb/.rpm with nfpm, the tarball, the Mac 10.13 zip on go1.24, SHA256SUMS, the page's measured file table and the whole release page from its notes - release page), check a published release (release verify - download, checksums, the linux-install workflow), find out why a local LM Studio model is slow (lmstudio-log), and diagnose a failed build from its log with the fieldkit command. Use when asked to build Firefox, the kernel or a Gorilla OpenCode release, when a build or packaging step failed, before typing a checksum table or a release page, or downloading release files by hand, when a local model is slow or says device lost, or to find out which stage a build is at.
+description: Run or resume staged build pipelines (Gorilla Firefox on Windows and on Debian, custom Debian kernel packages, every Gorilla OpenCode release file from Linux or Windows - .deb/.rpm with nfpm, the tarball, the Mac 10.13 zip on go1.24, SHA256SUMS, the page's measured file table and the whole release page from its notes - release page), check a published release (release verify - download, checksums, the linux-install workflow), find out why a local LM Studio model is slow (lmstudio-log), and diagnose a failed build from its log with the fieldkit command. Use when asked to build Firefox, the kernel or a Gorilla OpenCode release, when a build or packaging step failed, before typing a checksum table or a release page, or downloading release files by hand, when a local model is slow or says device lost, before downloading or loading a local model (fieldkit models gguf - dense or MoE and the expected speed), or to find out which stage a build is at.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML). Works offline; no network access unless a step says so."
 ---
@@ -31,8 +31,14 @@ fieldkit pipeline status debian-kernel
 ## When a build fails
 
 ```
-fieldkit triage LOG --set auto          # or firefox-windows | firefox-linux | debian-kernel | debian-packaging
+fieldkit triage checks --kind install|release   # stored install/release checks (old icon shadowing, stale icon cache, rolling URL, push refused); `triage self-test --kind install` proves them
+fieldkit triage LOG --set auto          # or firefox-windows | firefox-linux | debian-kernel | debian-packaging | agent-shell
 ```
+
+Agent shell and Python-script failures (heredoc, /c/ paths, unicodeescape, cp1252, conflict markers) are the
+`agent-shell` set. For a Python file with stray backslashes (`"\d+"`, `"C:\Users"`): `fieldkit pyliterals FILE`
+shows them; `--apply` makes only those literals raw, and only when the value stays the same (or it is a drive
+path); the file must parse afterwards or nothing is written.
 
 The verdict is one of:
 - **known** – cause and fix are given; follow the fix.
@@ -54,6 +60,8 @@ fieldkit release verify v0.1.153 --repo gorillanobakaa-dot/Gorilla.Opencode   # 
 fieldkit pipeline run gorilla-opencode --only toolchain modules build repro published --var version=v0.1.152 git_ref=71d8223 compare_with=release out=PATH   # a published binary rebuilt byte for byte
 fieldkit release table dist/SHA256SUMS-v0.1.153.txt --check PAGE.md            # the page's table is the measured one
 fieldkit lmstudio-log --day 2026-10-25 --last 10                     # a local model is slow: why
+fieldkit models gguf URL_OR_FILE [--file NAME]                       # BEFORE downloading a local model: dense or MoE, active parameters, expected tokens/s here
+fieldkit models tune MODEL --apply                                  # a local model is slow or heavy: pick the load settings for THIS machine, load with lms, then `fieldkit models tune --record MODEL --first-word S --tps N`
 ```
 
 - One run makes the .exe, the Linux binary, the tarball, the .deb, the .rpm, the Mac 10.13 zip

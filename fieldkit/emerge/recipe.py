@@ -52,6 +52,7 @@ import yaml
 
 from ..core import settings
 from ..core.pipeline import Pipeline, _fill, tree_state
+from . import toolenv
 
 HERE = Path(__file__).resolve().parent
 RECIPES = HERE / "recipes"
@@ -199,6 +200,11 @@ class Recipe:
             raise RecipeError(f"{source}: overlay for stages the pipeline does not have: {sorted(unknown)}")
         # the template text of each stage, before any machine path is filled in: the portable part of the key
         self.templates = {s["id"]: json.dumps(s, sort_keys=True) for s in raw_stages}
+        self.toolenv = toolenv.resolve(spec.get("toolenv"))     # PATH / TMPDIR this machine needs (Linux, macOS)
+        if self.toolenv:
+            for s in raw_stages:
+                if "cmd" in (s.get("run") or {}):
+                    s["run"] = {**s["run"], "env": {**self.toolenv, **(s["run"].get("env") or {})}}
         self.pipe = Pipeline({"name": self.name, "vars": vars_, "stages": raw_stages}, source=self.source,
                              state_dir=self.state_dir / "pipeline", overrides=self.overrides, strict=strict)
         self.vars = self.pipe.vars
@@ -325,8 +331,9 @@ class Recipe:
             out = {}
             for argv in self.toolchain_spec:
                 try:
+                    env = {**os.environ, **self.toolenv} if self.toolenv else None
                     r = self._run(list(argv), capture_output=True, text=True, timeout=60, encoding="utf-8",
-                                  errors="replace")
+                                  errors="replace", env=env)
                     line = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
                     out[" ".join(argv)] = line[0] if line and r.returncode == 0 else f"exit {r.returncode}"
                 except (OSError, subprocess.TimeoutExpired) as e:

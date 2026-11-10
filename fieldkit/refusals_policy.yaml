@@ -1,0 +1,23 @@
+# P23 (owner 2026-11-10): data for the learning loop in fieldkit/refusals.py. Change the data before the code.
+#
+# readonly: a refused command that matches one of these only reads. A job that is refused one reports a defect at the
+# FIRST refusal (not the second) and is not re-run until the defect is closed with a test (fieldkit refusals close).
+# Patterns are matched against the command text, case-insensitive, anchored at the start.
+readonly:
+  - 'fieldkit\s+(ship\s+(release-ready|status|ci-status)|\S+\s+(status|list|show|plan|check|find|scan|verify))(?![\w-])'
+  - 'fieldkit\s+(status|plan\s+next|tools|friction|zero|sync(?!\s+--apply)|refusals\s+list|overhead|honesty\s+check|rotate\s+check)(?![\w-])'
+  - 'git\s+(status|log|diff|show|branch|rev-parse|ls-files|remote)(?![\w-])'
+  - '(ls|cat|head|tail|grep|rg|find|wc|stat|pwd|which|echo)(?![\w-])'
+  - 'gh\s+(pr|run|issue)\s+(view|list|checks|status)(?![\w-])'
+
+# lost_minutes: a ESTIMATE per refusal by tool (what one refusal of that kind costs: the retry, the wait, the owner's
+# time). Not measured; `fieldkit overhead causes` says so. A row may carry its own lost_min, which wins.
+lost_minutes:
+  guard: 3
+  ci: 25
+  ship: 10
+  train: 10
+  task: 5
+  goal: 5
+  hook: 3
+  default: 5

@@ -448,3 +448,23 @@ def test_the_app_session_records_are_never_written(tool, args, nostop):
 def test_the_app_session_records_can_be_read(nostop):
     assert hl.decide("Bash", {"command": f"cat {REC}"}, stop_file=nostop)[0] == "allow"
     assert hl.decide("Read", {"file_path": REC}, stop_file=nostop)[0] == "allow"
+
+
+def test_ship_release_ready_is_a_read_not_a_release(nostop):
+    # 2026-11-09: the hyphen in release-ready was a word boundary, so the dry run was refused as publishing
+    assert d("Bash", {"command": "fieldkit ship release-ready v0.9.0"}, nostop) == "allow"
+    for cmd in ("fieldkit ship release v0.9.0", "fieldkit ship release", "fieldkit ship release-ready v0.9.0; fieldkit ship release"):
+        assert d("Bash", {"command": cmd}, nostop) == "deny", cmd
+
+
+def test_every_ship_subcommand_is_classed_for_hard_line_1(nostop):
+    # 2026-11-09: release-ready was added on 10-29 and nobody checked it against the 10-23 rule; a new subcommand
+    # now fails here until someone decides which side it is on
+    from fieldkit.method.ship import ACTIONS
+    publishing = {"push", "merge", "release", "prune", "gh-release"}
+    reading = {"status", "sync", "commit", "audit", "tags", "release-ready", "ready", "train", "overlap", "freeze",
+               "unfreeze", "ci-wait", "update", "proof", "ci-record"}
+    assert set(ACTIONS) == publishing | reading, set(ACTIONS) ^ (publishing | reading)
+    for a in sorted(ACTIONS):
+        want = "deny" if a in publishing else "allow"
+        assert d("Bash", {"command": f"fieldkit ship {a} v0.9.0"}, nostop) == want, a

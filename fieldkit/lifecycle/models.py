@@ -176,10 +176,119 @@ def report(rows=None):
     return dict(sorted(counts.items()))
 
 
+# ---- plan P9: escalation ladder -------------------------------------------------------------------------------------
+def ladder_cfg(data=None):
+    return dict((data or load()).get("escalation") or {})
+
+
+def next_model(model, own_failures, data=None):
+    """-> the model for the next attempt. Below `own_limit` own failures on this rung the same model retries; at
+    `own_limit` the next rung up. None past the top rung (park it). A model not on the ladder: None (no guess)."""
+    cfg = ladder_cfg(data)
+    rungs = [str(x).lower() for x in cfg.get("ladder") or ()]
+    low = (model or "").lower()
+    idx = next((i for i, r in enumerate(rungs) if r in low), None)
+    if idx is None:
+        return None
+    if own_failures < int(cfg.get("own_limit") or 2):
+        return model
+    return rungs[idx + 1] if idx + 1 < len(rungs) else None
+
+
+def needs_plan_review(job_type, data=None):
+    """-> True when a job type names a risky area (guards, fan, security, releases): a top model reviews the plan once
+    before cheap models start."""
+    low = (job_type or "").lower()
+    return any(str(w).lower() in low for w in ladder_cfg(data).get("risky") or ())
+
+
+def attempts_path(data=None):
+    from .friction import state_dir
+    return state_dir() / (ladder_cfg(data).get("attempts") or "escalation.jsonl")
+
+
+def record_attempt(branch, job_type, model, outcome, own=True, data=None):
+    """One attempt: outcome pass | fail; own False = the failure was main's or a flake (not the branch's, no strike)."""
+    if outcome not in ("pass", "fail"):
+        raise ValueError("outcome is pass or fail")
+    rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "branch": branch, "job_type": job_type or "?",
+           "model": model or "?", "outcome": outcome, "own": bool(own)}
+    with open(attempts_path(data), "a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec
+
+
+def read_attempts(data=None):
+    p = attempts_path(data)
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines() if p.is_file() else []:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
+def success_table(rows=None, data=None):
+    """-> {(model, job_type): {"tries", "passed", "own_failed", "rate"}}. A failure that was not the branch's own
+    (main's red, a flake) is left out of the rate: it says nothing about the model. rate None with no countable try."""
+    t = {}
+    for r in read_attempts(data) if rows is None else rows:
+        if r.get("outcome") == "fail" and not r.get("own", True):
+            continue
+        c = t.setdefault((r.get("model", "?"), r.get("job_type", "?")), {"tries": 0, "passed": 0, "own_failed": 0})
+        c["tries"] += 1
+        if r.get("outcome") == "pass":
+            c["passed"] += 1
+        else:
+            c["own_failed"] += 1
+    for c in t.values():
+        c["rate"] = round(c["passed"] / c["tries"], 2) if c["tries"] else None
+    return dict(sorted(t.items()))
+
+
+def best_model(job_type, min_tries=3, rows=None, data=None):
+    """-> the cheapest ladder model whose success rate on this job type is at least 0.8 over `min_tries` countable
+    tries, else None (no history: start at the ladder's second rung by default, the caller's call)."""
+    cfg = ladder_cfg(data)
+    tab = success_table(rows, data)
+    for rung in cfg.get("ladder") or ():
+        for (m, jt), c in tab.items():
+            if jt == job_type and rung.lower() in m.lower() and c["tries"] >= min_tries and (c["rate"] or 0) >= 0.8:
+                return m
+    return None
+
+
 def main(argv=None):
     argv = list(argv or [])
+    if argv[:1] in (["gguf"], ["bandwidth"]):        # P21: dense or MoE, active parameters, expected speed
+        from . import gguf
+        rc = gguf.main(argv)
+        if rc is not None:
+            return rc
+        print("models gguf FILE|URL [--file NAME] [--bandwidth GBPS] [--json]: dense or MoE, active parameters, expected tokens/s")
+        return 2
+    if argv[:1] == ["tune"]:                         # P22: host analysis, right load settings, lms load
+        from . import tune
+        return tune.main(argv)
+    if argv[:1] == ["table"]:
+        tab = success_table()
+        if "--json" in argv:
+            print(json.dumps([dict(model=m, job_type=j, **c) for (m, j), c in tab.items()], indent=1))
+        for (m, j), c in tab.items():
+            if "--json" not in argv:
+                print(f"{m:<22} {j:<20} {c['passed']}/{c['tries']} passed  rate {c['rate']}")
+        if not tab and "--json" not in argv:
+            print("no attempt recorded")
+        print("NEXT: the table decides delegation (best_model); main's reds and flakes are not counted")
+        return 0
     if argv[:1] != ["report"]:
-        print("models report [--json]: counts per device and day from the spend ledger")
+        print("models report [--json]: counts per device and day from the spend ledger\n"
+              "models table [--json]: success rate per model and job type (plan P9)\n"
+              "models gguf FILE|URL: before loading a local model, dense or MoE and the expected speed (P21)\n"
+              "models tune MODEL [--apply]: analyse this machine and the GGUF, pick the load settings, load through lms (P22)\n"
+              "              models tune --record MODEL --first-word S --tps N | --report | --host\n"
+              "models bandwidth [--measure]: this machine's memory bandwidth")
         return 2
     try:
         rep = report()

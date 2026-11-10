@@ -14,6 +14,8 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
     fieldkit zero rollcall [--wait MIN] [--status]
                                           ask every station for its sitrep (alias: sitrep); LATE / MISSING listed
     fieldkit zero checkin [--ref ID] [--job .. --state .. --branch .. --waiting .. --not-verified .. --shared ..]
+                          [--started .. --done-so-far .. --now .. --left ..]   the four parts (P24): a sitrep
+                                          without all four is INCOMPLETE in the roll call; a rotation reports them first
                                           what a station runs at start and on its interval (and to answer a roll)
     fieldkit zero check [--revive-cable] the comms check (alias: comms): leases, misses, retries; a peer that is off is
                                           reported off and not retried (C4); the cable revive only on request
@@ -29,6 +31,7 @@ The night before, the cable net went quiet with BOTH listeners down and nobody n
     fieldkit zero schedule [--apply | --remove]   the comms check every 15 min (Windows task / systemd / launchd)
     fieldkit zero doctor                  files, chain, hook, schedule, cable key, the agent rules, the clock
     fieldkit zero task ST --objective .. --area PATH[,PATH] --done ..   Zero gives a station its order and ground
+    fieldkit zero task ST ... [--done-cmd CMD]   CMD proves done: `release ST --finished` runs it, refuses unless exit 0
     fieldkit zero release ST [--finished]  Zero closes an order; fieldkit zero orders lists them (command.py, set 2)
     fieldkit zero checkin --relieve OLD   a rotated station's relief takes its order and ground
     every verb: --as STATION (agents with no session id in their environment), --json, --epoch N (fencing)
@@ -78,6 +81,10 @@ ROOT = Path(__file__).resolve().parents[2]
 STATES = ("WORKING", "BLOCKED", "WAITING", "DONE", "IDLE")
 SITREP = (("job", "job"), ("state", "state"), ("branch", "branch/PR"), ("waiting", "waiting on"),
           ("not_verified", "NOT verified"), ("shared", "shared ground"))
+# P24: the four parts every station answers a comms check with (owner 2026-11-10): where I started, what I did, what I
+# am doing now, what is left. Optional on input (older callers send the six above); a sitrep without all four is
+# INCOMPLETE in the roll call.
+SITREP4 = (("started", "started from"), ("done", "done so far"), ("now", "doing now"), ("left", "left to do"))
 SITREP_MAX = 300
 DEFAULTS = {"interval_min": 15, "answer_min": 10, "retries": 3, "quiet": "", "per_minute": 6}
 TRAFFIC = ("open", "handover", "close", "rollcall", "msg")
@@ -270,6 +277,17 @@ def state_of(rec, now):
         return "OFF"
     m = misses(rec, now)
     return "UP" if m == 0 else "SILENT" if m == 1 else "MISSING"
+
+
+def leads_of(net):
+    return {zero_of(net), (net.get("2ic") or {}).get("station")}
+
+
+def is_ended(rec, sid, leads, now):
+    """A station the hook checked in, two leases lapsed, not Zero or the 2IC: its session ended or sits idle. The
+    comms check, `fieldkit zero` and Zero's prompt alarm all use this one rule (2026-11-10: 125 ended sessions were
+    listed as MISSING on every roll and in every Zero prompt)."""
+    return misses(rec, now) >= 2 and rec.get("via") == "hook" and sid not in leads and not rec.get("off")
 
 
 def renew(stations, sid, net, now, **info):
@@ -479,7 +497,18 @@ def _public(net):
             "interval_min": net.get("interval_min"), "answer_min": net.get("answer_min"), "quiet": net.get("quiet")}
 
 
-def handover(me, to=None, take=False, assume=False, second=None, epoch=None, channels=None, now=None, env=None):
+def _far_alive():
+    """True when any computer of the cable answers hello (two computers: the other one). Never raises."""
+    try:
+        from . import channels as ch
+        c = ch.Cable(timeout=5)
+        return any(c.hello(d).get("ok") for d in c.devices())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def handover(me, to=None, take=False, assume=False, second=None, epoch=None, channels=None, now=None, env=None,
+             far_alive=None):
     now = time.time() if now is None else now
     net = load_net()
     if not is_open(net):
@@ -505,6 +534,12 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
         if state_of(zrec, now) != "MISSING":
             raise Refused(f"Zero {old} is {state_of(zrec, now) if zrec else 'unknown'}, not MISSING: the 2IC assumes "
                           "only when Zero missed two check-ins")
+        # 2026-11-10 defect: the ThinkPad's "Fieldkit ZeroKeeper" task took Zero (epoch 36 -> 42) from a live Zero on
+        # the VAIO: leases of the other computer's stations are only as fresh as the cable's last ingest, so MISSING
+        # there is not proof. Zero on another computer that answers over the cable is never taken by an assume.
+        if machine_of(old) and machine_of(old) != machine_of(me) and (far_alive or _far_alive)():
+            raise Refused(f"Zero {old} is on {machine_of(old)}, which answers over the cable: a station on another "
+                          "computer never assumes Zero from it (ask it to hand over: fieldkit zero handover --to YOU)")
         to, how = me, f"2IC assumed: Zero {old} MISSING"
     else:
         require_zero(net, me, epoch)
@@ -525,6 +560,10 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
     net.pop("handover_pending", None)
     net["updated"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now))
     with _Lock():
+        cur = load_net()                              # the epoch fence: the check above ran before the lock
+        if int(cur.get("epoch") or 0) != int(net["epoch"]) - 1:
+            raise Refused(f"the net moved to epoch {cur.get('epoch')} while this handover was prepared: "
+                          "another station won; nothing changed")
         save_net(net)
         st = load_stations()
         if to == me:
@@ -607,10 +646,49 @@ def check_sitrep(s):
         out[k] = v
     if bad:
         raise ValueError("sitrep incomplete, missing: " + ", ".join(bad) + " (use - for none)")
+    for k, label in SITREP4:
+        v = " ".join(str((s or {}).get(k) or "").split())
+        if len(v) > SITREP_MAX:
+            raise ValueError(f"sitrep {label}: {len(v)} characters, at most {SITREP_MAX} (one plain line)")
+        if v:
+            out[k] = v
     out["state"] = out["state"].upper()
     if out["state"] not in STATES:
         raise ValueError(f"sitrep state {out['state']!r}: one of {', '.join(STATES)}")
     return out
+
+
+def sitrep_missing(sitrep):
+    """-> the labels of the four parts (SITREP4) this sitrep lacks; [] when it is complete. Pure."""
+    return [label for k, label in SITREP4 if not " ".join(str((sitrep or {}).get(k) or "").split())]
+
+
+def _clip(text, n=SITREP_MAX):
+    t = " ".join(str(text or "").split())
+    return t if len(t) <= n else t[:n - 3].rstrip() + "..."
+
+
+def report_rotation(session_id, title, started, done, next_, not_verified="", branch="", now=None, env=None):
+    """P24: a session that rotates reports to Zero first, in the four parts, from the hand-over's own fields. A
+    checkin carrying the sitrep (it also answers an open roll call). -> {"sent": bool, "why": text}. No net open: it
+    proceeds and says so. Never raises."""
+    try:
+        now = time.time() if now is None else now
+        net = load_net()
+        if not is_open(net):
+            return {"sent": False, "why": "no net open: no report to Zero (nothing to wait for)"}
+        me = hook_station(session_id)
+        sit = {"job": _clip(title) or "-", "state": "WAITING", "branch": _clip(branch) or "-",
+               "waiting": "my relief session to take over", "not_verified": _clip(not_verified) or "-", "shared": "-",
+               "started": _clip(started) or "-", "done": _clip(done), "now": "rotating: handing over to a fresh session",
+               "left": _clip(next_)}
+        r = checkin(me, sit, now=now, env=env if env is not None else {"CLAUDE_CODE_SESSION_ID": session_id},
+                    ingest=False)
+        if not r.get("established"):
+            return {"sent": False, "why": "no net open: no report to Zero"}
+        return {"sent": True, "why": f"reported to Zero {zero_of(net)} as {me} ({r['entry']['id']})"}
+    except Exception as e:  # noqa: BLE001 - a rotation never fails because of the net
+        return {"sent": False, "why": f"report to Zero failed: {e}"}
 
 
 def _addressed(e, me):
@@ -776,7 +854,7 @@ def roll(net, now, found=None):
             continue
         rec = st.get(s, {})
         if s in answered:
-            status = "ANSWERED"
+            status = "INCOMPLETE" if sitrep_missing((answered[s].get("data") or {}).get("sitrep")) else "ANSWERED"
         elif state_of(rec, now) == "MISSING" or not rec:
             status = "MISSING"
         elif rc and now < float(rc.get("deadline") or 0):
@@ -787,7 +865,10 @@ def roll(net, now, found=None):
             status = state_of(rec, now)
         rows.append({"station": s, "status": status, "sitrep": (answered.get(s) or {}).get("data", {}).get("sitrep"),
                      "last": rec.get("last"), "kind": rec.get("kind") or kind_of(s), "host_session": rec.get("host_session"),
-                     "name": rec.get("name"), "tag": tag_of(s) or rec.get("tag") or ""})
+                     "session": rec.get("session"), "has_order": bool(rec.get("order") and not rec["order"].get("closed")),
+                     "missing_parts": sitrep_missing((answered.get(s) or {}).get("data", {}).get("sitrep"))
+                     if s in answered else [],
+                     "name": rec.get("name"), "tag": tag_of(s) or rec.get("tag") or "", "ear": ear_label(rec, status)})
     known = set(st) | set(answered) | ({zero} if zero else set())
     devices_with_stations = {machine_of(s) for s in known}
     for f in found or []:
@@ -798,15 +879,63 @@ def roll(net, now, found=None):
         elif f["station"] not in known:
             rows.append({"station": f["station"], "status": "UNREGISTERED", "kind": f["kind"],
                          "detail": f"{f['detail']}; " + ("pull only" if f["via"] == "pull" else f"reached via {f['via']}")})
-    return {"rollcall": rc, "rows": rows}
+    return {"rollcall": rc, "rows": rows, "unanswered": unanswered(rows)}
+
+
+def act_line(station, host_session=None, kind=None, has_order=False):
+    """The one exact line Zero can act on for a station that does not answer. Deterministic: a desktop session with a
+    known host id is nudged by the app's send_message; one holding an order is relieved; any other is sent the call."""
+    kind = kind or kind_of(station)
+    if kind == "claude" and host_session:
+        return f"send_message {host_session}"
+    if has_order:
+        return f"fieldkit zero checkin --relieve {station}   (run by its relief session)"
+    return f'fieldkit zero send --to {station} "comms check: report your sitrep (fieldkit zero checkin)"'
+
+
+def unanswered(rows):
+    """P24: every station that did not answer the comms check (LATE or MISSING) with its session id, its desktop host
+    session when known, and the one exact line to act on. Sorted by station; no guessing."""
+    out = []
+    for r in sorted(rows, key=lambda x: x["station"]):
+        if r.get("status") not in ("LATE", "MISSING") and r.get("state") not in ("SILENT", "MISSING"):
+            continue
+        out.append({"station": r["station"], "status": r.get("status") or r.get("state"),
+                    "session": r.get("session") or "", "host_session": r.get("host_session") or "",
+                    "act": act_line(r["station"], r.get("host_session"), r.get("kind"), r.get("has_order"))})
+    return out
+
+
+def unanswered_lines(items):
+    return [f"  UNANSWERED {x['station']} ({x['status']}) session {x['session'] or 'unknown'}"
+            + (f", desktop host {x['host_session']}" if x["host_session"] else "") + f": {x['act']}" for x in items]
 
 
 def roll_level(rows):
     s = {r["status"] for r in rows}
-    return ALARM if "MISSING" in s else WARN if s & {"LATE", "PENDING", "SILENT", "NO STATION"} else OK
+    return ALARM if "MISSING" in s else WARN if s & {"LATE", "PENDING", "SILENT", "NO STATION", "INCOMPLETE"} else OK
 
 
 # ---------------------------------------------------------------- the cable: store-and-forward from the far side
+
+def _to_opencode(e, net, opencode=None):
+    """I-27: a msg or roll call from the other computer for an OpenCode session here (its station, or every station)
+    is pushed to it through fieldkit peers (named pipe / Unix socket, same account; no port) as it is ingested, with
+    the line that answers it over the cable. -> the push rows. Never raises."""
+    to = e.get("to") or "*"
+    try:
+        if to == "*":
+            oc = opencode or ch.OpenCode()
+        elif to.startswith("opencode:") and machine_of(to) == machine():
+            name = to.split(":", 1)[1].split("@", 1)[0]
+            oc = opencode or ch.OpenCode(sessions=lambda: [{"name": name}])
+        else:
+            return []
+        return oc.push(dict(e, text=f"{e.get('text', '')} (answer: fieldkit zero send --as opencode:NAME --to "
+                                    f"{e.get('from')} \"TEXT\")"), net)
+    except Exception:  # noqa: BLE001 - a dead OpenCode never stops the ingest
+        return []
+
 
 def ingest_cable(items=None, now=None):
     """Net entries that came over the cable go into this log (once, by id); a far Zero's announcement updates this
@@ -851,13 +980,16 @@ def ingest_cable(items=None, now=None):
                 s2 = load_stations()
                 d = e.get("data") or {}
                 renew(s2, e["from"], net, now, via="cable", sitrep=d.get("sitrep"),
-                      sitrep_ref=e.get("ref") if d.get("sitrep") else None, off=d.get("off"), tag=d.get("tag"))
+                      sitrep_ref=e.get("ref") if d.get("sitrep") else None, off=d.get("off"), tag=d.get("tag"),
+                      ear=d.get("ear") if isinstance(d.get("ear"), dict) else None)
                 s2["meta"] = st["meta"]
                 st = s2
                 save_stations(st)
         append(k, e.get("from"), to=e.get("to", "*"), text=e.get("text", ""), ref=e.get("ref"),
                data=dict(e.get("data") or {}, relayed=e.get("from_host")), want_ack=e.get("want_ack", False),
                eid=e["id"], now=now, epoch=e.get("epoch"))
+        if k in ("msg", "rollcall"):
+            _to_opencode(e, net)
         n += 1
     if since == since0 and len(seen) == seen0:       # C6: nothing came, nothing rewritten
         return n
@@ -866,6 +998,33 @@ def ingest_cable(items=None, now=None):
         s3["meta"].update(cable_since=since, seen_ids=sorted(seen)[-2000:])
         save_stations(s3)
     return n
+
+
+# ---------------------------------------------------------------- the ears (I-27)
+
+def _ear_of(station):
+    """This computer's station's ear for the check-in (fieldkit/peers/link_relay.py), or None. Never raises."""
+    try:
+        from ..peers import link, link_relay
+        return link_relay.ear_brief(station) if link.household() else None
+    except Exception:  # noqa: BLE001 - the hook informs; it never fails a tool call
+        return None
+
+
+def ear_label(rec, state):
+    """'running' / 'NOT RUNNING (N unheard)' for a Claude station that reported its ear; '' otherwise."""
+    ear = rec.get("ear") if isinstance(rec.get("ear"), dict) else None
+    if not ear or rec.get("kind", kind_of(rec.get("station", ""))) not in (None, "claude"):
+        return ""
+    if ear.get("state") == "running":
+        return "running"
+    return f"NOT RUNNING ({int(ear.get('unheard') or 0)} unheard)"
+
+
+def deaf(rows):
+    """Stations that are up and whose ear is not running: a finding of the comms check, not noise (I-27)."""
+    return sorted(r["station"] for r in rows if str(r.get("ear") or "").startswith("NOT RUNNING")
+                  and r.get("state") in ("UP", "SILENT"))
 
 
 # ---------------------------------------------------------------- the comms check
@@ -903,6 +1062,11 @@ def _cable_layer(device):
 def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None, command_kw=None, classify=None):
     now = time.time() if now is None else now
     ingest_cable()
+    try:                                  # P23: the refusals ledger of both computers meets at every comms check (15 min),
+        from .. import refusals           # not in the prompt hook, which a dead cable would stall 3 s on every prompt
+        refusals.sync_quiet()
+    except Exception:  # noqa: BLE001
+        pass
     net = load_net()
     if not is_open(net):
         return {"established": False, "net": net, "level": NONET}
@@ -914,10 +1078,13 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
         # A station the hook checked in renews only while its session makes calls: two missed leases mean the
         # session ended or sits idle, which nobody can act on (59 of 83 inbox items, 2026-10-25..27, were these).
         # Zero, the 2IC and stations that check in by hand keep the alarm; a hung headless job is liveness's.
-        ended = m >= 2 and rec.get("via") == "hook" and s not in leads
+        ended = is_ended(rec, s, leads, now)
         if ended:
             state = "ENDED"
-        rows.append({"station": s, "state": state, "misses": m, "last": rec.get("last"), "kind": rec.get("kind")})
+        rows.append({"station": s, "state": state, "misses": m, "last": rec.get("last"), "kind": rec.get("kind"),
+                     "ear": ear_label(rec, state),
+                     "session": rec.get("session"), "host_session": rec.get("host_session"),
+                     "has_order": bool(rec.get("order") and not rec["order"].get("closed"))})
         if state == "OFF" or m == 0:
             continue
         if int(rec.get("logged_miss") or 0) < (min(m, 2) if ended else m):    # an ended station: logged once
@@ -992,9 +1159,11 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
     except Exception as e:  # noqa: BLE001 - the comms check still reports the net
         cmd = {"error": str(e), "findings": [], "new": []}
     level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") and not x.get("off") for x in links)
-             else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings") else OK)
-    out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried,
-           "undelivered": undelivered, "links": links, "level": level, "command": cmd}
+             else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings")
+             or deaf(rows) else OK)
+    out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried, "deaf": deaf(rows),
+           "undelivered": undelivered, "links": links, "level": level, "command": cmd,
+           "unanswered": unanswered([r for r in rows if r["state"] in ("SILENT", "MISSING")])}
     if board:
         try:
             out["board"] = write_board(board_row(net, rows, now))
@@ -1082,6 +1251,28 @@ def _ingest_due(st, now):
     return True
 
 
+def _auto_assume(me, net, event, now):
+    """Owner 2026-11-03: if no Zero is UP, one of the present sessions takes over. Run by the hook of a live session
+    when Zero is MISSING (two lapsed leases); handover re-checks inside the lock, so only one session wins and Zero
+    UP is never taken. -> the lines to show."""
+    zero = zero_of(net)
+    if event not in ("UserPromptSubmit", "SessionStart") or not zero or zero == me:
+        return []
+    if os.environ.get("FIELDKIT_JOB_DIR"):
+        # 2026-11-10: headless job T-20261110-062546 (d9fb524b) assumed Zero at 07:25 and exited at 07:26, leaving
+        # the seat MISSING for 9 hours with 40 cable notes unheard. A job that ends on its own never holds the seat.
+        return []
+    zrec = load_stations()["stations"].get(zero)
+    if zrec is None or state_of(zrec, now) != "MISSING":
+        return []
+    try:
+        r = handover(me, assume=True, now=now)
+        return [f"NET: Zero {zero} was MISSING; you assumed Zero (epoch {r['net']['epoch']}). Announce it: "
+                "fieldkit zero rollcall"]
+    except Refused:                                   # not the 2IC, not UP, or another station won
+        return []
+
+
 def _net_line(call, event, now=None):
     """Every Claude Code session on this computer: checked in by the hook (the lease renewed at most once a minute),
     shown its unseen net traffic (acked), told once who Zero is. Zero is told which stations went quiet, once per
@@ -1111,15 +1302,19 @@ def _net_line(call, event, now=None):
             if ingest is None:                        # C6: the ingest stamp rides the lease's write, not its own
                 ingest = _ingest_due(st, now)
             if new or now - float(rec.get("last") or 0) >= RENEW_EVERY_S or rec.get("off"):
-                rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me))
+                rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me), ear=_ear_of(me),
+                            host_session=call.get("host_session") or os.environ.get("CLAUDE_CODE_HOST_SESSION_ID"))
             items = pending_for(me, rec, net, now)
             if items:
                 rec["seen_off"] = log_size()
             elif rec.get("seen_off") is None:
                 rec["seen_off"] = log_size()
-            tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60)
+            ear_now = (rec.get("ear") or {}).get("state")
+            tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60
+                                or (ear_now and ear_now != rec.get("ear_told")))   # I-27: Zero hears a deaf ear soon
             if tell_far:
-                rec["cable_at"] = now                 # tried or not: the next try waits an interval (no hook stalls)
+                rec["cable_at"] = now
+                rec["ear_told"] = ear_now                 # tried or not: the next try waits an interval (no hook stalls)
             if ingest or json.dumps(rec, sort_keys=True, default=str) != before:   # C6: no rewrite on every call
                 save_stations(st)
         if ingest:
@@ -1128,10 +1323,12 @@ def _net_line(call, event, now=None):
             except Exception:  # noqa: BLE001
                 pass
         if new or tell_far:
-            e = append("checkin", me, to=zero_of(net), data={k: v for k, v in {"by": "hook", "tag": tag_of(me)}.items()
-                                                             if v}, now=now)
+            e = append("checkin", me, to=zero_of(net), data={k: v for k, v in {"by": "hook", "tag": tag_of(me),
+                                                                               "ear": rec.get("ear")}.items() if v},
+                       now=now)
             if tell_far:                              # Zero is on the other computer: its lease is renewed there (C2)
                 (ch.Cable(timeout=CABLE_HOOK_TIMEOUT_S)).push(e, net)
+        out.extend(_auto_assume(me, net, event, now))
         if new:
             out.append(f"NET: Zero is {zero_of(net)} (epoch {net.get('epoch')}); you are station {me}, checked in by "
                        "the hook. Owner words: 'zero', 'comms check', 'roll call' mean fieldkit zero (skill "
@@ -1145,8 +1342,9 @@ def _net_line(call, event, now=None):
             _deliver(me, items, now)
         if me == zero_of(net) and event in ("UserPromptSubmit", "SessionStart"):
             st = load_stations()
+            leads = leads_of(net)
             quiet = sorted(f"{s} {state_of(r, now)}" for s, r in st["stations"].items()
-                           if s != me and state_of(r, now) in ("SILENT", "MISSING"))
+                           if s != me and state_of(r, now) in ("SILENT", "MISSING") and not is_ended(r, s, leads, now))
             key = hashlib.sha256("|".join(quiet).encode()).hexdigest()[:12]
             if quiet and st["meta"].get("zero_alert") != key:
                 out.append("NET (you are Zero): " + "; ".join(quiet[:8]) + " - fieldkit zero rollcall")
@@ -1172,7 +1370,8 @@ def status(now=None):
     ingest_cable()                                    # a far Zero's net and far check-ins: seen here first (C2)
     net = load_net()
     st = load_stations()["stations"]
-    rows = [{"station": s, "state": state_of(r, now), "kind": r.get("kind"), "last": r.get("last"),
+    leads = leads_of(net)
+    rows = [{"station": s, "state": "ENDED" if is_ended(r, s, leads, now) else state_of(r, now), "kind": r.get("kind"), "last": r.get("last"),
              "sitrep": r.get("sitrep"), "name": r.get("name"), "via": r.get("via"), "tag": tag_of(s) or r.get("tag") or ""}
             for s, r in sorted(st.items())]
     return {"established": is_open(net), "net": net, "rows": rows,
@@ -1230,14 +1429,17 @@ def status_lines(r, now=None):
                 + (f" (last: epoch {net.get('epoch')}, closed {net.get('closed')})" if net.get("epoch") else "")]
     z = net.get("zero") or {}
     sec = (net.get("2ic") or {}).get("station") or "none named"
-    n = {k: sum(x["state"] == k for x in r["rows"]) for k in ("UP", "SILENT", "MISSING", "OFF")}
+    n = {k: sum(x["state"] == k for x in r["rows"]) for k in ("UP", "SILENT", "MISSING", "OFF", "ENDED")}
     out = [f"ZERO ESTABLISHED: Zero = {tagged_station(z.get('station'))}{' (' + z['name'] + ')' if z.get('name') else ''}, "
            f"epoch {net.get('epoch')}, 2IC = {sec}" + (f", mirror of {net['mirror_of']}" if net.get("mirror_of") else ""),
            f"  check-in every {cfg(net, 'interval_min')} min (lease {int(ttl_s(net) // 60)} min), roll answers due in "
            f"{cfg(net, 'answer_min')} min" + (f", quiet hours {net['quiet']}" if net.get("quiet") else ""),
-           f"  {len(r['rows'])} station(s): {n['UP']} UP, {n['SILENT']} SILENT, {n['MISSING']} MISSING, {n['OFF']} OFF",
+           f"  {len(r['rows'])} station(s): {n['UP']} UP, {n['SILENT']} SILENT, {n['MISSING']} MISSING, {n['OFF']} OFF"
+           + (f", {n['ENDED']} ENDED (sessions over, not listed)" if n["ENDED"] else ""),
            "  machines: " + machines_line(r["rows"])]
     for x in r["rows"]:
+        if x["state"] == "ENDED" and x["station"] != z.get("station"):
+            continue
         tag = "ZERO" if x["station"] == z.get("station") else x["state"]
         line = f"  {tag:<8} {tagged_station(x['station'], x.get('tag', '')):<45} last {_when(x['last'])}"
         if x.get("sitrep"):
@@ -1264,15 +1466,19 @@ def roll_lines(r):
         return ["no roll call yet: fieldkit zero rollcall"]
     out = [f"ROLL CALL {rc['id']} sent {rc.get('at')}, answers due {_when(rc.get('deadline'))}"]
     for x in r["rows"]:
-        out.append(f"  {x['status']:<12} {tagged_station(x['station'])}" + (f" ({x['name']})" if x.get("name") else ""))
+        out.append(f"  {x['status']:<12} {tagged_station(x['station'])}" + (f" ({x['name']})" if x.get("name") else "")
+                   + (f" ear: {x['ear']}" if x.get("ear") else ""))
         if x.get("sitrep"):
-            for k, label in SITREP:
-                out.append(f"      {label + ':':<15}{x['sitrep'][k]}")
+            for k, label in SITREP + SITREP4:
+                out.append(f"      {label + ':':<15}{x['sitrep'].get(k) or ('MISSING' if (k, label) in SITREP4 else '-')}")
+            if x.get("missing_parts"):
+                out.append(f"      INCOMPLETE: no {', no '.join(x['missing_parts'])}")
         elif x.get("detail"):
             out.append(f"      {x['detail']}")
         elif x["status"] in ("LATE", "PENDING", "MISSING") and x.get("kind") == "claude":
             out.append(f"      last heard {_when(x.get('last'))}; an idle Desktop session runs no hook: nudge it"
                        + (f" (send_message to {x['host_session']})" if x.get("host_session") else ""))
+    out += unanswered_lines(r.get("unanswered") or [])
     return out
 
 
@@ -1314,6 +1520,9 @@ def main(argv=None, prog="fieldkit zero"):
     ap.add_argument("--ref", help="checkin: the roll call answered")
     for k, label in SITREP:
         ap.add_argument("--" + k.replace("_", "-"), dest=k, help=f"checkin: sitrep {label}")
+    for k, label in SITREP4:                          # --done is the order's; the sitrep's is --done-so-far
+        ap.add_argument("--" + ("done-so-far" if k == "done" else k), dest="sr_" + k,
+                        help=f"checkin: sitrep part, {label} (all four parts or the roll call says INCOMPLETE)")
     ap.add_argument("--off", action="store_true", help="checkin: this station signs off the net")
     ap.add_argument("--flash", action="store_true", help="send: FLASH precedence, never held")
     ap.add_argument("--no-ack", action="store_true", help="send: wants no ack")
@@ -1330,7 +1539,10 @@ def main(argv=None, prog="fieldkit zero"):
     ap.add_argument("--done", help="task: what done looks like")
     ap.add_argument("--drift-min", type=float, help="task: minutes without progress while WORKING = DRIFT (45)")
     ap.add_argument("--idle-min", type=float, help="task: minutes without activity = asked why idle (45)")
-    ap.add_argument("--finished", action="store_true", help="release: the order is done (else released)")
+    ap.add_argument("--done-cmd", help="task: a command that proves done (exit 0); `release --finished` runs it and "
+                    "refuses to close the order unless it passes")
+    ap.add_argument("--finished", action="store_true", help="release: the order is done; runs its --done-cmd, if any, "
+                    "and refuses unless it exits 0 (else released)")
     ap.add_argument("--relieve", help="checkin: take over this rotated station's order and ground")
     a = ap.parse_args(argv)
     verb = VERBS[a.verb]
@@ -1374,7 +1586,9 @@ def main(argv=None, prog="fieldkit zero"):
             _emit(a, rr, roll_lines(rr))
             return roll_level(rr["rows"])
         if verb == "checkin":
-            sit = {k: getattr(a, k) for k, _ in SITREP} if any(getattr(a, k) for k, _ in SITREP) else None
+            sit = {k: getattr(a, k) for k, _ in SITREP}
+            sit.update({k: getattr(a, "sr_" + k) for k, _ in SITREP4})
+            sit = sit if any(sit.values()) else None
             r = checkin(me, sit, a.ref, a.off, relieve=a.relieve)
             if not r["established"]:
                 _emit(a, r, status_lines(status()))
@@ -1401,7 +1615,10 @@ def main(argv=None, prog="fieldkit zero"):
                 return NONET
             lines = [f"COMMS CHECK {('OK', 'WARN', 'ALARM')[r['level']]}: Zero {zero_of(r['net'])}, epoch "
                      f"{r['net'].get('epoch')}"]
-            lines += [f"  {x['state']:<8} {x['station']} (last {_when(x['last'])})" for x in r["rows"]]
+            lines += [f"  {x['state']:<8} {x['station']} (last {_when(x['last'])})"
+                      + (f" ear: {x['ear']}" if x.get("ear") else "") for x in r["rows"]]
+            lines += [f"  DEAF     {x}: its ear is not running; notes reach it only at its next call (I-27: the "
+                      "room hook gives it the line; an idle desktop session needs a nudge)" for x in r.get("deaf") or []]
             lines += [f"  cable {x['device']}: {x['detail']}" for x in r["links"]] or ["  cable: not paired"]
             try:                                      # the SSH-only devices of the household (C1), no ping sweep
                 from ..peers import household
@@ -1413,6 +1630,7 @@ def main(argv=None, prog="fieldkit zero"):
             lines += [f"  retried {x}" for x in r["retried"]]
             lines += [f"  UNDELIVERED {x['id']} to {', '.join(x['missing'])}: {x['text'][:80]}" for x in r["undelivered"]]
             cmd = r.get("command") or {}
+            lines += unanswered_lines(r.get("unanswered") or [])
             lines += [f"  {f['kind']}: {f['text']}" for f in cmd.get("findings", [])]
             if cmd.get("error"):
                 lines.append(f"  command sweep failed: {cmd['error']}")
@@ -1486,14 +1704,17 @@ def main(argv=None, prog="fieldkit zero"):
                 ap.error(f"{verb} needs the STATION")
             if verb == "task":
                 area = [x for v in a.area for x in v.split(",")]
-                r = command.task(me, a.rest[0], a.objective, area, a.done, a.epoch, a.drift_min, a.idle_min)
+                r = command.task(me, a.rest[0], a.objective, area, a.done, a.epoch, a.drift_min, a.idle_min,
+                                 done_cmd=a.done_cmd)
                 _emit(a, r, [f"ORDER {r['order']['id']} -> {r['station']}: {r['order']['objective']}",
                              f"  ground: {', '.join(r['order']['area'])} (claims written: writes outside it refused)",
                              f"  done when: {r['order']['done']}"] + pushed_lines(r["sent"].get("pushed", []))
                       + ([f"  NOT SENT: {r['sent']['refused']}"] if r["sent"].get("refused") else []))
                 return OK
             r = command.release(me, a.rest[0], a.finished, a.epoch)
-            _emit(a, r, [f"ORDER {r['order']['id']} {r['order']['outcome'].upper()}: {r['station']}'s ground is free"])
+            _emit(a, r, [f"ORDER {r['order']['id']} {r['order']['outcome'].upper()}: {r['station']}'s ground is free"]
+                  + ([f"  done proven: `{r['order']['done_cmd']}` exit {r['order']['done_proof']['exit']}"]
+                     if r["order"].get("done_proof") else []))
             return OK
         if verb == "schedule":
             from . import schedule

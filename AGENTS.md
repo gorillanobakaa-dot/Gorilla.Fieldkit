@@ -24,6 +24,7 @@ fieldkit ship push [--tag vX] / ship gh-release   pushes and releases, through t
 fieldkit inbox add TITLE WHY [COMMAND]            what only the owner may do, for the one morning review
 fieldkit size find|recycle|hash ...               search, recycle (never a permanent delete), hashes
 fieldkit privacy scan PATH --git                  before any commit, push or release
+fieldkit integration check --repo . --changed BASE   is the new feature built in (docs/INTEGRATION.md)
 fieldkit task start BRIEF.md [--on peer]          a side job, headless, here or on the VAIO
 fieldkit rotate check --source AGENT --cwd . --newest    session length (Claude Code: the hook does it)
 fieldkit sync [--apply]                           both machines against GitHub, at session start and end
@@ -34,6 +35,8 @@ and tests live in `local/` (git-ignored). `state/` is git-ignored: plans and rep
 owner says "add it to git" (rules/CORE.md DONE PROTOCOL).
 
 ## Changing Fieldkit
+
+- "Built in" has one definition, all six conditions: `docs/INTEGRATION.md`. `fieldkit integration check` enforces it.
 
 - Run the tests covering your change (`fieldkit testcost staged`); the full suite runs in CI. A new check needs a test
   that proves it can fail (`fieldkit mutate`).
@@ -75,9 +78,9 @@ security claim is made true and proven, never deleted.
   fieldkit-sitrep): where we started, what we did, what is going on now, what is left (owner, 2026-10-31).
 
 <!-- fieldkit-lifecycle-rule v1 -->
-## Zero friction: headless side jobs, archive when done (fieldkit lifecycle)
+## Zero friction: visible side sessions, archive when done (fieldkit lifecycle)
 
-SIDE JOBS: start a relief or side job with `fieldkit task start BRIEF.md [--on DEVICE]` (a headless autopilot run here, or the other computer's link listener over the cable). Never propose a desktop session card.
+SIDE JOBS: a side job or successor starts as a VISIBLE desktop session (`start_session`, initiation `user_asked`, context `fresh`, brief as prompt; no click), solo or multi. Headless `fieldkit task start BRIEF.md` only for no-human jobs or when the app refuses; no `own_initiative` card.
 
 DONE PROTOCOL (fieldkit lifecycle; do every step, in this order, without asking anyone):
 1. the tests covering your changes pass (TESTS ONCE); commit on your own branch (never main).

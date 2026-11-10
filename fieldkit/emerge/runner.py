@@ -143,9 +143,14 @@ def _git(path, *a):
 
 
 def fix_repos(recipe):
-    """The git repositories a fix may change: the recipe's own and every git source."""
+    """The git repositories a fix may change: the recipe's own, every git source, and the repositories holding the
+    patch set and the config files (2026-11-09: the harness checkout that a firefox-windows fix committed in was in
+    none of the first two, so a real fix was judged "committed nothing")."""
     out = []
-    for d in [Path(recipe.source).parent] + [Path(s["git"]) for s in recipe.sources if s.get("git")]:
+    c = recipe.config_spec
+    held = [recipe.patches.get("dir"), c.get("decisions"), *(c.get("files") or [])]
+    for d in ([Path(recipe.source).parent] + [Path(s["git"]) for s in recipe.sources if s.get("git")]
+              + [Path(h) if Path(h).is_dir() else Path(h).parent for h in held if h]):
         top = _git(d, "rev-parse", "--show-toplevel") if d.exists() else None
         if top and top not in out:
             out.append(top)
@@ -466,6 +471,10 @@ class Emerge:
         tail += "".join(f"\n{m}" for m in entry.get("verify") or [] if m.startswith("FAIL"))
         if entry.get("triage"):
             tail += f"\ntriage: {json.dumps(entry['triage'], default=str)[:1500]}"
+        if not passed:
+            from ..build import failure_checks
+            tail += "".join("\n" + ln for kind in ("install", "release")
+                            for ln in failure_checks.lines(failure_checks.run(kind, {"branch": ""})))
         outs = []
         if passed:
             try:

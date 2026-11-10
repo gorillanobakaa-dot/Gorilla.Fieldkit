@@ -100,3 +100,23 @@ mandate does not cover (deletes, moved tags, the decision register) or when no m
 ## Machine facts
 
 `fieldkit host --json` reports the system, the distribution and the CPU count.
+
+## Capture: what an earlier agent already made
+
+`fieldkit capture find WORDS` before rebuilding a script, command or procedure: the capture store (state/capture/) keeps
+every script and command an agent wrote or ran, one-offs and failed attempts included, with the fix that followed.
+The agents' hooks run `fieldkit capture hook --agent claude|gemini|opencode`; `capture ledger --strict` exits 3 if
+anything captured was lost, and `capture verify` checks the hash chain.
+
+## Does Gorilla OpenCode manage the everyday jobs? (acceptance suite)
+
+`fieldkit accept list|run --model M|report`: see, delete, move a file, tail, find, grep, unzip, JSON, download, image
+convert, OCR, probe a video, each through `gorilla-opencode -p` in a fresh folder with its own config pinned to the
+model. The judge reads the disk (a model's "done" is never believed); a missing program is SKIP. Same jobs on Windows
+and Linux (HARNESS-PLAN P5); rows land in state/accept/results.jsonl.
+
+More tools by job: `fieldkit web browsers` (card web-browsers: every installed browser), `fieldkit web fetch URL` (card web-fetch: a page as text),
+`fieldkit web search WORDS` (card web-search: the Gorilla OpenCode engines), `fieldkit web doctor` (card web-doctor: which browsers cannot be driven
+and the fix), `fieldkit app NAME` (find and start a program), `fieldkit observe` (open files, ports, processes),
+`fieldkit rules` (the core rules as data, linted), `fieldkit review` (the owner's one review of parked ideas and
+inbox items).

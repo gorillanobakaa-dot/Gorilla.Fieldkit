@@ -202,3 +202,12 @@ def test_std_handles_hands_over_real_descriptors_only_and_only_on_windows(tmp_pa
     with open(tmp_path / "o.txt", "w") as real:
         assert std_handles((None, real, io.StringIO()), platform="win32") == {"stdout": real.fileno()}
         assert std_handles((None, real, real), platform="linux") == {}
+
+
+def test_status_explains_more_held_than_offered():
+    """2026-11-08 'ADMISSION  2 of 1 slot(s) held': two slots taken while cool, one fewer offered once hot - by design."""
+    st = {"held": 2, "offered": 1, "slots": 2, "temp_c": 75.0, "hot": 70.0, "waiting": [], "holders": []}
+    out = A.lines(st)
+    assert out[0].startswith("ADMISSION  2 of 1 slot(s) held") and "started before the heat" in out[1]
+    st["held"] = 1
+    assert len(A.lines(st)) == 1

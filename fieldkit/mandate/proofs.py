@@ -141,8 +141,12 @@ def ci_green(repo_path, commit, cfg, run=subprocess.run):
     import json
     from ..core import sync
     slug = sync._slug(repo_path)
+    env = None
+    if run is subprocess.run:       # inside an autopilot run only ship's environment has gh's account back (#145)
+        from ..method import ship
+        env = ship.ship_env()
     r = run(["gh", "api", f"repos/{slug}/commits/{commit}/check-runs", "--jq",
-             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True)
+             "[.check_runs[] | {name, status, conclusion}]"], capture_output=True, text=True, **({"env": env} if env else {}))
     if r.returncode:
         return False, f"CI unreadable (gh): {(r.stderr or '').strip()[:160]}"
     runs = json.loads(r.stdout or "[]")

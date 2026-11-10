@@ -14,6 +14,11 @@ the model typed itself proves nothing); a headless job log or another agent's se
   ACTION        a checkable action the source denies: "merged #N" (gh pr view N: state MERGED), "pushed SHA"
                 (git branch -r --contains SHA), "wrote PATH" / "recycled PATH" (the file exists / is gone)
   NOT-VERIFIED  no "NOT verified:" field, or it is empty, or a bare "-" without a reason in brackets
+  UNCARDED      a script the report says it wrote under a sweep root (fieldkit sweep) that has no card or no test
+  PROMISE       a line that promises work ("added to the list", "on the repair list", "will be fixed", "later",
+                "follow-up", "TODO") and names no existing row: "row N" (ZERO-OPEN-PROBLEMS.md), a HARNESS-PLAN id
+                (R/O/I/C/P/L/Z + number) or `Board row "text"` (state/coordination/PLAN.md). The sentence is printed
+                (rule R16: a promise is a plan row)
   VERBATIM      a text called verbatim or original, quoted, with `(source: PATH)`, that is not in PATH (the sha256 of
                 both is printed)
 
@@ -37,6 +42,11 @@ PUSHED = re.compile(r"\bpushed\s+(?:commit\s+)?`?([0-9a-f]{7,40})\b", re.I)
 WROTE = re.compile(r"\b(wrote|written|created)\s+`([^`]+)`", re.I)
 RECYCLED = re.compile(r"\brecycled\s+`([^`]+)`", re.I)
 VERBATIM = re.compile(r"\b(verbatim|original)\b[^\n]*?\"([^\"]{8,})\"[^\n]*?\(source:\s*([^)]+)\)", re.I)
+PROMISE = re.compile(r"\b(added to (the |a |our )?(\w+ )?(list|backlog|queue)|on the (\w+ )?list|will be (fixed|done|added)"
+                     r"|will (fix|add) |later|follow-?up|TODO)\b", re.I)
+ROW_REF = re.compile(r"\brows?\s+#?(\d+)\b", re.I)
+PLAN_REF = re.compile(r"\b([ROICPLZ]\d{1,3})\b")
+BOARD_REF = re.compile(r"\bBoard row\s+[`\"]([^`\"]{4,})[`\"]", re.I)
 NEGATED = re.compile(r"\b(not|no|never|un|without|failed|NOT)\b[^.;]{0,12}$", re.I)
 
 
@@ -96,7 +106,40 @@ def _pushed(sha):
     return r.returncode == 0 and bool(r.stdout.strip())
 
 
-def check(report, evidence, offline=False, gh_state=_gh_state, pushed=_pushed, base=None, require_nv=True):
+def _uncarded(path):
+    try:
+        from ..desk import sweep
+        return sweep.uncarded(Path(path).expanduser().resolve())
+    except Exception:  # noqa: BLE001 - no registry here: nothing to say
+        return None
+
+
+def load_rows(base=None):
+    """-> {zero: row numbers, plan: ids, board: text}: the rows a promise may name. A missing file has no rows."""
+    from .. import refusals
+    base = Path(base or refusals.ROOT)
+
+    def read(p):
+        try:
+            return Path(p).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+    st = refusals.state()
+    return {"zero": set(re.findall(r"^\|\s*(\d+)\s*\|", read(st / refusals.PROBLEMS), re.M)),
+            "plan": set(re.findall(r"^\|\s*([ROICPLZ]\d+)\s*\|", read(base / "docs" / "HARNESS-PLAN.md"), re.M)),
+            "board": read(st / "coordination" / "PLAN.md")}
+
+
+def _promise_row(line, rows):
+    """-> True when the line names an existing row."""
+    if any(m.group(1) in rows["zero"] for m in ROW_REF.finditer(line)):
+        return True
+    if any(m.group(1) in rows["plan"] for m in PLAN_REF.finditer(line)):
+        return True
+    return any(_norm(m.group(1)) in _norm(rows["board"]) for m in BOARD_REF.finditer(line))
+
+
+def check(report, evidence, offline=False, gh_state=_gh_state, pushed=_pushed, base=None, require_nv=True, rows=None):
     """-> [{kind, line, text, detail}]. report: the report's text; evidence: the recorded tool output."""
     ev = _norm(evidence)
     base = Path(base or ".")
@@ -121,6 +164,11 @@ def check(report, evidence, offline=False, gh_state=_gh_state, pushed=_pushed, b
         if m and nv is None:
             nv = (i, m.group(1).strip().strip("|").strip())
             continue                                  # the NOT verified field names what failed or was not run
+        if PROMISE.search(line):
+            rows = rows if rows is not None else load_rows()
+            if not _promise_row(line, rows):
+                f("PROMISE", i, line, "promises work but names no existing row: add the row (ZERO-OPEN-PROBLEMS, "
+                                      "HARNESS-PLAN or the Board) and name it (\"row 26\", \"R11\")")
         succ = [s for s in SUCCESS.finditer(line) if not NEGATED.search(line[:s.start()])]
         if succ and all(s.group(0).upper() == "MERGED" for s in succ) and not offline and MERGED.search(line):
             succ = []                                 # "merged #N" is checked at the source below: GitHub backs it
@@ -141,6 +189,11 @@ def check(report, evidence, offline=False, gh_state=_gh_state, pushed=_pushed, b
         for m in WROTE.finditer(line):
             if not (base / m.group(2)).expanduser().exists():
                 f("ACTION", i, line, f"{m.group(2)} does not exist")
+            else:
+                st = _uncarded(base / m.group(2))
+                if st:
+                    f("UNCARDED", i, line, f"{m.group(2)} is a script under a sweep root with {'no card' if st == 'untracked' else 'no test'}: "
+                                           "`fieldkit adopt` it, or add it to sweep.ignore with a reason")
         for m in RECYCLED.finditer(line):
             if (base / m.group(1)).expanduser().exists():
                 f("ACTION", i, line, f"{m.group(1)} is still there")

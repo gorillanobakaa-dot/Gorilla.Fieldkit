@@ -1,0 +1,31 @@
+# R16 (2026-11-02): fieldkit mutate --plan tests/cost_cable_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_cost_cable.py
+- file: fieldkit/tokens/cost_daily.py
+  swap:
+  - '    return (str(f), at) if 0 <= now - at < FRESH_S else (None, None)'
+  - '    return (str(f), at)'
+  why: a copy older than a day is never counted
+- file: fieldkit/tokens/cost_daily.py
+  swap:
+  - '    if r.get("ok") and isinstance(r.get("data"), dict) and isinstance(r.get("measured_at"), (int, float)):'
+  - '    if False:'
+  why: the cable answer is kept and used
+- file: fieldkit/tokens/cost_daily.py
+  swap:
+  - '            head += "; the other machine measured it %s" % when_text(p["measured_at"])'
+  - '            head += ""'
+  why: the line says the peer's own date
+- file: fieldkit/tokens/cost_report.py
+  swap:
+  - '        tot += "  (%s not counted: no cable)" % (r.get("peer_name") or "the other machine")'
+  - '        tot += ""'
+  why: no cable says the peer is not counted
+- file: fieldkit/peers/link.py
+  swap:
+  - '        return cost_daily.answer(req)'
+  - '        return {"ok": False, "error": "off"}'
+  why: the listener answers the cost verb
+- file: fieldkit/tokens/cost_report.py
+  swap:
+  - '        cab, at = cd.from_cable({"kind": "report", "since": since.isoformat(), "until": until.isoformat()})'
+  - '        cab, at = None, None'
+  why: cost report asks over the cable by itself

@@ -684,11 +684,72 @@ def baselines(state=None):
     return out
 
 
+# ---- every foreground Bash call, by kind (P18 distill: Kiro's bash-calls-wallclock, folded in 2026-11-08) ----------
+BASH_CATEGORIES = [
+    ("git commit (pre-commit hook)", r"git commit|ship commit"), ("fieldkit mutate", r"\bmutate\b"),
+    ("leak gate", r"leakgate|leak-gate"), ("check-change/record", r"check-change| record "), ("replay", r"replay"),
+    ("pytest targeted", r"pytest.*(tests[/\\]test_|::| -k |--lf)"), ("pytest full suite", r"pytest"),
+    ("go test", r"go test"), ("go vet", r"go vet"),
+    ("post-install/about-pages", r"post-install|post_install|about-pages"),
+    ("build-harness build/verify", r"build-harness.*(build|verify)"),
+    ("compile/pipeline", r"go build|cargo build|mach build|pipeline|emerge run"),
+    ("privacy/public-check", r"privacy scan|public-check|telemetry scan"),
+    ("waiting on CI", r"gh run watch|gh pr checks|ci-wait"), ("sleep/wait", r"\bsleep \d|wait-for|fieldkit wait"),
+    ("e2e/model scenarios", r"e2e|scenario|headless"),
+]
+
+
+def bash_category(cmd):
+    c = (cmd or "").lower()
+    for name, rx in BASH_CATEGORIES:
+        if re.search(rx, c):
+            return name
+    return "other"
+
+
+def bash_calls(root=None, since="2020-01-01"):
+    """Every foreground Bash call in every Claude Code transcript under root since a date:
+    -> [{kind, calls, seconds, median}] sorted by time spent. Background starts are not counted."""
+    root = Path(root or claude_projects())
+    agg = {}
+    for f in sorted(root.glob("**/*.jsonl")):
+        pend = {}
+        try:
+            fh = open(f, encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                if '"tool_use"' not in line and '"tool_result"' not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                    t = parse_t(d.get("timestamp") or "")
+                except (ValueError, TypeError, AttributeError):
+                    continue
+                if (d.get("timestamp") or "")[:10] < since:
+                    continue
+                cont = (d.get("message") or {}).get("content")
+                for c in cont if isinstance(cont, list) else []:
+                    if not isinstance(c, dict):
+                        continue
+                    if c.get("type") == "tool_use" and c.get("name") == "Bash":
+                        inp = c.get("input") or {}
+                        if not inp.get("run_in_background"):
+                            pend[c.get("id")] = (t, inp.get("command", ""))
+                    elif c.get("type") == "tool_result" and c.get("tool_use_id") in pend:
+                        t0, cmd = pend.pop(c["tool_use_id"])
+                        agg.setdefault(bash_category(cmd), []).append(max(0.0, t - t0))
+    rows = [{"kind": k, "calls": len(xs), "seconds": round(sum(xs), 1), "median": round(statistics.median(xs), 1)}
+            for k, xs in agg.items()]
+    return sorted(rows, key=lambda r: -r["seconds"])
+
+
 def main(argv=None, prog="fieldkit overhead"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("job", nargs="?", help="a build-harness task (firefox-158.0, 'firefox-158.0 #2'), goal:<id>, "
-                                           "or 'baselines'")
+                                           "'baselines', 'causes' (hours lost per refusal cause, P23), or 'bash-calls' (every foreground Bash call by kind, with --since)")
     ap.add_argument("--session", action="append", default=[], help="a Claude Code session id (prefix) of this job")
     ap.add_argument("--since")
     ap.add_argument("--until")
@@ -697,6 +758,30 @@ def main(argv=None, prog="fieldkit overhead"):
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     cfg = config()
+    if a.job == "bash-calls":
+        rows = bash_calls(since=a.since or "2020-01-01")
+        if a.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            tot = sum(r["seconds"] for r in rows)
+            print(f"foreground Bash calls since {a.since or 'the first transcript'}: {fmt(tot)} in "
+                  f"{sum(r['calls'] for r in rows)} calls")
+            for r in rows:
+                print(f"  {r['kind']:30s} {r['calls']:5d} calls {fmt(r['seconds']):>10}  median {r['median']:6.1f}s")
+            print("NEXT: the top rows are where waiting goes; run them in the background or under fieldkit guard")
+        return 0
+    if a.job == "causes":
+        from . import refusals                    # P23: hours lost per cause, both computers' ledger together
+        rows = refusals.lost()
+        if a.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            print(f"hours lost per cause (ESTIMATED from refusals_policy.yaml minutes per refusal, not measured): "
+                  f"{sum(r['hours'] for r in rows):.2f} h in {sum(r['count'] for r in rows)} refusals")
+            for r in rows[:25]:
+                print(f"  {r['hours']:6.2f} h {r['count']:4d}x {r['defect']:6} {','.join(r['machines']):10} {r['key']}")
+            print("NEXT: close the top defects (fieldkit refusals close KEY --test FILE::TEST)" if rows else "NEXT: nothing lost")
+        return 0
     if a.job == "baselines":
         bs = baselines(a.state)
         if a.json:

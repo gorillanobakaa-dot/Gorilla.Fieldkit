@@ -2,6 +2,7 @@
 """fieldkit review: ONE list of everything that waits on the owner, answered once (owner, 2026-10-31).
 
     fieldkit review            the owner's, at a real terminal: main goal, everyday problems, then parked ideas, numbered 1..N
+    fieldkit review --inbox    write state/INBOX.md (waiting items with why + command, and the agent ledger) and open it
     fieldkit review --open     write state/REVIEW.md (the same list) and open it in the default viewer
     fieldkit review --list     print the list, change nothing
 
@@ -27,6 +28,7 @@ from .core.settings import state_root
 
 ROOT = ideas.ROOT
 CHOICE_KINDS = ("choice", "decision")
+NL = "\n"
 
 
 class Refused(Exception):
@@ -89,35 +91,83 @@ def entries(root=None):
     [{"type", "group", "plan", "ref", "title", "what", "if_approve", "if_leave", "command", "words", "raw"}]."""
     titles = plan_titles(root)
     out = []
-    for it in _inbox().items("open"):
+    ib = _inbox()
+    ib.migrate_legacy()                               # 2026-11-10: only a kind that reaches the owner is his to answer
+    for it in ib.items("open"):
+        if it.get("kind") not in ib.OWNER_KINDS:
+            continue
         row = plan_of(it, titles)
+        w = ib.words_for(it)
         out.append({"type": "inbox", "group": "goal" if row else "problem", "plan": row, "ref": f"#{it['n']}",
-                    "title": it["title"], "what": it.get("what", ""), "if_approve": it.get("if_approve", ""),
-                    "if_leave": it.get("if_leave", ""), "command": it.get("command", ""), "words": needs_words(it),
+                    "title": it["title"], "what": w["what"], "if_approve": w["if_approve"],
+                    "if_leave": w["if_leave"], "command": it.get("command", ""), "words": needs_words(it),
                     "raw": it})
+    in_plan = ideas_in_plan(root)
     for e in ideas.listing("parked", root or ROOT):
         built = ideas.built_note(e)
-        out.append({"type": "idea", "group": "idea", "plan": "", "ref": e["id"], "title": e["title"],
+        row = idea_row(in_plan, e)
+        if row and not built:                         # 2026-11-10: I-01/I-02 were built as P23/P24 and still said
+            built = (f"ALREADY BUILT as plan row {row['row']} ({row['pr']}): accepting it closes it as done"   # "becomes a row"
+                     if row["pr"] else f"ALREADY IN THE PLAN as row {row['row']}: accepting it closes the idea")
+        appr = ("It is closed as done: the work is already merged; no new plan row and no brief are made."
+                if built.startswith("ALREADY BUILT") else
+                f"It is closed: plan row {row['row']} already carries it and stays as it is; no new row is made."
+                if built else "It becomes a new row in the plan, with a brief a worker can start.")
+        out.append({"type": "idea", "group": "idea", "plan": row["row"] if row else "", "ref": e["id"], "title": e["title"],
                     "what": e["what"] + (f" {built}." if built else ""),
-                    "if_approve": "It is closed: the work is already merged." if built else
-                                  "It becomes a row in the plan, with a brief a worker can start.",
+                    "if_approve": appr,
                     "if_leave": "It stays parked here; the running plan does not change.", "command": "", "words": False,
                     "raw": e})
     out.sort(key=lambda e: [g for g, _ in GROUPS].index(e["group"]))
     return out
 
 
+def ideas_in_plan(root=None):
+    """-> {idea id: [{"row", "pr", "line"}]} for every plan row that names an idea ("idea I-01"), with the PR that merged it
+    (plan.merged, or a DONE (PR #N) status) or "" when it is not built yet."""
+    import re as _re
+    from . import plan
+    p = Path(root or ROOT) / plan.PLAN
+    if not p.is_file():
+        return {}
+    text = p.read_text(encoding="utf-8")
+    st, mg = plan.items(text), plan.merged(Path(root or ROOT))
+    out = {}
+    for line in text.splitlines():
+        m = plan.ROW_ID.match(line)
+        if not m:
+            continue
+        for idea in _re.findall(r"\bidea (I-\d+)", line):
+            done = _re.search(r"PR (#\d+)", st.get(m.group(1), ""))
+            out.setdefault(idea, []).append({"row": m.group(1), "line": line,
+                                             "pr": (done and done.group(1)) or mg.get(m.group(1), "")})
+    return out
+
+
+def idea_row(in_plan, e):
+    """The plan row for this idea: one that names its id AND its date (ids were reused: an October I-01 is row P2,
+    the 2026-11-10 I-01 is P23), else None - never a guess."""
+    day = str(e.get("date") or "")[:10]
+    return next((r for r in in_plan.get(e["id"], []) if day and day in r["line"]), None)
+
+
 def where_we_are(root=None):
     """Plain lines: the phase now and its rows, each id spelled out."""
     from . import plan
     r = plan.next_(root or ROOT)
-    if not r.get("ok") or not r.get("phase"):
+    if not r.get("ok"):
         return ["Where we are: the plan file is not readable here."]
     titles = plan_titles(root)
-    out = [f"Where we are: phase {r['phase']} of the plan is the current one. Rows not finished yet:"]
+    out = ([f"Where we are: phase {r['phase']} of the plan is the current one. Rows not finished yet:"] if r.get("phase")
+           else ["Where we are: no plan row is open to start."])
     for ph in r["phases"]:
         for i in ph["open"]:
             out.append(f"  - {i} - {titles.get(i, '(no title)')} [phase {ph['phase']}]")
+    # 2026-11-10 (owner): a row the owner holds (W10, the final goal) is never shown as work to do
+    held = [i for ph in r["phases"] for i in ph.get("held", [])]
+    if held:
+        out.append("Held by the owner, not work to do (only when you say so, at the very end):")
+        out += [f"  - {i} - {titles.get(i, '(no title)')} [held]" for i in held]
     return out
 
 
@@ -152,8 +202,61 @@ def render(es, root=None):
             k += 1
             out += _item_lines(k, e, titles)
     out += ["", "Answer once: a = approve all, p or Enter = keep all waiting, f = forget/dismiss all,",
-            "numbers (1,3) pick some, or both (1,3 a); words after ':' are your note (2 a: core embedded)."]
+            "numbers (1,3) pick some, or both (1,3 a); words after ':' are your note (for example 2 a: yes, go ahead)."]
     return out
+
+
+def inbox_page_path(root=None):
+    return state_root(root or ROOT) / "state" / "INBOX.md"
+
+
+def ledger_rows(limit=30):
+    """-> the last `limit` rows of the agent ledger (items `fieldkit inbox add` routed away from the owner)."""
+    import json
+    rows = []
+    f = _inbox().ledger_file()
+    if f.is_file():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows[-limit:]
+
+
+def render_inbox(root=None):
+    """The owner's readable inbox: what waits on the owner (why + exact command), then what agents handled alone."""
+    its = _inbox().items("open")
+    out = ["# Inbox", "", "Rewritten on every inbox change. Read-only: answer at a terminal with `fieldkit review`.", "",
+           f"## Waiting on you ({len(its)})", ""]
+    if not its:
+        out.append("Nothing waits for you.")
+    for it in its:
+        out += [f"### [{it['n']}] {it['title']}", f"- Kind: {it['kind']}, added {it.get('added', '')}",
+                f"- Why: {it.get('why', '')}"]
+        if it.get("command"):
+            out += ["- Command:", "", f"      {it['command']}", ""]
+    rows = ledger_rows()
+    out += ["", f"## Handled by the agents, no action from you ({len(rows)} latest)", "",
+            "Only a hard line reaches you; everything else is filed here for Zero and the next agent.", ""]
+    if not rows:
+        out.append("Nothing filed.")
+    for r in reversed(rows):
+        out.append(f"- {r.get('added', '')} [{r.get('kind', '')}] {r.get('title', '')}: {str(r.get('why', ''))[:200]}")
+        if r.get("command"):
+            out.append(f"  - command: {r['command']}")
+    return out
+
+
+def write_inbox_page(root=None):
+    """Rewrite state/INBOX.md. -> the path, or None (never breaks the change that triggered it)."""
+    try:
+        p = inbox_page_path(root)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(NL.join(render_inbox(root)) + NL, encoding="utf-8", newline=NL)
+        return p
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def write_page(root=None):
@@ -172,6 +275,7 @@ def write_page(root=None):
 
 
 def refresh(root=None):
+    write_inbox_page(root)
     return write_page(root)
 
 
@@ -252,8 +356,8 @@ def review(root=None, ask=input, say=print, now=None):
     return res
 
 
-def open_page(root=None, run=None):
-    p = write_page(root)
+def open_page(root=None, run=None, inbox=False):
+    p = write_inbox_page(root) if inbox else write_page(root)
     if p is None:
         raise Refused("the page could not be written")
     if run is not None:
@@ -269,10 +373,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fieldkit review", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--open", action="store_true", help="write state/REVIEW.md and open it")
+    ap.add_argument("--inbox", action="store_true", help="write state/INBOX.md (waiting items + agent ledger) and open it")
     ap.add_argument("--list", action="store_true", help="print the list, change nothing")
     a = ap.parse_args(argv)
     try:
-        if a.open:
+        if a.inbox:
+            print(f"opened {open_page(inbox=True)}")
+        elif a.open:
             print(f"opened {open_page()}")
         elif a.list:
             write_page()

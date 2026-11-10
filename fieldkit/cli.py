@@ -3,10 +3,16 @@
     fieldkit host                                  what machine is this
     fieldkit tools list [--harness H] [--all]      registered tools (+ every toolbox script)
     fieldkit tools check [--run-tests] [--id ...]  exists? safe to probe? tested?
+    fieldkit tools external CATALOG_DIR            inspect external cards as data; never runs them
 
     fieldkit office read FILE [--engine builtin|markitdown|docling] [--out F]
     fieldkit office create SPEC.(json|yaml) OUT [--force]
     fieldkit office check FILE...
+    fieldkit office form-bbox-check FIELDS.json     form overlaps and entry-height findings
+    fieldkit office fillable-check FILE.pdf         count fillable fields without exposing their names
+    fieldkit office pptx-chart-check FILE.pptx       known chart XML failure patterns (read-only)
+    fieldkit office pptx-master-check FILE.pptx      known shared-theme master pattern (read-only)
+    fieldkit office pptx-schema-verdict ERRORS.txt   classify known fatal schema diagnostics
     fieldkit office scrub FILE... [--check] [--term WORD...] [--no-backup]
     fieldkit office deliver FILE...              check, scrub names, recheck, privacy scan: safe to send?
 
@@ -16,7 +22,10 @@
     fieldkit pipeline status NAME
     fieldkit pipeline reset NAME [--stage S]
 
-    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go]
+    fieldkit triage LOG [--set auto|firefox-windows|debian-kernel|debian-packaging|go|install|release|agent-shell]
+    fieldkit triage self-test|checks --kind install|release [--home DIR --root DIR --branch B]
+    fieldkit repair ACTION ...              11 small repair/check tools (cp1252, imports, conflicts, braces, ps1, pids, worktrees, Mach-O)
+    fieldkit pyliterals FILE... [--apply]   stray backslashes in Python strings; raw only when the value stays
     fieldkit triage-learn --set SET --id ID --log-line L --pattern RX --cause T --fix T [--repair CMD ...] | --audit
     fieldkit privacy scan PATH... [--git] [--allow-paths] [--allow-emails] [--images]
     fieldkit image doctor|squash|compare|ocr|privacy ...   pictures offline: compress, compare, read, redact (fieldkit/image)
@@ -71,7 +80,11 @@
     fieldkit rules check|install                 the one core in every agent's rules file; size limit; no repeats
     fieldkit plan next [--write]                 where the harness plan stands: phase, open items, what merges finished
     fieldkit overhead [JOB] [--session ID]       how much longer than the bare build a job took, and where the time went
+    fieldkit capture hook|scan|find|ledger|verify|status|self-test   zero-loss capture of what agents make and run
+    fieldkit integration check|self-test         is a capability built in (6 surfaces)? check --repo PATH [--changed BASE]
+    fieldkit pins check|self-test                helper sources immutable and sha256-pinned? check --repo PATH [--json]
     fieldkit parity manifest|compare|align|preflight|doctor   same pinned versions + capabilities on every machine
+    fieldkit accept list|run|report              everyday-jobs acceptance suite for Gorilla OpenCode (any model, both OSes)
     fieldkit emerge plan|run|status|repro RECIPE  compile jobs like Portage: content-addressed stages, a model only on failure
     fieldkit session-cost [--list N] [--live]    what an AI coding session costs in dollars (Claude Code, Antigravity)
     fieldkit token-audit --all                   where the tokens went: context per call, cache reads, hook text
@@ -445,6 +458,34 @@ def tools_find(words, rows):
 
 def cmd_tools(a):
     from .desk import registry
+    if a.action == "external":
+        from .desk import external
+        if len(a.words) != 1:
+            raise SystemExit("fieldkit tools external CATALOG_DIR")
+        try:
+            report = external.inspect(a.words[0])
+        except (FileNotFoundError, NotADirectoryError, OSError, RuntimeError, ValueError) as exc:
+            print(f"REFUSED: {exc}")
+            return 2
+
+        def human(d):
+            for tool in d["tools"]:
+                print(f"{tool['status']:<14} {tool['id']:<32} {tool['title']}")
+                for issue in tool.get("issues", []):
+                    print(f"  - {issue}")
+            for workflow in d["workflows"]:
+                print(f"{workflow['status']:<14} {workflow['path']}")
+                for issue in workflow["issues"]:
+                    print(f"  - {issue}")
+            counts = d["counts"]
+            print(f"\n{counts['tools']} card(s), {counts['compatible_untrusted']} compatible but untrusted, "
+                  f"{counts['incompatible']} incompatible, {counts['workflows']} workflow file(s); "
+                  f"{counts['runnable']} runnable")
+            if d["scan_limited"]:
+                print("inventory truncated at a safety limit")
+            print(f"NEXT: {d['next']}")
+        _emit(report, a.json, human)
+        return 3 if report["counts"]["incompatible"] or report["counts"]["workflows"] or report["scan_limited"] else 0
     if a.action == "find":
         if not a.words:
             raise SystemExit("fieldkit tools find WORDS")
@@ -490,6 +531,50 @@ def cmd_tools(a):
 
 def cmd_office(a):
     from .office import check, create, read, scrub
+    if a.action == "form-bbox-check":
+        from .office import forms
+        report = forms.check_bbox_file(a.files[0])
+        _emit(report, a.json, lambda d: forms.show_bbox_report(d))
+        return 1 if report.get("error") else 0 if report["ok"] else 3
+    if a.action == "fillable-check":
+        from .office import forms
+        report = forms.check_fillable_pdf(a.files[0])
+        _emit(report, a.json, lambda d: forms.show_fillable_report(d))
+        return 1 if report.get("error") else 0 if report["field_count"] else 3
+    if a.action in ("pptx-chart-check", "pptx-master-check", "pptx-schema-verdict"):
+        from .office import pptx_checks
+        try:
+            if a.action == "pptx-chart-check":
+                report = pptx_checks.check_charts(a.files[0])
+            elif a.action == "pptx-master-check":
+                report = pptx_checks.check_masters(a.files[0])
+            else:
+                report = pptx_checks.check_schema_diagnostics(a.files[0])
+        except (OSError, pptx_checks.PptxCheckError) as exc:
+            report = {"ok": False, "error": str(exc), "next": "provide a readable local input within the safety limits"}
+            _emit(report, a.json, lambda d: print(f"FAIL: {d['error']}\nNEXT: {d['next']}"))
+            return 1
+        if a.action == "pptx-chart-check":
+            has_findings = bool(report["findings"])
+            name, count = "chart", report["chart_count"]
+        elif a.action == "pptx-master-check":
+            has_findings = bool(report["shared_theme_findings"])
+            name, count = "master", report["master_count"]
+        else:
+            has_findings = bool(report["findings"])
+            name, count = "known fatal schema issue", sum(report["findings"].values())
+
+        def human(d):
+            if a.action == "pptx-schema-verdict":
+                print(f"{'FINDINGS' if has_findings else 'PASS'}: {count} {name}(s)")
+                for category, number in sorted(d["findings"].items()):
+                    print(f"- {category}: {number}")
+            else:
+                print(f"{'FINDINGS' if has_findings else 'PASS'}: {count} {name} part(s), "
+                      f"{d.get('shared_theme_findings', sum(d.get('findings', {}).values()))} finding(s)")
+            print(f"NEXT: {d['next']}")
+        _emit(report, a.json, human)
+        return 3 if has_findings else 0
     if a.action == "render":
         from .office import render
         try:
@@ -647,7 +732,28 @@ def cmd_pipeline(a):
     return 0 if rep["ok"] else 3
 
 
+def cmd_triage_kind(a):
+    """triage self-test|checks --kind install|release: the stored checks of a failure kind."""
+    from .build import failure_checks
+    if a.kind not in ("install", "release"):
+        print("triage self-test|checks needs --kind install or --kind release")
+        return 2
+    if a.log == "self-test":
+        ok, rows = failure_checks.self_test(a.kind)
+        _emit({"ok": ok, "kind": a.kind, "rows": rows}, a.json, lambda r: (
+            [print(f"{'PASS' if x['ok'] else 'FAIL'} {a.kind}/{x['id']}: {x['why']}") for x in r["rows"]],
+            print(f"triage self-test --kind {a.kind}: {'OK' if r['ok'] else 'FAILED'}")))
+        return 0 if ok else 3
+    ctx = {k: v for k, v in (("home", a.home), ("root", a.root), ("branch", a.branch)) if v}
+    hits = failure_checks.run(a.kind, ctx)
+    _emit({"kind": a.kind, "hits": hits}, a.json, lambda r: print(
+        chr(10).join(failure_checks.lines(r["hits"])) or f"{a.kind}: every stored check is clean"))
+    return 3 if hits else 0
+
+
 def cmd_triage(a):
+    if a.log in ("self-test", "checks"):
+        return cmd_triage_kind(a)
     from .build import triage
     rep = triage.triage_file(a.log, a.set)
 
@@ -664,6 +770,16 @@ def cmd_triage(a):
             print("\n  " + r["hint"])
     _emit(rep, a.json, human)
     return 0 if rep["verdict"] == "known" else 3
+
+
+def cmd_pyliterals(a):
+    from .build import pyliterals
+    return pyliterals.main(a.files + (["--apply"] if a.apply else []) + (["--json"] if a.json else []))
+
+
+def cmd_repair(a):
+    from . import repair
+    return repair.run(a.action, a.args + (["--json"] if a.json else []))
 
 
 def cmd_triage_learn(a):
@@ -1079,8 +1195,30 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        print(json.dumps(inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", plan=a.plan or "",
-                                   what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or ""), indent=1))
+        it = inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", kind=a.kind, plan=a.plan or "",
+                       what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or "")
+        print(json.dumps(it, indent=1, ensure_ascii=False))
+        if it.get("routed") == "ledger":
+            print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
+                  "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
+        return 0
+    if a.action == "self-test":
+        from .autopilot import inbox_selftest
+        rc = inbox_selftest.run()
+        print("NEXT: " + ("none, the owner inbox is empty by construction" if rc == 0 else
+                          "fix the refusal named FAIL in fieldkit/autopilot/inbox.py or fieldkit/zero/net.py"))
+        return rc
+    if a.action == "ledger":
+        rows = []
+        if inbox.ledger_file().is_file():
+            for line in inbox.ledger_file().read_text(encoding="utf-8").splitlines():
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+        for r in rows[-int(a.rest[0]) if a.rest else 0:] if rows else []:
+            print(f"  {r.get('added')}  {r.get('kind'):<9} {r.get('title')}")
+        print(f"agent ledger: {len(rows)} row(s) in {inbox.ledger_file()} (never shown to the owner)")
         return 0
     if a.action == "done":
         print(json.dumps(inbox.done(int(a.rest[0]), " ".join(a.rest[1:])), indent=1))
@@ -1237,8 +1375,25 @@ def cmd_goal(a):
             return 2
         print("STOPPED: " + (", ".join(goal.stop(gid, " ".join(x[1:]) or "the owner said stop")) or "nothing"))
         return 0
+    if a.action == "resume":
+        if not x:
+            print("goal resume ID WHY (only a goal the stall check blocked)")
+            return 2
+        ok, text = goal.resume(x[0], " ".join(x[1:]))
+        print(("RESUMED: " if ok else "NOT RESUMED: ") + text)
+        print(f"NEXT: fieldkit goal run {x[0]}" if ok else "NEXT: read fieldkit goal status " + x[0])
+        return 0 if ok else 3
     if a.action == "approve":
         return goal.approve(x[0]) if x else 2
+    if a.action == "reverify":
+        if len(x) < 2:
+            print("goal reverify GOAL JOB (re-run one job's checks on a fresh origin/main tree and record the verdict)")
+            return 2
+        from .autopilot import goal_fresh
+        ok, text = goal_fresh.reverify(x[0], x[1])
+        print(text)
+        print("NEXT: fieldkit goal status " + x[0] if ok else "NEXT: read the FAIL lines above; the worker's branch must be merged to origin/main")
+        return 0 if ok else 3
     if a.action == "report":
         goal.report(x[0])
         print((goal.gdir(x[0]) / "REPORT.md").read_text(encoding="utf-8"))
@@ -1259,6 +1414,8 @@ def cmd_goal(a):
 
 def cmd_sync(a):
     from .core import sync
+    from . import refusals                      # P23: the refusals ledger of both computers meets at every sync
+    refusals.sync_quiet()
     rows = sync.run(do_apply=a.apply, extra=a.repo, fetch=not a.no_fetch)
     print(json.dumps(sync.as_json(rows), indent=1) if getattr(a, "json", False) else "\n".join(sync.lines(rows)))
     return sync.exit_code(rows)
@@ -1462,6 +1619,7 @@ METHODS = {
     "heal-round": ("healloop", "a self-healing build loop that cannot oscillate: one hypothesis per round; a round that "
                                "does not lower the error count is undone, its changes kept in the trash (start|end|status)"),
     "version-sync": ("versionsync", "every place a project states its version agrees, and the built program says the same (PATH [--expect V] [--binary EXE])"),
+    "install": ("installverify", "a program is installed the way its release says, as the desktop finds it: binary, .desktop, every icon size, caches (verify PRODUCT | self-test)"),
     "xzcheck": ("xzcheck", "an xz archive (.xz, .tar.xz, a .deb's members) is as small as xz makes it and unpacks within a memory cap (FILE... [--cap-mib 128])"),
 }
 
@@ -1646,8 +1804,13 @@ def build_parser():
         sub.add_parser(name, add_help=False, help=text).add_argument("args", nargs=argparse.REMAINDER)
     for name, text in (("friction", "everything that can wait on a person, here and on every peer over the cable, with "
                                     "the fix (fieldkit/lifecycle)"),
+                       ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
+                                 "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
                        ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
-                                  "(models report; fieldkit/lifecycle/models.py)"),
+                                  "(models report); models gguf FILE|URL: dense or MoE, active parameters and the expected "
+                                  "tokens/s on this machine before a local model is loaded; models tune MODEL [--apply]: "
+                                  "the load settings that suit this host, loaded through lms "
+                                  "(fieldkit/lifecycle/models.py, gguf.py, tune.py)"),
                        ("task", "start a job from a brief with no click: headless autopilot here, the peer's link "
                                 "listener with --on; status, report (fieldkit/lifecycle)"),
                        ("sessions", "finished / idle agent sessions with their RAM and CPU for archiving; the done "
@@ -1664,6 +1827,10 @@ def build_parser():
                              "(skipped when its key was built), offload to the other machine, a model only on failure "
                              "(fieldkit emerge)")
     em.add_argument("args", nargs=argparse.REMAINDER)
+    ca = sub.add_parser("ciaudit", add_help=False,
+                        help="what CI really ran: whole suite vs targeted per PR run, minutes, the files that sent it "
+                             "to the whole suite (fieldkit ciaudit)")
+    ca.add_argument("args", nargs=argparse.REMAINDER)
     tc = sub.add_parser("testcost", add_help=False,
                         help="what the checks cost and the cheapest set that is enough: tree-hash cache, test planner, "
                              "budgets, refusals logged (fieldkit testcost)")
@@ -1689,6 +1856,10 @@ def build_parser():
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
     idp.add_argument("args", nargs=argparse.REMAINDER)
+    rfp = sub.add_parser("refusals", add_help=False,
+                         help="refusals repeated by train, ship, guard, goal or task: each repeated reason opens one "
+                              "defect row (fieldkit refusals list)")
+    rfp.add_argument("args", nargs=argparse.REMAINDER)
     rvp = sub.add_parser("review", add_help=False,
                          help="ONE review of everything waiting on the owner (parked ideas and inbox items), answered "
                               "once at a terminal; --open opens state/REVIEW.md")
@@ -1698,6 +1869,10 @@ def build_parser():
                              "changes, sub-jobs, devices, money, tokens, tool calls executed/refused/repeated, PRs, CI, "
                              "failures; what cannot be read is listed, never estimated (fieldkit metrics)")
     mt.add_argument("args", nargs=argparse.REMAINDER)
+    gh = sub.add_parser("github", add_help=False,
+                        help="guided, verified GitHub setup with profiles: doctor, profiles, explain, plan, apply, "
+                             "check, undo, menu; asks before every change (fieldkit github)")
+    gh.add_argument("args", nargs=argparse.REMAINDER)
     oh = sub.add_parser("overhead", add_help=False,
                         help="how much longer than the bare build script a job took and where the extra time went: "
                              "rework, tests, LLM, waiting for the owner, idle; budget WARN (fieldkit overhead)")
@@ -1706,6 +1881,21 @@ def build_parser():
                         help="test parity: manifest per machine, compare over the link (SAME/DRIFT), align to the pinned "
                              "release checked by sha256, the preflight's shared-ground check (fieldkit parity)")
     pa.add_argument("args", nargs=argparse.REMAINDER)
+    ac = sub.add_parser("accept", add_help=False,
+                        help="everyday-jobs acceptance suite for Gorilla OpenCode: list, run --model M, report (fieldkit accept)")
+    ac.add_argument("args", nargs=argparse.REMAINDER)
+    cp = sub.add_parser("capture", add_help=False,
+                        help="zero-loss capture of every script and command an agent makes or runs: hook, find, "
+                             "ledger, verify, status, self-test (fieldkit capture)")
+    cp.add_argument("args", nargs=argparse.REMAINDER)
+    ig = sub.add_parser("integration", add_help=False,
+                        help="is a capability built in? carried, known to the AI, visible, on the release page, on "
+                             "every system, tested: check a repo (--changed BASE), self-test (fieldkit integration)")
+    ig.add_argument("args", nargs=argparse.REMAINDER)
+    pn = sub.add_parser("pins", add_help=False,
+                        help="refuse rolling (latest, nightly, master) or sha256-unpinned helper source URLs of a "
+                             "Gorilla OpenCode tree: check --repo PATH, self-test (fieldkit pins)")
+    pn.add_argument("args", nargs=argparse.REMAINDER)
     sk = sub.add_parser("skills", add_help=False,
                         help="Agent Skills (agentskills.io): validate every spec rule, network doors, installed "
                              "copies, align, vendor third-party skills (fieldkit skills)")
@@ -1738,8 +1928,8 @@ def build_parser():
                    ).set_defaults(fn=cmd_audio)
 
     t = sub.add_parser("tools", parents=[common])
-    t.add_argument("action", choices=["list", "check", "find"])
-    t.add_argument("words", nargs="*", help="find: the words to look for (rule USE THE HARNESS)")
+    t.add_argument("action", choices=["list", "check", "find", "external"])
+    t.add_argument("words", nargs="*", help="find: words to search; external: catalog directory to inspect")
     t.add_argument("--harness")
     t.add_argument("--all", action="store_true", help="also every script discovered in toolbox/")
     t.add_argument("--run-tests", action="store_true")
@@ -1747,7 +1937,9 @@ def build_parser():
     t.set_defaults(fn=cmd_tools)
 
     o = sub.add_parser("office", parents=[common])
-    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver", "render"])
+    o.add_argument("action", choices=["read", "create", "check", "scrub", "deliver", "render",
+                                      "form-bbox-check", "fillable-check", "pptx-chart-check",
+                                      "pptx-master-check", "pptx-schema-verdict"])
     o.add_argument("files", nargs="+")
     o.add_argument("--engine", default="builtin", choices=["builtin", "markitdown", "docling"])
     o.add_argument("--out")
@@ -1778,7 +1970,22 @@ def build_parser():
     tr = sub.add_parser("triage", parents=[common])
     tr.add_argument("log")
     tr.add_argument("--set", default="auto")
+    tr.add_argument("--kind", help="with `self-test` or `checks` as LOG: install or release")
+    tr.add_argument("--home", help="checks: the HOME to inspect (default: this user's)")
+    tr.add_argument("--root", help="checks: the folder or repo to inspect")
+    tr.add_argument("--branch", help="checks: the branch to judge against the push mandate")
     tr.set_defaults(fn=cmd_triage)
+
+    pl = sub.add_parser("pyliterals", parents=[common], help="stray backslashes in Python strings; --apply makes them raw only when the value stays the same")
+    pl.add_argument("files", nargs="+")
+    pl.add_argument("--apply", action="store_true")
+    pl.set_defaults(fn=cmd_pyliterals)
+
+    rp = sub.add_parser("repair", parents=[common], help="small repair and check tools: cp1252, missing imports, conflict markers, brace parity, ps1 syntax, pid-guarded stop, worktrees, Board rows, Mach-O, TPFan ini")
+    from . import repair as _repair
+    rp.add_argument("action", choices=sorted(_repair.ACTIONS))
+    rp.add_argument("args", nargs=argparse.REMAINDER, help="the tool's own arguments (fieldkit repair ACTION --help)")
+    rp.set_defaults(fn=cmd_repair)
 
     tl = sub.add_parser("triage-learn", parents=[common], help="record a review fix as a triage signature (I8)")
     tl.add_argument("--set", default="auto")
@@ -1893,7 +2100,9 @@ def build_parser():
     apl.set_defaults(fn=cmd_autopilot)
 
     ib = sub.add_parser("inbox", parents=[common])
-    ib.add_argument("action", choices=["list", "show", "add", "done"], nargs="?", default="list")
+    ib.add_argument("action", choices=["list", "show", "add", "done", "ledger", "self-test"], nargs="?", default="list")
+    ib.add_argument("--kind", default="approval", help="add: only 'hardline' reaches the owner; anything else goes to "
+                                                         "the agent ledger (fieldkit inbox ledger)")
     ib.add_argument("rest", nargs="*", help="show/done: N [note]; add: TITLE WHY [COMMAND]")
     ib.add_argument("--all", action="store_true", help="list: done items too")
     ib.add_argument("--plan", help="add: the plan row this belongs to (P5, W10 ...)")
@@ -1935,8 +2144,8 @@ def build_parser():
     rb.set_defaults(fn=cmd_runbook)
 
     gl = sub.add_parser("goal", parents=[common], help="long horizon goals: planner, workers, verifier, supervisor")
-    gl.add_argument("action", choices=["new", "status", "run", "stop", "approve", "report", "supervisor-script"])
-    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; approve ID; report ID")
+    gl.add_argument("action", choices=["new", "status", "run", "stop", "resume", "approve", "report", "reverify", "supervisor-script"])
+    gl.add_argument("args", nargs="*", help="new ID; status [ID]; run [ID ...]; stop ID [why]; resume ID WHY; approve ID; report ID; reverify GOAL JOB")
     gl.add_argument("--from", dest="from_file", help="new: the goal spec (goal.json shape)")
     gl.add_argument("--objective", help="new: the objective (without --from)")
     gl.add_argument("--criterion", action="append", default=[], help="new: a command that must exit 0 (repeatable)")
@@ -2182,7 +2391,8 @@ def build_parser():
     rp.set_defaults(fn=cmd_repro)
 
     th = sub.add_parser("thermal", parents=[common], help="CPU temperature: proven sources, a thermald-like governor for builds")
-    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal"])
+    th.add_argument("action", choices=["status", "prove", "watch", "profile", "monitor", "autostart", "log", "journal", "ensure"])
+    th.add_argument("--install", action="store_true", help="ensure: also install the keeper (Task Scheduler / systemd user timer) that runs ensure at logon, every 5 min and on resume")
     th.add_argument("value", nargs="?", help="profile: quiet|balanced|performance|off; autostart: on|off")
     th.add_argument("--stop", action="store_true", help="monitor: stop the running monitor (the cap goes back to 100%%)")
     th.add_argument("--seconds", type=int, default=60, help="watch: how long")
@@ -2193,6 +2403,15 @@ def build_parser():
     th.add_argument("--until-pid", dest="until_pid", type=int, help="log (Linux), monitor (both systems): run until this "
                                                                      "process ends (a build); log ignores --seconds then")
     th.set_defaults(fn=cmd_thermal)
+
+    pw = sub.add_parser("power", parents=[common], help="why a computer shut down or slept: incidents classed beside the thermal journal; the ibmpmsvc sleep drift check; investigate ranks the suspects of an unexplained cut")
+    pw.add_argument("action", choices=["incidents", "drift", "audit", "investigate"])
+    pw.add_argument("--write-fix", action="store_true", help="audit: write the one self-elevating script for the missing admin steps")
+    pw.add_argument("--callers", help="audit: who started PROCESS (e.g. powercfg.exe), from Security 4688")
+    pw.add_argument("--since", help="incidents, investigate: YYYY-MM-DD (default 7 days ago)")
+    pw.add_argument("--days", type=int, default=7, help="drift: how many days back")
+    pw.add_argument("--apply", action="store_true", help="drift: set the sleep button on AC to do nothing (no admin; before/after recorded)")
+    pw.set_defaults(fn=cmd_power)
 
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
@@ -2742,7 +2961,33 @@ def cmd_repro(a):
     return 0 if r["identical"] else 3
 
 
+def cmd_power(a):
+    from .power import drift, incidents
+    if a.action == "audit":
+        from .power import audit
+        return audit.run_cmd(write_fix=a.write_fix, proc=a.callers, since=a.since, as_json=a.json)
+    if a.action == "drift":
+        return drift.run(days=a.days, do_apply=a.apply, as_json=a.json)
+    if a.action == "investigate":
+        from .power import investigate
+        return investigate.run(since=a.since, as_json=a.json)
+    return incidents.run(since=a.since, as_json=a.json)
+
+
 def cmd_thermal(a):
+    if a.action == "ensure":
+        from .thermal import keeper
+        inst = keeper.install() if a.install else None
+        r = keeper.ensure()
+        k = keeper.installed()
+        def human(d):
+            print(keeper.line(d, k))
+            if inst is not None:
+                print(f"  install: {'OK' if inst['ok'] else 'FAILED'} {inst.get('detail') or inst.get('error') or ''}")
+            print("NEXT: " + ("nothing to do" if d["ok"] and k else "fieldkit thermal ensure --install" if d["ok"]
+                              else "read state/thermal/watch-*.log, fix, run ensure again"))
+        _emit(dict(r, keeper=k, install=inst), a.json, human)
+        return 0 if r["ok"] and k and (inst is None or inst["ok"]) else 3
     if a.action == "journal":
         from .thermal import journal
         return 0 if journal.run() else 1
@@ -2911,6 +3156,9 @@ def main(argv=None):
     if args[:1] == ["machine"]:                       # machine tags: [MODEL-OS] from the household registry
         from .peers import machine
         return machine.main(args[1:])
+    if args[:1] == ["route"]:                         # solo / multiplayer and the model router (lifecycle/routing.py)
+        from .lifecycle import routing
+        return routing.main(args[1:])
     if args[:1] == ["models"]:                        # the cost guard's ledger (fieldkit/lifecycle/models.py)
         from .lifecycle import models
         return models.main(args[1:])
@@ -2920,6 +3168,9 @@ def main(argv=None):
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])
+    if args[:1] == ["ciaudit"]:                       # what CI really ran (2026-11-02: 17 of 38 runs, whole suite)
+        from .method import ciaudit
+        return ciaudit.main(args[1:])
     if args[:1] == ["testcost"]:                      # what the checks cost, the cheapest set that is enough
         from . import testcost
         return testcost.main(args[1:])
@@ -2941,15 +3192,33 @@ def main(argv=None):
     if args[:2] == ["inbox", "review"]:
         from . import review
         return review.main(args[2:])
-    if args[:1] == ["ideas"]:                         # parked suggestions: never added to the plan that is running
+    if args[:1] == ["refusals"]:                      # repeated refusals -> defect rows (plan R14)
+        from . import refusals
+        return refusals.main(args[1:])
+    if args[:1] == ["ideas"]:                       # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])
     if args[:1] == ["metrics"]:                       # long-horizon proof: how long and how much the harness ran
         from . import metrics
         return metrics.main(args[1:])
+    if args[:1] == ["github"]:                        # guided GitHub setup: profiles, plan, apply with consent, check, undo
+        from . import github
+        return github.main(args[1:])
     if args[:1] == ["overhead"]:                      # the job against the bare build script: ratio + where it went
         from . import overhead
         return overhead.main(args[1:])
+    if args[:1] == ["capture"]:                       # append-only journal of agent work, preserved before processing
+        from .capture import cli as capture_cli
+        return capture_cli.main(args[1:])
+    if args[:1] == ["integration"]:                   # built in = carried + known + visible + page + systems + tested
+        from .integration import cli as integration_cli
+        return integration_cli.main(args[1:])
+    if args[:1] == ["accept"]:                        # everyday jobs through gorilla-opencode, judged on the disk
+        from . import accept
+        return accept.main(args[1:])
+    if args[:1] == ["pins"]:                          # helper sources: immutable and sha256-pinned
+        from .pins import cli as pins_cli
+        return pins_cli.main(args[1:])
     if args[:1] == ["parity"]:                        # the same versions and capabilities before a test
         from . import parity
         return parity.main(args[1:])

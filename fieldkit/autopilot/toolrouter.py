@@ -1,4 +1,4 @@
-# Version: 1.8.0 · updated 26-10-28-20-30
+# Version: 1.9.0 · updated 26-11-03-05-30
 """The tool router: a command that does by hand what a harness tool already does is refused, with the tool's own
 command in the refusal, before it runs. For every model (Claude Code PreToolUse hook, Antigravity guard.py).
 
@@ -383,10 +383,106 @@ def route(command, cwd="", shell=""):
     return heavy_refusal(cmd, cwd) or push_refusal(cmd, cwd)
 
 
+# -- P18 stage 3b (2026-11-03): the two refusals the capture counted most (166 + 130 of 956) have one mechanical,
+#    meaning-preserving correction, so the hook applies it (permissionDecision allow + updatedInput.command) and the
+#    agent loses no turn. Every other rule keeps refusing with its learned correction. The HARD LINE rules (push,
+#    delete, publish) are never rewritten.
+GUARD_PREFIX = FK + " guard -- "
+_QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'", re.S)
+#: an expansion the shell would do in an unquoted heredoc body (a bare $name, ${...}, $(...) or a backtick)
+_EXPANDS = re.compile(r"(?<!\\)(\$[\w{(]|`)")
+
+
+def _one_statement(cmd):
+    """True when `cmd` is a single command: no ; && || | & or newline outside quotes (2>&1 and &> are redirects)."""
+    bare = re.sub(r"\d?>&\d|&>", "", _QUOTED.sub('""', cmd))
+    return not re.search(r"[;&|\n]", bare)
+
+
+def guard_rewrite(command, cwd=""):
+    """-> `command` with `fieldkit guard --` in front of its heavy part, or None when it cannot be done safely: only
+    on Windows heavy work, one statement (optionally after a leading `cd DIR &&`), no VAR=value prefix."""
+    if not command or OVERRIDE.search(command) or heavy_refusal(command, cwd) is not HEAVY_GUARD:
+        return None
+    head, tail = "", command
+    m = re.match(r"(\s*(?:cd|pushd)\s+(?:\"[^\"\n]*\"|'[^'\n]*'|[^\s;&|]+)\s*&&\s*)(.*)$", command, re.S)
+    if m:
+        head, tail = m.group(1), m.group(2)
+    tail = tail.lstrip()
+    if (not tail or not _one_statement(tail) or re.match(r"\S*=", tail.split(None, 1)[0])
+            or heavy_refusal(tail, cwd) is not HEAVY_GUARD):
+        return None
+    return head + GUARD_PREFIX + tail
+
+
+def heredoc_rewrite(command):
+    """-> `command` with the delimiter of every python heredoc whose body the shell would mangle quoted (<<'EOF': the
+    body then reaches Python byte for byte, what the author typed), or None when nothing needs it or the body also
+    uses a shell expansion (then the author's intent is unknown and the refusal stands)."""
+    out, pos, changed = command or "", 0, False
+    for _ in range(8):
+        m = CODE_HEREDOC.search(out, pos)
+        if not m:
+            break
+        pos = m.end()
+        if m.group(3) or not SHELL_ESCAPE.search(m.group(5)):
+            continue
+        if _EXPANDS.search(m.group(5)):
+            return None
+        head = re.sub(r"(<<-?\s*)(\w+)", r"\1'\2'", out[m.start():m.end()], count=1)
+        out, pos, changed = out[:m.start()] + head + out[m.end():], pos + 2, True
+    return out if changed and not OVERRIDE.search(out) else None
+
+
+def rewrite(command, cwd=""):
+    """-> (new command, the rule it corrected) or None."""
+    r = route(command, cwd)
+    if not r:
+        return None
+    new = (heredoc_rewrite(command) if r["route"] == "code-with-backslashes-in-a-heredoc"
+           else guard_rewrite(command, cwd) if r["route"] == HEAVY_GUARD["route"] else None)
+    if not new or new == command or route(new, cwd):
+        return None                                   # the fix must leave nothing else refused
+    return new, r["route"]
+
+
+TABLE = "capture/refusal_table.yaml"          # measured by `fieldkit capture distill refusals`; data, never a rule source
+
+
+def measured_correction(route_name, path=None):
+    """-> the step that most often followed this refusal to success, with its count, or ''. A line scan of the table
+    (no YAML parse: the hook decides in under 100 ms). Never raises: no table, no row, no measured step -> ''."""
+    try:
+        from pathlib import Path
+        text = Path(path or Path(__file__).resolve().parent.parent / TABLE).read_text(encoding="utf-8")
+        total, cmd, inside = 0, None, False
+        for line in text.splitlines():
+            m = re.match(r"- rule: (\S+)\s*$", line)
+            if m:
+                if inside:
+                    break
+                inside = m.group(1) in (route_name, "router:" + route_name)
+            elif inside:
+                if (t := re.match(r"  count: (\d+)\s*$", line)):
+                    total = int(t.group(1))
+                elif (c := re.match(r"  - command: (.+?)\s*$", line)):
+                    cmd = c.group(1).strip("'\"")
+                elif cmd and (n := re.match(r"    count: (\d+)\s*$", line)):
+                    if not cmd.startswith("(no success"):     # rows are sorted by count; this is the best real step
+                        return (f"Measured: after this refusal the step that most often worked was "
+                                f"{cmd.replace('the family ', '')} ({n.group(1)} of {total} times).")
+                    cmd = None
+    except Exception:
+        pass
+    return ""
+
+
 def message(r):
+    fix = measured_correction(r["route"])
     return (f"TOOL ROUTER: this does by hand what a harness tool does ({r['route']}). Use {r['use']}, for example:\n"
             f"  {r['example']}\n"
-            "If the tool truly cannot do it, add '# toolrouter-ok: <why>' to the command (the reason is logged).")
+            + (f"{fix}\n" if fix else "")
+            + "If the tool truly cannot do it, add '# toolrouter-ok: <why>' to the command (the reason is logged).")
 
 
 def _claims(call):
@@ -454,6 +550,14 @@ def _deny(reason):
                                    "permissionDecisionReason": reason}}
 
 
+def _allow(command, rule, tool_input):
+    """The corrected call: allow, with the rewritten command (the other tool_input fields stay) and the rule it fixed."""
+    return {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "allow",
+        "permissionDecisionReason": f"TOOL ROUTER fixed {rule} for you: the command now runs as shown",
+        "updatedInput": dict(tool_input, command=command)}}
+
+
 def verdict(call):
     """-> the deny JSON for a tool call, or None: ground claims, the primary checkout, the rotation stop, the circuit breaker, then (Bash and
     PowerShell) the route table."""
@@ -466,8 +570,14 @@ def verdict(call):
     tool = (call.get("tool_name") or "").lower()
     if tool not in ("bash", "powershell"):
         return None
-    r = route((call.get("tool_input") or {}).get("command", ""), call.get("cwd") or "", tool)
-    return _deny(message(r)) if r else None
+    ti = call.get("tool_input") or {}
+    r = route(ti.get("command", ""), call.get("cwd") or "", tool)
+    if not r:
+        return None
+    fix = rewrite(ti.get("command", ""), call.get("cwd") or "") if tool == "bash" else None
+    if fix:
+        return _allow(fix[0], fix[1], ti)
+    return _deny(message(r))
 
 
 def _room(call):

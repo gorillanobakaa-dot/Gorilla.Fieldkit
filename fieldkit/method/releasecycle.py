@@ -20,6 +20,8 @@ release-page, gh); this chains them, and each stage is DONE only when its artefa
   on-base       the screenshots and notes are on origin/<base>, and the base differs from the built commit only there
   publish       the release made at origin/<base> with every asset (an existing release only gets what it lacks)
   verify-page   the published page: every asset, both tracks in order, every screenshot linked
+  installed     the release is installed on every computer as it says: `fieldkit install verify PRODUCT` here and
+                `--peer` (binary on PATH = the menu entry's, every icon size, caches, nothing older shadowing)
   leftovers     ship audit again: no stray branch, open pull request, extra worktree or local branch is left
 
 The release file, local/releases/<project>.yaml (machine paths, so never published):
@@ -46,7 +48,7 @@ import yaml
 from ..core import settings
 
 STAGES = ["audit-start", "build", "checksums", "screenshots", "notes", "on-base", "publish", "verify-page",
-          "leftovers"]
+          "installed", "leftovers"]
 PNG = b"\x89PNG\r\n\x1a\n"
 MIN_SHOT = 10_000
 
@@ -235,7 +237,8 @@ def notes(ctx, run=subprocess.run):
     extra = Path(r["out"]) / "screenshots.md"
     extra.write_text("## Screenshots\n\n" + gallery + "\n", encoding="utf-8")
     p = run(["python", "-m", "fieldkit", "release-page", "compose", "--opening", str(n["opening"]), "--layman",
-             str(n["layman"]), "--developer", str(n["developer"]), "--extra", str(extra), "--out", str(_page(r))],
+             str(n["layman"]), "--developer", str(n["developer"]), "--extra", str(extra), "--out", str(_page(r)),
+             "--repo", str(r["repo"])],
             capture_output=True, text=True)
     return {"ok": p.returncode == 0, "detail": f"composed {_page(r).name}" if p.returncode == 0 else
             ((p.stdout or "") + (p.stderr or "")).strip()[-300:]}
@@ -330,6 +333,33 @@ def verify_page(ctx, gh=None):
             f"{r['version']}: {len(names)} assets, both tracks in order, {len(_shots(r))} screenshot(s)"}
 
 
+def installed(ctx, run=subprocess.run):
+    """The release is not done until `fieldkit install verify` passes on this computer AND the peer (owner, 2026-11-01)."""
+    import sys
+    from . import installverify
+    r = _r(ctx)
+    product = r.get("project") or ctx.vars.get("project")
+    if product not in installverify.PRODUCTS:
+        res = {"ok": True, "detail": f"{product} has no installed state to prove"}
+        _state(ctx, "installed", res)
+        return res
+    bad = []
+    for extra in ([], ["--peer"]):
+        p = run([sys.executable, "-m", "fieldkit", "install", "verify", product, "--tag", ctx.vars["version"], *extra],
+                capture_output=True, text=True, timeout=900)
+        if p.returncode != 0:
+            fails = [l for l in (p.stdout or "").splitlines() if "FAIL" in l]
+            bad.append(f"install verify {' '.join(extra) or 'here'}: exit {p.returncode}: " + (fails[0][:200] if fails else (p.stdout or p.stderr)[-200:]))
+    res = {"ok": not bad, "detail": "; ".join(bad) or "install verify passes here and on the peer"}
+    _state(ctx, "installed", res)
+    return res
+
+
+def verify_installed(ctx):
+    st = _state(ctx, "installed")
+    return {"ok": bool(st.get("ok")), "detail": st.get("detail", "install verify has not run")}
+
+
 def leftovers(ctx, gh=None):
     from . import shiprelease
     r = _r(ctx)
@@ -355,6 +385,7 @@ def spec(project, version, release=None):
                        st("on-base", "on_base", "verify_on_base"),
                        st("publish", "publish", "verify_page"),
                        st("verify-page", "verify_page", "verify_page"),
+                       st("installed", "installed", "verify_installed", timeout=1800),
                        st("leftovers", "leftovers", "leftovers")]}
 
 

@@ -191,3 +191,180 @@ def test_only_the_named_version_files_can_be_version_only():
 def test_a_file_under_state_selects_no_test_whatever_its_suffix():
     pl = _plan(["state/coordination/run.py"], {})
     assert pl["no_code"] and pl["tests"] == [] and pl["unmapped"] == []
+
+
+def test_over_the_cap_with_no_free_device_every_file_runs_here_never_dropped(repo, monkeypatch, capsys):
+    """2026-11-02: 68 test files covered a commit, the laptop cap (15) held them back, and nothing ran. R15: with no
+    free device the overflow joins this computer's list and testcost says so."""
+    from fieldkit import orchestrate_load
+    monkeypatch.setenv("FIELDKIT_LOCAL_TEST_CAP", "0")
+    monkeypatch.setattr(orchestrate_load, "load_all", lambda *a, **k: [])
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 3\n")
+    git(repo, "add", "-A")
+    assert testcost.main(["staged", "--repo", str(repo)]) == 0
+    cap = capsys.readouterr()
+    assert "tests/test_b.py" in cap.out, cap
+    assert "none is dropped" in cap.err and "CI runs them, not this laptop" not in cap.err, cap
+
+
+# ---- every tracked file has covering tests (2026-11-02: 267 unmapped files sent 17 of 38 PR runs to the whole suite)
+def _repo(tmp_path, files, testmap=None):
+    r = tmp_path / "r"
+    for rel, text in files.items():
+        f = r / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+    if testmap is not None:
+        (r / "tests").mkdir(parents=True, exist_ok=True)
+        (r / "tests" / "testmap.yaml").write_text(testmap, encoding="utf-8")
+    return r
+
+
+def test_a_testmap_glob_selects_its_tests_and_an_empty_list_is_a_declaration(tmp_path):
+    r = _repo(tmp_path, {"tests/test_pins.py": "x = 1\n", "releases/pin.yaml": "a: 1\n", "docs/f/n.yaml": "b\n"},
+              "- {glob: 'releases/*.yaml', tests: [tests/test_pins.py]}\n- {glob: 'docs/f/*.yaml', tests: [], why: w}\n")
+    pl = testcost.plan(r, paths=["releases/pin.yaml", "docs/f/n.yaml"], diff_lines=lambda q: [])
+    assert pl["unmapped"] == [] and [Path(t).name for t in pl["tests"]] == ["test_pins.py"]
+
+
+def test_a_data_file_in_a_package_selects_the_package_tests_not_the_whole_suite(tmp_path):
+    r = _repo(tmp_path, {"tests/test_em.py": "from fieldkit.emerge import recipe\n",
+                         "tests/test_other.py": "from fieldkit import zzz\n",
+                         "fieldkit/emerge/recipes/gorilla-size.yaml": "s: 1\n"})
+    pl = testcost.plan(r, paths=["fieldkit/emerge/recipes/gorilla-size.yaml"], diff_lines=lambda q: [])
+    assert pl["unmapped"] == [] and [Path(t).name for t in pl["tests"]] == ["test_em.py"]
+
+
+def test_a_mutation_plan_selects_the_test_it_mutates(tmp_path):
+    r = _repo(tmp_path, {"tests/test_train.py": "x = 1\n", "tests/test_b.py": "y = 1\n",
+                         "tests/train_mutations.yaml": "- file: a\n"})
+    pl = testcost.plan(r, paths=["tests/train_mutations.yaml"], diff_lines=lambda q: [])
+    assert pl["unmapped"] == [] and [Path(t).name for t in pl["tests"]] == ["test_train.py"]
+
+
+def test_tests_in_subfolders_are_found(tmp_path):
+    r = _repo(tmp_path, {"tests/capture/test_capture.py": "from fieldkit.capture import cli\n",
+                         "fieldkit/capture/cli.py": "x = 1\n"})
+    pl = testcost.plan(r, paths=["fieldkit/capture/cli.py"], diff_lines=lambda q: [])
+    assert [Path(t).name for t in pl["tests"]] == ["test_capture.py"]
+
+
+def test_unmapped_command_exits_3_and_names_the_file(tmp_path, capsys):
+    r = _repo(tmp_path, {"tests/test_a.py": "x = 1\n", "orphan.cfg": "z\n"})
+    subprocess.run(["git", "init", "-q", str(r)], check=True)
+    subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
+    assert testcost.main(["unmapped", "--repo", str(r), "--all"]) == 3
+    assert "unmapped orphan.cfg" in capsys.readouterr().out
+
+
+def test_this_repository_has_no_unmapped_file():
+    """The guard: a new file with no covering test fails here (and in CI) instead of silently running the whole
+    suite on every pull request that touches it."""
+    root = Path(__file__).resolve().parents[1]
+    files = subprocess.run(["git", "-C", str(root), "ls-files"], capture_output=True, text=True).stdout.split()
+    if not files:
+        pytest.skip("not a git checkout")
+    u = testcost.plan(root, paths=files, diff_lines=lambda q: [])["unmapped"]
+    assert u == [], "map these in tests/testmap.yaml or give them a test: " + ", ".join(u)
+
+
+def _registry_repo(tmp_path):
+    r = tmp_path / "reg"
+    (r / "fieldkit" / "desk").mkdir(parents=True)
+    (r / "fieldkit" / "alpha").mkdir()
+    (r / "tests").mkdir()
+    (r / "fieldkit" / "__init__.py").write_text("")
+    (r / "fieldkit" / "alpha" / "__init__.py").write_text("")
+    (r / "fieldkit" / "beta.py").write_text("")
+    (r / "fieldkit" / "cli.py").write_text("x = 1\n")
+    (r / "fieldkit" / "desk" / "tools.yaml").write_text(
+        "tools:\n- id: alpha\n  path: ${FIELDKIT}/fieldkit/alpha\n  test: [pytest, tests/test_alpha.py]\n"
+        "- id: gamma\n  path: ${FIELDKIT}/fieldkit/gamma.py\n  test: null\n")
+    (r / "tests" / "test_alpha.py").write_text("import fieldkit.alpha\nimport fieldkit.cli\n")
+    (r / "tests" / "test_beta.py").write_text("import fieldkit.beta\nimport fieldkit.cli\nimport fieldkit.desk\n")
+    (r / "tests" / "test_cards.py").write_text("import fieldkit.cli\n")   # an integrity test
+    (r / "tests" / "test_noise.py").write_text("import fieldkit.cli\nimport fieldkit.desk\n")
+    git(r, "init", "-q"); git(r, "config", "user.email", "t@t"); git(r, "config", "user.name", "t")
+    git(r, "add", "-A"); git(r, "commit", "-q", "-m", "init")
+    return r
+
+
+def test_a_tools_yaml_edit_selects_the_changed_entry_tests_and_the_integrity_set_only(tmp_path):
+    r = _registry_repo(tmp_path)
+    f = r / "fieldkit" / "desk" / "tools.yaml"
+    f.write_text(f.read_text().replace("id: gamma", "id: gamma\n  title: new"))   # gamma changed, alpha did not
+    got = {Path(t).name for t in testcost.plan(r, paths=["fieldkit/desk/tools.yaml"])["tests"]}
+    assert got == {"test_cards.py"}                      # noise and beta are not selected, integrity is
+    f.write_text(f.read_text().replace("pytest, tests/test_alpha.py", "pytest, tests/test_alpha.py, x"))
+    got = {Path(t).name for t in testcost.plan(r, paths=["fieldkit/desk/tools.yaml"])["tests"]}
+    assert got == {"test_cards.py", "test_alpha.py"}      # the changed entry's own test command and module importers
+
+
+def test_a_removed_tools_entry_or_unparseable_file_keeps_the_wide_mapping(tmp_path):
+    r = _registry_repo(tmp_path)
+    f = r / "fieldkit" / "desk" / "tools.yaml"
+    f.write_text("tools:\n- id: alpha\n  path: ${FIELDKIT}/fieldkit/alpha\n  test: [pytest, tests/test_alpha.py]\n")
+    wide = {Path(t).name for t in testcost.plan(r, paths=["fieldkit/desk/tools.yaml"])["tests"]}
+    assert "test_noise.py" in wide                       # cannot prove what a removal breaks: every importer runs
+    f.write_text("tools:\n- id: alpha\n  title: changed\n  path: ${FIELDKIT}/fieldkit/alpha\n  test: [pytest, tests/test_alpha.py]\n")
+    assert "test_noise.py" in {Path(t).name for t in testcost.plan(r, paths=["fieldkit/desk/tools.yaml"])["tests"]}  # removal + a change
+    f.write_text("tools: [unclosed\n")
+    assert "test_noise.py" in {Path(t).name for t in testcost.plan(r, paths=["fieldkit/desk/tools.yaml"])["tests"]}
+
+
+def test_a_cli_edit_selects_the_tests_naming_the_changed_command_not_every_importer(tmp_path):
+    r = _registry_repo(tmp_path)
+    (r / "tests" / "test_beta.py").write_text("import fieldkit.cli\n\ndef test_b():\n    assert 'betacmd'\n")
+    narrow = testcost.plan(r, paths=["fieldkit/cli.py"], diff_lines=lambda q: ['+    if args[:1] == ["betacmd"]:'])
+    assert {Path(t).name for t in narrow["tests"]} == {"test_beta.py"}
+    wide = testcost.plan(r, paths=["fieldkit/cli.py"], diff_lines=lambda q: ["+    x = 2"])   # names nothing: keep wide
+    assert {"test_alpha.py", "test_noise.py"} <= {Path(t).name for t in wide["tests"]}
+
+def test_a_merge_in_progress_stages_only_the_branch_side_files(tmp_path):
+    """TESTS ONCE: files arriving from the base passed the base's CI; only the branch's own files are tested."""
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=a@b", "-c", "user.name=t", *a],
+                       check=True, capture_output=True)
+    git("init", "-q", "-b", "main")
+    (tmp_path / "base.txt").write_text("0\n")
+    git("add", "-A"); git("commit", "-qm", "0")
+    git("checkout", "-qb", "feat")
+    (tmp_path / "mine.txt").write_text("1\n")
+    git("add", "-A"); git("commit", "-qm", "mine")
+    git("checkout", "-q", "main")
+    (tmp_path / "theirs.txt").write_text("2\n")
+    git("add", "-A"); git("commit", "-qm", "theirs")
+    git("checkout", "-q", "feat")
+    git("merge", "--no-commit", "--no-ff", "main")
+    assert testcost.staged_files(tmp_path) == []
+
+
+def test_a_merge_tests_only_what_the_branch_itself_changed_in_the_cli_hub(tmp_path):
+    """Owner 2026-11-09: a merge of main into a branch ran ~420 test files (fieldkit/cli.py fans out) at 73-81 C.
+    The registry narrowing must read the branch's own change (merge base -> HEAD), not main's lines that arrive."""
+    def g(*a):
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=a@b", "-c", "user.name=t", *a],
+                       check=True, capture_output=True)
+    (tmp_path / "fieldkit").mkdir()
+    (tmp_path / "tests").mkdir()
+    for name in ("__init__", "cli"):
+        (tmp_path / "fieldkit" / f"{name}.py").write_text("CMDS = []\nEND = 1\n")
+    (tmp_path / "tests" / "test_mine.py").write_text("def test_x():\n    assert 'mine-cmd'\n")
+    (tmp_path / "tests" / "test_theirs.py").write_text("def test_x():\n    assert 'their-cmd'\n")
+    g("init", "-q", "-b", "main")
+    g("add", "-A"); g("commit", "-qm", "0")
+    g("checkout", "-qb", "feat")
+    (tmp_path / "fieldkit" / "cli.py").write_text("CMDS = ['mine-cmd']\nEND = 1\n")
+    g("commit", "-qam", "mine")
+    g("checkout", "-q", "main")
+    (tmp_path / "fieldkit" / "cli.py").write_text("CMDS = []\nEND = 1\nOTHER = ['their-cmd']\n")
+    g("commit", "-qam", "theirs")
+    g("checkout", "-q", "feat")
+    r = subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=a@b", "-c", "user.name=t", "merge", "--no-commit", "--no-ff", "main"],
+                       capture_output=True, text=True)
+    mb = testcost.merge_base(tmp_path)
+    assert mb, (r.stdout, r.stderr)
+    paths = ["fieldkit/cli.py"]
+    names = lambda own: {Path(t).name for t in testcost.plan(tmp_path, paths=paths, own_base=own)["tests"]}
+    assert names(mb) == {"test_mine.py"}                       # only what the branch itself changed
+    assert "test_theirs.py" in names(None)                     # without the merge base main's lines count too

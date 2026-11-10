@@ -1,0 +1,3 @@
+# Proof (fieldkit mutate): a hung PowerShell reader must not raise into the governor thread.
+#   python -m fieldkit mutate --plan tests/thermal_ps_mutations.yaml -- python -m pytest -q -x tests/test_thermal_brake.py -k hangs
+- {file: fieldkit/thermal/sensors.py, swap: ['    except (subprocess.TimeoutExpired, OSError):', '    except OSError:'], why: "a hung reader is a missing reading, not a dead governor"}

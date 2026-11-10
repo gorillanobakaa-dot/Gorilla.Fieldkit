@@ -1,7 +1,7 @@
 ---
 name: fieldkit-methods
 description: >-
-  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), the same pinned versions and capabilities on every machine before a test (parity), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
+  How work gets done in Fieldkit, as tools - the cheapest test set that is enough and what the checks cost (testcost: a passed tree is never re-tested), the same pinned versions and capabilities on every machine before a test (parity), wait on a condition, prove a test can fail (mutate), compare test failures by name before and after a change (regress), check a generated file against its generator (drift), speak MCP to a server like a client (mcp-probe), survey a repository's facts, check translation tables (i18n), check tool cards against their commands, render Office files to look at them, check that a new function or feature is built in - carried, known to the AI, visible, on the release page, on every system, tested (integration), ship a branch without force-pushing (ship), and hand fixes to someone else's tool (handover). Use before changing code, before claiming a test proves something, before pushing, when connecting an MCP server, or when reporting a bug in another tool.
 license: AGPL-3.0-or-later
 compatibility: "Needs the fieldkit command (Gorilla Fieldkit, github.com/gorillanobakaa-dot/Gorilla.Fieldkit; Python 3.11+ with PyYAML) on Windows, Linux. Works offline; no network access unless a step says so."
 ---
@@ -24,6 +24,8 @@ Compare failures BY NAME. "Still failing" before and after is not yours; "new" i
 ```
 fieldkit testcost plan                                         changed files -> only the tests that cover them
 fieldkit testcost run --fast                                   run that set while iterating; the FULL suite once, before push
+fieldkit testcost unmapped --all                               tracked files no test covers (must be 0: each one runs the whole suite in CI)
+fieldkit ciaudit --since DATE                                  what CI really ran: whole suite vs targeted per PR run, minutes, trigger files
 fieldkit testcost report                                       what the suite cost, re-runs avoided, what refusals caught
 fieldkit testcost flags                                        gate tiers the owner decides (all off until his yes)
 fieldkit mutate FILE --swap "the rule" "the rule, broken" -- TEST COMMAND
@@ -36,6 +38,7 @@ CAUGHT = the test holds the rule. SURVIVED = it does not: write the test that fa
 
 ## An xz archive you made or ship (.xz, .tar.xz, a .deb)
 ```
+fieldkit install verify PRODUCT [--peer|--host macair] | self-test [--os all]   installed as its release says on Linux (GNOME), Windows (shortcuts, .ico, exe icon) and macOS (bundle, .icns): binary, every icon size, caches, nothing older shadowing; parity align and the release cycle call it
 fieldkit xzcheck FILE... [--cap-mib 128]     dictionary = what the content needs (not more, not less); unpacks within the cap
 ```
 Never "improve" compression with a bigger `dict=`: past the content's size it adds no bytes saved, only memory every
@@ -55,6 +58,16 @@ machine paths in local/canaries.yaml). Release checks call `canary.gate(ids)`: a
 Learned 2026-10-18/19: a telemetry scan that read only the source passed a program carrying a tracing library 1,036
 times; the static theme check cannot see a white popup background (white is a theme colour; only the rendered
 contrast check sees that failure).
+
+## Before you call a feature done: is it built in? (docs/INTEGRATION.md)
+```
+fieldkit integration check --repo PATH [--changed BASE]   one line per missing surface, with the file to fix; exit 3 = gaps
+fieldkit integration self-test --kind opencode|fieldkit   seeds one omission per surface; exit 0 = every one caught
+fieldkit pins check --repo OPENCODE   refuses rolling (latest, nightly, master) or sha256-unpinned helper URLs; exit 3 = findings
+fieldkit pins self-test               seeds each break kind in a fixture; exit 0 = every one refused
+```
+Rules per surface are data: `fieldkit/integration/surfaces.yaml`. Run `--changed origin/main` before committing a new
+helper, tool or command.
 
 ## Before a test, a measurement or a benchmark: the same ground on every machine
 ```
@@ -104,6 +117,12 @@ fieldkit ship status        where the branch stands
 fieldkit ship push          sync a squash-merged branch (merge -s ours, tree unchanged) and push; never forces
 fieldkit ship push --tag vX a NEW tag on a commit GitHub has (or that this push carries); never moves a tag
 fieldkit ship gh-release vX -- ARGS   gh release create --verify-tag, the repository from git, CI green
+fieldkit ship prune [--archive-unproven]   delete remote branches proven merged; a delete a hook refuses is a DO row with git's words
+fieldkit ship tags [--repo R | --all] [--fix-local]   every tag classed (release / version-no-release / archive / other), only real
+                            candidates flagged (unreachable, duplicate, local-only); GitHub tags are never deleted by an agent: the
+                            owner command is printed; --fix-local removes only local tags never pushed
+fieldkit ship prune|audit|tags --all   every non-archived repo of the owner (local clone, else scratch), one before/after table
+fieldkit strikes recount BRANCH   whose red: own / main / unproven per head (a failed test run on the merge base with main); a strike is only an own one
 fieldkit mandate doctor     the owner-wide mandate: in force, days left, keys, every covered hook honoring the gate
 ```
 Under the owner-wide mandate (owner, 2026-10-26) these ARE the owner's yes: every covered repository's pre-push hook

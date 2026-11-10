@@ -130,3 +130,21 @@ def events(words):
     pred = " AND ".join(f'eventMessage CONTAINS[c] "{w.replace(chr(34), "")}"' for w in words) or "TRUEPREDICATE"
     r = _run(["log", "show", "--last", "1h", "--predicate", pred, "--style", "compact"], timeout=120)
     return {"lines": r.stdout.splitlines()[-200:]}
+
+
+def conns(pid):
+    """Connections of PID (psutil, shared)."""
+    if not _here():
+        return None
+    from fieldkit.observe import _common
+    return _common.conns(pid)
+
+
+def dns(pid, seconds):
+    """DNS servers PID talks to (socket sampling, shared)."""
+    if not _here():
+        return None
+    from fieldkit.observe import _common
+    r = _common.dns(pid, seconds)
+    return r
+

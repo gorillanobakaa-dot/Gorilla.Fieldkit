@@ -157,6 +157,16 @@ def _no_real_cable():
             pytest.fail("this test tried to reach the REAL cable: " + ", ".join(f.read().split()))
 
 
+# A test never starts the real machine governor (keeper.refusal would spawn it), the build guard's own tests included;
+# tests of the keeper are marked `real_keeper` and inject their own spawn and lease folder.
+@pytest.fixture(autouse=True)
+def _no_real_keeper(request, monkeypatch):
+    if not request.node.get_closest_marker("real_keeper"):
+        from fieldkit.thermal import keeper
+        monkeypatch.setattr(keeper, "refusal", lambda *a, **k: "")
+    yield
+
+
 # Tests never load the CPU or depend on the real fan control: the build guard (fan check + governor) is replaced by a
 # no-op for every test, except tests marked `real_build_guard`, which test the guard itself on fake status files.
 # There is deliberately NO runtime switch to skip the guard (2026-10-13: fail closed; an agent could flip a switch).
@@ -178,6 +188,7 @@ def _no_real_build_guard(request, monkeypatch):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "real_build_guard: run the real build guard (fan check) on fake inputs")
+    config.addinivalue_line("markers", "real_keeper: the real keeper.refusal (tests of the thermal keeper)")
 
 
 # ============================================================================
@@ -382,8 +393,8 @@ def _plan_state_in_tmp(tmp_path, monkeypatch):
 def _room_in_tmp(tmp_path, monkeypatch):
     from fieldkit.autopilot import room
     monkeypatch.setattr(room, "ROOM_DIR", tmp_path / "room-state")
-    # the relay line depends on whether THIS computer's relay listens: off in tests, except the test of it
-    monkeypatch.setattr(room, "_relay", lambda call, event, ctx: ctx)
+    # the ear line (I-27) depends on whether THIS computer's household and ears exist: off in tests, except its test
+    monkeypatch.setattr(room, "_ear", lambda call, event: "")
     # the parked-ideas line depends on the checkout's real state/ideas: off in tests, except the test of it
     monkeypatch.setattr(room, "_ideas", lambda call, event, ctx: ctx)
     yield
@@ -398,3 +409,12 @@ def _no_real_worktrees(monkeypatch):
     monkeypatch.setattr(worktrees, "make", lambda repo, name, **k: (None, "tests: in place"))
     monkeypatch.setattr(worktrees, "reap", lambda repo, **k: {"removed": [], "kept": []})
     yield
+
+
+# Tests never write the real task ledger (2026-11-10: two "[TEST-LNX] PLAN ITEM: P23" rows reached
+# state/lifecycle/tasks.jsonl from tasks.start in a test and showed as started jobs). A test may set its own.
+@pytest.fixture(autouse=True)
+def _isolated_lifecycle(tmp_path_factory, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path_factory.mktemp("lifecycle")))
+    yield
+

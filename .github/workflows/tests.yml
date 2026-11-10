@@ -23,6 +23,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends desktop-file-utils
+      - name: every tracked file has covering tests (else CI would run the whole suite for it)
+        run: python -m fieldkit testcost unmapped --all
+      - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
+        if: github.event_name == 'pull_request'
+        run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
       - name: the tests covering the change
         shell: bash
         run: |

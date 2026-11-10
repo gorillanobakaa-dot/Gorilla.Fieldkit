@@ -24,6 +24,12 @@ groups:
   - name: emerge
     title: Compile jobs like Portage - a recipe per product, content-addressed stages, offload to the other machine, a model only when a stage fails
     sources: [emerge/*.py]
+  - name: github-setup
+    title: Guided, verified GitHub setup - profiles, plain-words explanations, plan, apply with consent, check for known mistakes, undo
+    sources: [github/*.py]
+  - name: repair
+    title: Small repair and check tools ported from Kiro - cp1252, missing imports, conflict markers, brace parity, ps1 syntax, guarded stop, worktrees, Board rows, Mach-O, TPFan ini
+    sources: [repair/*.py]
   - name: hog
     title: The resource watchdog - memory hogs, leaks, idle local models, orphaned runners, pinned CPU, heat and disk, checked every 5 minutes
     sources: [hog/*.py]
@@ -90,7 +96,7 @@ groups:
 
   - name: builds-releases-thermal
     title: Builds, release checks and the thermal governor
-    sources: ["build/*.py", release.py, "thermal/*.py"]
+    sources: ["build/*.py", release.py, "thermal/*.py", "power/*.py"]
 
   - name: exam
     title: The exam (small models with and without the kit)
@@ -99,6 +105,7 @@ groups:
   - name: port-engine
     title: The Firefox port engine (build harness tasks and decisions)
     sources:
+      - accept.py
       - admission.py
       - aliases.py
       - buildh/__init__.py
@@ -132,6 +139,7 @@ groups:
       - buildh/vault.py
       - buildh/worker.py
       - ideas.py
+      - refusals.py
       - review.py
       - lmstudio.py
       - metrics.py
@@ -143,11 +151,13 @@ groups:
       - overhead.py
       - testcost.py
       - parity.py
+      - parity_goal.py
       - plan.py
       - review_verdict.py
       - rules.py
       - rules_lint.py
       - suite_offload.py
+      - testsplit.py
 
   - name: verify-and-build
     title: Verify the ported tree, repair it and run the build
@@ -177,6 +187,7 @@ groups:
       - buildh/clipcheck.py
       - buildh/symptoms.py
       - buildh/companions.py
+      - buildh/doors.py
       - buildh/fastloop.py
       - buildh/satellite.py
       - buildh/window.py
@@ -257,7 +268,7 @@ groups:
 
   - name: methods
     title: "How the work gets done, as tools (wait, mutate, regress, drift, mcp-probe, survey, i18n, ship, handover)"
-    sources: ["method/*.py"]
+    sources: ["method/*.py", "integration/*.py", "capture/*.py", "pins/*.py"]
 
   - name: icons
     title: "Sharp desktop icons on any computer (IconKit: the icon cache, .ico frames and checks, crisp recoloured icons)"

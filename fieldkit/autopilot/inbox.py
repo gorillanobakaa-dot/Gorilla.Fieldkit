@@ -32,9 +32,28 @@ def _refresh():
         pass
 
 
+OWNER_KINDS = ("hardline",)          # owner, 2026-11-01: "zero owner steps, zero inbox" - only a HARD LINE reaches him
+
+
+def ledger_file():
+    return INBOX.parent / "agent-ledger.jsonl"
+
+
 def add(title, why, command="", kind="approval", files=(), plan="", what="", if_approve="", if_leave=""):
-    """-> the item. An OPEN item with the same title is the same question: it is updated (why, command, `repeats`,
-    `last`) instead of a new item (2026-10-28: 49 of 103 open items were "<peer> does not answer on the cable")."""
+    """-> the item. Only kind "hardline" (rules/CORE.md HARD LINES) becomes an owner inbox item. Every other kind
+    (approval, decision, report, paused, failed, net, ...) goes to the agent ledger (state/autopilot/agent-ledger.jsonl,
+    `fieldkit inbox ledger`), read by Zero and the next agent, never by the owner: 2026-11-01/02 workers, ship push,
+    goal reports and the net filed items the owner never needed (4 closed by Zero 22 in one night).
+    An OPEN item with the same title is the same question: it is updated (why, command, `repeats`, `last`) instead of
+    a new item (2026-10-28: 49 of 103 open items were "<peer> does not answer on the cable")."""
+    if kind not in OWNER_KINDS:
+        row = {"n": 0, "routed": "ledger", "kind": kind, "title": title, "why": why, "command": command,
+               "files": list(files), "added": time.strftime("%Y-%m-%d %H:%M:%S"), "state": "ledger"}
+        ledger_file().parent.mkdir(parents=True, exist_ok=True)
+        with open(ledger_file(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        _refresh()
+        return row
     INBOX.mkdir(parents=True, exist_ok=True)
     for p in sorted(INBOX.glob("*.json")):
         try:
@@ -53,9 +72,49 @@ def add(title, why, command="", kind="approval", files=(), plan="", what="", if_
     item = {"n": n, "kind": kind, "title": title, "why": why, "command": command, "files": list(files),
             "added": time.strftime("%Y-%m-%d %H:%M:%S"), "state": "open"}
     item.update({k: v for k, v in (("plan", plan), ("what", what), ("if_approve", if_approve), ("if_leave", if_leave)) if v})
+    item.update(words_for(item))                     # an owner item always carries plain words (2026-11-10)
     (INBOX / f"{n:04d}-{kind}.json").write_text(json.dumps(item, indent=1, ensure_ascii=False), encoding="utf-8")
     _refresh()
     return item
+
+
+def words_for(it):
+    """-> {what, if_approve, if_leave}: the item's own words, and for any it lacks, plain words built from its own fields
+    (2026-11-10: 13 items showed "(no plain explanation was written for this item)" three times; the owner cannot
+    decide what he cannot read). Never invented: the title, the why and the command are the item's."""
+    why = " ".join(str(it.get("why") or "").split())
+    cmd = str(it.get("command") or "").strip()
+    what = it.get("what") or (f"{it.get('title', '')}: {why[:400]}".strip(": ") if why else str(it.get("title") or ""))
+    appr = it.get("if_approve") or ("It is closed as approved. The review runs nothing"
+                                     + (f"; the command to run afterwards is: {cmd}" if cmd else "") + ".")
+    leave = it.get("if_leave") or "It stays open and is shown again at the next review; nothing else changes."
+    return {"what": what, "if_approve": appr, "if_leave": leave}
+
+
+def migrate_legacy():
+    """Open owner-inbox items of a kind that no longer reaches the owner (only OWNER_KINDS do, since 2026-11-01) move
+    to the agent ledger, where Zero handles them; the file keeps them as state "moved". 2026-11-10: 13 items from
+    10-31/11-01 (build failures, rate-limit pauses, a goal report, refused pushes) still sat in the owner's review.
+    -> the items moved. Idempotent."""
+    moved = []
+    for p in sorted(INBOX.glob("*.json")) if INBOX.is_dir() else []:
+        try:
+            it = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if it.get("state") != "open" or it.get("kind") in OWNER_KINDS:
+            continue
+        row = dict(it, routed="ledger", state="ledger", moved_from=f"owner inbox #{it.get('n')}",
+                   moved=time.strftime("%Y-%m-%d %H:%M:%S"))
+        ledger_file().parent.mkdir(parents=True, exist_ok=True)
+        with open(ledger_file(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        it.update(state="moved", note="moved to the agent ledger: its kind does not reach the owner")
+        p.write_text(json.dumps(it, indent=1, ensure_ascii=False), encoding="utf-8")
+        moved.append(it)
+    if moved:
+        _refresh()
+    return moved
 
 
 def items(state="open"):

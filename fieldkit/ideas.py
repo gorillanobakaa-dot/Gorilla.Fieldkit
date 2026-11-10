@@ -204,11 +204,27 @@ def set_status(ids, status, root=None, now=None, note=""):
             if note:
                 e["note"] = note
         if status == "accepted":
-            e["plan_id"] = _next_plan_id(data, root)
-            b = _write_brief(e, root)
+            row = _row_naming(i, root, str(e.get("date") or "")[:10])
+            if row or e.get("built"):          # 2026-11-10: accepting a built idea made a brief for a duplicate row
+                e["plan_id"] = row or ""
+                e["closed_as"] = "already built" if e.get("built") else f"already in the plan as {row}"
+            else:
+                e["plan_id"] = _next_plan_id(data, root)
+                b = _write_brief(e, root)
         out.append({"id": i, "status": e["status"], "plan_id": e.get("plan_id"), "brief": b})
     _save(data, root)
     return out
+
+
+def _row_naming(iid, root, day):
+    """-> the id of the plan row that names this idea ("idea I-01") AND its date (ids were reused across months), or ""."""
+    p = Path(root or ROOT) / "docs" / "HARNESS-PLAN.md"
+    if not p.is_file() or not day:
+        return ""
+    for m in re.finditer(rf"(?m)^\|\s*([A-Z]\d+)\s*\|[^\n]*\bidea {re.escape(iid)}\b[^\n]*", p.read_text(encoding="utf-8")):
+        if day in m.group(0):
+            return m.group(1)
+    return ""
 
 
 def _write_brief(e, root):

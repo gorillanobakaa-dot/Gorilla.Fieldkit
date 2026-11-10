@@ -31,9 +31,12 @@ from .core.settings import state_root
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = "docs/HARNESS-PLAN.md"
 LESSONS = "docs/LESSONS.yaml"
-ID = re.compile(r"\b([RLOCIWP]\d+)\b")
-ROW_ID = re.compile(r"^\|\s*([RLOCIP]\d+)\s*\|")
+ID = re.compile(r"\b([RLOCIWPZG]\d+)\b")
+# 2026-11-10: W, Z and G rows were never read, so W10's "FINAL GOAL, not now" was invisible and the hook said "open W10"
+ROW_ID = re.compile(r"^\|\s*([RLOCIWPZG]\d+)\s*\|")
 TAIL_PAREN = re.compile(r"\(([^()]*)\)\s*$")
+# 2026-11-10: "P24: Zero as commander ..." (#415) was never seen as P24's merge: only a trailing "(P24)" counted
+HEAD_IDS = re.compile(r"^\s*((?:[RLOCIWPZG]\d+)(?:\s*[,/+&]\s*[RLOCIWPZG]\d+)*)\s*:")
 
 
 def state_file(root=None):
@@ -89,7 +92,7 @@ def merged(root, run=subprocess.run):
         subj, _, body = rec.strip().partition("\x1f")
         pr = re.search(r"Merge pull request (#\d+)", subj)
         title = (body.strip().splitlines() or [""])[0]
-        m = TAIL_PAREN.search(title)
+        m = TAIL_PAREN.search(title) or HEAD_IDS.match(title)
         if pr and m:
             for i in ID.findall(m.group(1)):
                 out.setdefault(i, pr.group(1))
@@ -119,6 +122,12 @@ def is_done(status):
     return status.upper().startswith("DONE")
 
 
+def is_held(status):
+    """An item the owner holds back (W10: "FINAL GOAL, not now"): never the next thing to start."""
+    u = status.upper()
+    return u.startswith("FINAL GOAL") or "NOT NOW" in u
+
+
 def next_(root=None, run=subprocess.run):
     """-> {"phase", "open", "done", "line", ...}: the first phase with an open item, and the plan's one line."""
     root = Path(root or ROOT)
@@ -130,13 +139,19 @@ def next_(root=None, run=subprocess.run):
     phases = []
     for name, ids in order(text):
         done = [i for i in ids if is_done(st.get(i, "")) or (i in mg and st.get(i, "PLANNED") == "PLANNED")]
-        phases.append({"phase": name, "items": ids, "done": done, "open": [i for i in ids if i not in done]})
+        held = [i for i in ids if i not in done and is_held(st.get(i, ""))]
+        phases.append({"phase": name, "items": ids, "done": done, "held": held,
+                       "open": [i for i in ids if i not in done and i not in held]})
     cur = next((ph for ph in phases if ph["open"]), None)
+    held = [i for ph in phases for i in ph["held"]]
     if cur is None:
-        line = "PLAN: every phase of the Order table is done (docs/HARNESS-PLAN.md)"
+        line = ("PLAN: every phase of the Order table is done (docs/HARNESS-PLAN.md)" if not held else
+                f"PLAN: nothing open to start; held by the owner, never started by an agent: {' '.join(held)}"
+                " - docs/HARNESS-PLAN.md")
     else:
         line = (f"PLAN: phase {cur['phase']}: open {' '.join(cur['open'])}"
                 + (f" (done {' '.join(cur['done'])})" if cur["done"] else "")
+                + (f"; held by the owner: {' '.join(held)}" if held else "")
                 + " - docs/HARNESS-PLAN.md, fieldkit plan next")
     ls = lessons(root)
     line += lessons_note(ls)
@@ -211,8 +226,10 @@ def main(argv=None):
     if r["parked"]:
         print(r["parked"])
     for ph in r["phases"]:
-        mark = "done" if not ph["open"] else ("NOW " if ph["phase"] == r["phase"] else "open")
-        print(f"  {mark}  {ph['phase']}: " + " ".join(i + ("*" if i in ph["done"] else "") for i in ph["items"]))
+        mark = ("NOW " if ph["phase"] == r["phase"] else "open") if ph["open"] else ("held" if ph["held"] else "done")
+        print(f"  {mark}  {ph['phase']}: " + " ".join(
+            i + ("*" if i in ph["done"] else " (held by the owner, not work to do)" if i in ph["held"] else "")
+            for i in ph["items"]))
     if r.get("lessons") and r["lessons"]["untooled"]:
         print(f"  lessons with no tool yet ({LESSONS}): {' '.join(r['lessons']['untooled'])}")
     stale = [i for i in r["merged"] if r["statuses"].get(i) == "PLANNED" and i not in r["written"]]

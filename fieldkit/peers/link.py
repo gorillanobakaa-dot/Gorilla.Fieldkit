@@ -930,6 +930,20 @@ def _keepalive():
         return {"ok": False, "missing": [f"status failed: {type(e).__name__}"]}
 
 
+def _ingest_soon():
+    """Hand the cable's net notes to this computer's net log in a thread of its own (the answer to the sender does not
+    wait); the net pushes msg / roll call entries for OpenCode sessions here on ingest (zero/net.py). Never raises."""
+    import threading
+
+    def run():
+        try:
+            from ..zero import net
+            net.ingest_cable()
+        except Exception:  # noqa: BLE001 - the next hook or ear ingests again
+            pass
+    threading.Thread(target=run, daemon=True).start()
+
+
 def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agents, toolset_fn=toolset, via="cable"):
     bad = verifier.check(req)
     if bad:
@@ -980,18 +994,26 @@ def handle(req, verifier, popen=subprocess.Popen, inbox_add=None, agents_fn=agen
         # the boss's `fieldkit friction` audits every machine of the household
         from ..lifecycle import friction
         return {"ok": True, "rows": friction.local_rows()}
+    if verb == "cost":
+        # read-only, like friction: this computer's own AI dollars, for the other side's `fieldkit cost report|daily`
+        # (fieldkit/tokens/cost_daily.py answer, row 20, 2026-11-02)
+        from ..tokens import cost_daily
+        return cost_daily.answer(req)
     if verb == "message":
         from . import link_receipt
         item = store("message", req)
         handed, took = "", ""
         if req.get("to"):
             try:
-                r = local_peers.send(req["to"], f"[from {req.get('from_host')} over the cable] {item['text']}",
+                r = local_peers.send(req["to"], f"[from {req.get('from_host')} over the cable] {item['text']}"
+                                     f" (answer over the cable: fieldkit peers link send \"TEXT\")",
                                      as_name=f"link-{req.get('from_host')}")
                 handed = f"; handed to session {req['to']}" if r.get("ok") else f"; session {req['to']}: {r.get('error')}"
                 took = req["to"] if r.get("ok") else ""
             except Exception as e:  # noqa: BLE001
                 handed = f"; no session {req['to']} ({e})"
+        if "NET1 {" in str(item.get("text", "")):        # I-27: a net note reaches OpenCode sessions here at once,
+            _ingest_soon()                                 # not when some Claude session next makes a call
         if took:
             link_receipt.mark_handed(item["n"], took)
         # the receipt (plan C7, 2026-10-28): an idle computer stored Zero's hand-off and answered only "ok"

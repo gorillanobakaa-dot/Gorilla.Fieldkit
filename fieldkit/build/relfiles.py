@@ -179,6 +179,9 @@ def verify(tag, repo, folder, dispatch=True, run_id=None, wait=1800, workflow="l
     out = {"tag": tag, "repo": repo, "folder": str(folder), "draft": view.get("isDraft"), "files": d["rows"],
            "xz": xz, "xz_cap_mib": xz_cap_mib,
            "problems": d["problems"] + [f"page table: {x}" for x in page] + xz_bad, "workflow": None}
+    from . import failure_checks
+    out["stored_checks"] = failure_checks.run("release", {"root": folder, "branch": ""})
+    out["problems"] += [f"{h['id']}: {f}" for h in out["stored_checks"] for f in h["findings"]]
     if dispatch or run_id:
         if not run_id:
             since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 5))
