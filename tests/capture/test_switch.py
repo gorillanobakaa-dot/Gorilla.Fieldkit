@@ -103,3 +103,11 @@ def test_hook_records_nothing_while_off(tmp_path):
     until = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
     (store / "switch.json").write_text(json.dumps({"on": True, "lesson": "t", "until": until}))
     assert _hook(store, ev) > 0
+
+
+def test_a_manual_lesson_may_run_one_week_and_not_one_minute_more(env):
+    # owner 2026-11-10: a Firefox migration took 5-6 days; one week, an extension only when the owner grants it
+    assert switch.MAX_MINUTES == 7 * 24 * 60
+    switch.turn_on("migration", 7 * 24 * 60, home=env)
+    with pytest.raises(ValueError):
+        switch.turn_on("migration", 7 * 24 * 60 + 1, home=env)
