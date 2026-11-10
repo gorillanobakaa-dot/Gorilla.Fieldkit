@@ -72,3 +72,20 @@ def test_ship_emit_records_refused_state(monkeypatch, capsys):
     method.emit({"ok": False, "state": "push-refused", "error": "hook said no"}, True, lambda d: [])
     method.emit({"ok": True, "state": "done"}, True, lambda d: [])
     assert seen == [("ship", "push-refused: hook said no")]
+
+
+def test_a_guard_refusal_reaches_the_ledger(monkeypatch):
+    # 2026-11-09: the PreToolUse guard denied `fieldkit ship release-ready` twice and the ledger never heard of it
+    import io
+    import json
+    from fieldkit.autopilot import claude_hook
+    seen = []
+    monkeypatch.setattr(refusals, "record", lambda tool, text, session=None, root=None: seen.append((tool, text)) or 0)
+    out = io.StringIO()
+    claude_hook.main(io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"},
+                                             "session_id": "s1"})), out)
+    assert "deny" in out.getvalue()
+    assert seen and seen[0][0] == "guard" and "HARD LINE 1" in seen[0][1]
+    seen.clear()
+    claude_hook.main(io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": "git status"}})), io.StringIO())
+    assert seen == []
