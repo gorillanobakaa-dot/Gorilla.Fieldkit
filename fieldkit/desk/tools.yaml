@@ -2368,6 +2368,7 @@ tools:
     - {name: action, flag: null, type: str, required: true, choices: [listen, brief, status, doctor], help: "doctor first; listen as a BACKGROUND command of its own"}
     - {name: since, flag: --since, type: int, required: false, help: "listen: read after this note number (default: the last one read)"}
     - {name: seconds, flag: --seconds, type: float, required: false, help: "listen: give up after this long (default: wait until a note comes)"}
+    - {name: as_station, flag: --as, type: str, required: false, help: "listen: this session's own ear (I-27): wakes on net traffic addressed to STATION, one ear per station, ends when it wakes you (the hook gives the line that starts it again)"}
   effects: [writes-files]
   safety: reversible             # relay.json (last note read) and relay-listen.pid only
   scope: [file]

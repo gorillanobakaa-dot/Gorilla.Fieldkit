@@ -1,8 +1,11 @@
-# Version: 1.3.0 · updated 26-10-28-20-45
+# Version: 1.4.0 · updated 26-11-10-12-00
 """A relay session: one AI session per computer whose only job is the cable, so notes are answered as they come.
 
     fieldkit peers link relay listen [--since N] [--seconds S]   wait until a note arrives (no time limit by
                                                                  default), print it fenced, remember it as read
+    fieldkit peers link relay listen --as STATION [--since OFF]   I-27: this session's own ear: ends on net
+                                                                 traffic for STATION (and plain notes while no
+                                                                 relay runs); every session runs one
     fieldkit peers link relay listen --follow                    Z1: keep listening after each message, one line
                                                                  per note, end only on an error
     fieldkit peers link relay doctor --restart                   ... and start `listen --follow` when none runs
@@ -232,6 +235,191 @@ def doctor():
                        f"command: {fieldkit_command()} peers link relay listen"]
 
 
+# ---------------------------------------------------------------- I-27: one ear per session (owner, 2026-11-10)
+#
+# "that is not real-time communication ... Fieldkit was supposed to talk in real time with another session": the one
+# relay per computer died with the session that started it (PID 1016, session 407131e1) and 97 notes sat unheard.
+# Now every AI session runs its OWN listener, its ear: `relay listen --as STATION` as a background command. It ends
+# when net traffic for that station arrives (from the other computer or from this one), which wakes the session even
+# when it is idle. While no plain relay runs, the first ear also takes the relay's duty (plain cable notes for nobody
+# in particular), so no second background command is needed. The room hook tells a session whose ear is not running
+# the exact line, on every prompt and every EAR_NAG_S on tool calls; each check-in carries the ear's state, so Zero's
+# comms check lists deaf stations as a finding.
+
+EAR_NAG_S = 600
+
+
+def _safe(station):
+    import re
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", station or "?")
+
+
+def ear_path(station):
+    return link.home() / "ears" / f"{_safe(station)}.json"
+
+
+def ear_read(station):
+    try:
+        d = json.loads(ear_path(station).read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _ear_write(station, d):
+    p = ear_path(station)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d), encoding="utf-8")
+    os.replace(tmp, p)
+
+
+def ear_state(station, alive=local_peers.pid_alive):
+    """-> {state: running|stopped|never, pid, heard (net-log offset read up to), at (last note heard)}."""
+    d = ear_read(station)
+    pid = d.get("pid")
+    running = bool(pid) and alive(int(pid))
+    return {"state": "running" if running else ("stopped" if d else "never"), "pid": pid if running else None,
+            "heard": d.get("off"), "at": d.get("heard_at")}
+
+
+def ear_unheard(station, heard=None):
+    """-> how many net entries for this station came after the ear's last read (0 when it never ran: unknown)."""
+    from ..zero import net
+    off = ear_read(station).get("off") if heard is None else heard
+    if off is None:
+        return 0
+    try:
+        return sum(1 for _, e in net.entries(min(int(off), net.log_size())) if net._addressed(e, station))
+    except Exception:  # noqa: BLE001 - a count for a report, never a failure
+        return 0
+
+
+def ear_brief(station, alive=local_peers.pid_alive):
+    """The ear's state as the check-in carries it to Zero: {"state": "running"|"deaf", "unheard": N}."""
+    s = ear_state(station, alive)
+    return {"state": "running" if s["state"] == "running" else "deaf",
+            "unheard": 0 if s["state"] == "running" else ear_unheard(station)}
+
+
+def ear_line(station):
+    """The exact line that starts this station's ear, with --since = the last net entry it read."""
+    from ..zero import net
+    off = ear_read(station).get("off")
+    if off is None:
+        off = net.log_size()
+    return f"{fieldkit_command()} peers link relay listen --as {station} --since {off}"
+
+
+def _hold_relay(alive):
+    """Take the plain relay's duty when no relay runs. -> True when this process holds it."""
+    if other_listener(alive):
+        return False
+    try:
+        cur = pid_path().read_text().strip()
+    except OSError:
+        cur = ""
+    if cur != str(os.getpid()):
+        pid_path().write_text(str(os.getpid()))
+    return True
+
+
+def _plain_new():
+    """Plain cable notes (no NET envelope) since the relay's cursor; NET ones are only marked read (the ear and the
+    net log carry them)."""
+    from ..zero import channels
+    since = last_read(default=None)
+    if since is None:
+        since = max(numbers() or [0])
+        mark_read(since)
+    new = sorted(n for n in numbers() if n > since)
+    if not new:
+        return []
+    files = numbers()
+    notes = []
+    for n in new:
+        try:
+            notes.append(json.loads(files[n].read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    mark_read(new[-1])
+    return [x for x in notes if not channels.parse_envelope(x.get("text", ""))]
+
+
+def listen_station(station, since=None, seconds=None, now=time.time, sleep=time.sleep, alive=local_peers.pid_alive,
+                   ingest=ingest_net, net=None):
+    """-> (code, net_entries, plain_notes). 0 traffic for this station arrived (or, holding the relay's duty, a plain
+    cable note), 1 none within `seconds`, 2 this station's ear already runs in another process."""
+    if net is None:
+        from ..zero import net
+    link.home().mkdir(parents=True, exist_ok=True)
+    d = ear_read(station)
+    pid = d.get("pid")
+    if pid and int(pid) != os.getpid() and alive(int(pid)):
+        return 2, [], []
+    off = since if since is not None else d.get("off")
+    if off is None:
+        off = net.log_size()
+    off = min(int(off), net.log_size())
+    d.update(station=station, pid=os.getpid(), off=off, started=time.strftime("%Y-%m-%d %H:%M:%S"))
+    _ear_write(station, d)
+    held = False
+    try:
+        end = None if seconds is None else now() + seconds
+        top = max(numbers() or [0])
+        while True:
+            t = max(numbers() or [0])
+            if t > top:                                  # a cable note came: NET ones go into the net log first
+                ingest()
+                top = t
+            held = _hold_relay(alive)
+            plain = _plain_new() if held else []
+            size = net.log_size()
+            got = [e for _, e in net.entries(off) if net._addressed(e, station)] if size > off else []
+            if size != off:
+                off = size
+                d.update(off=off)
+                if got or plain:
+                    d.update(heard_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+                _ear_write(station, d)
+            if got or plain:
+                return 0, got, plain
+            if end is not None and now() >= end:
+                return 1, [], []
+            sleep(POLL)
+    finally:
+        d = ear_read(station)
+        if d.get("pid") == os.getpid():
+            d.pop("pid", None)
+            _ear_write(station, d)
+        if held:
+            try:
+                if pid_path().read_text().strip() == str(os.getpid()):
+                    pid_path().unlink()
+            except OSError:
+                pass
+
+
+def station_main(a):
+    """`relay listen --as STATION`: print what woke it, then the line that starts it again."""
+    from ..zero import channels, net
+    code, got, plain = listen_station(a.as_station, a.since, a.seconds)
+    if code == 2:
+        print(f"REFUSED: the ear of {a.as_station} already runs (PID {ear_read(a.as_station).get('pid')}); one is "
+              "enough")
+        return 2
+    if code == 1:
+        print(f"nothing for {a.as_station} in {a.seconds:g} s")
+    n = net.load_net()
+    for e in got:
+        print(channels.human(e, n))
+    if plain:
+        print("\n".join(link.fenced(plain)))
+        print("(plain cable notes: this ear holds the relay's duty; pass each to the session it is for)")
+    print(f"EAR RESTART: after reading, start your ear again as its own background command: {ear_line(a.as_station)}")
+    return code
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog="fieldkit peers link relay", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -240,6 +428,8 @@ def main(argv):
     ap.add_argument("--seconds", type=float, help="give up after this long (default: wait until a note comes)")
     ap.add_argument("--follow", action="store_true", help="listen: keep listening after each message, print each "
                                                           "as one line, end only on an error")
+    ap.add_argument("--as", dest="as_station", help="listen: this session's own ear (I-27): wake on net traffic "
+                                                        "for this station; also the relay's duty while none runs")
     ap.add_argument("--restart", action="store_true", help="doctor: start `listen --follow` when none runs")
     a = ap.parse_args(argv)
     if a.action == "brief":
@@ -256,6 +446,8 @@ def main(argv):
             code = 0 if started else code
         print("\n".join(lines))
         return code
+    if a.as_station:
+        return station_main(a)
     if a.follow:
         code = follow(a.since, a.seconds, out=lambda l: print(l, flush=True))
         print(f"REFUSED: a relay is already listening (PID {other_listener()})" if code == 2 else

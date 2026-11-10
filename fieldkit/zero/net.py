@@ -857,7 +857,7 @@ def roll(net, now, found=None):
                      "session": rec.get("session"), "has_order": bool(rec.get("order") and not rec["order"].get("closed")),
                      "missing_parts": sitrep_missing((answered.get(s) or {}).get("data", {}).get("sitrep"))
                      if s in answered else [],
-                     "name": rec.get("name"), "tag": tag_of(s) or rec.get("tag") or ""})
+                     "name": rec.get("name"), "tag": tag_of(s) or rec.get("tag") or "", "ear": ear_label(rec, status)})
     known = set(st) | set(answered) | ({zero} if zero else set())
     devices_with_stations = {machine_of(s) for s in known}
     for f in found or []:
@@ -907,6 +907,25 @@ def roll_level(rows):
 
 # ---------------------------------------------------------------- the cable: store-and-forward from the far side
 
+def _to_opencode(e, net, opencode=None):
+    """I-27: a msg or roll call from the other computer for an OpenCode session here (its station, or every station)
+    is pushed to it through fieldkit peers (named pipe / Unix socket, same account; no port) as it is ingested, with
+    the line that answers it over the cable. -> the push rows. Never raises."""
+    to = e.get("to") or "*"
+    try:
+        if to == "*":
+            oc = opencode or ch.OpenCode()
+        elif to.startswith("opencode:") and machine_of(to) == machine():
+            name = to.split(":", 1)[1].split("@", 1)[0]
+            oc = opencode or ch.OpenCode(sessions=lambda: [{"name": name}])
+        else:
+            return []
+        return oc.push(dict(e, text=f"{e.get('text', '')} (answer: fieldkit zero send --as opencode:NAME --to "
+                                    f"{e.get('from')} \"TEXT\")"), net)
+    except Exception:  # noqa: BLE001 - a dead OpenCode never stops the ingest
+        return []
+
+
 def ingest_cable(items=None, now=None):
     """Net entries that came over the cable go into this log (once, by id); a far Zero's announcement updates this
     computer's mirror of NET.yaml only with a HIGHER epoch; the same epoch with another Zero is split-brain, logged
@@ -950,13 +969,16 @@ def ingest_cable(items=None, now=None):
                 s2 = load_stations()
                 d = e.get("data") or {}
                 renew(s2, e["from"], net, now, via="cable", sitrep=d.get("sitrep"),
-                      sitrep_ref=e.get("ref") if d.get("sitrep") else None, off=d.get("off"), tag=d.get("tag"))
+                      sitrep_ref=e.get("ref") if d.get("sitrep") else None, off=d.get("off"), tag=d.get("tag"),
+                      ear=d.get("ear") if isinstance(d.get("ear"), dict) else None)
                 s2["meta"] = st["meta"]
                 st = s2
                 save_stations(st)
         append(k, e.get("from"), to=e.get("to", "*"), text=e.get("text", ""), ref=e.get("ref"),
                data=dict(e.get("data") or {}, relayed=e.get("from_host")), want_ack=e.get("want_ack", False),
                eid=e["id"], now=now, epoch=e.get("epoch"))
+        if k in ("msg", "rollcall"):
+            _to_opencode(e, net)
         n += 1
     if since == since0 and len(seen) == seen0:       # C6: nothing came, nothing rewritten
         return n
@@ -965,6 +987,33 @@ def ingest_cable(items=None, now=None):
         s3["meta"].update(cable_since=since, seen_ids=sorted(seen)[-2000:])
         save_stations(s3)
     return n
+
+
+# ---------------------------------------------------------------- the ears (I-27)
+
+def _ear_of(station):
+    """This computer's station's ear for the check-in (fieldkit/peers/link_relay.py), or None. Never raises."""
+    try:
+        from ..peers import link, link_relay
+        return link_relay.ear_brief(station) if link.household() else None
+    except Exception:  # noqa: BLE001 - the hook informs; it never fails a tool call
+        return None
+
+
+def ear_label(rec, state):
+    """'running' / 'NOT RUNNING (N unheard)' for a Claude station that reported its ear; '' otherwise."""
+    ear = rec.get("ear") if isinstance(rec.get("ear"), dict) else None
+    if not ear or rec.get("kind", kind_of(rec.get("station", ""))) not in (None, "claude"):
+        return ""
+    if ear.get("state") == "running":
+        return "running"
+    return f"NOT RUNNING ({int(ear.get('unheard') or 0)} unheard)"
+
+
+def deaf(rows):
+    """Stations that are up and whose ear is not running: a finding of the comms check, not noise (I-27)."""
+    return sorted(r["station"] for r in rows if str(r.get("ear") or "").startswith("NOT RUNNING")
+                  and r.get("state") in ("UP", "SILENT"))
 
 
 # ---------------------------------------------------------------- the comms check
@@ -1022,6 +1071,7 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
         if ended:
             state = "ENDED"
         rows.append({"station": s, "state": state, "misses": m, "last": rec.get("last"), "kind": rec.get("kind"),
+                     "ear": ear_label(rec, state),
                      "session": rec.get("session"), "host_session": rec.get("host_session"),
                      "has_order": bool(rec.get("order") and not rec["order"].get("closed"))})
         if state == "OFF" or m == 0:
@@ -1098,8 +1148,9 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
     except Exception as e:  # noqa: BLE001 - the comms check still reports the net
         cmd = {"error": str(e), "findings": [], "new": []}
     level = (ALARM if any(r["state"] == "MISSING" for r in rows) or any(not x["ok"] and not x.get("revived") and not x.get("off") for x in links)
-             else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings") else OK)
-    out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried,
+             else WARN if any(r["state"] == "SILENT" for r in rows) or undelivered or cmd.get("findings")
+             or deaf(rows) else OK)
+    out = {"established": True, "net": net, "rows": rows, "events": events, "retried": retried, "deaf": deaf(rows),
            "undelivered": undelivered, "links": links, "level": level, "command": cmd,
            "unanswered": unanswered([r for r in rows if r["state"] in ("SILENT", "MISSING")])}
     if board:
@@ -1236,16 +1287,19 @@ def _net_line(call, event, now=None):
             if ingest is None:                        # C6: the ingest stamp rides the lease's write, not its own
                 ingest = _ingest_due(st, now)
             if new or now - float(rec.get("last") or 0) >= RENEW_EVERY_S or rec.get("off"):
-                rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me),
+                rec = renew(st, me, net, now, via="hook", folder=call.get("cwd"), session=sid, tag=tag_of(me), ear=_ear_of(me),
                             host_session=call.get("host_session") or os.environ.get("CLAUDE_CODE_HOST_SESSION_ID"))
             items = pending_for(me, rec, net, now)
             if items:
                 rec["seen_off"] = log_size()
             elif rec.get("seen_off") is None:
                 rec["seen_off"] = log_size()
-            tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60)
+            ear_now = (rec.get("ear") or {}).get("state")
+            tell_far = far and (new or now - float(rec.get("cable_at") or 0) >= float(cfg(net, "interval_min")) * 60
+                                or (ear_now and ear_now != rec.get("ear_told")))   # I-27: Zero hears a deaf ear soon
             if tell_far:
-                rec["cable_at"] = now                 # tried or not: the next try waits an interval (no hook stalls)
+                rec["cable_at"] = now
+                rec["ear_told"] = ear_now                 # tried or not: the next try waits an interval (no hook stalls)
             if ingest or json.dumps(rec, sort_keys=True, default=str) != before:   # C6: no rewrite on every call
                 save_stations(st)
         if ingest:
@@ -1254,8 +1308,9 @@ def _net_line(call, event, now=None):
             except Exception:  # noqa: BLE001
                 pass
         if new or tell_far:
-            e = append("checkin", me, to=zero_of(net), data={k: v for k, v in {"by": "hook", "tag": tag_of(me)}.items()
-                                                             if v}, now=now)
+            e = append("checkin", me, to=zero_of(net), data={k: v for k, v in {"by": "hook", "tag": tag_of(me),
+                                                                               "ear": rec.get("ear")}.items() if v},
+                       now=now)
             if tell_far:                              # Zero is on the other computer: its lease is renewed there (C2)
                 (ch.Cable(timeout=CABLE_HOOK_TIMEOUT_S)).push(e, net)
         out.extend(_auto_assume(me, net, event, now))
@@ -1391,7 +1446,8 @@ def roll_lines(r):
         return ["no roll call yet: fieldkit zero rollcall"]
     out = [f"ROLL CALL {rc['id']} sent {rc.get('at')}, answers due {_when(rc.get('deadline'))}"]
     for x in r["rows"]:
-        out.append(f"  {x['status']:<12} {tagged_station(x['station'])}" + (f" ({x['name']})" if x.get("name") else ""))
+        out.append(f"  {x['status']:<12} {tagged_station(x['station'])}" + (f" ({x['name']})" if x.get("name") else "")
+                   + (f" ear: {x['ear']}" if x.get("ear") else ""))
         if x.get("sitrep"):
             for k, label in SITREP + SITREP4:
                 out.append(f"      {label + ':':<15}{x['sitrep'].get(k) or ('MISSING' if (k, label) in SITREP4 else '-')}")
@@ -1539,7 +1595,10 @@ def main(argv=None, prog="fieldkit zero"):
                 return NONET
             lines = [f"COMMS CHECK {('OK', 'WARN', 'ALARM')[r['level']]}: Zero {zero_of(r['net'])}, epoch "
                      f"{r['net'].get('epoch')}"]
-            lines += [f"  {x['state']:<8} {x['station']} (last {_when(x['last'])})" for x in r["rows"]]
+            lines += [f"  {x['state']:<8} {x['station']} (last {_when(x['last'])})"
+                      + (f" ear: {x['ear']}" if x.get("ear") else "") for x in r["rows"]]
+            lines += [f"  DEAF     {x}: its ear is not running; notes reach it only at its next call (I-27: the "
+                      "room hook gives it the line; an idle desktop session needs a nudge)" for x in r.get("deaf") or []]
             lines += [f"  cable {x['device']}: {x['detail']}" for x in r["links"]] or ["  cable: not paired"]
             try:                                      # the SSH-only devices of the household (C1), no ping sweep
                 from ..peers import household

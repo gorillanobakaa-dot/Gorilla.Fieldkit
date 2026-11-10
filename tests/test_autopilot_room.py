@@ -8,7 +8,7 @@ import pytest
 
 from fieldkit.autopilot import room
 
-REAL_RELAY = room._relay
+REAL_EAR = room._ear
 
 
 @pytest.fixture(autouse=True)
@@ -256,31 +256,39 @@ def test_a_reader_with_nothing_new_writes_nothing(_room_dir):
     assert cur.stat().st_mtime_ns == t - 10**9
 
 
-def test_a_prompt_on_a_computer_whose_relay_is_deaf_says_how_to_start_it(monkeypatch, capsys):
-    """2026-10-28, owner: "make it FULL WORKING": 100 cable notes sat stored and unheard on the VAIO."""
+def test_a_session_whose_ear_is_not_running_is_told_the_line_every_time(monkeypatch, capsys, tmp_path):
+    """I-27 (owner, 2026-11-10: "that is not real-time communication"): the one relay died with its session and 97
+    notes sat unheard. Every session is told to start its own ear, again after it ended (not deduped), never on the
+    call that starts it, never headless, never without a household."""
     from fieldkit.peers import link, link_relay
-    monkeypatch.setattr(room, "_relay", REAL_RELAY)                 # conftest turns it off for every other test
+    monkeypatch.setattr(room, "_ear", REAL_EAR)                      # conftest turns it off for every other test
     for f in ("_net", "_hog", "_rotate", "_plan", "_workflows", "_refusals"):
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
     monkeypatch.delenv("FIELDKIT_AUTOPILOT", raising=False)
+    monkeypatch.setenv("FIELDKIT_LINK_HOME", str(tmp_path / "link"))
     monkeypatch.setattr(link, "household", lambda: {"me": "vaio"})
-    monkeypatch.setattr(link_relay, "numbers", lambda: {208: 0, 209: 0})
-    listener = {"pid": None}
-    monkeypatch.setattr(link_relay, "other_listener", lambda *a, **k: listener["pid"])
+    alive = {"pid": None}
+    monkeypatch.setattr(link_relay.local_peers, "pid_alive", lambda pid: pid == alive["pid"])
+    monkeypatch.setattr(link_relay, "ear_state", lambda st, alive_=None: {"state": "running" if alive["pid"] else
+                                                                          "stopped"})
+    monkeypatch.setattr(link_relay, "ear_line", lambda st: f"fk peers link relay listen --as {st} --since 7")
 
-    def said(event="UserPromptSubmit", sid="r1"):
-        room.hook(io.StringIO(json.dumps({"session_id": sid, "hook_event_name": event, "prompt": "go"})))
+    def said(event="UserPromptSubmit", sid="r1", cmd=None):
+        call = {"session_id": sid, "hook_event_name": event, "prompt": "go"}
+        if cmd:
+            call["tool_input"] = {"command": cmd}
+        room.hook(io.StringIO(json.dumps(call)))
         out = capsys.readouterr().out
         return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
     first = said()
-    assert first.startswith("RELAY NOT LISTENING") and "relay listen --since 209" in first
-    assert said() == ""                                              # once per session
-    assert said(sid="r2").startswith("RELAY NOT LISTENING")          # every session is told
-    listener["pid"] = 4242
-    assert said(sid="r3") == ""                                      # a relay listens: nothing to say
-    listener["pid"] = None
+    assert first.startswith("EAR NOT RUNNING") and "relay listen --as claude:r1@" in first and "--since 7" in first
+    assert said().startswith("EAR NOT RUNNING")                      # every prompt while it is down: not deduped
+    assert said(cmd="fk peers link relay listen --as x") == ""        # the call that starts it
+    alive["pid"] = 4242
+    assert said(sid="r3") == ""                                      # its ear runs: nothing to say
+    alive["pid"] = None
     monkeypatch.setenv("FIELDKIT_AUTOPILOT", "1")
-    assert said(sid="r4") == ""                                      # a headless run is never the relay
+    assert said(sid="r4") == ""                                      # a headless run ends too soon to listen
     monkeypatch.delenv("FIELDKIT_AUTOPILOT")
     monkeypatch.setattr(link, "household", lambda: {})
     assert said(sid="r5") == ""                                      # no cable on this computer
