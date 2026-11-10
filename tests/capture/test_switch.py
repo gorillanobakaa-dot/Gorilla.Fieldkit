@@ -111,3 +111,63 @@ def test_a_manual_lesson_may_run_one_week_and_not_one_minute_more(env):
     switch.turn_on("migration", 7 * 24 * 60, home=env)
     with pytest.raises(ValueError):
         switch.turn_on("migration", 7 * 24 * 60 + 1, home=env)
+
+
+# ---- P26: an extension is asked of the owner, never taken or let lapse silently ------------------------------------
+T0 = datetime(2026, 11, 10, 12, tzinfo=timezone.utc)
+
+
+def test_extension_asked_once_under_12h_with_the_job_named(env):
+    switch.turn_on("kernel 7.1 build", 7 * 24 * 60, home=env, py="py", now=T0, owner="kernel:job-1")
+    asked = []
+    add = lambda *a, **k: asked.append((a, k))
+    assert switch.ask_extension(T0 + timedelta(days=3), add) == "" and not asked
+    line = switch.ask_extension(T0 + timedelta(days=7) - timedelta(hours=11), add)
+    assert "kernel:job-1" in line and "fieldkit capture on --for" in line and "yourself" in line
+    assert len(asked) == 1 and asked[0][1]["kind"] == "hardline" and "kernel:job-1" in asked[0][0][0]
+    switch.ask_extension(T0 + timedelta(days=7) - timedelta(hours=5), add)
+    assert len(asked) == 1                                       # once per end time, the line stays
+
+
+def test_no_extension_when_off_or_expired(env):
+    asked = []
+    switch.turn_on("l", 60, home=env, py="py", now=T0)
+    assert switch.ask_extension(T0 + timedelta(hours=2), lambda *a, **k: asked.append(a)) == "" and not asked
+    switch.turn_off(home=env, run=_no_schedule, system="win32")
+    assert switch.ask_extension(T0, lambda *a, **k: asked.append(a)) == "" and not asked
+
+
+def test_extend_keeps_lesson_and_owner_and_asks_again_later(env):
+    switch.turn_on("l", 60, home=env, py="py", now=T0, owner="o")
+    switch.ask_extension(T0 + timedelta(minutes=30), lambda *a, **k: None)
+    d = switch.extend(600, now=T0 + timedelta(minutes=40), home=env, py="py")
+    assert d["lesson"] == "l" and d["owner"] == "o" and "asked_until" not in d
+    assert switch.read()["until"].startswith("2026-11-10T22:40")
+    with pytest.raises(ValueError):
+        switch.extend(switch.MAX_MINUTES + 1, now=T0 + timedelta(minutes=40), home=env)
+    switch.turn_off(home=env, run=_no_schedule, system="win32")
+    with pytest.raises(ValueError):
+        switch.extend(60, home=env)
+
+
+def test_cli_on_without_lesson_extends(env, monkeypatch):
+    monkeypatch.setenv("HOME", str(env))
+    switch.turn_on("keep me", 30, home=env, py="py")
+    r = subprocess.run([sys.executable, "-m", "fieldkit", "capture", "on", "--for", "600", "--json"],
+                       capture_output=True, text=True, env={**os.environ, "HOME": str(env)})
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["lesson"] == "keep me"
+    assert (datetime.fromisoformat(switch.read()["until"]) - datetime.now(timezone.utc)) > timedelta(hours=9)
+
+
+def test_plan_hook_line_carries_the_capture_line(env, monkeypatch, tmp_path):
+    from fieldkit import plan
+    switch.turn_on("l", 60, home=env, py="py", owner="job-x")
+    monkeypatch.setattr("fieldkit.autopilot.inbox.add", lambda *a, **k: {})
+    (tmp_path / "st").mkdir()
+    monkeypatch.setattr(plan, "state_file", lambda root=None: tmp_path / "st" / "plan.json")
+    (tmp_path / "st" / "plan.json").write_text('{"line": "PLAN: x"}')
+    out = plan.line(live=False)
+    assert out.startswith("PLAN: x") and "job-x" in out
+    switch.turn_off(home=env, run=_no_schedule, system="win32")
+    assert plan.line(live=False) == "PLAN: x"

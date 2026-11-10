@@ -300,7 +300,7 @@ def main(argv=None):
     h = sub.add_parser("hook", help="journal one agent hook event from stdin")
     h.add_argument("--agent", required=True, choices=["claude", "gemini", "opencode"])
     on = sub.add_parser("on", help="capture for one lesson, for a fixed time")
-    on.add_argument("--lesson", required=True, help="what the harness is being taught")
+    on.add_argument("--lesson", default=None, help="what the harness is being taught (omit it, with capture on, to extend it)")
     on.add_argument("--for", dest="minutes", type=int, default=120, help="minutes until it stops by itself (max 10080, one week)")
     on.add_argument("--json", action="store_true")
     off = sub.add_parser("off", help="stop capture: hooks out, scan disabled")
