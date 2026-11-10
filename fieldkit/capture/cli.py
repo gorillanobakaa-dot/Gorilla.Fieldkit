@@ -358,6 +358,9 @@ def main(argv=None):
     ad = sub.add_parser("adopted", help="tools the capture loop adopted by itself: list them, or run one by ID")
     ad.add_argument("id", nargs="?")
     ad.add_argument("--json", action="store_true")
+    pj = sub.add_parser("project", help="P26: a project's harness section (firefox, kernel, opencode): its workflows in order")
+    pj.add_argument("name")
+    pj.add_argument("--json", action="store_true")
     t = sub.add_parser("self-test", help="prove capture in a sandbox store")
     from . import selftest
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
@@ -365,6 +368,9 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.action == "scan":
         return _not_built("scan")
+    if a.action == "project":
+        from . import projects
+        return projects.cmd(a)
     if a.action in ("on", "off", "state"):
         from . import switch
         return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)

@@ -7297,3 +7297,39 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_repair_source.py", "${FIELDKIT}/tests/test_repair_system.py"]
   skill: skills/fieldkit-repair/SKILL.md
   notes: "Kiro port, idea I-19 (docs/P18-DISTILL.md). Fixers change files only with --apply, keep line endings, write atomically."
+
+- id: harness-firefox
+  title: "Gorilla Firefox harness section: entry card, its workflows in order (a GOTO for a small model), its tools, what capture adopted and left open"
+  harness: method
+  entry: [python, -m, fieldkit, capture, project, firefox]
+  path: ${FIELDKIT}/fieldkit/capture/projects.py
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
+  notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
+
+- id: harness-kernel
+  title: "Gorilla Debian kernel harness section: entry card, its workflows in order (a GOTO for a small model), its tools, what capture adopted and left open"
+  harness: method
+  entry: [python, -m, fieldkit, capture, project, kernel]
+  path: ${FIELDKIT}/fieldkit/capture/projects.py
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
+  notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."
+
+- id: harness-opencode
+  title: "Gorilla OpenCode harness section: entry card, its workflows in order (a GOTO for a small model), its tools, what capture adopted and left open"
+  harness: method
+  entry: [python, -m, fieldkit, capture, project, opencode]
+  path: ${FIELDKIT}/fieldkit/capture/projects.py
+  effects: [reads-files]
+  safety: read-only
+  output: own
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_projects.py"]
+  notes: "P26. Built from fieldkit/capture/projects.yaml, the emerge recipes and the tool cards; captured candidates carry the project prefix and are listed here once adopted."

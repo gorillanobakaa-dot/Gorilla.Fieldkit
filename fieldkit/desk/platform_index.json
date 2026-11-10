@@ -1460,6 +1460,36 @@
    "capture"
   ]
  },
+ "capture project firefox": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "harness-firefox"
+  ]
+ },
+ "capture project kernel": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "harness-kernel"
+  ]
+ },
+ "capture project opencode": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "harness-opencode"
+  ]
+ },
  "ciaudit": {
   "platforms": [
    "darwin",

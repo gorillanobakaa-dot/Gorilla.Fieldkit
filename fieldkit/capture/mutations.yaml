@@ -82,3 +82,8 @@
 - {file: fieldkit/migrate/plan.py, swap: ["    if red:\n        raise task.Refused(f\"the S9 gate is RED", "    if False:\n        raise task.Refused(f\"the S9 gate is RED"], why: "a migration closes only with the S9 gate green"}
 - {file: fieldkit/migrate/plan.py, swap: ['    p["capture"] = capture_begin(m.tid)', '    p["capture"] = None'], why: "migrate init switches capture on"}
 - {file: fieldkit/core/pipeline.py, swap: ['with loop.job(self.name, f"pipeline {self.name}"), \', 'with'], why: "a project pipeline run is captured"}
+- {file: fieldkit/capture/projects.py, swap: ['    return cid if not pre or cid.startswith(pre) else pre + cid', '    return cid'], why: "a captured candidate gets its project prefix"}
+- {file: fieldkit/capture/loop.py, swap: ['        entry = {**entry, "project": project}', '        pass'], why: "a ledger line names its project"}
+- {file: fieldkit/capture/loop.py, swap: ['    own = project_of(who)', '    own = None'], why: "a group takes its project from the run first"}
+- {file: fieldkit/capture/projects.py, swap: ['    open_lines = [x for x in ledger if x.get("project") == name]', '    open_lines = list(ledger)'], why: "a section lists only its own project open lines"}
+- {file: fieldkit/capture/projects.py, swap: ['    ids = sorted(t for t in tools if t.startswith(pre) or t in fam)', '    ids = sorted(tools)'], why: "a section lists only its own project tools"}

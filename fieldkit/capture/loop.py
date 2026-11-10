@@ -102,7 +102,9 @@ def _slug(text):
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-") or "x"
 
 
-def _ledger(entry):
+def _ledger(entry, project=None):
+    if project:
+        entry = {**entry, "project": project}
     p = st.capture_dir() / LEDGER
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:
@@ -144,8 +146,10 @@ def _test(cid, rec):
             f"    assert 'set -euo pipefail' in (Path(__file__).with_name({cid + '.sh'!r})).read_text(encoding='utf-8')\n")
 
 
-def write_candidate(rec, out_dir=None):
-    cid = _slug(rec["id"])
+def write_candidate(rec, out_dir=None, project=None):
+    """The candidate's id carries its project's prefix (bh-, kernel-, opencode-): that is how it reaches the project's section."""
+    from . import projects as P
+    cid = P.prefixed(project, _slug(rec["id"]))
     d = Path(out_dir or st.capture_dir() / "candidates") / cid
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{cid}.sh").write_text(_script(rec), encoding="utf-8", newline="\n")
@@ -157,6 +161,7 @@ def write_candidate(rec, out_dir=None):
 def _auto_adopt(res, who, ship=None, repo=None):
     """Try every candidate (test, mutate, privacy); adopt the ones that pass in one pull request; ledger the rest."""
     from . import autoadopt as A
+    from . import projects as P
     passed = []
     for path in res["candidates"]:
         r = A.try_candidate(path)
@@ -164,16 +169,27 @@ def _auto_adopt(res, who, ship=None, repo=None):
             passed.append(path)
         else:
             res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": None, "episodes": 0, "candidate": r["id"],
-                                          "step": r["step"], "reason": f"candidate {r['id']} refused at step {r['step']}: {r['reason']}"}))
+                                          "step": r["step"], "reason": f"candidate {r['id']} refused at step {r['step']}: {r['reason']}"},
+                                          P.project_of_id(r["id"])))
     done = A.adopt_all(passed, repo or _root(), who, ship=ship)
     for cid, why in done["failed"].items():
         res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": None, "episodes": 0, "candidate": cid,
-                                      "step": "adopt", "reason": f"candidate {cid} passed its checks but {why}"}))
+                                      "step": "adopt", "reason": f"candidate {cid} passed its checks but {why}"}, P.project_of_id(cid)))
     if done["adopted"] and done["shipped"] is False:
         res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": None, "episodes": 0, "step": "ship",
                                       "reason": f"adopted {', '.join(done['adopted'])} on branch {done['branch']} but the push failed: {done['note']}"}))
     res["adopted"] = done["adopted"]
     res["adopt"] = done
+
+
+def _project_of_group(who, eps):
+    """The project of an intent group: the run's own (lesson or job name), else the most common one among its episodes' cwd."""
+    from collections import Counter
+    own = project_of(who)
+    if own:
+        return own
+    c = Counter(p for p in (project_of(e.get("cwd")) for e in eps) if p)
+    return c.most_common(1)[0][0] if c else None
 
 
 def distil(since, who="manual", store=None, say=print, root=None, adopt=None, ship=None):
@@ -200,11 +216,12 @@ def distil(since, who="manual", store=None, say=print, root=None, adopt=None, sh
                 n = sum(1 for e in fresh.values() if e.get("intent") == "other")
                 res["groups"][intent] = "no intent"
                 res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": intent, "episodes": n,
-                                              "reason": f"{n} episode(s) of this run match no intent group: nothing to align"}))
+                                              "reason": f"{n} episode(s) of this run match no intent group: nothing to align"}, _project_of_group(who, [e for e in fresh.values() if e.get("intent") == "other"])))
                 continue
             rec = R.build(s, intent, None, sigs)
+            proj = _project_of_group(who, [e for e in fresh.values() if e.get("intent") == intent])
             if rec["accepted"]:
-                path = write_candidate(rec)
+                path = write_candidate(rec, project=proj)
                 res["candidates"].append(path)
                 res["groups"][intent] = f"candidate {path}"
             else:
@@ -213,13 +230,13 @@ def distil(since, who="manual", store=None, say=print, root=None, adopt=None, sh
                     res["groups"][intent] = "ledger"
                     res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": intent, "episodes": n,
                                                   "reason": f"{n} episode(s) of this run, none with 3+ steps and an anchor command of "
-                                                            f"the {intent} flow: too short to align into a recipe"}))
+                                                            f"the {intent} flow: too short to align into a recipe"}, proj))
                     continue
                 proc, marks = R.procedure(s, rec)
                 D.apply_marks(s, marks)
                 res["groups"][intent] = "ledger"
                 res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": intent, "episodes": rec["episodes"]["in_group"],
-                                              "reason": proc["reason"]}))
+                                              "reason": proc["reason"]}, proj))
         if res["candidates"] and adopt is not False and not os.environ.get("FIELDKIT_CAPTURE_NO_ADOPT"):
             _auto_adopt(res, who, ship=ship, repo=root)
         marks, rules = C.classify(s)
