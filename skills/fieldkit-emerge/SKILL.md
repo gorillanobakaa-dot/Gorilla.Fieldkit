@@ -41,6 +41,14 @@ fieldkit emerge export RECIPE --out F / repro RECIPE --with F    same key on two
 6. **Report**: one line per stage with the ETA, `state/emerge/<recipe>/last-report.json`, `overhead.json` (fieldkit
    overhead's shape: wall vs bare, buckets, ratio, the pre-AI baseline) and `journal.jsonl`.
 
+## Capture loop (owner 2026-11-10)
+
+`emerge run` switches `fieldkit capture` on at the start and off at the end (green, failed or crashed), unless someone
+else's switch is already on (then it is left alone). At the end it distils the run's records: a recipe that replays
+becomes a candidate tool in `state/capture/candidates/ID/` (script, `card.yaml`, test: prove it with `fieldkit mutate`,
+install with `fieldkit adopt`); what cannot be made deterministic gets a line with its reason in
+`state/capture/agent-ledger.jsonl`. By hand: `fieldkit capture off --distill`. `FIELDKIT_EMERGE_NO_CAPTURE=1` skips it.
+
 ## Writing a recipe
 
 `fieldkit/emerge/recipes/<name>.yaml`: either `pipeline: <fieldkit/build/pipelines name>` plus an overlay per
