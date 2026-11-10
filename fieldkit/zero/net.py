@@ -1258,6 +1258,10 @@ def _auto_assume(me, net, event, now):
     zero = zero_of(net)
     if event not in ("UserPromptSubmit", "SessionStart") or not zero or zero == me:
         return []
+    if os.environ.get("FIELDKIT_JOB_DIR"):
+        # 2026-11-10: headless job T-20261110-062546 (d9fb524b) assumed Zero at 07:25 and exited at 07:26, leaving
+        # the seat MISSING for 9 hours with 40 cable notes unheard. A job that ends on its own never holds the seat.
+        return []
     zrec = load_stations()["stations"].get(zero)
     if zrec is None or state_of(zrec, now) != "MISSING":
         return []

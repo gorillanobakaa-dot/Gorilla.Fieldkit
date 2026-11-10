@@ -871,6 +871,15 @@ def test_the_hook_of_a_live_session_assumes_when_zero_is_missing():
     assert "you assumed Zero" in out and net.zero_of(net.load_net()) == TWO and net.load_net()["epoch"] == 2
 
 
+def test_a_headless_job_never_assumes_zero(monkeypatch, tmp_path):
+    opened()
+    late = T0 + 3 * 3600
+    _live(ZERO, T0)
+    monkeypatch.setenv("FIELDKIT_JOB_DIR", str(tmp_path / "T-20261110-062546-40f9be"))
+    out = net._net_line({"session_id": "bbbbbbbb-1"}, "UserPromptSubmit", now=late)
+    assert "assumed" not in out and net.zero_of(net.load_net()) == ZERO and net.load_net()["epoch"] == 1
+
+
 def test_the_hook_never_assumes_while_zero_is_up_or_silent():
     opened()
     _live(ZERO, T0)
