@@ -1,4 +1,7 @@
 """Firefox on Linux: the stages, run against fakes (no mach, no build, nothing on the machine touched)."""
+import sys
+
+import pytest
 from pathlib import Path
 import time
 from types import SimpleNamespace
@@ -116,3 +119,17 @@ def test_one_build_date_for_the_whole_build_and_the_binaries_agree_with_applicat
     assert fl.verify_build(c, run=run)["ok"]
     (d / "libxul.so").write_bytes(b"\0" + b"20261023170000" + b"\0")   # libxul not relinked: its id may be older
     assert fl.verify_build(c, run=run)["ok"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the deps stage is Linux-only (firefox-linux.yaml platforms: [linux]); Windows finds tools by PATHEXT")
+def test_toolchain_which_finds_rustup_and_mozbuild_tools_a_non_login_path_lacks(tmp_path, monkeypatch):
+    """A runner started without a login shell has no ~/.cargo/bin on PATH; the deps stage must still find cargo there."""
+    cargo = tmp_path / ".cargo" / "bin"
+    cargo.mkdir(parents=True)
+    tool = cargo / "cbindgen-test-tool"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    monkeypatch.setattr(fl.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("PATH", "/nonexistent")
+    assert fl._toolchain_which("cbindgen-test-tool") == str(tool)
+    assert fl._toolchain_which("no-such-tool-xyz") is None
