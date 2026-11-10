@@ -202,14 +202,18 @@ def schedule_state(run=_run, system=None):
 
 
 # ---- commands -------------------------------------------------------------------------------------------------------
-def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None):
+def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES):
+    """owner/cap: a build-scoped capture (fieldkit.capture.loop) names who switched it on and lasts as long as the run;
+    a manual lesson keeps the 24 h cap."""
     if not (lesson or "").strip():
         raise ValueError("--lesson is required: say what the harness is being taught")
-    if not 1 <= minutes <= MAX_MINUTES:
-        raise ValueError(f"--for must be 1..{MAX_MINUTES} minutes")
+    if not 1 <= minutes <= cap:
+        raise ValueError(f"--for must be 1..{cap} minutes")
     t = now or _now()
     d = {"on": True, "lesson": lesson.strip(), "since": t.isoformat(timespec="seconds"),
          "until": (t + timedelta(minutes=minutes)).isoformat(timespec="seconds")}
+    if owner:
+        d["owner"] = owner
     _write(d)
     d["hooks_added"] = edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py))
     return d
@@ -267,11 +271,19 @@ def cmd_on(a):
 
 
 def cmd_off(a):
+    since = read().get("since")
     d = turn_off()
     errs = _errors(d["hooks_removed"]) + _errors(d["schedule"])
     lines = ["capture OFF", "hooks removed: " + ", ".join(f"{k} {v}" for k, v in d["hooks_removed"].items()),
              "schedule: " + ", ".join(f"{k} {v}" for k, v in d["schedule"].items())] + errs
-    _print(a, d, lines, "nothing to do" if not errs else "fix the ERROR lines above")
+    nxt = "nothing to do" if not errs else "fix the ERROR lines above"
+    if getattr(a, "distill", False):
+        from . import loop
+        r = loop.distil(since, "manual")
+        d["distil"] = r
+        lines.append(f"distil: {r['episodes']} episode(s), {len(r['candidates'])} candidate tool(s), {len(r['ledger'])} ledger line(s)")
+        nxt = "candidates in state/capture/candidates/ (fieldkit mutate, then fieldkit adopt); ledger lines in state/capture/agent-ledger.jsonl"
+    _print(a, d, lines, nxt)
     return 1 if errs else 0
 
 

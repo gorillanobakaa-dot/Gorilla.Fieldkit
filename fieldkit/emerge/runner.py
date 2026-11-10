@@ -486,8 +486,38 @@ class Emerge:
     def run(self, only=None):
         # under a liveness beacon: heartbeat + every stage's container members (fieldkit liveness check sees it)
         from ..core import liveness
-        with liveness.beacon("emerge", self.recipe.name, f"fieldkit emerge {self.recipe.name}"):
-            return self._run_all(only)
+        cap = self._capture_begin()
+        try:
+            with liveness.beacon("emerge", self.recipe.name, f"fieldkit emerge {self.recipe.name}"):
+                return self._run_all(only)
+        finally:
+            self._capture_end(cap)
+
+    def _capture_begin(self):
+        """Capture is on for the whole build (owner 2026-11-10); a switch someone else turned on is never ours to turn off."""
+        if os.environ.get("FIELDKIT_EMERGE_NO_CAPTURE"):
+            return None
+        try:
+            from ..capture import loop
+            tok = loop.begin(f"emerge {self.recipe.name} {self.mode} {os.getpid()}-{int(time.time())}",
+                             f"emerge:{self.recipe.name}:{os.getpid()}")
+            self.say(f"capture: {tok['note']}" + (" (switched on by this run)" if tok["owner"] else ""))
+            return tok
+        except Exception as e:  # noqa: BLE001  capture must never fail a build
+            self.say(f"capture: not switched on ({e})")
+            return None
+
+    def _capture_end(self, tok):
+        if not tok:
+            return
+        try:
+            from ..capture import loop
+            r = loop.end(tok)
+            d = r["distil"]
+            self.say(f"capture: {r['off']}; distil {d['episodes']} episode(s), {len(d['candidates'])} candidate tool(s), "
+                     f"{len(d['ledger'])} ledger line(s)")
+        except Exception as e:  # noqa: BLE001
+            self.say(f"capture: end step failed ({e})")
 
     def _run_all(self, only=None):
         t_start, wall0 = _now(), self.clock()

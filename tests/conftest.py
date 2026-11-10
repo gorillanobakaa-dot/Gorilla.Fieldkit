@@ -418,3 +418,7 @@ def _isolated_lifecycle(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path_factory.mktemp("lifecycle")))
     yield
 
+
+# A test that runs an emerge Runner must not switch the real capture on (hooks in ~/.claude); tests of the loop itself
+# call fieldkit.capture.loop with a sandbox store and home (tests/capture/test_loop.py).
+_os.environ["FIELDKIT_EMERGE_NO_CAPTURE"] = "1"

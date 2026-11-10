@@ -5983,7 +5983,7 @@ tools:
   notes: "Goal pinned-helpers (2026-11-01): BtbN's rolling FFmpeg builds were deleted. Reads third_party/PINS.md, internal/toolbox/SHA256SUMS, scripts/build-toolbox.*, scripts/fetch-toolbox-extras.sh."
 
 - id: capture
-  title: Capture of the scripts, commands and procedures an agent makes or runs, only while a lesson is taught (capture on --lesson WHY --for MINUTES, capture off, capture state) - kept with its context, failed attempts linked to their fix, found again by words
+  title: Capture of the scripts, commands and procedures an agent makes or runs - on for a lesson (capture on --lesson WHY --for MINUTES) or for a whole build (fieldkit emerge run switches it on and off by itself, then distils), capture off --distill turns what was recorded into candidate tools (script + card + test) or agent-ledger lines with a reason; kept with context, failed attempts linked to their fix, found again by words
   harness: method
   entry: [python, -m, fieldkit, capture]
   path: ${FIELDKIT}/fieldkit/capture
@@ -5998,9 +5998,9 @@ tools:
   output: own
   exits: {2: "bad usage, or a part that a later job builds (scan, other self-test flags)", 3: "verify or strict ledger found a loss, a broken chain or an unaccounted item; a self-test failed"}
   platforms: [windows, linux]
-  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py", "${FIELDKIT}/tests/capture/test_weaktest.py"]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/capture/test_capture.py", "${FIELDKIT}/tests/capture/test_weaktest.py", "${FIELDKIT}/tests/capture/test_loop.py"]
   skill: skills/fieldkit-methods/SKILL.md
-  notes: "P18: `capture workflow list|show|offer` serves the distilled recipes one step at a time (sentence, command, check) and the prompt hook offers the one a request matches; `capture weaktest [--model ID]` measures every recipe against the sitrep reader rules and a small LM Studio model. Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
+  notes: "P18 build loop (owner 2026-11-10): `emerge run` records (capture on at start, off at the end, also on a crash; a switch someone else turned on is left alone) and the end makes tools: fieldkit/capture/loop.py distil = episodes, intents, recipes, classify; a recipe that replays becomes state/capture/candidates/ID/ (script, card.yaml, test; prove with fieldkit mutate, install with fieldkit adopt), a group that does not goes to state/capture/agent-ledger.jsonl with its reason. FIELDKIT_EMERGE_NO_CAPTURE=1 disables it. P18: `capture workflow list|show|offer` serves the distilled recipes one step at a time (sentence, command, check) and the prompt hook offers the one a request matches; `capture weaktest [--model ID]` measures every recipe against the sitrep reader rules and a small LM Studio model. Owner 2026-11-01 (goal harvest-automatic): capture everything at creation time, preserve before processing, full context, nothing discarded. Find what an earlier agent already built: fieldkit capture find WORDS. Append-only hash-chained fsync journal, dedup by content (repeats counted, every version kept), queue states raw|processing|tool|procedure|promoted, secrets redacted at capture time."
 
 - id: version-sync
   title: Every place a project states its version agrees - manifests, lock file, packaging, installer, headers, the built program
