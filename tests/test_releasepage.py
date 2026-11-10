@@ -186,7 +186,7 @@ def test_the_tool_table_is_generated_from_the_cards_and_must_be_on_the_page(tmp_
     table = RP.tool_table(tmp_path)
     assert RP.TOOLS_BEGIN in table and "Every tool in this release (2)" in table
     assert "| `fieldkit ciaudit` | How much CI ran the whole suite | windows, linux |" in table
-    assert "a \| pipe" in table and table.index("ciaudit") < table.index("zeta")
+    assert "a \\| pipe" in table and table.index("ciaudit") < table.index("zeta")
     page = RP.compose(OPENING, LAYMAN, DEVELOPER, tools=table)
     assert RP.check(page, LAYMAN, DEVELOPER, tools=table) == []
     assert page.index(RP.LAYMAN_MARK) < page.index(RP.TOOLS_BEGIN) < page.index(RP.DEVELOPER_MARK)
