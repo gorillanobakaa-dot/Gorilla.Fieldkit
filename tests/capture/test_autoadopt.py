@@ -81,7 +81,11 @@ def test_mutation_proof_each_check_can_fail(env, monkeypatch):
     assert A.try_candidate(_leaky(env))["ok"], "privacy check removed: the leak goes through, so the check is what refuses it"
 
 
-def test_adopt_end_to_end_in_a_worktree(env):
+def test_adopt_end_to_end_in_a_worktree(env, monkeypatch):
+    # the nested commit would run this repo's pre-commit hook, which runs THIS test again: switch the hook off for the test only
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(env / "empty-hooks-dir"))
     repo = Path(settings.ROOT)
     seen = {}
 
@@ -138,6 +142,7 @@ def test_a_failed_push_is_a_ledger_line(env, monkeypatch):
     assert len(res["ledger"]) == 1 and "push failed" in json.loads((st.capture_dir() / loop.LEDGER).read_text().splitlines()[-1])["reason"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="adopted tools are bash scripts distilled on Linux (card: platforms linux); bash.exe on Windows CI is the WSL stub")
 def test_capture_adopted_lists_and_runs_by_id(tmp_path, capsys):
     base = tmp_path / A.ADOPTED
     base.mkdir(parents=True)

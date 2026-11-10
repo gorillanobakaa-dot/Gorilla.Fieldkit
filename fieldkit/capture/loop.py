@@ -115,8 +115,8 @@ def write_candidate(rec, out_dir=None):
     cid = _slug(rec["id"])
     d = Path(out_dir or st.capture_dir() / "candidates") / cid
     d.mkdir(parents=True, exist_ok=True)
-    (d / f"{cid}.sh").write_text(_script(rec), encoding="utf-8")
-    (d / f"test_{cid}.py").write_text(_test(cid, rec), encoding="utf-8")
+    (d / f"{cid}.sh").write_text(_script(rec), encoding="utf-8", newline="\n")
+    (d / f"test_{cid}.py").write_text(_test(cid, rec), encoding="utf-8", newline="\n")
     (d / "card.yaml").write_text(_card(cid, rec, f"local/kits/{cid}"), encoding="utf-8")
     return str(d)
 

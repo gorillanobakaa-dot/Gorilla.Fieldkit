@@ -53,6 +53,10 @@ def try_candidate(cdir, run_test=None):
     missing = [p.name for p in (script, test, card) if not p.is_file()]
     if missing:
         return {"ok": False, "id": cid, "step": "shape", "reason": f"candidate is missing {', '.join(missing)}"}
+    for f in (script, test):                      # LF only: a CRLF script cannot be swapped line by line (Windows, 2026-11-10)
+        raw = f.read_bytes()
+        if b"\r\n" in raw:
+            f.write_bytes(raw.replace(b"\r\n", b"\n"))
     argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(test)]
     plan = _plan(script)
     if len(plan) < 2:
