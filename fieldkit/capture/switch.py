@@ -24,9 +24,14 @@ from . import store as st
 MARK = "capture hook"
 MAX_MINUTES = 7 * 24 * 60   # owner 2026-11-10: one week; an extension only when the owner grants it
 DEFAULT_MINUTES = 120
+EXTEND_WITHIN_H = 12          # P26: under this many hours left, the owner is asked (never extended by a model)
 CLAUDE_TOOLS = "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit"
+OPENCODE_TOOLS = ["bash", "write", "edit", "multiedit", "patch"]
 EVENTS = {"claude": {"PostToolUse": CLAUDE_TOOLS, "Stop": None},
-          "gemini": {"AfterTool": "run_shell_command|write_file|replace", "SessionEnd": None}}
+          "gemini": {"AfterTool": "run_shell_command|write_file|replace", "SessionEnd": None},
+          # Gorilla OpenCode (P26): config.json "hooks" is a LIST of {event, tools, command, timeout_seconds}; an
+          # after_tool hook gets the tool, its input (stdin) and result (GORILLA_HOOK_* environment), see capture/hook.py
+          "opencode": {"after_tool": OPENCODE_TOOLS}}
 WIN_TASK = "FieldkitCaptureScan"
 WIN_RUN_KEY = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 WIN_RUN_NAME = "FieldkitCaptureCatchup"
@@ -76,6 +81,11 @@ def _write(d):
 
 # ---- agent settings (JSON) --------------------------------------------------------------------------------------
 def settings_file(agent, home):
+    if agent == "opencode":
+        import os
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(xdg) if xdg and Path(home) == Path.home() else Path(home) / ".config"
+        return base / "gorilla-opencode" / "config.json"
     return Path(home) / f".{agent}" / "settings.json"
 
 
@@ -104,6 +114,8 @@ def _ours(h):
 
 
 def count_hooks(d):
+    if isinstance(d.get("hooks"), list):                      # Gorilla OpenCode
+        return sum(1 for h in d["hooks"] if _ours(h))
     return sum(1 for gs in (d.get("hooks") or {}).values() for g in gs or [] if isinstance(g, dict)
                for h in g.get("hooks") or [] if _ours(h))
 
@@ -111,6 +123,11 @@ def count_hooks(d):
 def strip_hooks(d):
     """Remove our hooks; groups left empty go too. Returns how many were removed."""
     removed = 0
+    if isinstance(d.get("hooks"), list):                      # Gorilla OpenCode
+        kept = [h for h in d["hooks"] if not _ours(h)]
+        removed = len(d["hooks"]) - len(kept)
+        d["hooks"] = kept
+        return removed
     for ev, gs in list((d.get("hooks") or {}).items()):
         kept = []
         for g in gs or []:
@@ -129,6 +146,11 @@ def add_hooks(d, agent, py=None):
     """Add our hooks (idempotent). Returns how many were added."""
     if count_hooks(d):
         return 0
+    if agent == "opencode":
+        d["hooks"] = list(d.get("hooks") or []) + [
+            {"event": ev, "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}
+            for ev, tools in EVENTS[agent].items()]
+        return len(EVENTS[agent])
     hooks = d.setdefault("hooks", {})
     for ev, matcher in EVENTS[agent].items():
         g = {"hooks": [{"type": "command", "command": hook_command(agent, py), "timeout": 20}]}
@@ -219,6 +241,67 @@ def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner
     return d
 
 
+def extend(minutes=MAX_MINUTES, now=None, home=None, py=None):
+    """The owner's yes to an extension (`fieldkit capture on --for N` with no --lesson): the same lesson and owner,
+    a new end N minutes from now. Only on a switch that is on; hooks are re-added if missing."""
+    cur = read()
+    t = now or _now()
+    if not is_on(cur, t) or cur.get("legacy"):
+        raise ValueError("capture is not on: give --lesson WHY to switch it on")
+    if not 1 <= minutes <= MAX_MINUTES:
+        raise ValueError(f"--for must be 1..{MAX_MINUTES} minutes")
+    d = {k: v for k, v in cur.items() if k not in ("until", "asked_until")}
+    d["until"] = (t + timedelta(minutes=minutes)).isoformat(timespec="seconds")
+    d["extended"] = t.isoformat(timespec="seconds")
+    _write(d)
+    d["hooks_added"] = edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py))
+    return d
+
+
+def extension_due(d=None, now=None):
+    """-> hours left when a live capture has under EXTEND_WITHIN_H left, else None."""
+    d = read() if d is None else d
+    t = now or _now()
+    if not is_on(d, t) or not d.get("until"):
+        return None
+    try:
+        left = (datetime.fromisoformat(d["until"]) - t).total_seconds() / 3600
+    except ValueError:
+        return None
+    return left if left < EXTEND_WITHIN_H else None
+
+
+def ask_extension(now=None, add=None):
+    """P26: a capture about to lapse is never extended or dropped silently. Under EXTEND_WITHIN_H h left, ONE owner
+    inbox item (kind hardline, the only kind that reaches the owner) names the job and the owner's yes; asked once
+    per end time (`asked_until` in switch.json). -> the hook line ("" when nothing is due). Never raises."""
+    try:
+        d = read()
+        left = extension_due(d, now)
+        if left is None:
+            return ""
+        job = d.get("owner") or d.get("lesson") or "a capture"
+        until = d["until"]
+        line = (f"CAPTURE: {job} ends {until} ({left:.0f} h left); the owner decides an extension: "
+                f"`fieldkit capture on --for {MAX_MINUTES}` (never extend it yourself).")
+        if d.get("asked_until") != until:
+            if add is None:
+                from ..autopilot import inbox
+                add = inbox.add
+            add(f"Extend capture for {job}?",
+                f"Capture for {job} (lesson: {d.get('lesson')}) stops at {until}, {left:.0f} h from now, and the job is still "
+                "running. Without a yes the lessons after that time are not recorded.",
+                f"fieldkit capture on --for {MAX_MINUTES}", kind="hardline", plan="P26",
+                what=f"The recording of {job} runs out in {left:.0f} hours.",
+                if_approve="Capture runs another week from the moment you run the command.",
+                if_leave="Capture stops at the end time; later procedures, errors and fixes of this job are not learned.")
+            d["asked_until"] = until
+            _write(d)
+        return line
+    except Exception:  # noqa: BLE001 - a courtesy line must never break the session's hook
+        return ""
+
+
 def turn_off(home=None, run=_run, system=None, now=None):
     prev = read()
     d = {"on": False, "since": (now or _now()).isoformat(timespec="seconds"),
@@ -240,7 +323,7 @@ def state(home=None, run=_run, system=None, now=None):
             hooks[agent] = f"ERROR {exc}"
     on = is_on(d, now)
     word = "on" if on else ("expired" if d.get("on") else "off")
-    return {"capture": word, "switch": d, "hooks": hooks, "schedule": schedule_state(run, system)}
+    return {"capture": word, "extension_due_h": extension_due(d, now), "switch": d, "hooks": hooks, "schedule": schedule_state(run, system)}
 
 
 def _print(a, data, lines, nxt):
@@ -258,13 +341,19 @@ def _errors(res):
 
 def cmd_on(a):
     try:
-        d = turn_on(a.lesson, a.minutes)
+        if not a.lesson and read().get("on") and not read().get("legacy"):
+            d = extend(a.minutes)                      # the owner's yes to an extension: same lesson, new end
+            d["lesson"] = d.get("lesson")
+        else:
+            d = turn_on(a.lesson, a.minutes)
     except ValueError as exc:
         print(f"capture on: {exc}", file=sys.stderr)
         return 2
     errs = _errors(d["hooks_added"])
     lines = [f"capture ON until {d['until']} for lesson: {d['lesson']}",
              "hooks added: " + ", ".join(f"{k} {v}" for k, v in d["hooks_added"].items())] + errs
+    if d.get("extended"):
+        lines[0] = f"capture EXTENDED until {d['until']} for lesson: {d['lesson']}"
     _print(a, d, lines, "new sessions capture; an open session picks the hooks up at its next start. "
                         "`fieldkit capture off` when the lesson is done")
     return 1 if errs else 0
@@ -295,6 +384,8 @@ def cmd_state(a):
              + (" (no switch.json: legacy, records as before)" if sw.get("legacy") else ""),
              "hooks: " + ", ".join(f"{k} {v}" for k, v in d["hooks"].items()),
              "schedule: " + ", ".join(f"{k} {v}" for k, v in d["schedule"].items())]
+    if d.get("extension_due_h") is not None:
+        lines.append(ask_extension())
     nxt = ("nothing to do" if d["capture"] == "off" and not left else
            "`fieldkit capture off` (expired, hooks still in)" if d["capture"] == "expired" else
            "`fieldkit capture off` when the lesson is done" if d["capture"] == "on" else
