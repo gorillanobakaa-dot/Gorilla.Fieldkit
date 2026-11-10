@@ -949,8 +949,15 @@ def run(a, emit):
         if not owner:
             raise task.Refused("no patch-set repo for this task (meta.harness_root with config/patch_policy.json)")
         opts = dict(x.split("=", 1) for x in a.args[1:] if "=" in x)
+        write = opts.get("write", "0") not in ("0", "no", "false", "")
+        left = _rb.unfinished(t.get("steps"))
+        if write and left:
+            raise task.Refused(f"rebase-set write=1 REFUSED: the port is not finished ({len(left)} step(s) not done, first: "
+                               f"{', '.join(left[:3])}). It supersedes every patch that fails on the new release, so run "
+                               "before the port it hides them instead of queuing them for S3. Finish the steps "
+                               "(build-harness next), then run it; without write=1 it only reports.")
         r = _rb.run(owner, t["workdir"], t["meta"]["upstream"]["version"].split(".")[0],
-                    write=opts.get("write", "0") not in ("0", "no", "false", ""), say=lambda m: print(m, flush=True))
+                    write=write, say=lambda m: print(m, flush=True))
         task.journal(t, "rebase-set", **{k: v for k, v in r.items() if k != "replay"}, replay=str(r["replay"])[:300])
         return 0 if r["ok"] else 3
     if act == "carry":

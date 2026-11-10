@@ -359,6 +359,15 @@ def other_platform_parts(owner_root, major, here):
     return sorted((spec.get("exclude_on") or {}).get(here) or [])
 
 
+def unfinished(steps):
+    """-> the ids of the task's steps that are not done. rebase-set writes "pristine + the set = the tree that was
+    built", so the port must be finished first. 2026-11-10 (Firefox 160): it was run with write=1 after the first
+    group only; every patch that fails on pristine 160 was marked superseded_160 and excluded, the remaining groups
+    then "applied clean" with no port steps, and the tree lost what those patches carry (the NEVER CALLS HOME pref
+    block among them) while the run reported 1575 patches, 0 failures."""
+    return [x.get("id") for x in steps or [] if x.get("status") != "done"]
+
+
 def run(owner_root, workdir, major, write=False, say=print):
     """-> {"ok", "patches", "deleted", "superseded", "replay"}"""
     origin = written_on(owner_root, major)
