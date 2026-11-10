@@ -383,3 +383,17 @@ def test_the_command_line_decide_refuses_without_a_terminal(owner, monkeypatch, 
     monkeypatch.setattr(task, "owner_terminal", lambda: False)
     rc = cli.main(["build-harness", "decide", "B-DECISION-D-157-01", "make-true", "--words", "fix it", "--task", "t1"])
     assert rc == 2 and "REFUSED" in capsys.readouterr().err
+
+
+def test_a_task_without_owner_repository_still_gets_its_intake_briefs(monkeypatch, tmp_path):
+    # 2026-11-10, Firefox 160 on Linux: no owner repository (the Windows harness), so S1's 7 intake briefs could
+    # never be shown or decided. Intake reads only the task's journal: it runs; owner kinds stay a named problem.
+    intake = dict(good_brief(), id="B-INTAKE-pref-dom-push", kind="intake")
+    owned = dict(good_brief(), id="B-DECISION-x", kind="decision")
+    monkeypatch.setitem(producers.PRODUCERS, "intake", lambda ctx: [intake])
+    monkeypatch.setitem(producers.PRODUCERS, "decision", lambda ctx: [owned])
+    ctx = producers.Context("t1", owner="", workdir=str(tmp_path / "work"), install_dir=None, steps=[], find_install=False)
+    ctx.owner = None
+    got = producers.collect(ctx)
+    assert [b["id"] for b in got["briefs"]] == ["B-INTAKE-pref-dom-push"]
+    assert any("no owner repository" in p for p in got["problems"])
