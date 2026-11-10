@@ -198,7 +198,13 @@ def line(root=None, live=True):
             if r.get("ok"):
                 save(r, root)
             return r["line"]
-        return json.loads(state_file(root).read_text(encoding="utf-8")).get("line") or ""
+        out = json.loads(state_file(root).read_text(encoding="utf-8")).get("line") or ""
+        try:                          # P26: a capture about to lapse rides the same hook line (asked of the owner once)
+            from .capture import switch
+            out = "\n".join(x for x in (out, switch.ask_extension()) if x)
+        except Exception:  # noqa: BLE001
+            pass
+        return out
     except Exception:  # noqa: BLE001 - the plan line never breaks the command that carries it
         return ""
 
