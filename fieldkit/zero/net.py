@@ -279,6 +279,17 @@ def state_of(rec, now):
     return "UP" if m == 0 else "SILENT" if m == 1 else "MISSING"
 
 
+def leads_of(net):
+    return {zero_of(net), (net.get("2ic") or {}).get("station")}
+
+
+def is_ended(rec, sid, leads, now):
+    """A station the hook checked in, two leases lapsed, not Zero or the 2IC: its session ended or sits idle. The
+    comms check, `fieldkit zero` and Zero's prompt alarm all use this one rule (2026-11-10: 125 ended sessions were
+    listed as MISSING on every roll and in every Zero prompt)."""
+    return misses(rec, now) >= 2 and rec.get("via") == "hook" and sid not in leads and not rec.get("off")
+
+
 def renew(stations, sid, net, now, **info):
     rec = stations["stations"].setdefault(sid, {"first": now, "kind": kind_of(sid), "machine": machine_of(sid)})
     rec.update({k: v for k, v in info.items() if v not in (None, "")})
@@ -1067,7 +1078,7 @@ def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, boa
         # A station the hook checked in renews only while its session makes calls: two missed leases mean the
         # session ended or sits idle, which nobody can act on (59 of 83 inbox items, 2026-10-25..27, were these).
         # Zero, the 2IC and stations that check in by hand keep the alarm; a hung headless job is liveness's.
-        ended = m >= 2 and rec.get("via") == "hook" and s not in leads
+        ended = is_ended(rec, s, leads, now)
         if ended:
             state = "ENDED"
         rows.append({"station": s, "state": state, "misses": m, "last": rec.get("last"), "kind": rec.get("kind"),
@@ -1327,8 +1338,9 @@ def _net_line(call, event, now=None):
             _deliver(me, items, now)
         if me == zero_of(net) and event in ("UserPromptSubmit", "SessionStart"):
             st = load_stations()
+            leads = leads_of(net)
             quiet = sorted(f"{s} {state_of(r, now)}" for s, r in st["stations"].items()
-                           if s != me and state_of(r, now) in ("SILENT", "MISSING"))
+                           if s != me and state_of(r, now) in ("SILENT", "MISSING") and not is_ended(r, s, leads, now))
             key = hashlib.sha256("|".join(quiet).encode()).hexdigest()[:12]
             if quiet and st["meta"].get("zero_alert") != key:
                 out.append("NET (you are Zero): " + "; ".join(quiet[:8]) + " - fieldkit zero rollcall")
@@ -1354,7 +1366,8 @@ def status(now=None):
     ingest_cable()                                    # a far Zero's net and far check-ins: seen here first (C2)
     net = load_net()
     st = load_stations()["stations"]
-    rows = [{"station": s, "state": state_of(r, now), "kind": r.get("kind"), "last": r.get("last"),
+    leads = leads_of(net)
+    rows = [{"station": s, "state": "ENDED" if is_ended(r, s, leads, now) else state_of(r, now), "kind": r.get("kind"), "last": r.get("last"),
              "sitrep": r.get("sitrep"), "name": r.get("name"), "via": r.get("via"), "tag": tag_of(s) or r.get("tag") or ""}
             for s, r in sorted(st.items())]
     return {"established": is_open(net), "net": net, "rows": rows,
@@ -1412,14 +1425,17 @@ def status_lines(r, now=None):
                 + (f" (last: epoch {net.get('epoch')}, closed {net.get('closed')})" if net.get("epoch") else "")]
     z = net.get("zero") or {}
     sec = (net.get("2ic") or {}).get("station") or "none named"
-    n = {k: sum(x["state"] == k for x in r["rows"]) for k in ("UP", "SILENT", "MISSING", "OFF")}
+    n = {k: sum(x["state"] == k for x in r["rows"]) for k in ("UP", "SILENT", "MISSING", "OFF", "ENDED")}
     out = [f"ZERO ESTABLISHED: Zero = {tagged_station(z.get('station'))}{' (' + z['name'] + ')' if z.get('name') else ''}, "
            f"epoch {net.get('epoch')}, 2IC = {sec}" + (f", mirror of {net['mirror_of']}" if net.get("mirror_of") else ""),
            f"  check-in every {cfg(net, 'interval_min')} min (lease {int(ttl_s(net) // 60)} min), roll answers due in "
            f"{cfg(net, 'answer_min')} min" + (f", quiet hours {net['quiet']}" if net.get("quiet") else ""),
-           f"  {len(r['rows'])} station(s): {n['UP']} UP, {n['SILENT']} SILENT, {n['MISSING']} MISSING, {n['OFF']} OFF",
+           f"  {len(r['rows'])} station(s): {n['UP']} UP, {n['SILENT']} SILENT, {n['MISSING']} MISSING, {n['OFF']} OFF"
+           + (f", {n['ENDED']} ENDED (sessions over, not listed)" if n["ENDED"] else ""),
            "  machines: " + machines_line(r["rows"])]
     for x in r["rows"]:
+        if x["state"] == "ENDED" and x["station"] != z.get("station"):
+            continue
         tag = "ZERO" if x["station"] == z.get("station") else x["state"]
         line = f"  {tag:<8} {tagged_station(x['station'], x.get('tag', '')):<45} last {_when(x['last'])}"
         if x.get("sitrep"):
