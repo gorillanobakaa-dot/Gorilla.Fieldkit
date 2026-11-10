@@ -146,3 +146,12 @@ def test_the_origin_platform_may_not_rewrite_a_shared_group_holding_another_plat
         rebase.run(o, w, "158", write=True, say=lambda m: None)
     assert sorted(p.name for p in (o / "patches" / "23.REBASE.158").iterdir()) == before
     assert rebase.run(o, w, "158", say=lambda m: None)["replay"] == "not run (dry)"      # a dry run still reports
+
+
+def test_rebase_set_names_the_steps_of_an_unfinished_port():
+    # 2026-11-10 (Firefox 160): write=1 before the port hid every failing patch behind superseded_160
+    from fieldkit.buildh import rebase
+    steps = [{"id": "apply-01.MEDIA", "status": "done"}, {"id": "apply-05.PREFS", "status": "todo"},
+             {"id": "port-x-h3", "status": "proposed"}]
+    assert rebase.unfinished(steps) == ["apply-05.PREFS", "port-x-h3"]
+    assert rebase.unfinished([{"id": "a", "status": "done"}]) == [] and rebase.unfinished(None) == []
