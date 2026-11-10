@@ -6,12 +6,14 @@
 `distil(since)` runs episodes, signatures, refusals, intents and classify on the store, then for every intent group that
 has an episode newer than `since`:
   - a recipe that replays deterministically becomes a CANDIDATE TOOL under state/capture/candidates/ID/: a script, a
-    tools.yaml card draft with `test:`, and a test (`fieldkit mutate` proves it can fail; `fieldkit adopt` installs it);
+    tools.yaml card draft with `test:`, and a test; autoadopt then tries it (test, `fieldkit mutate`, privacy scan) and
+    adopts it in one pull request per run, or ledgers the failed step;
   - a group that does not replay (or has no anchor command) becomes a LEDGER line with its reason in
     state/capture/agent-ledger.jsonl, for an agent to finish. The owner is never asked.
 Nothing here executes a captured command: scripts are written, never run.
 """
 import json
+import os
 import re
 import shlex
 import sys
@@ -119,13 +121,36 @@ def write_candidate(rec, out_dir=None):
     return str(d)
 
 
-def distil(since, who="manual", store=None, say=print, root=None):
-    """The whole chain on the store; -> {candidates:[path], ledger:[reason], ...}. Never raises: a failure is a ledger line."""
+def _auto_adopt(res, who, ship=None, repo=None):
+    """Try every candidate (test, mutate, privacy); adopt the ones that pass in one pull request; ledger the rest."""
+    from . import autoadopt as A
+    passed = []
+    for path in res["candidates"]:
+        r = A.try_candidate(path)
+        if r["ok"]:
+            passed.append(path)
+        else:
+            res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": None, "episodes": 0, "candidate": r["id"],
+                                          "step": r["step"], "reason": f"candidate {r['id']} refused at step {r['step']}: {r['reason']}"}))
+    done = A.adopt_all(passed, repo or _root(), who, ship=ship)
+    for cid, why in done["failed"].items():
+        res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": None, "episodes": 0, "candidate": cid,
+                                      "step": "adopt", "reason": f"candidate {cid} passed its checks but {why}"}))
+    if done["adopted"] and done["shipped"] is False:
+        res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": None, "episodes": 0, "step": "ship",
+                                      "reason": f"adopted {', '.join(done['adopted'])} on branch {done['branch']} but the push failed: {done['note']}"}))
+    res["adopted"] = done["adopted"]
+    res["adopt"] = done
+
+
+def distil(since, who="manual", store=None, say=print, root=None, adopt=None, ship=None):
+    """The whole chain on the store; -> {candidates:[path], adopted:[id], ledger:[reason], ...}. Never raises: a failure is a
+    ledger line. Candidates are tried and adopted by themselves (autoadopt) unless adopt is False or FIELDKIT_CAPTURE_NO_ADOPT=1."""
     from . import classify as C
     from . import distill as D
     from . import episodes as E
     from . import recipes as R
-    res = {"since": since, "candidates": [], "ledger": [], "episodes": 0, "groups": {}}
+    res = {"since": since, "candidates": [], "adopted": [], "ledger": [], "episodes": 0, "groups": {}}
     s = store or st.Store()
     try:
         s.recover()
@@ -162,6 +187,8 @@ def distil(since, who="manual", store=None, say=print, root=None):
                 res["groups"][intent] = "ledger"
                 res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": intent, "episodes": rec["episodes"]["in_group"],
                                               "reason": proc["reason"]}))
+        if res["candidates"] and adopt is not False and not os.environ.get("FIELDKIT_CAPTURE_NO_ADOPT"):
+            _auto_adopt(res, who, ship=ship, repo=root)
         marks, rules = C.classify(s)
         res["classified"] = C.apply(s, marks)
         if not fresh:
@@ -170,7 +197,7 @@ def distil(since, who="manual", store=None, say=print, root=None):
     except Exception as e:  # noqa: BLE001  a distil failure must never fail a build
         res["ledger"].append(_ledger({"time": _now(), "run": who, "intent": None, "episodes": 0,
                                       "reason": f"distil failed: {type(e).__name__}: {e}"}))
-    say(f"capture distil: {res['episodes']} episode(s), {len(res['candidates'])} candidate tool(s), "
+    say(f"capture distil: {res['episodes']} episode(s), {len(res['candidates'])} candidate tool(s), {len(res['adopted'])} adopted, "
         f"{len(res['ledger'])} ledger line(s) ({st.capture_dir() / LEDGER})")
     return res
 

@@ -67,3 +67,7 @@
 - {file: fieldkit/capture/loop.py, swap: ['if cur.get("owner") == token["who"]:', 'if True:'], why: "only the owner of the switch turns it off"}
 - {file: fieldkit/capture/loop.py, swap: ['if not fresh:', 'if False:'], why: "an empty run leaves a ledger line with its reason"}
 - {file: fieldkit/capture/switch.py, swap: ['if not 1 <= minutes <= cap:', 'if False:'], why: "a manual lesson keeps its 24 h cap"}
+- {file: fieldkit/capture/autoadopt.py, swap: ["    if not r[\"ok\"]:\n        bad =", "    if False:\n        bad ="], why: "a test that cannot fail is refused (mutate step)"}
+- {file: fieldkit/capture/autoadopt.py, swap: ["    if found:\n        kinds", "    if False:\n        kinds"], why: "a privacy finding refuses the candidate"}
+- {file: fieldkit/capture/autoadopt.py, swap: ['    if r["baseline"] != "passed":', '    if False:'], why: "a candidate whose own test fails is refused"}
+- {file: fieldkit/capture/loop.py, swap: ['    done = A.adopt_all(passed,', '    done = A.adopt_all([],'], why: "only candidates that passed are adopted"}

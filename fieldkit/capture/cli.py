@@ -18,6 +18,7 @@
     fieldkit capture classify [--apply] [--json]             P18 stage 8: every open item gets a final state with evidence
     fieldkit capture weaktest [--model ID] [--json]         P18 stage 6: recipes vs the sitrep rules and a small local model
     fieldkit capture workflow list|show ID|offer REQUEST    P18 stage 7: the recipes one step at a time; the one a request matches
+    fieldkit capture adopted [ID]                            tools the build loop adopted by itself (autoadopt.py): list, or run one
     fieldkit capture self-test --first-use|--context|--failed|--before-processing|--crash
 
 The store is state/capture/ (override: FIELDKIT_CAPTURE_DIR), append-only, hash-chained, fsync per record. Nothing is
@@ -279,6 +280,16 @@ def cmd_workflow(a):
     return 0
 
 
+def cmd_adopted(a):
+    from . import autoadopt as A
+    if a.id:
+        return A.run(a.id)
+    found = A.scripts()
+    lines = [f"{i}  {p.relative_to(p.parents[3]).as_posix()}" for i, p in found.items()] or ["no adopted tool yet"]
+    _emit(a, {"adopted": sorted(found), "next": "fieldkit capture adopted ID runs one"}, lines)
+    return 0
+
+
 def cmd_selftest(a):
     from . import selftest
     chosen = [k for k in selftest.TESTS if getattr(a, k)]
@@ -344,6 +355,9 @@ def main(argv=None):
     wf.add_argument("what", choices=["list", "show", "offer"])
     wf.add_argument("words", nargs="*")
     wf.add_argument("--json", action="store_true")
+    ad = sub.add_parser("adopted", help="tools the capture loop adopted by itself: list them, or run one by ID")
+    ad.add_argument("id", nargs="?")
+    ad.add_argument("--json", action="store_true")
     t = sub.add_parser("self-test", help="prove capture in a sandbox store")
     from . import selftest
     for k in list(selftest.TESTS) + [x.replace("-", "_") for x in LATER_FLAGS]:
@@ -355,7 +369,7 @@ def main(argv=None):
         from . import switch
         return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)
     return {"hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
-            "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
+            "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "adopted": cmd_adopted, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
 
 
 if __name__ == "__main__":

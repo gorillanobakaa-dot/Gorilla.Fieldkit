@@ -581,8 +581,8 @@ class Emerge:
             from ..capture import loop
             r = loop.end(tok)
             d = r["distil"]
-            self.say(f"capture: {r['off']}; distil {d['episodes']} episode(s), {len(d['candidates'])} candidate tool(s), "
-                     f"{len(d['ledger'])} ledger line(s)")
+            self.say(f"capture: {r['off']}; distil {d['episodes']} episode(s), {len(d['candidates'])} candidate(s), "
+                     f"{len(d['adopted'])} adopted, {len(d['ledger'])} ledger")
         except Exception as e:  # noqa: BLE001
             self.say(f"capture: end step failed ({e})")
 

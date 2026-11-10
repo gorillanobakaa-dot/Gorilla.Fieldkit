@@ -45,9 +45,16 @@ fieldkit emerge export RECIPE --out F / repro RECIPE --with F    same key on two
 
 `emerge run` switches `fieldkit capture` on at the start and off at the end (green, failed or crashed), unless someone
 else's switch is already on (then it is left alone). At the end it distils the run's records: a recipe that replays
-becomes a candidate tool in `state/capture/candidates/ID/` (script, `card.yaml`, test: prove it with `fieldkit mutate`,
-install with `fieldkit adopt`); what cannot be made deterministic gets a line with its reason in
-`state/capture/agent-ledger.jsonl`. By hand: `fieldkit capture off --distill`. `FIELDKIT_EMERGE_NO_CAPTURE=1` skips it.
+becomes a candidate tool in `state/capture/candidates/ID/` (script, `card.yaml`, test). Each candidate is then tried by
+itself (`fieldkit/capture/autoadopt.py`): its test passes, `fieldkit mutate` breaks its script and the test must fail
+every time, `fieldkit privacy scan` is clean. All three: the run's adoptions go in ONE pull request (card in
+`tools.yaml`, script in `fieldkit/capture/adopted/`, test in `tests/capture/adopted/`, shipped by the ship-push-auto
+route); list or run them with `fieldkit capture adopted [ID]`. Any failure, and whatever cannot be made deterministic,
+gets a line with its reason and the failed step in `state/capture/agent-ledger.jsonl`. The report line reads
+`capture: capture OFF; distil N episode(s), C candidate(s), A adopted, L ledger`. By hand:
+`fieldkit capture off --distill`. `FIELDKIT_EMERGE_NO_CAPTURE=1` skips capture, `FIELDKIT_CAPTURE_NO_ADOPT=1` only the
+adopt step. A candidate needs 3 episodes of one intent that replay (3+ steps, an anchor command): a single build is too
+little to be a repeated flow, so it is ledgered, not guessed at.
 
 ## Writing a recipe
 
