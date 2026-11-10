@@ -6351,7 +6351,7 @@ tools:
   notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
 
 - id: refusals
-  title: Repeated refusals - train, ship, guard, goal and task write every refusal to state/refusals.jsonl (tool, reason key with heads and ids stripped, text, time, session); the same reason twice opens ONE row in ZERO-OPEN-PROBLEMS.md (never an inbox item); list shows each reason, its count and whether its row is open
+  title: Repeated refusals (P23 - one ledger for both computers over the cable via sync, CI failures too, defects closed only with a test, a read-only refusal in a job blocks its re-run, overhead causes shows hours lost) - train, ship, guard, ci, goal and task write every refusal to state/refusals.jsonl (tool, reason key with heads and ids stripped, text, time, session); the same reason twice opens ONE row in ZERO-OPEN-PROBLEMS.md (never an inbox item); list shows each reason, its count and whether its row is open
   harness: core
   entry: [python, -m, fieldkit, refusals]
   path: ${FIELDKIT}/fieldkit/refusals.py

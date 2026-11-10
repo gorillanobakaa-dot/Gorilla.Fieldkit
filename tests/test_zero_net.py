@@ -903,3 +903,4 @@ def test_the_epoch_moving_inside_the_lock_refuses_the_handover(monkeypatch):
     monkeypatch.setattr(net, "load_net", moved)
     with pytest.raises(net.Refused, match="another station won"):
         net.handover(TWO, assume=True, channels=[FakeChannel()], now=late)
+

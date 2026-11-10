@@ -147,7 +147,7 @@ def cmd_task(argv):
         try:
             rec = tasks.start(a.arg, on=a.on, cwd=a.cwd, wall=a.wall, title=a.title, again=a.again, plan=a.plan,
                              model=a.model, accept=a.accept, allow_expensive=a.allow_expensive, unpark=a.unpark, pin=a.pin)
-        except (routing.ModeRefused, routing.ModelParked) as e:   # the mode / router answered; not a defect
+        except (routing.ModeRefused, routing.ModelParked, tasks.DefectOpen) as e:   # the mode / router answered; not a defect
             print(f"NOT STARTED  {e}")
             return 3
         except (tasks.AlreadyStarted, tasks.Parked) as e:
