@@ -60,3 +60,12 @@
 - file: fieldkit/emerge/__init__.py
   swap: ['            if changed:', '            if False:']
   why: the manifest command never moves a recorded pin
+- file: fieldkit/emerge/runner.py
+  swap: ['    if br in (None, "HEAD", "main", "master"):', '    if False:']
+  why: a fix brought in from elsewhere is never put on main
+- file: fieldkit/emerge/runner.py
+  swap: ['            _git(build_repo, "cherry-pick", "--abort")', '            pass']
+  why: a pick that does not apply leaves the build tree as it was
+- file: fieldkit/emerge/runner.py
+  swap: ['        if other:', '        if False:']
+  why: a fix in another repository is named with its path, never taken into the build tree

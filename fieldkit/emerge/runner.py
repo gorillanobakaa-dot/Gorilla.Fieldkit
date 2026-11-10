@@ -198,12 +198,79 @@ def judge(before, after):
     return True, "committed: " + ", ".join(moved)
 
 
+def log_repos(tail):
+    """Git repositories named by an absolute path in a failing log (a dev copy a test compares against)."""
+    import re
+    out = []
+    for m in re.findall(r"(/[\w.+@%~-]+(?:/[\w.+@%~ -]+)*)", tail or ""):
+        d = Path(m)
+        while d != d.parent and not d.exists():
+            d = d.parent
+        d = d if d.is_dir() else d.parent
+        if str(d) in ("/", str(Path.home())):
+            continue
+        top = _git(d, "rev-parse", "--show-toplevel")
+        if top and top not in out:
+            out.append(top)
+    return out
+
+
+def branch_tips(repos):
+    """-> {repo: [sha of every local branch]}: the state a fix run is measured against."""
+    return {r: (_git(r, "for-each-ref", "--format=%(objectname)", "refs/heads") or "").split() for r in repos}
+
+
+def elsewhere(repos, tips):
+    """-> [{repo, path, branch, sha, subject}]: commits on any branch of these repositories that no branch tip in
+    `tips` (taken before the run) reaches, with the worktree that has the branch checked out (else the repository itself)."""
+    found, seen = [], set()
+    for r in repos:
+        trees, cur = {}, {}
+        for line in (_git(r, "worktree", "list", "--porcelain") or "").splitlines():
+            if line.startswith("worktree "):
+                cur = {"path": line[9:]}
+            elif line.startswith("branch "):
+                trees[line[7:].removeprefix("refs/heads/")] = cur["path"]
+        log = _git(r, "log", "--branches", "--format=%H%x09%s%x09%D", *(["--not", *tips[r]] if tips.get(r) else [])) or ""
+        for row in log.splitlines():
+            sha, _, rest = row.partition("\t")
+            subject, _, refs = rest.partition("\t")
+            if sha in seen:
+                continue
+            seen.add(sha)
+            names = [x.strip().removeprefix("HEAD -> ") for x in refs.split(",") if x.strip()]
+            br = next((n for n in names if n in trees), names[0] if names else "?")
+            found.append({"repo": r, "path": trees.get(br, r), "branch": br, "sha": sha, "subject": subject})
+    return found
+
+
+def bring_in(build_repo, commits):
+    """Cherry-pick (oldest first) commits made elsewhere onto the build tree's branch, only when the tree is clean,
+    not on main/master, and every pick applies cleanly (else the pick is aborted and the tree is as it was).
+    -> (ok, why)."""
+    br = _git(build_repo, "rev-parse", "--abbrev-ref", "HEAD")
+    if br in (None, "HEAD", "main", "master"):
+        return False, f"the build tree is on {br}: a fix is never put on main"
+    if _git(build_repo, "status", "--porcelain", "--untracked-files=no"):
+        return False, "the build tree has uncommitted edits"
+    head = _git(build_repo, "rev-parse", "HEAD")
+    for c in reversed(commits):
+        if _git(build_repo, "cherry-pick", c["sha"]) is None:
+            _git(build_repo, "cherry-pick", "--abort")
+            _git(build_repo, "reset", "--hard", head)
+            return False, f"{c['sha'][:10]} does not apply cleanly to {br}"
+    return True, f"cherry-picked onto {br}"
+
+
 def fix_prompt(recipe, sid, key, attempt, max_fix, tail, repos):
     stage = recipe.by_id[sid]
     return (f"fieldkit emerge: recipe {recipe.name} ({recipe.source}), stage {sid} failed (fix attempt {attempt} of "
             f"{max_fix}; key {key[:16]}).\nThe stage: {json.dumps(stage.get('run'))}\nIts log ends:\n{tail}\n\n"
             f"Find the cause and fix it AS A CHANGE TO THE RECIPE OR ITS PATCH SET, committed on the branch "
             f"fix/emerge-{recipe.name}-{sid} (never main) in the repository it belongs to: {', '.join(repos)}. "
+            f"Commit in the checkout that is already open there (build tree {repos[0] if repos else '?'}, its current "
+            "branch or a new fix/ branch made in it); never make a side worktree or a clone: a commit anywhere else "
+            "is refused. "
             "Never leave an uncommitted edit in a build tree, never weaken a check, remove a stage or change a pin, "
             "never run the stage yourself: the runner runs it again. If only the owner can fix it (a decision, a "
             "credential, hardware), add it with `fieldkit inbox add` and change nothing. Say what you changed in "
@@ -670,6 +737,7 @@ class Emerge:
             fixes[sid] = n_fix + 1
             repos = fix_repos(self.recipe)
             before = snapshot(repos)
+            tips = branch_tips(list(repos) + [r for r in log_repos(tail) if r not in repos])
             self.say(f"    fix attempt {fixes[sid]}/{max_fix}: one autopilot model run with the log tail")
             t = self.clock()
             self.llm_calls += 1
@@ -680,6 +748,8 @@ class Emerge:
                 self.say(f"    the fix run failed: {e}")
             b["llm"] += self.clock() - t
             ok, why = judge(before, snapshot(repos))
+            if not ok and why == "the fix run committed nothing":
+                ok, why = self._found_elsewhere(repos, tail, tips)
             report["fixes"].append({"stage": sid, "attempt": fixes[sid], "ok": ok, "why": why})
             self.say(f"    fix {'accepted' if ok else 'REFUSED'}: {why}")
             if not ok:
@@ -689,6 +759,31 @@ class Emerge:
                                               f"{why}\nLog tail:\n{tail[-1500:]}")
                 return
             self.recipe = self.recipe.reload()
+
+    def _found_elsewhere(self, repos, tail, tips):
+        """The model committed, but not where the build reads: name the commit(s); bring them in when they apply."""
+        own = repos[0] if repos else None
+        lr = [r for r in log_repos(tail) if r not in repos]
+        found = elsewhere(list(repos) + lr, tips)
+        if not found:
+            return False, "the fix run committed nothing"
+        desc = "; ".join(f"{c['path']} ({c['branch']}) {c['sha'][:10]} {c['subject']}" for c in found)
+        mine = [c for c in found if c["repo"] == own]
+        other = [c for c in found if c["repo"] != own]
+        if other:
+            self._agent_ledger("fix in another repository", desc)
+            return False, f"the fix landed in another repository, not the build tree: {desc}"
+        ok, how = bring_in(own, mine)
+        self._agent_ledger("fix committed elsewhere", f"{desc}: {how}")
+        if ok:
+            return True, f"committed elsewhere, {how}: {desc}"
+        return False, f"the fix was committed outside the build tree and {how}: {desc}"
+
+    def _agent_ledger(self, title, text):
+        try:
+            self._journal("emerge-fix-elsewhere", title=title, text=text)
+        except Exception:  # noqa: BLE001 - the ledger line is a record, never a reason to fail
+            pass
 
     def _always(self, report, failed_sid):
         """The stages marked `always: true` after the failed one still run (putting the power scheme back)."""
