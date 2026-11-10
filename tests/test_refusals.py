@@ -264,6 +264,11 @@ def test_fieldkit_sync_also_syncs_the_ledger(monkeypatch):
     assert calls == [1]
 
 
+def test_the_real_task_ledger_is_out_of_reach():
+    # 2026-11-10: tasks.start in this file wrote two "[TEST-LNX] PLAN ITEM: P23" rows to the real ledger
+    from fieldkit.core import settings
+    from fieldkit.lifecycle import tasks
+    assert not str(tasks.ledger_path()).startswith(str(settings.state_root() / "state"))
 def test_a_guard_refusal_of_a_read_only_command_is_recorded_as_read_only(tmp_path, monkeypatch):
     # P23 hook wiring: the v0.9.0 block was the guard refusing `fieldkit ship release-ready`, a read
     import io
