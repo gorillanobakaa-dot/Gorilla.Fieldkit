@@ -202,7 +202,7 @@ def log_repos(tail):
     """Git repositories named by an absolute path in a failing log (a dev copy a test compares against)."""
     import re
     out = []
-    for m in re.findall(r"(/[\w.+@%~-]+(?:/[\w.+@%~ -]+)*)", tail or ""):
+    for m in re.findall(r"((?:[A-Za-z]:)?[\\/][\w.+@%~-]+(?:[\\/][\w.+@%~ -]+)*)", tail or ""):
         d = Path(m)
         while d != d.parent and not d.exists():
             d = d.parent
@@ -210,6 +210,7 @@ def log_repos(tail):
         if str(d) in ("/", str(Path.home())):
             continue
         top = _git(d, "rev-parse", "--show-toplevel")
+        top = str(Path(top)) if top else top            # git says C:/x on Windows; Python says C:\x
         if top and top not in out:
             out.append(top)
     return out
@@ -228,7 +229,7 @@ def elsewhere(repos, tips):
         trees, cur = {}, {}
         for line in (_git(r, "worktree", "list", "--porcelain") or "").splitlines():
             if line.startswith("worktree "):
-                cur = {"path": line[9:]}
+                cur = {"path": str(Path(line[9:]))}
             elif line.startswith("branch "):
                 trees[line[7:].removeprefix("refs/heads/")] = cur["path"]
         log = _git(r, "log", "--branches", "--format=%H%x09%s%x09%D", *(["--not", *tips[r]] if tips.get(r) else [])) or ""
