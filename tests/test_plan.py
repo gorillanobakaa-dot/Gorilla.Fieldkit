@@ -157,3 +157,10 @@ def test_plan_next_prints_a_held_row_as_held_never_done_or_open(tmp_path, capsys
     out = capsys.readouterr().out
     assert "  held  8. One system: W10 (held by the owner, not work to do)" in out, out
     assert "done  8." not in out and "open W10" not in out and "NEXT: work on R1" in out
+
+
+def test_a_pr_title_that_starts_with_the_row_id_counts_as_its_merge():
+    # 2026-11-10: "P24: Zero as commander ..." (#415) was not seen; only a trailing "(P24)" counted
+    assert plan.HEAD_IDS.match("P24: Zero as commander").group(1) == "P24"
+    assert plan.HEAD_IDS.match("P4, P7: image pipeline").group(1) == "P4, P7"
+    assert plan.HEAD_IDS.match("plan: W rows are read") is None

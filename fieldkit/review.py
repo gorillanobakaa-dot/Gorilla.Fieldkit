@@ -91,22 +91,64 @@ def entries(root=None):
     [{"type", "group", "plan", "ref", "title", "what", "if_approve", "if_leave", "command", "words", "raw"}]."""
     titles = plan_titles(root)
     out = []
-    for it in _inbox().items("open"):
+    ib = _inbox()
+    ib.migrate_legacy()                               # 2026-11-10: only a kind that reaches the owner is his to answer
+    for it in ib.items("open"):
+        if it.get("kind") not in ib.OWNER_KINDS:
+            continue
         row = plan_of(it, titles)
+        w = ib.words_for(it)
         out.append({"type": "inbox", "group": "goal" if row else "problem", "plan": row, "ref": f"#{it['n']}",
-                    "title": it["title"], "what": it.get("what", ""), "if_approve": it.get("if_approve", ""),
-                    "if_leave": it.get("if_leave", ""), "command": it.get("command", ""), "words": needs_words(it),
+                    "title": it["title"], "what": w["what"], "if_approve": w["if_approve"],
+                    "if_leave": w["if_leave"], "command": it.get("command", ""), "words": needs_words(it),
                     "raw": it})
+    in_plan = ideas_in_plan(root)
     for e in ideas.listing("parked", root or ROOT):
         built = ideas.built_note(e)
-        out.append({"type": "idea", "group": "idea", "plan": "", "ref": e["id"], "title": e["title"],
+        row = idea_row(in_plan, e)
+        if row and not built:                         # 2026-11-10: I-01/I-02 were built as P23/P24 and still said
+            built = (f"ALREADY BUILT as plan row {row['row']} ({row['pr']}): accepting it closes it as done"   # "becomes a row"
+                     if row["pr"] else f"ALREADY IN THE PLAN as row {row['row']}: accepting it closes the idea")
+        appr = ("It is closed as done: the work is already merged; no new plan row and no brief are made."
+                if built.startswith("ALREADY BUILT") else
+                f"It is closed: plan row {row['row']} already carries it and stays as it is; no new row is made."
+                if built else "It becomes a new row in the plan, with a brief a worker can start.")
+        out.append({"type": "idea", "group": "idea", "plan": row["row"] if row else "", "ref": e["id"], "title": e["title"],
                     "what": e["what"] + (f" {built}." if built else ""),
-                    "if_approve": "It is closed: the work is already merged." if built else
-                                  "It becomes a row in the plan, with a brief a worker can start.",
+                    "if_approve": appr,
                     "if_leave": "It stays parked here; the running plan does not change.", "command": "", "words": False,
                     "raw": e})
     out.sort(key=lambda e: [g for g, _ in GROUPS].index(e["group"]))
     return out
+
+
+def ideas_in_plan(root=None):
+    """-> {idea id: [{"row", "pr", "line"}]} for every plan row that names an idea ("idea I-01"), with the PR that merged it
+    (plan.merged, or a DONE (PR #N) status) or "" when it is not built yet."""
+    import re as _re
+    from . import plan
+    p = Path(root or ROOT) / plan.PLAN
+    if not p.is_file():
+        return {}
+    text = p.read_text(encoding="utf-8")
+    st, mg = plan.items(text), plan.merged(Path(root or ROOT))
+    out = {}
+    for line in text.splitlines():
+        m = plan.ROW_ID.match(line)
+        if not m:
+            continue
+        for idea in _re.findall(r"\bidea (I-\d+)", line):
+            done = _re.search(r"PR (#\d+)", st.get(m.group(1), ""))
+            out.setdefault(idea, []).append({"row": m.group(1), "line": line,
+                                             "pr": (done and done.group(1)) or mg.get(m.group(1), "")})
+    return out
+
+
+def idea_row(in_plan, e):
+    """The plan row for this idea: one that names its id AND its date (ids were reused: an October I-01 is row P2,
+    the 2026-11-10 I-01 is P23), else None - never a guess."""
+    day = str(e.get("date") or "")[:10]
+    return next((r for r in in_plan.get(e["id"], []) if day and day in r["line"]), None)
 
 
 def where_we_are(root=None):
@@ -160,7 +202,7 @@ def render(es, root=None):
             k += 1
             out += _item_lines(k, e, titles)
     out += ["", "Answer once: a = approve all, p or Enter = keep all waiting, f = forget/dismiss all,",
-            "numbers (1,3) pick some, or both (1,3 a); words after ':' are your note (2 a: core embedded)."]
+            "numbers (1,3) pick some, or both (1,3 a); words after ':' are your note (for example 2 a: yes, go ahead)."]
     return out
 
 

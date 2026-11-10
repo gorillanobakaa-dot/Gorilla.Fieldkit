@@ -35,6 +35,8 @@ ID = re.compile(r"\b([RLOCIWPZG]\d+)\b")
 # 2026-11-10: W, Z and G rows were never read, so W10's "FINAL GOAL, not now" was invisible and the hook said "open W10"
 ROW_ID = re.compile(r"^\|\s*([RLOCIWPZG]\d+)\s*\|")
 TAIL_PAREN = re.compile(r"\(([^()]*)\)\s*$")
+# 2026-11-10: "P24: Zero as commander ..." (#415) was never seen as P24's merge: only a trailing "(P24)" counted
+HEAD_IDS = re.compile(r"^\s*((?:[RLOCIWPZG]\d+)(?:\s*[,/+&]\s*[RLOCIWPZG]\d+)*)\s*:")
 
 
 def state_file(root=None):
@@ -90,7 +92,7 @@ def merged(root, run=subprocess.run):
         subj, _, body = rec.strip().partition("\x1f")
         pr = re.search(r"Merge pull request (#\d+)", subj)
         title = (body.strip().splitlines() or [""])[0]
-        m = TAIL_PAREN.search(title)
+        m = TAIL_PAREN.search(title) or HEAD_IDS.match(title)
         if pr and m:
             for i in ID.findall(m.group(1)):
                 out.setdefault(i, pr.group(1))
