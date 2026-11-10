@@ -50,7 +50,10 @@ def capture_dir():
     if d:
         return Path(d)
     from ..core import settings
-    return Path(settings.ROOT) / "state" / "capture"
+    # the store every checkout shares (settings.state_root). 2026-11-10: it was this checkout's own state/, so every
+    # headless job, which runs in its own worktree, wrote its captures there and they went with the worktree: the
+    # Firefox 160 and Gorilla OpenCode fix runs were in no store the distil reads. `Store.absorb` brings those back.
+    return Path(settings.state_root()) / "state" / "capture"
 
 
 def redact_text(s):
@@ -275,8 +278,8 @@ class Store:
             f.flush()
             os.fsync(f.fileno())
 
-    def _append_locked(self, st, typ, data):
-        e = {"seq": st["seq"] + 1, "ts": now(), "prev": st["last_hash"], "type": typ, "data": data}
+    def _append_locked(self, st, typ, data, ts=None):
+        e = {"seq": st["seq"] + 1, "ts": ts or now(), "prev": st["last_hash"], "type": typ, "data": data}
         e["hash"] = entry_hash(e["prev"], e)
         line = (json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         with open(self.journal, "ab") as f:
@@ -306,6 +309,47 @@ class Store:
             for d in datas:
                 self._append_locked(st, typ, d)
         return len(datas)
+
+    def absorb(self, other_root):
+        """Bring a stray store (a worktree's own state/capture) into this one: its entries are chained here in their
+        order with their own time; an event or an item already here is skipped, the same content under another event
+        is counted as a repeat, blobs are copied. Run twice, the second run adds nothing. -> counts."""
+        src = Store(other_root)
+        n = {"events": 0, "items": 0, "repeats": 0, "links": 0, "episodes": 0, "skipped": 0, "blobs": 0}
+        if not src.journal.is_file() or src.root.resolve() == self.root.resolve():
+            return n
+        if src.blobs.is_dir():
+            self.blobs.mkdir(exist_ok=True)
+            for b in src.blobs.iterdir():
+                if b.is_file() and not (self.blobs / b.name).is_file():
+                    (self.blobs / b.name).write_bytes(b.read_bytes())
+                    n["blobs"] += 1
+        with self.tx() as st:
+            for e, _raw, _end in src._lines():
+                if not e:
+                    continue
+                t, d, ts = e.get("type"), e.get("data") or {}, e.get("ts")
+                if t == "event" and d.get("id") not in st["events"]:
+                    self._append_locked(st, "event", d, ts)
+                    n["events"] += 1
+                elif t == "item" and d.get("id") not in st["items"] and st["events"].get(d.get("event")) is None:
+                    self._append_locked(st, "item", d, ts)
+                    n["items"] += 1
+                elif t in ("item", "dup") and st["events"].get(d.get("event")) is None and (d.get("item") or d.get("id")) in st["items"]:
+                    self._append_locked(st, "dup", {"item": d.get("item") or d["id"], "event": d.get("event"),
+                                                    "session": d.get("session"), "agent": d.get("agent"),
+                                                    "exit_code": d.get("exit_code")}, ts)
+                    n["repeats"] += 1
+                elif t == "link" and d.get("failed") in st["items"] and d.get("fixed") in st["items"] \
+                        and st["links"].get(d["failed"]) != d["fixed"]:
+                    self._append_locked(st, "link", d, ts)
+                    n["links"] += 1
+                elif t == "episode" and d.get("id") not in st.get("episodes", {}):
+                    self._append_locked(st, "episode", d, ts)
+                    n["episodes"] += 1
+                else:
+                    n["skipped"] += 1
+        return n
 
     def spill(self, rec):
         """Fields over SPILL bytes go to blobs/<sha>; the journal keeps the hash, size and a preview."""

@@ -99,6 +99,21 @@ def cmd_ledger(a):
     return 3 if ((a.strict or a.closed) and bad) else 0
 
 
+def cmd_absorb(a):
+    """absorb DIR...: each stray store (a worktree's state/capture, or the worktree itself) into the shared one."""
+    s, rows = st.Store(), []
+    for d in a.dirs:
+        p = Path(d)
+        p = p / "state" / "capture" if (p / "state" / "capture" / "journal.jsonl").is_file() else p
+        rows.append(dict(s.absorb(p), dir=str(p)))
+    problems, _info = s.verify()
+    lines = [f"ABSORBED {r['dir']}: {r['events']} event(s), {r['items']} new item(s), {r['repeats']} repeat(s), "
+             f"{r['links']} link(s), {r['blobs']} blob(s), {r['skipped']} already here" for r in rows]
+    lines.append("verify: " + ("chain intact" if not problems else f"{len(problems)} problem(s): {problems[0]}"))
+    _emit(a, {"absorbed": rows, "ok": not problems, "next": "fieldkit capture ledger"}, lines)
+    return 3 if problems else 0
+
+
 def cmd_verify(a):
     s = st.Store()
     problems, info = s.verify()
@@ -321,6 +336,9 @@ def main(argv=None):
     sw.add_argument("--json", action="store_true")
     sw.add_argument("--check", action="store_true", help="exit 3 unless capture is off and no hook is left")
     sub.add_parser("scan", help="(not built yet)").add_argument("rest", nargs="*")
+    ab = sub.add_parser("absorb", help="bring a stray store (a worktree's state/capture) into the shared one")
+    ab.add_argument("dirs", nargs="+")
+    ab.add_argument("--json", action="store_true")
     f = sub.add_parser("find", help="records matching every word")
     f.add_argument("words", nargs="+")
     f.add_argument("--json", action="store_true")
@@ -374,7 +392,7 @@ def main(argv=None):
     if a.action in ("on", "off", "state"):
         from . import switch
         return {"on": switch.cmd_on, "off": switch.cmd_off, "state": switch.cmd_state}[a.action](a)
-    return {"hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
+    return {"absorb": cmd_absorb, "hook": cmd_hook, "find": cmd_find, "ledger": cmd_ledger, "verify": cmd_verify, "status": cmd_status,
             "coverage": cmd_coverage, "requests": cmd_requests, "episodes": cmd_episodes, "distill": cmd_distill, "weaktest": cmd_weaktest, "workflow": cmd_workflow, "adopted": cmd_adopted, "classify": cmd_classify, "self-test": cmd_selftest}[a.action](a)
 
 
