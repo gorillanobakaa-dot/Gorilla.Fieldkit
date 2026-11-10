@@ -358,3 +358,50 @@ def test_build_logs_in_the_tree_are_not_changes_and_never_committed(tmp_path):
     assert "build_logs" not in g("show", "--stat", "--format=", "HEAD")
     tk.exclude_build_output(w)                     # once: a second call adds nothing
     assert (w / ".git/info/exclude").read_text().count("/build_logs/") == 1
+
+
+def test_a_rerun_script_step_does_not_leave_its_old_port_steps_beside_the_new_ones(job):
+    """P27 2026-11-10: rewind to an apply step re-ran it; its port steps were added again and the pending old copies stayed,
+    so the same port was asked twice and the second copy had nothing to change."""
+    task.approve("t1", "owner")
+    task.packet("t1")
+    t = task.load("t1")
+    ids = [s["id"] for s in t["steps"]]
+    assert ids.count("fix-alpha") == 1
+    next(s for s in t["steps"] if s["id"] == "prepare")["status"] = "pending"     # what a rewind does to the script step
+    task.save(t)
+    task.packet("t1")
+    ids = [s["id"] for s in task.load("t1")["steps"]]
+    assert ids.count("fix-alpha") == 1 and ids.count("fix-beta") == 1
+
+
+def test_a_task_already_carrying_a_rewinds_stale_copies_heals_on_the_next_packet(job):
+    """firefox-160-linux 2026-11-10 23:09: the rewind left the old port steps pending beside the re-added ones; the done
+    copy was auto-ported and checkpointed, the stale pending copy became `current`. The next advance drops the stale
+    copies: the one with work on it (done, proposed, attempts spent) stays, the untouched pending one goes."""
+    task.approve("t1", "owner")
+    task.packet("t1")
+    t = task.load("t1")
+    alpha = next(s for s in t["steps"] if s["id"] == "fix-alpha")
+    beta = next(s for s in t["steps"] if s["id"] == "fix-beta")
+    alpha["status"], alpha["done_by"] = "done", "harness"
+    beta["status"] = "proposed"
+    i = t["steps"].index(beta) + 1
+    t["steps"][i:i] = [dict(alpha, status="pending", attempts=0), dict(beta, status="pending", attempts=0)]
+    task.save(t)
+    r = task.packet("t1")
+    steps = task.load("t1")["steps"]
+    assert [s["id"] for s in steps].count("fix-alpha") == 1 and [s["id"] for s in steps].count("fix-beta") == 1
+    assert next(s for s in steps if s["id"] == "fix-alpha")["status"] == "done"
+    assert next(s for s in steps if s["id"] == "fix-beta")["status"] == "proposed"
+    assert r["state"] == "PROPOSED"
+    lines = (task._dir("t1") / "journal.jsonl").read_text().splitlines()
+    assert any(json.loads(l).get("event") == "dedupe" for l in lines)
+
+
+def test_dedupe_keeps_one_copy_when_every_copy_is_untouched():
+    t = {"steps": [{"id": "a", "status": "pending", "attempts": 0}, {"id": "a", "status": "pending", "attempts": 0},
+                   {"id": "b", "status": "pending", "attempts": 0}]}
+    assert task.dedupe_steps(t) == ["a"]
+    assert [s["id"] for s in t["steps"]] == ["a", "b"]
+    assert task.dedupe_steps(t) == []

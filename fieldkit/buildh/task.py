@@ -255,6 +255,35 @@ def current(t, in_flight_steps=None):
     return None
 
 
+def dedupe_steps(t):
+    """Two steps with one id are one job asked twice. A rewind puts a group's port steps back to pending and the
+    re-run apply step adds the same ids again (firefox-160-linux, 2026-11-10 23:09: the first copy was auto-ported and
+    checkpointed, the stale pending copy became `current` and its submit had nothing to change). Of the copies, the
+    ones with work on them (not pending, or attempts spent) stay; a pending untouched copy goes when another copy
+    exists. With every copy pending and untouched, the first stays. Returns the ids dropped (with repeats)."""
+    seen, kept, dropped = {}, [], []
+    for x in t["steps"]:
+        seen.setdefault(x["id"], []).append(x)
+    for x in t["steps"]:
+        copies = seen[x["id"]]
+        if len(copies) == 1:
+            kept.append(x)
+            continue
+        untouched = x["status"] == "pending" and not x.get("attempts")
+        others_have_work = any(c is not x and (c["status"] != "pending" or c.get("attempts")) for c in copies)
+        if untouched and others_have_work:
+            dropped.append(x["id"])
+            continue
+        first = next(i for i, c in enumerate(copies) if c is x) == 0          # by identity: equal dicts share an index
+        if untouched and not first and all(c["status"] == "pending" and not c.get("attempts") for c in copies):
+            dropped.append(x["id"])
+            continue
+        kept.append(x)
+    if dropped:
+        t["steps"][:] = kept
+    return dropped
+
+
 def advance(task_id, in_flight_steps=None):
     """Run script steps until a model step, a blocked step or the end."""
     t = load(task_id)
@@ -267,6 +296,11 @@ def advance(task_id, in_flight_steps=None):
         # Windows, because nothing made a session look. A port with a ledger next to it goes under migration control.
         raise Refused(f"this Firefox port is not under migration control. Read {hr}/MIGRATION-PLAN.md, then run: "
                       f"{settings.self_cmd()} build-harness migrate init {task_id}")
+    dropped = dedupe_steps(t)
+    if dropped:
+        # a task that already carries a rewind's stale copies (firefox-160-linux, 2026-11-10 23:09) heals here
+        journal(t, "dedupe", dropped=dropped)
+        save(t)
     while True:
         s = current(t, in_flight_steps)
         # A blocked or deferred step is a person's; the rest of the plan goes on (live run 13: one parked CSS hunk
@@ -354,7 +388,17 @@ def advance(task_id, in_flight_steps=None):
                 at = t["steps"].index(s) + 1
                 for n in new:
                     n.setdefault("status", "pending"), n.setdefault("attempts", 0), n.setdefault("max_attempts", 3)
+                # a step re-run after a rewind adds the same ids again: the old copies (left pending by the rewind)
+                # are dropped, or the port work is asked twice and the second copy has nothing to change (P27, 2026-11-10)
+                fresh = {n["id"] for n in new}
+                kept = [x for x in t["steps"] if x is s or x["id"] not in fresh or x["status"] in ("done", "obsolete")]
+                if len(kept) != len(t["steps"]):
+                    t["steps"][:] = kept
+                at = t["steps"].index(s) + 1
                 t["steps"][at:at] = new
+                dropped = dedupe_steps(t)
+                if dropped:
+                    journal(t, "dedupe", step=s["id"], dropped=dropped)
             checkpoint(t, s["id"]) if Path(t["workdir"], ".git").exists() else None
             journal(t, "script-done", step=s["id"], seconds=round(time.time() - t0, 1), added=len(new),
                     summary=res.get("summary"))
