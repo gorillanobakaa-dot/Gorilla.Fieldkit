@@ -66,4 +66,4 @@
 - {file: fieldkit/capture/loop.py, swap: ['if switch.is_on(cur, now) and not cur.get("legacy"):', 'if False:'], why: "a switch someone else turned on is never taken over"}
 - {file: fieldkit/capture/loop.py, swap: ['if cur.get("owner") == token["who"]:', 'if True:'], why: "only the owner of the switch turns it off"}
 - {file: fieldkit/capture/loop.py, swap: ['if not fresh:', 'if False:'], why: "an empty run leaves a ledger line with its reason"}
-- {file: fieldkit/capture/switch.py, swap: ['if not 1 <= minutes <= cap:', 'if False:'], why: "a manual lesson keeps its 24 h cap"}
+- {file: fieldkit/capture/switch.py, swap: ['if not 1 <= minutes <= cap:', 'if False:'], why: "a manual lesson keeps its one-week cap"}

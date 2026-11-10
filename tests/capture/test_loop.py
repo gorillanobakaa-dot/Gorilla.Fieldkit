@@ -39,9 +39,9 @@ def test_a_switch_someone_else_turned_on_is_left_alone(env):
     assert switch.read()["lesson"] == "by hand"
 
 
-def test_manual_lesson_keeps_the_24h_cap(env):
+def test_manual_lesson_keeps_the_one_week_cap(env):   # owner 2026-11-10 (was 24 h)
     with pytest.raises(ValueError):
-        switch.turn_on("x", 24 * 60 + 1, home=env)
+        switch.turn_on("x", 7 * 24 * 60 + 1, home=env)
 
 
 def test_candidate_written_for_an_accepted_recipe(env, tmp_path):

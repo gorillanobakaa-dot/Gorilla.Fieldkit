@@ -22,7 +22,7 @@ from pathlib import Path
 from . import store as st
 
 MARK = "capture hook"
-MAX_MINUTES = 24 * 60
+MAX_MINUTES = 7 * 24 * 60   # owner 2026-11-10: one week; an extension only when the owner grants it
 DEFAULT_MINUTES = 120
 CLAUDE_TOOLS = "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit"
 EVENTS = {"claude": {"PostToolUse": CLAUDE_TOOLS, "Stop": None},
@@ -204,7 +204,7 @@ def schedule_state(run=_run, system=None):
 # ---- commands -------------------------------------------------------------------------------------------------------
 def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES):
     """owner/cap: a build-scoped capture (fieldkit.capture.loop) names who switched it on and lasts as long as the run;
-    a manual lesson keeps the 24 h cap."""
+    a manual lesson keeps the one-week cap (owner 2026-11-10; was 24 h)."""
     if not (lesson or "").strip():
         raise ValueError("--lesson is required: say what the harness is being taught")
     if not 1 <= minutes <= cap:
