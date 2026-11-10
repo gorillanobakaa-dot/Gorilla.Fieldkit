@@ -110,7 +110,14 @@ def _ram_gb():
 
 
 # ---------------------------------------------------------------- deps
-def stage_deps(ctx, which=shutil.which, free_gb=_free_gb, ram_gb=_ram_gb):
+def _toolchain_which(name):
+    """shutil.which on PATH plus the places rustup and mach bootstrap install to (a non-login runner's PATH lacks them)."""
+    extra = [Path.home() / ".cargo" / "bin", Path.home() / ".mozbuild" / "node" / "bin", Path.home() / ".mozbuild" / "cbindgen"]
+    path = os.pathsep.join([os.environ.get("PATH", "")] + [str(d) for d in extra if d.is_dir()])
+    return shutil.which(name, path=path)
+
+
+def stage_deps(ctx, which=_toolchain_which, free_gb=_free_gb, ram_gb=_ram_gb):
     """Is this machine fit to compile Firefox? Tools, disk, memory, each a row with evidence.
     apt packages are NOT listed here: `mach bootstrap` (the bootstrap stage) installs and names them."""
     work = Path(_v(ctx, "work"))
