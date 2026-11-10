@@ -67,3 +67,9 @@
 - {file: fieldkit/capture/loop.py, swap: ['if cur.get("owner") == token["who"]:', 'if True:'], why: "only the owner of the switch turns it off"}
 - {file: fieldkit/capture/loop.py, swap: ['if not fresh:', 'if False:'], why: "an empty run leaves a ledger line with its reason"}
 - {file: fieldkit/capture/switch.py, swap: ['if not 1 <= minutes <= cap:', 'if False:'], why: "a manual lesson keeps its one-week cap"}
+- {file: fieldkit/capture/loop.py, swap: ['    return next((name for name, rx in PROJECTS if re.search(rx, low)), None)', '    return None'], why: "a job is sorted into its project (firefox, kernel, opencode)"}
+- {file: fieldkit/capture/loop.py, swap: ['        if tok and tok.get("owner"):', '        if tok:'], why: "a project job never ends a capture someone else switched on"}
+- {file: fieldkit/capture/loop.py, swap: ['        if proj and not os.environ.get("FIELDKIT_EMERGE_NO_CAPTURE"):', '        if False:'], why: "a project job switches capture on"}
+- {file: fieldkit/migrate/plan.py, swap: ["    if red:\n        raise task.Refused(f\"the S9 gate is RED", "    if False:\n        raise task.Refused(f\"the S9 gate is RED"], why: "a migration closes only with the S9 gate green"}
+- {file: fieldkit/migrate/plan.py, swap: ['    p["capture"] = capture_begin(m.tid)', '    p["capture"] = None'], why: "migrate init switches capture on"}
+- {file: fieldkit/core/pipeline.py, swap: ['with loop.job(self.name, f"pipeline {self.name}"), \', 'with'], why: "a project pipeline run is captured"}
