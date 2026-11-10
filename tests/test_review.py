@@ -180,3 +180,18 @@ def test_an_item_without_words_is_explained_from_its_own_fields(env):
     assert e["what"] == "Tag v2: CI green on abc"
     assert "runs nothing" in e["if_approve"] and "fieldkit ship push --tag v2" in e["if_approve"]
     assert e["if_leave"].startswith("It stays open")
+
+
+def test_an_idea_already_built_as_a_plan_row_says_so_and_accepting_makes_no_new_row(env):
+    # 2026-11-10: I-01/I-02 were built as P23/P24 and review still said "It becomes a row in the plan"
+    import time as _t
+    day = _t.strftime("%Y-%m-%d", _t.localtime(NOW))
+    (env / "docs").mkdir(exist_ok=True)
+    (env / "docs" / "HARNESS-PLAN.md").write_text(          # ids were reused: the old I-01 is P2, never this one
+        PLAN + "| P2 | Old metrics (idea I-01, owner 2026-10-28) | x | y | DONE (PR #300) |\n"
+        f"| P23 | One loop (idea I-01, owner {day}) | x | y | DONE (PR #412) |\n", encoding="utf-8")
+    ideas.add("One loop", "does one", root=env, now=NOW)
+    e = [x for x in review.entries(env) if x["ref"] == "I-01"][0]
+    assert "ALREADY BUILT as plan row P23 (#412)" in e["what"] and "no new plan row" in e["if_approve"]
+    r = ideas.set_status(["I-01"], "accepted", root=env, now=NOW)[0]
+    assert r["plan_id"] == "P23" and r["brief"] is None
