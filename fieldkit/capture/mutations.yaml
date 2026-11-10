@@ -66,11 +66,26 @@
 - {file: fieldkit/capture/loop.py, swap: ['if switch.is_on(cur, now) and not cur.get("legacy"):', 'if False:'], why: "a switch someone else turned on is never taken over"}
 - {file: fieldkit/capture/loop.py, swap: ['if cur.get("owner") == token["who"]:', 'if True:'], why: "only the owner of the switch turns it off"}
 - {file: fieldkit/capture/loop.py, swap: ['if not fresh:', 'if False:'], why: "an empty run leaves a ledger line with its reason"}
+- {file: fieldkit/capture/autoadopt.py, swap: ["    if not r[\"ok\"]:\n        bad =", "    if False:\n        bad ="], why: "a test that cannot fail is refused (mutate step)"}
+- {file: fieldkit/capture/autoadopt.py, swap: ["    if found:\n        kinds", "    if False:\n        kinds"], why: "a privacy finding refuses the candidate"}
+- {file: fieldkit/capture/autoadopt.py, swap: ['    if r["baseline"] != "passed":', '    if False:'], why: "a candidate whose own test fails is refused"}
+- {file: fieldkit/capture/loop.py, swap: ['    done = A.adopt_all(passed,', '    done = A.adopt_all([],'], why: "only candidates that passed are adopted"}
 - {file: fieldkit/capture/switch.py, swap: ['if not 1 <= minutes <= cap:', 'if False:'], why: "a manual lesson keeps its one-week cap"}
 - {file: fieldkit/capture/switch.py, swap: ['    return left if left < EXTEND_WITHIN_H else None', '    return None'], why: "a capture with under 12 h left asks the owner for an extension"}
 - {file: fieldkit/capture/switch.py, swap: ['        if d.get("asked_until") != until:', '        if False:'], why: "the extension is filed in the owner inbox"}
 - {file: fieldkit/capture/switch.py, swap: ['    d = {k: v for k, v in cur.items() if k not in ("until", "asked_until")}', '    d = {k: v for k, v in cur.items() if k not in ("until",)}'], why: "an extension re-arms the one-time ask"}
 - {file: fieldkit/plan.py, swap: ['            out = "\n".join(x for x in (out, switch.ask_extension()) if x)', '            pass'], why: "the capture extension line rides the hook line"}
+- {file: fieldkit/capture/loop.py, swap: ['    return next((name for name, rx in PROJECTS if re.search(rx, low)), None)', '    return None'], why: "a job is sorted into its project (firefox, kernel, opencode)"}
+- {file: fieldkit/capture/loop.py, swap: ['        if tok and tok.get("owner"):', '        if tok:'], why: "a project job never ends a capture someone else switched on"}
+- {file: fieldkit/capture/loop.py, swap: ['        if proj and not os.environ.get("FIELDKIT_EMERGE_NO_CAPTURE"):', '        if False:'], why: "a project job switches capture on"}
+- {file: fieldkit/migrate/plan.py, swap: ["    if red:\n        raise task.Refused(f\"the S9 gate is RED", "    if False:\n        raise task.Refused(f\"the S9 gate is RED"], why: "a migration closes only with the S9 gate green"}
+- {file: fieldkit/migrate/plan.py, swap: ['    p["capture"] = capture_begin(m.tid)', '    p["capture"] = None'], why: "migrate init switches capture on"}
+- {file: fieldkit/core/pipeline.py, swap: ['with loop.job(self.name, f"pipeline {self.name}"), \', 'with'], why: "a project pipeline run is captured"}
+- {file: fieldkit/capture/projects.py, swap: ['    return cid if not pre or cid.startswith(pre) else pre + cid', '    return cid'], why: "a captured candidate gets its project prefix"}
+- {file: fieldkit/capture/loop.py, swap: ['        entry = {**entry, "project": project}', '        pass'], why: "a ledger line names its project"}
+- {file: fieldkit/capture/loop.py, swap: ['    own = project_of(who)', '    own = None'], why: "a group takes its project from the run first"}
+- {file: fieldkit/capture/projects.py, swap: ['    open_lines = [x for x in ledger if x.get("project") == name]', '    open_lines = list(ledger)'], why: "a section lists only its own project open lines"}
+- {file: fieldkit/capture/projects.py, swap: ['    ids = sorted(t for t in tools if t.startswith(pre) or t in fam)', '    ids = sorted(tools)'], why: "a section lists only its own project tools"}
 - {file: fieldkit/capture/switch.py, swap: ['        return sum(1 for h in d["hooks"] if _ours(h))', '        return 0'], why: "an installed Gorilla OpenCode hook is found"}
 - {file: fieldkit/capture/switch.py, swap: ['        kept = [h for h in d["hooks"] if not _ours(h)]', '        kept = []'], why: "removing our Gorilla OpenCode hook keeps the user's own hooks"}
 - {file: fieldkit/capture/switch.py, swap: ['            {"event": ev, "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}', '            {"event": "before_tool", "tools": list(tools), "command": hook_command(agent, py), "timeout_seconds": 20}'], why: "the Gorilla OpenCode hook runs after the tool (it records, never gates)"}
