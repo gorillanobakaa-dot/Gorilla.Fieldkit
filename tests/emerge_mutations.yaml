@@ -64,7 +64,7 @@
   swap: ['    if br in (None, "HEAD", "main", "master"):', '    if False:']
   why: a fix brought in from elsewhere is never put on main
 - file: fieldkit/emerge/runner.py
-  swap: ['            _git(build_repo, "cherry-pick", "--abort")', '            pass']
+  swap: ['            _git(build_repo, "reset", "--hard", head)', '            pass']
   why: a pick that does not apply leaves the build tree as it was
 - file: fieldkit/emerge/runner.py
   swap: ['        if other:', '        if False:']

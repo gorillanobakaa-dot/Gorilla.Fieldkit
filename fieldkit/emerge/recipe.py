@@ -274,7 +274,7 @@ class Recipe:
             if base:
                 anc = self._run(["git", "-C", str(path), "merge-base", "--is-ancestor", base, "HEAD"],
                                 capture_output=True, timeout=120)
-                if False:
+                if anc.returncode != 0:
                     return "mismatch", head, f"{path}: the pinned base {base[:12]} is not under HEAD {head[:12]}"
                 return "ok", tree_state(path), f"{path}: {head[:12]} on the pinned base {base[:12]}"
             if src.get("track", "commit" if want else "tree") == "tree":

@@ -256,7 +256,6 @@ def bring_in(build_repo, commits):
     head = _git(build_repo, "rev-parse", "HEAD")
     for c in reversed(commits):
         if _git(build_repo, "cherry-pick", c["sha"]) is None:
-            _git(build_repo, "cherry-pick", "--abort")
             _git(build_repo, "reset", "--hard", head)
             return False, f"{c['sha'][:10]} does not apply cleanly to {br}"
     return True, f"cherry-picked onto {br}"
