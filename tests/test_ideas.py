@@ -208,8 +208,9 @@ def test_the_room_hook_shows_the_ideas_line_then_the_brief_once(root, monkeypatc
     assert room._ideas({"session_id": "s9"}, "UserPromptSubmit", "").count("I-01") == 0
     assert room._ideas({"session_id": "s9"}, "PreToolUse", "x") == "x"
     # and the hook's one context builder calls it (new session, so the brief shows again)
-    for f in ("_net", "_hog", "_rotate", "_plan", "_relay"):
+    for f in ("_net", "_hog", "_rotate", "_plan"):
         monkeypatch.setattr(room, f, lambda call, event, ctx: ctx)
+    monkeypatch.setattr(room, "_ear", lambda call, event: "")
     monkeypatch.setattr(room, "unseen", lambda sid: [])
     assert "parked ideas - fieldkit review" in room._context({"session_id": "s10"}, "UserPromptSubmit")
 
