@@ -175,3 +175,45 @@ def test_same_program_links_even_with_different_arguments(s):
     f, _ = s.record(rec("make build", code=2))
     ok, _ = s.record(rec("make test", code=0))
     assert s.state()["links"] == {f: ok}
+
+
+def test_the_store_is_the_one_every_checkout_shares(monkeypatch, tmp_path):
+    # 2026-11-10: a headless job runs in its own worktree; its captures went into that worktree's state/ and were
+    # lost with it. capture_dir follows settings.state_root, like every other shared state.
+    from fieldkit.capture import store as S
+    from fieldkit.core import settings
+    monkeypatch.delenv("FIELDKIT_CAPTURE_DIR", raising=False)
+    monkeypatch.setattr(settings, "ROOT", str(tmp_path / "worktree"))
+    monkeypatch.setattr(settings, "state_root", lambda root=None: tmp_path / "main")
+    assert S.capture_dir() == tmp_path / "main" / "state" / "capture"
+
+
+def test_absorb_brings_a_stray_store_in_once(tmp_path):
+    from fieldkit.capture import store as S
+    main, stray = S.Store(tmp_path / "main"), S.Store(tmp_path / "stray")
+    e0 = main.begin_event({"session_id": "m"}, "claude")
+    main.record({"kind": "command", "command": "cargo build", "session": "m", "agent": "claude", "exit_code": 0}, event=e0)
+    e1 = stray.begin_event({"session_id": "j"}, "claude")
+    stray.record({"kind": "command", "command": "cargo build", "session": "m", "agent": "claude", "exit_code": 0}, event=e1)
+    e2 = stray.begin_event({"session_id": "j"}, "claude")
+    iid, _ = stray.record({"kind": "command", "command": "mach build faster", "session": "j", "agent": "claude",
+                           "exit_code": 0}, event=e2)
+    n = main.absorb(stray.root)
+    assert n["events"] == 2 and n["items"] == 1 and n["repeats"] == 1
+    st = main.state()
+    assert iid in st["items"] and st["events"][e2] == iid
+    assert main.verify()[0] == []                                   # the chain holds
+    again = main.absorb(stray.root)
+    assert again["events"] == again["items"] == again["repeats"] == 0 and main.verify()[0] == []
+
+
+def test_a_reaped_worktree_leaves_its_captures_in_the_shared_store(monkeypatch, tmp_path):
+    from fieldkit.capture import store as S
+    from fieldkit.lifecycle import worktrees
+    monkeypatch.setenv("FIELDKIT_CAPTURE_DIR", str(tmp_path / "shared"))
+    stray = S.Store(tmp_path / "wt-job" / "state" / "capture")
+    ev = stray.begin_event({"session_id": "j"}, "claude")
+    iid, _ = stray.record({"kind": "command", "command": "mach build", "session": "j", "agent": "claude", "exit_code": 0}, event=ev)
+    n = worktrees._keep_captures(tmp_path / "wt-job")
+    assert n["items"] == 1 and iid in S.Store().state()["items"]
+    assert worktrees._keep_captures(tmp_path / "no-such") is None
