@@ -255,9 +255,9 @@ def test_handover_writes_note_and_plan_section(tmp_path, monkeypatch):
 
 def test_handover_never_creates_a_missing_plan(tmp_path):
     p = monster(tmp_path)
-    r = rotate.handover(p, "t", "n")
+    r = rotate.handover(p, "t", "n", done="d")
     assert not r["plan_written"] and not (tmp_path / "coord" / "PLAN.md").exists() and Path(r["note"]).is_file()
-    assert rotate.main(["handover", "--transcript", str(p), "--title", "t", "--next", "n"]) == 1
+    assert rotate.main(["handover", "--transcript", str(p), "--title", "t", "--next", "n", "--done", "d"]) == 1
 
 
 # ---------------------------------------------------------------- finished side sessions
@@ -554,3 +554,51 @@ def test_the_session_that_is_zero_never_rotates_whoever_it_is(tmp_path, monkeypa
     zero, other = (_said(tmp_path, "ROTATE", stem=s) for s in ("64069804-71a9-4473-923f-4353c6a0b88f", "other"))
     assert rotate.stop_refusal(pre(zero, "Bash", command="python -m pytest tests")) is None
     assert rotate.stop_refusal(pre(other, "Bash", command="python -m pytest tests")).startswith("SESSION ROTATION STOP")
+
+
+# ---------------------------------------------------------------- P24: no rotation without a report to Zero
+
+def _open_net(tmp_path, monkeypatch):
+    from fieldkit.zero import channels as ch, net as znet
+    monkeypatch.setattr(znet, "machine", lambda: "HOSTA")
+    monkeypatch.setattr(znet, "_key", lambda: None)
+    monkeypatch.setattr(znet, "ingest_cable", lambda *a, **k: 0)
+    (tmp_path / "coord").mkdir(exist_ok=True)
+
+    class Quiet:
+        name, mode = "fake", "push"
+
+        def push(self, e, n):
+            return []
+    monkeypatch.setattr(ch, "default", lambda: [Quiet()])
+    znet.open_net("claude:zzzzzzzz@HOSTA", now=1_800_000_000, env={}, channels=[Quiet()])
+    return znet
+
+
+def test_p24_handover_refuses_an_empty_done_or_next(tmp_path):
+    p = monster(tmp_path)
+    with pytest.raises(ValueError, match="Done and Next"):
+        rotate.handover(p, "t", "n")
+    with pytest.raises(ValueError, match="Done and Next"):
+        rotate.handover(p, "t", "", done="d")
+    assert not list((tmp_path / "coord").glob("rotate-*.md"))            # nothing written
+    assert rotate.main(["handover", "--transcript", str(p), "--title", "t", "--next", "n"]) == 2
+
+
+def test_p24_handover_sends_the_four_part_sitrep_to_zero(tmp_path, monkeypatch):
+    znet = _open_net(tmp_path, monkeypatch)
+    p = monster(tmp_path)
+    r = rotate.handover(p, "job", "open the PR", done="wrote the module", not_verified="CI", now=1_800_000_100)
+    assert r["report"]["sent"] and "reported to Zero" in r["report"]["why"]
+    me = znet.hook_station("sess-big")
+    sit = znet.load_stations()["stations"][me]["sitrep"]
+    assert sit["done"] == "wrote the module" and sit["left"] == "open the PR" and "Build the rotation tool" in sit["started"]
+    assert sit["now"].startswith("rotating") and not znet.sitrep_missing(sit)
+    e = [x for _, x in znet.entries() if x["kind"] == "checkin" and x["from"] == me][-1]
+    assert e["to"] == "claude:zzzzzzzz@HOSTA" and e["data"]["sitrep"]["done"] == "wrote the module"
+
+
+def test_p24_handover_with_no_net_open_proceeds_and_says_so(tmp_path):
+    p = monster(tmp_path)
+    r = rotate.handover(p, "job", "next", done="done")
+    assert not r["report"]["sent"] and "no net open" in r["report"]["why"] and Path(r["note"]).is_file()

@@ -575,3 +575,72 @@ def test_default_free_ground_has_coordination_and_temp(monkeypatch, tmp_path):
     free = importlib.reload(command).default_free()
     import tempfile
     assert claims.norm(tmp_path / "c") in free and claims.norm(tempfile.gettempdir()) in free
+
+
+# ---------------------------------------------------------------- P24: done proven by a command, orphaned jobs
+
+def _py(code):
+    return f'"{sys.executable}" -c "{code}"'
+
+
+def test_p24_release_finished_runs_the_done_cmd_and_refuses_unless_it_exits_0(tmp_path):
+    opened()
+    checked(W1, "cccccccc-1")
+    (tmp_path / "work" / "a").mkdir(parents=True)
+    o = tasked(tmp_path, W1, ("a",), done_cmd=_py("import sys;print('3 failed');sys.exit(3)"))["order"]
+    assert o["done_cmd"].endswith("sys.exit(3)\"")
+    with pytest.raises(net.Refused, match=r"NOT done.*exited 3.*3 failed"):
+        command.release(ZERO, W1, True, now=T0 + 9)
+    rec = net.load_stations()["stations"][W1]
+    assert command.active(rec) and rec["order"]["done_proof"]["exit"] == 3 and "3 failed" in rec["order"]["done_proof"]["tail"]
+    assert "exit 3" in "\n".join(command.order_lines(command.orders(now=T0 + 10)))
+    command.release(ZERO, W1, False, now=T0 + 11)                      # released (not finished): no proof needed
+    assert not command.active(net.load_stations()["stations"][W1])
+    tasked(tmp_path, W1, ("a",), now=T0 + 12, done_cmd=_py("import os;print(os.getcwd())"))
+    r = command.release(ZERO, W1, True, now=T0 + 13)
+    assert r["order"]["outcome"] == "done" and r["order"]["done_proof"]["exit"] == 0
+    assert r["order"]["done_proof"]["cwd"] == claims.norm(W(tmp_path, "a")) or r["order"]["done_proof"]["cwd"].endswith("a")
+    # no --done-cmd: behaves as before, and `orders` says the done is not proven
+    checked(W2, "dddddddd-1")
+    tasked(tmp_path, W2, ("b",), now=T0 + 14)
+    assert "done not proven" in "\n".join(command.order_lines(command.orders(now=T0 + 15)))
+    assert command.release(ZERO, W2, True, now=T0 + 16)["order"]["outcome"] == "done"
+
+
+def test_p24_cli_done_cmd_flag(tmp_path, monkeypatch, capsys):
+    opened()
+    monkeypatch.setattr(command, "_git", nogit)
+    monkeypatch.setattr(command, "repos_of", lambda area, git=None: [])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "aaaaaaaa-1")
+    assert net.main(["task", W1, "--objective", "o", "--area", W(tmp_path, "a"), "--done", "d",
+                     "--done-cmd", _py("import sys;sys.exit(1)")]) == net.OK
+    capsys.readouterr()
+    assert net.main(["release", W1, "--finished"]) == net.REFUSED
+    assert "NOT done" in capsys.readouterr().err
+
+
+def test_p24_a_rotated_station_with_no_relief_is_an_orphan_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIELDKIT_ROTATE_DIR", str(tmp_path / "rot"))
+    opened()
+    checked(ZERO, "aaaaaaaa-1", now=T0 + 1)
+    checked(W1, "cccccccc-1")
+    tasked(tmp_path, W1, ("a",))
+    brief = tmp_path / "rot" / "briefs" / "cccccccc-1.md"
+    brief.parent.mkdir(parents=True)
+    brief.write_text("brief", encoding="utf-8")
+    os.utime(brief, (T0 + 5, T0 + 5))
+    command.on_rotate(W1, now=T0 + 5)
+    zero = FakeChannel()
+    kw = dict(channels_for=lambda s: [zero], git=nogit, room_log=_room(tmp_path), board=False)
+    r = command.sweep(net.load_net(), T0 + 5 + 19 * 60, **kw)
+    assert not [f for f in r["findings"] if f["kind"] == "ORPHAN"]
+    r = command.sweep(net.load_net(), T0 + 5 + 21 * 60, **kw)
+    orph = [f for f in r["findings"] if f["kind"] == "ORPHAN"]
+    assert len(orph) == 1 and f'fieldkit task start {brief} --title "build the thing"' in orph[0]["text"]
+    assert sum("ORPHAN" in e.get("text", "") for e in zero.sent) == 1
+    r = command.sweep(net.load_net(), T0 + 5 + 22 * 60, **kw)           # woken once: no second message
+    assert sum("ORPHAN" in e.get("text", "") for e in zero.sent) == 1
+    # the relief arrives: no orphan, whatever the clock says
+    net.checkin(f"claude:ffffffff@{HOST}", relieve=W1, now=T0 + 5 + 23 * 60, env={"CLAUDE_CODE_SESSION_ID": "ffffffff-1"})
+    r = command.sweep(net.load_net(), T0 + 5 + 90 * 60, **kw)
+    assert not [f for f in r["findings"] if f["kind"] == "ORPHAN"]

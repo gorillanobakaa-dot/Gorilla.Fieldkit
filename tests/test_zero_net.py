@@ -19,6 +19,7 @@ TWO = f"claude:bbbbbbbb@{HOST}"
 GEM = f"gemini:g1@{HOST}"
 SIT = {"job": "zero net", "state": "working", "branch": "feat/zero-net", "waiting": "-", "not_verified": "live VAIO",
        "shared": "-"}
+SIT4 = dict(SIT, started="fix the zero net", done="wrote the tool", now="running its tests", left="open the PR")
 
 
 class FakeChannel:
@@ -210,7 +211,7 @@ def test_rollcall_answer_late_and_missing():
     assert set(r["expect"]) == {GEM, TWO}
     rows = {x["station"]: x["status"] for x in net.roll(net.load_net(), T0 + 20)["rows"]}
     assert rows == {GEM: "PENDING", TWO: "MISSING"}
-    c = net.checkin(GEM, sitrep=SIT, now=T0 + 30, env={})
+    c = net.checkin(GEM, sitrep=SIT4, now=T0 + 30, env={})
     assert c["entry"]["ref"] == r["entry"]["id"]                         # answers the open roll call by itself
     assert any(e["kind"] == "rollcall" for e in c["pending"])
     rr = net.roll(net.load_net(), T0 + 40)
@@ -919,3 +920,52 @@ def test_a_station_on_another_computer_never_assumes_from_a_zero_that_answers_th
     assert net.zero_of(net.load_net()) == ZERO
     r = net.handover(far, assume=True, channels=[FakeChannel()], now=late, far_alive=lambda: False)
     assert net.zero_of(r["net"]) == far
+
+
+# ---------------------------------------------------------------- P24: four-part sitrep, unanswered stations
+
+def test_p24_sitrep_in_four_parts_and_a_sitrep_missing_one_is_incomplete():
+    opened()
+    net.checkin(GEM, now=T0, env={})
+    net.checkin(TWO, now=T0, env={})
+    r = net.rollcall(ZERO, channels=[FakeChannel()], now=T0 + 10)
+    net.checkin(GEM, sitrep=SIT4, now=T0 + 20, env={})
+    net.checkin(TWO, sitrep=dict(SIT4, now="", left=""), now=T0 + 21, env={})
+    rr = net.roll(net.load_net(), T0 + 30)
+    got = {x["station"]: x for x in rr["rows"]}
+    assert got[GEM]["status"] == "ANSWERED" and got[GEM]["sitrep"]["left"] == "open the PR"
+    assert got[TWO]["status"] == "INCOMPLETE" and got[TWO]["missing_parts"] == ["doing now", "left to do"]
+    text = "\n".join(net.roll_lines(rr))
+    for label in ("started from:", "done so far:", "doing now:", "left to do:"):
+        assert label in text
+    assert "INCOMPLETE: no doing now, no left to do" in text and net.roll_level(rr["rows"]) == net.WARN
+    assert r["entry"]["kind"] == "rollcall"
+    with pytest.raises(ValueError, match="done so far"):
+        net.check_sitrep(dict(SIT4, done="x" * (net.SITREP_MAX + 1)))
+    args = ["checkin", "--as", "gemini:g9", "--job", "j", "--state", "working", "--branch", "b", "--waiting", "-",
+            "--not-verified", "-", "--shared", "-", "--started", "s", "--done-so-far", "d", "--now", "n", "--left", "l"]
+    assert net.main(args) == net.OK
+    assert net.load_stations()["stations"]["gemini:g9@" + HOST]["sitrep"]["done"] == "d"
+
+
+def test_p24_unanswered_stations_are_listed_with_session_host_and_one_exact_line(monkeypatch):
+    opened()
+    net.checkin(GEM, now=T0, env={})
+    net.checkin(TWO, now=T0 - 3 * 3600, env={"CLAUDE_CODE_SESSION_ID": "bbbbbbbb-2222",
+                                             "CLAUDE_CODE_HOST_SESSION_ID": "local_ABC123"})
+    w = f"claude:cccccccc@{HOST}"
+    net.checkin(w, now=T0 - 3 * 3600, env={"CLAUDE_CODE_SESSION_ID": "cccccccc-3333"})
+    net.rollcall(ZERO, answer=1, channels=[FakeChannel()], now=T0 + 10)
+    rr = net.roll(net.load_net(), T0 + 10 + 61)
+    un = {x["station"]: x for x in rr["unanswered"]}
+    assert set(un) == {GEM, TWO, w}
+    assert un[TWO]["session"] == "bbbbbbbb-2222" and un[TWO]["host_session"] == "local_ABC123"
+    assert un[TWO]["act"] == "send_message local_ABC123"
+    assert un[w]["act"].startswith(f"fieldkit zero send --to {w}") and un[w]["host_session"] == ""
+    assert any(x.startswith(f"  UNANSWERED {TWO}") and "desktop host local_ABC123" in x for x in net.roll_lines(rr))
+    chk = net.check(now=T0 + 10 + 61, board=False, cable=FakeCable(), command_kw={"git": lambda a, c: None})
+    assert {x["station"]: x["act"] for x in chk["unanswered"]}[TWO] == "send_message local_ABC123"
+    # the hook's lease stores the host session too, when its environment has it
+    monkeypatch.setenv("CLAUDE_CODE_HOST_SESSION_ID", "local_HOOK1")
+    net.hook_line({"session_id": "dddddddd-4", "cwd": "/x"}, "UserPromptSubmit", now=T0 + 300)
+    assert net.load_stations()["stations"][f"claude:dddddddd@{HOST}"]["host_session"] == "local_HOOK1"

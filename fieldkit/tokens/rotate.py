@@ -498,7 +498,12 @@ def _cell(s):
 
 
 def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=None):
-    """Write the note + the dated PLAN.md section. -> {note, plan, plan_written, brief, row}."""
+    """Write the note + the dated PLAN.md section. -> {note, plan, plan_written, brief, row, report}. P24: no rotation
+    without a report: an empty Done or Next is refused (ValueError), and the four-part sitrep (started from, done so
+    far, doing now, left to do) goes to Zero over the net before the successor starts ("report": what was sent)."""
+    if not str(done or "").strip() or not str(next_ or "").strip() or str(done).strip() == "-" or str(next_).strip() == "-":
+        raise ValueError("handover refused: Done and Next must both say something (the report Zero receives is built "
+                         "from them): --done what was done, --next what is left")
     now = now or time.time()
     a, p = sc.resolve(str(transcript), sc.adapters_for("all"))
     if a is None:
@@ -553,8 +558,10 @@ def handover(transcript, title, next_, done="", not_verified="", now=None, cfg=N
     with open(state_dir() / "handovers.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"at": stamp, "session": row["session"], "title": title, "level": row["level"],
                             "note": str(note), "plan_written": written}) + "\n")
+    started = (row.get("task") or "").strip() or f"session {sid} in {where}"
+    report = zero_net.report_rotation(row["session"], title, started, done, next_, not_verified, branch, now)
     return {"note": str(note), "plan": str(plan), "plan_written": written, "brief": brief, "row": row,
-            "honesty": honest}
+            "honesty": honest, "report": report}
 
 
 def _honesty(path, done, not_verified):
@@ -862,10 +869,14 @@ def main(argv=None):
         except FileNotFoundError as e:
             print(f"rotate: not found: {e}", file=sys.stderr)
             return 3
+        except ValueError as e:
+            print(f"rotate: {e}", file=sys.stderr)
+            return 2
         if a.json:
             print(json.dumps({k: v for k, v in r.items() if k != "row"}, indent=1))
         else:
             print(f"note: {r['note']}")
+            print(f"REPORT to Zero: {r['report']['why']}")
             print(f"PLAN.md: {'section appended' if r['plan_written'] else 'NOT FOUND, nothing written'}: {r['plan']}")
             for x in r.get("honesty") or []:
                 print(f"HONESTY {x['kind']}: {x['detail']}")
