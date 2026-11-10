@@ -269,3 +269,14 @@ def test_the_real_task_ledger_is_out_of_reach():
     from fieldkit.core import settings
     from fieldkit.lifecycle import tasks
     assert not str(tasks.ledger_path()).startswith(str(settings.state_root() / "state"))
+def test_a_guard_refusal_of_a_read_only_command_is_recorded_as_read_only(tmp_path, monkeypatch):
+    # P23 hook wiring: the v0.9.0 block was the guard refusing `fieldkit ship release-ready`, a read
+    import io
+    import json as _json
+    from fieldkit.autopilot import claude_hook, hardlines
+    seen = {}
+    monkeypatch.setattr(refusals, "record", lambda tool, why, **kw: seen.update(kw, tool=tool) or 0)
+    monkeypatch.setattr(hardlines, "decide", lambda *a, **k: ("deny", "HARD LINE 1 (test)"))
+    payload = {"tool_name": "Bash", "tool_input": {"command": "fieldkit ship release-ready v0.9.0"}, "session_id": "s1"}
+    claude_hook.main(stdin=io.StringIO(_json.dumps(payload)), stdout=io.StringIO())
+    assert seen.get("tool") == "guard" and seen.get("command") == "fieldkit ship release-ready v0.9.0", seen

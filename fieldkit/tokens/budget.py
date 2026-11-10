@@ -154,6 +154,10 @@ def lines(row, transcript, cfg=None, now=None, owner=False):
     if lv == "HALF":
         _set_mark(sid, {**m, "told": "HALF"})
         return f"BUDGET {pct}%: {HALF_TEXT} ({'; '.join(row.get('why') or []) or 'by the meters'})."
+    from . import rotate_stop
+    if rotate_stop.permanent_zero(sid):    # owner 2026-11-10: Zero never rotates; no handover is written for it
+        _set_mark(sid, {**m, "told": "STOP"})
+        return f"BUDGET {pct}%: you are Zero, which never rotates (owner 2026-11-10): keep the turns short."
     res = prepare_successor(row, transcript, now, cfg)
     start = rotate.start_text(row, owner).replace("<the brief file>", res["brief"]).replace("<job>", res["title"])
     desktop = (row.get("entrypoint") or "").startswith("claude-desktop")

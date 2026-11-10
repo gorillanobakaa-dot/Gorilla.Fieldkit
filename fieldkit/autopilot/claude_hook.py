@@ -65,7 +65,9 @@ def main(stdin=sys.stdin, stdout=sys.stdout):
         # 2026-11-09: the guard's own refusals never reached the refusals ledger, so the v0.9.0 release-ready block
         # (a false positive, hit twice) opened no defect row; the same reason twice now opens one
         from fieldkit import refusals
-        refusals.record("guard", why, session=payload.get("session_id"))
+        ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+        refusals.record("guard", why, session=payload.get("session_id"), command=ti.get("command"),
+                        readonly=True if (payload.get("tool_name") or "").lower() in hardlines.READ_TOOLS else None)
         stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                         "permissionDecisionReason": why}}))
     return 0
