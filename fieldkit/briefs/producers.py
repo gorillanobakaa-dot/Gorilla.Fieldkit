@@ -665,6 +665,7 @@ PRODUCERS = {"decision": from_decisions, "patch": from_patches, "claims": from_c
              "allowlist": from_allowlist, "deferred": from_deferred, "owner-edit": from_owner_edits,
              "lost-layer": _migrate("from_lost_layer"), "consistency": _migrate("from_consistency"),
              "intake": _migrate("from_intake"), "publish": _migrate("from_publish")}
+OWNERLESS = {"intake"}   # brief kinds that read only the task's own journal and intake, never the owner repository
 PREFIX = {"B-DECISION-": "decision", "B-PATCH-": "patch", "B-CLAIMS-": "claims", "B-DISPOSITION-": "disposition",
           "B-ALLOW-": "allowlist", "B-DEFERRED-": "deferred", "B-EDIT-": "owner-edit", "B-LOSTLAYER-": "lost-layer",
           "B-CONSISTENCY-": "consistency", "B-INTAKE-": "intake", "B-PUBLISH-": "publish"}
@@ -685,9 +686,14 @@ def collect(ctx, kinds=None):
     """-> {"briefs": [valid briefs, priority order], "problems": [producer or validation problems]}."""
     briefs, problems = [], []
     if ctx.owner is None:
-        return {"briefs": [], "problems": ["no owner repository known for this task: no register, no claims, no leak gate"]}
+        # 2026-11-10: on Linux there is no owner repository (harness/gorilla_build.py is the Windows owner's), so the
+        # Firefox 160 intake briefs (7 clusters, S1 RED) could never be shown or decided. The kinds that read only the
+        # task's own journal still run; the rest stay a named problem.
+        problems.append("no owner repository known for this task: no register, no claims, no leak gate")
     for kind, fn in PRODUCERS.items():
         if kinds and kind not in kinds:
+            continue
+        if ctx.owner is None and kind not in OWNERLESS:
             continue
         try:
             made = fn(ctx)
