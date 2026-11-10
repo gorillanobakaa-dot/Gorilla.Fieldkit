@@ -168,12 +168,31 @@ def unparsed(agent, payload):
             "outputs": {}, "exit_code": None, "errors": "", "problem": "", "path": None}
 
 
+def opencode_payload(text, env=None):
+    """Gorilla OpenCode runs an after_tool hook with the tool's raw input on stdin and GORILLA_HOOK_* in the environment
+    (internal/llm/agent/hooks.go); -> the payload parse() reads, or None when this is not such a call."""
+    env = os.environ if env is None else env
+    if env.get("GORILLA_HOOK_EVENT") != "after_tool" or not env.get("GORILLA_HOOK_TOOL"):
+        return None
+    try:
+        ti = json.loads(text) if text and text.strip() else {}
+    except ValueError:
+        ti = {"command": text}
+    result, failed = env.get("GORILLA_HOOK_TOOL_RESULT", ""), env.get("GORILLA_HOOK_TOOL_ERROR") == "1"
+    resp = {"stdout": "" if failed else result}
+    if failed:
+        resp.update(error=result or "tool error", exit_code=1)
+    return {"hook_event_name": "after_tool", "tool_name": env["GORILLA_HOOK_TOOL"], "tool_input": ti if isinstance(ti, dict) else {"command": str(ti)},
+            "tool_response": resp, "session_id": env.get("GORILLA_HOOK_SESSION", ""), "cwd": os.getcwd()}
+
+
 def handle(agent, text, store=None):
     """Journal one hook event. Returns the item id (None when the event is not work). Never raises."""
     store = store or st.Store()
     try:
         try:
-            payload = json.loads(text) if text and text.strip() else {"raw": text or ""}
+            payload = (opencode_payload(text) if agent == "opencode" else None) or \
+                (json.loads(text) if text and text.strip() else {"raw": text or ""})
         except ValueError:
             payload = {"raw": text}
         try:
