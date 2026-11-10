@@ -15,3 +15,7 @@ The ideas you gave today (one record of mistakes, and Zero as commander) were al
 ## The plan sees every finished row
 
 A finished piece of work whose title started with its row number ("P24: ...") was not counted as finished. It is now.
+
+## The plan tells the truth about what is left
+
+Eleven finished rows still said "planned". They now say done, with the change that finished each. One of them, P5 (everyday jobs on Windows and Linux with any model), is only partly done: it passed all 13 jobs on Linux with a cloud model, but the run with a local model is still missing. The plan now shows P5 as the open row instead of hiding it.
