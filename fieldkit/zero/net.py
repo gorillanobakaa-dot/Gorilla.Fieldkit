@@ -479,7 +479,18 @@ def _public(net):
             "interval_min": net.get("interval_min"), "answer_min": net.get("answer_min"), "quiet": net.get("quiet")}
 
 
-def handover(me, to=None, take=False, assume=False, second=None, epoch=None, channels=None, now=None, env=None):
+def _far_alive():
+    """True when any computer of the cable answers hello (two computers: the other one). Never raises."""
+    try:
+        from . import channels as ch
+        c = ch.Cable(timeout=5)
+        return any(c.hello(d).get("ok") for d in c.devices())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def handover(me, to=None, take=False, assume=False, second=None, epoch=None, channels=None, now=None, env=None,
+             far_alive=None):
     now = time.time() if now is None else now
     net = load_net()
     if not is_open(net):
@@ -505,6 +516,12 @@ def handover(me, to=None, take=False, assume=False, second=None, epoch=None, cha
         if state_of(zrec, now) != "MISSING":
             raise Refused(f"Zero {old} is {state_of(zrec, now) if zrec else 'unknown'}, not MISSING: the 2IC assumes "
                           "only when Zero missed two check-ins")
+        # 2026-11-10 defect: the ThinkPad's "Fieldkit ZeroKeeper" task took Zero (epoch 36 -> 42) from a live Zero on
+        # the VAIO: leases of the other computer's stations are only as fresh as the cable's last ingest, so MISSING
+        # there is not proof. Zero on another computer that answers over the cable is never taken by an assume.
+        if machine_of(old) and machine_of(old) != machine_of(me) and (far_alive or _far_alive)():
+            raise Refused(f"Zero {old} is on {machine_of(old)}, which answers over the cable: a station on another "
+                          "computer never assumes Zero from it (ask it to hand over: fieldkit zero handover --to YOU)")
         to, how = me, f"2IC assumed: Zero {old} MISSING"
     else:
         require_zero(net, me, epoch)
@@ -907,6 +924,11 @@ def _cable_layer(device):
 def check(heal=False, channels=None, now=None, reviver=None, inbox_add=None, board=True, cable=None, command_kw=None, classify=None):
     now = time.time() if now is None else now
     ingest_cable()
+    try:                                  # P23: the refusals ledger of both computers meets at every comms check (15 min),
+        from .. import refusals           # not in the prompt hook, which a dead cable would stall 3 s on every prompt
+        refusals.sync_quiet()
+    except Exception:  # noqa: BLE001
+        pass
     net = load_net()
     if not is_open(net):
         return {"established": False, "net": net, "level": NONET}

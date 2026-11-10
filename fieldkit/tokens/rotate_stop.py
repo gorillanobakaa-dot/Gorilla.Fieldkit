@@ -18,9 +18,23 @@ HANDOVER_CMD = re.compile(r"\bfieldkit\s+(rotate|ship|task|privacy|testcost|zero
 HANDOVER_FILES = ("PLAN.md", "HANDOFF.md")
 
 
+def zero_session(stem):
+    """True when this transcript stem is the session that is Zero now (NET.yaml zero.session). Owner 2026-11-10: "Zero
+    never rotates" - the exemption follows the seat, not one transcript id. Read with a regex: the hook loads no YAML
+    parser (100 ms budget). FIELDKIT_COORDINATION_DIR overrides the folder. Never raises."""
+    try:
+        d = os.environ.get("FIELDKIT_COORDINATION_DIR") or (_state_root(Path(__file__).resolve().parents[2]) / "state" / "coordination")
+        m = re.search(r"(?ms)^zero:\s*\n(?:[ \t]+.*\n)*?[ \t]+session:\s*['\"]?([0-9a-fA-F-]+)", (Path(d) / "NET.yaml").read_text(encoding="utf-8"))
+        return bool(stem) and m is not None and m.group(1) == stem
+    except Exception:  # noqa: BLE001 - no net, unreadable file: not Zero
+        return False
+
+
 def permanent_zero(stem):
-    """True when this transcript stem is the permanent Zero, which the owner exempted from rotation (2026-11-09).
-    The list is data: rules/permanent_zero.json (FIELDKIT_PERMANENT_ZERO overrides the path, for tests). Never raises."""
+    """True when this transcript stem is exempt from rotation: the session that is Zero now (zero_session), or one the
+    owner listed (2026-11-09, rules/permanent_zero.json; FIELDKIT_PERMANENT_ZERO overrides the path). Never raises."""
+    if zero_session(stem):
+        return True
     try:
         f = os.environ.get("FIELDKIT_PERMANENT_ZERO") or (Path(__file__).resolve().parents[2] / "rules" / "permanent_zero.json")
         return bool(stem) and stem in (json.loads(Path(f).read_text(encoding="utf-8")).get("transcripts") or [])

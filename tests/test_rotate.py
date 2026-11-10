@@ -541,3 +541,16 @@ def test_shipped_permanent_zero_list_names_session_zero(monkeypatch):
     from fieldkit.tokens import rotate_stop
     assert rotate_stop.permanent_zero("407131e1-ce0d-40e5-bc4e-e373a9749717")
     assert not rotate_stop.permanent_zero("407131e1")
+
+
+def test_the_session_that_is_zero_never_rotates_whoever_it_is(tmp_path, monkeypatch):
+    # owner 2026-11-10: "Zero never rotates" - Zero moved to a new session, the fixed-id list did not follow it
+    _zero_list(tmp_path, monkeypatch, ["someone-else"])
+    coord = tmp_path / "coord"
+    coord.mkdir()
+    monkeypatch.setenv("FIELDKIT_COORDINATION_DIR", str(coord))
+    (coord / "NET.yaml").write_text("epoch: 43\nnet: open\nzero:\n  station: claude:64069804@h\n  machine: h\n"
+                                    "  session: 64069804-71a9-4473-923f-4353c6a0b88f\n  name: command post\n", encoding="utf-8")
+    zero, other = (_said(tmp_path, "ROTATE", stem=s) for s in ("64069804-71a9-4473-923f-4353c6a0b88f", "other"))
+    assert rotate.stop_refusal(pre(zero, "Bash", command="python -m pytest tests")) is None
+    assert rotate.stop_refusal(pre(other, "Bash", command="python -m pytest tests")).startswith("SESSION ROTATION STOP")
