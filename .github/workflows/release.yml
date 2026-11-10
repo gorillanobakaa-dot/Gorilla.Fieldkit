@@ -27,6 +27,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[test]"
+      # 2026-11-10: v0.9.0 never published: tests.yml installs this, release.yml did not, so 3 installverify tests failed
+      - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends desktop-file-utils
       - run: python -m pytest -q -rs
   publish:
     needs: test
