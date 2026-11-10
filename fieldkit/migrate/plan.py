@@ -585,12 +585,53 @@ def init(m, previous=None, at=None, by="cli"):
          "history": [{"stage": stage, "entered": time.strftime("%Y-%m-%d %H:%M:%S"), "by": by,
                       "adopted": stage != "S0", "carried": len(carried)}],
          "carried": carried, "last_gates": {s: g[s]["ok"] for s in IDS}}
+    p["capture"] = capture_begin(m.tid)
     save_plan(m.tid, p)
     from . import sitrep
     rep = sitrep.build(m, gates=g)
     task.journal(m.t, "migrate-init", stage=stage, previous=prev, adopted=stage != "S0", carried=len(carried),
                  sitrep=sitrep.journal_block(rep))
     return p
+
+
+def capture_begin(tid):
+    """P26: a migration records every command, error and fix from `init` to `close` (up to a week; the owner is asked
+    for an extension before it ends). A capture someone switched on by hand is left alone. -> the token, or None."""
+    try:
+        if os.environ.get("FIELDKIT_EMERGE_NO_CAPTURE"):
+            return None
+        from ..capture import loop
+        return loop.begin(f"firefox migrate {tid}", f"firefox:migrate:{tid}")
+    except Exception:  # noqa: BLE001  capture never fails a migration
+        return None
+
+
+def close(m, by="cli"):
+    """The migration's finish: only while the S9 gate is green. Capture off (when this migration switched it on), then
+    the distil of what it recorded. -> {"stage", "capture"}."""
+    p = m.plan()
+    if not p:
+        raise task.Refused(f"{m.tid} is not under migration control; start it: {FH} migrate init {m.tid}")
+    if p["stage"] != IDS[-1]:
+        raise task.Refused(f"{m.tid} is at {p['stage']}; close is for S9 only. NEXT: {FH} migrate sitrep {m.tid}")
+    red = [i for i in gate_S9(m) if not i["ok"]]
+    if red:
+        raise task.Refused(f"the S9 gate is RED ({len(red)} item(s)); first: {red[0]['id']}. NEXT: {FH} migrate sitrep {m.tid}")
+    tok = p.get("capture") or {"owner": False, "who": f"firefox:migrate:{m.tid}", "since": (p.get("history") or [{}])[0].get("entered"),
+                               "note": "no capture was begun by this migration"}
+    out = {"stage": p["stage"], "capture": None}
+    try:
+        from ..capture import loop
+        r = loop.end(tok)
+        out["capture"] = {"off": r["off"], "episodes": r["distil"]["episodes"], "candidates": len(r["distil"]["candidates"]),
+                          "ledger": len(r["distil"]["ledger"])}
+    except Exception as e:  # noqa: BLE001
+        out["capture"] = {"off": f"not ended ({e})"}
+    p["closed"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    p["capture"] = None
+    save_plan(m.tid, p)
+    task.journal(m.t, "migrate-close", by=by, capture=out["capture"])
+    return out
 
 
 def advance(m, by="cli"):

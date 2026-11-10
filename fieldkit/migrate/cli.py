@@ -8,6 +8,7 @@
     migrate gate TASK [STAGE] [--json]     one stage's gate, every item with its evidence
     migrate init TASK [from=PREV] [at=S6]  put the task under migration control (adopts an in-flight one by evidence)
     migrate advance TASK                   enter the next stage; refused while the current gate is red
+    migrate close TASK                     the finish (S9 gate green): capture off, what the migration recorded distilled
     migrate work TASK ITEM                 open a work item of the current stage (the drift guard needs one)
     migrate park TASK "why"                park a side problem as a ticket;  migrate unpark TASK P-001 "resolution"
     migrate intents TASK [--json]          ledger coverage and the per-intent statuses that are not green
@@ -22,7 +23,7 @@ from pathlib import Path
 from ..buildh import task
 from . import plan
 
-SUBS = ("brief", "plan", "sitrep", "seed", "check", "gate", "init", "advance", "work", "park", "unpark", "intents", "intake",
+SUBS = ("brief", "plan", "sitrep", "seed", "check", "gate", "init", "advance", "close", "work", "park", "unpark", "intents", "intake",
         "consistency")
 
 
@@ -172,6 +173,13 @@ def run(a, emit, current_id):
     if sub == "advance":
         p = plan.advance(m)
         emit(p, lambda p: print(f"ENTERED {p['stage']} {plan.STAGE[p['stage']]['name']}\nNEXT: {plan.FH} migrate sitrep {tid}"))
+        return 0
+    if sub == "close":
+        r = plan.close(m)
+        emit(r, lambda r: print(f"CLOSED {tid}: capture {r['capture'].get('off')}"
+                                + (f"; distil {r['capture']['episodes']} episode(s), {r['capture']['candidates']} candidate tool(s), "
+                                   f"{r['capture']['ledger']} ledger line(s)" if "episodes" in r["capture"] else "")
+                                + f"\nNEXT: candidates in state/capture/candidates/ (fieldkit mutate, then fieldkit adopt)"))
         return 0
     if sub == "work":
         from . import guard

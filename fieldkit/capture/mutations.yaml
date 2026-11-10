@@ -76,3 +76,9 @@
 - {file: fieldkit/capture/switch.py, swap: ['        if d.get("asked_until") != until:', '        if False:'], why: "the extension is filed in the owner inbox"}
 - {file: fieldkit/capture/switch.py, swap: ['    d = {k: v for k, v in cur.items() if k not in ("until", "asked_until")}', '    d = {k: v for k, v in cur.items() if k not in ("until",)}'], why: "an extension re-arms the one-time ask"}
 - {file: fieldkit/plan.py, swap: ['            out = "\n".join(x for x in (out, switch.ask_extension()) if x)', '            pass'], why: "the capture extension line rides the hook line"}
+- {file: fieldkit/capture/loop.py, swap: ['    return next((name for name, rx in PROJECTS if re.search(rx, low)), None)', '    return None'], why: "a job is sorted into its project (firefox, kernel, opencode)"}
+- {file: fieldkit/capture/loop.py, swap: ['        if tok and tok.get("owner"):', '        if tok:'], why: "a project job never ends a capture someone else switched on"}
+- {file: fieldkit/capture/loop.py, swap: ['        if proj and not os.environ.get("FIELDKIT_EMERGE_NO_CAPTURE"):', '        if False:'], why: "a project job switches capture on"}
+- {file: fieldkit/migrate/plan.py, swap: ["    if red:\n        raise task.Refused(f\"the S9 gate is RED", "    if False:\n        raise task.Refused(f\"the S9 gate is RED"], why: "a migration closes only with the S9 gate green"}
+- {file: fieldkit/migrate/plan.py, swap: ['    p["capture"] = capture_begin(m.tid)', '    p["capture"] = None'], why: "migrate init switches capture on"}
+- {file: fieldkit/core/pipeline.py, swap: ['with loop.job(self.name, f"pipeline {self.name}"), \', 'with'], why: "a project pipeline run is captured"}

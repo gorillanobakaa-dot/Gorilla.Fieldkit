@@ -17,6 +17,7 @@ import os
 import re
 import shlex
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,10 @@ from . import switch
 
 BUILD_MAX_MINUTES = 7 * 24 * 60
 LEDGER = "agent-ledger.jsonl"
+# P26: the lesson of a job names its project, so the distil can sort by project (first match wins).
+PROJECTS = (("firefox", r"firefox|gorilla-firefox|\bbh-|build-harness|migrate"),
+            ("kernel", r"kernel"),
+            ("opencode", r"opencode"))
 
 
 def _root():
@@ -36,6 +41,34 @@ def _home(home):
     """FIELDKIT_CAPTURE_HOME moves where the agents' settings files are looked for (proofs and tests use a sandbox)."""
     import os
     return home or os.environ.get("FIELDKIT_CAPTURE_HOME") or None
+
+
+def project_of(text):
+    """-> "firefox" | "kernel" | "opencode" | None: which project's harness section a lesson, a recipe or a pipeline
+    name, or a working directory belongs to."""
+    low = str(text or "").lower()
+    return next((name for name, rx in PROJECTS if re.search(rx, low)), None)
+
+
+@contextmanager
+def job(project_text, name, begin_fn=None, end_fn=None):
+    """A project job (a staged pipeline, a migration step) records for as long as it runs, like an emerge run. A capture
+    someone else switched on is left alone (and nothing is distilled here: its owner distils). Never fails the job."""
+    tok = None
+    try:
+        proj = project_of(project_text)
+        if proj and not os.environ.get("FIELDKIT_EMERGE_NO_CAPTURE"):      # the switch tests and CI set (emerge's)
+            tok = (begin_fn or begin)(f"{proj} {name}", f"{proj}:{name}:{os.getpid()}")
+    except Exception:  # noqa: BLE001
+        tok = None
+    try:
+        yield tok
+    finally:
+        if tok and tok.get("owner"):
+            try:
+                (end_fn or end)(tok)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def begin(lesson, who, home=None, py=None, now=None):
