@@ -120,6 +120,7 @@ Its essentials are now in [VISION.md](VISION.md).
 | C5 | The Windows laptop knocks on its own listener and is refused: 46 refused connections from its own cable address since 10-22 | the link log | DONE (PR #186): the own-listener check binds the port instead of dialling its own cable address |
 | C6 | Every tool call starts 2 Python processes (tool router, room) that read and rewrite the net files, the room log and the transcript | `room.py`, the Claude settings hooks | DONE (PR #162, #195) |
 | C7 | Every order says which channel carried it and gets a receipt: the Linux laptop accepted a shutdown order on 10-27, and nobody knows whether it came through a Claude desktop remote session or the cable | owner 2026-10-27 | DONE (PR #171) |
+| C8 | Real-time between sessions (idea I-27, owner 2026-11-10: "build it right now"): every session starts its own ear (`fieldkit peers link relay listen --as STATION`) as a background command at check-in and is reminded while it has none; Zero's check lists DEAF stations; a cable NET note is ingested at once and pushed to running Gorilla OpenCode sessions | 2026-11-10: notes from the VAIO Zero reached the L15 session only at its next tool call; 97 notes unread; M-75279cfc, M-a19636c1, M-472ebce8 undelivered to an earless Zero | a VAIO note wakes an idle L15 session within seconds and the reverse; `fieldkit zero check` shows a DEAF station as WARN | PLANNED |
 
 ## Improvements (new visibility, so the money cannot disappear again)
 
