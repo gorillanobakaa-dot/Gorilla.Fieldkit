@@ -1015,3 +1015,18 @@ def test_a_far_message_for_an_opencode_session_here_is_pushed_to_it_on_ingest(mo
     claude = dict(far, id="M-far-2", to=TWO)
     net.ingest_cable([(10, claude)], now=T0)
     assert len(sent) == 1
+
+
+def test_an_ended_hook_session_is_folded_not_listed_as_missing():
+    opened()
+    late = T0 + 3 * 3600
+    st = net.load_stations()
+    net.renew(st, "claude:cccccccc@" + HOST, net.load_net(), T0, via="hook")     # a session that ended hours ago
+    net.renew(st, ZERO, net.load_net(), late)
+    net.save_stations(st)
+    r = net.status(now=late)
+    assert [x["state"] for x in r["rows"] if x["station"].startswith("claude:cccccccc")] == ["ENDED"]
+    text = "\n".join(net.status_lines(r, now=late))
+    assert "1 ENDED" in text and "cccccccc" not in text and "0 MISSING" in text
+    out = net._net_line({"session_id": "aaaaaaaa"}, "UserPromptSubmit", now=late)
+    assert "cccccccc" not in out
