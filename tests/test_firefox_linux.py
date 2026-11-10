@@ -1,6 +1,7 @@
-import sys
-import pytest
 """Firefox on Linux: the stages, run against fakes (no mach, no build, nothing on the machine touched)."""
+import sys
+
+import pytest
 from pathlib import Path
 import time
 from types import SimpleNamespace
