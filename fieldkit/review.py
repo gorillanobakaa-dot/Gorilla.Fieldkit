@@ -197,7 +197,8 @@ def accepted_by_harness():
     if not rs:
         return [], []
     head = [f"Accepted by the harness while you were away ({len(rs)}): every check passed and an independent reviewer "
-            "said yes. Review after the fact; undo any with its line."]
+            "said yes, or (TIE-BREAK / OVERRIDE) a higher rung settled a check-vs-reviewer deadlock on that one item. "
+            "Review after the fact; undo any with its line."]
     return rs, head + autoaccept.lines(rs)[1:]
 
 

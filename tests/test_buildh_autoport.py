@@ -196,3 +196,132 @@ def test_the_offer_drops_the_old_a_person_s_job_verdict(job3, on):
     text = json.dumps(task.packet("t3"))
     assert "gammaNew" in text and "a.c" in text
     assert "never by a model" not in text and "Not a job for a model" not in text
+
+
+# --- checker vs reviewer: the tie-break (firefox-160-linux policies-descriptions.ftl h3, 2026-11-11) -----------------
+# Upstream dropped a sentence the project's hunk rewrites. The check refuses a port without the hunk's added text; the
+# reviewer refuses a port with it. Sonnet tried both and the step failed. A tie-break settles it, for that step only.
+
+UP_OLD = "msg-agent = Prevent the default browser agent. Only applicable to Windows."
+UP_NEW = "msg-agent2 = Prevent the default browser agent."
+HUNK_ADD = "msg-agent = Prevent the default Gorilla browser agent. Only applicable to Gorilla Windows."
+WITH = "msg-agent2 = Prevent the default Gorilla browser agent. Only applicable to Gorilla Windows.\n"
+WITHOUT = "msg-agent2 = Prevent the default Gorilla browser agent.\n"
+
+
+def chk_agent(t, s, **kw):
+    text = Path(t["workdir"], "msgs.ftl").read_text()
+    why = [w for w, ok in (("the hunk's 'Gorilla' is missing", "Gorilla" in text),
+                           ("the added text's 'applicable' is nowhere near the change", "applicable" in text)) if not ok]
+    return {"ok": not why, "why": why}
+
+
+def pkt_agent(t, s, **kw):
+    return "port the hunk into msgs.ftl"
+
+
+@pytest.fixture
+def job4(tmp_path, monkeypatch):
+    monkeypatch.setattr(task, "STATE", tmp_path / "state")
+    w = tmp_path / "work"
+    w.mkdir()
+    subprocess.run(["git", "init", "-q", str(w)], check=True)
+    (w / "msgs.ftl").write_text(UP_NEW + "\n")                          # the new upstream release, pristine
+    subprocess.run(["git", "-C", str(w), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "commit", "-q", "-m", "upstream"], check=True)
+    sha = subprocess.run(["git", "-C", str(w), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    task.start("t4", "demo", w, [{"id": "port-h3", "kind": "model", "title": "port h3",
+                                  "packet": "tests.test_buildh_autoport:pkt_agent",
+                                  "check": "tests.test_buildh_autoport:chk_agent", "allowed": ["msgs.ftl"],
+                                  "args": {"file": "msgs.ftl", "hunk": {"header": "@@ -1 +1 @@",
+                                                                        "lines": [f"-{UP_OLD}", f"+{HUNK_ADD}"]}}}],
+               budget_tokens=1000, meta={"upstream": {"commit": sha}})
+    task.approve("t4", "owner")
+    monkeypatch.setattr(core, "pick_tiebreaker", lambda author, pol=None, **kw: {"reviewer": "opus", "why": "test"})
+    return w
+
+
+def answer(text):
+    return json.dumps([sys.executable, "-c", f"import sys; sys.stdin.read(); print({text!r})"])
+
+
+def _deadlock(w, on):
+    """Sonnet ports WITH the sentence (checks pass, the reviewer refuses), then WITHOUT it (the check refuses)."""
+    task.packet("t4")
+    (w / "msgs.ftl").write_text(WITH)
+    assert task.submit("t4", adapted="renames: msg-agent -> msg-agent2\nlesson: follow the 2")["proposed"]
+    on.setenv("FIELDKIT_REVIEWER_CMD", verdict("NO"))
+    task.advance("t4")                                       # the reviewer refuses; no check refusal yet: no tie-break
+    assert _step("t4", "port-h3")["status"] == "failed" and core.disagreement("t4", "port-h3") is None
+    task.packet("t4")
+    (w / "msgs.ftl").write_text(WITHOUT)
+    r = task.submit("t4", adapted="renames: msg-agent -> msg-agent2\nlesson: upstream dropped the sentence")
+    assert not r["ok"] and any("applicable" in x for x in r["why"])
+    d = core.disagreement("t4", "port-h3")
+    assert d and d["check"]["why"] == ["the added text's 'applicable' is nowhere near the change"]
+
+
+def test_tiebreak_reviewer_right_overrides_the_check_for_this_step_only(job4, on):
+    _deadlock(job4, on)
+    on.setenv("FIELDKIT_REVIEWER_CMD", answer(
+        "Upstream dropped the sentence when it renamed the message.\nEVIDENCE: + msg-agent2 = Prevent the default "
+        "browser agent.\nHOLDS: REVIEWER"))
+    task.advance("t4")
+    s = _step("t4", "port-h3")
+    assert s["status"] == "done" and s["done_by"] == "harness-override"
+    assert (job4 / "msgs.ftl").read_text() == WITHOUT, "the work the check refused is in the tree"
+    row = core.unseen()[-1]
+    assert row["override"] == ["the added text's 'applicable' is nowhere near the change"]
+    assert row["check_said"] and row["reviewer_said"] and "rewind t4 port-h3" in row["rewind"]
+    assert any("OVERRIDE" in l for l in core.lines([row]))
+    j = Path(task.STATE, "t4", "journal.jsonl").read_text()
+    assert '"override"' in j and '"tie-break"' in j
+    # the check itself is unchanged: the same reason on any other item is still a refusal
+    left, waived = core.overridden("t4", "port-h4", row["override"])
+    assert left == row["override"] and waived == []
+    assert chk_agent(task.load("t4"), s)["ok"] is False
+
+
+def test_tiebreak_checker_right_refuses_the_override_and_accepts_the_checked_work(job4, on):
+    _deadlock(job4, on)
+    on.setenv("FIELDKIT_REVIEWER_CMD", answer(
+        f"The hunk itself carries the sentence; the project wants it.\nEVIDENCE: +{HUNK_ADD}\nHOLDS: CHECK"))
+    task.advance("t4")
+    s = _step("t4", "port-h3")
+    assert s["status"] == "done" and s["done_by"] == "hand" and "tie-break" in s["accepted_by"]
+    assert (job4 / "msgs.ftl").read_text() == WITH
+    row = core.unseen()[-1]
+    assert row["holds"] == "check" and row["override"] == []
+    assert core.overridden("t4", "port-h3", ["the added text's 'applicable' is nowhere near the change"])[1] == []
+
+
+def test_tiebreak_unsure_or_unquoted_parks_with_both_reasons(job4, on):
+    _deadlock(job4, on)
+    on.setenv("FIELDKIT_REVIEWER_CMD", answer("Surely the reviewer.\nEVIDENCE: a line nobody showed me at all\n"
+                                              "HOLDS: REVIEWER"))
+    task.advance("t4")
+    s = _step("t4", "port-h3")
+    assert s["status"] == "blocked"
+    text = " ".join(s["last_why"])
+    assert "not in the evidence" in text and "applicable" in text and "check:" in text and "reviewer:" in text
+    assert (job4 / "msgs.ftl").read_text() == UP_NEW + "\n" and core.unseen() == []
+
+
+def test_the_upstream_change_shows_the_dropped_text(job4):
+    s = _step("t4", "port-h3")
+    text = autoport.upstream_change(task.load("t4"), s)
+    assert f"- {UP_OLD}" in text and f"+ {UP_NEW}" in text
+
+
+def test_tiebreak_override_waives_only_the_reasons_ruled_on(job4, on):
+    """The refused attempt, checked again, fails for a reason the tie-break never saw: nothing is waived, it parks."""
+    _deadlock(job4, on)
+    d = Path(task.STATE, "t4", "proposals", "port-h3.refused.diff")
+    d.write_text(d.read_text().replace("default Gorilla browser", "default browser"))
+    on.setenv("FIELDKIT_REVIEWER_CMD", answer(
+        "Upstream dropped it.\nEVIDENCE: + msg-agent2 = Prevent the default browser agent.\nHOLDS: REVIEWER"))
+    task.advance("t4")
+    s = _step("t4", "port-h3")
+    assert s["status"] == "blocked" and "Gorilla" in " ".join(s["last_why"])
+    assert (job4 / "msgs.ftl").read_text() == UP_NEW + "\n" and core.unseen() == []

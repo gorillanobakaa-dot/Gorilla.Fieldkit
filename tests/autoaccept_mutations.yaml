@@ -63,3 +63,37 @@
 - file: fieldkit/buildh/task.py
   swap: ["    if s.get(\"last_why\") and not (s.get(\"offer\") and", "    if s.get(\"last_why\") and not (False and"]
   why: "the parked reason is not repeated as a put-back attempt"
+# Tie-break (checker vs reviewer deadlock): every rule must be caught when broken.
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if _norm(q) not in _norm(evidence):", "    if False:"]
+  why: "a tie-breaker's quote must be found in the evidence it was shown"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if len(_norm(q)) < 12:", "    if False:"]
+  why: "a tie-breaker that names a side without quoting the evidence is unsure"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if side == \"unsure\":", "    if False:"]
+  why: "an unsure tie-breaker parks the item"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["        if r.get(\"tiebreak\") and r.get(\"accepted\") and r.get(\"project\") == project and r.get(\"item\") == item:", "        if r.get(\"tiebreak\") and r.get(\"accepted\"):"]
+  why: "an override waives the check for THIS item only"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if holds == \"reviewer\":\n        rec[\"override\"]", "    if True:\n        rec[\"override\"]"]
+  why: "the check's side holding never overrides the check"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    above = rungs[(at + 1 if at is not None else 0):]", "    above = rungs"]
+  why: "the tie-breaker is above the author's rung"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if not done:\n", "    if False:\n"]
+  why: "a tie-break the harness could not apply parks"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if ok and not (pol.get(\"tiebreak\") or {}).get(\"enabled\", True):", "    if False:"]
+  why: "the owner's tiebreak switch turns it off"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    return last if {\"check\", \"reviewer\"} <= set(last) else None", "    return last or None"]
+  why: "a disagreement needs both a check refusal and a reviewer refusal"
+- file: fieldkit/buildh/autoport.py
+  swap: ["    if problems:\n        task.revert_to_checkpoint(t)", "    if False:\n        task.revert_to_checkpoint(t)"]
+  why: "an override applies only when the check's remaining reasons are all waived"
+- file: fieldkit/buildh/autoport.py
+  swap: ["        if rec.get(\"park\"):\n            s[\"status\"], s[\"last_why\"] = \"blocked\"", "        if False:\n            s[\"status\"], s[\"last_why\"] = \"blocked\""]
+  why: "an unsettled tie-break parks the step with both reasons"

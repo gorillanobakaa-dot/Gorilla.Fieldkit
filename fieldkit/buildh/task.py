@@ -738,6 +738,7 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
         raise Refused("PORT AND TEACH: an adapted or hand port must carry one line `lesson: <what the harness should "
                       "learn so the next port does this alone>` in its note")
     _record_lessons(t, s, "\n".join(x for x in (adapted, note) if x), by)
+    check_why, waived_ok = [], False      # the check's own reasons (a tie-break may waive them for this step only)
     changed = changed_files(t)
     allowed = set(s.get("allowed") or [])
     outside = [c for c in changed if c not in allowed]
@@ -784,12 +785,23 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
                     "next": "saved; the harness reviews it (checks + an independent reviewer) at the next "
                             "build_harness_next, or the owner accepts it; the tree was put back"}
         why = ["adapted port declared, but the meaning does not hold: " + "; ".join(res.get("why") or [])[:300]]
-    if not why:
+        check_why = list(res.get("why") or [])
+        left, waived = _waived(t, s, check_why)
+        if check_why and not left:           # a tie-break waived exactly these reasons for THIS step (autoaccept.py)
+            why, check_why, waived_ok = [], [], True
+            journal(t, "override", step=s["id"], waived=waived, by=by)
+    if not why and not waived_ok:
         s["hand_port"] = by == "hand"                       # a person's declared port is judged by meaning, anything else by the letter
         if by == "hand" and note:
             s["hand_note"] = note                           # `keeps: <line>` declarations live here, journaled with the submit
         res = _call(s["check"], t, s, **(s.get("args") or {}))
         why = [] if res.get("ok") else list(res.get("why") or ["the check failed"])
+        check_why = [] if res.get("ok") else list(res.get("why") or [])
+        if check_why:
+            left, waived = _waived(t, s, check_why)
+            if not left:                     # a tie-break waived exactly these reasons for THIS step (autoaccept.py)
+                why = []
+                journal(t, "override", step=s["id"], waived=waived, by=by)
     journal(t, "submit", step=s["id"], changed=changed, outside=outside, ok=not why, why=why, note=note[:500], by=by)
     if not why:
         s["status"], s["last_why"] = "done", None
@@ -799,6 +811,8 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
                 "next": "call build_harness_next for the next step"}
     s["attempts"] += 1
     s["last_why"] = why
+    if check_why and by != "hand":
+        _keep_refused(t, s, check_why, adapted, note)
     revert_to_checkpoint(t)
     s["status"] = next_status(t, s, by)
     save(t)
@@ -807,6 +821,35 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
             "reverted": True,
             "next": ("BLOCKED: the owner takes over this step" if s["status"] == "blocked"
                      else "your changes were put back; call build_harness_next and try again")}
+
+
+def _waived(t, s, why):
+    try:
+        from ..lifecycle import autoaccept
+        return autoaccept.overridden(t["id"], s["id"], why)
+    except Exception:                                         # noqa: BLE001 - no ledger: nothing is waived
+        return list(why), []
+
+
+def _keep_refused(t, s, check_why, adapted, note):
+    """The check refused this attempt: keep its diff and reasons (proposals/STEP.refused.*) and tell the auto-accept
+    core, so a checker-vs-reviewer deadlock on this step can be settled by a tie-break (autoport.tiebreaks)."""
+    try:
+        from ..lifecycle import autoaccept
+        from ..method import strikes
+        _git(t, "add", "-A")
+        diff = subprocess.run(["git", "-C", t["workdir"], "diff", "--cached", "--binary", "HEAD"],
+                              capture_output=True, timeout=600).stdout
+        _git(t, "reset", "-q")
+        pdir = _proposals_dir(t)
+        (pdir / f"{s['id']}.refused.diff").write_bytes(diff)
+        model = s.get("model") or strikes.attempt_model()
+        (pdir / f"{s['id']}.refused.json").write_text(json.dumps(
+            {"step": s["id"], "why": check_why[:8], "adapted": adapted[:1500], "note": note[:1500], "model": model,
+             "t": time.strftime("%Y-%m-%d %H:%M:%S")}, indent=1), encoding="utf-8")
+        autoaccept.refusal("adapted", s["id"], "check", check_why, project=t["id"], author=model)
+    except Exception as e:                                    # noqa: BLE001 - keeping evidence never fails a submit
+        journal(t, "refused-keep-error", step=s["id"], why=[f"{type(e).__name__}: {str(e)[:200]}"])
 
 
 def proposals(task_id):

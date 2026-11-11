@@ -29,4 +29,10 @@ auto_accept:
     unknown_author: top            # author model unknown: top = the top rung the spend guard allows reviews;
                                    # refuse = nothing is accepted without a known author
     max_evidence_chars: 24000      # the question is cut at this length (the reviewer is told it was cut)
+  # A deterministic check and the reviewer refusing the same item for opposite reasons (2026-11-11, firefox-160-linux:
+  # the check wanted a sentence the hunk adds, the reviewer refused it because upstream dropped it) is settled by the
+  # highest allowed rung above the author, which may only name the side that holds and quote the evidence. A check
+  # it overrules is waived for that one item (journal `override`, listed for the owner's review); never changed.
+  tiebreak:
+    enabled: true                  # false: such an item parks with both reasons, as before
   ledger: auto-accepted.jsonl      # in the lifecycle state folder (state/lifecycle/); `fieldkit review` lists it
