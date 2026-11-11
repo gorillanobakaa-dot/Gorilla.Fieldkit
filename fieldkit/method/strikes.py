@@ -176,6 +176,58 @@ def record_flake(branch, head, why="", pr=None, p=None):
     return {"flakes": len(fl), "counted": len(fl) > FLAKE_LIMIT}
 
 
+INFRA_SET = "ci-infra"                      # fieldkit/build/signatures/ci-infra.yaml: runner DNS / apt fetch / network
+INFRA_RERUNS = 3                            # automatic re-runs per head; the network not back by then = a human looks
+PYTEST_SUMMARY = re.compile(r"=+ .*\b\d+ (?:failed|errors?)\b.* =+|^\s*(?:ERROR|FAILED) tests?[/\\]", re.M)
+
+
+def infra(log_lines, set_name=INFRA_SET):
+    """Plan P9 (2026-11-11, PR 461): -> "signature-id: the matching line" when the red log is the runner's
+    infrastructure (its DNS, apt's mirrors, its network: data in build/signatures/ci-infra.yaml), else "". A log that
+    names a failed test or a pytest failure summary is never infrastructure (fail closed: a test failure stays a
+    strike); an unreadable signature set is never infrastructure either."""
+    lines = [str(x) for x in log_lines or ()]
+    text = "\n".join(lines)
+    if not text.strip() or failed_tests(lines) or PYTEST_SUMMARY.search(text):
+        return ""
+    try:
+        from ..build import triage
+        sigs = triage.load_signatures(set_name)
+    except Exception:  # noqa: BLE001 - no data, no infrastructure verdict
+        return ""
+    for s in sigs:
+        for x in lines:
+            if s["_rx"].search(x):
+                return f"{s['id']}: {x.strip()[-200:]}"
+    return ""
+
+
+def infra_reruns(branch, head, p=None):
+    """-> how many automatic infrastructure re-runs the journal holds for `head` of `branch`."""
+    rec = load(p)["strikes"].get(branch) or {}
+    return sum(1 for r in rec.get("infra") or () if r.get("head") == head and not r.get("gave_up"))
+
+
+def record_infra(branch, head, why="", pr=None, runs=(), gave_up=False, p=None):
+    """One infrastructure red of `head`, journaled (state/parked.json, strikes[branch].infra): a re-run made, or
+    `gave_up` when the bound was reached. Never a strike, never a round. -> {"reruns": N re-runs for this head,
+    "allowed": N <= INFRA_RERUNS}."""
+    d = load(p)
+    rec = d["strikes"].setdefault(branch, {"pr": pr, "rounds": []})
+    if pr:
+        rec["pr"] = pr
+    row = {"head": head, "at": _now(), "why": str(why)[:400], "runs": [str(r) for r in runs or ()]}
+    rec.setdefault("infra", []).append(dict(row, gave_up=True) if gave_up else row)
+    save(d, p)
+    n = infra_reruns(branch, head, p)
+    return {"reruns": n, "allowed": n <= INFRA_RERUNS}
+
+
+def infra_backoff(k):
+    """Seconds to wait before automatic re-run number `k` (1-based): 60, 120, 240 ... capped at 600."""
+    return min(600, 60 * 2 ** max(0, k - 1))
+
+
 def mains_failure(own_log, main_log, own_checks=(), main_checks=()):
     """B2 (2026-10-31: #253 parked for two failures that came from main): -> the evidence when this red is main's,
     else "". Main's when every test the branch fails also fails on main's head; with no test names in the logs,

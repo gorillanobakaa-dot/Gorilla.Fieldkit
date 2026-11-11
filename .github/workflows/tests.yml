@@ -25,7 +25,18 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends desktop-file-utils
+        # P9 (2026-11-11, PR 461): the runner's DNS failed 3 times here ("Temporary failure resolving
+        # 'archive.ubuntu.com'", exit 100). apt retries each fetch; update + install is tried again with backoff
+        # (30 s, 60 s, 120 s, 240 s: about 7.5 min). If the network never comes back the step still fails.
+        shell: bash
+        run: |
+          for wait in 30 60 120 240 0; do
+            sudo apt-get -o Acquire::Retries=5 update &&
+              sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends desktop-file-utils && exit 0
+            [ "$wait" = 0 ] && break
+            echo "apt failed; trying again in ${wait}s"; sleep "$wait"
+          done
+          exit 1
       - name: every tracked file has covering tests (else CI would run the whole suite for it)
         run: python -m fieldkit testcost unmapped --all
       - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in

@@ -1,0 +1,33 @@
+# CI runner infrastructure failures (plan P9, 2026-11-11): the GitHub runner, not the change, failed. PR 461's Linux
+# job died 3 times at the desktop-file-utils apt step ("Temporary failure resolving 'archive.ubuntu.com'",
+# "E: Failed to fetch https://security.ubuntu.com/...", exit 100) before any test ran; Windows passed.
+# `fieldkit ship ci-wait` (fieldkit/method/strikes.py infra) reads this set: a red whose failed log names NO failed
+# test and matches one of these is re-run by itself with backoff, a bounded number of times, journaled, and is never
+# a strike. A failed test in the log is never infrastructure, whatever else the log says (fail closed).
+# Add an entry only with the run that showed it; `fieldkit triage --set ci-infra` reads the same data.
+success: []
+
+signatures:
+- id: ci-runner-dns
+  pattern: "Temporary failure (?:resolving|in name resolution)|Could not resolve host|getaddrinfo (?:EAI_AGAIN|ENOTFOUND)|Name or service not known"
+  check: null
+  whole_log: true
+  source: "PR 461 tests.yml Linux job, 2026-11-11 14:1x (3 runs)"
+  cause: The GitHub runner could not resolve a host name (its DNS was down); no test ran.
+  fix: Re-run the failed jobs (fieldkit ship ci-wait does it by itself, with backoff); never a strike.
+
+- id: ci-apt-fetch
+  pattern: "^(?:.*\\s)?E: (?:Failed to fetch|Unable to fetch some archives|Some index files failed to download)"
+  check: null
+  whole_log: true
+  source: "PR 461 tests.yml Linux job, 2026-11-11 14:1x (apt-get exit 100)"
+  cause: apt-get on the runner could not download from the Ubuntu mirrors (network or mirror outage).
+  fix: Re-run the failed jobs; tests.yml and release.yml already retry apt with backoff before giving up.
+
+- id: ci-network-unreachable
+  pattern: "Network is unreachable|Connection timed out after \\d+ milliseconds|Failed to connect to \\S+ port \\d+.*(?:Connection refused|Timed out)|The remote server returned an error: \\(50[234]\\)"
+  check: null
+  whole_log: true
+  source: "the runner's network class of PR 461's outage (same step, same cause)"
+  cause: The runner had no working network to a package or source host; no test ran.
+  fix: Re-run the failed jobs; never a strike.

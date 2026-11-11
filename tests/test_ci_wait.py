@@ -130,3 +130,61 @@ def test_ci_wait_merge_waits_for_required_checks_on_the_head():
     gh.check_runs = runs
     r = train.ci_wait(gh, 315, merge=True, sleep=lambda s: None)
     assert r["state"] == "merged" and gh.polls == 3, r
+
+
+# -- P9 (2026-11-11, PR 461): the runner's DNS / apt outage is re-run by ci-wait itself, never a strike --------------
+APT_DNS = ["-- run 9",
+           "test (ubuntu-latest)\tdesktop-file-validate\t2026-11-11T14:12:03Z Err:1 http://archive.ubuntu.com/ubuntu "
+           "noble InRelease",
+           "test (ubuntu-latest)\tdesktop-file-validate\t2026-11-11T14:12:03Z   Temporary failure resolving "
+           "'archive.ubuntu.com'",
+           "test (ubuntu-latest)\tdesktop-file-validate\t2026-11-11T14:12:04Z E: Failed to fetch "
+           "https://security.ubuntu.com/ubuntu/pool/main/d/desktop-file-utils.deb",
+           "test (ubuntu-latest)\tdesktop-file-validate\t2026-11-11T14:12:04Z ##[error]Process completed with exit "
+           "code 100."]
+
+
+class InfraGH(GH):
+    """Red from the runner's network `outages` times, then the given state after each re-run."""
+
+    def __init__(self, states, log=APT_DNS, rerun_ok=True):
+        super().__init__(states)
+        self.log, self.rerun_ok, self.reruns = log, rerun_ok, []
+
+    def failed_log(self, sha):
+        return list(self.log)
+
+    def rerun_failed(self, sha):
+        self.reruns.append(sha)
+        return self.rerun_ok, [9], "" if self.rerun_ok else "HTTP 403"
+
+
+def test_an_apt_dns_red_is_re_run_by_itself_with_backoff_and_merges_when_green():
+    slept = []
+    gh = InfraGH(["red", "red", "pending", "green"])
+    r = train.ci_wait(gh, 461, merge=True, sleep=slept.append)
+    assert r["state"] == "merged" and gh.reruns == ["a" * 40], r
+    assert r["reruns"][0]["why"].startswith("ci-runner-dns") and slept[0] == strikes.infra_backoff(1)
+    rec = strikes.load()["strikes"]["feat/x"]
+    assert rec["rounds"] == [] and len(rec["infra"]) == 1 and rec["infra"][0]["runs"] == ["9"]   # journaled, no strike
+
+
+def test_infra_re_runs_are_bounded_and_never_a_strike():
+    gh = InfraGH(["red"])
+    r = train.ci_wait(gh, 461, sleep=lambda s: None)
+    assert r["state"] == "infra" and len(gh.reruns) == strikes.INFRA_RERUNS and "not counted" in r["why"], r
+    rec = strikes.load()["strikes"]["feat/x"]
+    assert rec["rounds"] == [] and strikes.parked_for("feat/x") is None and rec["infra"][-1]["gave_up"]
+    assert train.ci_wait(InfraGH(["red"]), 461, sleep=lambda s: None)["state"] == "infra"   # the bound holds per head
+    assert len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 0
+
+
+def test_a_refused_infra_re_run_says_so_and_is_not_a_strike():
+    r = train.ci_wait(InfraGH(["red"], rerun_ok=False), 461, sleep=lambda s: None)
+    assert r["state"] == "infra" and "HTTP 403" in r["why"] and strikes.load()["strikes"]["feat/x"]["rounds"] == []
+
+
+def test_a_failed_test_next_to_a_dns_line_stays_a_strike():
+    gh = InfraGH(["red"], log=APT_DNS + ["FAILED tests/test_x.py::test_y - Temporary failure resolving 'x'"])
+    r = train.ci_wait(gh, 461, sleep=lambda s: None)
+    assert gh.reruns == [] and r["state"] == "red" and len(strikes.load()["strikes"]["feat/x"]["rounds"]) == 1
