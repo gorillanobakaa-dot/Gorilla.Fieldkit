@@ -162,9 +162,7 @@ def test_the_owner_at_a_terminal_can_skip_a_model_step(job, monkeypatch):
     task.approve("t1", "owner")
     task.packet("t1")          # runs the prepare step, which adds the model steps
     monkeypatch.setattr(task, "owner_terminal", lambda: True)
-    with pytest.raises(task.Refused, match="--note"):
-        task.unblock("t1", "fix-alpha", "skip")                 # the reason is part of a skip (P9)
-    task.unblock("t1", "fix-alpha", "skip", note="nothing to port")
+    task.unblock("t1", "fix-alpha", "skip", note="nothing to port")   # a note is kept when given (none needed: P9)
     s = next(s for s in task.load("t1")["steps"] if s["id"] == "fix-alpha")
     assert s["status"] == "done" and s["skipped_by_owner"] and s["skip_reason"] == "nothing to port"
 

@@ -124,35 +124,48 @@ def chain_checks(task_id, anchors=None):
     return out, {"count": count, "head": head, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 
+def _mandate_label():
+    """-> the owner's mandates in force here, for the evidence line ("owner-wide"), or "none in force"."""
+    try:
+        from ..mandate import mandate as M
+        return ", ".join(p.stem for p in M.in_force()) or "none in force"
+    except Exception:                                    # noqa: BLE001 - only a label
+        return "unknown"
+
+
 def journal_checks(ev):
     """The overnight run of 2026-10-01 in three rules, read from the journal -> [(name, ok, evidence)]."""
     out = []
     copies = [e for e in ev if "answer key" in json.dumps(e.get("notes", ""))]
     out.append(("journal: no answer key copied into the new source", not copies,
                 "none" if not copies else f"{len(copies)} step(s) were 'done' by copying the old source (first: {copies[0]['step']})"))
-    # P9 (2026-11-11): a skip needs its reason, and then it passes. Before, every skip failed this row forever (there
-    # was no way to record a reason: firefox-160-linux waited ~6 hours on it). Per step the LATEST decision counts (a
-    # repeat is not a second skip; a later retry undoes it): the owner's skip with --note TEXT, or the harness's I-04
-    # acceptance of a skip (event auto-accept, kind skip: every check passed AND an independent reviewer said yes;
-    # its why is the reason). A skip with no reason still fails.
+    # P9 (owner, 2026-11-11, verbatim: "Fuck the motive, fuck the reason. Eliminate that ... One single approval. That
+    # was our mandate. One single approval. At the beginning of the job, it's all the reason, all the motives you ever
+    # need."). Per step the LATEST decision counts (a repeat is not a second skip; a later retry undoes it).
+    #  - an OWNER skip (event unblock, how skip) passes with or without a note: task.unblock writes it only after the
+    #    owner proof (a real terminal, or --force with the passphrase), so the owner's own command is the decision and
+    #    the mandate in force is the reason. Old journals (no `by`, no note: firefox-160-linux 12:42:12) pass as-is.
+    #  - a skip the HARNESS took (event auto-accept, kind skip) passes only with a reviewer (an independent model, or
+    #    the mandate's owner_steps door) AND its why. With no reviewer evidence it still FAILS: this row stays a check.
     latest = {}
     for e in ev:
         if not e.get("step"):
             continue
         if e.get("event") == "unblock":
-            latest[e["step"]] = (e.get("how"), str(e.get("note") or "").strip(), "owner")
+            latest[e["step"]] = (e.get("how"), True, "owner", e.get("mandate") or "")
         elif e.get("event") == "auto-accept" and e.get("kind") == "skip":
             why = "; ".join(str(x) for x in e.get("why") or []).strip() if e.get("reviewer") else ""
-            latest[e["step"]] = ("skip", why, "harness")
+            latest[e["step"]] = ("skip", bool(why), "harness", "")
     skips = {k: v for k, v in latest.items() if v[0] == "skip"}
     bare = sorted(k for k, v in skips.items() if not v[1])
     by = {w: sum(1 for v in skips.values() if v[2] == w) for w in ("owner", "harness")}
+    names = sorted({v[3] for v in skips.values() if v[2] == "owner" and v[3]}) or ([_mandate_label()] if by["owner"] else [])
     out.append(("journal: no step skipped without a reason", not bare,
                 ("none skipped" if not skips else
-                 f"{len(skips)} step(s) skipped, each with its reason ({by['owner']} by the owner, "
-                 f"{by['harness']} by the harness with a reviewer)") if not bare else
-                f"{len(bare)} step(s) skipped with no reason: {', '.join(bare[:5])}; the owner records it again "
-                "with the reason: unblock TASK STEP skip --note \"why\""))
+                 f"{by['owner']} skipped by the owner" + (f" (mandate {', '.join(names)})" if names else "") +
+                 f", {by['harness']} by the harness with a reviewer") if not bare else
+                f"{len(bare)} step(s) skipped by the harness with no reviewer evidence: {', '.join(bare[:5])}; "
+                "the harness asks a reviewer again (or the owner takes the step: unblock TASK STEP skip|retry)"))
     failing, bad = False, 0
     for e in ev:                       # in order: a 'done' while the last final-checks result was a failure
         if e.get("event") == "script-failed" and e.get("step") == "final-checks":

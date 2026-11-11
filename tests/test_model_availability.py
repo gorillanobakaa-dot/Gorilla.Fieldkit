@@ -20,6 +20,8 @@ CHECKS = [("a check", True, "")]
 def _state(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
     monkeypatch.setattr(models, "mandate_allows", lambda m, today=None: (True, "test"))   # every rung is allowed
+    # the owner's real mandate store is not read here: an owner-wide mandate opens the owner_steps door (P9, 2026-11-11)
+    monkeypatch.setattr(core, "_mandate_decide", lambda **kw: ("ask", "no mandate in this test", None))
 
 
 def pick(author, pol):

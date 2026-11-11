@@ -1030,6 +1030,15 @@ def agent_shell(env=None, ancestors=None, elevated=None):
     return "no path to the desktop (the parent chain is broken or detached)"
 
 
+def _mandate_in_force():
+    """-> the names of the owner's mandates in force here ("owner-wide"), or "" (no mandate, or unreadable)."""
+    try:
+        from ..mandate import mandate as M
+        return ", ".join(p.stem for p in M.in_force())
+    except Exception:                                    # noqa: BLE001 - only a label for the journal and the audit
+        return ""
+
+
 def unblock(task_id, step_id, how, force=False, note=""):
     """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint). force (I-06): with no
     real terminal the owner proves it with the signing-key passphrase (lifecycle/ownerproof.py); a model cannot."""
@@ -1051,22 +1060,28 @@ def unblock(task_id, step_id, how, force=False, note=""):
         # Overnight 2026-10-01 a supervising agent skipped ~70 steps, incl. the failing final-checks.
         if s["kind"] == "script" or s["id"].startswith("final"):
             raise Refused("a check step cannot be skipped: fix what it reports, then retry")
-        # P9 (2026-11-11): the reason first, before any passphrase is asked. It goes into the journal event, where the
-        # audit row "no step skipped without a reason" reads it (before, --note was dropped and the row failed forever)
-        if not (note or "").strip():
-            raise Refused("skip needs the reason: add --note \"why this step needs no change\" (it is journaled; the audit checks it)")
+        # P9 (owner, 2026-11-11: "One single approval ... At the beginning of the job, it's all the reason, all the
+        # motives you ever need"): the owner's own skip needs no note. The owner proof below (a real terminal, or
+        # --force with the passphrase) is the decision; the mandate in force is the reason. --note is still journaled
+        # when given. A skip the HARNESS takes still needs a reviewer's (or the mandate door's) evidence (audit.py).
         from ..lifecycle import ownerproof
         ok, proven = ownerproof.owner_or_proof(f"build-harness unblock {task_id} {step_id} skip", force,
                                                terminal_refusal())
         if not ok:
             raise Refused("skip is for the owner at a real terminal (or --force with the owner's passphrase): " + proven)
         s["owner_proof"] = proven
-        s["skip_reason"] = note.strip()[:2000]
+        s["skip_reason"] = (note or "").strip()[:2000] or "the owner's decision (the mandate in force is the reason)"
         s["status"] = "done"
         s["skipped_by_owner"] = True
         checkpoint(t, f"{step_id} (done by the owner)")
     save(t)
-    journal(t, "unblock", step=step_id, how=how, **({"note": note.strip()[:2000]} if (note or "").strip() else {}))
+    extra = {"note": note.strip()[:2000]} if (note or "").strip() else {}
+    if how == "skip":
+        extra.update(by="owner", proof=s.get("owner_proof", "")[:200])
+        m = _mandate_in_force()
+        if m:
+            extra["mandate"] = m
+    journal(t, "unblock", step=step_id, how=how, **extra)
     return t
 
 

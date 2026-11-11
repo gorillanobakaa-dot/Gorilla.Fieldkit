@@ -20,26 +20,45 @@ def test_copying_the_old_source_as_an_answer_key_is_caught():
 NAME = "journal: no step skipped without a reason"
 
 
-def test_a_skip_with_no_reason_still_fails():
-    ev = [{"event": "unblock", "step": "port-x", "how": "skip"}]
-    assert not verdicts(ev)[NAME]
-    assert not verdicts([{"event": "unblock", "step": "port-x", "how": "skip", "note": "  "}])[NAME]
+HARNESS_SKIP = {"event": "auto-accept", "step": "port-x", "kind": "skip", "reviewer": "opus", "why": ["checks passed"]}
+
+
+def test_a_harness_skip_with_no_reviewer_evidence_still_fails():
+    assert not verdicts([dict(HARNESS_SKIP, reviewer=None)])[NAME]
+    assert not verdicts([dict(HARNESS_SKIP, why=[])])[NAME]
+    assert not verdicts([dict(HARNESS_SKIP, why=["  "])])[NAME]
+    assert verdicts([HARNESS_SKIP])[NAME]
+
+
+def test_an_owner_skip_needs_no_note_the_mandate_is_the_reason():
+    # owner, 2026-11-11: "One single approval ... it's all the reason, all the motives you ever need"
+    bare = [{"event": "unblock", "step": "port-x", "how": "skip"}]
+    assert verdicts(bare)[NAME]
+    assert verdicts([{"event": "unblock", "step": "port-x", "how": "skip", "note": "  "}])[NAME]
     assert verdicts([{"event": "unblock", "step": "port-x", "how": "retry"}])[NAME]
-
-
-def test_a_skip_with_its_reason_passes_and_a_repeat_is_not_counted_twice():
-    ev = [{"event": "unblock", "step": "port-x", "how": "skip", "note": "upstream already has it"}] * 3
-    assert verdicts(ev)[NAME]
+    ev = [{"event": "unblock", "step": "p", "how": "skip", "by": "owner", "mandate": "owner-wide"},
+          dict(HARNESS_SKIP, step="q")]
     evidence = [e for n, _ok, e in audit.journal_checks(ev) if n == NAME][0]
-    assert "1 step(s) skipped" in evidence
+    assert evidence == "1 skipped by the owner (mandate owner-wide), 1 by the harness with a reviewer"
 
 
-def test_the_latest_skip_of_a_step_decides():
-    bare_then_reason = [{"event": "unblock", "step": "p", "how": "skip"},
-                        {"event": "unblock", "step": "p", "how": "skip", "note": "why"}]
-    assert verdicts(bare_then_reason)[NAME]
-    reason_then_bare = bare_then_reason[::-1]
-    assert not verdicts(reason_then_bare)[NAME]
+def test_the_real_160_linux_owner_skip_passes_as_journaled():
+    # firefox-160-linux journal line 965 (2026-11-11 12:42:12), byte for byte: no note, no `by`
+    ev = [{"t": "2026-11-11 12:42:12", "task": "firefox-160-linux", "event": "unblock", "prev": "f28cb046a8904c24",
+           "step": "owner-21.PORT.FIXES.157-028-branding-about-window-logo-rebuilt-from-the-1200px-master-wi",
+           "how": "skip"},
+          {"t": "2026-11-11 12:42:33", "task": "firefox-160-linux", "event": "unblock", "prev": "28959c601fa550d4",
+           "step": "final-checks", "how": "retry"}]
+    assert verdicts(ev)[NAME]
+
+
+def test_a_repeat_is_not_counted_twice_and_the_latest_decision_of_a_step_decides():
+    ev = [{"event": "unblock", "step": "port-x", "how": "skip"}] * 3
+    evidence = [e for n, _ok, e in audit.journal_checks(ev) if n == NAME][0]
+    assert evidence.startswith("1 skipped by the owner")
+    harness_then_owner = [dict(HARNESS_SKIP, step="p", reviewer=None), {"event": "unblock", "step": "p", "how": "skip"}]
+    assert verdicts(harness_then_owner)[NAME]
+    assert not verdicts(harness_then_owner[::-1])[NAME]
 
 
 def test_done_while_final_checks_were_failing_is_caught_but_a_later_pass_clears_it():
