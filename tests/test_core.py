@@ -45,6 +45,28 @@ def test_settings_strict_refuses_unknown():
     assert settings.expand("${LOCAL:nope}", local={}, strict=False) == "${LOCAL:nope}"
 
 
+def test_settings_local_default_when_the_machine_sets_no_key():
+    """${LOCAL:key=default}: the machine's value wins, the default fills in (2026-11-11, P27 firefox.version)."""
+    assert settings.expand("${LOCAL:firefox.version=158.0}", local={}) == "158.0"
+    assert settings.expand("${LOCAL:firefox.version=158.0}", local={"firefox": {"version": "160.0"}}) == "160.0"
+    assert settings.expand("${LOCAL:a.b=}", local={}) == ""
+
+
+def test_local_settings_of_a_worktree_fall_back_to_the_main_checkout(tmp_path, monkeypatch):
+    """A linked worktree has no fieldkit.local.json (git-ignored): it reads the main checkout's (2026-11-11, P27)."""
+    main, wt = tmp_path / "main", tmp_path / "wt"
+    (main / "fieldkit").mkdir(parents=True)
+    (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    (main / ".git" / "worktrees" / "wt" / "commondir").write_text("../..\n")
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {main / '.git' / 'worktrees' / 'wt'}\n")
+    (main / "fieldkit.local.json").write_text('{"firefox": {"version": "160.0"}}')
+    monkeypatch.setattr(settings, "ROOT", wt)
+    assert settings.local_settings() == {"firefox": {"version": "160.0"}}
+    (wt / "fieldkit.local.json").write_text('{"own": 1}')
+    assert settings.local_settings() == {"own": 1}
+
+
 def test_settings_reads_three_formats(tmp_path):
     (tmp_path / "a.json").write_text('{"x": 1}')
     (tmp_path / "a.yaml").write_text("x: 1\n")
