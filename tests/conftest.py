@@ -63,6 +63,11 @@ _os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
 _os.environ["FIELDKIT_TESTCOST_DIR"] = _tempfile.mkdtemp(prefix="fieldkit-test-testcost-")
 for _k in ("EMAIL", "GIT_EDITOR"):
     _os.environ.pop(_k, None)
+# 2026-11-11: a headless job's session (fieldkit task start) exports FIELDKIT_JOB_DIR and its model in ANTHROPIC_MODEL;
+# the pre-commit hook inherited both and three tests failed only inside a job (the zero hook read the live job, the
+# spawn guard refused "opus" before the fake ran), never on CI. Tests run as on the GitHub runners: neither is set.
+for _k in ("FIELDKIT_JOB_DIR", "ANTHROPIC_MODEL"):
+    _os.environ.pop(_k, None)
 _os.environ["FIELDKIT_RECORDER"] = _os.path.join(_tempfile.mkdtemp(prefix="fieldkit-test-recorder-"), "mcp.jsonl")
 _os.environ["FIELDKIT_OFFICE_BACKUPS"] = _tempfile.mkdtemp(prefix="fieldkit-test-office-backups-")
 # C6 (2026-10-28): the tool router's hook also runs the room, the net lease and the hog registry, so a test that calls
@@ -422,3 +427,14 @@ def _isolated_lifecycle(tmp_path_factory, monkeypatch):
 # A test that runs an emerge Runner must not switch the real capture on (hooks in ~/.claude); tests of the loop itself
 # call fieldkit.capture.loop with a sandbox store and home (tests/capture/test_loop.py).
 _os.environ["FIELDKIT_EMERGE_NO_CAPTURE"] = "1"
+
+# I-04: auto-accept is ON by default (fieldkit/lifecycle/autoaccept.yaml), and its reviewer is a real model command.
+# Tests never start a model and never write the real lifecycle ledger: every test sees auto-accept OFF (the owner
+# path the older tests prove) unless it points FIELDKIT_AUTOACCEPT_POLICY at its own policy.
+_aa_dir = _tempfile.mkdtemp(prefix="fieldkit-test-autoaccept-")
+_os.environ["FIELDKIT_AUTOACCEPT_POLICY"] = _os.path.join(_aa_dir, "off.yaml")
+with open(_os.environ["FIELDKIT_AUTOACCEPT_POLICY"], "w", encoding="utf-8") as _f:
+    _f.write("auto_accept:\n  enabled: false\n")
+_os.environ["FIELDKIT_REVIEWER_CMD"] = '["false"]'
+# Never a real passphrase prompt or desktop dialog from a test (Zero order M-1d6f4489): the owner proof asks nobody.
+_os.environ["FIELDKIT_OWNERPROOF_ASK"] = "off"

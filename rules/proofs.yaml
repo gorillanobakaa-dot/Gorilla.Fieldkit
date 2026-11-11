@@ -175,8 +175,8 @@ TWO STRIKES:
     test: tests/test_strikes.py::test_the_second_failed_round_parks_with_one_inbox_item_naming_both_failures
     mutate:
     - fieldkit/method/strikes.py
-    - 'if n >= LIMIT and branch not in d["parked"]:'
-    - 'if n > LIMIT and branch not in d["parked"]:'
+    - 'if n >= LIMIT and branch not in d["parked"] and (step is None or step["next"] is None):'
+    - 'if n > LIMIT and branch not in d["parked"] and (step is None or step["next"] is None):'
   - demand: a red that main's head shares is not a strike (own failures only)
     test: tests/test_strikes.py::test_b2_a_failure_main_does_not_share_still_counts_and_parks
     mutate:

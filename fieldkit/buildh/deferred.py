@@ -171,15 +171,19 @@ def show(b, plain=True):
     return render_plain(b) if plain else render(b)
 
 
-def apply_drop(task_id, step_id, typed):
+def apply_drop(task_id, step_id, typed, force=False):
     """Record an owner's decision to drop a deferred change. Same guards as every other change of the owner's data."""
     b = build(task_id, step_id)
     if not b.get("options"):
         raise task.Refused(b["what"])
     if typed != b["confirm"]:
         raise task.Refused(f"to apply this, type exactly: {b['confirm']}   (leaving it parked is the default and needs nothing)")
-    if not task.owner_terminal():
-        raise task.Refused("this records a decision about your project: it needs the owner at a real terminal")
+    from ..lifecycle import ownerproof
+    ok, proven = ownerproof.owner_or_proof(f"drop the deferred change {short(step_id)} of {task_id}", force,
+                                           task.terminal_refusal())
+    if not ok:
+        raise task.Refused("this records a decision about your project: it needs the owner at a real terminal "
+                           "(or --force with the owner's passphrase): " + proven)
     shown = decision._shown_at(b)
     if shown is None:
         raise task.Refused("you have not been shown the explanation yet: run `build-harness deferred TASK STEP` and read it first")
@@ -192,6 +196,7 @@ def apply_drop(task_id, step_id, typed):
     t = task.load(task_id)
     s = _step(t, step_id)
     s["status"], s["dropped_by_owner"], s["drop_fingerprint"] = "done", True, b["fingerprint"]
+    s["owner_proof"] = proven
     task.save(t)
     task.journal(t, "owner-drop", step=s["id"], fingerprint=b["fingerprint"], removed=b["removed"][:8], added=b["added"][:8],
                  recommended=b["recommended"], comment_only=b["comment_only"])

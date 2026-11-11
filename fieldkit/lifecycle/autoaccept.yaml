@@ -1,0 +1,26 @@
+# I-04 (owner, 2026-11-11: "Long horizon tasks are autonomous, automatical. Why do I have to ... click"): the harness
+# itself accepts a model's work that would otherwise wait for the owner's click, when ALL of these hold:
+#   1. every deterministic check the caller (a project's plug-in) runs on the work item passes, and
+#   2. an independent reviewer model on a HIGHER rung of the escalation ladder than the author (models.yaml
+#      escalation.ladder; reviewer != author; the spend guard decides which rungs exist) answers VERDICT: YES.
+# Any check failing or the reviewer saying no: not accepted; the caller climbs the ladder and parks only at the top.
+# Every acceptance is journaled (both models, the evidence, a one-line rewind command) and listed for the owner's
+# after-the-fact review (`fieldkit review`). Models still never run an owner command themselves (HARD LINE 4).
+# Data first: the owner turns it off here (enabled: false); a project turns off one kind by leaving it out of kinds.
+auto_accept:
+  enabled: true                    # owner order 2026-11-11 (I-04 accepted)
+  kinds: [adapted, skip, retry]    # what the harness may accept by itself; a kind not listed waits for the owner
+  deferred_to_model: true          # a step parked as "renamed / no longer exists upstream" is offered to a model
+  deferred_patterns: ["renamed", "no longer exist"]   # words in the parked reason that make it a model's job
+  max_retries: 2                   # automatic retries of one blocked check step (each one needs the checks + reviewer)
+  reviewer:
+    # The reviewer is asked through this command; the question goes on stdin, the answer comes back on stdout and
+    # must carry one line `VERDICT: YES` or `VERDICT: NO` (anything else is a no: fail closed). {model} is the ladder
+    # rung. No tools: the reviewer reads the evidence it is given and edits nothing.
+    cmd: [claude, -p, --model, "{model}", --max-turns, "1",
+          --disallowedTools, "Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Agent,Task"]
+    timeout: 900                   # seconds
+    unknown_author: top            # author model unknown: top = the top rung the spend guard allows reviews;
+                                   # refuse = nothing is accepted without a known author
+    max_evidence_chars: 24000      # the question is cut at this length (the reviewer is told it was cut)
+  ledger: auto-accepted.jsonl      # in the lifecycle state folder (state/lifecycle/); `fieldkit review` lists it

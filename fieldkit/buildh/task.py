@@ -301,6 +301,17 @@ def advance(task_id, in_flight_steps=None):
         # a task that already carries a rewind's stale copies (firefox-160-linux, 2026-11-10 23:09) heals here
         journal(t, "dedupe", dropped=dropped)
         save(t)
+    if not in_flight_steps:
+        # I-04: the harness decides what used to wait for the owner's click (proposals, skip and retry requests,
+        # renamed-upstream steps), by its checks and an independent reviewer (autoport.py, lifecycle/autoaccept.py)
+        from . import autoport
+        try:
+            autoport.sweep(task_id)
+        except Exception as e:  # noqa: BLE001 - a broken sweep never stops the plan; it is journaled, nothing accepted
+            journal(t, "auto-error", why=[f"{type(e).__name__}: {str(e)[:300]}"])
+            if Path(t["workdir"], ".git").exists():
+                revert_to_checkpoint(t)
+        t = load(task_id)
     while True:
         s = current(t, in_flight_steps)
         # A blocked or deferred step is a person's; the rest of the plan goes on (live run 13: one parked CSS hunk
@@ -318,7 +329,8 @@ def advance(task_id, in_flight_steps=None):
             if proposed:
                 journal(t, "done-with-proposals", steps=proposed)
                 return {"state": "PROPOSED", "steps": proposed,
-                        "why": [f"{len(proposed)} adapted port(s) wait for the owner's acceptance, in one go"],
+                        "why": [f"{len(proposed)} adapted port(s) wait for the owner's acceptance, in one go (the "
+                                "harness could not decide them: auto-accept off, or no reviewer rung; see the journal)"],
                         "next": f"the owner runs: {settings.self_cmd()} build-harness accept {t['id']} --all"}
             parked = [x["id"] for x in t["steps"] if x["status"] == "deferred"]
             if parked:
@@ -432,6 +444,13 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
             f"Attempt {s['attempts'] + 1} of {s['max_attempts']}."]
     if s.get("last_why"):
         head.append("Your last attempt was put back because: " + "; ".join(s["last_why"]))
+    if s.get("offer"):
+        # I-04 B: a step the harness had parked (upstream renamed or removed what it changes) is a model's job now
+        head += ["THE HARNESS PARKED THIS STEP EARLIER AND FOUND: " + s["offer"][:900],
+                 "Port the hunk's MEANING onto the new names or place, then submit with --adapted \"<why>\n"
+                 "renames: OLD -> NEW (one per renamed name)\nlesson: <...>\". The harness checks it and an independent "
+                 "reviewer accepts it; no owner click. If nothing is left to port: "
+                 f"{settings.self_cmd()} build-harness request {t['id']} {s['id']} skip --note \"<why>\nlesson: <...>\""]
     if answer_mode:
         head += [f"The file to change: {', '.join(s.get('allowed', []))}"]
     else:
@@ -734,7 +753,10 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
             _git(t, "reset", "-q")
             pdir = _proposals_dir(t)
             (pdir / f"{s['id']}.diff").write_bytes(diff)
+            from ..method import strikes
+            s.pop("auto_review", None), s.pop("review_refused", None)       # a new proposal gets its own review
             meta = {"step": s["id"], "reason": adapted[:1000], "files": changed, "by": by,
+                    "model": s.get("model") or strikes.attempt_model(),
                     "literal_check_said": list(literal.get("why") or [])[:8],
                     "meaning_check": "holds", "t": time.strftime("%Y-%m-%d %H:%M:%S")}
             (pdir / f"{s['id']}.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
@@ -744,7 +766,8 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
             journal(t, "proposed", step=s["id"], reason=adapted[:500], files=changed,
                     literal=meta["literal_check_said"])
             return {"ok": True, "proposed": True, "step": s["id"], "proposal": str(pdir / f"{s['id']}.diff"),
-                    "next": "saved for the owner's acceptance; the tree was put back; call build_harness_next"}
+                    "next": "saved; the harness reviews it (checks + an independent reviewer) at the next "
+                            "build_harness_next, or the owner accepts it; the tree was put back"}
         why = ["adapted port declared, but the meaning does not hold: " + "; ".join(res.get("why") or [])[:300]]
     if not why:
         s["hand_port"] = by == "hand"                       # a person's declared port is judged by meaning, anything else by the letter
@@ -784,7 +807,9 @@ def accept(task_id, step_ids=None, who="owner"):
     attempt; nothing is guessed. Called from the command line only, like approve."""
     t = load(task_id)
     # a proposal that failed only at acceptance (2026-10-14: a harness fault, not the port) is offered again
-    wanted = [s for s in t["steps"] if (s["status"] == "proposed" or (s["status"] == "failed" and s.get("accept_failed")
+    # ...and so is one the harness's reviewer refused (I-04): the owner may still accept it by name or with --all
+    wanted = [s for s in t["steps"] if (s["status"] == "proposed" or (s["status"] in ("failed", "blocked")
+              and (s.get("accept_failed") or s.get("review_refused"))
               and (_proposals_dir(t) / f"{s['id']}.diff").is_file())) and (not step_ids or s["id"] in step_ids)]
     out = {"accepted": [], "failed": [], "by": who}
     for s in wanted:
@@ -825,6 +850,11 @@ def accept(task_id, step_ids=None, who="owner"):
             save(t)
             out["failed"].append({"step": s["id"], "why": "; ".join(res.get("why") or [])[:200]})
     return out
+
+
+def terminal_refusal():
+    """-> "" when owner_terminal() holds (the one guard every owner-only action asks), else why not."""
+    return "" if owner_terminal() else (owner_terminal_why() or "not a person's terminal")
 
 
 def owner_terminal():
@@ -918,8 +948,9 @@ def agent_shell(env=None, ancestors=None, elevated=None):
     return "no path to the desktop (the parent chain is broken or detached)"
 
 
-def unblock(task_id, step_id, how):
-    """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint)."""
+def unblock(task_id, step_id, how, force=False):
+    """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint). force (I-06): with no
+    real terminal the owner proves it with the signing-key passphrase (lifecycle/ownerproof.py); a model cannot."""
     t = load(task_id)
     s = next(x for x in t["steps"] if x["id"] == step_id)
     if how == "retry":
@@ -938,8 +969,12 @@ def unblock(task_id, step_id, how):
         # Overnight 2026-10-01 a supervising agent skipped ~70 steps, incl. the failing final-checks.
         if s["kind"] == "script" or s["id"].startswith("final"):
             raise Refused("a check step cannot be skipped: fix what it reports, then retry")
-        if not owner_terminal():
-            raise Refused("skip is for the owner at a real terminal; an agent's shell is not one")
+        from ..lifecycle import ownerproof
+        ok, proven = ownerproof.owner_or_proof(f"build-harness unblock {task_id} {step_id} skip", force,
+                                               terminal_refusal())
+        if not ok:
+            raise Refused("skip is for the owner at a real terminal (or --force with the owner's passphrase): " + proven)
+        s["owner_proof"] = proven
         s["status"] = "done"
         s["skipped_by_owner"] = True
         checkpoint(t, f"{step_id} (done by the owner)")

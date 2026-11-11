@@ -4081,6 +4081,22 @@ tools:
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_task.py", -k, withdrawn]
   notes: "The proposal file is moved, never deleted; no undo command (move it back by hand)."
 
+- id: bh-request
+  title: "A model asks the HARNESS to skip a step (nothing left to port) or retry a blocked check step (I-04); the next `build-harness next` decides it with the deterministic checks and an independent higher-rung reviewer, no owner click"
+  harness: build
+  entry: [python, -m, fieldkit, build-harness, request]
+  path: ${FIELDKIT}/fieldkit/buildh/autoport.py
+  inputs:
+    - {name: task, flag: null, type: str, required: true, help: "the build-harness task"}
+    - {name: step, flag: null, type: str, required: true, help: "the step id"}
+    - {name: how, flag: null, type: str, required: true, help: "skip | retry"}
+    - {name: note, flag: --note, type: str, required: true, help: "why (a skip needs a lesson: line)"}
+  effects: [writes-files]
+  safety: reversible
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_buildh_autoport.py"]
+  notes: "Only the request is written; the decision and its undo line are in the task journal and the auto-accept ledger (fieldkit autoaccept list)."
+
 - id: bh-drop
   title: Drop whole patches from a running port as their author said, files back to pristine, kept patches re-applied
   harness: build
@@ -6350,6 +6366,26 @@ tools:
   platforms: [windows, linux]
   test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_ideas.py"]
   notes: "Owner 2026-10-29: suggestions mid-job kept moving the finish line. Store state/ideas/ideas.json + TODO.Features.Plan.md (git-ignored). hook_text() gives the hooks 'N parked ideas - fieldkit ideas review' and, on a session's first prompt, the brief (room-hook wiring held until P1 is an open plan item). accept/forget go through task.owner_terminal(), the guard of build-harness decide."
+
+- id: autoaccept
+  title: "Auto-accept (I-04) - a unit of work of any kind (a port, a build stage, an essay section) is accepted by the harness itself when every deterministic check passes AND an independent reviewer model on a higher ladder rung than the author says yes; policy switch auto_accept.enabled in fieldkit/lifecycle/autoaccept.yaml; every acceptance journaled with both models, the evidence and a rewind line, listed for the owner's after-the-fact review"
+  harness: core
+  entry: [python, -m, fieldkit, autoaccept]
+  path: ${FIELDKIT}/fieldkit/lifecycle/autoaccept.py
+  inputs:
+    - {name: action, flag: null, type: str, required: true, help: "status | list | seen"}
+    - {name: ids, flag: null, type: str, required: false, help: "seen: ledger ids"}
+    - {name: all, flag: --all, type: flag, required: false, help: "list: every row; seen: every unseen row"}
+    - {name: author, flag: --author, type: str, required: false, help: "status: the reviewer the ladder picks for this author"}
+    - {name: force, flag: --force, type: flag, required: false, help: "seen: the owner away from a terminal proves it with the signing-key passphrase"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [writes-files]
+  safety: reversible
+  output: own
+  exits: {0: "done", 1: "refused (seen without the owner)", 2: "bad arguments"}
+  platforms: [windows, linux]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_lifecycle_autoaccept.py"]
+  notes: "Owner 2026-11-11 (I-04 accepted): long-horizon jobs must not wait on owner clicks. Core is generic (fieldkit/lifecycle/); build-harness is the first caller (fieldkit/buildh/autoport.py). Gates listed in docs/AUTONOMY-GATES.md. --force proof: fieldkit/lifecycle/ownerproof.py."
 
 - id: refusals
   title: Repeated refusals (P23 - one ledger for both computers over the cable via sync, CI failures too, defects closed only with a test, a read-only refusal in a job blocks its re-run, overhead causes shows hours lost) - train, ship, guard, ci, goal and task write every refusal to state/refusals.jsonl (tool, reason key with heads and ids stripped, text, time, session); the same reason twice opens ONE row in ZERO-OPEN-PROBLEMS.md (never an inbox item); list shows each reason, its count and whether its row is open

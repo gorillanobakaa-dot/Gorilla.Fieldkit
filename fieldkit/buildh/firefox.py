@@ -2195,6 +2195,45 @@ def hand_removes(note):
     return out
 
 
+def hand_renames(note):
+    """The names upstream renamed that a port follows, declared in the note as `renames: OLD -> NEW` (or `=>`, one
+    per line or `;`-separated). I-04 B: a deferred "renamed upstream" step ported by a model to the new name is
+    judged on the hunk with the names replaced, and the rename itself is checked (rename_problems)."""
+    out = []
+    for chunk in re.split(r"[\n;]", note or ""):
+        m = re.match(r"\s*renames?:\s*(\S.*?)\s*(?:->|=>)\s*(\S.*?)\s*$", chunk)
+        if m and m.group(1) != m.group(2):
+            out.append((m.group(1), m.group(2)))
+    return out
+
+
+def _name_in(name, text):
+    return len(re.findall(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text))
+
+
+def rename_problems(renames, before_text, after_text):
+    """A declared rename must be real: the port adds no new use of the OLD name, and the NEW name is in the file."""
+    why = []
+    for old, new in renames:
+        if _name_in(old, after_text) > _name_in(old, before_text):
+            why.append(f"rename {old} -> {new}: the port adds the old name {old!r} back")
+        if not _name_in(new, after_text):
+            why.append(f"rename {old} -> {new}: the new name {new!r} is not in the file")
+    return why
+
+
+def renamed_hunk(hunk, renames):
+    """The hunk with every declared OLD name replaced by its NEW name (whole names only)."""
+    if not renames or not isinstance(hunk, dict):
+        return hunk
+    lines = []
+    for l in hunk.get("lines") or []:
+        for old, new in renames:
+            l = re.sub(r"(?<![\w-])" + re.escape(old) + r"(?![\w-])", lambda m, n=new: n, l)
+        lines.append(l)
+    return dict(hunk, lines=lines)
+
+
 def hand_keeps(note):
     """The removed lines a hand port keeps on purpose, declared in the submit note as `keeps: <line>` (one per
     line or `;`-separated). ml/moz.build h1 (live run 16): upstream added `"ipc",` inside the `if ... android`
@@ -2407,8 +2446,11 @@ def check_port(t, s, patch, file, hunk, **kw):
         root = subprocess.run(["git", "-C", t["workdir"], "rev-list", "--max-parents=0", "HEAD"], capture_output=True, text=True).stdout.split()
         pristine = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
             "utf-8", "replace").splitlines() if root else None
-        why = hand_port_check(before, after, hunk, pristine or None, keeps=hand_keeps(s.get("hand_note")),
-                              removes=hand_removes(s.get("hand_note")), siblings=sibling_adds(t, patch, file, hunk))
+        renames = hand_renames(s.get("hand_note"))
+        bad = rename_problems(renames, "\n".join(before), "\n".join(after))
+        rh = renamed_hunk(hunk, renames)
+        why = bad + hand_port_check(before, after, rh, pristine or None, keeps=hand_keeps(s.get("hand_note")),
+                                    removes=hand_removes(s.get("hand_note")), siblings=sibling_adds(t, patch, file, hunk))
         return {"ok": not why, "why": why[:8]}
     if file.endswith(".ftl"):
         from . import fluent

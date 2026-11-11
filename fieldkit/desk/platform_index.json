@@ -310,6 +310,16 @@
    "fieldkit-audio"
   ]
  },
+ "autoaccept": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "autoaccept"
+  ]
+ },
  "autopilot": {
   "platforms": [
    "linux",
@@ -1188,6 +1198,16 @@
   "why": "",
   "ids": [
    "bh-repro"
+  ]
+ },
+ "build-harness request": {
+  "platforms": [
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "bh-request"
   ]
  },
  "build-harness rewind": {

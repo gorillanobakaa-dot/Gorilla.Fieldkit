@@ -17,6 +17,7 @@ fieldkit task start BRIEF.md                 headless here: a one-step autopilot
 fieldkit task start BRIEF.md --on peer       on the other computer: its link listener starts `fieldkit autopilot claude`
 fieldkit task status                         every task + the reports that came back (over the cable too)
 fieldkit task report ID --status done --branch B [--pr URL] --note "..."   the job's own last step
+fieldkit autoaccept status|list              I-04: work the HARNESS accepted by itself (every check passed AND an independent higher-rung reviewer said yes), the policy switch, the undo lines; the owner reviews after the fact in `fieldkit review` (gates: docs/AUTONOMY-GATES.md)
 fieldkit refusals list                        refusals repeated by train/ship/guard/goal/task: each repeated reason is ONE open defect row (never an inbox item)
 ```
 
