@@ -54,3 +54,12 @@
 - file: fieldkit/lifecycle/ownerproof.py
   swap: ["    if os.environ.get(\"FIELDKIT_OWNERPROOF_ASK\", \"\").lower() == \"off\":", "    if False:"]
   why: "under tests the owner proof never opens a prompt or a dialog"
+- file: fieldkit/buildh/task.py
+  swap: ["    for rx in pol.get(\"offer_strip\") or []:", "    for rx in []:"]
+  why: "the offer must lose the old a-person's-job verdict"
+- file: fieldkit/buildh/task.py
+  swap: ["offer_text(s[\"offer\"])[:900]", "s[\"offer\"][:900]"]
+  why: "the packet shows the cleaned offer"
+- file: fieldkit/buildh/task.py
+  swap: ["    if s.get(\"last_why\") and not (s.get(\"offer\") and", "    if s.get(\"last_why\") and not (False and"]
+  why: "the parked reason is not repeated as a put-back attempt"

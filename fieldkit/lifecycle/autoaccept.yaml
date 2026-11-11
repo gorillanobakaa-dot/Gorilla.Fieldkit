@@ -12,6 +12,12 @@ auto_accept:
   kinds: [adapted, skip, retry]    # what the harness may accept by itself; a kind not listed waits for the owner
   deferred_to_model: true          # a step parked as "renamed / no longer exists upstream" is offered to a model
   deferred_patterns: ["renamed", "no longer exist"]   # words in the parked reason that make it a model's job
+  # The parked reason was written when such a step was a person's job; its old verdict ("never by a model", "Not a job
+  # for a model; the owner decides ...") contradicted the packet that now hands it to a model (2026-11-11: all 18
+  # firefox-160-linux offers carried it). Each regex is cut out of the finding when the packet shows it.
+  offer_strip:
+    - ';?\s*its added lines must be rewritten with the new names by a person, never by a model'
+    - '\.?\s*Not a job for a model; the owner decides[^.]*\.?'
   max_retries: 2                   # automatic retries of one blocked check step (each one needs the checks + reviewer)
   reviewer:
     # The reviewer is asked through this command; the question goes on stdin, the answer comes back on stdout and
