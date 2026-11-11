@@ -1,6 +1,7 @@
 """compile gate: only a fully ported, unmodified, honestly-checked tree may be compiled, and only a FRESH
 artifact from that tree counts as its build."""
 import os
+from pathlib import Path
 import subprocess
 import time
 
@@ -139,3 +140,16 @@ def test_a_missing_binary_fails_when_it_is_asked_for(world):
     cg.gate("c1")
     _build(world, age=+5)
     assert "built firefox.exe exists" in failing(cg.verify("c1"))
+
+
+def test_linux_gate_reads_the_patch_sets_mozconfig_and_mach_default_objdir(tmp_path, monkeypatch):
+    monkeypatch.setattr(cg.sys, "platform", "linux")
+    assert cg.mozconfig_path(tmp_path) == tmp_path / "mozconfig"
+    moz = tmp_path / "mozconfig"
+    moz.write_text("ac_add_options --disable-updater\n")
+    assert cg.objdir(moz) is None
+    assert cg.objdir(moz, tmp_path / "src") == tmp_path / "src" / cg.LINUX_OBJDIR
+    moz.write_text("mk_add_options MOZ_OBJDIR=/x/o\n")
+    assert cg.objdir(moz, tmp_path / "src") == Path("/x/o")
+    monkeypatch.setattr(cg.sys, "platform", "win32")
+    assert cg.mozconfig_path(tmp_path) == tmp_path / "config" / "mozconfig.win64"

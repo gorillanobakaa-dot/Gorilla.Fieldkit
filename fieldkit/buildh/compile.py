@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -38,12 +39,26 @@ def _git(wd, *args):
 
 
 def mozconfig_path(harness_root=None):
-    return Path(harness_root or settings.expand("${LOCAL:firefox.root}")) / "config" / "mozconfig.win64"
+    """The mozconfig the build reads. Windows: config/mozconfig.win64 of the owner's repo. Linux: the patch set's own
+    mozconfig at the root of the harness folder (stage_mozconfig copies it into the tree). 2026-11-11: the gate asked
+    a Linux task for the Windows file and failed it."""
+    root = Path(harness_root or settings.expand("${LOCAL:firefox.root}"))
+    if sys.platform != "win32":
+        return root / "mozconfig"
+    return root / "config" / "mozconfig.win64"
 
 
-def objdir(mozconfig):
+LINUX_OBJDIR = "obj-x86_64-pc-linux-gnu"      # mach's default objdir inside the source tree
+
+
+def objdir(mozconfig, workdir=None):
+    """MOZ_OBJDIR from the mozconfig; where none is named, on Linux mach's default inside the source tree."""
     m = re.search(r"MOZ_OBJDIR=(\S+)", Path(mozconfig).read_text(encoding="utf-8", errors="replace"))
-    return Path(m.group(1)) if m else None
+    if m:
+        return Path(m.group(1))
+    if sys.platform != "win32" and workdir:
+        return Path(workdir) / LINUX_OBJDIR
+    return None
 
 
 def _record_path(task_id):
@@ -180,7 +195,7 @@ def gate(task_id, harness_root=None, write=True):
         row(name, ok, evidence)
     moz = mozconfig_path(harness_root)
     row("mozconfig present", moz.is_file(), str(moz))
-    od = objdir(moz) if moz.is_file() else None
+    od = objdir(moz, wd) if moz.is_file() else None
     row("object directory named in the mozconfig", od is not None, str(od))
     ok = all(r["ok"] for r in rows)
     if ok and write:
