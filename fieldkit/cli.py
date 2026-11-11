@@ -1852,6 +1852,10 @@ def build_parser():
                         help="where the harness plan stands: the current phase of docs/HARNESS-PLAN.md, its open "
                              "items, the ones merged pull requests finished (fieldkit plan next)")
     pl.add_argument("args", nargs=argparse.REMAINDER)
+    aap = sub.add_parser("autoaccept", add_help=False,
+                         help="what the harness accepted by itself (checks + an independent higher-rung reviewer), "
+                              "the policy switch, and the owner's after-the-fact review (fieldkit autoaccept status)")
+    aap.add_argument("args", nargs=argparse.REMAINDER)
     idp = sub.add_parser("ideas", add_help=False,
                          help="parked suggestions: written down while a job runs, never added to the running plan; "
                               "only the owner at a terminal accepts, keeps or forgets (fieldkit ideas list)")
@@ -2416,7 +2420,7 @@ def build_parser():
     bh = sub.add_parser("build-harness", parents=[common],
                         help="Firefox & kernel build harness: vault, checked steps, checkpoints")
     bh.add_argument("action", choices=["latest", "vault", "start", "approve", "next", "status", "submit",
-                                       "unblock", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "installer-test", "release-publish", "night-pack", "satellite", "window", "awake", "follow",
+                                       "unblock", "request", "rewind", "log", "watch", "report", "drive", "compare", "audit", "preflight", "build-gate", "build-run", "build-verify", "install", "post-install", "truthbound", "repair", "capture", "leakgate", "leakgate-approve", "leakgate-propose", "leakgate-baseline", "leakgate-dispositions", "leakgate-rejudge", "export-hand", "rebase-set", "platform-steps", "release-roundtrip", "record", "decisions", "claims", "creep", "brief", "briefs", "decide", "deferred", "verify", "snapshot", "visual", "migrate", "netbench", "replay", "techniques", "probe", "release-check", "ui-check", "check-change", "images", "weigh", "about-pages", "about-registry", "hidden-pages-doc", "release-cover", "timebombs", "lists-refresh", "calibrate", "stops", "leakgate-summary", "leakgate-scope", "installer-test", "release-publish", "night-pack", "satellite", "window", "awake", "follow",
                                        "probe-compare", "stats", "leakgate-status", "leakgate-context", "leakgate-runs", "set-proof",
                                        "leakgate-proposal", "leakgate-selftest", "herald", "repro", "proposals", "accept", "drop", "lessons", "describe", "fluent-check", "withdraw", "companions", "api-drift", "archive-gap", "loss-audit", "decode-test", "pref-bisect", "clip-check", "symptom", "binary-patches", "whole-files", "profile-fresh", "profile-check", "profile-keep", "pref-conflicts", "runbook", "search-strip", "carry", "profile-diff", "release-page", "release-shots"])
     bh.add_argument("--apply", action="store_true", help="companions, api-drift: apply what checks cleanly and checkpoint the work tree")
@@ -2432,7 +2436,7 @@ def build_parser():
     bh.add_argument("--compare", action="store_true", help="repro: only compare a second build already made")
     bh.add_argument("args", nargs="*")
     bh.add_argument("--fix-locks", action="store_true", help="preflight: remove stale git locks (only when no git process runs)")
-    bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail")
+    bh.add_argument("--force", action="store_true", help="build-run: pass --force to the owner's build stage when ONLY build-dependent blockers fail; unblock skip / deferred --do: the owner away from a terminal proves it with the signing-key passphrase (a model cannot)")
     bh.add_argument("--no-backup", action="store_true", dest="no_backup", help="install: skip the backup (never the default)")
     bh.add_argument("--drive", action="store_true", help="post-install: allow the checks that take the keyboard (announced, 20 s countdown)")
     bh.add_argument("--strict", action="store_true", help="decisions: a pending decision counts as not done (release, baseline); "
@@ -3195,6 +3199,9 @@ def main(argv=None):
     if args[:1] == ["refusals"]:                      # repeated refusals -> defect rows (plan R14)
         from . import refusals
         return refusals.main(args[1:])
+    if args[:1] == ["autoaccept"]:                  # I-04: what the harness accepted by itself, for the owner's review
+        from .lifecycle import autoaccept
+        return autoaccept.main(args[1:])
     if args[:1] == ["ideas"]:                       # parked suggestions: never added to the plan that is running
         from . import ideas
         return ideas.main(args[1:])

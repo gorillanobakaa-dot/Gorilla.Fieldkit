@@ -1,0 +1,56 @@
+# I-04 / I-06: every new check must be caught when broken.
+# fieldkit mutate --plan tests/autoaccept_mutations.yaml -- python -m pytest -q tests/test_lifecycle_autoaccept.py tests/test_ownerproof.py tests/test_buildh_autoport.py
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if failed:\n", "    if False:\n"]
+  why: "a failing deterministic check must refuse"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if not checks:\n", "    if False:\n"]
+  why: "no check at all must refuse (fail closed)"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if ans.get(\"yes\"):", "    if True:"]
+  why: "the reviewer saying no must refuse"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if (author or \"\").lower() and pk[\"reviewer\"].lower() in (author or \"\").lower():", "    if False:"]
+  why: "the reviewer is never the author's own model"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    for r in rungs[at + 1:]:", "    for r in rungs[at:]:"]
+  why: "the reviewer is on a HIGHER rung than the author"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if kind not in (pol.get(\"kinds\") or []):", "    if False:"]
+  why: "a kind the policy does not list waits for the owner"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    yes = found[-1].upper() == \"YES\"", "    yes = found[0].upper() == \"YES\""]
+  why: "the reviewer's LAST verdict counts"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if r.returncode != 0 or not found:", "    if not found:"]
+  why: "a reviewer that fails is a no"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if not ok:                      # the after-the-fact review", "    if False:                      # the after-the-fact review"]
+  why: "a model cannot mark acceptances seen"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if pinned.get(fp) != raw:", "    if False:"]
+  why: "only a key pinned as the owner's proves the owner"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if not pw:\n", "    if False:\n"]
+  why: "no way to ask the passphrase refuses"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if not force:\n", "    if False:\n"]
+  why: "without --force an agent's shell is refused as before"
+- file: fieldkit/buildh/autoport.py
+  swap: ["        ok, ev = not left, ", "        ok, ev = True, "]
+  why: "a skip is refused while a removed line is still in the file"
+- file: fieldkit/buildh/autoport.py
+  swap: ["    changed = bool(failed_at and head_t.isdigit() and int(head_t) > failed_at)", "    changed = True"]
+  why: "a retry needs a commit after the failure"
+- file: fieldkit/buildh/autoport.py
+  swap: ["        if not any(p in why.lower() for p in pats):", "        if False:"]
+  why: "only renamed / removed-upstream deferred steps go to a model"
+- file: fieldkit/buildh/firefox.py
+  swap: ["        if _name_in(old, after_text) > _name_in(old, before_text):", "        if False:"]
+  why: "a port that adds the old name back breaks its declared rename"
+- file: fieldkit/buildh/firefox.py
+  swap: ["        if not _name_in(new, after_text):", "        if False:"]
+  why: "a declared rename's new name must be in the file"
+- file: fieldkit/lifecycle/ownerproof.py
+  swap: ["    if os.environ.get(\"FIELDKIT_OWNERPROOF_ASK\", \"\").lower() == \"off\":", "    if False:"]
+  why: "under tests the owner proof never opens a prompt or a dialog"

@@ -612,6 +612,13 @@ def run(a, emit):
         r = task.submit(tid, a.note or "", by="hand" if getattr(a, "hand", False) else "cli", adapted=getattr(a, "adapted", "") or "")
         emit(r, None)
         return 0 if r["ok"] else 3
+    if act == "request":
+        # request TASK STEP skip|retry --note "why": a model asks the HARNESS (I-04); the next `next` decides it
+        from . import autoport
+        if len(a.args) < 3:
+            raise task.Refused("request TASK STEP skip|retry --note \"why\"")
+        r = autoport.request(tid, a.args[1], a.args[2], a.note or "")
+        return emit(r, lambda r: print(f"requested {r['how']} of {r['step']}: {r['next']}")) or 0
     if act == "withdraw":
         if len(a.args) < 2 or not (a.note or "").strip():
             raise task.Refused("withdraw TASK STEP --note \"why\"")
@@ -891,7 +898,7 @@ def run(a, emit):
                                                            [f"  {i}  ({w})" for i, w in rows] +
                                                            ["", "to read the explanation for one: fieldkit build-harness deferred TASK STEP"]))) or 0
         if getattr(a, "do", None):
-            print(deferred.apply_drop(tid, rest[0], a.do))
+            print(deferred.apply_drop(tid, rest[0], a.do, force=bool(getattr(a, "force", False))))
             return 0
         b = deferred.build(tid, rest[0])
         emit(b, lambda b: print("\n".join(deferred.show(b, plain=not a.technical))))
@@ -1881,7 +1888,7 @@ def run(a, emit):
     if act == "rewind":
         return emit(task.rewind(tid, a.args[1]), None) or 0
     if act == "unblock":
-        task.unblock(tid, a.args[1], a.args[2])
+        task.unblock(tid, a.args[1], a.args[2], force=bool(getattr(a, "force", False)))
         return emit(task.status(tid), None) or 0
     if act in ("report", "watch"):
         from . import recorder

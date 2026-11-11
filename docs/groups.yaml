@@ -173,6 +173,7 @@ groups:
       - buildh/weigh.py
       - buildh/aboutpages.py
       - buildh/aboutregistry.py
+      - buildh/autoport.py
       - buildh/binpatch.py
       - buildh/hiddendocs.py
       - buildh/releasecover.py

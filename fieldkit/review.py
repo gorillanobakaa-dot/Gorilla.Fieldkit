@@ -186,9 +186,27 @@ def _item_lines(k, e, titles):
     return out
 
 
+def accepted_by_harness():
+    """-> (rows, lines): what the harness accepted by itself (I-04) that the owner has not reviewed yet, with the undo
+    line of each. Shown, never answered: an acceptance stands unless the owner runs its undo line."""
+    try:
+        from .lifecycle import autoaccept
+        rs = [r for r in autoaccept.unseen() if r.get("accepted")]
+    except Exception:                                        # noqa: BLE001 - the review never fails on the ledger
+        return [], []
+    if not rs:
+        return [], []
+    head = [f"Accepted by the harness while you were away ({len(rs)}): every check passed and an independent reviewer "
+            "said yes. Review after the fact; undo any with its line."]
+    return rs, head + autoaccept.lines(rs)[1:]
+
+
 def render(es, root=None):
     titles = plan_titles(root)
     out = [GOAL, FINAL, ""] + where_we_are(root)
+    _, aa = accepted_by_harness()
+    if aa:
+        out += [""] + aa
     if not es:
         return out + ["", "Nothing waits for you."]
     out += ["", f"{len(es)} item(s) wait for you, in three groups."]
@@ -236,6 +254,9 @@ def render_inbox(root=None):
                 f"- Why: {it.get('why', '')}"]
         if it.get("command"):
             out += ["- Command:", "", f"      {it['command']}", ""]
+    _, aa = accepted_by_harness()
+    if aa:
+        out += ["", "## Accepted by the harness (after-the-fact review)", ""] + [f"    {x}" for x in aa]
     rows = ledger_rows()
     out += ["", f"## Handled by the agents, no action from you ({len(rows)} latest)", "",
             "Only a hard line reaches you; everything else is filed here for Zero and the next agent.", ""]
@@ -326,6 +347,10 @@ def review(root=None, ask=input, say=print, now=None):
     es = entries(root)
     write_page(root)
     say("\n".join(render(es, root)))
+    seen, _ = accepted_by_harness()
+    if seen:                                    # shown to the owner at their terminal: reviewed after the fact
+        from .lifecycle import autoaccept
+        autoaccept.mark_seen([r["id"] for r in seen])
     if not es:
         return []
     for _ in range(5):
