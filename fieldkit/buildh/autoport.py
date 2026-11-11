@@ -12,7 +12,11 @@ sweep(task_id) runs at the top of task.advance(), when no model step is in fligh
      parse, only the step's files change -> reviewer -> task.accept as the harness, or a failed attempt that climbs;
   3. each skip request: a port step, a lesson given, and either the result already holds or nothing the hunk changes
      is left in the file -> reviewer -> done (skipped by the harness), or a failed attempt that climbs;
-  4. each retry request on a blocked step: retries left and the tree changed since it failed -> reviewer -> pending.
+  4. each retry request on a blocked step: retries left and the tree changed since it failed -> reviewer -> pending;
+  5. each port step where the check refused one attempt and the reviewer refused another (core.disagreement): a
+     tie-break by the highest allowed rung, shown the upstream change of the hunk's own lines; CHECK holds -> the
+     proposal is accepted; REVIEWER holds -> the refused attempt is applied with the check's reasons waived for this
+     step only (journal `override`); unsure or no tie-breaker -> blocked with both reasons.
 Every decision is in the task journal (event auto-accept / auto-refuse) and the core's ledger, with the rewind line.
 """
 import json
@@ -193,6 +197,123 @@ def _retry(t, s, pol):
                                          "skipping any check, so that running the step again is the right next move?")
 
 
+def upstream_change(t, s):
+    """The upstream change of the lines the hunk touches: each removed or context line (the OLD upstream text the patch
+    was made on) next to the closest line of the new upstream release (pristine, task meta upstream.commit)."""
+    import difflib
+    from . import firefox
+    a = s.get("args") or {}
+    commit = ((t.get("meta") or {}).get("upstream") or {}).get("commit") or ""
+    if not commit or not a.get("hunk") or not a.get("file"):
+        return ""
+    new = task._git(t, "show", f"{commit}:{a['file']}", check=False)
+    if not new:
+        return f"(the new upstream release {commit[:12]} has no {a['file']})"
+    removed, _added, context = firefox.hunk_sides(a["hunk"])
+    have = new.splitlines()
+    plain = {l.strip() for l in have}
+    out = []
+    for line in [l for l in list(context) + list(removed) if len(l.strip()) >= firefox.SPECIFIC]:
+        if line.strip() in plain:
+            continue
+        near = difflib.get_close_matches(line.strip(), [h.strip() for h in have if h.strip()], n=1, cutoff=0.5)
+        out += [f"- {line.strip()}", f"+ {near[0]}" if near else "+ (no such line any more)"]
+    head = f"upstream {a['file']}: old (the patch's own lines) -> new release {commit[:12]} (pristine)"
+    return head + "\n" + ("\n".join(out) if out else "(every line the hunk touches is unchanged upstream)")
+
+
+def _apply_diff(t, diff):
+    r = subprocess.run(["git", "-C", t["workdir"], "apply", str(diff)], capture_output=True, text=True)
+    if r.returncode != 0:
+        r = subprocess.run(["git", "-C", t["workdir"], "apply", "--3way", str(diff)], capture_output=True, text=True)
+    return r.returncode == 0, (r.stderr or "").strip()[:200]
+
+
+def _apply_refused(task_id, sid, override, rewind, who):
+    """REVIEWER holds: put the attempt the check refused back, re-run the same check; done only when the check's
+    remaining reasons are all in `override` (waived for this step), only the step's files change and they parse."""
+    t = task.load(task_id)
+    s = next(x for x in t["steps"] if x["id"] == sid)
+    pdir = task._proposals_dir(t)
+    meta = json.loads((pdir / f"{sid}.refused.json").read_text(encoding="utf-8"))
+    ok, err = _apply_diff(t, pdir / f"{sid}.refused.diff")
+    if not ok:
+        task.revert_to_checkpoint(t)
+        return False, f"the refused attempt no longer applies: {err}"
+    changed = task.changed_files(t)
+    outside = [c for c in changed if c not in set(s.get("allowed") or [])]
+    probe = dict(s, hand_port=bool(meta.get("adapted")), hand_note=meta.get("adapted") or "")
+    res = task._call(s["check"], t, probe, **(s.get("args") or {})) or {}
+    left = [w for w in (res.get("why") or []) if str(w)[:400] not in set(override)] if not res.get("ok") else []
+    syn_ok, syn = _syntax(t, changed)
+    problems = ([f"files outside the step: {outside[:5]}"] if outside else []) + left + ([syn] if not syn_ok else [])
+    if not changed:
+        problems.append("the refused attempt changes nothing")
+    if problems:
+        task.revert_to_checkpoint(t)
+        return False, "; ".join(problems)[:300]
+    s.update(status="done", done_by="harness-override", last_why=None, override_by=who)
+    task.checkpoint(t, f"{sid} (override by tie-break: {who})")
+    task.save(t)
+    task.journal(t, "override", step=sid, waived=list(override), who=who, rewind=rewind)
+    return True, ""
+
+
+def tiebreaks(task_id, pol, asker=None, pick=None):
+    """Step 5 of the sweep: settle checker-vs-reviewer deadlocks on port steps."""
+    out = []
+    t = task.load(task_id)
+    pdir = task._proposals_dir(t)
+    for s in [x for x in t["steps"] if x["kind"] == "model" and x["status"] in ("failed", "blocked")]:
+        sid = s["id"]
+        if not ((pdir / f"{sid}.diff").is_file() and (pdir / f"{sid}.refused.json").is_file()):
+            continue
+        d = core.disagreement(t["id"], sid, pol)
+        if not d:
+            continue
+        refused = json.loads((pdir / f"{sid}.refused.json").read_text(encoding="utf-8"))
+        rv = d["reviewer"]
+        reviewer_said = [str(rv.get("review") or "; ".join(rv.get("why") or []))]
+        check_said = list(d["check"].get("why") or refused.get("why") or [])
+        evidence = (f"STEP: {sid}\nFILE: {(s.get('args') or {}).get('file', '')}\n\nTHE UPSTREAM CHANGE OF THE LINES THE "
+                    f"HUNK TOUCHES:\n{upstream_change(t, s)}\n\nTHE ORIGINAL HUNK (the project's change on the old "
+                    f"source):\n{_hunk_text(s)}\n\nTHE WORK THE CHECK REFUSED (author's note: "
+                    f"{(refused.get('adapted') or refused.get('note') or '')[:600]}):\n"
+                    f"{(pdir / f'{sid}.refused.diff').read_text(encoding='utf-8', errors='replace')[:6000]}\n\n"
+                    f"THE WORK THE REVIEWER REFUSED (passed every check; author's reason: "
+                    f"{((s.get('proposal') or {}).get('reason') or '')[:600]}):\n"
+                    f"{(pdir / f'{sid}.diff').read_text(encoding='utf-8', errors='replace')[:6000]}")
+        rewind = _rewind(t, s)
+
+        def apply(holds, override, sid=sid, rewind=rewind):
+            who = f"tie-break ({holds} holds)"
+            if holds == "check":
+                tt = task.load(task_id)
+                ss = next(x for x in tt["steps"] if x["id"] == sid)
+                ss["review_refused"] = True                       # task.accept takes a reviewer-refused proposal
+                task.save(tt)
+                r = task.accept(task_id, [sid], who=f"harness {who}")
+                return bool(r["accepted"]), "; ".join(f["why"] for f in r["failed"])[:300]
+            return _apply_refused(task_id, sid, override, rewind, f"harness {who}")
+
+        rec = core.tiebreak("adapted", sid, _author(s), check_said, reviewer_said, evidence, apply, rewind=rewind,
+                            project=t["id"], reviewer=str(rv.get("reviewer") or ""), pol=pol, asker=asker, pick=pick,
+                            question="The project's change (the hunk) must be carried onto the new upstream release. "
+                                     "Does the check's reason hold (the work must carry the hunk's added text), or "
+                                     "the reviewer's (that text was dropped upstream on purpose and must not come back)?")
+        t = task.load(task_id)
+        s = next(x for x in t["steps"] if x["id"] == sid)
+        if rec.get("park"):
+            s["status"], s["last_why"] = "blocked", list(rec["why"])
+            task.revert_to_checkpoint(t)
+        task.journal(t, "tie-break", step=sid, holds=rec.get("holds"), tiebreaker=rec.get("reviewer"),
+                     ledger=rec["id"], check_said=check_said, reviewer_said=reviewer_said, why=rec["why"],
+                     status=s["status"], rewind=rewind)
+        task.save(t)
+        out.append({"step": sid, "kind": "tiebreak", "accepted": bool(rec.get("accepted")), "holds": rec.get("holds")})
+    return out
+
+
 def sweep(task_id, pol=None, in_flight=None):
     """-> [{"step", "kind", "accepted"}]. No-op while a model step is in flight or the tree has changes."""
     pol = core.policy() if pol is None else pol
@@ -257,6 +378,8 @@ def sweep(task_id, pol=None, in_flight=None):
                              ledger=rec["id"], why=rec["why"], status=s["status"])
             task.save(t)
             out.append({"step": sid, "kind": kind, "accepted": bool(rec.get("accepted"))})
+    if (pol.get("tiebreak") or {}).get("enabled", True):
+        out += tiebreaks(task_id, pol)
     return out
 
 

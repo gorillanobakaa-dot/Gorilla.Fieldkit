@@ -18,6 +18,23 @@ deterministic checks that apply to it and the evidence text. The core decides, t
 The caller acts on the answer (applies the work, or counts a failed attempt and climbs the ladder). A model never
 calls an owner command itself: HARD LINE 4 is unchanged; the harness, not a model, accepts.
 
+A checker and a reviewer that disagree on one item (the check refuses work W1, the reviewer refuses work W2 that passed
+the checks, each for the reason the other side's work exists) would loop until the item parks. The core breaks it:
+
+    refusal(kind, item, side, why, project)       a plug-in records a check's refusal of an attempt (reviewer refusals
+                                                  are recorded by decide itself)
+    disagreement(project, item)                   -> {"check": row, "reviewer": row} when both sides refused this item
+                                                  since its last tie-break, else None
+    tiebreak(kind, item, author, check_said, reviewer_said, evidence, apply, ...)
+      1. records the disagreement (both reasons);
+      2. asks the HIGHEST ladder rung the spend guard allows a reviewer to use that is above the author's rung (never
+         the author's own model);
+      3. the tie-breaker may only name which side's reason holds (`HOLDS: CHECK|REVIEWER|UNSURE`) and quote the evidence
+         (`EVIDENCE: <a line copied from what it was shown>`); a quote not found in the evidence is unsure;
+      4. CHECK holds: the work that passed the checks is accepted. REVIEWER holds: the check's reasons are overridden for
+         THIS item only (`override`, both reasons, the rewind line, listed for the owner's review); the check itself is
+         not changed and still refuses every other item. Unsure or no tie-breaker: the item parks with both reasons.
+
     fieldkit autoaccept status         the policy and the reviewer the ladder would pick now
     fieldkit autoaccept list [--all]   acceptances the owner has not seen yet (or every decision)
     fieldkit autoaccept seen ID|--all  the owner read them (after-the-fact review)
@@ -220,8 +237,214 @@ def rows(pol=None):
 
 
 def unseen(pol=None):
-    """Acceptances the owner has not reviewed yet (after the fact), oldest first."""
+    """Acceptances (overrides included) the owner has not reviewed yet (after the fact), oldest first."""
     return [r for r in rows(pol) if r.get("accepted") and not r.get("seen")]
+
+
+# --- checker vs reviewer: the tie-break ---------------------------------------------------------------------------
+
+HOLDS = re.compile(r"^\W*HOLDS\W*:?\s*(CHECK|REVIEWER|UNSURE)\b", re.I | re.M)
+QUOTE = re.compile(r"^\W*EVIDENCE\W*:\s*(.+)$", re.I | re.M)
+
+
+def refusal(kind, item, side, why, project="", author="", pol=None):
+    """Record one side's refusal of an attempt on an item (side: check | reviewer). Written by the plug-in when its own
+    check refuses an attempt outside decide (decide records its own refusals)."""
+    pol = policy() if pol is None else pol
+    _append({"id": uuid.uuid4().hex[:10], "event": "refusal", "at": time.strftime("%Y-%m-%d %H:%M:%S"), "kind": kind,
+             "project": project, "item": item, "side": side, "author": author or "unknown",
+             "why": [str(w)[:400] for w in (why or [])][:8]}, pol)
+
+
+def _events(pol=None):
+    p = ledger_path(pol)
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines() if p.is_file() else []:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
+def disagreement(project, item, pol=None):
+    """-> {"check": row, "reviewer": row} when, since this item's last tie-break (or acceptance), a check refused one
+    attempt AND a reviewer refused another. Otherwise None. Only rows of this project and this item count."""
+    last = {}
+    for r in _events(pol):
+        if r.get("project") != project or r.get("item") != item:
+            continue
+        if r.get("tiebreak") or r.get("accepted"):
+            last = {}
+        elif r.get("event") == "refusal" and r.get("side") in ("check", "reviewer"):
+            last[r["side"]] = r
+        elif not r.get("event") and r.get("reviewer") and not r.get("accepted") and r.get("review"):
+            last["reviewer"] = r                                  # decide: the checks passed, the reviewer said no
+        elif not r.get("event") and any(str(w).startswith("check failed: ") for w in r.get("why") or []):
+            last["check"] = r
+    return last if {"check", "reviewer"} <= set(last) else None
+
+
+def pick_tiebreaker(author, pol=None, data=None, check=None):
+    """-> {"reviewer": rung | None, "why"}. The HIGHEST ladder rung the spend guard allows a reviewer to use, above the
+    author's rung (an unknown author: any allowed rung but its own name). Never the author's model."""
+    from . import models
+    d = data or models.load()
+    rungs = [str(x).lower() for x in (models.ladder_cfg(d).get("ladder") or ())]
+    check = check or (lambda r: models.check_model(r, role="reviewer", origin="autoaccept", data=d, log=False))
+    if not rungs:
+        return {"reviewer": None, "why": "the escalation ladder is empty (models.yaml escalation.ladder)"}
+    at = _rung(author, rungs)
+    above = rungs[(at + 1 if at is not None else 0):]
+    skipped = []
+    for r in reversed(above):
+        if r in (author or "").lower():
+            continue
+        if check(r).get("ok"):
+            return {"reviewer": r, "why": f"{r}: the highest rung the spend guard allows"
+                                          + (f" (skipped {skipped})" if skipped else "")}
+        skipped.append(r)
+    return {"reviewer": None, "why": f"no allowed rung above the author's ({author or 'unknown'})"
+                                     + (f"; skipped {skipped} (spend guard)" if skipped else "")}
+
+
+TIEBREAK_PROMPT = """You break a tie between a deterministic check and a reviewer model that disagree on ONE work item.
+Both refused a version of the work, each for the reason the other side's version exists:
+
+  CHECK says (it refused the work WITHOUT what the reviewer objects to):
+{check_said}
+
+  REVIEWER ({reviewer}) says (it refused the work that passed the check):
+{reviewer_said}
+
+You do not edit anything and you do not judge anything else. Decide only which side's reason holds for this item:
+  HOLDS: CHECK     - the reviewer's objection is wrong; the work that passed the check is right.
+  HOLDS: REVIEWER  - the check's refusal is wrong for this item; the work the check refused is right.
+  HOLDS: UNSURE    - the evidence does not settle it, or both reasons hold.
+
+KIND: {kind}
+PROJECT: {project}
+ITEM: {item}
+
+EVIDENCE:
+{evidence}
+
+QUESTION: {question}
+
+Answer with one or two sentences of reason, then a line `EVIDENCE: <one line copied exactly from the EVIDENCE above
+that proves your answer>`, then ONE final line exactly `HOLDS: CHECK`, `HOLDS: REVIEWER` or `HOLDS: UNSURE`."""
+
+
+def _norm(x):
+    return " ".join(str(x).replace("\u2019", "'").replace("\u2018", "'").split()).strip(" `\"'").lower()
+
+
+def parse_tiebreak(answer, evidence):
+    """-> (holds: "check" | "reviewer" | None, quote, why). The LAST `HOLDS:` line counts; CHECK or REVIEWER stands
+    only with an `EVIDENCE:` quote of 12+ characters found in the evidence the tie-breaker was shown."""
+    found = HOLDS.findall(answer or "")
+    if not found:
+        return None, "", "no HOLDS line in the answer (unsure)"
+    side = found[-1].lower()
+    if side == "unsure":
+        return None, "", "the tie-breaker is unsure"
+    quotes = QUOTE.findall(answer or "")
+    q = quotes[-1].strip() if quotes else ""
+    if len(_norm(q)) < 12:
+        return None, q, f"the tie-breaker named {side} without quoting the evidence (unsure)"
+    if _norm(q) not in _norm(evidence):
+        return None, q, f"the tie-breaker's quote is not in the evidence it was shown (unsure): {q[:160]}"
+    return side, q, ""
+
+
+def ask_raw(model, prompt, pol=None, run=subprocess.run):
+    """-> {"ok", "answer", "why"}: the reviewer command's whole answer (the tie-break parses it itself)."""
+    pol = policy() if pol is None else pol
+    cmd = _cmd(model, pol)
+    if not cmd:
+        return {"ok": False, "answer": "", "why": "no reviewer command (auto_accept.reviewer.cmd)"}
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")}
+    env.update(ANTHROPIC_MODEL=model, FIELDKIT_ATTEMPT_MODEL=model, FIELDKIT_REVIEWER="1")
+    try:
+        r = run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
+                timeout=int((pol.get("reviewer") or {}).get("timeout") or 900))
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"ok": False, "answer": "", "why": f"the tie-breaker could not be run: {type(e).__name__}"}
+    out = (r.stdout or "").strip()
+    return {"ok": r.returncode == 0, "answer": out[-4000:], "why": "" if r.returncode == 0 else f"exit {r.returncode}"}
+
+
+def tiebreak(kind, item, author, check_said, reviewer_said, evidence, apply, question="", rewind="", project="",
+             reviewer="", pol=None, asker=None, pick=None):
+    """Break a checker-vs-reviewer deadlock on ONE item. apply(holds, override) -> (ok, why) is the plug-in's action:
+    holds "check" = accept the work that passed the checks; "reviewer" = accept the work the check refused, with
+    `override` (the check's reasons) waived for this item only. asker(model, prompt) -> {"ok", "answer"} (tests).
+    -> the ledger row; row["park"] True when the item must wait (no tie-breaker, unsure, or apply failed)."""
+    pol = policy() if pol is None else pol
+    check_said = [str(w)[:400] for w in check_said or []]
+    reviewer_said = [str(w)[:400] for w in reviewer_said or []]
+    base = {"kind": kind, "project": project, "item": item, "author": author or "unknown", "rewind": rewind}
+    _append(dict(base, id=uuid.uuid4().hex[:10], event="disagree", at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                 check_said=check_said, reviewer_said=reviewer_said, reviewer=reviewer), pol)
+    rec = dict(base, id=uuid.uuid4().hex[:10], at=time.strftime("%Y-%m-%d %H:%M:%S"), tiebreak=True, reviewer=None,
+               check_said=check_said, reviewer_said=reviewer_said, holds=None, override=[], accepted=False,
+               park=True, checks=[], why=[], seen=False)
+    both = f"check: {'; '.join(check_said)[:300]} | reviewer: {'; '.join(reviewer_said)[:300]}"
+    ok, why = allows(kind, pol)
+    if ok and not (pol.get("tiebreak") or {}).get("enabled", True):
+        ok, why = False, "auto_accept.tiebreak.enabled is false: the item parks with both reasons"
+    if not ok:
+        rec["why"] = [why, both]
+        _append(rec, pol)
+        return rec
+    pk = (pick or pick_tiebreaker)(author, pol)
+    if not pk["reviewer"] or pk["reviewer"] in (author or "").lower():
+        rec["why"] = [f"no tie-breaker: {pk['why']}", both]
+        _append(rec, pol)
+        return rec
+    rec["reviewer"] = pk["reviewer"]
+    cap = int((pol.get("reviewer") or {}).get("max_evidence_chars") or 24000)
+    ev = str(evidence or "")[:cap]
+    text = TIEBREAK_PROMPT.format(kind=kind, project=project or "-", item=item, evidence=ev,
+                                  check_said="\n".join(f"    - {w}" for w in check_said) or "    (nothing recorded)",
+                                  reviewer_said="\n".join(f"    - {w}" for w in reviewer_said) or "    (nothing recorded)",
+                                  reviewer=reviewer or "reviewer", question=question or "Which side's reason holds?")
+    ans = (asker or (lambda m, p: ask_raw(m, p, pol)))(pk["reviewer"], text)
+    answer = str(ans.get("answer") or "")
+    holds, quote, why = parse_tiebreak(answer if ans.get("ok", True) else "", ev)
+    rec["review"] = next((l.strip() for l in answer.splitlines() if l.strip() and not HOLDS.match(l)
+                          and not QUOTE.match(l)), "")[:400]
+    rec["quote"] = quote[:400]
+    if not holds:
+        rec["why"] = [f"the tie-breaker ({pk['reviewer']}) did not settle it: {why or ans.get('why') or '?'}", both]
+        _append(rec, pol)
+        return rec
+    rec["holds"] = holds
+    if holds == "reviewer":
+        rec["override"] = list(check_said)            # waived for THIS project + item only; the check is unchanged
+    done, how = apply(holds, list(rec["override"]))
+    if not done:
+        rec["why"] = [f"{pk['reviewer']} ruled the {holds} holds, but the harness could not apply it: {how}", both]
+        _append(rec, pol)
+        return rec
+    rec["accepted"], rec["park"] = True, False
+    rec["why"] = [(f"override: the check's refusal is waived for this item only; {pk['reviewer']} ruled the reviewer's "
+                   f"reason holds" if holds == "reviewer" else
+                   f"{pk['reviewer']} ruled the check's reason holds; the reviewer's objection is overruled")
+                  + f" (evidence: {quote[:160]})", both]
+    _append(rec, pol)
+    return rec
+
+
+def overridden(project, item, why, pol=None):
+    """-> (left, waived): the reasons in `why` NOT waived for this item, and those an accepted override waives. An
+    override names one project + item; the same reason on any other item is never waived."""
+    waived = set()
+    for r in _events(pol):
+        if r.get("tiebreak") and r.get("accepted") and r.get("project") == project and r.get("item") == item:
+            waived |= set(r.get("override") or [])
+    left = [w for w in why or [] if str(w)[:400] not in waived]
+    return left, [w for w in why or [] if str(w)[:400] in waived]
 
 
 def mark_seen(ids, pol=None):
@@ -232,9 +455,14 @@ def mark_seen(ids, pol=None):
 def lines(rs):
     out = [f"{len(rs)} decision(s) the harness made by itself:"]
     for r in rs:
-        out.append(f"  {r['id']}  {r['at']}  {'ACCEPTED' if r.get('accepted') else 'refused'}  {r['kind']}  "
+        tag = ("OVERRIDE" if r.get("override") and r.get("accepted") else "TIE-BREAK" if r.get("tiebreak") and
+               r.get("accepted") else "ACCEPTED" if r.get("accepted") else "parked" if r.get("tiebreak") else "refused")
+        out.append(f"  {r['id']}  {r['at']}  {tag}  {r['kind']}  "
                    f"{r.get('project') or '-'}  {r['item'][:70]}")
         out.append(f"      author {r.get('author')}, reviewer {r.get('reviewer') or '-'}: {'; '.join(r.get('why') or [])[:200]}")
+        if r.get("tiebreak"):
+            out.append(f"      check said: {'; '.join(r.get('check_said') or [])[:200]}")
+            out.append(f"      reviewer said: {'; '.join(r.get('reviewer_said') or [])[:200]}")
         if r.get("rewind"):
             out.append(f"      undo: {r['rewind']}")
     return out
