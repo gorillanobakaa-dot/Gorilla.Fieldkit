@@ -2208,7 +2208,7 @@ def _facts(lines):
     return f
 
 
-def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_check=True, removes=()):
+def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_check=True, removes=(), siblings=None):
     """A PERSON ported this hunk by hand (not a model): the shape may differ from the patch, the meaning may not.
     Required: every specific removed line is gone (from the frame when it can be pinned, else the file); every
     distinctive token of the added lines (identifiers of 6+ chars, quoted strings) is present near the change;
@@ -2260,6 +2260,10 @@ def hand_port_check(before, after, hunk, pristine=None, keeps=(), collateral_che
         # is no evidence either way: only a line whose every copy in `before` is the hunk's must be gone. What a
         # shared opener left dangling does is caught by the parse check (syntax_problems), not by text.
         if (pristine is not None or before is not after) and cb[k] != n:
+            continue
+        # the patch's OTHER hunks for this file may add the very same line elsewhere (P27, 23.REBASE.158/0167 h5: h4 re-adds
+        # `padding: 20px;` that h5 removes). Count copies: the file may hold as many as those siblings add; more is a leftover.
+        if siblings and ca[k] <= siblings.get(k, 0):
             continue
         why.append(f"line should be gone: {k[:100]}")
     # a line that already existed before the edit cannot be the renamed form of a removed line (02 Oct: the
@@ -2326,6 +2330,23 @@ def deletes_whole_file(hunk):
         re.search(r"\+0,0 @@", str(hunk.get("header", ""))) is not None
 
 
+def sibling_adds(t, patch, file, hunk):
+    """{stripped line: copies} added by the OTHER hunks of `patch` for `file` (empty when the patch cannot be read)."""
+    import collections
+    try:
+        text = (_policy(t["meta"]["harness_root"])[0] / patch).read_text(encoding="utf-8", errors="replace")
+        files = [f for f in parse_patch(text) if f["file"] == file]
+    except (OSError, KeyError, ValueError, TypeError):
+        return {}
+    c = collections.Counter()
+    for f in files:
+        for h in f["hunks"]:
+            if h.get("header") == hunk.get("header") and h.get("lines") == hunk.get("lines"):
+                continue
+            c.update(l[1:].strip() for l in h["lines"] if l.startswith("+"))
+    return c
+
+
 def check_port(t, s, patch, file, hunk, **kw):
     target = Path(t["workdir"]) / file
     if deletes_whole_file(hunk):                                       # 2026-10-04: a deletion is done when the file is gone
@@ -2353,7 +2374,7 @@ def check_port(t, s, patch, file, hunk, **kw):
         pristine = subprocess.run(["git", "-C", t["workdir"], "show", f"{root[0]}:{file}"], capture_output=True).stdout.decode(
             "utf-8", "replace").splitlines() if root else None
         why = hand_port_check(before, after, hunk, pristine or None, keeps=hand_keeps(s.get("hand_note")),
-                              removes=hand_removes(s.get("hand_note")))
+                              removes=hand_removes(s.get("hand_note")), siblings=sibling_adds(t, patch, file, hunk))
         return {"ok": not why, "why": why[:8]}
     if file.endswith(".ftl"):
         from . import fluent

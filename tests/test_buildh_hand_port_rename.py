@@ -38,3 +38,20 @@ def test_a_real_rename_is_still_caught():
     renamed = AFTER[:5] + ["         nsIAboutModule::ALLOW_SCRIPT | nsIAboutModule::HIDE_FROM_ABOUTABOUT |"] + AFTER[5:]
     why = firefox.hand_port_holds(renamed, HUNK, BEFORE)
     assert why and "under new names" in " ".join(why)
+
+
+# P27 (2026-11-11): a removed line that a SIBLING hunk of the same patch adds back elsewhere is no leftover
+SB = ["a {", "  padding: 20px;", "}", "", "b {", "  color: red;", "}"]
+SH = {"lines": [" a {", "-  padding: 20px;", "+  margin: 0;", " }"]}
+SAFTER = ["a {", "  margin: 0;", "}", "", "b {", "  color: red;", "  padding: 20px;", "}"]   # sibling re-added it in b
+
+
+def test_sibling_hunk_readding_the_removed_line_is_accepted():
+    assert firefox.hand_port_check(SB, SAFTER, SH, SB, siblings={"padding: 20px;": 1}, collateral_check=False) == []
+
+
+def test_a_real_leftover_is_still_refused():
+    left = ["a {", "  padding: 20px;", "  margin: 0;", "}", "", "b {", "  color: red;", "  padding: 20px;", "}"]
+    why = firefox.hand_port_check(SB, left, SH, SB, siblings={"padding: 20px;": 1}, collateral_check=False)
+    assert why and "should be gone" in " ".join(why)
+    assert firefox.hand_port_check(SB, left, SH, SB, collateral_check=False)   # and with no sibling too
