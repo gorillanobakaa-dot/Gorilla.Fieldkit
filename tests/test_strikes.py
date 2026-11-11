@@ -326,3 +326,19 @@ def test_flake_rules_and_the_list():
     assert "tests/test_liveness.py::test_a_lone_silent_spinner_is_stopped_as_busy_no_children" in strikes.timing_tests()
     assert strikes.flake([f"FAILED {HOOK_SPEED} - slow"])
     assert not strikes.flake(["no test names"]) and not strikes.flake([])           # nothing known: never a flake
+
+
+def test_infra_classifier_reads_the_signature_data_and_fails_closed():
+    from test_ci_wait import APT_DNS
+    assert strikes.infra(APT_DNS).startswith("ci-runner-dns")
+    assert strikes.infra(["x\tstep\tE: Failed to fetch http://archive.ubuntu.com/a.deb  404"]).startswith("ci-apt-fetch")
+    assert strikes.infra(["curl: (7) Failed to connect to pypi.org port 443: Network is unreachable"])
+    assert not strikes.infra([]) and not strikes.infra(["AssertionError: 1 != 2"])            # nothing known: a strike
+    assert not strikes.infra(APT_DNS + ["FAILED tests/test_x.py::test_y"])                     # a failed test wins
+    assert not strikes.infra(APT_DNS + ["===== 1 failed, 20 passed in 3.1s ====="])           # pytest summary wins
+    assert not strikes.infra(APT_DNS + ["ERROR tests/test_x.py - ImportError"])               # collection error wins
+    assert not strikes.infra(APT_DNS, set_name="no-such-set")                                 # no data: no verdict
+
+
+def test_infra_backoff_doubles_and_is_capped():
+    assert [strikes.infra_backoff(k) for k in (1, 2, 3, 4, 5)] == [60, 120, 240, 480, 600]

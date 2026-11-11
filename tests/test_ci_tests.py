@@ -107,3 +107,46 @@ def test_merged_flag_is_off_for_pull_requests(monkeypatch):
     monkeypatch.setattr(ci, "merged_tree_already_tested", lambda head="HEAD": pytest.fail("must not be asked"))
     fake(monkeypatch, {"tests": ["tests/test_a.py"], "unmapped": [], "docs_only": False})
     assert ci.selection("origin/main")[0] == ["tests/test_a.py"]
+
+
+# -- P9 (2026-11-11): desktop-file-validate without Ubuntu's archive (its DNS was down for hours) --------------------
+GH = Path(__file__).resolve().parents[1] / ".github"
+DFU = GH / "desktop-file-utils.sh"
+
+
+def _pinned():
+    import re
+    t = DFU.read_text(encoding="utf-8")
+    return (GH / re.search(r'DEB="\$\(dirname "\$0"\)/(\S+)"', t).group(1)), re.search(r'SHA256="([0-9a-f]{64})"', t).group(1)
+
+
+def test_the_pinned_package_matches_its_hash_and_both_workflows_use_it_with_a_time_cap():
+    import hashlib
+    import yaml
+    deb, sha = _pinned()
+    assert hashlib.sha256(deb.read_bytes()).hexdigest() == sha
+    for wf in ("tests.yml", "release.yml"):
+        steps = yaml.safe_load((GH / "workflows" / wf).read_text(encoding="utf-8"))["jobs"]["test"]["steps"]
+        step = [s for s in steps if "desktop-file-validate" in s.get("name", "")]
+        assert len(step) == 1 and step[0]["run"].strip() == "bash .github/desktop-file-utils.sh", wf
+        assert 0 < step[0]["timeout-minutes"] <= 10, wf                         # a hung step never eats an hour
+        assert not any("apt-get" in str(s.get("run", "")) for s in steps), wf   # apt only inside the script, as fallback
+
+
+@pytest.mark.skipif(not __import__("shutil").which("sha256sum") or __import__("sys").platform == "win32",
+                    reason="the script runs on the Linux runner (bash + sha256sum)")
+def test_a_wrong_hash_fails_and_installs_nothing(tmp_path):
+    import shutil
+    import subprocess
+    deb, _ = _pinned()
+    (tmp_path / "vendor").mkdir()
+    shutil.copy(DFU, tmp_path / DFU.name)
+    (tmp_path / "vendor" / deb.name).write_bytes(deb.read_bytes() + b"x")
+    log = tmp_path / "calls"
+    fake = tmp_path / "fake-sudo"
+    fake.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n', encoding="utf-8")
+    fake.chmod(0o755)
+    r = subprocess.run(["bash", str(tmp_path / DFU.name)], capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin", "SUDO": str(fake)})
+    assert r.returncode == 1 and "WRONG HASH" in r.stdout, r.stdout + r.stderr
+    assert not log.exists()                                                     # no dpkg, no apt fallback

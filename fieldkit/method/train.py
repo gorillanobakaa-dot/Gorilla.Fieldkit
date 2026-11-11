@@ -186,6 +186,20 @@ class GH:
             out_lines += [f"-- run {rid}"] + (log.splitlines()[-lines:] if rc2 == 0 else ["(log unreadable)"])
         return out_lines
 
+    def rerun_failed(self, sha):
+        """Plan P9: re-run the failed jobs of each failed workflow run of `sha` (gh run rerun ID --failed).
+        -> (ok, [run ids], message)."""
+        rc, out, err = self._gh("api", f"repos/{self.slug}/actions/runs?head_sha={sha}", "--jq",
+                                "[.workflow_runs[] | select(.conclusion == \"failure\") | .id]")
+        if rc:
+            return False, [], f"failed runs unreadable (gh): {err.strip()[:160]}"
+        ids, bad = json.loads(out or "[]")[:3], []
+        for rid in ids:
+            rc2, _, err2 = self._gh("run", "rerun", str(rid), "-R", self.slug, "--failed")
+            if rc2:
+                bad.append(f"{rid}: {err2.strip()[:120]}")
+        return bool(ids) and not bad, ids, "; ".join(bad) or ("no failed run to re-run" if not ids else "")
+
     def failed_checks(self, sha):
         """-> the names of the check runs of `sha` that failed (empty when unreadable)."""
         rc, out, _ = self._gh("api", f"repos/{self.slug}/commits/{sha}/check-runs", "--jq",
@@ -643,6 +657,7 @@ def _base_and_job(gh, head, base):
 
 
 REQUIRED_POLL_S = 15
+RERUN_POLLS, RERUN_POLL_S = 20, 15                     # P9: up to 5 min for a re-run to leave the red state
 NOT_REGISTERED = re.compile(r"required status check|are expected|expected\b.*\bcheck", re.I)
 
 
@@ -737,9 +752,37 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         return dict(r, ok=False, state="parked", why=strikes.refusal([r["branch"]]),
                     next="parked, go on with the plan")
     state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
-    r.update(state=state, why=why)
-    if state == "red":
+    log, reruns = None, []
+    while state == "red":                               # P9: the runner's own outage is re-run, never a strike
         log = gh.failed_log(head)
+        inf = strikes.infra(log)
+        if not inf or not hasattr(gh, "rerun_failed"):
+            break
+        k = strikes.infra_reruns(r["branch"], head) + 1
+        if k > strikes.INFRA_RERUNS:
+            strikes.record_infra(r["branch"], head, f"gave up: {inf}", pr=n, gave_up=True)
+            return dict(r, ok=False, state="infra", log=log, reruns=reruns,
+                        why=f"runner infrastructure, not counted: {inf} ({strikes.INFRA_RERUNS} automatic re-runs "
+                            f"used on this head)",
+                        next=f"the runner network is still down: re-run the failed jobs later, then ci-wait {n} again")
+        sleep(strikes.infra_backoff(k))
+        ok, runs, msg = gh.rerun_failed(head)
+        strikes.record_infra(r["branch"], head, inf, pr=n, runs=runs)
+        reruns.append({"rerun": k, "runs": runs, "why": inf, "ok": ok})
+        if not ok:
+            return dict(r, ok=False, state="infra", log=log, reruns=reruns,
+                        why=f"runner infrastructure, not counted: {inf}; the re-run was refused: {msg}",
+                        next=f"re-run the failed jobs by hand, then ci-wait {n} again")
+        for _ in range(RERUN_POLLS):                    # the re-run puts the workflow run back to queued
+            sleep(RERUN_POLL_S)
+            if gh.ci_state(head)[0] != "red":
+                break
+        state, why = wait_green(gh, n, head, max_wait_s, sleep, clock)
+    r.update(state=state, why=why)
+    if reruns:
+        r["reruns"] = reruns
+    if state == "red":
+        log = log if log is not None else gh.failed_log(head)
         base = pr.get("baseRefName") or "main"
         mains = "" if strikes.failed_tests(log) else _mains_failure(gh, head, log, base)   # no test ids: by check name
         if mains:                                       # B2: not this branch's strike; main is fixed first
