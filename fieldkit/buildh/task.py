@@ -425,6 +425,20 @@ def advance(task_id, in_flight_steps=None):
         save(t)
 
 
+def offer_text(offer, pol=None):
+    """I-04 B: the harness's earlier finding as a model is shown it, without the old "a person's job" verdict
+    (autoaccept.yaml offer_strip): the packet hands the step to a model, the finding must not refuse it."""
+    if pol is None:
+        from ..lifecycle import autoaccept
+        pol = autoaccept.policy()
+    for rx in pol.get("offer_strip") or []:
+        try:
+            offer = re.sub(str(rx), "", offer, flags=re.I)
+        except re.error:
+            continue
+    return offer.strip()
+
+
 def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     """The one thing the model sees: the current model step, trimmed to the context budget.
 
@@ -442,11 +456,12 @@ def packet(task_id, by="cli", answer_mode=False, in_flight_steps=None):
     head = [f"TASK {t['id']} - step {pos} of {len(t['steps'])} ({done} done): {s['title']}",
             "IN WORDS: " + describe_step(t, s, with_result=False),
             f"Attempt {s['attempts'] + 1} of {s['max_attempts']}."]
-    if s.get("last_why"):
+    # the reason a step was parked is shown once, cleaned, as the offer below - not again as a put-back attempt
+    if s.get("last_why") and not (s.get("offer") and " ".join(map(str, s["last_why"]))[:1500] == s["offer"]):
         head.append("Your last attempt was put back because: " + "; ".join(s["last_why"]))
     if s.get("offer"):
         # I-04 B: a step the harness had parked (upstream renamed or removed what it changes) is a model's job now
-        head += ["THE HARNESS PARKED THIS STEP EARLIER AND FOUND: " + s["offer"][:900],
+        head += ["THE HARNESS PARKED THIS STEP EARLIER AND FOUND: " + offer_text(s["offer"])[:900],
                  "Port the hunk's MEANING onto the new names or place, then submit with --adapted \"<why>\n"
                  "renames: OLD -> NEW (one per renamed name)\nlesson: <...>\". The harness checks it and an independent "
                  "reviewer accepts it; no owner click. If nothing is left to port: "

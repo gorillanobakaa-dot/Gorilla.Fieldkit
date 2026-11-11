@@ -179,3 +179,20 @@ def test_the_rename_check_holds_a_port_to_its_declared_rename():
     assert any("adds the old name" in w for w in bad) and any("new name" in w for w in bad)
     h = firefox.renamed_hunk({"lines": ["-call oldName", "+call oldNameX"]}, r)
     assert h["lines"] == ["-call newName", "+call oldNameX"], "whole names only"
+
+
+def test_the_offer_drops_the_old_a_person_s_job_verdict(job3, on):
+    # 2026-11-11: all 18 firefox-160-linux offers told the model "never by a model" in the packet that handed it the step
+    from fieldkit.lifecycle import autoaccept
+    on.setenv("FIELDKIT_AUTOACCEPT_POLICY", str(autoaccept.DATA))            # the shipped policy, not the test's
+    t = task.load("t3")
+    s = next(x for x in t["steps"] if x["id"] == "fix-gamma")
+    s["status"], s["last_why"] = "deferred", [
+        "upstream renamed identifiers inside this hunk (`gammaOld` is now `gammaNew`); its added lines must be "
+        "rewritten with the new names by a person, never by a model",
+        "pref 'a.b' no longer exists (upstream may have renamed it: a.c). Not a job for a model; the owner decides"]
+    task.save(t)
+    task.advance("t3")
+    text = json.dumps(task.packet("t3"))
+    assert "gammaNew" in text and "a.c" in text
+    assert "never by a model" not in text and "Not a job for a model" not in text
