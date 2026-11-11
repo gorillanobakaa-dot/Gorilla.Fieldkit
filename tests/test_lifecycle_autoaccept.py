@@ -15,6 +15,9 @@ ON = {"enabled": True, "kinds": ["section", "skip"], "reviewer": {"unknown_autho
 @pytest.fixture(autouse=True)
 def _state(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
+    # the owner's real mandates on this computer never decide a test (2026-11-11: a mandate in force granted the step
+    # test_the_reviewer_is_never_the_authors_own_model expects to wait, so it failed on every machine with a mandate)
+    monkeypatch.setattr(core, "_mandate_decide", lambda **kw: ("deny", "no mandate in tests", None))
 
 
 def essay_checks(text, words=(80, 400), cites=1):

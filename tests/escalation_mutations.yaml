@@ -1,7 +1,7 @@
 # Rules of the escalation ladder (plan P9). Every one must be CAUGHT:
 #   fieldkit mutate --plan tests/escalation_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_escalation.py
-- file: fieldkit/lifecycle/models.py
-  swap: ['    if own_failures < int(cfg.get("own_limit") or 2):', '    if False:']
+- file: fieldkit/lifecycle/counsel.py
+  swap: ['    if own_failures < int(c.get("own_limit") or 2):', '    if False:']
   why: the same model retries until it has failed its own limit
 - file: fieldkit/lifecycle/models.py
   swap: ['        if r.get("outcome") == "fail" and not r.get("own", True):', '        if False:']
@@ -15,8 +15,8 @@
 - file: fieldkit/method/strikes.py
   swap: ['    _attempt(branch, job, kind == "own", p)', '    _attempt(branch, job, True, p)']
   why: an unproven red is not recorded as the model's own failure
-- file: fieldkit/lifecycle/models.py
-  swap: ['        v = check_model(r, role="reviewer", origin="ladder", data=data, log=False)', '        v = {"ok": True}']
+- file: fieldkit/lifecycle/counsel.py
+  swap: ['        v = m.check_model(r, role="reviewer", origin="ladder", data=data, log=False)', '        v = {"ok": True}']
   why: the ladder never bypasses the model-spend guard (Fable without a mandate is skipped)
 - file: fieldkit/method/strikes.py
   swap: ['(step is None or step["next"] is None)', '(True)']

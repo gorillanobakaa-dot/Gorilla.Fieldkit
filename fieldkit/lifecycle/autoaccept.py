@@ -72,125 +72,43 @@ def allows(kind, pol=None):
     return True, ""
 
 
+# P9 (owner, 2026-11-11): every "ask a stronger model" path lives in lifecycle/counsel.py; these names stay as thin
+# calls into it so no caller and no test changes.
 def _rung(model, rungs):
-    low = (model or "").lower()
-    return next((i for i, r in enumerate(rungs) if r and r in low), None)
+    from . import counsel
+    return counsel.rung_index(model, rungs)
 
 
 def _usable(r, d, check):
-    """-> (ok, why): the rung is available (models.availability) AND the spend guard lets a reviewer use it."""
-    from . import models
-    up, why = models.availability(r, data=d)
-    if not up:
-        return False, why
-    return (True, "") if check(r).get("ok") else (False, f"{r} (spend guard)")
+    from . import counsel
+    return counsel.usable(r, d, check)
 
 
 def _held_back(skipped, d):
-    """-> the earliest epoch one of the skipped, merely-unavailable rungs is back (None: none will come back by time)."""
-    from . import models
-    return models.retry_at([x.split(" ")[0] for x in skipped if "unavailable" in x], data=d)
+    from . import counsel
+    return counsel.held_back(skipped, d)
 
 
 def pick_reviewer(author, pol=None, data=None, check=None):
-    """-> {"reviewer": rung | None, "why": str, "reauthor"?: cheaper model, "retry_at"?: epoch}. The lowest ladder rung
-    above the author's that is AVAILABLE and that the spend guard allows a reviewer to use (an unavailable rung is
-    skipped, said in `why`). No such rung and the author's own rung is usable: by default (auto_accept.reviewer.
-    when_top_unavailable: same_rung, owner rule 2026-11-11) that rung reviews its own work in a separate fresh session
-    (`same_rung`: true; it never sees the author's conversation); `reauthor` instead has the next usable rung below
-    author and the author's rung review (the caller re-runs the step). Never a refusal because a higher rung is
-    missing. Nothing usable and some rungs only unavailable: `retry_at`, the caller parks until then. An author off the
-    ladder or unknown: the policy's `unknown_author` (top = the top usable rung, refuse = none)."""
-    from . import models
-    pol = policy() if pol is None else pol
-    d = data or models.load()
-    rungs = [str(x).lower() for x in (models.ladder_cfg(d).get("ladder") or ())]
-    check = check or (lambda r: models.check_model(r, role="reviewer", origin="autoaccept", data=d, log=False))
-    if not rungs:
-        return {"reviewer": None, "why": "the escalation ladder is empty (models.yaml escalation.ladder)"}
-    at = _rung(author, rungs)
-    skipped = []
-    if at is None:
-        if str((pol.get("reviewer") or {}).get("unknown_author") or "refuse") != "top":
-            return {"reviewer": None, "why": f"the author model is unknown ({author or 'not recorded'}): no rung is "
-                                             "provably higher (auto_accept.reviewer.unknown_author: refuse)"}
-        for r in reversed(rungs):
-            ok, why = _usable(r, d, check)
-            if ok and r not in (author or "").lower():
-                return {"reviewer": r, "why": f"author unknown ({author or 'not recorded'}): the top rung that is "
-                                              f"available and allowed reviews ({r})"
-                                              + (f"; skipped {skipped}" if skipped else "")}
-            skipped.append(why or r)
-        return {"reviewer": None, "retry_at": _held_back(skipped, d),
-                "why": f"no ladder rung is usable to review (skipped {skipped})"}
-    for r in rungs[at + 1:]:
-        ok, why = _usable(r, d, check)
-        if ok:
-            return {"reviewer": r, "why": f"{r} is above the author's rung ({rungs[at]})"
-                                          + (f"; skipped {skipped}" if skipped else "")}
-        skipped.append(why or r)
-    note = f"; skipped {skipped}" if skipped else ""
-    if _usable(rungs[at], d, check)[0] and \
-            str((pol.get("reviewer") or {}).get("when_top_unavailable") or "same_rung") != "reauthor":
-        return {"reviewer": rungs[at], "same_rung": True,
-                "why": f"same-rung review: every higher rung unavailable (owner rule 2026-11-11){note}"}
-    for r in (reversed(rungs[:at]) if _usable(rungs[at], d, check)[0] else ()):   # the author's rung must itself be usable
-        ok, _ = _usable(r, d, check)
-        if ok:
-            return {"reviewer": rungs[at], "reauthor": r,
-                    "why": f"no usable rung above the author's ({rungs[at]}){note}: {r} authors, {rungs[at]} reviews"}
-    return {"reviewer": None, "retry_at": _held_back(skipped, d),
-            "why": f"no usable rung above the author's ({rungs[at]}){note}: the owner reviews"}
+    """-> {"reviewer": rung | None, "why", ...}: counsel.pick_reviewer (the one rung choice)."""
+    from . import counsel
+    return counsel.pick_reviewer(author, policy() if pol is None else pol, data, check)
 
 
 def _cmd(model, pol):
-    env = os.environ.get("FIELDKIT_REVIEWER_CMD")                 # tests and other agents: a JSON list
-    base = json.loads(env) if env else list((pol.get("reviewer") or {}).get("cmd") or [])
-    return [str(x).replace("{model}", model) for x in base]
+    from . import counsel
+    return counsel.ask_cmd(model, pol)
 
 
 def _mark_if_gone(model, out, r, found):
-    """P9: a reviewer call that ends in a budget / limit / quota / rate error, "max turns", or exits non-zero with
-    nothing said marks the model unavailable (models.mark_unavailable). A real answer without the verdict line is only
-    a no. -> "until ..." text when marked, else ""."""
-    from . import models
-    text = f"{out}\n{getattr(r, 'stderr', '') or ''}"
-    hit = models.classify_failure(text)
-    if not hit and not found and (r.returncode != 0 and not out.strip()):
-        mins = float(models._avail_cfg().get("no_verdict_cooldown_minutes") or 30)
-        hit = {"reason": f"no verdict, exit {r.returncode} ({(getattr(r, 'stderr', '') or '')[-100:].strip()})",
-               "until": time.time() + 60 * mins}
-    if not hit:
-        return ""
-    models.mark_unavailable(model, hit["reason"], hit["until"])
-    return models.until_text(hit["until"])
+    from . import counsel
+    return counsel.mark_if_gone(model, out, r, found)
 
 
 def ask_reviewer(model, prompt, pol=None, run=subprocess.run):
-    """-> {"yes": bool, "why": str, "answer": str}. The reviewer's stdout must carry `VERDICT: YES|NO`; the LAST such
-    line counts. A timeout, an error, no verdict: no (fail closed)."""
-    pol = policy() if pol is None else pol
-    cmd = _cmd(model, pol)
-    if not cmd:
-        return {"yes": False, "why": "no reviewer command (auto_accept.reviewer.cmd)", "answer": ""}
-    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")}
-    env.update(ANTHROPIC_MODEL=model, FIELDKIT_ATTEMPT_MODEL=model, FIELDKIT_REVIEWER="1")
-    try:
-        r = run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
-                timeout=int((pol.get("reviewer") or {}).get("timeout") or 900))
-    except (OSError, subprocess.SubprocessError) as e:
-        return {"yes": False, "why": f"the reviewer could not be run: {type(e).__name__}: {str(e)[:160]}", "answer": ""}
-    out = (r.stdout or "").strip()
-    found = VERDICT.findall(out)
-    if r.returncode != 0 or not found:
-        gone = _mark_if_gone(model, out, r, found)
-        return {"yes": False, "answer": out[-2000:], "unavailable": bool(gone),
-                "why": f"no verdict from the reviewer (exit {r.returncode}): {(out or r.stderr or '')[-200:]}"
-                       + (f"; {model} marked unavailable {gone}" if gone else "")}
-    yes = found[-1].upper() == "YES"
-    reason = next((l.strip() for l in reversed(out.splitlines()) if l.strip() and not VERDICT.match(l)), "")
-    return {"yes": yes, "why": reason[:400] or ("the reviewer said yes" if yes else "the reviewer said no"),
-            "answer": out[-2000:]}
+    """-> {"yes": bool, "why": str, "answer": str}: counsel.ask(purpose="review"); fail closed."""
+    from . import counsel
+    return counsel.ask(model, prompt, "review", policy() if pol is None else pol, run)
 
 
 REVIEW_PROMPT = """You are an independent reviewer. Another model (rung {author}) did a piece of work that a person would
@@ -410,28 +328,9 @@ def disagreement(project, item, pol=None):
 
 
 def pick_tiebreaker(author, pol=None, data=None, check=None):
-    """-> {"reviewer": rung | None, "why"}. The HIGHEST ladder rung the spend guard allows a reviewer to use, above the
-    author's rung (an unknown author: any allowed rung but its own name). Never the author's model."""
-    from . import models
-    d = data or models.load()
-    rungs = [str(x).lower() for x in (models.ladder_cfg(d).get("ladder") or ())]
-    check = check or (lambda r: models.check_model(r, role="reviewer", origin="autoaccept", data=d, log=False))
-    if not rungs:
-        return {"reviewer": None, "why": "the escalation ladder is empty (models.yaml escalation.ladder)"}
-    at = _rung(author, rungs)
-    above = rungs[(at + 1 if at is not None else 0):]
-    skipped = []
-    for r in reversed(above):
-        if r in (author or "").lower():
-            continue
-        ok, why = _usable(r, d, check)
-        if ok:
-            return {"reviewer": r, "why": f"{r}: the highest rung that is available and allowed"
-                                          + (f" (skipped {skipped})" if skipped else "")}
-        skipped.append(why or r)
-    return {"reviewer": None, "retry_at": _held_back(skipped, d),
-            "why": f"no usable rung above the author's ({author or 'unknown'})"
-                                     + (f"; skipped {skipped} (spend guard)" if skipped else "")}
+    """-> {"reviewer": rung | None, "why"}: counsel.pick_tiebreaker (the highest usable rung above the author)."""
+    from . import counsel
+    return counsel.pick_tiebreaker(author, pol, data, check)
 
 
 TIEBREAK_PROMPT = """You break a tie between a deterministic check and a reviewer model that disagree on ONE work item.
@@ -484,22 +383,9 @@ def parse_tiebreak(answer, evidence):
 
 
 def ask_raw(model, prompt, pol=None, run=subprocess.run):
-    """-> {"ok", "answer", "why"}: the reviewer command's whole answer (the tie-break parses it itself)."""
-    pol = policy() if pol is None else pol
-    cmd = _cmd(model, pol)
-    if not cmd:
-        return {"ok": False, "answer": "", "why": "no reviewer command (auto_accept.reviewer.cmd)"}
-    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")}
-    env.update(ANTHROPIC_MODEL=model, FIELDKIT_ATTEMPT_MODEL=model, FIELDKIT_REVIEWER="1")
-    try:
-        r = run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
-                timeout=int((pol.get("reviewer") or {}).get("timeout") or 900))
-    except (OSError, subprocess.SubprocessError) as e:
-        return {"ok": False, "answer": "", "why": f"the tie-breaker could not be run: {type(e).__name__}"}
-    out = (r.stdout or "").strip()
-    gone = _mark_if_gone(model, out, r, [1]) if r.returncode != 0 or not out else ""
-    return {"ok": r.returncode == 0, "answer": out[-4000:], "unavailable": bool(gone),
-            "why": "" if r.returncode == 0 else f"exit {r.returncode}" + (f"; {model} marked unavailable {gone}" if gone else "")}
+    """-> {"ok", "answer", "why"}: counsel.ask(purpose="tiebreak"), the whole answer (the tie-break parses it)."""
+    from . import counsel
+    return counsel.ask(model, prompt, "tiebreak", policy() if pol is None else pol, run)
 
 
 def tiebreak(kind, item, author, check_said, reviewer_said, evidence, apply, question="", rewind="", project="",

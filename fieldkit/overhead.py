@@ -749,7 +749,7 @@ def main(argv=None, prog="fieldkit overhead"):
     ap = argparse.ArgumentParser(prog=prog, description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("job", nargs="?", help="a build-harness task (firefox-158.0, 'firefox-158.0 #2'), goal:<id>, "
-                                           "'baselines', 'causes' (hours lost per refusal cause, P23), or 'bash-calls' (every foreground Bash call by kind, with --since)")
+                                           "'baselines', 'causes' (hours lost per refusal cause, P23), 'counsel' (advisor / reviewer / climb per job, P9), or 'bash-calls' (every foreground Bash call by kind, with --since)")
     ap.add_argument("--session", action="append", default=[], help="a Claude Code session id (prefix) of this job")
     ap.add_argument("--since")
     ap.add_argument("--until")
@@ -769,6 +769,18 @@ def main(argv=None, prog="fieldkit overhead"):
             for r in rows:
                 print(f"  {r['kind']:30s} {r['calls']:5d} calls {fmt(r['seconds']):>10}  median {r['median']:6.1f}s")
             print("NEXT: the top rows are where waiting goes; run them in the background or under fieldkit guard")
+        return 0
+    if a.job == "counsel":
+        from .lifecycle import counsel            # P9: per job, the advisor it had and how often the worker asked it
+        rows = counsel.per_job()
+        if a.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            for r in rows:
+                print(f"  {r['job']:<40} advisor {r['advisor'] or '-':<7} {r['advisor_calls']:3d} call(s) in "
+                      f"{r['runs']} run(s); reviews {r['reviews']}, tie-breaks {r['tiebreaks']}, climbs {r['climbs']}")
+            print("NEXT: a job with climbs and 0 advisor calls is one the advisor did not help; read its log"
+                  if rows else "NEXT: no stronger-model call journaled yet (state/lifecycle/counsel.jsonl)")
         return 0
     if a.job == "causes":
         from . import refusals                    # P23: hours lost per cause, both computers' ledger together
