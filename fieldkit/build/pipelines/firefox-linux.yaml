@@ -55,6 +55,14 @@ stages:
       - {python: {target: "fieldkit.build.firefox_linux:verify_patches"}}
     triage: firefox-linux
 
+  # 2026-11-11: the Microsoft fonts (never in git, EULA) copied from an earlier build tree before preflight checks them
+  - id: fonts
+    platforms: [linux]
+    run: {python: "fieldkit.build.firefox_linux:stage_fonts"}
+    verify:
+      - {python: {target: "fieldkit.build.firefox_linux:verify_fonts"}}
+    triage: firefox-linux
+
   - id: preflight
     platforms: [linux]
     run: {python: "fieldkit.build.firefox_preflight:stage_preflight"}
