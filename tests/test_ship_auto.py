@@ -15,6 +15,8 @@ def _own_registry(tmp_path, monkeypatch):
     """F4: the registry is a temp file; the merge base is fixed; the failed test PASSES on the base unless a test says
     otherwise (a real run would build a worktree)."""
     monkeypatch.setenv(strikes.ENV, str(tmp_path / "parked.json"))
+    monkeypatch.delenv("FIELDKIT_ATTEMPT_MODEL", raising=False)       # no known model on the ladder: the flat park
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
     monkeypatch.setattr(strikes, "merge_base", lambda head, base="main", repo=".": "m" * 40)
     monkeypatch.setattr(strikes, "default_runner", lambda base_sha, ids, job="": {i: "pass" for i in ids})
 
@@ -148,3 +150,15 @@ def test_a_failed_rules_lookup_does_not_merge():
     gh = Gh(prs=[{"number": 7, "url": URL}], fail="api")
     r, _ = go(gh)
     assert not r["ok"] and r["state"] == "auto-failed" and not gh.did("pr merge")
+
+
+def test_two_red_commits_on_a_ladder_model_escalate_instead_of_parking(monkeypatch):
+    """P9: ladder on, Sonnet failed twice: the next rung is named, nothing is parked, no merge is attempted."""
+    monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "sonnet")
+    monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(strikes.path().parent / "lc"))
+    gh = Gh(prs=[{"number": 7, "url": URL}],
+            runs=[{"conclusion": "failure", "headSha": "b" * 40, "databaseId": 1},
+                  {"conclusion": "failure", "headSha": "c" * 40, "databaseId": 2}])
+    r, _ = go(gh)
+    assert not r["ok"] and r["state"] == "escalate" and r["escalate_to"] == "opus"
+    assert not gh.did("pr " + "merge") and strikes.parked_for("feat/x") is None

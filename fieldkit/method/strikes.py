@@ -119,13 +119,24 @@ def record_failure(branch, head, why="", pr=None, inbox=None, p=None, model=None
             pass
     n = len(rec["rounds"])
     new = False
-    if n >= LIMIT and branch not in d["parked"]:
-        d["parked"][branch] = {"pr": rec.get("pr"), "at": _now(), "why": "failed CI twice", "rounds": rec["rounds"][:]}
+    step = ladder_step(rec["rounds"])
+    if step is not None and step["next"] and step["next"] != step["cur"] and not step["same"]:
+        if rec.get("climbed") != step["next"]:            # one rung-change row per climb, not per call
+            rec["climbed"] = step["next"]
+            _rung(branch, step["cur"], step["next"], f"{step['own']} own failures on {step['cur']}", step["skipped"])
+    if n >= LIMIT and branch not in d["parked"] and (step is None or step["next"] is None):
+        why = "failed CI twice"
+        if step is not None:                              # ladder on: parked only past the top allowed rung
+            tried = _tried(rec["rounds"])
+            why = f"failed CI on every allowed rung ({tried})"
+            _rung(branch, step["cur"], None, why, step["skipped"])
+        d["parked"][branch] = {"pr": rec.get("pr"), "at": _now(), "why": why, "rounds": rec["rounds"][:]}
         new = True
     save(d, p)
     if new:
         _inbox(branch, d["parked"][branch], inbox)
-    return {"rounds": n, "parked": branch in d["parked"], "new": new}
+    return {"rounds": n, "parked": branch in d["parked"], "new": new,
+            "escalate_to": step["next"] if step and step["next"] and not step["same"] else None}
 
 
 FAILED_TEST = re.compile(r"\bFAILED\s+(\S+::\S+)")
@@ -275,20 +286,45 @@ def _attempt(branch, job, own, p=None):
         pass
 
 
-def escalation(branch, p=None):
-    """P9: -> the model for the next attempt on a branch when the ladder is on, else None. Counts the branch's own
-    rounds made by the model of the last round."""
+def _tried(rounds):
+    from ..lifecycle import models
+    return models.tried_note([r.get("model") or "" for r in rounds])
+
+
+def _rung(branch, frm, to, why, skipped=()):
+    """A rung change goes to escalation.jsonl. Never raises (the ledger is advice)."""
     try:
         from ..lifecycle import models
-        if not models.ladder_cfg().get("enabled"):
+        models.record_rung(branch, "ci", frm, to, why, skipped)
+    except (OSError, ValueError, KeyError):
+        pass
+
+
+def ladder_step(rounds):
+    """P9: -> None when the ladder is off or there is no round yet; else {"cur", "own", "next", "same", "skipped"}:
+    `cur` the model of the last round, `own` its rounds on this rung, `next` what models.climb allows (same model, a
+    higher allowed rung, or None = park)."""
+    try:
+        from ..lifecycle import models
+        if not models.ladder_cfg().get("enabled") or not rounds:
             return None
-        rounds = (load(p)["strikes"].get(branch) or load(p)["parked"].get(branch) or {}).get("rounds", [])
+        cur = rounds[-1].get("model") or ""
+        own = sum(1 for r in rounds if (r.get("model") or "") == cur)
+        return dict(models.climb(cur, own), cur=cur, own=own)
+    except (OSError, KeyError):
+        return None
+
+
+def escalation(branch, p=None):
+    """P9: -> the model for the next attempt on a branch when the ladder is on, else None. Counts the branch's own
+    rounds made by the model of the last round; a rung the spend guard refuses is skipped."""
+    try:
+        d = load(p)
+        rounds = (d["strikes"].get(branch) or d["parked"].get(branch) or {}).get("rounds", [])
     except (StoreError, OSError, KeyError):
         return None
-    if not rounds:
-        return None
-    cur = rounds[-1].get("model") or ""
-    return models.next_model(cur, sum(1 for r in rounds if (r.get("model") or "") == cur))
+    step = ladder_step(rounds)
+    return step["next"] if step else None
 
 
 def _inbox(branch, rec, inbox=None):
@@ -297,8 +333,8 @@ def _inbox(branch, rec, inbox=None):
         inbox = ib.add
     pr = f"PR #{rec['pr']}" if rec.get("pr") else "no PR yet"
     fails = "; ".join(f"{r['head'][:10]}: {r['why'] or 'red'}" for r in rec["rounds"])
-    inbox(f"PARKED {branch} ({pr})", f"TWO STRIKES: {branch} ({pr}) failed CI twice - {fails}. Not tried a third time; "
-          "left open for a stronger model's repair.", f"fieldkit strikes unpark {rec.get('pr') or branch}")
+    inbox(f"PARKED {branch} ({pr})", f"TWO STRIKES: {branch} ({pr}) failed CI twice - {fails}. {_tried(rec['rounds'])}. "
+          "Not tried again; left open for a stronger model's repair.", f"fieldkit strikes unpark {rec.get('pr') or branch}")
 
 
 def park(ident, why="parked by hand", inbox=None, p=None):

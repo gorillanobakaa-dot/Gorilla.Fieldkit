@@ -761,6 +761,9 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
         if s["parked"]:
             return dict(r, ok=False, state="parked", log=log, why=f"failed CI {s['rounds']} times: two strikes",
                         next="parked, go on with the plan")
+        if s.get("escalate_to"):                        # P9: the ladder climbs before anything is parked
+            return dict(r, ok=False, log=log, escalate_to=s["escalate_to"],
+                        next=f"ESCALATE (ladder on): fix it with {s['escalate_to']}, push it, then run ci-wait again")
         return dict(r, ok=False, log=log, next="fix it on the branch, push it, then run ci-wait again "
                                                "(one strike left)")
     if state != "green":

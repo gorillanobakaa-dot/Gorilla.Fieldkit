@@ -10,8 +10,20 @@ def nostop(tmp_path):
     return tmp_path / "STOP"
 
 
+class ClosedDoor:
+    """No mandate in force: the real one on a machine (an owner's live mandate) must not decide a test's verdict."""
+    def in_force(self):
+        return False
+
+    def decide(self, *a, **kw):
+        return "deny", "no mandate (test)", None
+
+    def log(self, *a, **kw):
+        pass
+
+
 def d(tool, args, stop):
-    return hl.decide(tool, args, stop_file=stop)[0]
+    return hl.decide(tool, args, stop_file=stop, door=ClosedDoor())[0]
 
 
 @pytest.mark.parametrize("cmd", [

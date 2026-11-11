@@ -762,7 +762,7 @@ def submit(task_id, note="", by="cli", step_id=None, adapted="", require_lesson=
     s["attempts"] += 1
     s["last_why"] = why
     revert_to_checkpoint(t)
-    s["status"] = "blocked" if s["attempts"] >= s["max_attempts"] else "failed"
+    s["status"] = next_status(t, s, by)
     save(t)
     journal(t, "revert", step=s["id"], attempt=s["attempts"], blocked=s["status"] == "blocked")
     return {"ok": False, "step": s["id"], "why": why, "attempts": f"{s['attempts']} of {s['max_attempts']}",
@@ -960,6 +960,38 @@ def status(task_id):
             "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"]}
 
 
+def next_status(t, s, by="model"):
+    """P9: the status of a model step whose attempt just failed. Attempts left: failed (retry). Used up: the escalation
+    ladder is asked for the next rung (models.climb: the spend guard decides which rungs exist); a rung found resets
+    the attempts and records the rung change; none (ladder off, a local model not on it, the top allowed rung failed):
+    blocked, with the models that tried in last_why. A person's hand port never climbs."""
+    if s["attempts"] < s["max_attempts"]:
+        return "failed"
+    if by not in ("model", "driver"):                   # a person's try (cli, hand) is not a model's rung
+        return "blocked"
+    try:
+        from ..lifecycle import models
+        from ..method import strikes
+        cur = s.get("model") or strikes.attempt_model()
+        tried = s.setdefault("tried", [])
+        if cur and cur not in tried:
+            tried.append(cur)
+        step = models.climb(cur, s["attempts"])
+        if step["next"] and not step["same"]:
+            s["model"], s["attempts"] = step["next"], 0
+            tried.append(step["next"])
+            models.record_rung(f"{t['id']}:{s['id']}", "build-harness", cur, step["next"],
+                               f"{s['max_attempts']} failed attempts", step["skipped"])
+            journal(t, "rung", step=s["id"], frm=cur, to=step["next"])
+            return "failed"
+        if models.ladder_cfg().get("enabled") and cur:
+            models.record_rung(f"{t['id']}:{s['id']}", "build-harness", cur, None, "park", step["skipped"])
+            s["last_why"] = list(s.get("last_why") or []) + [models.tried_note(tried)]
+    except (OSError, KeyError, ValueError, ImportError):
+        pass
+    return "blocked"
+
+
 def fail_attempt(task_id, why, by="driver", step_id=None):
     """Count a failed attempt that never reached a check (e.g. an answer not in the required form)."""
     t = load(task_id)
@@ -969,7 +1001,7 @@ def fail_attempt(task_id, why, by="driver", step_id=None):
     revert_to_checkpoint(t)
     s["attempts"] += 1
     s["last_why"] = [why]
-    s["status"] = "blocked" if s["attempts"] >= s["max_attempts"] else "failed"
+    s["status"] = next_status(t, s)
     save(t)
     journal(t, "submit", step=s["id"], changed=[], outside=[], ok=False, why=[why], note="", by=by)
     return {"ok": False, "step": s["id"], "why": [why], "attempts": f"{s['attempts']} of {s['max_attempts']}"}

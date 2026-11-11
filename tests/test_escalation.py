@@ -1,4 +1,6 @@
 """Plan P9, escalation ladder: ladder steps, own-vs-not attempts, success table, strikes integration (no network, no model)."""
+import json
+
 import pytest
 
 from fieldkit.lifecycle import models
@@ -59,15 +61,76 @@ def test_strikes_record_model_and_attempt(monkeypatch):
     assert models.read_attempts()[1]["own"] is False
 
 
-def test_escalation_off_by_default_and_climbs_when_on(monkeypatch):
+def _ladder(monkeypatch, on=True, mandate=False):
+    d = models.load()
+    d["escalation"]["enabled"] = on
+    monkeypatch.setattr(models, "load", lambda path=None: d)
+    monkeypatch.setattr(models, "mandate_allows",
+                        lambda m, today=None: (True, "mandate") if mandate else (False, "no mandate"))
+
+
+def test_ladder_is_on_in_the_shipped_config():
+    assert models.ladder_cfg()["enabled"] is True
+
+
+def test_ladder_off_parks_after_two(monkeypatch):
+    _ladder(monkeypatch, on=False)
     monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "sonnet")
     for h in ("h1", "h2"):
-        strikes.record_failure("b", h, inbox=lambda *a: None)
-    assert strikes.escalation("b") is None
-    d = models.load()
-    d["escalation"]["enabled"] = True
-    monkeypatch.setattr(models, "load", lambda path=None: d)
-    assert strikes.escalation("b") == "opus"
+        r = strikes.record_failure("b", h, inbox=lambda *a: None)
+    assert r["parked"] and strikes.escalation("b") is None
+    assert strikes.ladder_step([{"model": "sonnet"}, {"model": "sonnet"}]) is None
+
+
+def test_sonnet_climbs_to_opus_then_parks_fable_skipped(monkeypatch):
+    _ladder(monkeypatch)
+    inbox = []
+    add = lambda *a: inbox.append(a)
+    monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "sonnet")
+    for h in ("h1", "h2"):
+        r = strikes.record_failure("b", h, inbox=add)
+    assert not r["parked"] and r["escalate_to"] == "opus" and strikes.escalation("b") == "opus"
+    monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "opus")
+    r = strikes.record_failure("b", "h3", inbox=add)
+    assert not r["parked"]                                  # opus retries once
+    r = strikes.record_failure("b", "h4", inbox=add)
+    assert r["parked"] and r["new"]                         # fable refused (no mandate): opus was the top
+    assert "sonnet, opus" in inbox[0][1]                    # the parked note says which models tried
+    rows = [json.loads(l) for l in models.attempts_path().read_text().splitlines()]
+    assert [(x["from"], x["to"]) for x in rows if x.get("event") == "rung"] == [("sonnet", "opus"), ("opus", "PARK")]
+    assert rows[-1]["skipped"] == ["fable"]
+
+
+def test_fable_used_with_a_mandate(monkeypatch):
+    _ladder(monkeypatch, mandate=True)
+    assert models.climb("opus", 2)["next"] == "fable"
+    _ladder(monkeypatch)
+    assert models.climb("opus", 2) == {"next": None, "same": False, "skipped": ["fable"]}
+
+
+def test_unknown_model_still_parks(monkeypatch):
+    _ladder(monkeypatch)
+    monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "local-qwen")
+    for h in ("h1", "h2"):
+        r = strikes.record_failure("b", h, inbox=lambda *a: None)
+    assert r["parked"]
+
+
+def test_build_harness_failed_step_asks_the_ladder(monkeypatch):
+    from fieldkit.buildh import task
+    _ladder(monkeypatch)
+    monkeypatch.setenv("FIELDKIT_ATTEMPT_MODEL", "sonnet")
+    journal = []
+    monkeypatch.setattr(task, "journal", lambda t, ev, **kw: journal.append((ev, kw)))
+    t = {"id": "T1"}
+    s = {"id": "s1", "attempts": 3, "max_attempts": 3}
+    assert task.next_status(t, s) == "failed" and s["model"] == "opus" and s["attempts"] == 0
+    assert journal[0][0] == "rung"
+    s["attempts"] = 3
+    assert task.next_status(t, s) == "blocked"              # opus is the top allowed rung
+    assert "sonnet, opus" in s["last_why"][-1]
+    assert task.next_status(t, {"id": "x", "attempts": 3, "max_attempts": 3}, by="cli") == "blocked"
+    assert task.next_status(t, {"id": "x", "attempts": 1, "max_attempts": 3}) == "failed"
 
 
 def test_low_rate_never_delegated():

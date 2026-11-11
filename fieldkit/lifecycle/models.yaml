@@ -10,9 +10,10 @@ ledger: model-spend.jsonl        # in the lifecycle state folder (state/lifecycl
 # Plan P9, escalation ladder (owner idea I-06). Every attempt records the model that made it; a red the branch owns
 # (strikes.whose_red) is an own failure; `own_limit` own failures on one rung climb to the next rung (the same model
 # retries once in between). Stepping onto a rung that is not cheap still passes check_model (mandate / reviewer role).
-# The ladder replaces the flat two-strikes park only when the owner turns it on: `enabled`.
+# The ladder replaces the flat two-strikes park (ON since 2026-11-11): park only when the top rung the spend guard
+# allows has failed (Fable without a mandate is skipped, the top is then Opus).
 escalation:
-  enabled: false
+  enabled: true                   # owner order 2026-11-11: climb before parking
   ladder: [haiku, sonnet, opus, fable]
   own_limit: 2
   attempts: escalation.jsonl      # in the lifecycle state folder
