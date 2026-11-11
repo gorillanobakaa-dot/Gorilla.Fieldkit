@@ -5,6 +5,7 @@ C:\\Users\\<name> or /home/<name>. They write ${HOME}, ${DOCUMENTS},
 ${FIELDKIT}, ${ENV:NAME} or ${LOCAL:key} instead, and this module expands
 them on the machine that runs them. ${LOCAL:key} reads fieldkit.local.json
 (or .yaml), a per-machine file that is git-ignored and never published.
+${LOCAL:key=default} gives the value used when the machine sets no key.
 """
 import json
 import os
@@ -59,10 +60,14 @@ def read_file(path):
 
 
 def local_settings():
-    for name in LOCAL_FILES:
-        p = ROOT / name
-        if p.is_file():
-            return read_file(p) or {}
+    """fieldkit.local.json of this checkout, else of the main checkout when this one is a linked worktree.
+    2026-11-11 (P27): a job worktree has no fieldkit.local.json (git-ignored), so every ${LOCAL:...} stayed unexpanded
+    there and `emerge plan firefox-debian` stopped on "${LOCAL:firefox.root}: no git tree here"."""
+    for root in dict.fromkeys((ROOT, state_root())):
+        for name in LOCAL_FILES:
+            p = Path(root) / name
+            if p.is_file():
+                return read_file(p) or {}
     return {}
 
 
@@ -98,9 +103,12 @@ def expand(value, local=None, strict=True):
             if arg in os.environ:
                 return os.environ[arg]
         elif kind == "LOCAL":
+            key, has_default, default = (arg or "").partition("=")
             cur = local
-            for part in arg.split("."):
+            for part in key.split("."):
                 cur = cur.get(part) if isinstance(cur, dict) else None
+            if cur is None and has_default:
+                cur = default
             if cur is not None:
                 # a local setting may use variables itself ("${DOCUMENTS}/Vault"): expand it too
                 return expand(str(cur), local, strict) if "${" in str(cur) and depth[0] < 5 else str(cur)
