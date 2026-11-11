@@ -234,6 +234,47 @@ def _append(rec, pol):
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def _mandate_decide(**kw):
+    """-> (verdict, why, path) across every mandate on this computer (tests replace it)."""
+    from ..mandate import mandate as M
+    return M.decide("owner_step", **kw)
+
+
+def _by_mandate(rec, kind, evidence, pol):
+    """P9 (owner, 2026-11-11: "the harness has a pre-approval at the beginning of the session where the user approves
+    everything you need to do"): the item would wait for the owner because no independent reviewer can be had, every
+    deterministic check passed, and a mandate in force (signed by the owner: typed yes + passphrase) grants this
+    owner-only step in its owner_steps door. The harness takes the step under that grant: journaled "pre-approved by
+    mandate <name> <seal>", listed for the owner's review like every acceptance. -> the accepted row, or None.
+    A reviewer's NO never comes here; models never type the command (the hard lines stay)."""
+    if not pol.get("mandate_door", True):
+        return None
+    verb, how = ("unblock", kind) if kind in ("skip", "retry") else ("accept", "")
+    reason = "\n".join(str(x) for x in rec.get("why") or [])
+    proof = "\n".join(f"{n}: {e}" for n, _ok, e in rec.get("checks") or []) + "\n" + str(evidence or "")[:2000]
+    try:
+        v, why, path = _mandate_decide(verb=verb, how=how, evidence=proof.strip(), checks_passed=True)
+    except Exception:                                    # noqa: BLE001 - an unreadable mandate grants nothing
+        return None
+    if v != "allow" or not path:
+        return None
+    seal = {}
+    try:
+        seal = json.loads(Path(path).with_suffix(".seal").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    tag = f"mandate {Path(path).stem} (seal {str(seal.get('sig', ''))[:16]}, key {seal.get('key', '?')})"
+    rec = dict(rec, accepted=True, reviewer=f"mandate {Path(path).stem}", mandate=tag,
+               why=[f"checks passed; pre-approved by {tag}: {why}; no reviewer could be had ({reason[:200]})"])
+    try:
+        from ..mandate import mandate as M
+        M.log(path, "owner-step", f"{verb} {how} {rec['project']} {rec['item']}"[:300], ledger=rec["id"])
+    except Exception:                                    # noqa: BLE001 - the ledger row below is the record
+        pass
+    rec.pop("retry_at", None)
+    return rec
+
+
 def decide(kind, item, author, checks, question, evidence="", rewind="", project="", pol=None, reviewer=None,
            asker=None, pick=None):
     """The one decision. checks: [(name, ok, evidence)], run by the caller's plug-in before this call. reviewer: force a
@@ -269,12 +310,14 @@ def decide(kind, item, author, checks, question, evidence="", rewind="", project
             if pk.get("retry_at"):
                 rec["retry_at"] = pk["retry_at"]
                 rec["why"][0] = "parked, not refused: " + rec["why"][0]
-            _append(rec, pol)
-            return dict(rec, wait_owner=True)
+            granted = _by_mandate(rec, kind, evidence, pol)
+            _append(granted or rec, pol)
+            return granted or dict(rec, wait_owner=True)
         if (author or "").lower() and pk["reviewer"].lower() in (author or "").lower() and not pk.get("same_rung"):
             rec["why"] = [f"the reviewer ({pk['reviewer']}) is the author's own model: not independent"]
-            _append(rec, pol)
-            return dict(rec, wait_owner=True)
+            granted = _by_mandate(rec, kind, evidence, pol)
+            _append(granted or rec, pol)
+            return granted or dict(rec, wait_owner=True)
         rec["reviewer"] = pk["reviewer"]
         if pk.get("same_rung"):                 # journaled with the record
             rec["same_rung"] = True
@@ -292,8 +335,9 @@ def decide(kind, item, author, checks, question, evidence="", rewind="", project
         from . import models
         rec["retry_at"] = models.retry_at(tried or [pk.get("reviewer") or ""])
         rec["why"] = [f"parked, not refused: the reviewer was unavailable ({rec['review'][:200]})"]
-        _append(rec, pol)
-        return dict(rec, wait_owner=True)
+        granted = _by_mandate(rec, kind, evidence, pol)
+        _append(granted or rec, pol)
+        return granted or dict(rec, wait_owner=True)
     if ans.get("yes"):
         rec["accepted"], rec["why"] = True, [f"checks passed; {pk['reviewer']} (above {author or 'unknown'}) said yes: "
                                              f"{rec['review'][:200]}"]

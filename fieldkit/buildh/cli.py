@@ -1888,7 +1888,7 @@ def run(a, emit):
     if act == "rewind":
         return emit(task.rewind(tid, a.args[1]), None) or 0
     if act == "unblock":
-        task.unblock(tid, a.args[1], a.args[2], force=bool(getattr(a, "force", False)))
+        task.unblock(tid, a.args[1], a.args[2], force=bool(getattr(a, "force", False)), note=a.note or "")
         return emit(task.status(tid), None) or 0
     if act in ("report", "watch"):
         from . import recorder

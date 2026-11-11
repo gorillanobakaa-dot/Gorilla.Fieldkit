@@ -130,9 +130,29 @@ def journal_checks(ev):
     copies = [e for e in ev if "answer key" in json.dumps(e.get("notes", ""))]
     out.append(("journal: no answer key copied into the new source", not copies,
                 "none" if not copies else f"{len(copies)} step(s) were 'done' by copying the old source (first: {copies[0]['step']})"))
-    skips = [e for e in ev if e.get("event") == "unblock" and e.get("how") == "skip"]
-    out.append(("journal: no step skipped", not skips,
-                "none" if not skips else f"{len(skips)} skipped; each needs the owner's reason"))
+    # P9 (2026-11-11): a skip needs its reason, and then it passes. Before, every skip failed this row forever (there
+    # was no way to record a reason: firefox-160-linux waited ~6 hours on it). Per step the LATEST decision counts (a
+    # repeat is not a second skip; a later retry undoes it): the owner's skip with --note TEXT, or the harness's I-04
+    # acceptance of a skip (event auto-accept, kind skip: every check passed AND an independent reviewer said yes;
+    # its why is the reason). A skip with no reason still fails.
+    latest = {}
+    for e in ev:
+        if not e.get("step"):
+            continue
+        if e.get("event") == "unblock":
+            latest[e["step"]] = (e.get("how"), str(e.get("note") or "").strip(), "owner")
+        elif e.get("event") == "auto-accept" and e.get("kind") == "skip":
+            why = "; ".join(str(x) for x in e.get("why") or []).strip() if e.get("reviewer") else ""
+            latest[e["step"]] = ("skip", why, "harness")
+    skips = {k: v for k, v in latest.items() if v[0] == "skip"}
+    bare = sorted(k for k, v in skips.items() if not v[1])
+    by = {w: sum(1 for v in skips.values() if v[2] == w) for w in ("owner", "harness")}
+    out.append(("journal: no step skipped without a reason", not bare,
+                ("none skipped" if not skips else
+                 f"{len(skips)} step(s) skipped, each with its reason ({by['owner']} by the owner, "
+                 f"{by['harness']} by the harness with a reviewer)") if not bare else
+                f"{len(bare)} step(s) skipped with no reason: {', '.join(bare[:5])}; the owner records it again "
+                "with the reason: unblock TASK STEP skip --note \"why\""))
     failing, bad = False, 0
     for e in ev:                       # in order: a 'done' while the last final-checks result was a failure
         if e.get("event") == "script-failed" and e.get("step") == "final-checks":

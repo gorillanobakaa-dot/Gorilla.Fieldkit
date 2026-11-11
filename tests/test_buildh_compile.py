@@ -74,7 +74,7 @@ def test_a_hand_edit_or_leftover_blocks_the_gate(world):
 def test_a_skip_or_an_answer_key_copy_blocks_the_gate(world):
     t = task.load("c1")
     task.journal(t, "unblock", step="s", how="skip")
-    assert "journal: no step skipped" in failing(cg.gate("c1"))
+    assert "journal: no step skipped without a reason" in failing(cg.gate("c1"))
 
 
 def _build(world, age=0, mb=60, version_ok=True):

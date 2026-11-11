@@ -284,6 +284,28 @@ def dedupe_steps(t):
     return dropped
 
 
+def owner_wait(t, state):
+    """A job that has nothing left but an owner decision does not sit silently (owner 2026-11-11: a job idle ~6 hours
+    for two commands): the task record names the decision that blocks it (`status` shows `waiting_owner`) and the
+    item is filed once with `fieldkit inbox add`, with the command. Everything else already went on."""
+    steps = state.get("steps") or [state.get("step")]
+    w = state.get("why") or []
+    why = "; ".join(str(x) for x in (w if isinstance(w, list) else [w])[:2]) or state.get("next", "")
+    mark = {"state": state["state"], "steps": steps[:20], "why": why[:300], "next": state.get("next", "")[:300]}
+    old = t.get("waiting_owner") or {}
+    if old.get("steps") != mark["steps"] or old.get("state") != mark["state"]:
+        t["waiting_owner"] = {**mark, "since": time.strftime("%Y-%m-%d %H:%M:%S")}
+        save(t)
+        journal(t, "waiting-owner", **mark)
+        try:
+            from ..autopilot import inbox
+            inbox.add(f"{t['id']}: {state['state']} - {len(steps)} step(s) wait for the owner",
+                      mark["why"] or "an owner decision", mark["next"], kind="decision")
+        except Exception:  # noqa: BLE001 - the record in the task is the source; the inbox is a convenience
+            pass
+    return {**state, "waiting_owner": t["waiting_owner"]}
+
+
 def advance(task_id, in_flight_steps=None):
     """Run script steps until a model step, a blocked step or the end."""
     t = load(task_id)
@@ -321,22 +343,24 @@ def advance(task_id, in_flight_steps=None):
                 return {"state": "WAITING"}
             blocked = [x for x in t["steps"] if x["status"] == "blocked"]
             if blocked:
-                return {"state": "BLOCKED", "step": blocked[0]["id"], "why": blocked[0].get("last_why"),
+                return owner_wait(t, {"state": "BLOCKED", "step": blocked[0]["id"], "why": blocked[0].get("last_why"),
                         "steps": [x["id"] for x in blocked],
                         "next": f"{len(blocked)} step(s) wait for a person: fix by hand then `build-harness submit`, "
-                                "or `build-harness unblock ... retry`; the build gate stays closed"}
+                                "or `build-harness unblock ... retry`; the build gate stays closed"})
             proposed = [x["id"] for x in t["steps"] if x["status"] == "proposed"]
             if proposed:
                 journal(t, "done-with-proposals", steps=proposed)
-                return {"state": "PROPOSED", "steps": proposed,
+                return owner_wait(t, {"state": "PROPOSED", "steps": proposed,
                         "why": [f"{len(proposed)} adapted port(s) wait for the owner's acceptance, in one go (the "
                                 "harness could not decide them: auto-accept off, or no reviewer rung; see the journal)"],
-                        "next": f"the owner runs: {settings.self_cmd()} build-harness accept {t['id']} --all"}
+                        "next": f"the owner runs: {settings.self_cmd()} build-harness accept {t['id']} --all"})
             parked = [x["id"] for x in t["steps"] if x["status"] == "deferred"]
             if parked:
                 journal(t, "done-with-deferred", steps=parked)
-                return {"state": "DEFERRED", "step": parked[0], "why": [f"{len(parked)} step(s) are waiting for the owner "
-                                                                    "(upstream removed what they change); the build gate stays closed"]}
+                return owner_wait(t, {"state": "DEFERRED", "step": parked[0], "why": [f"{len(parked)} step(s) are waiting for the owner "
+                                                                    "(upstream removed what they change); the build gate stays closed"]})
+            if t.pop("waiting_owner", None):           # nothing waits for the owner any more
+                save(t)
             journal(t, "done")
             return {"state": "DONE", "checkpoints": len(t["checkpoints"])}
         if s["kind"] == "model":
@@ -1006,7 +1030,7 @@ def agent_shell(env=None, ancestors=None, elevated=None):
     return "no path to the desktop (the parent chain is broken or detached)"
 
 
-def unblock(task_id, step_id, how, force=False):
+def unblock(task_id, step_id, how, force=False, note=""):
     """Owner only: 'retry' (fresh attempts) or 'skip' (mark done by the owner, with a checkpoint). force (I-06): with no
     real terminal the owner proves it with the signing-key passphrase (lifecycle/ownerproof.py); a model cannot."""
     t = load(task_id)
@@ -1027,17 +1051,22 @@ def unblock(task_id, step_id, how, force=False):
         # Overnight 2026-10-01 a supervising agent skipped ~70 steps, incl. the failing final-checks.
         if s["kind"] == "script" or s["id"].startswith("final"):
             raise Refused("a check step cannot be skipped: fix what it reports, then retry")
+        # P9 (2026-11-11): the reason first, before any passphrase is asked. It goes into the journal event, where the
+        # audit row "no step skipped without a reason" reads it (before, --note was dropped and the row failed forever)
+        if not (note or "").strip():
+            raise Refused("skip needs the reason: add --note \"why this step needs no change\" (it is journaled; the audit checks it)")
         from ..lifecycle import ownerproof
         ok, proven = ownerproof.owner_or_proof(f"build-harness unblock {task_id} {step_id} skip", force,
                                                terminal_refusal())
         if not ok:
             raise Refused("skip is for the owner at a real terminal (or --force with the owner's passphrase): " + proven)
         s["owner_proof"] = proven
+        s["skip_reason"] = note.strip()[:2000]
         s["status"] = "done"
         s["skipped_by_owner"] = True
         checkpoint(t, f"{step_id} (done by the owner)")
     save(t)
-    journal(t, "unblock", step=step_id, how=how)
+    journal(t, "unblock", step=step_id, how=how, **({"note": note.strip()[:2000]} if (note or "").strip() else {}))
     return t
 
 
@@ -1050,7 +1079,8 @@ def status(task_id):
     return {"task": t["id"], "workflow": t["workflow"], "approved": t["approved"], "steps": len(t["steps"]),
             "counts": counts, "current": cur and {"id": cur["id"], "kind": cur["kind"], "title": cur["title"],
                                                   "attempts": cur["attempts"]},
-            "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"]}
+            "checkpoints": len(t["checkpoints"]), "workdir": t["workdir"],
+            "waiting_owner": t.get("waiting_owner")}
 
 
 def next_status(t, s, by="model"):
