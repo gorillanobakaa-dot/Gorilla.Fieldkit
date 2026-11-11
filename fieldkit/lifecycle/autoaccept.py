@@ -95,11 +95,12 @@ def _held_back(skipped, d):
 def pick_reviewer(author, pol=None, data=None, check=None):
     """-> {"reviewer": rung | None, "why": str, "reauthor"?: cheaper model, "retry_at"?: epoch}. The lowest ladder rung
     above the author's that is AVAILABLE and that the spend guard allows a reviewer to use (an unavailable rung is
-    skipped, said in `why`). No such rung and the author is the top usable rung: the next usable rung below it should
-    author and the author's rung reviews (`reauthor`; the caller re-runs the step), never a refusal because a higher
-    rung is missing. Nothing usable and some rungs only unavailable: `retry_at`, the caller parks until then. An author
-    off the ladder or unknown: the policy's `unknown_author` (top = the top usable rung, refuse = none). Never the
-    author's own model as its own reviewer."""
+    skipped, said in `why`). No such rung and the author's own rung is usable: by default (auto_accept.reviewer.
+    when_top_unavailable: same_rung, owner rule 2026-11-11) that rung reviews its own work in a separate fresh session
+    (`same_rung`: true; it never sees the author's conversation); `reauthor` instead has the next usable rung below
+    author and the author's rung review (the caller re-runs the step). Never a refusal because a higher rung is
+    missing. Nothing usable and some rungs only unavailable: `retry_at`, the caller parks until then. An author off the
+    ladder or unknown: the policy's `unknown_author` (top = the top usable rung, refuse = none)."""
     from . import models
     pol = policy() if pol is None else pol
     d = data or models.load()
@@ -129,6 +130,10 @@ def pick_reviewer(author, pol=None, data=None, check=None):
                                           + (f"; skipped {skipped}" if skipped else "")}
         skipped.append(why or r)
     note = f"; skipped {skipped}" if skipped else ""
+    if _usable(rungs[at], d, check)[0] and \
+            str((pol.get("reviewer") or {}).get("when_top_unavailable") or "same_rung") != "reauthor":
+        return {"reviewer": rungs[at], "same_rung": True,
+                "why": f"same-rung review: every higher rung unavailable (owner rule 2026-11-11){note}"}
     for r in (reversed(rungs[:at]) if _usable(rungs[at], d, check)[0] else ()):   # the author's rung must itself be usable
         ok, _ = _usable(r, d, check)
         if ok:
@@ -266,11 +271,14 @@ def decide(kind, item, author, checks, question, evidence="", rewind="", project
                 rec["why"][0] = "parked, not refused: " + rec["why"][0]
             _append(rec, pol)
             return dict(rec, wait_owner=True)
-        if (author or "").lower() and pk["reviewer"].lower() in (author or "").lower():
+        if (author or "").lower() and pk["reviewer"].lower() in (author or "").lower() and not pk.get("same_rung"):
             rec["why"] = [f"the reviewer ({pk['reviewer']}) is the author's own model: not independent"]
             _append(rec, pol)
             return dict(rec, wait_owner=True)
         rec["reviewer"] = pk["reviewer"]
+        if pk.get("same_rung"):                 # journaled with the record
+            rec["same_rung"] = True
+            rec["reviewer_why"] = pk["why"]
         text = prompt_for(kind, item, author, checks, question, evidence, project, pol)
         ans = asker(pk["reviewer"], text)
         if not (ans.get("unavailable") and not forced):
