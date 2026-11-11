@@ -1958,6 +1958,11 @@ def obsolete_upstream(body, hunk, css=False):
     anchored = any(len(l.strip()) >= 12 and l.strip() in have for l in context)
     if renamed_near(body, hunk, removed, added):
         return None                                     # still there, renamed: a port, not an obsolete change
+    gone_fn = _anchor_function_gone(body, hunk, removed)
+    if gone_fn:
+        return (f"this hunk only adds lines inside `{gone_fn}`, and no `{gone_fn}` exists anywhere in the new source: "
+                "upstream removed the function the change is anchored to. Nothing to attach it to; resolved as obsolete "
+                "(recorded for the owner's review)")
     if spec_removed and anchored and not any(l in have for l in spec_removed) and not any(l in have for l in spec_added):
         return ("every specific line this hunk would remove is already gone from the new source, and none of the lines it "
                 "would add are there: upstream removed or replaced this. Not a job for a model; the owner decides whether "
@@ -1975,6 +1980,28 @@ def obsolete_upstream(body, hunk, css=False):
                 "exist in the new source: upstream removed what it changes. Not a job for a model; the owner decides "
                 "whether the Gorilla change is still wanted")
     return None
+
+
+_FN_DECL = re.compile(r"^\s*(?:export\s+)?(?:(?:async|static|get|set)\s+)*(?:function\s*\*?\s*)?([A-Za-z_$][\w$]{5,})\s*\([^)]*\)?[^;=]*\{\s*$")
+
+
+def _anchor_function_gone(body, hunk, removed):
+    """A hunk that only ADDS lines, right after a function header kept as context: the function's name when that
+    name occurs nowhere in the new file (P27, firefox-160 TemporaryMerinoClientShim h2: fetchSportsMatches removed
+    upstream). None when the anchor still exists or the hunk is not of that shape, so every other hunk is unchanged."""
+    if removed or not any(l.startswith("+") for l in hunk["lines"]):
+        return None
+    last_ctx = None
+    for l in hunk["lines"]:
+        if l.startswith("+"):
+            break
+        if l.startswith(" "):
+            last_ctx = l[1:]
+    m = _FN_DECL.match(last_ctx or "")
+    if not m or m.group(1) in ("function", "return", "constructor"):
+        return None
+    name = m.group(1)
+    return None if any(name in l for l in body) else name
 
 
 _COMMENT = re.compile(r"^(/\*|\*|//|#|<!--)")
