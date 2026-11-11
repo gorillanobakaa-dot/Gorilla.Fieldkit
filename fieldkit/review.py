@@ -202,12 +202,26 @@ def accepted_by_harness():
     return rs, head + autoaccept.lines(rs)[1:]
 
 
+def unavailable_models_lines():
+    """P9: models the harness is not using now (out of budget or pinned by the owner), with the time they are back."""
+    try:
+        from .lifecycle import models
+        ls = models.unavailable_lines()
+    except Exception:                                        # noqa: BLE001 - the review never fails on this line
+        return []
+    return (["Models the harness is routing around (out of budget, or marked by you); they return by themselves:"]
+            + [f"    {x}" for x in ls]) if ls else []
+
+
 def render(es, root=None):
     titles = plan_titles(root)
     out = [GOAL, FINAL, ""] + where_we_are(root)
     _, aa = accepted_by_harness()
     if aa:
         out += [""] + aa
+    ua = unavailable_models_lines()
+    if ua:
+        out += [""] + ua
     if not es:
         return out + ["", "Nothing waits for you."]
     out += ["", f"{len(es)} item(s) wait for you, in three groups."]

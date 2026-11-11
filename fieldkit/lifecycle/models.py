@@ -178,6 +178,147 @@ def report(rows=None):
     return dict(sorted(counts.items()))
 
 
+# ---- plan P9: model availability (a model out of budget is skipped, never asked) ------------------------------------
+def _avail_cfg(data=None):
+    return dict((data or load()).get("availability") or {})
+
+
+def availability_path(data=None):
+    from .friction import state_dir
+    return state_dir() / (_avail_cfg(data).get("file") or "availability.json")
+
+
+def _read_avail(data=None):
+    try:
+        d = json.loads(availability_path(data).read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _yaml_until(v, now):
+    """-> epoch the owner's pin ends (inf for "always"/blank), or None when the pin is over or unreadable-as-over."""
+    txt = str(v or "").strip().lower()
+    m = re.search(r"\d{4}-\d{2}-\d{2}", txt)
+    if not m:
+        return float("inf")                                   # "always", or no date: until the owner removes the line
+    end = time.mktime(time.strptime(m.group(0), "%Y-%m-%d"))
+    return end if end > now else None
+
+
+def unavailable_models(now=None, data=None):
+    """-> {name: {"reason", "until" (epoch, inf = until removed), "source": "owner" | "harness"}} for every model that
+    cannot be used right now: the owner's YAML pins and the harness's own records whose retry time has not passed."""
+    now = time.time() if now is None else now
+    d = data or load()
+    out = {}
+    for k, rec in _read_avail(d).items():
+        try:
+            if float(rec.get("until", 0)) > now:
+                out[str(k).lower()] = {"reason": str(rec.get("reason", "?")), "until": float(rec["until"]),
+                                       "source": "harness"}
+        except (TypeError, ValueError):
+            continue
+    for k, v in (_avail_cfg(d).get("unavailable") or {}).items():
+        end = _yaml_until(v, now)
+        if end is not None:
+            out[str(k).lower()] = {"reason": f"owner: {v or 'unavailable'}", "until": end, "source": "owner"}
+    return out
+
+
+def availability(model, now=None, data=None):
+    """-> (True, "") or (False, "fable unavailable until 2026-11-12 03:00 (reason)"). Names match as substrings."""
+    low = (model or "").lower()
+    for k, rec in unavailable_models(now, data).items():
+        if k and (k in low or (low and low in k)):
+            return False, f"{k} unavailable {until_text(rec['until'])} ({rec['reason'][:100]})"
+    return True, ""
+
+
+def is_available(model, now=None, data=None):
+    return availability(model, now, data)[0]
+
+
+def until_text(ts):
+    return "until the owner lifts it" if ts == float("inf") else "until " + time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+
+
+def retry_at(models, now=None, data=None):
+    """-> the earliest epoch at which one of these (unavailable) models is back, or None when none is held back."""
+    ends = [r["until"] for k, r in unavailable_models(now, data).items() if any(k in str(m).lower() for m in models)]
+    ends = [e for e in ends if e != float("inf")]
+    return min(ends) if ends else None
+
+
+def _reset_time(text, now):
+    """The limit's own reset time out of a CLI message, else None: a unix stamp (`|1731300000`), an ISO date-time, or
+    `resets 5pm` / `reset at 3:30 am` (the next such clock time today or tomorrow, local)."""
+    m = re.search(r"\|\s*(\d{10})\b", text)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})", text)
+    if m and re.search(r"reset|retry|until|available", text, re.I):
+        try:
+            return time.mktime(time.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M"))
+        except ValueError:
+            pass
+    m = re.search(r"reset\w*\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*([ap]m)", text, re.I)
+    if m:
+        h = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "pm" else 0)
+        t = time.localtime(now)
+        ts = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, h, int(m.group(2) or 0), 0, 0, 0, -1))
+        return ts if ts > now else ts + 86400
+    return None
+
+
+def classify_failure(text, returncode=0, now=None, data=None):
+    """-> {"reason", "until"} when a model call's output says the model cannot answer (budget, limit, quota, rate,
+    "max turns"), else None. `until` is the limit's own reset time when the message has one, else now + cooldown."""
+    now = time.time() if now is None else now
+    cfg = _avail_cfg(data)
+    low = str(text or "")
+    for pat in cfg.get("patterns") or ():
+        m = re.search(pat, low, re.I)
+        if m:
+            soon = "max turns" in m.group(0).lower()
+            mins = cfg.get("no_verdict_cooldown_minutes" if soon else "cooldown_minutes") or 120
+            end = _reset_time(low, now)
+            return {"reason": f"{m.group(0)} ({low.strip()[-100:].replace(chr(10), ' ')})",
+                    "until": end if end and end > now else now + 60 * float(mins)}
+    return None
+
+
+def mark_unavailable(model, reason, until=None, now=None, data=None):
+    """Record that `model` cannot answer until `until` (epoch; default now + cooldown). Never raises (advice only).
+    -> the record."""
+    now = time.time() if now is None else now
+    d = data or load()
+    end = until if until else now + 60 * float(_avail_cfg(d).get("cooldown_minutes") or 120)
+    rec = {"reason": str(reason)[:200], "until": end, "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))}
+    try:
+        cur = {k: v for k, v in _read_avail(d).items() if isinstance(v, dict) and float(v.get("until", 0)) > now}
+        cur[(model or "?").lower()] = rec
+        availability_path(d).write_text(json.dumps(cur, indent=1), encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
+    return rec
+
+
+def clear_unavailable(model, data=None):
+    cur = _read_avail(data)
+    cur.pop((model or "").lower(), None)
+    try:
+        availability_path(data).write_text(json.dumps(cur, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def unavailable_lines(now=None, data=None):
+    """-> one line per unavailable model, for `route status` and the morning review. [] when all are available."""
+    return [f"UNAVAILABLE  {k}  {until_text(r['until'])}  ({r['source']}: {r['reason'][:120]})"
+            for k, r in sorted(unavailable_models(now, data).items())]
+
+
 # ---- plan P9: escalation ladder -------------------------------------------------------------------------------------
 def ladder_cfg(data=None):
     return dict((data or load()).get("escalation") or {})
@@ -213,6 +354,10 @@ def climb(model, own_failures, data=None):
         return dict(out, next=model, same=True)
     rungs = [str(x).lower() for x in cfg.get("ladder") or ()]
     for r in rungs[rungs.index(nxt.lower()):]:
+        up, why = availability(r, data=data)
+        if not up:
+            out["skipped"].append(f"{r} ({why})")
+            continue
         v = check_model(r, role="reviewer", origin="ladder", data=data, log=False)
         if v["ok"]:
             return dict(out, next=r)

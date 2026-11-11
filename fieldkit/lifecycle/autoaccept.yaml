@@ -3,6 +3,8 @@
 #   1. every deterministic check the caller (a project's plug-in) runs on the work item passes, and
 #   2. an independent reviewer model on a HIGHER rung of the escalation ladder than the author (models.yaml
 #      escalation.ladder; reviewer != author; the spend guard decides which rungs exist) answers VERDICT: YES.
+# A rung that is out of budget (models.yaml availability) is skipped; an author already on the top available rung is
+# re-authored one rung down and the top rung reviews (P9). Nothing available: parked with a retry time, not refused.
 # Any check failing or the reviewer saying no: not accepted; the caller climbs the ladder and parks only at the top.
 # Every acceptance is journaled (both models, the evidence, a one-line rewind command) and listed for the owner's
 # after-the-fact review (`fieldkit review`). Models still never run an owner command themselves (HARD LINE 4).

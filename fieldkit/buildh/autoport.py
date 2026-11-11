@@ -61,6 +61,21 @@ def _climb(t, s, why, model):
     s["status"] = task.next_status(t, s, by="model")
 
 
+def _reauthor(t, s, rec):
+    """P9: the author was the top usable rung, so no rung above it can review (the one above is out of budget). The next
+    usable rung down authors the step again and the top one reviews. Once per step: a second time parks it, so two
+    rungs never pass one step back and forth. -> True when the step was re-offered."""
+    if int(s.get("reauthored") or 0) >= 1:
+        s["status"], s["last_why"] = "blocked", list(rec["why"]) + ["already re-authored once: parked"]
+        return False
+    s.update(model=rec["reauthor"], attempts=0, status="failed", reauthored=int(s.get("reauthored") or 0) + 1,
+             last_why=list(rec["why"]))
+    s.pop("review_refused", None)
+    task.journal(t, "re-author", step=s["id"], author=rec["author"], reauthor=rec["reauthor"],
+                 reviewer=rec["reviewer"], why=rec["why"])
+    return True
+
+
 def deferred_to_model(t, pol):
     if not pol.get("enabled") or not pol.get("deferred_to_model"):
         return []
@@ -342,8 +357,15 @@ def sweep(task_id, pol=None, in_flight=None):
             else:
                 task.journal(t, "auto-refuse", step=sid, kind="adapted", ledger=rec["id"],
                              why=[f"accept failed: {r['failed'][0]['why'] if r['failed'] else '?'}"])
+        elif rec.get("reauthor"):
+            _reauthor(t, s, rec)
+            task.save(t)
         elif rec.get("wait_owner"):
-            task.journal(t, "auto-wait-owner", step=sid, kind="adapted", why=rec["why"])
+            task.journal(t, "auto-wait-owner", step=sid, kind="adapted", why=rec["why"],
+                         retry_at=rec.get("retry_at"))
+            if rec.get("retry_at"):                       # parked, not refused: asked again once a model is back
+                s.pop("auto_review", None)
+                s["retry_at"] = rec["retry_at"]
             task.save(t)
         else:
             s["review_refused"] = True
@@ -357,8 +379,12 @@ def sweep(task_id, pol=None, in_flight=None):
             t = task.load(task_id)
             s = next(x for x in t["steps"] if x["id"] == sid)
             rec = fn(t, s, pol)
-            s[field]["decided"] = rec["id"]
-            if rec.get("accepted"):
+            if not rec.get("retry_at") or rec.get("accepted"):
+                s[field]["decided"] = rec["id"]           # parked until a model is back: not decided, asked again
+            if rec.get("reauthor"):
+                _reauthor(t, s, rec)
+                s[field]["decided"] = rec["id"]
+            elif rec.get("accepted"):
                 if kind == "skip":
                     s.update(status="done", skipped_by_harness=rec["id"], last_why=None)
                     task.checkpoint(t, f"{sid} (nothing to port: accepted by the harness, reviewer {rec['reviewer']})")

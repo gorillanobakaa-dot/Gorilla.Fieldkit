@@ -1,0 +1,26 @@
+# P9 model availability: every rule must be caught when broken.
+# fieldkit mutate --plan tests/model_availability_mutations.yaml -- python -m pytest -q tests/test_model_availability.py
+- file: fieldkit/lifecycle/models.py
+  swap: ["                out[str(k).lower()] = {\"reason\": str(rec.get(\"reason\", \"?\")), \"until\": float(rec[\"until\"]),", "                out[str(k).lower()] = {\"reason\": str(rec.get(\"reason\", \"?\")), \"until\": float(rec[\"until\"]) - 10 ** 9,"]
+  why: "an unavailable model comes back only after its retry time"
+- file: fieldkit/lifecycle/models.py
+  swap: ["        up, why = availability(r, data=data)\n        if not up:", "        up, why = True, ''\n        if not up:"]
+  why: "the ladder climb skips an unavailable rung"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    up, why = models.availability(r, data=d)\n    if not up:", "    up, why = True, ''\n    if not up:"]
+  why: "the reviewer pick skips an unavailable rung"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["            return {\"reviewer\": rungs[at], \"reauthor\": r,", "            return {\"reviewer\": None, \"reauthor\": r,"]
+  why: "the top available rung reviews when the cheaper model re-authors"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["        if not (ans.get(\"unavailable\") and not forced):", "        if True:"]
+  why: "an unavailable reviewer is replaced, not counted as a no"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["                rec[\"why\"][0] = \"parked, not refused: \" + rec[\"why\"][0]", "                pass"]
+  why: "nothing available parks with its reason, not a no"
+- file: fieldkit/lifecycle/autoaccept.py
+  swap: ["    if not hit:\n        return \"\"", "    if True:\n        return \"\""]
+  why: "a limit error marks the model unavailable"
+- file: fieldkit/lifecycle/routing.py
+  swap: ["    while pick >= max(fr, 0) and not models.is_available(", "    while False and not models.is_available("]
+  why: "task routing skips an unavailable model"

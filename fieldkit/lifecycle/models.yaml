@@ -19,3 +19,15 @@ escalation:
   attempts: escalation.jsonl      # in the lifecycle state folder
   risky: [guard, hook, fan, security, release, mandate]   # job-type words that get a top-model plan review first
   review_model: opus
+# P9 (owner, 2026-11-11: a month's budget can be gone): a model that cannot answer is skipped by every choice (task
+# routing, ladder climb, reviewer, tie-breaker) and the harness works with what is left. A call that ends in a
+# budget / limit / quota / rate error, no verdict, or "max turns" marks the model UNAVAILABLE in the lifecycle state
+# folder (availability.json) until the limit's own reset time, else a cooldown. The owner can also pin it here:
+#   unavailable: {fable: "until 2026-12-01"}     (a date, or "always" until the line is removed)
+availability:
+  unavailable: {}
+  file: availability.json         # in the lifecycle state folder
+  cooldown_minutes: 120           # a budget / limit / quota / rate error with no reset time in the message
+  no_verdict_cooldown_minutes: 30 # an answer with no verdict, or "max turns": likely out of budget, look again soon
+  patterns: ['usage limit', 'limit reached', 'limit will reset', 'out of (extra )?usage', 'quota', 'rate.?limit',
+             'budget', 'credit balance', 'overloaded', 'too many requests', 'insufficient', '\b429\b', 'max turns']
