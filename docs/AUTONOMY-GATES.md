@@ -54,7 +54,7 @@ in build-harness and lifecycle now goes one of these ways:
 
 | Stop | Now |
 |---|---|
-| audit row `journal: no step skipped without a reason` (`fieldkit/buildh/audit.py`) | passes for a step whose LATEST decision is a skip with a reason: the owner's skip with `--note TEXT` (the note is journaled; a skip with no note is refused before the passphrase is asked), or an I-04 `auto-accept` of kind `skip` with a reviewer (its why is the reason). Distinct steps count, not repeats; a later retry undoes a skip. A bare skip still fails (`tests/test_buildh_no_owner_stall.py`, proven with `fieldkit mutate`) |
+| audit row `journal: no step skipped without a reason` (`fieldkit/buildh/audit.py`) | see "The mandate is the reason" below: an owner skip passes with no note; a harness skip passes only with a reviewer's (or the mandate door's) why. Distinct steps count, not repeats; a later retry undoes a skip |
 | a skip both rungs agree on | **core**: `request ... skip`, checks + independent reviewer (I-04); the reviewer's why is the recorded reason |
 | a blocked CHECK step after a commit landed (`autoport.retry_scripts`, in the sweep) | **harness**: re-run automatically, kind `retry`, capped by `max_retries`. Running the same check again cannot weaken it, so no reviewer is asked |
 | a stale `final-checks` (changes after its last pass, `buildrun.py`) | **harness**: re-run when ANY failing row is stale (before: only when all were) |
@@ -73,9 +73,34 @@ owner_steps:
   when: [evidence]         # every deterministic check passed and the reason is recorded
 ```
 
-Without the grant in the owner's SIGNED file, behavior is as before. A model never signs the mandate and never types
-an owner command: the draft goes to `state/mandates/owner-wide-owner-steps.yaml` and the one renew command to the
-owner's inbox (typed yes + passphrase).
+An owner-wide mandate already signed carries this door without a renewal (next section). A model never signs the
+mandate and never types an owner command.
+
+## The mandate is the reason (P9, 2026-11-11)
+
+The owner, 2026-11-11, verbatim: "Fuck the motive, fuck the reason. Eliminate that ... One single approval. That was
+our mandate. One single approval. At the beginning of the job, it's all the reason, all the motives you ever need.
+Eliminate everything that slows us down." (The owner changing his own decision.) Every place in build-harness,
+lifecycle and mandate that asked the owner for a per-step reason, note, confirmation or second approval while a
+mandate in force covers the work:
+
+| Place | Was | Now |
+|---|---|---|
+| `build-harness unblock TASK STEP skip` (`task.unblock`) | refused without `--note` (PR 460) | no note needed. The owner proof (a real terminal, or `--force` + passphrase) is the decision; the journal event carries `by: owner`, the proof and the mandate(s) in force. `--note` is still journaled when given |
+| audit row `journal: no step skipped without a reason` (`audit.journal_checks`) | failed on every owner skip without a note (firefox-160-linux, the 12:42:12 skip) | an OWNER skip (`unblock`, `how: skip`, written only behind the owner proof) passes; old journals pass as they are, no re-run. Evidence: "N skipped by the owner (mandate NAME), M by the harness with a reviewer". A HARNESS skip (`auto-accept`, kind `skip`) with no reviewer or no why still FAILS (`tests/test_buildh_audit.py`, `tests/test_buildh_no_owner_stall.py`; `fieldkit mutate` proves the row can fail) |
+| mandate `owner_steps` door (`mandate.owner_steps`) | open only when the SIGNED file names it: the signed owner-wide copy (in force to 2026-12-28) did not, so a renew (inbox item 48) was needed | an owner-wide mandate (`scope: owner-wide`) that leaves `owner_steps` out gets the template's door (`OWNER_STEPS_OWNER_WIDE`: unblock skip/retry, accept, `when: evidence`). The copy already signed covers it; no renew. Writing `owner_steps` yourself (`{}` or `false` closes it) still wins; other mandates open it only when they name it. The door's own conditions stay: every deterministic check passed, a reviewer's NO is never overruled, each use is journaled and listed in `fieldkit review` |
+
+Looked at and kept (each is a single command, a hard line, or a guard on what a MODEL may do, not a second owner stop):
+
+| Place | Why it stays |
+|---|---|
+| the owner proof on an owner skip / `--force` (`lifecycle/ownerproof.py`) | it is how the tool knows the command is the owner's and not a model's (hard line: a model never acts as the owner). It is the one approval, not an extra one |
+| the `--note` of `withdraw` and `drop` (`task.withdraw`, `task.drop`) | no owner gate: a model can run them, and the note (the author's words for drop) is what stops a model from silently throwing ported work away. Removing it would weaken a guard (hard line) |
+| the `--note` of `request ... skip/retry` (`autoport.request`) | a MODEL asks the harness; its reason is what the reviewer judges |
+| the `lesson:` line of `submit --hand` / `--adapted` | teaching data for the next run (GOAL: a fix becomes a script), not an approval; the owner's `accept` already skips it (`require_lesson=False`) |
+| `deferred --do "DROP THIS CHANGE: ..."`, `brief --do "PUT BACK THE OLD ..."` (`deferred.py`, `decision.py`) | the typed phrase IS the single command (one line, no second stop); they change owner decisions and patch content (decision register) |
+| `release-publish` and `night-pack arm` "Type yes" | release outside `fieldkit ship` (hard line 1); `night-pack arm` is itself the one pre-approval for the night |
+| `mandate approve/renew` typed yes + passphrase | the single approval itself |
 
 ## The rest of Fieldkit
 

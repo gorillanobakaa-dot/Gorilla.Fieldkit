@@ -1,4 +1,4 @@
-"""P9 (2026-11-11): no owner-only stall. A skip carries its reason, a blocked check step is retried by the harness when
+"""P9 (2026-11-11): no owner-only stall. An owner skip needs no note (the mandate is the reason), a blocked check step is retried by the harness when
 the tree changed, a job with only an owner decision left names it in its record, and the owner's signed mandate can
 pre-approve the owner-only steps the harness takes when no independent reviewer can be had."""
 import json
@@ -45,19 +45,30 @@ def _row(ev):
 
 # --- a. the skip's reason -------------------------------------------------------------------------------------------
 
-def test_the_owner_skip_needs_its_reason_and_the_journal_carries_it(job2, monkeypatch):
+def test_the_owner_skip_needs_no_note_and_the_journal_names_the_owner_and_the_mandate(job2, monkeypatch):
     asked = []
     monkeypatch.setattr(ownerproof, "owner_or_proof", lambda *a, **k: asked.append(a) or (True, "terminal"))
-    _add_steps("t2", [{"id": "port-x", "kind": "model", "title": "p", "status": "pending", "allowed": []}])
-    with pytest.raises(task.Refused, match="--note"):
-        task.unblock("t2", "port-x", "skip")
-    assert not asked, "no passphrase is asked for a skip that would be refused for its missing reason"
-    task.unblock("t2", "port-x", "skip", note="upstream already carries it")
+    monkeypatch.setattr(task, "_mandate_in_force", lambda: "owner-wide")
+    _add_steps("t2", [{"id": "port-x", "kind": "model", "title": "p", "status": "pending", "allowed": []},
+                      {"id": "port-y", "kind": "model", "title": "p", "status": "pending", "allowed": []}])
+    task.unblock("t2", "port-x", "skip")
+    assert asked, "the owner proof is still the one approval"
     s = next(s for s in task.load("t2")["steps"] if s["id"] == "port-x")
-    assert s["skip_reason"] == "upstream already carries it"
-    ev = _journal("t2")
-    assert [e.get("note") for e in ev if e.get("event") == "unblock"] == ["upstream already carries it"]
-    assert _row(ev)[0], "the audit passes on the real journal"
+    assert s["status"] == "done" and s["skipped_by_owner"] and s["skip_reason"].startswith("the owner's decision")
+    task.unblock("t2", "port-y", "skip", note="upstream already carries it")
+    ev = [e for e in _journal("t2") if e.get("event") == "unblock"]
+    assert [(e.get("by"), e.get("mandate"), e.get("note")) for e in ev] == [
+        ("owner", "owner-wide", None), ("owner", "owner-wide", "upstream already carries it")]
+    ok, evidence = _row(_journal("t2"))
+    assert ok and evidence.startswith("2 skipped by the owner (mandate owner-wide)")
+
+
+def test_a_model_without_the_owner_proof_still_cannot_skip(job2, monkeypatch):
+    monkeypatch.setattr(ownerproof, "owner_or_proof", lambda *a, **k: (False, "an AI agent's process"))
+    _add_steps("t2", [{"id": "port-x", "kind": "model", "title": "p", "status": "pending", "allowed": []}])
+    with pytest.raises(task.Refused, match="owner"):
+        task.unblock("t2", "port-x", "skip")
+    assert not [e for e in _journal("t2") if e.get("event") == "unblock"]
 
 
 def test_a_skip_by_the_harness_counts_with_the_reviewers_reason_and_without_one_it_fails():
@@ -156,6 +167,21 @@ def test_the_mandate_door_opens_only_what_it_lists_and_only_with_evidence(monkey
     assert _allows(_m(), monkeypatch, tmp_path, verb="drop", **good) == "ask"
     assert any("HARNESS ITSELF" in d for d in M.doors(_m())), "the approve screen shows the door"
     assert not any("HARNESS ITSELF" in d for d in M.doors(_m(None)))
+
+
+def test_an_owner_wide_mandate_without_the_key_has_the_door_on_and_can_still_close_it(monkeypatch, tmp_path):
+    # owner, 2026-11-11: "One single approval. That was our mandate." The signed owner-wide copy names no owner_steps
+    good = dict(evidence="checks passed; reason", checks_passed=True)
+    wide = dict(_m(None), scope="owner-wide")
+    assert _allows(wide, monkeypatch, tmp_path, verb="unblock", how="skip", **good) == "allow"
+    assert _allows(wide, monkeypatch, tmp_path, verb="accept", **good) == "allow"
+    assert _allows(wide, monkeypatch, tmp_path, verb="accept", evidence="", checks_passed=True) == "ask", \
+        "the door's own condition (evidence) stays"
+    assert _allows(dict(wide, owner_steps=False), monkeypatch, tmp_path, verb="accept", **good) == "ask"
+    assert _allows(dict(wide, owner_steps={}), monkeypatch, tmp_path, verb="accept", **good) == "ask"
+    assert any("HARNESS ITSELF" in d for d in M.doors(wide))
+    assert M.owner_steps(M.load(M.Path(M.__file__).with_name("owner-wide.yaml"))) == M.owner_steps(wide), \
+        "the default is exactly the packaged template's door"
 
 
 def test_an_unsigned_mandate_grants_no_owner_step(tmp_path):

@@ -73,7 +73,7 @@ def test_a_hand_edit_or_leftover_blocks_the_gate(world):
 
 def test_a_skip_or_an_answer_key_copy_blocks_the_gate(world):
     t = task.load("c1")
-    task.journal(t, "unblock", step="s", how="skip")
+    task.journal(t, "auto-accept", step="s", kind="skip", reviewer=None, why=[])   # a harness skip, no reviewer
     assert "journal: no step skipped without a reason" in failing(cg.gate("c1"))
 
 

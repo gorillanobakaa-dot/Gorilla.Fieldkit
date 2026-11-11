@@ -83,6 +83,12 @@ ACTIONS = ("push", "tag", "merge_main", "release_tag", "install", "mac", "releas
 # everything you need to do"): the owner-only steps of a long job a mandate may pre-approve, and the words for each
 OWNER_STEP_VERBS = {"unblock": ("skip", "retry"), "accept": None}
 OWNER_STEP_WHEN = ("evidence",)
+# P9 (owner, 2026-11-11: "One single approval. That was our mandate. One single approval. At the beginning of the job,
+# it's all the reason, all the motives you ever need. Eliminate everything that slows us down."): an OWNER-WIDE mandate
+# that does not name owner_steps opens this door as the packaged template does, so the copy the owner already signed
+# covers it with no renewal. Writing owner_steps (even `owner_steps: {}` or `owner_steps: false`) is the owner's
+# own choice and wins; any other mandate opens it only when it names it (as before).
+OWNER_STEPS_OWNER_WIDE = {"unblock": ["skip", "retry"], "accept": True, "when": ["evidence"]}
 # owner approvals no mandate can grant: the mandate's own key, and the owner's signature on a harness change
 NEVER_GRANTED = re.compile(r"\bmandate\b|gorilla_owner_approved", re.I)
 # never pushed under a mandate, whatever a pattern says: the base branches move only by `fieldkit ship merge`
@@ -298,8 +304,9 @@ def doors(m):
 
 def owner_steps(m):
     """-> the mandate's owner_steps door, normalised: {"unblock": [hows], "accept": bool, "when": [conditions]}.
-    Anything not understood opens nothing (fail closed)."""
-    d = m.get("owner_steps")
+    Anything not understood opens nothing (fail closed). An owner-wide mandate that leaves the key out gets the
+    template's door (OWNER_STEPS_OWNER_WIDE: the owner's one approval is the reason, 2026-11-11)."""
+    d = m.get("owner_steps") if "owner_steps" in m or not owner_wide(m) else OWNER_STEPS_OWNER_WIDE
     if not isinstance(d, dict):
         return {"unblock": [], "accept": False, "when": list(OWNER_STEP_WHEN)}
     ub = d.get("unblock") or []
