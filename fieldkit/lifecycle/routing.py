@@ -168,10 +168,22 @@ def route(text, requested=None, pin=False, plan=None, data=None, ch=None):
         return {"model": "", "rung": a["rung"], "ceiling": ceiling, "action": "park",
                 "why": f"floor {a['floor']} is above the ceiling {ceiling} ({'; '.join(a['reasons'])})"}
     pick = max(pick, fr)                               # never below the floor, not even in the squeeze
+    why = f"score {a['score']} -> {a['rung']} ({'; '.join(a['reasons'])}); ceiling {ceiling}"
+    # P9: a model that is out of budget is skipped: the nearest available rung below it (never below the floor); none
+    # left: parked with that reason and the retry time, not a failure
+    from . import models
+    want = pick
+    while pick >= max(fr, 0) and not models.is_available(lad[pick], data=models.load()):
+        why += f"; {models.availability(lad[pick])[1]}: skipped"
+        pick -= 1
+    if pick < max(fr, 0):
+        back = models.retry_at(lad[max(fr, 0):want + 1])
+        return {"model": "", "rung": a["rung"], "ceiling": ceiling, "action": "park",
+                "why": why + "; no available model for this job"
+                       + (f", retry after {time.strftime('%Y-%m-%d %H:%M', time.localtime(back))}" if back else "")}
     model = ceiling if pick == cr else lad[pick]
     action = "downgrade" if pick < cr else "capped" if need > pick else "use"
-    return {"model": model, "rung": a["rung"], "ceiling": ceiling, "action": action,
-            "why": f"score {a['score']} -> {a['rung']} ({'; '.join(a['reasons'])}); ceiling {ceiling}"}
+    return {"model": model, "rung": a["rung"], "ceiling": ceiling, "action": action, "why": why}
 
 
 def cascade(model, failures, ceiling, data=None):
@@ -419,6 +431,9 @@ def main(argv=None):
         print(f"MODE  {ch['mode']}  strongest {ch['ceiling']}  accept {ch['accepted'] or 'none (cheap defaults)'}"
               f"{'' if ch['fresh'] else '  STALE'}")
         print(f"ROOM  {why}")
+        from . import models
+        for line in models.unavailable_lines() or ["MODELS  every model is available"]:
+            print(line)
         print("NEXT: fieldkit route choose --mode solo|multi --model haiku|sonnet|opus|fable")
         return 0
     print("route status | choose --mode solo|multi --model M | assess BRIEF.md")
