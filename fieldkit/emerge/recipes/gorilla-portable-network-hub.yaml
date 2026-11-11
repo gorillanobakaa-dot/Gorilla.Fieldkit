@@ -17,7 +17,8 @@ baseline_minutes: 10
 vars:
   src: "${DOCUMENTS}/Gorilla.Portable.Network.Hub"
   py: python3                       # Windows: --var py=python
-  version: "0.11.0"                 # src/hub/Cargo.toml; the packaging scripts refuse a mismatch
+latest:                             # never pinned (owner 2026-11-11); the packaging scripts refuse a mismatch
+  version: {file: "{src}/src/hub/Cargo.toml", regex: '^version = "([^"]+)"'}
 sources:
   - {id: src, git: "{src}", track: tree}
 config:

@@ -8,6 +8,11 @@ description: >-
   Debian kernel .deb and .rpm packages from the pinned kernel.org tarball plus the project's patches and config;
   offloaded stage by stage to the Linux machine when run from Windows.
 baseline_minutes: 90
+latest:                             # never pinned (owner 2026-11-11): any kernel version; --var version=X.Y.Z
+  version:
+    - {local: kernel.version}
+    - {newest: "{workdir}/linux-*.tar.xz", regex: '^linux-(\d+(?:\.\d+)+)\.tar\.xz$'}
+    - {newest: "{workdir}/linux-*", regex: '^linux-(\d+(?:\.\d+)+)$'}
 sources:
   - {id: tarball, path: "{workdir}/linux-{version}.tar.xz", fetched_by: fetch}
   - {id: project, git: "{project}", track: tree}

@@ -8,6 +8,8 @@ description: >-
   Every Gorilla OpenCode release file (Linux and Windows binaries, the Mac 10.13 zip, .deb/.rpm/tarball,
   SHA256SUMS), with modules, vet and tests keyed by what they read.
 baseline_minutes: 10
+toolchain_pins:                     # a toolchain floor, not the product's version (emerge lint reads the reason)
+  mac_go: "go 1.24 is the last Go that still targets macOS 10.13 (the MacBook Air); the product version is not pinned"
 vars:
   src: "${DOCUMENTS}/Gorilla.Opencode"
   # the Windows working tree is checked out with CRLF (core.autocrlf=true) although .gitattributes says LF, so the

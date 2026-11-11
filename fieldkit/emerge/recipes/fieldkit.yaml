@@ -14,7 +14,8 @@ baseline_minutes: 15
 vars:
   src: "${FIELDKIT}"
   py: python                        # the editable install on PATH; a venv: --var py=${FIELDKIT}/.venv/bin/python
-  tag: "v0.6.0"                     # the release being checked: --var tag=vX
+latest:                             # never pinned (owner 2026-11-11): the newest release notes; --var tag=vX
+  tag: {newest: "{src}/releases/notes/v*"}
 sources:
   - {id: src, git: "{src}", track: tree}
 config:

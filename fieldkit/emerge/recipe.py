@@ -69,6 +69,77 @@ class RecipeError(ValueError):
     pass
 
 
+VERSION_RE = re.compile(r"^v?\d+(\.\d+)+([-.+][0-9A-Za-z.-]*)?$")
+OTHER_OS = {"windows": "windows", "linux": "linux", "debian": "linux"}    # stage platform -> household alias
+
+
+def _vkey(text):
+    """Sort key for version-like text: 160.0 > 158.0, v0.10 > v0.9 (numbers compared as numbers)."""
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", str(text))]
+
+
+def resolve_latest(spec, vars_, local=None):
+    """-> (value, how) for a `latest:` entry, or (None, why). RECIPES ARE GENERAL (owner, 2026-11-11: "să nu fie
+    dependentă de versiune"): a product version is never written in a recipe; it is the newest the harness knows.
+    One entry is a resolver or a list tried in order:
+      {local: firefox.version}                      fieldkit.local.json (beside firefox.src: the ported tree)
+      {newest: "{src}/releases/notes/v*", regex: R} the version-newest match of a glob (its name, or regex group 1)
+      {file: "{src}/Cargo.toml", regex: R}          group 1 of the first line matching R in a file
+    """
+    tried = []
+    for r in (spec if isinstance(spec, list) else [spec]):
+        r = dict(r or {})
+        rx = re.compile(r["regex"], re.M) if r.get("regex") else None
+        if "local" in r:
+            cur = settings.local_settings() if local is None else local
+            for part in str(r["local"]).split("."):
+                cur = cur.get(part) if isinstance(cur, dict) else None
+            if cur not in (None, ""):
+                return str(cur), f"fieldkit.local.json {r['local']}"
+            tried.append(f"no {r['local']} in fieldkit.local.json")
+        elif "newest" in r:
+            pat = settings.expand(_fill(r["newest"], vars_), strict=False)
+            names = []
+            for h in glob.glob(pat):
+                n = Path(h).name
+                if rx:
+                    m = rx.search(n)
+                    if not m:
+                        continue
+                    n = m.group(1)
+                names.append(n)
+            if names:
+                best = max(names, key=_vkey)
+                return best, f"newest of {len(names)} under {pat}"
+            tried.append(f"nothing matches {pat}")
+        elif "file" in r:
+            f = Path(settings.expand(_fill(r["file"], vars_), strict=False))
+            try:
+                m = rx.search(f.read_text(encoding="utf-8", errors="replace")) if rx else None
+            except OSError:
+                m = None
+            if m:
+                return m.group(1), f"{f.name}"
+            tried.append(f"no match in {f}")
+    return None, "; ".join(tried) or "no resolver"
+
+
+def auto_offload(stage, recipe_name, project, tree, overrides=None):
+    """-> the offload a single-system stage gets when its recipe wrote none: the same stage, run by the same recipe
+    on the household machine of that system (stages for the other system go over the cable; owner, 2026-11-11).
+    None when the stage runs anywhere, names a system with no household machine, or says `offload: false`."""
+    if stage.get("offload") is not None:
+        return None
+    systems = {OTHER_OS[p] for p in (stage.get("platforms") or []) if p in OTHER_OS}
+    if len(systems) != 1 or len(set(stage.get("platforms") or []) - set(OTHER_OS)) > 0:
+        return None
+    argv = ["emerge", "run", recipe_name, "--only", stage["id"], "--local", "--no-fix"]
+    for k, v in sorted((overrides or {}).items()):
+        argv += ["--var", f"{k}={v}"]
+    wall = max(30, int(stage.get("timeout") or 3600) // 60 + 10)
+    return {"device": systems.pop(), "project": project, "tree": tree, "wall": wall, "argv": argv, "auto": True}
+
+
 def available():
     return sorted(p.stem for p in RECIPES.glob("*.yaml"))
 
@@ -187,6 +258,15 @@ class Recipe:
             vars_ = {}
             self.description = spec.get("description", "")
         vars_.update(spec.get("vars") or {})
+        self.latest = {}                # var -> how its value was found (the newest the harness knows)
+        for var, how in (spec.get("latest") or {}).items():
+            if var in self.overrides:
+                self.latest[var] = "--var"
+                continue
+            val, why = resolve_latest(how, {**vars_, **self.overrides})
+            if val is not None:
+                vars_[var] = val
+            self.latest[var] = f"{val} ({why})" if val is not None else f"NOT FOUND ({why})"
         for sid, ov in (overlay or {}).items():
             odd = set(ov or {}) - OVERLAY
             if odd:
@@ -210,6 +290,11 @@ class Recipe:
         self.vars = self.pipe.vars
         self.stages = self.pipe.stages
         self.by_id = {s["id"]: s for s in self.stages}
+        project = (spec.get("config") or {}).get("mandate") or "Gorilla.Fieldkit"
+        for s in self.stages:           # a stage for the other system runs there, never "not-here" (P9)
+            o = auto_offload(s, self.name, project, str(Path(self.source).parent), self.overrides)
+            if o:
+                s["offload"] = o
         for s in self.stages:
             for n in s.get("needs") or []:
                 if n not in self.by_id:

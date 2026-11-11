@@ -106,26 +106,35 @@ def load_index(path=None, local=True):
     return idx
 
 
-def refusal(args, index=None):
-    """-> None when `fieldkit <args>` may run here, else the refusal sentence. The longest matching command wins."""
-    if any(a in ("-h", "--help") for a in args):
-        return None
-    from .host import platform_refusal
-    index = load_index() if index is None else index
-    words = _words(args)
+def matching(words, index):
+    """-> (command, platforms, why) of the card that governs `fieldkit WORDS`, or None. The longest matching command
+    wins; with no card for exactly this command, a group (`fieldkit win11`, `fieldkit hdmi`) counts as single-system
+    when EVERY card under it is (a mixed group passes and its own code decides)."""
     for n in range(len(words), 0, -1):
         row = index.get(" ".join(words[:n]))
         if row:
-            return platform_refusal("fieldkit " + " ".join(words[:n]), row["platforms"], row.get("why"))
-    # No card for exactly this command: a group (`fieldkit win11`, `fieldkit hdmi`) is refused when EVERY card under
-    # it is for another system; a mixed group passes and its own code decides.
+            return " ".join(words[:n]), row["platforms"], row.get("why")
     if words:
         head = " ".join(words) + " "
         under = [row for key, row in index.items() if key.startswith(head)]
         if under:
             allowed = sorted({p for row in under for p in row["platforms"]})
             why = next((row["why"] for row in under if row.get("why")), None)
-            return platform_refusal("fieldkit " + " ".join(words), allowed, why)
+            return " ".join(words), allowed, why
+    return None
+
+
+def refusal(args, index=None):
+    """-> None when `fieldkit <args>` may run here, else the sentence that says the card names another system.
+    The command line no longer stops on it (P9, 2026-11-11: core/crossos.py dispatches, offloads or says
+    not-this-platform); agent.run and agent.discover still read it to choose a card made for this machine."""
+    if any(a in ("-h", "--help") for a in args):
+        return None
+    from .host import platform_refusal
+    index = load_index() if index is None else index
+    hit = matching(_words(args), index)
+    if hit:
+        return platform_refusal("fieldkit " + hit[0], hit[1], hit[2])
     return None
 
 

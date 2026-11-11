@@ -8,6 +8,10 @@ description: >-
   Gorilla Firefox .deb from the vaulted release source plus the public patch set; on Windows each stage is offloaded
   to the Linux machine over the cable.
 baseline_minutes: 90
+latest:                             # never pinned (owner 2026-11-11): the ported release, else the newest port tree
+  version:
+    - {local: firefox.version}
+    - {newest: "${DOCUMENTS}/FIREFOX.WORK/work/firefox-*", regex: '^firefox-(\d+(?:\.\d+)+)$'}
 sources:
   - {id: harness, git: "{harness}", track: tree}
 config:

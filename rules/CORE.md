@@ -25,7 +25,7 @@ HARD LINES (never, whoever asks):
 
 BUILDS. `fieldkit emerge plan RECIPE`, then `fieldkit emerge run RECIPE` in the background, then
 `fieldkit emerge status RECIPE`. Never hand-run stages, never re-run a stage the runner skipped. A
-project with no recipe gets one.
+project with no recipe gets one. Any version, any OS; never pinned or "X only".
 
 TESTS ONCE. Per change, only the tests covering the changed files (`fieldkit testcost staged`; Go: the touched
 packages, never `./...`; Rust: the touched crate). A passed test is never re-run. The full suite runs once, when a
@@ -38,8 +38,8 @@ TWO STRIKES (owner, 2026-10-29). A PR or job that fails CI twice by its own fail
 WAITING. Never poll or sleep: after dispatching, `fieldkit task watch ID` or `fieldkit ship ci-wait` in the
 background.
 
-MODELS. The default model for a job is Sonnet; Opus or Fable only for parked repairs and reviews, and only when the
-model-spend guard allows it (`fieldkit/lifecycle/models.py`).
+MODELS. Default: Sonnet; Opus or Fable only for parked repairs and reviews, when the model-spend guard allows
+it (`fieldkit/lifecycle/models.py`).
 
 ZERO COMMANDS (owner, 2026-11-08). Zero checks every side job's diff and PR and finishes it; "not mine" is no outcome.
 
@@ -51,7 +51,7 @@ SHORT SESSIONS. Every call re-sends the whole conversation. One job per session.
 finish this job, the next starts fresh; ROTATE = `fieldkit rotate handover ...` and end.
 
 USE THE HARNESS. `fieldkit tools find WORDS` before writing a command or a script. Sizes, search, hashes:
-`fieldkit size`. No new tool unless the job cannot be done without it. A script you must write goes in
+`fieldkit size`. No new tool unless the job needs it. A script you must write goes in
 Documents/Scripts/<Tool>/ with a README; `fieldkit sweep` adopts it later.
 
 DONE. Follow the DONE PROTOCOL in the fieldkit-lifecycle block of this file. Briefs, sitreps, audits and

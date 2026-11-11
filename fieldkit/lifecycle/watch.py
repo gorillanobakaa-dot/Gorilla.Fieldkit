@@ -91,6 +91,11 @@ def findings(led, now=None, stalled_min=STALLED_MIN, hours=HOURS, notes=(), aliv
     ids: only these tasks (and no note findings)."""
     now = time.time() if now is None else now
     tasks.settle(led, alive)
+    if alive is None:                    # a real watch (not a test's fake): a job waiting for the login goes on
+        try:
+            tasks.resume_waiting(led)
+        except Exception:  # noqa: BLE001 - the watch reports; a failed relaunch stays waiting
+            pass
     out = []
     for t in led.values():
         st, tid, title = t.get("status"), t["id"], (t.get("title") or "")[:50]

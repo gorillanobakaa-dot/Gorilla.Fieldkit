@@ -14,7 +14,8 @@ vars:
   src: "${DOCUMENTS}/dual-track-doc-generator"
   py: python3                       # Windows: --var py=python
   fk: "${FIELDKIT}/.venv/bin/python"
-  tag: "v1.0.0"                     # the release being checked: --var tag=vX
+latest:                             # never pinned (owner 2026-11-11): the newest release notes; --var tag=vX
+  tag: {newest: "{src}/release-notes/v*"}
 sources:
   - {id: src, git: "{src}", track: tree}
 config:

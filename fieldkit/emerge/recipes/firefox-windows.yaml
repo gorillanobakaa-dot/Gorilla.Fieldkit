@@ -11,8 +11,11 @@ description: >-
   package checks and post-install once on the installed build, the leak gate once per release.
 baseline_minutes: 90
 vars:
-  version: "158.0"
   task: "firefox-{version}"
+latest:                             # never pinned (owner 2026-11-11): the ported release, else the newest port tree
+  version:
+    - {local: firefox.version}
+    - {newest: "${DOCUMENTS}/FIREFOX.WORK/work/firefox-*", regex: '^firefox-(\d+(?:\.\d+)+)$'}
 sources:
   # the harness checkpoints our edits as commits on top of the release tag: the tag must stay underneath
   - {id: upstream, git: "{harness}/src", base: 3c71aeacdb296402e41fb2084b13e797d1770642, fetched_by: source}
