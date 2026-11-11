@@ -24,6 +24,9 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setenv(strikes.ENV, str(tmp_path / "parked.json"))
     # F4: a failed test passes on the merge base unless a test says otherwise (a real run builds a worktree)
     monkeypatch.setattr(strikes, "default_runner", PASSES)
+    # these tests cover the flat two-strikes mechanics; the escalation ladder (tests/test_escalation.py) has its own
+    monkeypatch.delenv("FIELDKIT_ATTEMPT_MODEL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
     return tmp_path / "parked.json"
 
 

@@ -161,9 +161,11 @@ def read_ledger(data=None):
     out = []
     for line in p.read_text(encoding="utf-8").splitlines() if p.is_file() else []:
         try:
-            out.append(json.loads(line))
+            row = json.loads(line)
         except ValueError:
             continue
+        if row.get("event") != "rung":
+            out.append(row)
     return out
 
 
@@ -195,6 +197,38 @@ def next_model(model, own_failures, data=None):
     return rungs[idx + 1] if idx + 1 < len(rungs) else None
 
 
+def climb(model, own_failures, data=None):
+    """P9: the ladder asked for the next attempt. -> {"next": model | None, "same": bool, "skipped": [rungs]}.
+    next == model (same True): retry on this rung. A rung the spend guard refuses (check_model, reviewer role: Opus is
+    the review tier; Fable is premium and needs a mandate) is skipped, never bypassed; no allowed rung left: next None
+    (park). Ladder off or a model not on it: next None."""
+    cfg = ladder_cfg(data)
+    out = {"next": None, "same": False, "skipped": []}
+    if not cfg.get("enabled"):
+        return out
+    nxt = next_model(model, own_failures, data)
+    if nxt is None:
+        return out
+    if nxt == model:
+        return dict(out, next=model, same=True)
+    rungs = [str(x).lower() for x in cfg.get("ladder") or ()]
+    for r in rungs[rungs.index(nxt.lower()):]:
+        v = check_model(r, role="reviewer", origin="ladder", data=data, log=False)
+        if v["ok"]:
+            return dict(out, next=r)
+        out["skipped"].append(r)
+    return out
+
+
+def tried_note(models_tried):
+    """-> 'tried: haiku, sonnet' (each model once, in order), for a parked note."""
+    seen = []
+    for m in models_tried:
+        if m and m not in seen:
+            seen.append(m)
+    return "models tried: " + (", ".join(seen) if seen else "unknown")
+
+
 def needs_plan_review(job_type, data=None):
     """-> True when a job type names a risky area (guards, fan, security, releases): a top model reviews the plan once
     before cheap models start."""
@@ -213,6 +247,15 @@ def record_attempt(branch, job_type, model, outcome, own=True, data=None):
         raise ValueError("outcome is pass or fail")
     rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "branch": branch, "job_type": job_type or "?",
            "model": model or "?", "outcome": outcome, "own": bool(own)}
+    with open(attempts_path(data), "a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec
+
+
+def record_rung(branch, job_type, frm, to, why="", skipped=(), data=None):
+    """A rung change (or a park: to None) is one row in escalation.jsonl, marked event=rung (not an attempt)."""
+    rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "event": "rung", "branch": branch, "job_type": job_type or "?",
+           "from": frm or "?", "to": to or "PARK", "why": str(why)[:200], "skipped": list(skipped)}
     with open(attempts_path(data), "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec

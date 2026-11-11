@@ -237,9 +237,11 @@ def drive(tid, a):
                 return "BLOCKED"
 
             before = step_submits(step)
+            cur_model = next((x.get("model") for x in task.load(tid)["steps"] if x["id"] == step), None)  # P9 rung
             t0 = time.time()
+            step_env = dict(env, ANTHROPIC_MODEL=cur_model, FIELDKIT_ATTEMPT_MODEL=cur_model) if cur_model else env
             r = sp.run([exe, "-p", (TOOL_PROMPT if use_tools else DRIVE_PROMPT) + state["packet"], "-c", t["workdir"],
-                        "-q"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+                        "-q"], env=step_env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             answer = (r.stdout or r.stderr).strip()
 
             with lock:

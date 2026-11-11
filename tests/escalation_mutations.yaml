@@ -10,8 +10,20 @@
   swap: ['(c["rate"] or 0) >= 0.8', '(c["rate"] or 0) >= 0.0']
   why: a model is delegated to only with a high success rate
 - file: fieldkit/method/strikes.py
-  swap: ['        if not models.ladder_cfg().get("enabled"):', '        if False:']
+  swap: ['        if not models.ladder_cfg().get("enabled") or not rounds:', '        if not rounds:']
   why: the ladder replaces two strikes only when switched on
 - file: fieldkit/method/strikes.py
   swap: ['    _attempt(branch, job, kind == "own", p)', '    _attempt(branch, job, True, p)']
   why: an unproven red is not recorded as the model's own failure
+- file: fieldkit/lifecycle/models.py
+  swap: ['        v = check_model(r, role="reviewer", origin="ladder", data=data, log=False)', '        v = {"ok": True}']
+  why: the ladder never bypasses the model-spend guard (Fable without a mandate is skipped)
+- file: fieldkit/method/strikes.py
+  swap: ['(step is None or step["next"] is None)', '(True)']
+  why: a branch is parked only when the top allowed rung has failed, not after two strikes
+- file: fieldkit/buildh/task.py
+  swap: ['        step = models.climb(cur, s["attempts"])', '        step = {"next": None, "same": False, "skipped": []}']
+  why: a build-harness step out of attempts asks the ladder before it is blocked
+- file: fieldkit/buildh/task.py
+  swap: ['    if by not in ("model", "driver"):', '    if False:']
+  why: a person's own try never climbs a model rung
