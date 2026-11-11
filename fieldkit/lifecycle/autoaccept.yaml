@@ -22,8 +22,11 @@ auto_accept:
   reviewer:
     # The reviewer is asked through this command; the question goes on stdin, the answer comes back on stdout and
     # must carry one line `VERDICT: YES` or `VERDICT: NO` (anything else is a no: fail closed). {model} is the ladder
-    # rung. No tools: the reviewer reads the evidence it is given and edits nothing.
-    cmd: [claude, -p, --model, "{model}", --max-turns, "1",
+    # rung. No tools: the reviewer reads the evidence it is given and edits nothing. `--tools ""` turns off every
+    # built-in tool and --strict-mcp-config every MCP server: with only --disallowedTools a reviewer could still call
+    # Read or Grep, and under --max-turns 1 that one call ended the run with "Reached max turns (1)" and no verdict
+    # (2026-11-11, firefox-160-linux: two port attempts lost to it, both counted as a refusal).
+    cmd: [claude, -p, --model, "{model}", --max-turns, "1", --tools, "", --strict-mcp-config,
           --disallowedTools, "Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Agent,Task"]
     timeout: 900                   # seconds
     unknown_author: top            # author model unknown: top = the top rung the spend guard allows reviews;
