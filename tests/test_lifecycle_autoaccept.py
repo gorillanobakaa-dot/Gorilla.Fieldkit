@@ -109,6 +109,17 @@ def test_the_shipped_policy_is_on_by_owner_order():
     assert pol["enabled"] is True and {"adapted", "skip", "retry"} <= set(pol["kinds"])
 
 
+def test_the_shipped_reviewer_command_has_no_tools_at_all(monkeypatch):
+    """Under --max-turns 1 one tool call (a Read, a Grep) ends the run with no verdict (2026-11-11: two port attempts
+    lost). The shipped command must turn off every built-in tool and every MCP server, not only list some as
+    disallowed."""
+    monkeypatch.delenv("FIELDKIT_REVIEWER_CMD", raising=False)
+    cmd = core._cmd("opus", core.policy(core.DATA))
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert "--strict-mcp-config" in cmd
+    assert cmd[cmd.index("--max-turns") + 1] == "1"
+
+
 def test_ask_reviewer_reads_the_last_verdict_and_fails_closed(monkeypatch):
     pol = dict(ON)
     monkeypatch.setenv("FIELDKIT_REVIEWER_CMD", json.dumps([sys.executable, "-c", "print('fine\\nVERDICT: YES')"]))
