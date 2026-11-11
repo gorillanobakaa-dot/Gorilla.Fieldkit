@@ -1,0 +1,32 @@
+# P9 counsel (one module for every stronger-model call): every rule must be CAUGHT when broken.
+# fieldkit mutate --plan tests/counsel_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_counsel.py
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    above = rungs[(at + 1 if at is not None else 0):]", "    above = rungs[(at if at is not None else 0):]"]
+  why: "the advisor is never the worker's own rung or below it"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if m and any(n in m for n in never):", "    if False:"]
+  why: "Haiku is never an advisor"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    for r in (reversed(above) if how == \"top\" else above):", "    for r in reversed(above):"]
+  why: "the advisor is the NEXT usable rung, not the top one"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    up, why = m.availability(rung, data=d)\n    if not up:", "    up, why = True, ''\n    if not up:"]
+  why: "an unavailable rung is never the advisor"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if str(env.get(\"CLAUDE_CODE_DISABLE_ADVISOR_TOOL\") or \"\") not in (\"\", \"0\"):", "    if False:"]
+  why: "CLAUDE_CODE_DISABLE_ADVISOR_TOOL turns the advisor off"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if rung_index(worker, rungs) is None:", "    if False:"]
+  why: "a worker off the ladder gets no guessed advisor"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["               CLAUDE_CODE_DISABLE_ADVISOR_TOOL=\"1\")", "               )"]
+  why: "the independent reviewer never gets an advisor"
+- file: fieldkit/autopilot/run.py
+  swap: ["        if advisor and not o.timed_out and counsel.advisor_rejected(o.rc, o.out, o.err):", "        if False:"]
+  why: "a refused --advisor is retried once without it: an advisor never stops a job"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["            if isinstance(c, dict) and c.get(\"type\") == \"server_tool_use\" and c.get(\"name\") == \"advisor\":", "            if isinstance(c, dict) and c.get(\"name\") == \"advisor\":"]
+  why: "only a server_tool_use named advisor is an advisor call"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if rc == 0:\n        return False", "    if False:\n        return False"]
+  why: "a run that ended fine is never re-run without the advisor"

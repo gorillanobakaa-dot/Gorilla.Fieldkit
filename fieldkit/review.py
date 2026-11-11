@@ -213,6 +213,15 @@ def unavailable_models_lines():
             + [f"    {x}" for x in ls]) if ls else []
 
 
+def counsel_lines():
+    """P9: every stronger-model call the harness made (advisor, reviewer, tie-break, climb), from the counsel journal."""
+    try:
+        from .lifecycle import counsel
+        return counsel.lines()
+    except Exception:                                        # noqa: BLE001 - the review never fails on this line
+        return []
+
+
 def render(es, root=None):
     titles = plan_titles(root)
     out = [GOAL, FINAL, ""] + where_we_are(root)
@@ -222,6 +231,9 @@ def render(es, root=None):
     ua = unavailable_models_lines()
     if ua:
         out += [""] + ua
+    cl = counsel_lines()
+    if cl:
+        out += [""] + cl
     if not es:
         return out + ["", "Nothing waits for you."]
     out += ["", f"{len(es)} item(s) wait for you, in three groups."]

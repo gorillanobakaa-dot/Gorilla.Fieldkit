@@ -3,13 +3,13 @@
 - file: fieldkit/lifecycle/models.py
   swap: ["                out[str(k).lower()] = {\"reason\": str(rec.get(\"reason\", \"?\")), \"until\": float(rec[\"until\"]),", "                out[str(k).lower()] = {\"reason\": str(rec.get(\"reason\", \"?\")), \"until\": float(rec[\"until\"]) - 10 ** 9,"]
   why: "an unavailable model comes back only after its retry time"
-- file: fieldkit/lifecycle/models.py
-  swap: ["        up, why = availability(r, data=data)\n        if not up:", "        up, why = True, ''\n        if not up:"]
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["        up, why = m.availability(r, data=data)\n        if not up:", "        up, why = True, ''\n        if not up:"]
   why: "the ladder climb skips an unavailable rung"
-- file: fieldkit/lifecycle/autoaccept.py
-  swap: ["    up, why = models.availability(r, data=d)\n    if not up:", "    up, why = True, ''\n    if not up:"]
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    up, why = m.availability(rung, data=d)\n    if not up:", "    up, why = True, ''\n    if not up:"]
   why: "the reviewer pick skips an unavailable rung"
-- file: fieldkit/lifecycle/autoaccept.py
+- file: fieldkit/lifecycle/counsel.py
   swap: ["            return {\"reviewer\": rungs[at], \"reauthor\": r,", "            return {\"reviewer\": None, \"reauthor\": r,"]
   why: "the top available rung reviews when the cheaper model re-authors"
 - file: fieldkit/lifecycle/autoaccept.py
@@ -18,15 +18,15 @@
 - file: fieldkit/lifecycle/autoaccept.py
   swap: ["                rec[\"why\"][0] = \"parked, not refused: \" + rec[\"why\"][0]", "                pass"]
   why: "nothing available parks with its reason, not a no"
-- file: fieldkit/lifecycle/autoaccept.py
+- file: fieldkit/lifecycle/counsel.py
   swap: ["    if not hit:\n        return \"\"", "    if True:\n        return \"\""]
   why: "a limit error marks the model unavailable"
 - file: fieldkit/lifecycle/routing.py
   swap: ["    while pick >= max(fr, 0) and not models.is_available(", "    while False and not models.is_available("]
   why: "task routing skips an unavailable model"
-- file: fieldkit/lifecycle/autoaccept.py
+- file: fieldkit/lifecycle/counsel.py
   swap: ["        return {\"reviewer\": rungs[at], \"same_rung\": True,", "        return {\"reviewer\": None, \"same_rung\": True,"]
   why: "the author's own rung reviews when every higher rung is unavailable (owner rule 2026-11-11)"
-- file: fieldkit/lifecycle/autoaccept.py
-  swap: ["str((pol.get(\"reviewer\") or {}).get(\"when_top_unavailable\") or \"same_rung\") != \"reauthor\":", "True:"]
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["str(rv.get(\"when_top_unavailable\") or \"same_rung\") != \"reauthor\":", "True:"]
   why: "when_top_unavailable: reauthor is honoured"
