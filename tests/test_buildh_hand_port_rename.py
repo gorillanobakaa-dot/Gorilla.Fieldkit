@@ -42,8 +42,8 @@ def test_a_real_rename_is_still_caught():
 
 # P27 (2026-11-11): a removed line that a SIBLING hunk of the same patch adds back elsewhere is no leftover
 SB = ["a {", "  padding: 20px;", "}", "", "b {", "  color: red;", "}"]
-SH = {"lines": [" a {", "-  padding: 20px;", "+  margin: 0;", " }"]}
-SAFTER = ["a {", "  margin: 0;", "}", "", "b {", "  color: red;", "  padding: 20px;", "}"]   # sibling re-added it in b
+SH = {"lines": [" a {", "-  padding: 20px;", "+  margin-inline: 4px;", " }"]}
+SAFTER = ["a {", "  margin-inline: 4px;", "}", "", "b {", "  color: red;", "  padding: 20px;", "}"]   # sibling re-added it in b
 
 
 def test_sibling_hunk_readding_the_removed_line_is_accepted():
@@ -51,7 +51,30 @@ def test_sibling_hunk_readding_the_removed_line_is_accepted():
 
 
 def test_a_real_leftover_is_still_refused():
-    left = ["a {", "  padding: 20px;", "  margin: 0;", "}", "", "b {", "  color: red;", "  padding: 20px;", "}"]
+    left = ["a {", "  padding: 20px;", "  margin-inline: 4px;", "}", "", "b {", "  color: red;", "  padding: 20px;", "}"]
     why = firefox.hand_port_check(SB, left, SH, SB, siblings={"padding: 20px;": 1}, collateral_check=False)
     assert why and "should be gone" in " ".join(why)
     assert firefox.hand_port_check(SB, left, SH, SB, collateral_check=False)   # and with no sibling too
+
+
+SIB = [[("top: 0;", False), ("padding: 20px;", True), ("left: 0;", False)]]      # the sibling hunk adds it in rule c
+A_OLD = ["a {", "  display: block;", "  border: none;", "  padding: 20px;", "  font-size: 1em;", "  margin-top: 2px;", "}", ""]
+A_NEW = ["a {", "  display: block;", "  border: none;", "  margin-inline: 4px;", "  font-size: 1em;", "  margin-top: 2px;", "}", ""]
+C_OLD = ["c {", "  top: 0;", "  left: 0;", "}", ""]
+C_NEW = ["c {", "  top: 0;", "  padding: 20px;", "  left: 0;", "}", ""]
+D = ["d {", "  color: red;", "  margin-inline: 4px;", "}"]          # an upstream rule that already holds the added line, further down
+PB = A_OLD + C_OLD + D
+PH = {"lines": [" a {", "   display: block;", "   border: none;", "-  padding: 20px;", "+  margin-inline: 4px;", "   font-size: 1em;",
+                "   margin-top: 2px;", " }"]}
+PA_SIB = A_NEW + C_NEW + D
+PA_LEFT = A_OLD[:4] + ["  margin-inline: 4px;"] + A_OLD[4:] + C_NEW + D     # the old line left behind AND the sibling's copy
+
+
+def test_line_check_accepts_sibling_readd():
+    assert firefox.hunk_problems(PB, PA_SIB, PH)                      # without the sibling hunk it reads as a leftover
+    assert firefox.hunk_problems(PB, PA_SIB, PH, siblings=SIB) == []
+
+
+def test_line_check_still_refuses_a_real_leftover():
+    why = firefox.hunk_problems(PB, PA_LEFT, PH, siblings=SIB)
+    assert why and "should be gone" in why[0]

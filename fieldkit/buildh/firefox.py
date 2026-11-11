@@ -1090,7 +1090,7 @@ def _span(lines, hunk, lo=None):
     return None
 
 
-def hunk_problems(before, after, hunk):
+def hunk_problems(before, after, hunk, siblings=None):
     """What is still wrong in `after` (lines) for the hunk's change, counted against `before`.
 
     For every meaningful line the hunk adds, the file must hold as many copies as before plus
@@ -1120,7 +1120,13 @@ def hunk_problems(before, after, hunk):
         reach = min(len(after), sa[0] + len(hunk["lines"]) + 40)
         last_added = max((i for i in range(sa[0], reach) if _key(after[i]) in add_keys), default=sa[1] - 1)
         sa = (sa[0], max(sa[1], last_added + 1))
+        # the after-span can run further than the before-span (an added line found again far down): copies that
+        # the SAME stretch of the old file already held are not new (P27, 23.REBASE.158/0167 h5: `@media ...`)
+        more = (sa[1] - sa[0]) - (sb[1] - sb[0])
+        extra_old = [l.strip() for l in before[sb[1]:sb[1] + more]] if more > 0 else []
         before, after = before[sb[0]:sb[1]], after[sa[0]:sa[1]]
+    else:
+        extra_old = []
     b = [l.strip() for l in before]
     a = [l.strip() for l in after]
     why = []
@@ -1131,12 +1137,31 @@ def hunk_problems(before, after, hunk):
         want = max(0, b.count(k) + net)
         if net > 0 and a.count(k) < want:
             why.append(f"missing added line: {k[:100]}")
-        elif net < 0 and a.count(k) > want and pinned:
+        elif net < 0 and a.count(k) > want + extra_old.count(k) + _sibling_copies(a, k, siblings) and pinned:
             # a removal is only ever demanded inside the hunk's own span: counted file-wide, a line that lives
             # elsewhere too (`color: inherit;`) refused a correct answer (live run 12, h7); collateral() still
-            # catches removals that were not asked for
+            # catches removals that were not asked for. The patch's OTHER hunks may add the same line back (P27,
+            # 23.REBASE.158/0167 h4 -> h5): the file may then hold as many copies as they add, no more.
             why.append(f"line should be gone: {k[:100]}")
     return why
+
+
+def _sibling_copies(a, k, blocks):
+    """How many copies of `k` in `a` (stripped lines) are another hunk's of the same patch, at most as many as the
+    siblings add: a copy counts when a sibling hunk ADDS `k` and a line of that sibling hunk (not `k`) sits within
+    four lines of the copy. A leftover of the hunk's own removal sits in the old block, among lines no sibling wrote."""
+    owned = 0
+    cap = sum(1 for block in blocks or () for l, new in block if new and l == k)
+    for j, x in enumerate(a):
+        if owned >= cap:
+            break
+        if x != k:
+            continue
+        near = {a[i] for i in range(max(0, j - 4), min(len(a), j + 5)) if i != j and a[i] and not TRIVIAL.match(a[i])}
+        if any(any(new and l == k for l, new in block) and
+               {l for l, _ in block if l != k and not TRIVIAL.match(l)} & near for block in blocks or ()):
+            owned += 1
+    return owned
 
 
 def collateral(before, after, hunk, extra_removals=None):
@@ -2333,18 +2358,27 @@ def deletes_whole_file(hunk):
 def sibling_adds(t, patch, file, hunk):
     """{stripped line: copies} added by the OTHER hunks of `patch` for `file` (empty when the patch cannot be read)."""
     import collections
+    c = collections.Counter()
+    for block in sibling_blocks(t, patch, file, hunk):
+        c.update(l for l, new in block if new)
+    return c
+
+
+def sibling_blocks(t, patch, file, hunk):
+    """The OTHER hunks of `patch` for `file`, each as [(stripped line, is_added)] over its new side (context and added
+    lines, in order); [] when the patch cannot be read."""
     try:
         text = (_policy(t["meta"]["harness_root"])[0] / patch).read_text(encoding="utf-8", errors="replace")
         files = [f for f in parse_patch(text) if f["file"] == file]
     except (OSError, KeyError, ValueError, TypeError):
-        return {}
-    c = collections.Counter()
+        return []
+    out = []
     for f in files:
         for h in f["hunks"]:
             if h.get("header") == hunk.get("header") and h.get("lines") == hunk.get("lines"):
                 continue
-            c.update(l[1:].strip() for l in h["lines"] if l.startswith("+"))
-    return c
+            out.append([(l[1:].strip(), l[0] == "+") for l in h["lines"] if l[:1] in (" ", "+")])
+    return out
 
 
 def check_port(t, s, patch, file, hunk, **kw):
@@ -2400,7 +2434,7 @@ def check_port(t, s, patch, file, hunk, **kw):
         # the net-count check below would read the present lines as 'missing' (live run 10, h39)
         return {"ok": True, "why": []}
     # No flag, answer key or other shortcut may skip these checks (the overnight run of 2026-10-01 did).
-    why = hunk_problems(before, after, hunk)
+    why = hunk_problems(before, after, hunk, siblings=sibling_blocks(t, patch, file, hunk))
     extra = list(s.get("question_removals") or []) + list(s.get("renamed_removals") or [])  # driver / tier 2c
     why += collateral(before, after, hunk, extra_removals=extra or None)
     _, added, _ = hunk_sides(hunk)
