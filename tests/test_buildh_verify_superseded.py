@@ -64,3 +64,14 @@ def test_a_step_that_held_until_a_later_hand_edit_is_superseded(tmp_path):
             "args": {"file": "t.css", "hunk": _hunk(["-added-by-port: distinctive_token_here;"])}}
     assert verify.held_until_later_hand_edit(w, [port, hand], port, root) == "hand-hand-t.css-x-h1"
     assert verify.held_until_later_hand_edit(w, [port], port, root) is None        # no later hand edit: still false
+
+
+def test_a_later_harness_applied_step_supersedes_too():
+    """2026-11-11 P27 160: 22.EGRESS 008 h1 (done by the harness) put the chrome:// import back on purpose; 07.TOOLKIT h1
+    wanted the moz-src one. Only hand steps counted, so the older step read as a false completion."""
+    step = {"id": "p07-h1", "status": "done", "args": {"file": "u.mjs", "hunk": _hunk(["-  R: \"chrome://r.mjs\",", "+  R: \"moz-src:///r.sys.mjs\","])}}
+    later = {"id": "p22-h1", "status": "done", "done_by": "harness", "args": {"file": "u.mjs", "hunk": _hunk(["-  R: \"moz-src:///r.sys.mjs\",", "+  R: \"chrome://r.mjs\","])}}
+    now = ['R: "chrome://r.mjs",']
+    assert verify.superseded_by_hand([step, later], step, now) == "p22-h1"
+    later["done_by"] = "model"                                       # an unverified claim does not count
+    assert verify.superseded_by_hand([step, later], step, now) is None
