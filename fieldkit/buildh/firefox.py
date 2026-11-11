@@ -568,7 +568,7 @@ def still_holds(s, file, hunk, before, now):
     if is_cargo_checksum(file):
         return []                                       # derived data, recomputed at the export (D-158-02)
     if s.get("hand_port") or s.get("done_by") == "hand":
-        return hand_port_holds(now, hunk, before, hand_keeps(s.get("hand_note")))
+        return hand_port_holds(now, renamed_hunk(hunk, hand_renames(s.get("hand_note"))), before, hand_keeps(s.get("hand_note")))
     if file.endswith(".ftl"):
         from . import fluent
         try:
