@@ -78,3 +78,12 @@ def test_a_library_that_phones_home_by_default_is_flagged_until_the_file_turns_i
     f.write_text("import chromadb\nfrom chromadb.config import Settings\n"
                  "c = chromadb.PersistentClient(path='x', settings=Settings(anonymized_telemetry=False))\n", encoding="utf-8")
     assert tm.scan(tmp_path)["findings"] == []
+
+
+def test_linux_reads_the_stored_opt_outs_and_the_fix_script_writes_them(tmp_path):
+    conf = tmp_path / "t.conf"
+    assert tm._linux_env("NO_SUCH_TELEMETRY_VAR_X", conf) is None
+    conf.write_text("NO_SUCH_TELEMETRY_VAR_X=1\n", encoding="utf-8")
+    assert tm._linux_env("NO_SUCH_TELEMETRY_VAR_X", conf) == "1"
+    s = tm.fix_script_linux()
+    assert all(f"{k}={v}" in s for k, v in tm.MACHINE_ENV.items()) and "FINAL VERDICT: PASS" in s
