@@ -32,7 +32,9 @@
     fieldkit ship train [--dry-run]        merge the declared PRs one at a time, dependencies first, never red, with
                                            --match-head-commit; resumable (train.py); --modes lists what it prevents
     fieldkit ship ci-wait PR [--merge]     one wake when the PR's CI ends (run it in the background): green, or red
-                                           with the failed log tail; --merge merges on green (train.py)
+                                           with the failed log tail; --merge merges on green (train.py); a runner
+                                           DNS / apt / network red (build/signatures/ci-infra.yaml) is re-run by
+                                           itself with backoff, 3 times per head, never a strike
     fieldkit ship overlap [--files F...]   open PRs and live stations on the same files as this work
     fieldkit ship freeze|unfreeze          a checkout that must not move: ff pending, then parity baseline --set
 

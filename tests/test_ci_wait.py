@@ -156,6 +156,7 @@ class InfraGH(GH):
 
     def rerun_failed(self, sha):
         self.reruns.append(sha)
+        assert len(self.reruns) <= 10, "unbounded automatic re-runs"     # a lost bound fails, never hangs
         return self.rerun_ok, [9], "" if self.rerun_ok else "HTTP 403"
 
 

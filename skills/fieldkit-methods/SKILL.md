@@ -159,7 +159,10 @@ fieldkit ship train               Zero: merge the declared PRs one at a time (gh
 fieldkit ship freeze --reason T   a checkout that must not move; `unfreeze` = ff + `fieldkit parity baseline --set`
 fieldkit ship train --modes       every failure mode this closes, with its check
 fieldkit ship ci-wait PR [--merge]   one PR: run it in the BACKGROUND, one wake when CI ends (green, or red with
-                                  the failed log tail); --merge merges on green and checks the PR reads MERGED
+                                  the failed log tail); --merge merges on green and checks the PR reads MERGED.
+                                  A red that is the runner's own outage (DNS, apt fetch, network: signatures in
+                                  fieldkit/build/signatures/ci-infra.yaml, no failed test) is re-run by itself with
+                                  backoff, 3 times per head, journaled, never a strike (state INFRA when it gives up)
 ```
 Never `gh pr checks --watch && gh pr merge` or an `until gh pr checks ...; sleep` loop by hand (the tool router
 refuses both): the exit code of a watch is not the CI of the head (a re-run still running read as green).
