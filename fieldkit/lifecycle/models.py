@@ -325,44 +325,17 @@ def ladder_cfg(data=None):
 
 
 def next_model(model, own_failures, data=None):
-    """-> the model for the next attempt. Below `own_limit` own failures on this rung the same model retries; at
-    `own_limit` the next rung up. None past the top rung (park it). A model not on the ladder: None (no guess)."""
-    cfg = ladder_cfg(data)
-    rungs = [str(x).lower() for x in cfg.get("ladder") or ()]
-    low = (model or "").lower()
-    idx = next((i for i, r in enumerate(rungs) if r in low), None)
-    if idx is None:
-        return None
-    if own_failures < int(cfg.get("own_limit") or 2):
-        return model
-    return rungs[idx + 1] if idx + 1 < len(rungs) else None
+    """-> the model for the next attempt (same rung below own_limit, the next rung at it, None past the top).
+    A thin call into lifecycle/counsel.py, the one place every stronger-model path lives."""
+    from . import counsel
+    return counsel.next_model(model, own_failures, data)
 
 
 def climb(model, own_failures, data=None):
     """P9: the ladder asked for the next attempt. -> {"next": model | None, "same": bool, "skipped": [rungs]}.
-    next == model (same True): retry on this rung. A rung the spend guard refuses (check_model, reviewer role: Opus is
-    the review tier; Fable is premium and needs a mandate) is skipped, never bypassed; no allowed rung left: next None
-    (park). Ladder off or a model not on it: next None."""
-    cfg = ladder_cfg(data)
-    out = {"next": None, "same": False, "skipped": []}
-    if not cfg.get("enabled"):
-        return out
-    nxt = next_model(model, own_failures, data)
-    if nxt is None:
-        return out
-    if nxt == model:
-        return dict(out, next=model, same=True)
-    rungs = [str(x).lower() for x in cfg.get("ladder") or ()]
-    for r in rungs[rungs.index(nxt.lower()):]:
-        up, why = availability(r, data=data)
-        if not up:
-            out["skipped"].append(f"{r} ({why})")
-            continue
-        v = check_model(r, role="reviewer", origin="ladder", data=data, log=False)
-        if v["ok"]:
-            return dict(out, next=r)
-        out["skipped"].append(r)
-    return out
+    A thin call into lifecycle/counsel.py (path 4, climb): the same rung choice as the advisor and the reviewer."""
+    from . import counsel
+    return counsel.climb(model, own_failures, data)
 
 
 def tried_note(models_tried):
@@ -403,6 +376,9 @@ def record_rung(branch, job_type, frm, to, why="", skipped=(), data=None):
            "from": frm or "?", "to": to or "PARK", "why": str(why)[:200], "skipped": list(skipped)}
     with open(attempts_path(data), "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    from . import counsel
+    counsel.journal("climb", model=to or "", author=frm or "", outcome="climbed" if to else "park", why=why,
+                    job=branch, data=data, skipped=list(skipped) or None)
     return rec
 
 

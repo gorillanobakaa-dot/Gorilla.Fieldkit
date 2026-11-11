@@ -31,3 +31,14 @@ availability:
   no_verdict_cooldown_minutes: 30 # an answer with no verdict, or "max turns": likely out of budget, look again soon
   patterns: ['usage limit', 'limit reached', 'limit will reset', 'out of (extra )?usage', 'quota', 'rate.?limit',
              'budget', 'credit balance', 'overloaded', 'too many requests', 'insufficient', '\b429\b', 'max turns']
+# P9 (owner, 2026-11-11: "Unify them, don't leave them scattered"): every "ask a stronger model" path lives in ONE module,
+# fieldkit/lifecycle/counsel.py, tried cheapest first: advise (Claude Code's own advisor in the worker's session, no
+# restart) -> review (independent, higher rung) -> tiebreak (highest allowed rung) -> climb (the job retries a rung up)
+# -> park only past the top. One rung choice for all four: the next usable rung on escalation.ladder above the worker
+# (availability + spend guard + mandate models_allowed); one journal for all four.
+counsel:
+  advisor:
+    enabled: true                 # every headless claude worker gets `--advisor <the next usable rung above it>`;
+                                  # none above (or Fable without a mandate and Opus out of budget): no advisor, no error
+    never: [haiku]                # Claude Code: Haiku can call an advisor but never be one
+  journal: counsel.jsonl          # in the lifecycle state folder; `fieldkit overhead counsel`, `fieldkit review`

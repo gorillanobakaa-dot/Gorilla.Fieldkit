@@ -10,18 +10,18 @@
   swap: ["    if ans.get(\"yes\"):", "    if True:"]
   why: "the reviewer saying no must refuse"
 - file: fieldkit/lifecycle/autoaccept.py
-  swap: ["    if (author or \"\").lower() and pk[\"reviewer\"].lower() in (author or \"\").lower():", "    if False:"]
+  swap: ["    if (author or \"\").lower() and pk[\"reviewer\"].lower() in (author or \"\").lower() and not pk.get(\"same_rung\"):", "    if False:"]
   why: "the reviewer is never the author's own model"
-- file: fieldkit/lifecycle/autoaccept.py
-  swap: ["    for r in rungs[at + 1:]:", "    for r in rungs[at:]:"]
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    above = rungs[(at + 1 if at is not None else 0):]", "    above = rungs[(at if at is not None else 0):]"]
   why: "the reviewer is on a HIGHER rung than the author"
 - file: fieldkit/lifecycle/autoaccept.py
   swap: ["    if kind not in (pol.get(\"kinds\") or []):", "    if False:"]
   why: "a kind the policy does not list waits for the owner"
-- file: fieldkit/lifecycle/autoaccept.py
+- file: fieldkit/lifecycle/counsel.py
   swap: ["    yes = found[-1].upper() == \"YES\"", "    yes = found[0].upper() == \"YES\""]
   why: "the reviewer's LAST verdict counts"
-- file: fieldkit/lifecycle/autoaccept.py
+- file: fieldkit/lifecycle/counsel.py
   swap: ["    if r.returncode != 0 or not found:", "    if not found:"]
   why: "a reviewer that fails is a no"
 - file: fieldkit/lifecycle/autoaccept.py
@@ -79,8 +79,8 @@
 - file: fieldkit/lifecycle/autoaccept.py
   swap: ["    if holds == \"reviewer\":\n        rec[\"override\"]", "    if True:\n        rec[\"override\"]"]
   why: "the check's side holding never overrides the check"
-- file: fieldkit/lifecycle/autoaccept.py
-  swap: ["    above = rungs[(at + 1 if at is not None else 0):]", "    above = rungs"]
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    for r in (reversed(above) if how == \"top\" else above):", "    for r in above:"]
   why: "the tie-breaker is above the author's rung"
 - file: fieldkit/lifecycle/autoaccept.py
   swap: ["    if not done:\n", "    if False:\n"]
