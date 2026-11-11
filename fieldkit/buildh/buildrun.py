@@ -822,8 +822,10 @@ def run(task_id, force=False, say=print, stages=("build", "package")):
         rows = cg.gate(task_id, harness_root=None, write=True)
         bad = [r for r in rows if not r["ok"]]
         stale = lambda r: r["check"].startswith("final checks passed") or (r["check"] == "every step is done" and "final-checks" in r["evidence"])
-        if bad and all(stale(r) for r in bad):
-            # the only thing missing is a final re-check after the last change: run it (a script step, no model)
+        if bad and any(stale(r) for r in bad):
+            # a final re-check after the last change is missing: run it (a script step, no model; kind `retry`).
+            # P9 (2026-11-11): before, this ran only when staleness was the ONLY failing row, so one other row (an
+            # audit row) left the re-run to the owner (`unblock final-checks retry`, firefox-160-linux, ~6 hours idle)
             say("gate: final checks are stale - re-running them")
             task.unblock(task_id, "final-checks", "retry")
             task.advance(task_id)

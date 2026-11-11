@@ -20,7 +20,15 @@ auto_accept:
   offer_strip:
     - ';?\s*its added lines must be rewritten with the new names by a person, never by a model'
     - '\.?\s*Not a job for a model; the owner decides[^.]*\.?'
-  max_retries: 2                   # automatic retries of one blocked check step (each one needs the checks + reviewer)
+  max_retries: 2                   # automatic retries of one blocked step: a model's retry request (checks + reviewer),
+                                   # or a blocked CHECK step re-run by the harness after a commit (P9: running a check
+                                   # again cannot weaken it; the same check decides, so no reviewer is asked)
+  # P9 (owner, 2026-11-11: "the harness has a pre-approval at the beginning of the session ... And you just do it"):
+  # when no independent reviewer can be had (none usable, out of budget, not answering) and every check passed, a
+  # mandate in force whose owner_steps door grants the step (fieldkit/mandate/owner-wide.yaml, owner_steps:) lets the
+  # harness take it, journaled "pre-approved by mandate <name> (seal ...)". A reviewer's NO is never overruled.
+  # false: such an item waits for the owner, as before. No mandate granting it: no change either.
+  mandate_door: true
   reviewer:
     # The reviewer is asked through this command; the question goes on stdin, the answer comes back on stdout and
     # must carry one line `VERDICT: YES` or `VERDICT: NO` (anything else is a no: fail closed). {model} is the ladder

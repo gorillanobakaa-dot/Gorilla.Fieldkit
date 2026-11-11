@@ -329,6 +329,30 @@ def tiebreaks(task_id, pol, asker=None, pick=None):
     return out
 
 
+def retry_scripts(task_id, pol):
+    """A blocked CHECK step (final-checks and the like) is run again by the harness once the tree changed after it
+    failed, as many times as max_retries allows (kind `retry` in autoaccept.yaml). No reviewer: running a check again
+    cannot weaken it, and the same check decides. Before 2026-11-11 this waited for `unblock ... retry` from the owner
+    (firefox-160-linux: a job idle for ~6 hours). -> [step ids set back to pending]"""
+    if "retry" not in (pol.get("kinds") or []):
+        return []
+    t = task.load(task_id)
+    cap, out = int(pol.get("max_retries") or 0), []
+    for s in t["steps"]:
+        if s["kind"] != "script" or s["status"] != "blocked" or int(s.get("auto_retries") or 0) >= cap:
+            continue
+        failed_at = _last_fail_time(t, s["id"])
+        head_t = task._git(t, "log", "-1", "--format=%ct", check=False).strip()
+        if not (failed_at and head_t.isdigit() and int(head_t) > failed_at):
+            continue
+        s.update(status="pending", attempts=0, last_why=None, auto_retries=int(s.get("auto_retries") or 0) + 1)
+        task.journal(t, "auto-retry", step=s["id"], kind="retry", why="a commit landed after the check failed")
+        out.append(s["id"])
+    if out:
+        task.save(t)
+    return out
+
+
 def sweep(task_id, pol=None, in_flight=None):
     """-> [{"step", "kind", "accepted"}]. No-op while a model step is in flight or the tree has changes."""
     pol = core.policy() if pol is None else pol
@@ -340,6 +364,8 @@ def sweep(task_id, pol=None, in_flight=None):
         task.save(t)
     if not Path(t["workdir"], ".git").exists() or task.changed_files(t):
         return out
+    retry_scripts(task_id, pol)
+    t = task.load(task_id)
     for sid in [x["id"] for x in t["steps"] if x["status"] == "proposed" and not x.get("auto_review")]:
         t = task.load(task_id)
         s = next(x for x in t["steps"] if x["id"] == sid)
@@ -386,7 +412,8 @@ def sweep(task_id, pol=None, in_flight=None):
                 s[field]["decided"] = rec["id"]
             elif rec.get("accepted"):
                 if kind == "skip":
-                    s.update(status="done", skipped_by_harness=rec["id"], last_why=None)
+                    s.update(status="done", skipped_by_harness=rec["id"], last_why=None,
+                             skip_reason=(s[field].get("why") or "").strip()[:1000] or (rec.get("why") or "")[:1000])
                     task.checkpoint(t, f"{sid} (nothing to port: accepted by the harness, reviewer {rec['reviewer']})")
                 else:
                     s.update(status="pending", attempts=0, last_why=None, auto_tried=False,

@@ -46,6 +46,37 @@ retries, climbs to the next rung, or parks the step at the top rung.
 | `leakgate-approve`, `leakgate-dispositions`, `leakgate-rejudge`, `leakgate-baseline` (`fieldkit/leakgate/allow.py`, `dispositions.py`, `buildh/cli.py`) | what the browser may contact (THREAT MODEL: every channel is a door) | **owner**: a leak-gate exemption is a privacy decision; a reviewer model must never open a door |
 | release publish (`fieldkit/buildh/releasepublish.py`) | publishing | **owner**: push/release mandate |
 
+## No owner-only stall (P9, 2026-11-11)
+
+firefox-160-linux sat ~6 hours on two owner commands: the audit row "no step skipped" failed on every skip with no way
+to record a reason, and a stale `final-checks` waited for an owner `retry`. Every owner-only stop a long job can hit
+in build-harness and lifecycle now goes one of these ways:
+
+| Stop | Now |
+|---|---|
+| audit row `journal: no step skipped without a reason` (`fieldkit/buildh/audit.py`) | passes for a step whose LATEST decision is a skip with a reason: the owner's skip with `--note TEXT` (the note is journaled; a skip with no note is refused before the passphrase is asked), or an I-04 `auto-accept` of kind `skip` with a reviewer (its why is the reason). Distinct steps count, not repeats; a later retry undoes a skip. A bare skip still fails (`tests/test_buildh_no_owner_stall.py`, proven with `fieldkit mutate`) |
+| a skip both rungs agree on | **core**: `request ... skip`, checks + independent reviewer (I-04); the reviewer's why is the recorded reason |
+| a blocked CHECK step after a commit landed (`autoport.retry_scripts`, in the sweep) | **harness**: re-run automatically, kind `retry`, capped by `max_retries`. Running the same check again cannot weaken it, so no reviewer is asked |
+| a stale `final-checks` (changes after its last pass, `buildrun.py`) | **harness**: re-run when ANY failing row is stale (before: only when all were) |
+| no independent reviewer can be had (none usable, the author's own model, out of budget, not answering) and every check passed | **mandate door**: a mandate in force whose `owner_steps` grants the step lets the harness take it, journaled `pre-approved by mandate <name> (seal ..., key ...)` in the auto-accept ledger and the mandate log, listed in `fieldkit review`. A reviewer's NO is never overruled; `mandate_door: false` in `autoaccept.yaml` turns it off |
+| BLOCKED / PROPOSED / DEFERRED with nothing else left (`task.owner_wait`) | the task record carries `waiting_owner` (state, steps, why, the command; `build-harness status` shows it), the journal gets `waiting-owner`, and `fieldkit inbox add` files it once (kind `decision`: the agent ledger Zero reads). Everything that does not depend on it already went on |
+| `approve` | can be pre-approved through the mandate's existing `owner_approvals` list |
+| `deferred --do` (drop), `decide`, the leak-gate verbs, `rewind`/`withdraw`, release publish | stay the owner's (decision register, THREAT MODEL, push mandate); a job reaching one gets `waiting_owner` + the ledger row, never a silent stop |
+
+The session-start pre-approval is the owner-wide mandate. Its schema (the template `fieldkit/mandate/owner-wide.yaml`
+and `owner-wide.prereqs.yaml`) carries the door:
+
+```yaml
+owner_steps:
+  unblock: [skip, retry]   # the unblock words the harness may take
+  accept: true             # accept a finished piece of work (an adapted port)
+  when: [evidence]         # every deterministic check passed and the reason is recorded
+```
+
+Without the grant in the owner's SIGNED file, behavior is as before. A model never signs the mandate and never types
+an owner command: the draft goes to `state/mandates/owner-wide-owner-steps.yaml` and the one renew command to the
+owner's inbox (typed yes + passphrase).
+
 ## The rest of Fieldkit
 
 | Gate | Protects | Now |

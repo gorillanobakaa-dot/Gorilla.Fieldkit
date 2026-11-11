@@ -146,7 +146,7 @@ def test_skip_is_refused_from_an_agents_shell(job, monkeypatch):
     task.packet("t1")          # runs the prepare step, which adds the model steps
     monkeypatch.setattr(task, "owner_terminal", lambda: False)
     with pytest.raises(task.Refused, match="real terminal"):
-        task.unblock("t1", "fix-alpha", "skip")
+        task.unblock("t1", "fix-alpha", "skip", note="no change needed")
     assert next(s for s in task.load("t1")["steps"] if s["id"] == "fix-alpha")["status"] != "done"
 
 
@@ -162,9 +162,11 @@ def test_the_owner_at_a_terminal_can_skip_a_model_step(job, monkeypatch):
     task.approve("t1", "owner")
     task.packet("t1")          # runs the prepare step, which adds the model steps
     monkeypatch.setattr(task, "owner_terminal", lambda: True)
-    task.unblock("t1", "fix-alpha", "skip")
+    with pytest.raises(task.Refused, match="--note"):
+        task.unblock("t1", "fix-alpha", "skip")                 # the reason is part of a skip (P9)
+    task.unblock("t1", "fix-alpha", "skip", note="nothing to port")
     s = next(s for s in task.load("t1")["steps"] if s["id"] == "fix-alpha")
-    assert s["status"] == "done" and s["skipped_by_owner"]
+    assert s["status"] == "done" and s["skipped_by_owner"] and s["skip_reason"] == "nothing to port"
 
 
 def test_a_blocked_step_does_not_halt_the_rest_and_the_run_ends_with_the_list(job):

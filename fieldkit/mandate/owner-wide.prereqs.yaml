@@ -46,6 +46,11 @@ release: ask
 never: [force_push, delete_outside_scratch, credentials, change_hard_lines, change_this_mandate, spend_money,
         kernel_install_or_boot]
 ask_when: [outside_mandate]
+# P9: the same owner_steps door as the template owner-wide.yaml (the harness takes these steps under your seal).
+owner_steps:
+  unblock: [skip, retry]
+  accept: true
+  when: [evidence]
 machine_prerequisites:
   - id: scratch-defender-exclusion
     os: windows

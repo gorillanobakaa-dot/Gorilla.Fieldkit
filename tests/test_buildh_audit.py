@@ -17,10 +17,29 @@ def test_copying_the_old_source_as_an_answer_key_is_caught():
     assert not verdicts(ev)["journal: no answer key copied into the new source"]
 
 
-def test_a_skipped_step_is_caught():
+NAME = "journal: no step skipped without a reason"
+
+
+def test_a_skip_with_no_reason_still_fails():
     ev = [{"event": "unblock", "step": "port-x", "how": "skip"}]
-    assert not verdicts(ev)["journal: no step skipped"]
-    assert verdicts([{"event": "unblock", "step": "port-x", "how": "retry"}])["journal: no step skipped"]
+    assert not verdicts(ev)[NAME]
+    assert not verdicts([{"event": "unblock", "step": "port-x", "how": "skip", "note": "  "}])[NAME]
+    assert verdicts([{"event": "unblock", "step": "port-x", "how": "retry"}])[NAME]
+
+
+def test_a_skip_with_its_reason_passes_and_a_repeat_is_not_counted_twice():
+    ev = [{"event": "unblock", "step": "port-x", "how": "skip", "note": "upstream already has it"}] * 3
+    assert verdicts(ev)[NAME]
+    evidence = [e for n, _ok, e in audit.journal_checks(ev) if n == NAME][0]
+    assert "1 step(s) skipped" in evidence
+
+
+def test_the_latest_skip_of_a_step_decides():
+    bare_then_reason = [{"event": "unblock", "step": "p", "how": "skip"},
+                        {"event": "unblock", "step": "p", "how": "skip", "note": "why"}]
+    assert verdicts(bare_then_reason)[NAME]
+    reason_then_bare = bare_then_reason[::-1]
+    assert not verdicts(reason_then_bare)[NAME]
 
 
 def test_done_while_final_checks_were_failing_is_caught_but_a_later_pass_clears_it():

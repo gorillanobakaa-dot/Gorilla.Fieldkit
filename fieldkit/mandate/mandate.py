@@ -78,7 +78,11 @@ from pathlib import Path
 import yaml
 
 REQUIRED = ("project", "goal", "expires", "repos", "never")
-ACTIONS = ("push", "tag", "merge_main", "release_tag", "install", "mac", "release", "approval")
+ACTIONS = ("push", "tag", "merge_main", "release_tag", "install", "mac", "release", "approval", "owner_step")
+# P9 (owner, 2026-11-11: "the harness has a pre-approval at the beginning of the session where the user approves
+# everything you need to do"): the owner-only steps of a long job a mandate may pre-approve, and the words for each
+OWNER_STEP_VERBS = {"unblock": ("skip", "retry"), "accept": None}
+OWNER_STEP_WHEN = ("evidence",)
 # owner approvals no mandate can grant: the mandate's own key, and the owner's signature on a harness change
 NEVER_GRANTED = re.compile(r"\bmandate\b|gorilla_owner_approved", re.I)
 # never pushed under a mandate, whatever a pattern says: the base branches move only by `fieldkit ship merge`
@@ -272,6 +276,7 @@ def doors(m):
         out.append(f"sessions have full read/write access to the Mac '{name}'")
     for a in m.get("owner_approvals") or []:
         out.append(f"sessions may run, as if you approved it: {a}")
+    out += owner_step_doors(m)
     for role in ("orchestrator", "backup"):
         b = m.get(role)
         if isinstance(b, dict) and b.get("device"):
@@ -289,6 +294,30 @@ def doors(m):
     out.append("never: " + ", ".join(m.get("never") or []))
     out.append(f"ends: {m['expires']}")
     return out
+
+
+def owner_steps(m):
+    """-> the mandate's owner_steps door, normalised: {"unblock": [hows], "accept": bool, "when": [conditions]}.
+    Anything not understood opens nothing (fail closed)."""
+    d = m.get("owner_steps")
+    if not isinstance(d, dict):
+        return {"unblock": [], "accept": False, "when": list(OWNER_STEP_WHEN)}
+    ub = d.get("unblock") or []
+    ub = [str(x) for x in (ub if isinstance(ub, list) else [ub]) if str(x) in OWNER_STEP_VERBS["unblock"]]
+    when = d.get("when")
+    when = [str(x) for x in (when if isinstance(when, list) else [when] if when else [])]
+    return {"unblock": ub, "accept": d.get("accept") is True, "when": when or list(OWNER_STEP_WHEN)}
+
+
+def owner_step_doors(m):
+    o = owner_steps(m)
+    if not (o["unblock"] or o["accept"]):
+        return []
+    what = [f"unblock {h}" for h in o["unblock"]] + (["accept a finished piece of work"] if o["accept"] else [])
+    return [f"the HARNESS ITSELF (never a model typing a command) may take these owner-only steps of a long job when "
+            f"the independent reviewer cannot be had: {', '.join(what)}; only when: {', '.join(o['when'])} (every "
+            f"deterministic check of the item passed and its reason is recorded). A reviewer's NO is never overruled; "
+            f"each one is journaled 'pre-approved by mandate' and listed in `fieldkit review`"]
 
 
 def not_covered():
@@ -555,6 +584,23 @@ def allows(path, action, today=None, repo_path=None, commit=None, provers=None, 
                 return "allow", f"release.cycle.{proj} lists {ver}"
             return "ask", f"release.cycle does not list {proj} {ver or '(no version)'}: the owner writes the version"
         return "ask", "release: the owner's (only release.cycle with exact versions opens it)"
+    if action == "owner_step":
+        # p: verb ("unblock" | "accept"), how ("skip" | "retry" for unblock), evidence (the passed checks and the
+        # reason, as text), checks_passed (bool, found by the caller's deterministic checks)
+        o = owner_steps(m)
+        verb, how = str(p.get("verb") or ""), str(p.get("how") or "")
+        if verb == "unblock" and how not in o["unblock"]:
+            return "ask", f"owner_steps.unblock does not list {how or '(nothing)'}"
+        if verb == "accept" and not o["accept"]:
+            return "ask", "owner_steps.accept is not true"
+        if verb not in OWNER_STEP_VERBS:
+            return "ask", f"owner_steps has no verb {verb!r} ({', '.join(OWNER_STEP_VERBS)})"
+        unknown = [w for w in o["when"] if w not in OWNER_STEP_WHEN]
+        if unknown:
+            return "ask", f"owner_steps.when names a condition no tool proves: {', '.join(unknown)}"
+        if "evidence" in o["when"] and not (str(p.get("evidence") or "").strip() and p.get("checks_passed") is True):
+            return "ask", "owner_steps.when evidence: the item's checks did not all pass or it carries no reason"
+        return "allow", f"owner_steps.{verb}{(' ' + how) if how else ''} (when: {', '.join(o['when'])})"
     return "ask", f"'{action}' is not something a mandate grants ({', '.join(ACTIONS)})"
 
 
