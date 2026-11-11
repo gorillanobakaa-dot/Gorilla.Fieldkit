@@ -475,7 +475,7 @@ def test_every_ship_subcommand_is_classed_for_hard_line_1(nostop):
     from fieldkit.method.ship import ACTIONS
     publishing = {"push", "merge", "release", "prune", "gh-release"}
     reading = {"status", "sync", "commit", "audit", "tags", "release-ready", "ready", "train", "overlap", "freeze",
-               "unfreeze", "ci-wait", "update", "proof", "ci-record"}
+               "unfreeze", "ci-wait", "update", "proof", "ci-record", "ci-local"}
     assert set(ACTIONS) == publishing | reading, set(ACTIONS) ^ (publishing | reading)
     for a in sorted(ACTIONS):
         want = "deny" if a in publishing else "allow"

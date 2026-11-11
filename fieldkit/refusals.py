@@ -105,6 +105,13 @@ def is_readonly(command):
     return bool(c) and any(re.match(p, c, re.I) for p in policy().get("readonly", []))
 
 
+def is_stop(text):
+    """The harness's own deliberate stop (refusals_policy.yaml stops: rotation, budget, checkpoint): it refuses reads on
+    purpose, so it is never a read-only false positive and never a defect."""
+    t = " ".join((text or "").split())
+    return bool(t) and any(re.match(p, t, re.I) for p in policy().get("stops", []))
+
+
 def machine():
     """This computer's tag ([VAIO-LNX], [L15-WIN]); the host name when the household has none. Cached."""
     if not _machine_cache:
@@ -144,9 +151,14 @@ def defects(root=None):
     return _load(root, DEFECTS, {})
 
 
+def _counted(root, key):
+    """The ledger rows of `key` that count toward a defect: every one but the harness's deliberate stops (is_stop)."""
+    return [r for r in _rows(root) if r.get("key") == key and not r.get("stop") and not is_stop(r.get("text"))]
+
+
 def _evaluate(root, key):
     """Open (or reopen) the defect for `key` when the ledger, both computers together, says so. -> the defect or None."""
-    rows = [r for r in _rows(root) if r.get("key") == key]
+    rows = _counted(root, key)
     if not rows:
         return None
     ro = [r for r in rows if r.get("readonly") and r.get("job")]
@@ -183,6 +195,8 @@ def record(tool, text, session=None, root=None, command=None, job=None, machine_
             row["readonly"] = is_readonly(command)
         if readonly:
             row["readonly"] = True
+        if is_stop(text):                              # a deliberate stop: kept for overhead, never a defect
+            row["readonly"], row["stop"] = False, True
         if job:
             row["job"] = job
         if lost_min is not None:
@@ -218,7 +232,7 @@ def blocking_defect(brief_hash, tasks, root=None):
     """-> the open read-only defect that a task with this brief hash hit, else None: the task runner does not start the
     brief again until the cause is known and the defect is closed with a test."""
     for dfx in defects(root).values():
-        if dfx.get("status") == "open" and dfx.get("blocks"):
+        if dfx.get("status") == "open" and dfx.get("blocks") and not is_stop(dfx.get("last")):   # a stop opened before the fix
             if any((tasks.get(j) or {}).get("hash") == brief_hash for j in dfx.get("jobs", [])):
                 return dfx
     return None
@@ -253,7 +267,7 @@ def close(key, test, root=None, run=None):
         ok, out = (run or _pytest)(test)
         if not ok:
             return False, f"test {test} does not pass: {out}"
-    cur.update(status="closed", blocks=False, test=test, closed_count=sum(1 for r in _rows(root) if r.get("key") == key), closed=time.strftime("%Y-%m-%dT%H:%M:%S"))
+    cur.update(status="closed", blocks=False, test=test, closed_count=len(_counted(root, key)), closed=time.strftime("%Y-%m-%dT%H:%M:%S"))
     _save(root, DEFECTS, d)
     p = state(root) / PROBLEMS
     try:
