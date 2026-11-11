@@ -35,6 +35,10 @@
                                            with the failed log tail; --merge merges on green (train.py); a runner
                                            DNS / apt / network red (build/signatures/ci-infra.yaml) is re-run by
                                            itself with backoff, 3 times per head, never a strike
+    fieldkit ship ci-local PR [--os OS]    GitHub's runner down (a ci-infra red, or the job never started): the SAME
+                                           workflow steps at the PR head in a clean worktree here (Windows: over the
+                                           cable); green = a signed proof posted as the job's status; a red check
+                                           step = a strike; never for a test failure (cilocal.py; owner 2026-11-11)
     fieldkit ship overlap [--files F...]   open PRs and live stations on the same files as this work
     fieldkit ship freeze|unfreeze          a checkout that must not move: ff pending, then parity baseline --set
 
@@ -554,10 +558,11 @@ def merge(repo=".", base="main", mandate=_mandate, run=subprocess.run, verdict_c
 
 
 TRAIN = ("ready", "train", "overlap", "freeze", "unfreeze", "ci-wait")             # train.py
+LOCAL = ("ci-local",)                                                               # cilocal.py
 PROOF = {"update": "update", "proof": "prove", "ci-record": "ci-record"}  # mergeproof.py
 #: every subcommand; tests/test_autopilot_hardlines.py makes each one be classed publishing or not for hard line 1
 ACTIONS = ("status", "sync", "push", "merge", "commit", "audit", "release", "prune", "tags", "gh-release",
-           "release-ready", *TRAIN, *PROOF)
+           "release-ready", *TRAIN, *PROOF, *LOCAL)
 
 
 def main(argv=None, prog="fieldkit ship"):
@@ -565,6 +570,9 @@ def main(argv=None, prog="fieldkit ship"):
     if argv[:1] and argv[0] in TRAIN:
         from . import train
         return train.main(argv, prog)
+    if argv[:1] and argv[0] in LOCAL:
+        from . import cilocal
+        return cilocal.main(argv[1:], f"{prog} {argv[0]}")
     if argv[:1] and argv[0] in PROOF:
         from . import mergeproof
         return mergeproof.main([PROOF[argv[0]], *argv[1:]], f"{prog} {argv[0]}")

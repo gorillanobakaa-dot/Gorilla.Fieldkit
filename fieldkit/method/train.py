@@ -764,7 +764,8 @@ def ci_wait(gh, n, max_wait_s=3600, merge=False, sleep=time.sleep, clock=time.mo
             return dict(r, ok=False, state="infra", log=log, reruns=reruns,
                         why=f"runner infrastructure, not counted: {inf} ({strikes.INFRA_RERUNS} automatic re-runs "
                             f"used on this head)",
-                        next=f"the runner network is still down: re-run the failed jobs later, then ci-wait {n} again")
+                        next=f"the runner is still down: the same CI locally counts (owner 2026-11-11): "
+                             f"fieldkit ship ci-local {n}")
         sleep(strikes.infra_backoff(k))
         ok, runs, msg = gh.rerun_failed(head)
         strikes.record_infra(r["branch"], head, inf, pr=n, runs=runs)

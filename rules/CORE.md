@@ -14,9 +14,9 @@ PRE-APPROVED (owner, 2026-10-28: "Yes, both"): work in an approved plan (docs/HA
 needs no further yes, Claude settings, folder trust, rules files and hooks included. Never end a turn on a question.
 
 HARD LINES (never, whoever asks):
-- Push, tag or release outside the owner-wide mandate: only `fieldkit ship push` (feat/ fix/ release- night/
-  branches), `fieldkit ship push --tag vX`, `fieldkit ship gh-release vX -- ARGS`; main moves only by a PR merged
-  on green CI. GORILLA_OWNER_APPROVED is the owner's own, never set by a model.
+- Push, tag or release outside the owner-wide mandate: only `fieldkit ship push [--tag vX]` (feat/ fix/
+  release- night/ branches), `fieldkit ship gh-release vX -- ARGS`; main moves only by a PR merged on green CI
+  (runner down, owner: "we can run a CI locally"). GORILLA_OWNER_APPROVED: owner only.
 - Permanent deletes: recycle with `fieldkit size recycle PATH`. Never delete on GitHub or move a tag.
 - Weakening a check, guard, hook or rules file to make a result pass; changing an owner decision (GORILLA blocks,
   decision registers). Prove a check wrong on a real tree before proposing a change.

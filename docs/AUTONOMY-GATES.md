@@ -102,6 +102,29 @@ Looked at and kept (each is a single command, a hard line, or a guard on what a 
 | `release-publish` and `night-pack arm` "Type yes" | release outside `fieldkit ship` (hard line 1); `night-pack arm` is itself the one pre-approval for the night |
 | `mandate approve/renew` typed yes + passphrase | the single approval itself |
 
+## GitHub's runner down: the same CI runs locally and counts (P9, 2026-11-11)
+
+The owner, 2026-11-11, verbatim: "Add a rule. If the GitHub's remote machine is not available, we can run a CI
+locally. We have all the infrastructure needed. We have all the dependencies. We have all the programs." (The owner
+changing his own merge rule, hard line 1: main moves only by a PR merged on green CI.) Evidence: PR 461's Linux job
+failed 7 times from 13:59 to 16:43 at the apt step ("Temporary failure resolving 'archive.ubuntu.com'"), no test
+ran; Windows passed; githubstatus.com showed no incident; on the Debian machine the PR's tests passed (83 passed).
+
+| Place | Was | Now |
+|---|---|---|
+| a PR whose GitHub job for one OS fails by a runner-infrastructure signature (`build/signatures/ci-infra.yaml`), or never starts within 30 min | `ship ci-wait` re-ran it 3 times per head, then waited for GitHub | `fieldkit ship ci-local PR` (`fieldkit/method/cilocal.py`; ci-wait names it when its re-runs are spent) runs THE SAME workflow job for that OS (`.github/workflows/tests.yml` at the head: its steps, `if:`, `shell:`, `timeout-minutes:`) at the PR's exact head commit in a clean scratch worktree: Linux here, Windows on a Windows device over the cable (`fieldkit ci-steps` as a signed run job). Green: a proof (commit, OS, every step's exit code and seconds, the log's sha256, host) signed with this computer's review key, kept in `state/ci-local/`, posted as a commit status with the CI job's own context, so auto-merge counts it |
+
+What it never does (each one a test, `tests/cilocal_mutations.yaml` proves each can fail):
+
+| Never | Why |
+|---|---|
+| a proof for a test failure on GitHub | only a known runner outage is infrastructure; a log that names a failed test never is, and anything unrecognised is a test failure (fail closed) |
+| a proof for any commit but the PR head | the head is read before and after the run; a full 40-hex match or nothing |
+| a proof for the other OS | the OS of the job is the OS of the machine that ran it; the other OS's GitHub green is still required |
+| a red local check step without a strike | it counts as a GitHub red would (TWO STRIKES); a red in setup (checkout, venv, pip) proves nothing either way |
+| a workflow step it cannot reproduce | an unknown action, expression or condition refuses the whole run |
+| merging past a ruleset that pins the check to the GitHub Actions app | a commit status cannot satisfy it; that is said, and the owner gets one inbox item with the ruleset change |
+
 ## The rest of Fieldkit
 
 | Gate | Protects | Now |

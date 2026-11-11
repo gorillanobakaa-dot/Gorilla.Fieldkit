@@ -280,3 +280,31 @@ def test_a_guard_refusal_of_a_read_only_command_is_recorded_as_read_only(tmp_pat
     payload = {"tool_name": "Bash", "tool_input": {"command": "fieldkit ship release-ready v0.9.0"}, "session_id": "s1"}
     claude_hook.main(stdin=io.StringIO(_json.dumps(payload)), stdout=io.StringIO())
     assert seen.get("tool") == "guard" and seen.get("command") == "fieldkit ship release-ready v0.9.0", seen
+
+
+ROTATION = ("SESSION ROTATION: this session is over the ROTATE line (context per call 151k >= ROTATE 150k). Write "
+            "/s/jobs/T-20261111-165122-af6c4d/work/HANDOFF.md now, commit your work in progress on your branch, and "
+            "end your turn; the harness restarts the job from it in a fresh session.")
+
+
+def test_a_budget_stop_of_a_read_is_not_a_defect_and_never_blocks_the_restart(tmp_path, me, monkeypatch):
+    # 2026-11-11: P9's worker rotated; the rotation guard refused its `grep` (on purpose: past ROTATE a read costs as
+    # much as a write), the ledger took that for a read-only false positive and task start refused the restart
+    monkeypatch.setenv("FIELDKIT_JOB_DIR", "/s/jobs/T-20261111-165122-af6c4d/work")
+    for why in (ROTATION, "BUDGET EXHAUSTED (wall: 120 of 120 min). Write HANDOFF.md now",
+                "CHECKPOINT REQUIRED at 80 % of the turns budget (turns 8 of 10). First write HANDOFF.md"):
+        for _ in range(3):
+            refusals.record("guard", why, command="grep -n x docs/AUTONOMY-GATES.md", root=tmp_path)
+    assert refusals.defects(tmp_path) == {}
+    rows = refusals._rows(tmp_path)
+    assert len(rows) == 9 and all(r["stop"] and not r["readonly"] for r in rows)    # still counted for overhead
+    assert refusals.blocking_defect("h", {"T-20261111-165122-af6c4d": {"hash": "h"}}, tmp_path) is None
+    refusals.record("guard", "HARD LINE 1 (test)", command="grep -n x y", root=tmp_path)   # a real read refusal still is
+    assert refusals.blocking_defect("h", {"T-20261111-165122-af6c4d": {"hash": "h"}}, tmp_path)
+
+
+def test_a_stop_defect_opened_before_the_fix_no_longer_blocks(tmp_path, me):
+    key = refusals.key_of("guard", ROTATION)
+    refusals._save(tmp_path, refusals.DEFECTS, {key: {"key": key, "status": "open", "blocks": True, "readonly": True,
+                                                      "jobs": ["T-1"], "last": ROTATION}})
+    assert refusals.blocking_defect("h", {"T-1": {"hash": "h"}}, tmp_path) is None

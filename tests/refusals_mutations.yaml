@@ -65,3 +65,18 @@
   - '        if any((tasks.get(j) or {}).get("hash") == brief_hash'
   - '        if not any((tasks.get(j) or {}).get("hash") == brief_hash'
   why: the task runner blocks the wrong brief
+- file: fieldkit/refusals.py
+  swap:
+  - '        if is_stop(text):'
+  - '        if False:'
+  why: a budget stop of a read opens a blocking defect again (the 2026-11-11 restart refusal)
+- file: fieldkit/refusals.py
+  swap:
+  - ' and not is_stop(dfx.get("last")):'
+  - ':'
+  why: a stop defect opened before the fix still blocks the restart
+- file: fieldkit/refusals.py
+  swap:
+  - ' and not r.get("stop") and not is_stop(r.get("text"))]'
+  - ']'
+  why: stop rows count toward a defect
