@@ -85,8 +85,10 @@ def test_the_ladder_picks_the_lowest_allowed_rung_above_the_author_and_skips_a_r
     pk = core.pick_reviewer("claude-sonnet-5-5", ON, data=LADDER, check=lambda r: {"ok": r != "opus"})
     assert pk["reviewer"] == "fable" and "opus" in pk["why"]
     top = core.pick_reviewer("claude-fable-5-1", ON, data=LADDER, check=allow_all)
-    # P9 (owner 2026-11-11): nothing above the top rung is no refusal: the next rung down authors, the top one reviews
-    assert top["reviewer"] == "fable" and top["reauthor"] == "opus"
+    # owner 2026-11-11: nothing above the top rung is no refusal: the top rung reviews its own rung (fresh session)
+    assert top["reviewer"] == "fable" and top["same_rung"] and "reauthor" not in top
+    ra = core.pick_reviewer("claude-fable-5-1", dict(ON, reviewer={"when_top_unavailable": "reauthor"}), data=LADDER, check=allow_all)
+    assert ra["reviewer"] == "fable" and ra["reauthor"] == "opus" and "same_rung" not in ra
     unknown = core.pick_reviewer("", ON, data=LADDER, check=allow_all)
     assert unknown["reviewer"] == "fable"
     refuse = core.pick_reviewer("", dict(ON, reviewer={"unknown_author": "refuse"}), data=LADDER, check=allow_all)

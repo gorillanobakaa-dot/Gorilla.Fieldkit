@@ -33,6 +33,9 @@ auto_accept:
     timeout: 900                   # seconds
     unknown_author: top            # author model unknown: top = the top rung the spend guard allows reviews;
                                    # refuse = nothing is accepted without a known author
+    when_top_unavailable: same_rung  # no usable rung above the author: same_rung = the author's own rung reviews in a
+                                   # separate fresh session (owner rule 2026-11-11) | reauthor = the next rung down
+                                   # authors again and the author's rung reviews
     max_evidence_chars: 24000      # the question is cut at this length (the reviewer is told it was cut)
   # A deterministic check and the reviewer refusing the same item for opposite reasons (2026-11-11, firefox-160-linux:
   # the check wanted a sentence the hunk adds, the reviewer refused it because upstream dropped it) is settled by the

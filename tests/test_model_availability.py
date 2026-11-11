@@ -66,11 +66,23 @@ def test_the_reviewer_skips_an_unavailable_rung():
     assert pk["reviewer"] == "fable" and "opus unavailable" in pk["why"]
 
 
-def test_author_on_the_top_available_rung_is_re_authored_one_rung_down_never_refused():
+def test_author_on_the_top_available_rung_is_reviewed_by_its_own_rung_never_refused():
     models.mark_unavailable("fable", "limit", time.time() + 600, data=LADDER)
     pk = pick("opus", ON)
-    assert pk["reviewer"] == "opus" and pk["reauthor"] == "sonnet" and "fable unavailable" in pk["why"]
+    assert pk["reviewer"] == "opus" and pk["same_rung"] and "reauthor" not in pk
+    assert "same-rung review" in pk["why"] and "fable unavailable" in pk["why"]
+    seen = []
     rec = core.decide("skip", "s1", "opus", CHECKS, "ok?", pol=ON, pick=pick,
+                      asker=lambda m, p: seen.append(m) or {"yes": True, "why": "ok", "answer": "VERDICT: YES"})
+    assert seen == ["opus"] and rec["accepted"] and rec["same_rung"] and "same-rung" in rec["reviewer_why"]
+
+
+def test_reauthor_is_the_other_setting_for_the_unavailable_top():
+    models.mark_unavailable("fable", "limit", time.time() + 600, data=LADDER)
+    pol = dict(ON, reviewer={"unknown_author": "top", "when_top_unavailable": "reauthor"})
+    pk = pick("opus", pol)
+    assert pk["reviewer"] == "opus" and pk["reauthor"] == "sonnet" and "same_rung" not in pk
+    rec = core.decide("skip", "s1", "opus", CHECKS, "ok?", pol=pol, pick=pick,
                       asker=lambda m, p: pytest.fail("no reviewer is asked: the step is re-authored first"))
     assert rec["reauthor"] == "sonnet" and not rec["accepted"] and not rec.get("wait_owner")
 
