@@ -22,7 +22,7 @@ signatures:
   whole_log: true
   source: "PR 461 tests.yml Linux job, 2026-11-11 14:1x (apt-get exit 100)"
   cause: apt-get on the runner could not download from the Ubuntu mirrors (network or mirror outage).
-  fix: Re-run the failed jobs; tests.yml and release.yml already retry apt with backoff before giving up.
+  fix: Re-run the failed jobs; tests.yml and release.yml install desktop-file-utils from a pinned package in .github/vendor and only fall back to apt.
 
 - id: ci-network-unreachable
   pattern: "Network is unreachable|Connection timed out after \\d+ milliseconds|Failed to connect to \\S+ port \\d+.*(?:Connection refused|Timed out)|The remote server returned an error: \\(50[234]\\)"
