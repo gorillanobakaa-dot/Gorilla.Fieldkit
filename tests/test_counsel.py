@@ -127,14 +127,7 @@ def _fake_contain(monkeypatch, outcomes):
     return run, seen
 
 
-# The launcher wiring (counsel.launch_args in the headless launcher) waits for the owner: HARD LINE 3 guards the
-# launcher's folder and P9 is closed in docs/HARNESS-PLAN.md (owner inbox, 2026-11-11). These two tests run as soon
-# as the launcher calls counsel.launch_args; until then they are skipped, never passed.
-WIRED = "counsel.launch_args" in (ROOT / "fieldkit" / "autopilot" / "run.py").read_text(encoding="utf-8")
-needs_wiring = pytest.mark.skipif(not WIRED, reason="launcher wiring awaits the owner (HARD LINE 3, inbox)")
-
-
-@needs_wiring
+# I10 (2026-11-11): the headless launcher calls counsel.launch_args; these two ran skipped until it did.
 def test_a_worker_launch_carries_the_advisor_and_journals_its_calls(monkeypatch):
     run, seen = _fake_contain(monkeypatch, [(0, ADVISOR_LINE + "\n" + '{"type":"result","result":"ok"}', "")])
     r = run.claude("hi")
@@ -144,7 +137,6 @@ def test_a_worker_launch_carries_the_advisor_and_journals_its_calls(monkeypatch)
     assert row["path"] == "advise" and row["model"] == "opus" and row["calls"] == 1 and row["author"] == "sonnet"
 
 
-@needs_wiring
 def test_a_refused_advisor_flag_is_retried_once_without_it(monkeypatch):
     run, seen = _fake_contain(monkeypatch, [(1, "", "error: unknown option '--advisor'"),
                                             (0, '{"type":"result","result":"ok"}', "")])
@@ -152,6 +144,33 @@ def test_a_refused_advisor_flag_is_retried_once_without_it(monkeypatch):
     assert len(seen) == 2 and "--advisor" in seen[0] and "--advisor" not in seen[1]
     assert r["ok"] and r["advisor"] is None
     assert [x["outcome"] for x in counsel.rows()] == ["rejected", "off"]
+
+
+def test_every_launch_the_lint_allows_carries_the_advisor():
+    """I10: each headless launcher in LAUNCH_OK (but the guard itself) goes through counsel's advisor path."""
+    for rel in LAUNCH_OK:
+        if rel != "fieldkit/lifecycle/models.py":
+            txt = (ROOT / rel).read_text(encoding="utf-8")
+            assert "counsel.launch_args" in txt or "counsel.run_advised" in txt, rel
+
+
+def test_run_advised_adds_the_advisor_retries_once_without_it_and_journals(monkeypatch):
+    monkeypatch.setattr(counsel, "advisor_for", lambda w, data=None, check=None, env=None: {"advisor": "opus", "why": "t"})
+    seen = []
+
+    def run(a):
+        seen.append(list(a))
+        return (1, "", "error: unknown option '--advisor'") if len(seen) == 1 else (0, "fine", "")
+    assert counsel.run_advised(["claude", "-p", "--model", "sonnet"], {}, run) == (0, "fine", "")
+    assert seen == [["claude", "-p", "--advisor", "opus", "--model", "sonnet"], ["claude", "-p", "--model", "sonnet"]]
+    assert [(x["outcome"], x["author"]) for x in counsel.rows()] == [("rejected", "sonnet"), ("off", "sonnet")]
+    seen.clear()
+    assert counsel.run_advised(["claude", "-p", "--model", "sonnet"], {}, lambda a: seen.append(a) or (0, ADVISOR_LINE, ""))[0] == 0
+    assert len(seen) == 1 and counsel.rows()[-1]["outcome"] == "on" and counsel.rows()[-1]["calls"] == 1
+
+
+def test_drop_advisor_removes_both_spellings():
+    assert counsel.drop_advisor(["c", "--advisor", "opus", "--advisor=x", "--model", "s"]) == ["c", "--model", "s"]
 
 
 def test_the_reviewer_never_gets_an_advisor_and_is_journaled():
@@ -183,7 +202,7 @@ def test_one_journal_feeds_per_job_and_the_review(monkeypatch):
 LAUNCH_OK = {
     "fieldkit/lifecycle/models.py": "defines guard_launch",
     "fieldkit/autopilot/run.py": "THE headless worker launcher; it calls counsel.launch_args",
-    "fieldkit/capture/recipes.py": "one cheap-tier naming call (Sonnet, --tools ''): not a stronger model",
+    "fieldkit/capture/recipes.py": "one cheap-tier naming call (Sonnet, --tools ''); it goes through counsel.run_advised",
 }
 RUNG_OK = {
     "fieldkit/lifecycle/counsel.py": "the one place",

@@ -30,3 +30,18 @@
 - file: fieldkit/lifecycle/counsel.py
   swap: ["    if rc == 0:\n        return False", "    if False:\n        return False"]
   why: "a run that ended fine is never re-run without the advisor"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    if advisor and advisor_rejected(rc, out, err):", "    if False:"]
+  why: "I10: every other launcher retries once without a refused --advisor too"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["    argv, advisor, why = launch_args(argv, env)\n", "    advisor, why = None, ''\n"]
+  why: "I10: run_advised really adds the advisor"
+- file: fieldkit/lifecycle/counsel.py
+  swap: ["        elif not str(x).startswith(\"--advisor=\"):", "        else:"]
+  why: "drop_advisor removes --advisor=X too"
+- file: fieldkit/autopilot/run.py
+  swap: ["    args, advisor, adv_why = counsel.launch_args(args, env)", "    advisor, adv_why = None, ''"]
+  why: "I10: the worker launch carries the advisor"
+- file: fieldkit/capture/recipes.py
+  swap: ["    return counsel.run_advised(argv, env, run)[1]", "    return run(argv)[1]"]
+  why: "I10: the naming launch goes through the advisor path"

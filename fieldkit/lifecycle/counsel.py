@@ -153,6 +153,35 @@ def launch_args(argv, env=None, data=None, check=None):
     return argv[:at] + ["--advisor", a["advisor"]] + argv[at:], a["advisor"], a["why"]   # before --model: argv ends as before
 
 
+def drop_advisor(argv):
+    """-> argv without its --advisor flag (the one retry after the CLI refused it)."""
+    out, skip = [], False
+    for x in argv:
+        if skip:
+            skip = False
+        elif x == "--advisor":
+            skip = True
+        elif not str(x).startswith("--advisor="):
+            out.append(x)
+    return out
+
+
+def run_advised(argv, env, run, worker=None):
+    """Any headless claude launch outside the autopilot launcher: add the advisor (launch_args), run it with run(argv)
+    -> (rc, out, err), retry once without the advisor when the CLI refused it, journal the outcome. -> run's result."""
+    argv, advisor, why = launch_args(argv, env)
+    worker = worker or next((argv[i + 1] for i, x in enumerate(argv[:-1]) if x == "--model"), None)
+    rc, out, err = res = run(argv)
+    if advisor and advisor_rejected(rc, out, err):
+        journal("advise", model=advisor, author=worker, outcome="rejected",
+                why=f"the CLI refused --advisor {advisor}: {((err or '') + (out or ''))[-160:]}")
+        why, advisor = f"--advisor {advisor} refused by the CLI; ran without it", None
+        rc, out, err = res = run(drop_advisor(argv))
+    journal("advise", model=advisor or "", author=worker, outcome="on" if advisor else "off", why=why,
+            calls=advisor_calls(out) if advisor else 0)
+    return res
+
+
 def advisor_rejected(rc, out, err):
     """-> True when a run ended at once because the CLI refused the advisor (an old claude without --advisor, a model
     it will not take as an advisor): non-zero exit, no result line, and the word "advisor" in what it said."""
