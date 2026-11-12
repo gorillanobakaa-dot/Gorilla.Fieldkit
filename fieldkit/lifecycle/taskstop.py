@@ -72,7 +72,7 @@ def stop(t, rows=None, kill=os.kill, alive=None, sleep=time.sleep, grace=GRACE_S
     killed = []
     for p in left:
         try:
-            kill(p, signal.SIGKILL)
+            kill(p, getattr(signal, "SIGKILL", signal.SIGTERM))   # Windows has no SIGKILL
             killed.append(p)
         except OSError:
             pass

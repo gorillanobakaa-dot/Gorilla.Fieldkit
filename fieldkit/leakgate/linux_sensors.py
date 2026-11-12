@@ -167,7 +167,7 @@ def build_rows(rows, build_dir):
     return [r for r in rows if r.get("State") != "Z" and (r.get("ExecutablePath") or "").lower().startswith(bd)]
 
 
-def kill_build(build_dir, snapshot=None, sig=signal.SIGKILL):
+def kill_build(build_dir, snapshot=None, sig=getattr(signal, "SIGKILL", signal.SIGTERM)):
     """Signal every live process running from `build_dir` (each scenario and mode has its own copy), by PID. -> pids."""
     pids = [r["ProcessId"] for r in build_rows((snapshot or snapshot_processes)(), build_dir)]
     for pid in pids:
