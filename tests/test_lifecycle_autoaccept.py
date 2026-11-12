@@ -15,9 +15,9 @@ ON = {"enabled": True, "kinds": ["section", "skip"], "reviewer": {"unknown_autho
 @pytest.fixture(autouse=True)
 def _state(tmp_path, monkeypatch):
     monkeypatch.setenv("FIELDKIT_LIFECYCLE_DIR", str(tmp_path / "lc"))
-    # this computer's real mandates are not the test's: a mandate in force here granted the step and the
-    # "not independent" test passed on CI but failed on the VAIO (2026-11-11). Tests that want a grant stub it.
-    monkeypatch.setattr(core, "_mandate_decide", lambda **kw: ("deny", "no mandate in the test", None))
+    # the owner's real mandates on this computer never decide a test (2026-11-11: a mandate in force granted the step
+    # test_the_reviewer_is_never_the_authors_own_model expects to wait, so it failed on every machine with a mandate)
+    monkeypatch.setattr(core, "_mandate_decide", lambda **kw: ("deny", "no mandate in tests", None))
 
 
 def essay_checks(text, words=(80, 400), cites=1):
