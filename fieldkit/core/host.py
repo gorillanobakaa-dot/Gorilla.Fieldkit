@@ -116,3 +116,17 @@ def platform_refusal(name, platforms, why=None):
     return (f"'{name}' runs on {', '.join(platforms)} only{because}; this machine is {this_platform()}. "
             "Nothing was started. NEXT: use a tool made for this system (fieldkit agent discover), or run this one "
             f"on a {' or '.join(platforms)} machine.")
+
+
+def os_row(rows, platforms, name, check):
+    """Append one check row that declares the systems it is for (P9, owner 2026-11-12: "the harness needs to be aware
+    of what operating system is running"). `check` is a callable returning (ok, evidence); it runs only where
+    `platforms` includes this system. Elsewhere the row is `not-this-platform` (Rule 6): ok, never a FAIL, and its
+    evidence says which system it is for. The Linux twin of a Windows row is a second os_row with its own platforms."""
+    if not platform_ok(platforms):
+        rows.append({"check": name, "ok": True, "status": "not-this-platform",
+                     "evidence": f"not-this-platform: a {'/'.join(platforms)} check; this machine is {this_platform()}"})
+        return rows[-1]
+    ok, evidence = check()
+    rows.append({"check": name, "ok": bool(ok), "evidence": evidence})
+    return rows[-1]
