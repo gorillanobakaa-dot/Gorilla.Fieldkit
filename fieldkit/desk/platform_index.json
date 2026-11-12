@@ -2856,6 +2856,17 @@
    "prefix-diff"
   ]
  },
+ "prepare": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "prepare"
+  ]
+ },
  "privacy scan": {
   "platforms": [
    "linux",

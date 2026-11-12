@@ -99,7 +99,7 @@
     "leakgate"
    ],
    "install": {
-    "debian": "sudo apt-get install -y dnsmasq",
+    "debian": "sudo apt-get install -y dnsmasq-base",
     "fedora": "sudo dnf install -y dnsmasq"
    },
    "only": "linux"
@@ -143,8 +143,8 @@
     "leakgate"
    ],
    "install": {
-    "debian": "python3 -m pip install mitmproxy",
-    "fedora": "python3 -m pip install mitmproxy",
+    "debian": "sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install mitmproxy==12.3.1",
+    "fedora": "sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install mitmproxy==12.3.1",
     "windows": "python -m pip install mitmproxy"
    }
   },

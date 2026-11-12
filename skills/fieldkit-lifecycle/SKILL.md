@@ -86,3 +86,5 @@ until it does.
 
 The standing rule block: `fieldkit sessions rule --all` (CLAUDE.md, GEMINI.md, Codex AGENTS.md); check with
 `fieldkit sessions doctor`.
+
+Prepare first, execute second (P9): `fieldkit prepare JOB|BRIEF|RECIPE` runs before every `task start`, `emerge run`, runbook and goal run (wired in): it finds each missing tool in the PATH the tool will run under, sets up what needs no root, and puts everything that needs root into ONE script and ONE ask; the job starts only on READY. A tool missing mid-job: `fieldkit prepare defect TOOL --job J`, then add it to `fieldkit/core/prepare.yaml`.

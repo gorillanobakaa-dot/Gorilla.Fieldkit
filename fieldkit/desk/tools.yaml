@@ -6895,6 +6895,26 @@ tools:
   skill: skills/fieldkit-methods/SKILL.md
   notes: "Owner 2026-10-26: 'update the binaries on both computers ... run it from the same version ... same capabilities ... deterministic checks ... before you start a test, the tests will not be impacted by different sessions that can skew the results'. Measured that day: Windows v0.1.152, VAIO v0.1.151, release v0.1.154; a go.exe of another session pinned a core during a test. Network: align --apply only (gh release view + download of ONE asset and SHA256SUMS from the pinned repo); compare uses the household link (signed, read-only verb `manifest`, outside JOB_VERBS like hello). Never updates in the background, never runs sudo. The run guard (core/preflight.py STEPS) calls preflight_check on every guarded run: WARN for tests and builds, STOP for kinds bench and measure; it sets FIELDKIT_PARITY_MANIFEST and testcost writes the hash into every result row. Mutations: tests/parity_mutations.yaml."
 
+- id: prepare
+  title: "Prepare first, execute second: before a task, emerge run, runbook or goal starts, find every missing tool and dependency from the requirements table (prepare.yaml: binaries, packages, services, privileges, disk, RAM, network hosts, install recipe per OS with a fallback source), look for each in the PATH it will run under (root's secure_path plus the sbin folders), set up what needs no root, batch the rest into one script and one ask, and refuse to start the job until READY"
+  harness: core
+  entry: [python, -m, fieldkit, prepare]
+  path: ${FIELDKIT}/fieldkit/core/prepare.py
+  inputs:
+    - {name: target, flag: target, type: str, required: true, help: "a job id (leakgate), an emerge recipe, a brief file, or defect TOOL | list"}
+    - {name: use_fallback, flag: --use-fallback, type: flag, required: false, help: "the owner chose the fallback of each missing item"}
+    - {name: check, flag: --check, type: flag, required: false, help: "look only: set nothing up"}
+    - {name: job, flag: --job, type: str, required: false, help: "defect: the job a tool was missing in"}
+    - {name: json, flag: --json, type: flag, required: false, help: "JSON"}
+  effects: [reads-files, writes-files, network]
+  safety: reversible
+  output: own
+  exits: {0: "READY (or READY-FALLBACK)", 3: "NOT READY: the one ask is printed, the job does not start"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_prepare.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-11-12 (P9). Not verified on Windows: the table has winget ids but no Windows run yet. Downloads only with a sha256; no network probe. Wired into task start, emerge run, runbook run, goal run (tests/test_prepare.py::test_every_job_start_calls_the_gate)."
+
 - id: parity-os
   title: "Windows-Linux parity audit: every single-system tool card, pipeline, skill, workflow step, hook and module guard as one fixed record (id, kind, present_on, missing_on, status, evidence, action, target, mechanism, effort, proof, order), four lists (Windows-only, Linux-only, different, native-only), docs/PLATFORMS.md regenerated, briefs per batch; reads and reports only"
   harness: core
