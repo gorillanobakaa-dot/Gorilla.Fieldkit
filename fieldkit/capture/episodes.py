@@ -129,15 +129,22 @@ def request_report(state):
 
 
 # ---- stage 0: coverage ------------------------------------------------------------------------------------------
+# a real call, not the tool list a transcript's init line names ("name":"Bash" alone is in every session)
+_WORK_CALL = re.compile(rb'"type":\s*"tool_use",(?:\s*"id":\s*"[^"]*",)?\s*"name":\s*"(?:Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit)"', re.I)
+
+
 def _has_tool_calls(path):
+    """True when the transcript holds a work call the hook would capture (a Read or a Grep is not one)."""
     try:
         with open(path, "rb") as f:
+            tail = b""
             while True:
                 chunk = f.read(1 << 20)
                 if not chunk:
                     return False
-                if b'"tool_use"' in chunk or b'"toolUse"' in chunk:
+                if _WORK_CALL.search(tail + chunk):
                     return True
+                tail = chunk[-64:]
     except OSError:
         return False
 
@@ -156,8 +163,8 @@ def coverage(state, home=None):
             claude["captured"] += 1
         else:
             claude["uncaptured"].append({"session": sid, "file": p.name,
-                                         "reason": "read-only chat: no tool call, nothing to capture" if not _has_tool_calls(p)
-                                         else "GAP: has tool calls, no item captured yet (run the capture scan)"})
+                                         "reason": "no work call (Bash, Write, Edit): nothing to capture" if not _has_tool_calls(p)
+                                         else "GAP: has work calls, no item captured yet (run the capture scan)"})
     out["agents"]["claude"] = claude
     gem = home / ".gemini" / "antigravity" / "conversations"
     pb = sorted(gem.glob("*.pb")) if gem.is_dir() else []
@@ -169,5 +176,29 @@ def coverage(state, home=None):
     found = [p for p in tried if p.is_dir()]
     out["agents"]["opencode"] = {"store": ", ".join(p.name for p in found) or "none found", "on_disk": 0, "captured": 0,
                                  "uncaptured": [], "reason": "" if found else "no session store on this computer"}
-    out["other_machines"] = "not scanned: no peer is reachable (the Linux laptop is shut down)"
+    out["other_machines"] = peer_note()
     return out
+
+
+def peer_note(household=None, connect=None):
+    """The other computers' coverage line, naming each by its machine tag (not a fixed "Linux laptop": on the Linux
+    computer the peer is the Windows one). Reachable or not, its capture is brought over with `fieldkit capture
+    absorb`: the peer runs `capture scan`, sends its state/capture folder (`peers link put`), this side absorbs it."""
+    try:
+        from ..peers import link, machine
+        h = link.household() if household is None else household
+        connect = connect or (lambda n: link.connect_device(n, timeout=3)[0].close())
+        peers = link.others(h) if h else []
+        if not peers:
+            return "not scanned: no other computer is paired"
+        rows = []
+        for d in peers:
+            tag = d.get("tag") or machine.tag_of(d.get("host") or d.get("name"), h) or d.get("name")
+            try:
+                connect(d["name"])
+                rows.append(f"{tag} is reachable: its capture is read there (`fieldkit capture scan` on it), then absorbed here")
+            except Exception as e:                         # noqa: BLE001
+                rows.append(f"{tag} not scanned: not reachable ({str(e)[:60]})")
+        return "other computers: " + "; ".join(rows)
+    except Exception as e:                                 # noqa: BLE001
+        return f"not scanned: no peer information ({type(e).__name__})"

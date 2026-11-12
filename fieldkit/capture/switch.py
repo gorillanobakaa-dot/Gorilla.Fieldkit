@@ -14,6 +14,7 @@ Existing hooks of other tools are never touched; ours are found by the text `cap
 Exit: 0 fine, 1 a settings file could not be changed, 2 bad usage, 3 `state --check` found it on or a hook left.
 """
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -190,6 +191,30 @@ def _run(argv):
         return 1, str(exc)
 
 
+SCAN_EVERY_MIN = 30
+CAPTURE_JOB = {"task": WIN_TASK, "unit": LINUX_TIMER.removesuffix(".timer"), "label": "com.fieldkit.capture-scan",
+               "args": ["-m", "fieldkit", "capture", "scan", "--scheduled"], "every": SCAN_EVERY_MIN,
+               "what": "fieldkit capture scan: journal the work calls of agent transcripts that no hook captured"}
+
+
+def schedule_on(system=None, python=None, root=None, home=None, apply_fn=None):
+    """P26: the periodic `capture scan`, only while capture is on (turn_off removes it, the scan itself does nothing
+    when the switch is off). Same mechanism as the net check and the hog watch: a systemd user timer, a Task Scheduler
+    task, a LaunchAgent (fieldkit/zero/schedule.py). -> "installed" | "ERROR ..."."""
+    if os.environ.get("FIELDKIT_CAPTURE_NO_SCHEDULE"):        # tests that run the real CLI against a temp HOME
+        return "skipped (FIELDKIT_CAPTURE_NO_SCHEDULE)"
+    try:
+        from ..core import settings
+        from ..zero import schedule
+        steps = schedule.plan(platform=system, python=python or python_exe(), root=root or settings.state_root(),
+                              home=home, job=CAPTURE_JOB)
+        if not steps:
+            return "not-this-platform"
+        return "installed" if (apply_fn or (lambda x: schedule.apply(x, say=lambda *_: None)))(steps) == 0 else "ERROR install failed"
+    except Exception as exc:  # noqa: BLE001 - a schedule problem never stops capture from switching on
+        return f"ERROR {type(exc).__name__}: {str(exc)[:100]}"
+
+
 def schedule_off(run=_run, system=None):
     """Disable the periodic scan and the log-on catch-up where they exist. Returns {what: result}."""
     system = system or sys.platform
@@ -224,7 +249,7 @@ def schedule_state(run=_run, system=None):
 
 
 # ---- commands -------------------------------------------------------------------------------------------------------
-def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES):
+def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner=None, cap=MAX_MINUTES, schedule=None):
     """owner/cap: a build-scoped capture (fieldkit.capture.loop) names who switched it on and lasts as long as the run;
     a manual lesson keeps the one-week cap (owner 2026-11-10; was 24 h)."""
     if not (lesson or "").strip():
@@ -238,10 +263,12 @@ def turn_on(lesson, minutes=DEFAULT_MINUTES, home=None, py=None, now=None, owner
         d["owner"] = owner
     _write(d)
     d["hooks_added"] = edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py))
+    if schedule:                                              # the CLI passes schedule_on; tests and the build loop pass none
+        d["schedule"] = schedule()
     return d
 
 
-def extend(minutes=MAX_MINUTES, now=None, home=None, py=None):
+def extend(minutes=MAX_MINUTES, now=None, home=None, py=None, schedule=None):
     """The owner's yes to an extension (`fieldkit capture on --for N` with no --lesson): the same lesson and owner,
     a new end N minutes from now. Only on a switch that is on; hooks are re-added if missing."""
     cur = read()
@@ -255,6 +282,8 @@ def extend(minutes=MAX_MINUTES, now=None, home=None, py=None):
     d["extended"] = t.isoformat(timespec="seconds")
     _write(d)
     d["hooks_added"] = edit_settings(home or Path.home(), lambda s, a: add_hooks(s, a, py))
+    if schedule:
+        d["schedule"] = schedule()
     return d
 
 
@@ -342,16 +371,17 @@ def _errors(res):
 def cmd_on(a):
     try:
         if not a.lesson and read().get("on") and not read().get("legacy"):
-            d = extend(a.minutes)                      # the owner's yes to an extension: same lesson, new end
+            d = extend(a.minutes, schedule=schedule_on)    # the owner's yes to an extension: same lesson, new end
             d["lesson"] = d.get("lesson")
         else:
-            d = turn_on(a.lesson, a.minutes)
+            d = turn_on(a.lesson, a.minutes, schedule=schedule_on)
     except ValueError as exc:
         print(f"capture on: {exc}", file=sys.stderr)
         return 2
-    errs = _errors(d["hooks_added"])
+    errs = _errors(d["hooks_added"]) + _errors({"scan timer": d.get("schedule", "")})
     lines = [f"capture ON until {d['until']} for lesson: {d['lesson']}",
-             "hooks added: " + ", ".join(f"{k} {v}" for k, v in d["hooks_added"].items())] + errs
+             "hooks added: " + ", ".join(f"{k} {v}" for k, v in d["hooks_added"].items()),
+             f"scan timer: {d.get('schedule', 'not installed')} (every {SCAN_EVERY_MIN} min while capture is on)"] + errs
     if d.get("extended"):
         lines[0] = f"capture EXTENDED until {d['until']} for lesson: {d['lesson']}"
     _print(a, d, lines, "new sessions capture; an open session picks the hooks up at its next start. "

@@ -192,6 +192,7 @@ class Store:
         self.cache = self.root / "index.json"
         self.lock = self.root / "journal.lock"
         self.root.mkdir(parents=True, exist_ok=True)
+        self._held = None
 
     # ---- reading -------------------------------------------------------------------------------------------
     def _lines(self, offset=0):
@@ -293,11 +294,27 @@ class Store:
     @contextlib.contextmanager
     def tx(self):
         """Exclusive access: heal a torn tail, load state, let the caller append, refresh the cache."""
+        if self._held is not None:                          # inside batch(): the lock and the state are already ours
+            yield self._held
+            return
         with _locked(self.lock):
             self._heal()
             st = self.state()
             yield st
             self._save_cache(st)
+
+    @contextlib.contextmanager
+    def batch(self):
+        """Many appends under one lock with ONE cache write at the end (a scan of 25,000 calls would otherwise reload and
+        rewrite the whole index per call: seconds each). Entries are still fsync'd one by one; a crash loses none."""
+        with _locked(self.lock):
+            self._heal()
+            self._held = self.state()
+            try:
+                yield self._held
+            finally:
+                st, self._held = self._held, None
+                self._save_cache(st)
 
     def append(self, typ, data):
         with self.tx() as st:
@@ -373,9 +390,10 @@ class Store:
         return (self.blobs / ref["blob"]).read_text(encoding="utf-8", errors="surrogatepass")
 
     # ---- the capture operations --------------------------------------------------------------------------
-    def begin_event(self, payload, agent, origin="hook"):
-        """Step 1 of a hook: the raw payload is on disk (redacted, fsync'd) before anything parses it."""
-        eid = "ev-" + sha(now() + canon(payload) + str(os.getpid()))[:16]
+    def begin_event(self, payload, agent, origin="hook", eid=None):
+        """Step 1 of a hook: the raw payload is on disk (redacted, fsync'd) before anything parses it. eid: a scan names
+        the event after the call it read, so the same call is never journaled twice."""
+        eid = eid or "ev-" + sha(now() + canon(payload) + str(os.getpid()))[:16]
         self.append("event", {"id": eid, "agent": agent, "origin": origin, "payload": self.spill_value(redact(payload))})
         return eid
 

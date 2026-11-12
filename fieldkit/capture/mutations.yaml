@@ -17,7 +17,13 @@
 - {file: fieldkit/capture/episodes.py, swap: ['rows.sort(key=lambda r: (r[0], r[1]))', 'pass'], why: "episode steps are in time order"}
 - {file: fieldkit/capture/episodes.py, swap: ['k not in have or have[k].get("digest") != e["digest"]', 'k not in have'], why: "a grown episode is rewritten"}
 - {file: fieldkit/capture/episodes.py, swap: ['key = req or first_line(d.get("problem")) or NO_REQUEST', 'key = req or NO_REQUEST'], why: "a noisy request does not merge episodes"}
-- {file: fieldkit/capture/episodes.py, swap: ["if b'\"tool_use\"' in chunk or b'\"toolUse\"' in chunk:", 'if False:'], why: "a transcript with tool calls but no item is a GAP"}
+- {file: fieldkit/capture/episodes.py, swap: ['                if _WORK_CALL.search(tail + chunk):', '                if False:'], why: "a transcript with work calls but no item is a GAP"}
+- {file: fieldkit/capture/scan.py, swap: ['            if eid in seen:', '            if False:'], why: "a call already journaled is not journaled again by the next scan"}
+- {file: fieldkit/capture/scan.py, swap: ['if d.get("session") and not str(d.get("origin", "")).startswith("scan")}', 'if d.get("session")}'], why: "a half-scanned session is finished by the next scan"}
+- {file: fieldkit/capture/scan.py, swap: ['WORK = {"bash", "powershell", "write", "edit", "multiedit", "notebookedit"}', 'WORK = {"bash"}'], why: "every work tool the hook captures is scanned too"}
+- {file: fieldkit/capture/episodes.py, swap: ['rows.append(f"{tag} not scanned: not reachable', 'rows.append(f"Linux laptop not scanned: not reachable'], why: "the peer line names the real machine by its tag"}
+- {file: fieldkit/capture/switch.py, swap: ['"args": ["-m", "fieldkit", "capture", "scan", "--scheduled"]', '"args": ["-m", "fieldkit", "capture", "scan"]'], why: "the timer's scan is the quiet one that does nothing while capture is off"}
+- {file: fieldkit/autopilot/run.py, swap: ['return switch.add_hooks(data, "claude", sys.executable) if switch.is_on() else 0', 'return 0'], why: "a headless worker launched while capture is on carries the capture hook itself"}
 - {file: fieldkit/capture/distill.py, swap: ['        if refusal_rule(d.get("errors")):', '        if False:'], why: "a refusal is counted in stage 3, not as a failure pair"}
 - {file: fieldkit/capture/distill.py, swap: ['nxt = next((t for t in steps[i + 1:] if t[1] == "command" and not t[3]), None)', 'nxt = None'], why: "a failure is paired with the next success"}
 - {file: fieldkit/capture/distill.py, swap: ['if len(ok) >= min_pairs and informative:', 'if False:'], why: "two alike pairs make a signature"}

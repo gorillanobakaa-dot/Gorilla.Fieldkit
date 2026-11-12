@@ -79,8 +79,21 @@ def settings(path=None):
                   "PostToolUse": [{"matcher": "*", "hooks": [
                       {"type": "command", "command": hook + " --post", "timeout": 30}]}]},
     }
+    capture_hooks(data)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return path
+
+
+def capture_hooks(data):
+    """P26: while capture is on, the run's own settings carry the capture hooks too. A worker's hooks must not depend on
+    ~/.claude/settings.json being in the state `capture on` left it (a build's `capture off` strips it, a session
+    started in that window never had them: 2026-11-10, sessions in the scan's GAP list). Added only when on; a run
+    started with capture off has none, and the hook itself records nothing once the switch is off. -> hooks added."""
+    try:
+        from ..capture import switch
+        return switch.add_hooks(data, "claude", sys.executable) if switch.is_on() else 0
+    except Exception:  # noqa: BLE001 - capture never stops a job
+        return 0
 
 
 CREDENTIAL_ENV_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR",
