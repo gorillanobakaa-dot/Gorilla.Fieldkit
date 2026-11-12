@@ -193,18 +193,75 @@ def test_a_file_under_state_selects_no_test_whatever_its_suffix():
     assert pl["no_code"] and pl["tests"] == [] and pl["unmapped"] == []
 
 
-def test_over_the_cap_with_no_free_device_every_file_runs_here_never_dropped(repo, monkeypatch, capsys):
-    """2026-11-02: 68 test files covered a commit, the laptop cap (15) held them back, and nothing ran. R15: with no
-    free device the overflow joins this computer's list and testcost says so."""
-    from fieldkit import orchestrate_load
-    monkeypatch.setenv("FIELDKIT_LOCAL_TEST_CAP", "0")
-    monkeypatch.setattr(orchestrate_load, "load_all", lambda *a, **k: [])
+def _hub_repo(repo, n):
+    """n tests that each import fieldkit.a.b (a direct cover), n more that only name it in a string (a fan-out)."""
+    for k in range(n):
+        (repo / "tests" / f"test_d{k:02d}.py").write_text("from fieldkit.a import b\n\ndef test_x():\n    assert b.X\n")
+        (repo / "tests" / f"test_w{k:02d}.py").write_text("def test_x():\n    assert 'lonely.py'\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "tests")
+
+
+def test_a_hub_change_runs_at_most_the_budget_here_and_defers_the_rest(repo, capsys):
+    """I-19: 231-347 test files on a hub change waited 1-3 h in the hook. Now: the direct covers inside the YAML budget
+    run here; every other selected test is listed as deferred to CI, none dropped."""
+    _hub_repo(repo, 60)
     (repo / "fieldkit" / "a" / "b.py").write_text("X = 3\n")
     git(repo, "add", "-A")
     assert testcost.main(["staged", "--repo", str(repo)]) == 0
     cap = capsys.readouterr()
-    assert "tests/test_b.py" in cap.out, cap
-    assert "none is dropped" in cap.err and "CI runs them, not this laptop" not in cap.err, cap
+    local = cap.out.split()
+    assert 0 < len(local) <= 40 and "tests/test_b.py" in local, cap
+    assert all(("test_d" in t or t.endswith("test_b.py")) for t in local)        # direct covers only
+    assert "deferred to CI" in cap.err, cap
+    assert "deferred" in {r["check"] for r in testcost._read("runs.jsonl")}      # journaled
+
+
+def test_the_budget_comes_from_the_yaml_policy(repo, capsys):
+    _hub_repo(repo, 10)
+    (repo / "fieldkit").mkdir(exist_ok=True)
+    (repo / "fieldkit" / "testcost_policy.yaml").write_text("local: {max_files: 4, budget_seconds: 120, est_seconds_per_file: 3}\n")
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 3\n")
+    git(repo, "add", "-A")
+    assert testcost.main(["staged", "--repo", str(repo)]) == 0
+    assert len(capsys.readouterr().out.split()) == 4
+    assert testcost.local_policy(repo)["max_files"] == 4
+    assert testcost.local_policy(repo / "nowhere") == testcost.POLICY_DEFAULT
+
+
+def test_the_time_budget_alone_also_caps_the_list(repo, capsys):
+    _hub_repo(repo, 10)
+    (repo / "fieldkit" / "testcost_policy.yaml").write_text("local: {max_files: 40, budget_seconds: 9, est_seconds_per_file: 3}\n")
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 3\n")
+    git(repo, "add", "-A")
+    testcost.main(["staged", "--repo", str(repo)])
+    assert len(capsys.readouterr().out.split()) == 3
+
+
+def test_a_test_that_passed_on_this_tree_is_skipped_and_the_rest_still_runs(repo, capsys):
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 3\n")
+    git(repo, "add", "-A")
+    key = testcost.tree_key(repo)
+    assert testcost.main(["staged", "--repo", str(repo)]) == 0
+    assert capsys.readouterr().out.split() == ["tests/test_b.py"]
+    testcost.record_files(key, ["tests/test_b.py"])
+    assert testcost.main(["staged", "--repo", str(repo)]) == 0
+    cap = capsys.readouterr()
+    assert cap.out == "" and "already passed on this exact tree" in cap.err, cap
+    (repo / "fieldkit" / "a" / "b.py").write_text("X = 4\n")     # another tree: the pass no longer counts
+    git(repo, "add", "-A")
+    testcost.main(["staged", "--repo", str(repo)])
+    assert capsys.readouterr().out.split() == ["tests/test_b.py"]
+
+
+def test_a_changed_test_file_runs_first_and_a_name_match_is_deferred_not_run(repo, capsys):
+    (repo / "fieldkit" / "lonely.py").write_text("Y = 3\n")          # no test imports it: the name match is not direct
+    (repo / "tests" / "test_named.py").write_text("def test_n():\n    assert 'lonely.py'\n")
+    git(repo, "add", "-A")
+    pl = testcost.plan(repo, paths=testcost.staged_files(repo))
+    assert pl["direct"] == [str(repo / "tests" / "test_named.py")]    # only the staged test itself is direct
+    sel = testcost.select_local(pl, testcost.POLICY_DEFAULT, repo=repo)
+    assert sel["local"] == ["tests/test_named.py"]
 
 
 # ---- every tracked file has covering tests (2026-11-02: 267 unmapped files sent 17 of 38 PR runs to the whole suite)
