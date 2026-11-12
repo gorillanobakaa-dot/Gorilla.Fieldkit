@@ -147,6 +147,26 @@ picks a rung, appears outside counsel. The places that existed before are listed
 it may stay. Zero's orders and delegation (PR 342) only say who does which job. They never pick a stronger model, so
 they are not part of counsel.
 
+## One ask at the start (P9, 2026-11-12)
+
+The owner, 2026-11-11, verbatim: "This was supposed to be asked for at the beginning of the session, and in one command
+approves every thing ... Halfway through, you wake up, oh, actually, I might need this one, but only you can run it
+and hold up the project forever." Mid-job owner commands seen that day: `unblock ... skip`, `unblock final-checks
+retry`, `claude` `/login`, `state/owner/ruleset-allow-local-ci.sh`, a renewal for the Opus rung.
+
+| Part | Where |
+|---|---|
+| Registry of every owner-only action (what, job kinds, read-only pre-check, apply command or the one manual command, `commands` an owner command may contain, fallback) | `fieldkit/lifecycle/onestart.yaml` |
+| Start check: `task start`, `emerge run`, `goal run` pre-check the actions of their kind. Nothing missing: silent, no model. Missing and the owner is here: ONE screen, one owner proof (terminal or desktop dialog), one yes applies every action that has an apply command, each journaled. A no, or no owner: the job starts anyway; asked again no sooner than `ttl_hours` | `fieldkit/lifecycle/onestart.py` (`start_check`), journal `state/lifecycle/onestart.jsonl` |
+| Ask on demand, from any shell | `fieldkit onestart ask [--kind task\|emerge\|goal]`; `fieldkit onestart check` lists what is missing |
+| Mid-job: a missing action is a fallback (the registry's `fallback`), never an owner command. `fieldkit inbox add` inside a job (`FIELDKIT_TASK_ID` / `FIELDKIT_JOB_DIR`) with a registry command is refused, and the gap is recorded so the NEXT start check asks for it up front (an unknown pre-check counts as missing only when a gap is on record) | `onestart.guard_inbox`, called by `inbox.add`; `onestart.gap` |
+| CLI login | registry entry `claude-cli-login` pre-checks `claude auth status` (desktop and CLI logins are separate); a login cannot be typed for the owner, so the screen says so once |
+| Lint | `tests/test_onestart.py`: every `inbox.add(` call site is listed with why, a new one fails CI unless justified or its action is in the registry; every entry point runs the start check. Proof the lint and the check can fail: `tests/onestart_mutations.yaml` (`fieldkit mutate`) |
+| An approval at the owner's own terminal runs its command there | `fieldkit review`: `a` on an inbox item with a command runs it at once (`review.run_approved`), shows the result, journals `state/review-ran.jsonl`. Prose in the command field is not run. Before, the review recorded `a` and the owner ran the script by hand |
+
+Not verified: the passphrase dialog was never shown on a real desktop by this job; a Windows run; the mandate renewal
+and CLI login entries stay owner-typed (a program cannot answer them).
+
 ## The rest of Fieldkit
 
 | Gate | Protects | Now |
