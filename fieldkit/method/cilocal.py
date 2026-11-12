@@ -102,7 +102,13 @@ def load_job(text, os_word):
         if want in oses or runs_on == want:
             name = str(job.get("name") or jid).replace("${{ matrix.os }}", want)
             ctx = name if want in name else f"{name} ({want})" if want in oses else name
-            return ctx, list(job.get("steps") or [])
+            steps = list(job.get("steps") or [])
+            if "shard" in ((job.get("strategy") or {}).get("matrix") or {}):
+                # a local run is one machine: the whole selection, not one shard of it
+                import re
+                steps = [dict(s, run=re.sub(r'\s*--shard\s+"?\$\{\{\s*matrix\.shard\s*\}\}/\d+"?', "", str(s["run"])))
+                         if s.get("run") else s for s in steps]
+            return ctx, steps
     raise Unsupported(f"no job in the workflow runs on {want}")
 
 

@@ -20,6 +20,7 @@ a setup procedure.
 | is my setup right / did I make a mistake | `fieldkit github check [PROFILE]` (read only, exit 3 = findings) |
 | make it so | `fieldkit github apply PROFILE` - the person's terminal only |
 | put it back | `fieldkit github undo SNAPSHOT` or `undo latest` |
+| many PRs wait on a serial merge (each merge makes the rest BEHIND) | `fieldkit ship batch run` (one branch, one CI, one merge; `batch collect` first shows who joins and why not) |
 | a person with no experience | they double-click `launchers/github-setup.cmd` (.sh Linux, .command macOS) |
 
 Rules: a model never runs `apply` or `undo` (they refuse an agent's shell) and never handles a token or password:

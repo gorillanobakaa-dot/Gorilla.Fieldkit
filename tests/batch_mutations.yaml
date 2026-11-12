@@ -1,0 +1,47 @@
+# fieldkit ship batch + shard balancer: every rule must be CAUGHT (2026-11-12):
+#   fieldkit mutate --plan tests/batch_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_batch.py tests/test_shard.py
+- file: fieldkit/method/batch.py
+  swap:
+  - '        if len(common) == 1:'
+  - '        if len(common) >= 1:'
+  why: a failure owned by two members is never pinned on the first of them
+- file: fieldkit/method/batch.py
+  swap:
+  - '        pool = sorted(common or {pr for v in own.values() for pr in v})'
+  - '        pool = sorted(common)'
+  why: failing files with no common owner still bisect among every owner
+- file: fieldkit/method/batch.py
+  swap:
+  - '        pool = pool[len(pool) // 2:] if is_green(half) else half'
+  - '        pool = half if is_green(half) else pool[len(pool) // 2:]'
+  why: a green first half means the culprit is in the second
+- file: fieldkit/method/batch.py
+  swap:
+  - '    if inf:'
+  - '    if False:'
+  why: an infrastructure red re-runs, it never bisects
+- file: fieldkit/method/batch.py
+  swap:
+  - '        if pr.get("isDraft"):'
+  - '        if False:'
+  why: a draft PR is never batched
+- file: fieldkit/method/batch.py
+  swap:
+  - '            if state != "green":'
+  - '            if state == "none":'
+  why: a red PR is sent back to its own fix, never batched
+- file: fieldkit/method/batch.py
+  swap:
+  - '        if len(who) >= 2 and sel.get("overlap_risk", True):'
+  - '        if False:'
+  why: a test two members both cover is the integration risk and runs
+- file: fieldkit/method/shard.py
+  swap:
+  - '        i = min(range(n), key=lambda k: (load[k], k))'
+  - '        i = 0'
+  why: each file goes to the lightest shard
+- file: fieldkit/method/shard.py
+  swap:
+  - '    for t in sorted(tests, key=lambda t: (-weight[t], t)):'
+  - '    for t in sorted(tests, key=lambda t: (weight[t], t)):'
+  why: longest first, or the balance is worse

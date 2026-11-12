@@ -126,7 +126,8 @@ def test_the_pinned_package_matches_its_hash_and_both_workflows_use_it_with_a_ti
     deb, sha = _pinned()
     assert hashlib.sha256(deb.read_bytes()).hexdigest() == sha
     for wf in ("tests.yml", "release.yml"):
-        steps = yaml.safe_load((GH / "workflows" / wf).read_text(encoding="utf-8"))["jobs"]["test"]["steps"]
+        jobs = yaml.safe_load((GH / "workflows" / wf).read_text(encoding="utf-8"))["jobs"]
+        steps = (jobs.get("shard-ubuntu-latest") or jobs["test"])["steps"]   # tests.yml: one job per shard
         step = [s for s in steps if "desktop-file-validate" in s.get("name", "")]
         assert len(step) == 1 and step[0]["run"].strip() == "bash .github/desktop-file-utils.sh", wf
         assert 0 < step[0]["timeout-minutes"] <= 10, wf                         # a hung step never eats an hour
@@ -150,3 +151,14 @@ def test_a_wrong_hash_fails_and_installs_nothing(tmp_path):
                        env={"PATH": "/usr/bin:/bin", "SUDO": str(fake)})
     assert r.returncode == 1 and "WRONG HASH" in r.stdout, r.stdout + r.stderr
     assert not log.exists()                                                     # no dpkg, no apt fallback
+
+
+def test_a_batch_pr_runs_the_selection_in_its_body_and_a_normal_pr_does_not(tmp_path):
+    ev = tmp_path / "e.json"
+    ev.write_text(json.dumps({"pull_request": {"body": 'x\n<!-- fieldkit-batch {"tests": ["tests\\\\a.py", "tests/b.py"]} -->'}}))
+    assert ci.batch_selection(str(ev), "night/batch-20261112-0900") == ["tests/a.py", "tests/b.py"]
+    assert ci.batch_selection(str(ev), "feat/x") is None            # only a batch branch carries a selection
+    ev.write_text(json.dumps({"pull_request": {"body": 'no marker'}}))
+    assert ci.batch_selection(str(ev), "night/batch-1") is None     # no marker: the normal selection
+    ev.write_text(json.dumps({"pull_request": {"body": '<!-- fieldkit-batch {"tests": null} -->'}}))
+    assert ci.batch_selection(str(ev), "night/batch-1") is None     # the tool could not select: normal, never fewer

@@ -9,12 +9,15 @@ on:
     branches: [main]
   workflow_dispatch:
 jobs:
-  test:
+  shard-windows-latest:
+    # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
+    # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
+    name: shard (windows-latest, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+        shard: [1, 2, 3, 4]
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,4 +49,65 @@ jobs:
           else
             base="full"
           fi
-          python .github/ci_tests.py "$base" $merged
+          python .github/ci_tests.py "$base" $merged --shard "${{ matrix.shard }}/4"
+
+  shard-ubuntu-latest:
+    # one job per shard, per OS: the selected test files split by recorded duration (fieldkit/method/shard.py, N =
+    # batch.shards.default in fieldkit/method/batch.yaml). The aggregator `test` below keeps the required status names.
+    name: shard (ubuntu-latest, ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test]"
+      - name: desktop-file-validate for fieldkit install verify (a desktop Linux has it; the runner does not)
+        if: runner.os == 'Linux'
+        # P9 (2026-11-11): Ubuntu's archive DNS was down for hours while pip worked. The package is pinned in
+        # the repo (.github/vendor, sha256 checked; a wrong hash fails); apt only if dpkg cannot install it.
+        timeout-minutes: 8
+        shell: bash
+        run: bash .github/desktop-file-utils.sh
+      - name: every tracked file has covering tests (else CI would run the whole suite for it)
+        run: python -m fieldkit testcost unmapped --all
+      - name: integration check (docs/INTEGRATION.md) - a capability the change adds must be built in
+        if: github.event_name == 'pull_request'
+        run: python -m fieldkit integration check --repo . --changed "origin/${{ github.base_ref }}"
+      - name: the tests covering the change
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            merged="--merged"
+          else
+            base="full"
+          fi
+          python .github/ci_tests.py "$base" $merged --shard "${{ matrix.shard }}/4"
+
+  test:
+    # The required status checks stay `test (windows-latest)` and `test (ubuntu-latest)` (the ruleset is the owner's):
+    # each is green only when EVERY shard of its OS is green. Skipped or cancelled shards are red here.
+    name: test (${{ matrix.os }})
+    needs: [shard-windows-latest, shard-ubuntu-latest]
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: every shard of this OS passed
+        shell: bash
+        run: |
+          result="${{ needs[format('shard-{0}', matrix.os)].result }}"
+          echo "shards of ${{ matrix.os }}: $result"
+          test "$result" = "success"
