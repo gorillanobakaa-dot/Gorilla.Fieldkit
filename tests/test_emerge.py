@@ -777,7 +777,7 @@ def test_a_fix_committed_on_a_detached_build_tree_named_by_the_log_is_accepted(e
     tmp, work = env
     tree = _detached_tree(tmp)
     s = failing_spec(work)
-    s["stages"][0]["run"] = {"cmd": [PY, "-c", f"import sys; print('error in {tree}/moz.build'); "
+    s["stages"][0]["run"] = {"cmd": [PY, "-c", f"import sys; print('error in {tree.as_posix()}/moz.build'); "
                                      f"sys.exit(0 if 'gone' not in open(r'{tree}/moz.build').read() else 1)"]}
     write(work / 'demo.yaml', yaml.safe_dump(s))
     commit_all(work, 'recipe')

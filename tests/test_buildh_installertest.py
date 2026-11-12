@@ -3,6 +3,7 @@ it was; every installed file must match the proved zip, and an installer that ex
 (2026-10-02)."""
 import hashlib
 import json
+import sys
 import zipfile
 from types import SimpleNamespace
 
@@ -181,6 +182,7 @@ def _linux_runner(fake, files, leave=()):
 FILES = {"usr/lib/gorilla-unleashed/gorilla-unleashed": b"bin", "usr/share/applications/gorilla-unleashed.desktop": b"d"}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")
 def test_deb_good_install_and_purge_passes(tmp_path, monkeypatch):
     fake, _ = _deb_setup(tmp_path, monkeypatch, FILES)
     r = it.run_deb("t", say=lambda m: None, runner=_linux_runner(fake, FILES), work=tmp_path / "w")

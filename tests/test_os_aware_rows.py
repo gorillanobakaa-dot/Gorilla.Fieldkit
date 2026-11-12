@@ -7,7 +7,10 @@ signal (.exe, registry, powershell, winreg, dpkg, .deb, systemctl, /proc) is a f
 shrinks (a new row can not be added to it; the test also fails when an entry no longer matches)."""
 import ast
 import re
+import sys
 from pathlib import Path
+
+import pytest
 
 from fieldkit.core import host
 
@@ -68,6 +71,7 @@ def test_os_row_runs_here_and_skips_elsewhere(monkeypatch):
     assert rows[1]["ok"] is False and rows[1]["evidence"] == "bad"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")
 def test_install_verify_on_linux_reads_firefox_not_the_registry_or_exe(tmp_path, monkeypatch):
     from fieldkit.buildh import install as inst
     real = host.host()

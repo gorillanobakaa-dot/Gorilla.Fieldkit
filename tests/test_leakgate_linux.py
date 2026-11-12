@@ -6,6 +6,7 @@ import os
 import socket
 import stat
 import struct
+import sys
 
 import pytest
 
@@ -111,6 +112,7 @@ def test_strace_connect_keeps_destinations_and_loopback_apart_from_the_gates_own
 
 
 # ------------------------------------------------------------------------------------------------------ /proc
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")
 def test_proc_snapshot_has_windows_shaped_rows_and_the_tree_follows_the_build(tmp_path):
     root = tmp_path / "proc"
     root.mkdir()
@@ -129,6 +131,7 @@ def test_proc_snapshot_has_windows_shaped_rows_and_the_tree_follows_the_build(tm
     assert {r["ProcessId"] for r in ls.build_rows(rows, "/work/build-direct")} == {4100, 4101}      # zombie not alive
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")
 def test_after_shutdown_reports_survivors_and_relaunches_but_not_the_dying():
     def row(pid):
         return {"ProcessId": pid, "ParentProcessId": 1, "Name": "firefox", "ExecutablePath": "/b/firefox", "CommandLine": "firefox", "Created": pid}
@@ -150,6 +153,7 @@ def test_ss_keeps_established_connections_with_their_pid():
     assert ("tcp", "TimeWait", "10.77.0.2", "50001", "93.184.216.34", "443", "") in rows
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")
 def test_ss_sockets_flow_through_the_shared_socket_reader(tmp_path):
     rows = ls.parse_ss(SS)
     s = se.Sampler(0, build_dir="/work/build-direct", snap_procs=lambda: [
@@ -264,6 +268,7 @@ def test_tcpdump_satisfies_the_packet_sensor_the_judge_requires():
     assert any("pktmon" in x for x in fail["NETWORK_POLICY"]) and any("pktmon" in x for x in fail["DNS_POLICY"])
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")
 def test_each_linux_reader_is_what_its_policy_waits_for():
     """The policies the first Linux runner failed whatever the browser did: PROCESS, SHUTDOWN, FILESYSTEM, TELEMETRY need
     process-tree / filesystem / necko; with the Linux readers' events they see them, and still fail on a real finding."""
@@ -323,6 +328,7 @@ def _fake_readelf(tmp_path):
     return str(p)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only code: tested on the ubuntu CI job")
 def test_elf_imports_find_network_libraries_and_say_so_when_readelf_is_missing(tmp_path, monkeypatch):
     inst = tmp_path / "build"
     inst.mkdir()
