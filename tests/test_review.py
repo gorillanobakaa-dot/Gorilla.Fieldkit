@@ -7,6 +7,17 @@ from fieldkit.autopilot import inbox
 NOW = 1798000000.0
 
 
+class RAN:
+    """Stands in for subprocess.run: the review runs an approved item's command, a test never does."""
+    calls = []
+
+    @classmethod
+    def record(cls, cmd, **kw):
+        import subprocess
+        cls.calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "done\n", "")
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     from fieldkit.buildh import task
@@ -14,6 +25,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(review, "ROOT", tmp_path)
     monkeypatch.setattr(review, "running_rows", lambda root=None: [])      # never the real task ledger
     monkeypatch.setattr(task, "owner_terminal", lambda: True)
+    monkeypatch.setattr(review, "RUNNER", RAN.record)
+    RAN.calls.clear()
     return tmp_path
 
 
@@ -58,7 +71,7 @@ def test_page_in_three_groups_in_plain_words(env):
     assert text.count("If you approve:") == len(es) and text.count("If you leave it:") == len(es)
     assert "1. Toolbox size?  [#3, plan row P5]" in text
     assert "(no plain explanation was written for this item)" not in text        # 2026-11-10: always plain words
-    assert "It is closed as approved. The review runs nothing" in text
+    assert "It is closed as approved" in text
     assert text.index("fieldkit ship gh-release v1") > text.index("2. Publish v1")
     assert "Plan row: P5 - Gorilla" in text
 
@@ -179,7 +192,7 @@ def test_an_item_without_words_is_explained_from_its_own_fields(env):
          "state": "open"}), encoding="utf-8")
     e = [x for x in review.entries(env) if x["ref"] == "#7"][0]
     assert e["what"] == "Tag v2: CI green on abc"
-    assert "runs nothing" in e["if_approve"] and "fieldkit ship push --tag v2" in e["if_approve"]
+    assert "runs at once" in e["if_approve"] and "fieldkit ship push --tag v2" in e["if_approve"]
     assert e["if_leave"].startswith("It stays open")
 
 
@@ -222,3 +235,28 @@ def test_a_defect_never_reaches_the_review(env):
     assert [e["raw"]["id"] for e in review.entries(env) if e["type"] == "idea"] == ["I-03"]
     assert "Stop kills" not in "\n".join(review.render(review.entries(env), env))
     assert [e["id"] for e in ideas.defects(env)] == ["I-01", "I-02"]
+def test_an_approval_at_the_owners_terminal_runs_its_command_right_there(env):
+    """Owner 2026-11-12: the review recorded 'a' and ran nothing; the owner then had to run the script by hand."""
+    inbox.add("Allow local CI", "ruleset", "bash state/owner/x.sh", kind="hardline")
+    out = []
+    res = review.review(env, ask=_ask("a"), say=out.append, now=NOW)
+    assert RAN.calls == ["bash state/owner/x.sh"]
+    assert any(r.get("ran") == "ran" and r["rc"] == 0 for r in res)
+    assert any("running now: bash state/owner/x.sh" in x for x in out) and any("result: exit 0" in x for x in out)
+    row = (env / "state" / "review-ran.jsonl").read_text(encoding="utf-8")
+    assert "bash state/owner/x.sh" in row and '"rc": 0' in row
+
+
+def test_a_dismissal_and_a_kept_item_run_nothing(env):
+    inbox.add("Allow local CI", "ruleset", "bash state/owner/x.sh", kind="hardline")
+    review.review(env, ask=_ask("f"), say=lambda _x: None, now=NOW)
+    inbox.add("Another", "ruleset", "bash state/owner/y.sh", kind="hardline")
+    review.review(env, ask=_ask("p"), say=lambda _x: None, now=NOW)
+    assert RAN.calls == []
+
+
+def test_prose_in_the_command_field_is_not_run(env):
+    inbox.add("Think", "why", "the owner decides which pack", kind="hardline")
+    out = []
+    review.review(env, ask=_ask("a"), say=out.append, now=NOW)
+    assert RAN.calls == [] and any("not run" in x for x in out)

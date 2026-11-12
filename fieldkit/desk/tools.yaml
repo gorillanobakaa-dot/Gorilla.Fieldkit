@@ -6727,6 +6727,23 @@ tools:
   skill: skills/fieldkit-net/SKILL.md
   notes: "Owner 2026-10-26 (former soldier): 'i will always think in terms of 0 has been established the military way' and 'a 0 protocol for all the comms between you too, like time syn, comms check the whole shebang'; correction the same day: the deputy is the 2IC (second in command), not 'Zero Alpha'. State: state/coordination/NET.yaml, net-stations.json, net-log.jsonl. Channels, no new door: the room hook (Claude Code sessions here, pull), fieldkit peers (Gorilla OpenCode, push), fieldkit peers link (the cable, signed, push + store-and-forward), the AGENTS.md / GEMINI.md rule (Gemini, Antigravity, Codex: pull only). 'network' = only the paired cable peer through the existing link; no NTP, no internet, no telemetry. Scheduled comms check: fieldkit zero schedule --apply (Windows task as the owner / systemd user timer / launchd). Mutations: tests/zero_mutations.yaml, tests/zero_command_mutations.yaml. Set 2 (command.py, claims.py): orders in net-stations.json, net-claims.json read by the tool router's PreToolUse hook (no subprocess, no network, no YAML; measured ~17 ms after Python start); its matcher must include Edit|Write|MultiEdit|NotebookEdit (fieldkit zero doctor prints it; the settings file is the owner's)."
 
+- id: onestart
+  title: "One ask at the start - every owner-only action a long job may need (CLI login, mandate, GitHub ruleset, model rungs, owner_steps door, machine prerequisites) listed in one registry, pre-checked when a job starts (task start, emerge run, goal run), asked ONCE on one screen, one yes applies all; unattended or declined, the job starts anyway and each step takes its fallback; mid-job `inbox add` of a registry command is refused"
+  harness: core
+  entry: [python, -m, fieldkit, onestart]
+  path: ${FIELDKIT}/fieldkit/lifecycle/onestart.py
+  inputs:
+    - {name: action, flag: null, type: str, required: false, choices: [check, ask], help: "LEAVE EMPTY for check (what is missing for this job kind). ask = the one screen, from any shell"}
+    - {name: kind, flag: --kind, type: str, required: false, choices: [task, emerge, goal], help: "the job kind (default task)"}
+  effects: [reads-files, writes-files, processes]
+  safety: reversible
+  output: own
+  exits: {2: "bad usage", 3: "ask: declined, unattended or nothing proven"}
+  platforms: [windows, linux, darwin]
+  test: [python, -m, pytest, -q, "${FIELDKIT}/tests/test_onestart.py"]
+  skill: skills/fieldkit-lifecycle/SKILL.md
+  notes: "Owner 2026-11-11/12 (plan P9): approvals belong at the start of a job, never halfway. Registry fieldkit/lifecycle/onestart.yaml; journal state/lifecycle/onestart.jsonl, gaps onestart-gaps.jsonl. FIELDKIT_ONESTART=off skips (tests). Mutations: tests/onestart_mutations.yaml. `fieldkit review` also runs an approved inbox item's command at the owner's terminal (review.run_approved, journal state/review-ran.jsonl)."
+
 - id: friction
   title: "Friction audit - everything that can wait on a person, on this computer and on every peer over the cable: desktop session cards nobody started, sessions stopped on a question or not in bypass mode, Remote Control pending actions, a link.yaml that would send a peer's job to the inbox, mandate prerequisites not yet sealed (a UAC prompt or an owner yes), [NEEDS YOU] notes, open owner-inbox items; one line each with the fix"
   harness: core

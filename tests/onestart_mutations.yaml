@@ -1,0 +1,32 @@
+# Proof the one-ask start check and its lint can fail (plan P9):
+#   fieldkit mutate --plan tests/onestart_mutations.yaml -- python -m pytest -q -x -p no:cacheprovider tests/test_onestart.py
+- file: fieldkit/lifecycle/onestart.py
+  swap:
+  - '        if not miss:'
+  - '        if miss is None:'
+  why: a start check with nothing missing stays silent (a missing action is always shown)
+- file: fieldkit/lifecycle/onestart.py
+  swap:
+  - '    if not in_job() or os.environ.get("FIELDKIT_ONESTART", "").lower() == "off":'
+  - '    if True:'
+  why: inbox add inside a job is refused for a registry action
+- file: fieldkit/lifecycle/onestart.py
+  swap:
+  - '        if not present:'
+  - '        if False:'
+  why: an unattended start never asks
+- file: fieldkit/lifecycle/onestart.py
+  swap:
+  - '            if not p.get("ok"):'
+  - '            if False:'
+  why: a no from the owner never applies anything
+- file: fieldkit/cli.py
+  swap:
+  - '        it = onestart.guard_inbox('
+  - '        it = None or ('
+  why: the mid-job guard is wired into the inbox add command
+- file: fieldkit/emerge/__init__.py
+  swap:
+  - '        onestart.at_start("emerge", job=a.recipe)'
+  - '        pass'
+  why: emerge run runs the start check
