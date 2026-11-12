@@ -1694,13 +1694,18 @@ def run(a, emit):
         res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
         backups = Path.home() / "Documents" / "Gorilla.Firefox.Backups"
         prev = None
-        for b in sorted(backups.glob("*/manifest.json"), reverse=True):
+        for b in (sorted(backups.glob("*/manifest.json"), reverse=True) if __import__("sys").platform == "win32" else []):   # Windows zip backups only
             m = _js.loads(b.read_text(encoding="utf-8"))
             if m.get("installed", {}).get("version") and m["installed"]["version"] != t["meta"]["upstream"]["version"]:
                 prev = b.parent / m["files"]["install"]["zip"]
                 break
+        from . import installertest as _it
+        try:
+            artifact = _it.gate_artifact(res, t)
+        except RuntimeError as e:
+            raise task.Refused(str(e))
         only = set(a.only.split(",")) if getattr(a, "only", None) else None
-        result, events, st, bi = lg.run(res["artifacts"]["zip"]["file"], owner, t["workdir"], t["meta"]["upstream"],
+        result, events, st, bi = lg.run(artifact, owner, t["workdir"], t["meta"]["upstream"],
                                         workroot, repeat=int(getattr(a, "repeat", None) or 1), quick=not getattr(a, "release", False),
                                         only=only, release=getattr(a, "release", False), previous_zip=prev,
                                         n_minus_1_tree=vf._truth_root(t["meta"].get("harness_root") or "", t["workdir"]), say=say,   # 2026-10-18: no older-upstream stand-in; the owner's release N-1 or a stated "no baseline"
