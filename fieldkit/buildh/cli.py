@@ -1292,7 +1292,8 @@ def run(a, emit):
         # installer-test TASK: the shipped installer installed silently into a temp folder (no shortcuts, no service),
         # checked file by file against the proved zip, uninstalled by its own uninstaller, machine as before (2026-10-19)
         from . import installertest
-        r = installertest.run(tid, say=lambda m: print(m, flush=True))
+        r = installertest.run(tid, say=lambda m: print(m, flush=True),
+                              opts=dict(x.split("=", 1) for x in a.args[1:] if "=" in x))
         print("INSTALLER TEST " + ("OK" if r["ok"] else "NOT OK: " + "; ".join(x["check"] for x in r["rows"] if not x["ok"])))
         return 0 if r["ok"] else 3
     if act == "stops":
@@ -1728,14 +1729,17 @@ def run(a, emit):
         res = _js.loads((task.STATE / tid / "build-result.json").read_text(encoding="utf-8"))
         work = task.STATE / tid / f"capture-{time.strftime('%Y%m%d-%H%M%S')}"
         work.mkdir(parents=True)
-        zp = work / "build.zip"                                   # a copy: a later package step rewrites dist/
-        _sh.copyfile(res["artifacts"]["zip"]["file"], zp)
+        art = res["artifacts"].get("zip") or res["artifacts"].get("deb") or res["artifacts"].get("tarball")
+        if not art:
+            raise task.Refused("capture: build-result.json names no zip, deb or tarball to unpack")
+        zp = work / ("build" + ("".join(Path(art["file"]).suffixes[-2:]) if Path(art["file"]).suffix != ".zip" else ".zip"))
+        _sh.copyfile(art["file"], zp)                              # a copy: a later package step rewrites dist/
         plain = capture.test_copy(zp, work / "browser-plain")
         say = lambda m: print(m, flush=True)
         if getattr(a, "packets_only", False):
-            pk = capture.packet_run(plain / "firefox.exe", work, say=say)
+            pk = capture.packet_run(capture.browser_exe(plain), work, say=say)
             if pk is None:
-                print("not elevated: run this in an administrator PowerShell")
+                print("no packet-capture rights: Windows, an administrator PowerShell; Linux, root or sudo -n")
                 return 3
             (work / "packets.json").write_text(_js.dumps(pk, indent=1), encoding="utf-8")
             for name, r in pk.items():
@@ -1743,7 +1747,7 @@ def run(a, emit):
                 print(f"  [{'ok' if not v and not tr else 'FAIL'}] packets {name}: vendor {sorted(v)} trackers {sorted(tr)} other {sorted(un)[:10]} udp {r['udp'][:6]}")
             task.journal(t, "capture-packets", dir=str(work), scenarios=list(pk))
             return 0
-        rows = capture.rows(tid, zp, plain / "firefox.exe", work, say=say, packets=True)
+        rows = capture.rows(tid, zp, capture.browser_exe(plain), work, say=say, packets=True)
         (work / "capture.json").write_text(_js.dumps(rows, indent=1, default=str), encoding="utf-8")
         for r in rows:
             print(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence'][:400]}")

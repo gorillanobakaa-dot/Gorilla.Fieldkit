@@ -1,7 +1,7 @@
 # Version: 1.0.0 · updated 26-10-19
 """The shipped installer, installed and uninstalled for real, leaving the machine as it was.
 
-    fieldkit build-harness installer-test TASK
+    fieldkit build-harness installer-test TASK [deb=PATH] [remove-existing=1]    (Linux: the .deb, run_deb below)
 
 Born 2026-10-19 (release 158.0 build 2): every install tonight came from the zip; the installer that ships beside it
 had never run. 2026-10-02 had shown why that matters: the NSIS installer, silent, exited 0 having installed nothing.
@@ -120,7 +120,14 @@ def compare(install_dir, expected):
     return missing, different, extra
 
 
-def run(task_id, say=print, runner=subprocess.run, work=None):
+def run(task_id, say=print, runner=subprocess.run, work=None, opts=None):
+    """Windows: the NSIS installer (run_exe). Elsewhere: the .deb (run_deb)."""
+    if sys.platform != "win32":
+        return run_deb(task_id, say=say, runner=runner, work=work, opts=opts)
+    return run_exe(task_id, say=say, runner=runner, work=work)
+
+
+def run_exe(task_id, say=print, runner=subprocess.run, work=None):
     t = task.load(task_id)
     res = json.loads((task.STATE / task_id / "build-result.json").read_text(encoding="utf-8"))
     installer = Path(res["artifacts"]["installer"]["file"])
@@ -182,3 +189,118 @@ def run(task_id, say=print, runner=subprocess.run, work=None):
     ok = all(x["ok"] for x in rows)
     task.journal(t, "installer-test", ok=ok, failed=[x["check"] for x in rows if not x["ok"]])
     return {"ok": ok, "rows": rows}
+
+
+# ---- Linux: the .deb round trip (P9, owner 2026-11-12) ------------------------------------------------------------------
+PKG = "gorilla-unleashed"
+DESKTOP_DIRS = ("/usr/share/applications", "~/.local/share/applications", "~/.config/autostart")
+
+
+def find_deb(res, t=None, opts=None):
+    """-> (path, expected sha256 or None): the .deb build-verify recorded, else the one named by deb=, else the newest
+    gorilla-unleashed_*.deb under the task's work folder."""
+    art = (res.get("artifacts") or {}).get("deb")
+    if art:
+        return Path(art["file"]), art.get("sha256")
+    if opts and opts.get("deb"):
+        return Path(opts["deb"]), None
+    roots = [Path(x) for x in (t or {}).get("workdir", "") and [t["workdir"]] or []]
+    debs = sorted((p for r in roots if r.is_dir() for p in r.rglob(f"{PKG}_*.deb")), key=lambda p: p.stat().st_mtime)
+    return (debs[-1], None) if debs else (None, None)
+
+
+def deb_snapshot(runner=subprocess.run):
+    """-> what a package could leave on a Linux desktop: dpkg's state of the package and every launcher file."""
+    r = runner(["dpkg-query", "-W", "-f=${Status}|${Version}", PKG], capture_output=True, text=True, errors="replace")
+    state, _, version = (r.stdout or "").partition("|") if r.returncode == 0 else ("not-installed", "", "")
+    launchers = sorted(str(p) for d in DESKTOP_DIRS if Path(d).expanduser().is_dir()
+                       for p in Path(d).expanduser().glob("*.desktop"))
+    return {"installed": state.endswith("installed") and "not-installed" not in state, "version": version,
+            "launchers": launchers}
+
+
+def deb_files(deb, runner=subprocess.run):
+    """-> the regular files the .deb installs, as absolute paths (dpkg-deb -c)."""
+    r = runner(["dpkg-deb", "-c", str(deb)], capture_output=True, text=True, errors="replace")
+    out = []
+    for line in (r.stdout or "").splitlines():
+        parts = line.split(None, 5)
+        if len(parts) == 6 and parts[0].startswith("-"):
+            out.append("/" + parts[5].split(" -> ")[0].lstrip("./"))
+    return out
+
+
+def run_deb(task_id, say=print, runner=subprocess.run, work=None, opts=None, find=None, snap=None):
+    """The Linux twin of run(): the .deb installed with sudo -n, every file checked against the package, removed
+    with apt-get purge, and the machine as before. Never removes a package that was already installed (it would take
+    the owner's browser): that is a refusal, not a silent uninstall (pass remove-existing=1 to allow it)."""
+    t = task.load(task_id)
+    res = json.loads((task.STATE / task_id / "build-result.json").read_text(encoding="utf-8"))
+    rows = []
+
+    def row(check, ok, evidence):
+        rows.append({"check": check, "ok": bool(ok), "evidence": evidence})
+        say(f"  [{'ok' if ok else 'FAIL'}] {check}: {evidence}")
+
+    def done():
+        ok = all(x["ok"] for x in rows)
+        task.journal(t, "installer-test", ok=ok, failed=[x["check"] for x in rows if not x["ok"]])
+        return {"ok": ok, "rows": rows}
+
+    deb, want_sha = (find or find_deb)(res, t, opts)
+    if deb is None or not Path(deb).is_file():
+        row("a .deb to test", False, f"no {PKG}_*.deb recorded by build-verify or under the work folder (deb=PATH)")
+        return done()
+    if want_sha:
+        row("the .deb is the one build-verify hashed", _sha(deb) == want_sha, Path(deb).name)
+        if rows[-1]["ok"] is False:
+            return done()
+    sudo = runner(["sudo", "-n", "true"], capture_output=True, text=True, errors="replace").returncode == 0
+    if not sudo:
+        row("sudo -n works (no password asked)", False, f"a person runs: sudo apt-get install -y {deb}")
+        return done()
+    before = (snap or deb_snapshot)(runner)
+    if before["installed"] and not (opts or {}).get("remove-existing"):
+        row("the package is not installed yet", False, f"{PKG} {before['version']} is installed; the test would remove "
+            "it (remove-existing=1 allows that)")
+        return done()
+    files = deb_files(deb, runner)
+    t0 = time.time()
+    r = runner(["sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", "/usr/bin/apt-get", "install", "-y",
+                "--reinstall", "--allow-downgrades", str(deb)], capture_output=True, text=True, errors="replace",
+               timeout=1800)
+    row("apt-get installs the .deb non-interactively", r.returncode == 0, f"exit {r.returncode} in {time.time() - t0:.0f} s")
+    want_ver = runner(["dpkg-deb", "-f", str(deb), "Version"], capture_output=True, text=True).stdout.strip()
+    have = runner(["dpkg-query", "-W", "-f=${Version}", PKG], capture_output=True, text=True).stdout.strip()
+    row("dpkg reports the .deb's version", bool(want_ver) and want_ver == have, f"installed {have or 'nothing'}, .deb {want_ver or '?'}")
+    base = Path(work or tempfile.mkdtemp(prefix="gorilla-debtest-"))
+    base.mkdir(parents=True, exist_ok=True)
+    runner(["dpkg-deb", "-x", str(deb), str(base)], capture_output=True, text=True, errors="replace")
+    missing, different = [], []
+    for f in files:
+        src, dst = base / f.lstrip("/"), Path(f)
+        if not dst.is_file():
+            missing.append(f)
+        elif src.is_file() and _sha(src) != _sha(dst):
+            different.append(f)
+    row("every file of the package is installed, byte-identical", files and not missing and not different,
+        f"{len(files)} expected; missing {len(missing)} {missing[:3]}; different {len(different)} {different[:3]}")
+    main = next((f for f in files if f.endswith(f"/{PKG}/{PKG}")), None)
+    version = t["meta"]["upstream"]["version"]
+    ver = runner([main, "--version"], capture_output=True, text=True, errors="replace", timeout=120).stdout.strip() if main else ""
+    row("the browser's --version says the version", version in ver, ver or "no browser binary in the package")
+    p = runner(["sudo", "-n", "/usr/bin/apt-get", "purge", "-y", PKG], capture_output=True, text=True, errors="replace",
+               timeout=600)
+    row("apt-get purge removes it", p.returncode == 0, f"exit {p.returncode}")
+    left = [f for f in files if Path(f).exists()]
+    row("no file of the package is left", not left, f"left {len(left)} {left[:3]}")
+    after = (snap or deb_snapshot)(runner)
+    new_l = sorted(set(after["launchers"]) - set(before["launchers"]))
+    gone_l = sorted(set(before["launchers"]) - set(after["launchers"]))
+    row("the package state and launchers are as before", not after["installed"] and not new_l and not gone_l,
+        f"installed {after['installed']}; launchers added {new_l[:3]} removed {gone_l[:3]}")
+    if base.exists():                                      # test copies to the recycle bin, never a permanent delete
+        rr = runner([sys.executable, "-m", "fieldkit", "size", "recycle", str(base), "--whole-folder", "--json"],
+                    capture_output=True, text=True, errors="replace", timeout=600)
+        row("the test folder is recycled", rr.returncode == 0, str(base))
+    return done()

@@ -522,9 +522,10 @@
  },
  "build-harness capture": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "firefox.exe copies, pktmon and taskkill; the Linux evidence path is the leak gate's namespace runner",
+  "why": "",
   "ids": [
    "bh-capture"
   ]
@@ -739,9 +740,10 @@
  },
  "build-harness installer-test": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "the NSIS .exe installer exists only for the Windows release; the Linux release ships a tarball, .deb and .rpm with their own install checks",
+  "why": "",
   "ids": [
    "installer-test"
   ]
@@ -957,9 +959,10 @@
  },
  "build-harness night-pack": {
   "platforms": [
+   "linux",
    "windows"
   ],
-  "why": "the scheduler half uses Windows Task Scheduler; a Linux port would use a systemd timer",
+  "why": "",
   "ids": [
    "night-pack"
   ]
@@ -2546,6 +2549,17 @@
   "why": "",
   "ids": [
    "parity-installed"
+  ]
+ },
+ "parity os": {
+  "platforms": [
+   "darwin",
+   "linux",
+   "windows"
+  ],
+  "why": "",
+  "ids": [
+   "parity-os"
   ]
  },
  "peers link": {
