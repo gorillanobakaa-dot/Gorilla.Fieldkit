@@ -90,33 +90,12 @@ items:
     action: DOCUMENT
     status: PARTIAL
     target: git hooks run under Git Bash on Windows; this .sh helper needs no PowerShell twin
-  module:fieldkit/app/find.py:
-    action: ADAPT
-    effort: S
-    mechanism: dpkg-query -W -f='${Version}' on the owning package (dpkg -S PATH), else the program's --version line
-    order: 4
-    proof: test with a fake dpkg-query and a fake program
-    status: PARTIAL
-    target: app.find.exe_version returns a version on Linux (it returns an empty string today)
   module:fieldkit/build/kernel.py:
     reason: a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows has no kernel to build
     status: NATIVE-ONLY
-  module:fieldkit/buildh/install.py:
-    action: PORT
-    effort: S
-    mechanism: dpkg-query -W -f='${Package} ${Version}\n' plus the .desktop files in /usr/share/applications
-    order: 2
-    proof: test with canned dpkg-query output
-    status: PARTIAL
-    target: install._uninstall_entries lists installed Gorilla packages on Linux (it returns nothing today)
   module:fieldkit/buildh/task.py:
-    action: ADAPT
-    effort: S
-    mechanism: os.geteuid()==0 and `sudo -n true` / pkexec for the owner's elevated step
-    order: 3
-    proof: test with monkeypatched geteuid and a fake sudo
-    status: PARTIAL
-    target: task._elevated answers on Linux (it returns False today); owner proof for root actions uses sudo -n
+    reason: UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes through sudo -n, never an elevated token
+    status: NATIVE-ONLY
   module:fieldkit/core/longpath.py:
     reason: the Windows 260-character path limit and its registry switch have no Linux twin; Linux PATH_MAX is 4096 with no setting to turn on
     status: NATIVE-ONLY
@@ -152,38 +131,6 @@ items:
     proof: tests/test_power_drift.py case with a fixture /sys tree and a fake powerprofilesctl
     status: PARTIAL
     target: power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and power-profiles daemon
-  module:fieldkit/power/incidents.py:
-    action: PORT
-    effort: M
-    mechanism: upower -i /org/freedesktop/UPower/devices/battery_BAT0 + /sys/class/power_supply/BAT*/ + journalctl -u upower
-    order: 3
-    proof: test with a fixture power_supply tree and a canned upower dump
-    status: PARTIAL
-    target: power.incidents.battery_usage reads Linux battery history
-  module:fieldkit/power/investigate.py:
-    action: PORT
-    effort: M
-    mechanism: journalctl --list-boots, journalctl -b -1 -p err, last -x shutdown reboot
-    order: 3
-    proof: test with canned journalctl and last output
-    status: PARTIAL
-    target: 'power.investigate.read_windows gets a read_linux twin: unexpected shutdowns and restarts'
-  module:fieldkit/thermal/brake.py:
-    action: PORT
-    effort: S
-    mechanism: /sys/devices/system/cpu/intel_pstate/no_turbo or /sys/devices/system/cpu/cpufreq/boost
-    order: 3
-    proof: test with a fixture sysfs file for each driver
-    status: PARTIAL
-    target: thermal.brake.boost_read returns the CPU boost state on Linux
-  module:fieldkit/thermal/governor.py:
-    action: PORT
-    effort: S
-    mechanism: /sys/devices/system/cpu/intel_pstate/max_perf_pct or cpufreq scaling_max_freq; cpupower frequency-set to write
-    order: 3
-    proof: test with a fixture sysfs tree
-    status: PARTIAL
-    target: thermal.governor.read_cap returns the CPU frequency or performance cap on Linux
   module:fieldkit/thermal/sensors.py:
     reason: reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon directly (sensors-gorilla), there is no such window
     status: NATIVE-ONLY

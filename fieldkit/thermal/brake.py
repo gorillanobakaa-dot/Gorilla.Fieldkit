@@ -67,8 +67,21 @@ def _powercfg(*args):
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
+def _linux_boost(root="/sys/devices/system/cpu"):
+    """intel_pstate/no_turbo (1 = turbo off) or cpufreq/boost (1 = boost on) -> 1 / 0 / None. Read only."""
+    for rel, inverted in (("intel_pstate/no_turbo", True), ("cpufreq/boost", False)):
+        try:
+            v = int((Path(root) / rel).read_text().strip())
+        except (OSError, ValueError):
+            continue
+        return int(not v) if inverted else v
+    return None
+
+
 def boost_read():
-    """The AC boost mode index (0 off, 1 on, 2 aggressive, ...) or None."""
+    """The AC boost mode index (0 off, 1 on, 2 aggressive, ...) or None. Linux: 1 when turbo is on, 0 when off."""
+    if sys.platform.startswith("linux"):
+        return _linux_boost()
     if sys.platform != "win32":
         return None
     rc, out = _powercfg("/qh", "scheme_current", "sub_processor", "PERFBOOSTMODE")

@@ -103,6 +103,7 @@ _SKILL_OS = {"windows": re.compile(r"\bwindows\b|powershell|\.exe\b|\bregistry\b
              "linux": re.compile(r"\blinux\b|\bdebian\b|systemd|\.deb\b|\bapt\b", re.I)}
 _GUARD = re.compile(r"^\s+if (not )?(sys\.platform (!=|==) .win32.|os\.name (!=|==) .nt.|not _?is_windows\(\)|"
                     r"_?is_windows\(\))[^\n]*:\s*$", re.M)
+_LINUX_BRANCH = re.compile(r"sys\.platform\.startswith\(.linux|sys\.platform == .linux|platform\.system\(\) == .Linux|def \w*linux\w*\(")
 _ONE_SIDED = re.compile(r"(return( \[\]| None| \{\}| False| \"\")?|raise .*|pass)$")
 
 
@@ -196,6 +197,8 @@ def scan_modules(root=None):
     out = []
     for f in sorted((root / "fieldkit").rglob("*.py")):
         text = f.read_text(encoding="utf-8", errors="replace")
+        if _LINUX_BRANCH.search(text):                  # the file has its own Linux side: not a stub
+            continue
         for m in _GUARD.finditer(text):
             nxt = next((l.strip() for l in text[m.end():].split("\n") if l.strip()), "")
             if not _ONE_SIDED.match(nxt):

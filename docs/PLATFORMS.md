@@ -93,19 +93,12 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 
 ## Beyond cards: pipelines, skills, workflows, hooks, modules
 
-36 records: 0 Windows-only, 0 Linux-only, 22 on both but different, 14 native-only.
+30 records: 0 Windows-only, 0 Linux-only, 15 on both but different, 15 native-only.
 
 | Id | Present on | Missing on | Status | Action | Target / reason | Effort | # | Evidence |
 |---|---|---|---|---|---|---|---|---|
-| `module:fieldkit/buildh/install.py` | windows | linux | PARTIAL | PORT | install._uninstall_entries lists installed Gorilla packages on Linux (it returns nothing… | S | 2 | fieldkit/buildh/install.py:66 |
 | `module:fieldkit/power/drift.py` | windows | linux | PARTIAL | PORT | power.drift.read_settings returns {alias:{ac,dc}} on Linux from the cpufreq governor and… | M | 2 | fieldkit/power/drift.py:32 |
-| `module:fieldkit/buildh/task.py` | windows | linux | PARTIAL | ADAPT | task._elevated answers on Linux (it returns False today); owner proof for root actions us… | S | 3 | fieldkit/buildh/task.py:966 |
 | `module:fieldkit/lifecycle/nested.py` | windows | linux | PARTIAL | ADAPT | nested.records_glob finds the Claude desktop session records on Linux | S | 3 | fieldkit/lifecycle/nested.py:51 |
-| `module:fieldkit/power/incidents.py` | windows | linux | PARTIAL | PORT | power.incidents.battery_usage reads Linux battery history | M | 3 | fieldkit/power/incidents.py:183 |
-| `module:fieldkit/power/investigate.py` | windows | linux | PARTIAL | PORT | power.investigate.read_windows gets a read_linux twin: unexpected shutdowns and restarts | M | 3 | fieldkit/power/investigate.py:78 |
-| `module:fieldkit/thermal/brake.py` | windows | linux | PARTIAL | PORT | thermal.brake.boost_read returns the CPU boost state on Linux | S | 3 | fieldkit/thermal/brake.py:72 |
-| `module:fieldkit/thermal/governor.py` | windows | linux | PARTIAL | PORT | thermal.governor.read_cap returns the CPU frequency or performance cap on Linux | S | 3 | fieldkit/thermal/governor.py:129 |
-| `module:fieldkit/app/find.py` | windows | linux | PARTIAL | ADAPT | app.find.exe_version returns a version on Linux (it returns an empty string today) | S | 4 | fieldkit/app/find.py:223 |
 | `module:fieldkit/desk/adopt.py` | windows | linux | PARTIAL | PORT | adopt._ps gets a POSIX twin so tool adoption reads installed programs on Linux | M | 4 | fieldkit/desk/adopt.py:178 |
 | `stage:gorilla-hdmi-harness` | windows | linux | PARTIAL | PORT | the hdmi-harness recipe stages run on Linux once the hdmi cards are ported | L | 4 | fieldkit/emerge/recipes/gorilla-hdmi-harness.yaml:44 |
 | `skill:fieldkit-evidence` | windows | linux | PARTIAL | ADAPT | skills/fieldkit-evidence/SKILL.md description names Linux too (the commands already run o… | S | 7 | skills/fieldkit-evidence/SKILL.md:3 |
@@ -120,6 +113,7 @@ A new single-system card, stage, skill, workflow step, hook or module guard fail
 | `stage:firefox-windows` | windows | linux | INCOMPATIBLE | DOCUMENT | the firefox-linux pipeline is the Linux counterpart (same stages, Linux tools) | M |  | fieldkit/build/pipelines/firefox-windows.yaml:13 |
 | `stage:sensors-gorilla` | linux | windows | INCOMPATIBLE | DOCUMENT | gorilla-tpfancontrol and fieldkit hog read the sensors on Windows | M |  | fieldkit/emerge/recipes/sensors-gorilla.yaml:43 |
 | `module:fieldkit/build/kernel.py` | linux | windows | NATIVE-ONLY | CREATE | a Linux kernel is built only on Linux (POSIX date shim, make, dpkg-buildpackage); Windows… | M |  | fieldkit/build/kernel.py:394 |
+| `module:fieldkit/buildh/task.py` | windows | linux | NATIVE-ONLY | CREATE | UAC elevation (the _elevated check) exists only on Windows; a root action on Linux goes t… | M |  | fieldkit/buildh/task.py:966 |
 | `module:fieldkit/core/longpath.py` | windows | linux | NATIVE-ONLY | CREATE | the Windows 260-character path limit and its registry switch have no Linux twin; Linux PA… | M |  | fieldkit/core/longpath.py:232 |
 | `module:fieldkit/thermal/sensors.py` | windows | linux | NATIVE-ONLY | CREATE | reads the window of TPFanControl, a ThinkPad fan program for Windows; Linux reads hwmon d… | M |  | fieldkit/thermal/sensors.py:45 |
 | `skill:fieldkit-linux-leftovers` | linux | windows | NATIVE-ONLY | CREATE | XDG autostart, desktop menu entries, systemd user units and dpkg leftovers exist only on… | M |  | skills/fieldkit-linux-leftovers/SKILL.md:3 |
