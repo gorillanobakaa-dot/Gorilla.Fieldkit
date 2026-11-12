@@ -1195,9 +1195,14 @@ def cmd_inbox(a):
         if len(a.rest) < 2:
             print("inbox add TITLE WHY [COMMAND]")
             return 2
-        it = inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", kind=a.kind, plan=a.plan or "",
-                       what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or "")
+        from .lifecycle import onestart
+        it = onestart.guard_inbox(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "") or \
+            inbox.add(a.rest[0], a.rest[1], a.rest[2] if len(a.rest) > 2 else "", kind=a.kind, plan=a.plan or "",
+                      what=a.what or "", if_approve=a.if_approve or "", if_leave=a.if_leave or "")
         print(json.dumps(it, indent=1, ensure_ascii=False))
+        if it.get("routed") == "refused":
+            print("REFUSED: " + it["why"])
+            return 3
         if it.get("routed") == "ledger":
             print("NOT an owner item: routed to the agent ledger (only --kind hardline reaches the owner; owner, "
                   "2026-11-01: zero owner steps). Decide it yourself inside the rules and carry on.")
@@ -1409,6 +1414,9 @@ def cmd_goal(a):
         ps, xml = goal.supervisor_script(out)
         print(f"written: {ps} and {xml}\n  the owner runs it once: powershell -NoProfile -ExecutionPolicy Bypass -File \"{ps}\"")
         return 0
+    if a.action == "run":
+        from .lifecycle import onestart
+        onestart.at_start("goal", job=x[0] if x else "")
     return goal.supervise(x or None, once=a.once)
 
 
@@ -1808,6 +1816,9 @@ def build_parser():
                                     "the fix (fieldkit/lifecycle)"),
                        ("route", "solo or multiplayer and the model router: choose mode + strongest model once a day, "
                                  "jobs go to the cheapest model their risk needs (fieldkit/lifecycle/routing.py)"),
+                       ("onestart", "the one ask at the start: every owner-only action a job may need, checked and "
+                                    "approved once before it begins (onestart check|ask --kind K; "
+                                    "fieldkit/lifecycle/onestart.py)"),
                        ("models", "the cost guard's ledger: expensive model starts and refusals per device and day "
                                   "(models report); models gguf FILE|URL: dense or MoE, active parameters and the expected "
                                   "tokens/s on this machine before a local model is loaded; models tune MODEL [--apply]: "
@@ -3174,6 +3185,9 @@ def main(argv=None):
     if args[:1] in (["friction"], ["task"], ["sessions"], ["board"]):   # zero friction; every session's Board row
         from . import lifecycle
         return lifecycle.main(args if args[0] != "sessions" else args[1:])
+    if args[:1] == ["onestart"]:                      # one ask at the start (P9)
+        from .lifecycle import onestart
+        return onestart.main(args[1:])
     if args[:1] == ["emerge"]:                        # compile jobs like Portage (fieldkit/emerge)
         from . import emerge
         return emerge.main(args[1:])

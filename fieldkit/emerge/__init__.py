@@ -100,6 +100,8 @@ def main(argv=None):
         print(json.dumps(pl, indent=1, default=str) if a.json else "\n".join(plan_lines(pl)))
         return 2 if pl["preflight_status"] == "stop" else 0
     if a.action == "run":
+        from ..lifecycle import onestart
+        onestart.at_start("emerge", job=a.recipe)
         e = Emerge(r, mode=a.mode, allow_fix=not a.no_fix, local_only=a.local, guard=not a.no_guard, hold=True,
                    say=lambda m: print(m, flush=True))
         rep = e.run(only=a.only or None)
