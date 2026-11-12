@@ -27,6 +27,9 @@ import zipfile
 from pathlib import Path
 
 from . import task
+from ..core import host
+
+LINUX = ("linux",)                  # the .deb round trip is a Debian/Linux check (P9 os_row)
 
 INI = """[Install]
 InstallDirectoryPath={dir}
@@ -247,12 +250,16 @@ def run_deb(task_id, say=print, runner=subprocess.run, work=None, opts=None, fin
         task.journal(t, "installer-test", ok=ok, failed=[x["check"] for x in rows if not x["ok"]])
         return {"ok": ok, "rows": rows}
 
+    def said(r):                       # an os_row result printed like row() prints
+        say(f"  [{'ok' if r['ok'] else 'FAIL'}] {r['check']}: {r['evidence']}")
+        return r
+
     deb, want_sha = (find or find_deb)(res, t, opts)
     if deb is None or not Path(deb).is_file():
-        row("a .deb to test", False, f"no {PKG}_*.deb recorded by build-verify or under the work folder (deb=PATH)")
+        said(host.os_row(rows, LINUX, "a .deb to test", lambda: (False, f"no {PKG}_*.deb recorded by build-verify or under the work folder (deb=PATH)")))
         return done()
     if want_sha:
-        row("the .deb is the one build-verify hashed", _sha(deb) == want_sha, Path(deb).name)
+        said(host.os_row(rows, LINUX, "the .deb is the one build-verify hashed", lambda: (_sha(deb) == want_sha, Path(deb).name)))
         if rows[-1]["ok"] is False:
             return done()
     sudo = runner(["sudo", "-n", "true"], capture_output=True, text=True, errors="replace").returncode == 0
@@ -269,10 +276,10 @@ def run_deb(task_id, say=print, runner=subprocess.run, work=None, opts=None, fin
     r = runner(["sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", "/usr/bin/apt-get", "install", "-y",
                 "--reinstall", "--allow-downgrades", str(deb)], capture_output=True, text=True, errors="replace",
                timeout=1800)
-    row("apt-get installs the .deb non-interactively", r.returncode == 0, f"exit {r.returncode} in {time.time() - t0:.0f} s")
+    said(host.os_row(rows, LINUX, "apt-get installs the .deb non-interactively", lambda: (r.returncode == 0, f"exit {r.returncode} in {time.time() - t0:.0f} s")))
     want_ver = runner(["dpkg-deb", "-f", str(deb), "Version"], capture_output=True, text=True).stdout.strip()
     have = runner(["dpkg-query", "-W", "-f=${Version}", PKG], capture_output=True, text=True).stdout.strip()
-    row("dpkg reports the .deb's version", bool(want_ver) and want_ver == have, f"installed {have or 'nothing'}, .deb {want_ver or '?'}")
+    said(host.os_row(rows, LINUX, "dpkg reports the .deb's version", lambda: (bool(want_ver) and want_ver == have, f"installed {have or 'nothing'}, .deb {want_ver or '?'}")))
     base = Path(work or tempfile.mkdtemp(prefix="gorilla-debtest-"))
     base.mkdir(parents=True, exist_ok=True)
     runner(["dpkg-deb", "-x", str(deb), str(base)], capture_output=True, text=True, errors="replace")

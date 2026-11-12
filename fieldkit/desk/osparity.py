@@ -407,6 +407,10 @@ def markdown(inv, recs=None):
                      f"{r['action']} | {_cell(r['target'] or r['mechanism'], 90)} | {r['effort']} | {r['order'] or ''} | "
                      f"{r['evidence']} |")
     lines.append("")
+    # one doc, two generators joined (batch 2026-11-12): crossos (PR 468) owns how each single-system command is
+    # routed; its test looks for its table inside this doc, so the parity doc carries it as its last section
+    from ..core import crossos
+    lines += ["## How each single-system command is routed (core/crossos.py)", "", crossos.markdown(crossos.table())]
     return "\n".join(lines)
 
 

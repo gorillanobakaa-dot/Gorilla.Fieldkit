@@ -8,6 +8,17 @@ from types import SimpleNamespace
 
 from fieldkit.buildh import installertest as it, task
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _the_deb_rows_run_here(request, monkeypatch):
+    # the .deb round trip rows are Linux rows (host.os_row); these tests fake a Linux runner, so on the Windows CI
+    # they must run as on Linux, not report not-this-platform
+    if "deb" in request.node.name:
+        from fieldkit.core import host
+        monkeypatch.setattr(host, "platform_ok", lambda platforms: True)
+
 
 def _setup(tmp_path, monkeypatch):
     zp = tmp_path / "pkg.zip"
